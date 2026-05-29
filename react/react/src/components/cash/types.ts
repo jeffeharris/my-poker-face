@@ -99,7 +99,15 @@ export type SponsorOffer =
 
 /** Response from GET /api/cash/sponsor-offers. */
 export type SponsorOffersResponse =
-  | { eligible: true; stake_label: StakeLabel; offers: SponsorOffer[] }
+  | {
+      eligible: true;
+      stake_label: StakeLabel;
+      offers: SponsorOffer[];
+      /** Player-prestige hook 2: true when the player is too reviled
+       *  (room-level regard too low) for any named-AI backing — only house
+       *  offers show. The modal explains why. Absent ⇒ false. */
+      backing_restricted?: boolean;
+    }
   | { eligible: false; reason: string; bankroll: number; this_min_buy_in: number };
 
 /** Payload of the `cash_bust` / `cash_rebuy_needed` SocketIO events. */

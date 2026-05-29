@@ -295,6 +295,19 @@ TIER_RELATIONSHIP_FLOORS = {
 # itself is `outstanding_carry / new_principal`, clamped to this.
 GARNISHMENT_RATE_CAP = 0.20
 
+# Player-prestige hook 2 (backing economy). When the human borrower's
+# room-level REGARD (the beloved↔reviled reputation axis, ∈[-1,1]; see
+# cash_mode/prestige.py) is at or below this floor, the named-personality
+# sponsor pool CLOSES — "nobody stakes a villain." The caller's house /
+# anonymous-archetype fallback still extends offers, so this is the
+# self-funded *hard mode*, not a dead end (a reviled player can always
+# re-enter on the impersonal house book, just without warm personality
+# backing). Set deeper than the prestige warm/hostile line (0.05) so only a
+# genuinely reviled player loses the pool, not anyone slightly under neutral.
+# Only ever applied to the HUMAN borrower: AI-borrower callers leave
+# `human_regard=None`, which is a no-op.
+VILLAIN_REGARD_FLOOR = -0.35
+
 
 def _adjusted_terms(
     profile: StakerProfile,
@@ -398,6 +411,7 @@ def compute_personality_offers(
     stake_label: Optional[str] = None,
     borrower_kind: str = BORROWER_KIND_HUMAN,
     rejections_out: Optional[List[LenderRejection]] = None,
+    human_regard: Optional[float] = None,
 ) -> List[PersonalitySponsorOffer]:
     """Generate up to `count` AI-personality sponsor offers.
 
@@ -448,9 +462,21 @@ def compute_personality_offers(
 
     `now` defaults to `datetime.utcnow()`; explicit `now` lets tests
     pin the projection point for stable results.
+
+    `human_regard` (player-prestige hook 2): the human borrower's
+    room-level regard ∈ [-1, 1]. When supplied and at or below
+    `VILLAIN_REGARD_FLOOR`, the named-personality pool closes entirely
+    (returns []) — "nobody stakes a villain." The caller's house fallback
+    still extends offers, so this is the self-funded hard mode, not a dead
+    end. Default None = no gate (AI-borrower callers, legacy callers, tests).
     """
     if now is None:
         now = datetime.utcnow()
+
+    # Player-prestige hook 2: a reviled human can't get named-AI backing.
+    # Short-circuit before any per-candidate work — the whole pool is closed.
+    if human_regard is not None and human_regard <= VILLAIN_REGARD_FLOOR:
+        return []
 
     # Phase 2: resolve the borrower's tier if the caller supplied the
     # bits we need. Tier knobs are no-op (premium-equivalent) when

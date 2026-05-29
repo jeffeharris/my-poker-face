@@ -34,6 +34,7 @@ from cash_mode.bankroll import (
     project_bankroll,
 )
 from cash_mode.sponsor_offers import (
+    VILLAIN_REGARD_FLOOR,
     LenderRejection,
     PersonalitySponsorOffer,
     compute_offers_for_table,
@@ -1505,6 +1506,12 @@ def sponsor_offers_for_stake():
     # fail eligibility / tier gates so the modal can render a "they
     # won't back you" section. Resolved once here so the same list is
     # surfaced regardless of which candidate pool produced the offers.
+    # Player-prestige hook 2: a reviled player loses the named-personality
+    # backing pool ("nobody stakes a villain"); the house fallback below still
+    # gives them a path (self-funded hard mode).
+    human_regard = _resolve_human_regard(sandbox_id, owner_id)
+    backing_restricted = human_regard is not None and human_regard <= VILLAIN_REGARD_FLOOR
+
     rejections: List[LenderRejection] = []
     personality_offers = compute_personality_offers(
         player_owner_id=owner_id,
@@ -1518,12 +1525,20 @@ def sponsor_offers_for_stake():
         stake_label=stake_label,
         count=3,
         rejections_out=rejections,
+        human_regard=human_regard,
     )
 
     # Lobby v1.5 fallback: if the narrowed-to-table pool produced zero
     # qualifying offers, retry with the broader pool. House archetypes
-    # are still the final fallback when even that returns nothing.
-    if table_id and not personality_offers and candidates is not broad_candidates:
+    # are still the final fallback when even that returns nothing. (Skipped
+    # when backing is reputation-restricted — the broader pool is closed too,
+    # so a retry would just be wasted work.)
+    if (
+        table_id
+        and not personality_offers
+        and not backing_restricted
+        and candidates is not broad_candidates
+    ):
         rejections = []  # reset — broader pool will produce its own
         personality_offers = compute_personality_offers(
             player_owner_id=owner_id,
@@ -1537,6 +1552,7 @@ def sponsor_offers_for_stake():
             stake_label=stake_label,
             count=3,
             rejections_out=rejections,
+            human_regard=human_regard,
         )
 
     # Resolve the borrower's tier so the response (Commit 3 frontend)
@@ -1603,6 +1619,10 @@ def sponsor_offers_for_stake():
                 }
                 for r in rejections
             ],
+            # Player-prestige hook 2: true when the player is too reviled for
+            # named-AI backing — the modal can explain why only house offers
+            # show ("your reputation precedes you").
+            "backing_restricted": backing_restricted,
         }
     )
 
@@ -1655,6 +1675,7 @@ def _materialize_personality_offer(
     relationship_repo,
     stake_repo=None,
     stake_label: Optional[str] = None,
+    human_regard: Optional[float] = None,
 ) -> Optional[PersonalitySponsorOffer]:
     """Server-side: re-derive a personality offer fresh for sponsor-and-sit.
 
@@ -1694,6 +1715,7 @@ def _materialize_personality_offer(
         stake_repo=stake_repo,
         stake_label=stake_label,
         count=1,
+        human_regard=human_regard,
     )
     return offers[0] if offers else None
 
@@ -1852,6 +1874,10 @@ def sponsor_and_sit():
             relationship_repo=relationship_repo,
             stake_repo=stake_repo,
             stake_label=stake_label,
+            # Player-prestige hook 2: enforce the same villain-closure here so a
+            # reviled player can't sit with a personality lender the closed pool
+            # would never have surfaced (anti-tamper parity with sponsor-offers).
+            human_regard=_resolve_human_regard(sandbox_id, owner_id),
         )
         if personality_offer is None:
             return jsonify(
@@ -4757,6 +4783,27 @@ def _reputation_payload_from_snapshot(snap: Dict[str, Any]) -> Dict[str, Any]:
             "heat": snap["regard_heat"],
         },
     }
+
+
+def _resolve_human_regard(sandbox_id: str, owner_id: str) -> Optional[float]:
+    """Read the human's room-level regard from the prestige stat, or None.
+
+    Player-prestige hook 2 (backing economy): the sponsor-offers and
+    sponsor-and-sit paths read this and pass it to `compute_personality_offers`
+    so a reviled player loses the named-personality backing pool. Best-effort:
+    a missing repo / no capture yet / any error returns None (= no gate, the
+    pre-hook behavior), so backing never breaks on a prestige read.
+    """
+    try:
+        from flask_app.extensions import prestige_snapshots_repo
+
+        if prestige_snapshots_repo is None:
+            return None
+        snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+        return snap["regard"] if snap is not None else None
+    except Exception as exc:
+        logger.warning("[CASH][SPONSOR] regard load failed: %s", exc)
+        return None
 
 
 @cash_bp.route("/api/cash/lobby", methods=["GET"])
