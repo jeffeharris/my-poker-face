@@ -261,6 +261,7 @@ interface TournamentMenuProps {
   onContinueGame: () => void;
   onViewStats?: () => void;
   onAdminDashboard?: () => void;
+  onMultiTable?: () => void;
   onBack: () => void;
   savedGamesCount: number;
   isCreatingGame?: boolean;
@@ -274,6 +275,7 @@ export function TournamentMenu({
   onContinueGame,
   onViewStats,
   onAdminDashboard,
+  onMultiTable,
   onBack,
   savedGamesCount,
   isCreatingGame = false,
@@ -343,6 +345,27 @@ export function TournamentMenu({
                 ))}
               </div>
             </div>
+
+            {/* Multi-table (Main Event) — new WSOP-style format */}
+            {onMultiTable && (
+              <button
+                className="menu-option custom-game"
+                onClick={onMultiTable}
+                {...getHoverHandlers('multitable')}
+              >
+                <Crown className="option-icon" size={24} />
+                <div className="option-content">
+                  <h3>
+                    Main Event
+                    <span className="pro-badge">
+                      <Sparkles size={12} /> Beta
+                    </span>
+                  </h3>
+                  <p>Multi-table field — survive table breaks to the final table</p>
+                </div>
+                <ChevronRight className="option-arrow" size={20} />
+              </button>
+            )}
 
             {/* Upgrade Banner for mobile guests - between quick play and custom */}
             {isGuest && !isDesktop && <UpgradeBanner variant="compact" />}
