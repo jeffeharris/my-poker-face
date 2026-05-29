@@ -700,6 +700,56 @@ class TestKillAllCashSessionsBootSweep:
         assert swept == 1
         assert "cash-cold" in repo.deleted
 
+    def test_sweep_marks_broken_and_emits_alertable_log(self, caplog):
+        """When a sweep can't converge, the session is marked `broken` AND
+        an alertable `[CASH LIFECYCLE]` WARNING is emitted so PRH-28's
+        webhook handler pages on it (not just the passive admin counter)."""
+        import logging as _logging
+
+        from cash_mode.lobby import _boot_sweep_stale_cash_rows
+
+        now = datetime(2026, 5, 28, 12, 0, 0)
+
+        class _FailingRepo:
+            """finalise() raises → forces the sweep's broken-marking path."""
+
+            def __init__(self):
+                self.broken = []
+
+            def load(self, sid):
+                return _session(sid)
+
+            def finalise(self, *a, **k):
+                raise RuntimeError("simulated convergence failure")
+
+            def set_session_state(self, sid, state):
+                self.broken.append((sid, state))
+                return True
+
+            def record_event(self, *a, **k):
+                pass
+
+        repo = _FailingRepo()
+        game_repo = _FakeGameRepo([_row_aged("cash-wedged", 7200, now=now)])
+
+        with caplog.at_level(_logging.WARNING, logger="cash_mode.lobby"):
+            _boot_sweep_stale_cash_rows(
+                game_repo=game_repo,
+                cash_session_repo=repo,
+                stale_ttl_seconds=1800,
+                now=now,
+                source="watchdog",
+            )
+
+        # Marked broken (so the sit guard ignores it — no wedge)...
+        assert ("cash-wedged", "broken") in repo.broken
+        # ...and emitted an alertable [CASH LIFECYCLE] WARNING.
+        alerts = [m for m in caplog.messages if "[CASH LIFECYCLE]" in m]
+        assert alerts, "no [CASH LIFECYCLE] alert log emitted on broken-marking"
+        assert "BROKEN" in alerts[0]
+        # The games row must NOT have been deleted (the failure prevented it).
+        assert "cash-wedged" not in game_repo.deleted
+
     def test_sweep_skipped_without_cash_session_repo(self):
         """Back-compat: callers that don't pass cash_session_repo get
         the legacy behavior (no row sweep)."""

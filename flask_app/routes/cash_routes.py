@@ -3930,6 +3930,16 @@ def leave_table():
 
                 if cash_session_repo is not None:
                     cash_session_repo.set_session_state(game_id, SESSION_STATE_BROKEN)
+                # Alertable signal (PRH-28): `[CASH LIFECYCLE]` is in
+                # alerting._PREFIXES, so a leave that couldn't tear down
+                # cleanly pages the webhook rather than only showing up on
+                # the admin counter.
+                logger.warning(
+                    "[CASH LIFECYCLE] cash session %r marked BROKEN — leave "
+                    "teardown raised; sit guard will skip it (no player wedge), "
+                    "but it needs operator attention",
+                    game_id,
+                )
                 _emit_cash_session_event(game_id, "broken", owner_id=owner_id)
             except Exception:
                 logger.exception("[CASH] failed to mark %r broken after leave failure", game_id)

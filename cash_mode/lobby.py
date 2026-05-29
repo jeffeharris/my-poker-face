@@ -3421,6 +3421,17 @@ def _boot_sweep_stale_cash_rows(
             # won't wedge new sits) even though its games row lingers.
             try:
                 cash_session_repo.set_session_state(row.game_id, SESSION_STATE_BROKEN)
+                # Alertable signal (PRH-28): the `[CASH LIFECYCLE]` prefix is
+                # in alerting._PREFIXES, so a marked-broken session pages the
+                # webhook. `broken` shouldn't normally happen; a steady drip
+                # means orphans aren't self-healing — operator attention.
+                logger.warning(
+                    "[CASH LIFECYCLE] cash session %r marked BROKEN — %s sweep "
+                    "could not converge; sit guard will skip it (no player wedge), "
+                    "but it needs operator attention",
+                    row.game_id,
+                    source,
+                )
                 _emit_session_event(
                     cash_session_repo,
                     row.game_id,

@@ -48,9 +48,23 @@ def test_warning_without_prefix_is_not_alertable(handler):
     assert handler._is_alertable(_record(logging.WARNING, "just a warning")) is False
 
 
-@pytest.mark.parametrize("msg", ["[LEDGER] DRIFT RISK: ...", "[LLM BUDGET] blocked decision call"])
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "[LEDGER] DRIFT RISK: ...",
+        "[LLM BUDGET] blocked decision call",
+        "[CASH LIFECYCLE] cash session 'cash-x' marked BROKEN",
+    ],
+)
 def test_prefixed_warning_is_alertable(handler, msg):
     assert handler._is_alertable(_record(logging.WARNING, msg)) is True
+
+
+def test_plain_cash_warning_is_not_alertable(handler):
+    # The ubiquitous "[CASH]" WARNING prefix must NOT alert — only the
+    # specific "[CASH LIFECYCLE]" marker does, so routine cash warnings
+    # don't spam the webhook.
+    assert handler._is_alertable(_record(logging.WARNING, "[CASH] AI cash-out skipped")) is False
 
 
 def test_own_module_records_are_ignored(handler):

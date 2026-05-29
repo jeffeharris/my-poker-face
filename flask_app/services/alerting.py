@@ -43,7 +43,7 @@ import urllib.request
 from typing import Callable, Optional
 
 # WARNING-level signals worth paging on even though they aren't ERRORs.
-_PREFIXES = ("[LEDGER]", "[LLM BUDGET]")
+_PREFIXES = ("[LEDGER]", "[LLM BUDGET]", "[CASH LIFECYCLE]")
 _MODULE_LOGGER_NAME = __name__
 
 # The admin Settings key / env var name for the webhook URL.
