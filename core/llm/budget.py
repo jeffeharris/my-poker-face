@@ -21,12 +21,22 @@ response therefore never stalls a hand.
 """
 
 import logging
+import os
 import threading
+import time
 from typing import Optional
 
 from .tracking import CallType
 
 logger = logging.getLogger(__name__)
+
+# PRH-41 abuse telemetry: warn when a scope (global or a single owner) crosses
+# this fraction of its daily cap — an early signal that pages via the PRH-28
+# webhook ([LLM BUDGET] prefix) BEFORE the cap is hit, so a spend spike is
+# visible while it's building rather than only at exhaustion. Throttled per
+# scope to avoid log/webhook spam.
+_VELOCITY_WARN_FRACTION = float(os.environ.get("LLM_BUDGET_VELOCITY_WARN_FRACTION", "0.8"))
+_VELOCITY_THROTTLE_SECONDS = 600.0
 
 # Cosmetic / background spend — pure flavor. A blocked response here is
 # invisible to gameplay (no avatar, no table talk, no commentary).
@@ -77,6 +87,33 @@ class SpendGate:
         self._lock = threading.Lock()
         self._global_daily_budget_usd = 0.0
         self._per_owner_daily_budget_usd = 0.0
+        # PRH-41: last velocity-warning epoch per scope ("global" / "owner '<id>'").
+        self._velocity_last_warn: dict = {}
+
+    def _maybe_warn_velocity(self, scope: str, spend: float, limit: float) -> None:
+        """Emit a throttled early-warning when `scope` is in the warn band.
+
+        Warn band = [`_VELOCITY_WARN_FRACTION` * limit, limit). At/over the limit
+        the call is blocked + logged by `over_budget_reason`, so we don't
+        double-log there. Benignly races on the throttle dict (worst case: a
+        duplicate warning) — not worth a lock on the hot path.
+        """
+        if limit <= 0 or _VELOCITY_WARN_FRACTION <= 0:
+            return
+        if spend < _VELOCITY_WARN_FRACTION * limit or spend >= limit:
+            return
+        now = time.time()
+        if now - self._velocity_last_warn.get(scope, 0.0) < _VELOCITY_THROTTLE_SECONDS:
+            return
+        self._velocity_last_warn[scope] = now
+        logger.warning(
+            "[LLM BUDGET] velocity: %s at %.0f%% of its daily cap "
+            "($%.2f / $%.2f in 24h) — approaching the limit",
+            scope,
+            100.0 * spend / limit,
+            spend,
+            limit,
+        )
 
     def configure(
         self,
@@ -115,6 +152,7 @@ class SpendGate:
                     f"global daily LLM budget exceeded "
                     f"(${spend:.2f} spent in 24h >= ${global_limit:.2f} cap)"
                 )
+            self._maybe_warn_velocity("global", spend, global_limit)
 
         if owner_limit > 0 and owner_id:
             spend = tracker.get_recent_spend(owner_id=owner_id)
@@ -123,6 +161,7 @@ class SpendGate:
                     f"owner '{owner_id}' daily LLM budget exceeded "
                     f"(${spend:.2f} spent in 24h >= ${owner_limit:.2f} cap)"
                 )
+            self._maybe_warn_velocity(f"owner '{owner_id}'", spend, owner_limit)
 
         return None
 

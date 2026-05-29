@@ -103,7 +103,26 @@ personality_generator = None
 
 
 def get_rate_limit_key():
-    """Get IP address for rate limiting."""
+    """Rate-limit key: a real (OAuth) account's stable id, else the client IP (PRH-41).
+
+    The per-route caps (coach, personality/theme/image generation, game actions,
+    chat suggestions) were all keyed on IP — an authenticated abuser could
+    multiply every quota by rotating IPs. Keying logged-in accounts on their
+    stable user id binds those caps **per-user**, closing that bypass for the
+    whole expensive surface at once.
+
+    Guests stay IP-keyed: their id is cookie-resettable, so a per-id key would be
+    weaker than IP; fresh-guest minting is separately throttled per IP (PRH-26).
+    Reads auth live via the module-global `auth_manager` (set post-app); any
+    failure falls back to IP so the limiter can never error a request.
+    """
+    try:
+        if auth_manager is not None:
+            user = auth_manager.get_current_user()
+            if user and user.get("id") and not user.get("is_guest"):
+                return f"user:{user['id']}"
+    except Exception:
+        pass
     return get_remote_address() or "127.0.0.1"
 
 

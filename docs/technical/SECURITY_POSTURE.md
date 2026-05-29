@@ -142,7 +142,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 - A process-wide **spend kill-switch** reads rolling 24h `SUM(estimated_cost)` from `api_usage` against a **global** and optional **per-owner** daily USD ceiling, short-circuiting before any provider dispatch. — `core/llm/budget.py` (`SpendGate`), gate in `core/llm/client.py`
 - **Armed in prod** (`docker-compose.prod.yml`: `LLM_GLOBAL_DAILY_BUDGET_USD=50`, `LLM_PER_OWNER_DAILY_BUDGET_USD=5`; override via host env). Disabled by default elsewhere (dev/sims).
 - **Graceful degradation:** over-budget *cosmetic* calls (avatars, commentary, chat suggestions, narration) simply vanish; `PLAYER_DECISION` falls back to the deterministic engine; the default `sharp` bot is LLM-free for decisions. A blocked call never stalls a hand.
-- **Caveat:** the global cap is the only ceiling a guest can't reset (per-owner keys on the guest's resettable `owner_id`). Per-feature/per-user quotas are not yet layered in (PRH-41).
+- **Per-user/per-feature quotas (PRH-41):** the rate-limit key now binds real (OAuth) accounts **per-user** (not per-IP), so the existing per-route caps (coach, personality/theme/image generation, game actions, chat) can't be multiplied by rotating IPs; the gate emits a throttled `[LLM BUDGET] velocity` early-warning (pages via PRH-28) at 80% of a scope's daily cap. **Caveat:** the global cap is still the only ceiling a guest can't reset (guests stay IP-keyed; per-owner keys on the resettable guest `owner_id`). Concurrent-session caps not yet added.
 
 ## Content moderation & UGC ✅ (substantially)
 
@@ -164,7 +164,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 ## Observability & alerting ✅ (handler) / ◑ (broader)
 
 - **Webhook alert handler** forwards ERROR-level logs + the `[LEDGER] DRIFT RISK`, `[LLM BUDGET]`, and `[CASH LIFECYCLE]` signals to a Slack-compatible webhook — non-blocking, throttled, recursion-safe. URL is **admin-configurable at runtime** (Admin → Settings → Alerting, DB setting over `ALERT_WEBHOOK_URL` env). No-op until a URL is set. — `flask_app/services/alerting.py` (PRH-28)
-- ◑ No structured logging / per-request correlation id / error dashboard (PRH-35); no per-feature abuse telemetry (PRH-41).
+- ◑ No structured logging / per-request correlation id / error dashboard (PRH-35). Spend-velocity early-warning lands via the gate (PRH-41); broader per-request abuse telemetry still thin.
 
 ## Data handling & persistence ◑
 
@@ -189,7 +189,7 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 
 - **Web-session hardening:** ✅ done — CSRF tokens (PRH-36) and dropping the `localStorage` bearer JWT (PRH-37) both landed.
 - **Edge/deploy:** ✅ security headers + CSP (PRH-39 — `script-src` tightening is the residual), production-safe image default + non-root container (PRH-40), admin-bootstrap not via guest namespace (PRH-38) all landed; standardize the async model (PRH-24) remains.
-- **Abuse depth:** per-user/per-feature quotas + abuse telemetry on top of the global budget (PRH-41).
+- **Abuse depth:** ✅ per-user rate-limit key + spend-velocity early-warning landed (PRH-41); residual = concurrent-session caps + true short-window rate-spike detection.
 - **Ops/data:** ✅ WAL-safe backup script (PRH-29 — `scripts/backup_db.py`; cron + off-box are operator steps); ✅ client-side cold-load self-heal (PRH-31); ✅ capture/`api_usage` retention (PRH-32); ◑ single-worker CPU ceiling (PRH-30 — per-decision MC lowered in prod; per-action save-coalescing deferred as a durability tradeoff).
 - **Content (optional):** prompt-delimiting of user content (defense-in-depth) + server-forced chat `sender` (PRH-33). *AI-personality image-input moderation is now landed — PRH-27 is fully closed.*
 
