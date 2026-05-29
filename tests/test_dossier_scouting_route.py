@@ -261,3 +261,28 @@ class TestDossierScoutingRoute(unittest.TestCase):
         body = self._dossier()
         self.assertIsNone(body['pressure_summary'])
         self.assertEqual(body['memorable_hands'], [])
+
+    # --- File cabinet route (Phase 4) --------------------------------------
+
+    def test_file_cabinet_route_lists_roster(self):
+        conn = sqlite3.connect(self.test_db.name)
+        try:
+            for oid, hands in [('greg', 500), ('cleo', 30)]:
+                conn.execute(
+                    "INSERT OR REPLACE INTO opponent_observation_lifetime "
+                    "(sandbox_id, observer_id, opponent_id, hands_observed, "
+                    " hands_dealt, first_seen, last_updated) "
+                    "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    (self.sandbox_id, OBSERVER, oid, hands, hands),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = self.client.get('/api/cash/file-cabinet')
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        body = resp.get_json()
+        self.assertEqual(body['people_met'], 2)
+        self.assertEqual(body['dossiers_unlocked'], 1)  # greg (500h) fully unlocked
+        # Sorted most-observed first.
+        self.assertEqual(body['people'][0]['personality_id'], 'greg')

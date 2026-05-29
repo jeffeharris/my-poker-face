@@ -242,3 +242,45 @@ would have meant rushing the sensitive lifetime-adjacent code. Told the user.
 
 **Not done:** true per-sandbox scoping for pressure/memorable (owner-scoped
 for now); the file cabinet + all of Tier 2 (handed off).
+
+---
+
+## 2026-05-29 (Phase 4) — the file cabinet
+
+**Built it after all** (had handed it to the Tier-2 doc; user said build it).
+Browse everyone you've scouted, sorted, tap to open the dossier — the
+collection/retention payoff.
+
+**Roster from the lifetime store, not cash_pair_stats.** The whereabouts
+feature (my template) scopes "met" by `cash_pair_stats` (confrontation hands —
+chips flowed). For the cabinet I sourced the roster from
+`opponent_observation_lifetime` instead (everyone you've been *dealt in with*),
+because that's the same metric the grind gate uses — so "met" in the cabinet
+and "hands observed" in the dossier are the same number, and unlock progress
+lines up. Added `list_observation_lifetime_for_observer` +
+`load_all_informant_unlocks_for_observer` (one bulk query so per-opponent
+unlock status doesn't N+1).
+
+**Aggregator in flask_app/services, not cash_mode.** Whereabouts lives in
+`cash_mode/`, but the cabinet needs `dossier_scouting.compute_scouting`
+(under `flask_app/services/`). Importing flask_app into cash_mode is a
+layering smell, so `build_file_cabinet` went in `flask_app/services/` next to
+its dependency — still a pure, repo-injected, testable function.
+
+**Reused the existing dossier card.** The cabinet doesn't render its own
+detail view — tapping a row sets the Lobby's existing dossier state
+(`circuitContext` true, so the informant buttons show). One source of truth
+for the dossier UI.
+
+**A test-harness gotcha.** `tests/test_file_cabinet.py` first failed with "no
+such table" — there are TWO `db_path` fixtures, and the root `tests/conftest.py`
+one hands back a bare path with no schema (only `tests/test_repositories/conftest.py`
+runs `ensure_schema`). Built the schema in my fixture.
+
+**Shipped:** repo queries, `flask_app/services/file_cabinet.py`,
+`GET /api/cash/file-cabinet`, `FileCabinetDrawer.tsx` + CSS, `getFileCabinet`
+API, types, Lobby button/mount. 5 new tests (4 aggregator + 1 route); 24 green
+across the dossier suites; TS clean; route registered (400 unauth).
+
+**Not done:** live UI eyeball; avatars on rows (skipped to dodge the
+zombie-persona avatar footgun); Tier 2 (still handed off).

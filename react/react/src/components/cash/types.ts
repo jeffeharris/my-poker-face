@@ -765,3 +765,29 @@ export interface ForgivenessRateLimited {
   error: string;
   retry_after_seconds: number;
 }
+
+// --- File cabinet (dossier Phase 4) ---
+
+/** One opponent in the file-cabinet roster — everyone you've accumulated
+ *  scouting on, with the headline stats the UI sorts by. */
+export interface FileCabinetPerson {
+  personality_id: string;
+  name: string;
+  hands_observed: number;
+  net_pnl: number; // observer POV: positive = you're up
+  hands_played_cash: number;
+  heat: number;
+  respect: number;
+  likability: number;
+  last_seen: string | null;
+  reads_unlocked: number;
+  reads_total: number;
+  floor_met: boolean;
+  fully_unlocked: boolean;
+}
+
+export interface FileCabinetResponse {
+  people: FileCabinetPerson[];
+  people_met: number;
+  dossiers_unlocked: number;
+}

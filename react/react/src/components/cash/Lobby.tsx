@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play, FolderOpen } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -36,6 +36,8 @@ import { CareerHero } from './CareerHero';
 import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { WhereaboutsDrawer } from './WhereaboutsDrawer';
+import { FileCabinetDrawer } from './FileCabinetDrawer';
+import type { FileCabinetPerson } from './types';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
@@ -208,6 +210,7 @@ export function Lobby() {
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
   const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
+  const [fileCabinetOpen, setFileCabinetOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -580,6 +583,14 @@ export function Lobby() {
               <MapPin size={13} aria-hidden="true" />
               Who's around
             </button>
+            <button
+              type="button"
+              className="cash-entry__whereabouts-trigger"
+              onClick={() => setFileCabinetOpen(true)}
+            >
+              <FolderOpen size={13} aria-hidden="true" />
+              File cabinet
+            </button>
           </div>
 
           {loadError && (
@@ -777,6 +788,22 @@ export function Lobby() {
           isOpen={whereaboutsOpen}
           onClose={() => setWhereaboutsOpen(false)}
           refreshTick={stakablePanelTick}
+        />
+        <FileCabinetDrawer
+          isOpen={fileCabinetOpen}
+          onClose={() => setFileCabinetOpen(false)}
+          refreshTick={stakablePanelTick}
+          onOpenDossier={(person: FileCabinetPerson) => {
+            // Hand off to the existing dossier card (Circuit context, so the
+            // informant buy buttons show). Close the cabinet so the card
+            // isn't stacked behind it.
+            setFileCabinetOpen(false);
+            setDossier({
+              dossier: { name: person.name },
+              origin: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+              identifier: person.personality_id,
+            });
+          }}
         />
         <StakeOfferModal
           target={stakeTarget}

@@ -1048,6 +1048,37 @@ class GameRepository(BaseRepository):
             'last_updated': row['last_updated'],
         }
 
+    def list_observation_lifetime_for_observer(
+        self, sandbox_id: str, observer_id: str
+    ) -> List[Dict[str, Any]]:
+        """Every opponent this observer has a lifetime observation row for, in
+        this sandbox — the roster spine for the file cabinet. Returns
+        opponent_id + hands_observed + hands_dealt + last_updated per row
+        (the file cabinet derives unlock status from hands_observed and joins
+        PnL / relationship / names separately). Ordered most-observed first.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT opponent_id, hands_observed, hands_dealt, first_seen,
+                       last_updated
+                FROM opponent_observation_lifetime
+                WHERE sandbox_id = ? AND observer_id = ?
+                ORDER BY hands_observed DESC
+                """,
+                (sandbox_id, observer_id),
+            ).fetchall()
+        return [
+            {
+                'opponent_id': r['opponent_id'],
+                'hands_observed': r['hands_observed'] or 0,
+                'hands_dealt': r['hands_dealt'] or 0,
+                'first_seen': r['first_seen'],
+                'last_updated': r['last_updated'],
+            }
+            for r in rows
+        ]
+
     def load_lifetime_memorable_hands(
         self, owner_id: str, opponent_name: str, limit: int = 5
     ) -> List[Dict[str, Any]]:
@@ -1102,6 +1133,24 @@ class GameRepository(BaseRepository):
                 (sandbox_id, observer_id, opponent_id),
             ).fetchall()
         return {row['section_id'] for row in rows}
+
+    def load_all_informant_unlocks_for_observer(
+        self, sandbox_id: str, observer_id: str
+    ) -> Dict[str, set]:
+        """All informant section purchases for this observer in this sandbox,
+        keyed opponent_id → set(section_ids). One query for the file cabinet's
+        per-opponent unlock status (vs. N calls to load_informant_unlocks)."""
+        out: Dict[str, set] = {}
+        with self._get_connection() as conn:
+            for r in conn.execute(
+                """
+                SELECT opponent_id, section_id FROM dossier_informant_unlocks
+                WHERE sandbox_id = ? AND observer_id = ?
+                """,
+                (sandbox_id, observer_id),
+            ):
+                out.setdefault(r['opponent_id'], set()).add(r['section_id'])
+        return out
 
     def record_informant_unlock(
         self, sandbox_id: str, observer_id: str, opponent_id: str,

@@ -5686,6 +5686,43 @@ def get_whereabouts():
     )
 
 
+@cash_bp.route("/api/cash/file-cabinet", methods=["GET"])
+def get_file_cabinet():
+    """GET /api/cash/file-cabinet — the dossier roster (Phase 4).
+
+    Everyone the player has accumulated scouting on in their sandbox, with
+    the headline stats the UI sorts by and the "People met / Dossiers
+    unlocked" header counts. Sorting is client-side. Circuit-only (it reads
+    the per-sandbox lifetime store); returns an empty roster for a player
+    who hasn't played any Circuit hands yet.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from datetime import datetime
+
+    from flask_app.extensions import game_repo, personality_repo, relationship_repo
+    from flask_app.services.file_cabinet import build_file_cabinet
+
+    try:
+        data = build_file_cabinet(
+            sandbox_id=sandbox_id,
+            observer_id=owner_id,
+            game_repo=game_repo,
+            relationship_repo=relationship_repo,
+            personality_repo=personality_repo,
+            now=datetime.utcnow(),
+        )
+    except Exception as e:
+        logger.warning("[CASH][FILE_CABINET] build failed: %s", e)
+        return jsonify({"people": [], "people_met": 0, "dossiers_unlocked": 0})
+
+    return jsonify(data)
+
+
 @cash_bp.route("/api/cash/world-pace", methods=["PUT"])
 def set_world_pace():
     """PUT /api/cash/world-pace — set how fast the background world ticks.

@@ -411,6 +411,19 @@ simple foundation.
 
 ## Phase 4 — The File Cabinet
 
+> **STATUS (2026-05-29): SHIPPED on branch `dossiers`** (uncommitted). Backend:
+> `GameRepository.list_observation_lifetime_for_observer` +
+> `load_all_informant_unlocks_for_observer`; pure aggregator
+> `flask_app/services/file_cabinet.py` (`build_file_cabinet` — roster from the
+> lifetime store joined to PnL/relationship/names, derives unlock progress +
+> "people met / dossiers unlocked" via `compute_scouting`); `GET
+> /api/cash/file-cabinet`. Frontend: `FileCabinetDrawer.tsx` (+ CSS) — portal
+> modal with sort controls (most-played / progress / rivals / winners /
+> losers / recent), per-opponent unlock bar, rivalry flag, PnL; opens the
+> dossier (Circuit context) on tap. Wired into the Lobby ("File cabinet"
+> button). 5 new tests (aggregator + route); roster sourced from the lifetime
+> store (everyone observed), so it aligns with the grind gate.
+
 - A browsable index of **everyone you've met** in the sandbox (shared a
   table / >0 hands).
 - **Scope — DECIDED: everyone you've met *in the sandbox*** — Circuit cash

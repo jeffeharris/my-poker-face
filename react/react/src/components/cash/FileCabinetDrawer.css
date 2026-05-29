@@ -1,0 +1,173 @@
+/* FileCabinetDrawer — centered modal, portal-to-body (mirrors
+ * WhereaboutsDrawer so it clears the fixed PageLayout header). */
+
+.filecab-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.filecab-drawer {
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1, #1c1f25);
+  color: var(--text-primary, #f5f5f5);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.filecab-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.filecab-drawer__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.filecab-drawer__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary, #aaa);
+  padding: 0.3rem;
+  border-radius: 8px;
+}
+.filecab-drawer__close:hover {
+  color: var(--text-primary, #f5f5f5);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.filecab-drawer__stats {
+  padding: 0.6rem 1rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #9aa0aa);
+}
+.filecab-drawer__stats strong {
+  color: var(--text-primary, #f5f5f5);
+}
+
+.filecab-drawer__sorts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 1rem 0.6rem;
+}
+.filecab-drawer__sort {
+  font-size: 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary, #aaa);
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  cursor: pointer;
+}
+.filecab-drawer__sort--active {
+  background: rgba(226, 191, 111, 0.18);
+  border-color: rgba(226, 191, 111, 0.5);
+  color: #e2bf6f;
+}
+
+.filecab-drawer__list {
+  overflow-y: auto;
+  padding: 0.25rem 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.filecab-row {
+  text-align: left;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+  color: inherit;
+  transition: background 0.12s ease;
+}
+.filecab-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.filecab-row__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.filecab-row__name {
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+.filecab-row__rival {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.68rem;
+  color: #e69a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.filecab-row__pnl {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.filecab-row__pnl--pos {
+  color: #6fcf97;
+}
+.filecab-row__pnl--neg {
+  color: #e69a9a;
+}
+.filecab-row__pnl--even {
+  color: var(--text-secondary, #8a909a);
+}
+.filecab-row__meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #9aa0aa);
+}
+.filecab-row__dossier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.filecab-row__bar {
+  margin-top: 0.4rem;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.filecab-row__bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #b08433, #e2bf6f);
+}
+.filecab-row__bar-fill--full {
+  background: linear-gradient(90deg, #2e8b57, #6fcf97);
+}
+
+.filecab-drawer__empty {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  font-size: 0.84rem;
+  color: var(--text-secondary, #8a909a);
+  line-height: 1.5;
+}
