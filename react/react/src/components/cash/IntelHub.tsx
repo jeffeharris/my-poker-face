@@ -4,9 +4,9 @@
  * One home for everything you'd want to know about the room and its players,
  * folded into a single case-file surface (the dossier/archive aesthetic):
  *
- *   • Dispatches  — the live wire of what's happening now (the activity feed)
- *   • Whereabouts — where the players you've met are right now
- *   • Case Files  — your dossiers on everyone you've scouted
+ *   • The Wire  — the live wire of what's happening now (the activity feed)
+ *   • The Floor — where the players you've met are right now
+ *   • The Files — your dossiers on everyone you've scouted
  *
  * Replaces the scattered lobby intel surfaces (inline ticker dropdown +
  * separate whereabouts / cabinet drawers) with one tabbed war-room panel.
@@ -27,8 +27,8 @@ type IntelTab = 'dispatches' | 'whereabouts' | 'files';
 
 const TABS: { key: IntelTab; label: string; Icon: typeof Radio }[] = [
   { key: 'dispatches', label: 'The Wire', Icon: Radio },
-  { key: 'whereabouts', label: 'Whereabouts', Icon: MapPin },
-  { key: 'files', label: 'Case Files', Icon: FolderOpen },
+  { key: 'whereabouts', label: 'The Floor', Icon: MapPin },
+  { key: 'files', label: 'The Files', Icon: FolderOpen },
 ];
 
 /* ── Dispatches: the live wire, as a typed log ────────────────────── */
@@ -96,7 +96,7 @@ function WhereaboutsPanel() {
     };
   }, []);
 
-  if (!loaded) return <p className="archive__no-match">Locating the field…</p>;
+  if (!loaded) return <p className="archive__no-match">Reading the floor…</p>;
   if (people.length === 0) {
     return (
       <p className="archive__no-match">

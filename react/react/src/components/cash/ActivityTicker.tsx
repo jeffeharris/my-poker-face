@@ -110,7 +110,7 @@ export function ActivityTicker({
             type="button"
             className="lobby-ticker__open"
             onClick={onOpenIntel}
-            title="Open Intel — the wire, whereabouts & case files"
+            title="Open Intel — the wire, the floor & the files"
           >
             <Eye size={14} className="lobby-ticker__open-eye" aria-hidden="true" />
             <h3 className="lobby-ticker__heading">The Wire</h3>
