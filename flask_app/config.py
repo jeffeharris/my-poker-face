@@ -47,6 +47,15 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 # CORS configuration
 CORS_ORIGINS_ENV = os.environ.get('CORS_ORIGINS', '*')
 
+# PRH-24: Socket.IO async model. Prod runs under a gevent-websocket gunicorn
+# worker that monkey-patches I/O, so `gevent` is the standards-aligned pairing.
+# Default stays `threading` (the long-standing value — it works because the
+# worker patches threading→greenlets; dev's Werkzeug server also uses threading),
+# so behavior is unchanged until an operator opts into `gevent` via this env
+# after validating the WebSocket flow. The startup runtime check logs whether
+# gevent monkey-patching is actually active (see flask_app.create_app).
+SOCKETIO_ASYNC_MODE = os.environ.get('SOCKETIO_ASYNC_MODE', 'threading')
+
 # CSRF protection (PRH-36) — double-submit cookie. Default ARMED in production
 # (the SPA and API are same-origin there, so the frontend JS can read the
 # non-HttpOnly csrf_token cookie and echo it in the X-CSRF-Token header). Default

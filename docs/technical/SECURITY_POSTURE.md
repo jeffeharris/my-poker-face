@@ -179,7 +179,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 |---|---|
 | `gunicorn -k geventwebsocket…GeventWebSocketWorker -w 1 --timeout 120`; `ProxyFix` + forced HTTPS in prod | ✅ |
 | CORS: explicit origin allowlist; wildcard refused in production | ✅ |
-| `async_mode='threading'` under a gevent worker — non-standard pairing; confirm prod monkey-patch + standardize | ◑ PRH-24 |
+| Socket.IO async model: `SOCKETIO_ASYNC_MODE` env-configurable (default `threading`); a startup check logs `[ASYNC] … monkey-patch active=…` and ERRORs if prod runs threading without gevent monkey-patching. Prod runs the gevent-websocket worker (which monkey-patches), so the pairing is safe; `gevent` can be adopted via env once validated. **Constraint:** single elected worker (`-w 1`) + Redis required (presence/ticker have no shared store yet). | ✅ PRH-24 / PRH-10 |
 | Image is production-safe by default: `Dockerfile` `CMD` is gunicorn (not `flask run`); `ui_web.py` refuses the Werkzeug dev server when `FLASK_ENV != development`; container runs **non-root** (`appuser`/`gosu`, entrypoint drops privileges under `DROP_PRIVILEGES=1`, dev stays root) | ✅ PRH-40 |
 | Security headers at the frontend nginx: `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, and a `default-src 'self'` CSP. `script-src`/`style-src` still allow `'unsafe-inline'` (inline `index.html` scripts + Vite/Tailwind styles) — tightening `script-src` is the residual | ◑ PRH-39 |
 

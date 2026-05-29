@@ -45,6 +45,39 @@ class SafeJSONProvider(DefaultJSONProvider):
         return super().dumps(_sanitize_for_json(obj), **kwargs)
 
 
+def _log_async_runtime():
+    """PRH-24: log (and check) the Socket.IO async model at startup.
+
+    `async_mode='threading'` only yields cooperatively under the prod
+    gevent-websocket worker *because* that worker monkey-patches the stdlib —
+    a non-standard pairing. Logging whether gevent monkey-patching is actually
+    active turns that assumption into an observable fact, and escalates the
+    genuinely-broken case (production + threading + NOT patched → blocking I/O
+    would stall the single worker) to an alertable ERROR.
+    """
+    from .config import SOCKETIO_ASYNC_MODE
+
+    try:
+        from gevent import monkey
+
+        patched = monkey.is_module_patched("socket")
+    except Exception:
+        patched = False
+
+    logger.info(
+        "[ASYNC] socketio async_mode=%s; gevent socket monkey-patch active=%s",
+        SOCKETIO_ASYNC_MODE,
+        patched,
+    )
+    if SOCKETIO_ASYNC_MODE == "threading" and not patched and not is_development:
+        logger.error(
+            "[ASYNC] production is running async_mode=threading WITHOUT gevent "
+            "monkey-patching — blocking I/O will NOT yield cooperatively and can "
+            "stall the single worker. Run under the gevent-websocket gunicorn "
+            "worker (docker-compose.prod.yml) or set SOCKETIO_ASYNC_MODE=gevent."
+        )
+
+
 def recover_interrupted_experiments():
     """Mark experiments that were running when server stopped as interrupted.
 
@@ -84,6 +117,9 @@ def create_app():
     from .logging_setup import init_request_logging
 
     init_request_logging(app)
+
+    # PRH-24: confirm the async model at startup (see _log_async_runtime).
+    _log_async_runtime()
 
     # PRH-34: release per-thread SQLite connections at the end of each request /
     # socket event (flask-socketio pushes an app context per event), so the

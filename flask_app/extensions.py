@@ -47,8 +47,12 @@ def _get_socketio_cors_origins():
     return [origin.strip() for origin in config.CORS_ORIGINS_ENV.split(',') if origin.strip()]
 
 
-# SocketIO instance - initialized without app
-socketio = SocketIO(cors_allowed_origins=_get_socketio_cors_origins(), async_mode='threading')
+# SocketIO instance - initialized without app. async_mode is env-configurable
+# (PRH-24); defaults to 'threading' (unchanged). See flask_app.config.
+socketio = SocketIO(
+    cors_allowed_origins=_get_socketio_cors_origins(),
+    async_mode=config.SOCKETIO_ASYNC_MODE,
+)
 
 # Limiter instance is created below, AFTER get_rate_limit_key/_skip_options_requests
 # are defined. It is a real, app-less Limiter (not None) so that route modules'

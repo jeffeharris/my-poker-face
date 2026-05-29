@@ -36,15 +36,36 @@ _cleanup_timer_lock = threading.RLock()
 
 
 def _cleanup_stale_games():
-    """Remove games not accessed within GAME_TTL_HOURS."""
+    """Remove games not accessed within GAME_TTL_HOURS.
+
+    PRH-23: mutate `game_locks` under `_game_locks_lock` (the lock it's created
+    under in `get_game_lock`) and **never evict a game whose lock is currently
+    held** — popping a held lock would let the next `get_game_lock` mint a fresh
+    one, so two requests could progress the same game concurrently. Staleness is
+    re-checked inside the lock so a game touched between the snapshot and the
+    pop isn't evicted. A held-or-freshly-touched stale game is simply skipped
+    this cycle and collected next time (games are persisted, so an over-eager
+    eviction would only force a cold-load anyway).
+    """
     cutoff = datetime.now() - timedelta(hours=GAME_TTL_HOURS)
     stale_keys = [k for k, t in game_last_access.items() if t < cutoff]
-    for key in stale_keys:
-        games.pop(key, None)
-        game_locks.pop(key, None)
-        game_last_access.pop(key, None)
-    if stale_keys:
-        logger.info(f"[TTL] Evicted {len(stale_keys)} stale game(s): {stale_keys}")
+    if not stale_keys:
+        return
+    evicted = []
+    with _game_locks_lock:
+        for key in stale_keys:
+            last = game_last_access.get(key)
+            if last is None or last >= cutoff:
+                continue  # re-accessed since the snapshot — not stale anymore
+            lock = game_locks.get(key)
+            if lock is not None and lock.locked():
+                continue  # in-flight request holds it — don't evict under the lock
+            games.pop(key, None)
+            game_locks.pop(key, None)
+            game_last_access.pop(key, None)
+            evicted.append(key)
+    if evicted:
+        logger.info(f"[TTL] Evicted {len(evicted)} stale game(s): {evicted}")
 
 
 def _schedule_cleanup():
