@@ -1,31 +1,40 @@
 /**
- * ReputationPanel — the reputation scoreboard below CareerHero.
+ * ReputationPanel — the cash lobby's "standing" crest.
  *
- * Quieter than the hero (bankroll stays the headline): a compact card with
- * a quadrant badge and two slim meters. Tone accents follow the quadrant —
- * gold for beloved, ruby for villain, sky for up-and-comer, slate for the
- * disliked nobody — reusing the design-tokens.css palette.
+ * A heraldic plaque, not a stats card. The quadrant is a TITLE stamped like a
+ * wax seal (gold/ruby/sky/slate by quadrant); RENOWN is an engraved gold
+ * gauge; REGARD is a bipolar reviled↔beloved needle dial. Sits below CareerHero
+ * and borrows its premium-casino vocabulary (gold bloom, hairline frame,
+ * editorial eyebrow, tabular figures) but tints everything by the quadrant's
+ * --rep-accent. Serif crest title gives it title-card gravitas against the
+ * DM Sans lobby.
  */
 
 .rep-panel {
   --rep-accent: var(--color-gold);
-  --rep-accent-soft: rgba(212, 165, 116, 0.14);
+  --rep-accent-soft: rgba(212, 165, 116, 0.16);
+  --rep-warm: #6ee7b7;
+  --rep-hostile: #fda4af;
+
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3) var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-4) calc(var(--space-4) + 4px);
   margin-bottom: var(--space-3);
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: var(--radius-lg, 14px);
-  background: rgba(255, 255, 255, 0.02);
-  animation: repRise 0.45s var(--ease-out-expo, ease-out) both;
+  background:
+    radial-gradient(120% 80% at 100% 0%, var(--rep-accent-soft), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.15));
+  animation: repRise 0.5s var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 
-/* Per-quadrant accent. */
+/* Per-quadrant accent + valence semantics (gold = fame, emerald/ruby = warmth). */
 .rep-panel--beloved {
   --rep-accent: #f5d89a;
-  --rep-accent-soft: rgba(245, 216, 154, 0.16);
+  --rep-accent-soft: rgba(245, 216, 154, 0.18);
 }
 .rep-panel--villain {
   --rep-accent: #fda4af;
@@ -33,14 +42,45 @@
 }
 .rep-panel--comer {
   --rep-accent: #7dd3fc;
-  --rep-accent-soft: rgba(125, 211, 252, 0.14);
+  --rep-accent-soft: rgba(125, 211, 252, 0.15);
 }
 .rep-panel--nobody {
   --rep-accent: #94a3b8;
-  --rep-accent-soft: rgba(148, 163, 184, 0.12);
+  --rep-accent-soft: rgba(148, 163, 184, 0.13);
 }
 
-/* ── Head: eyebrow + quadrant badge ──────────────────────────────── */
+/* Quadrant-tinted bloom behind the crest — atmosphere, not a card. */
+.rep-panel__bloom {
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 55%;
+  height: 150%;
+  background: radial-gradient(ellipse 60% 55% at 70% 30%, var(--rep-accent-soft), transparent 70%);
+  filter: blur(6px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Left accent spine — a heraldic edge that flags the quadrant at a glance. */
+.rep-panel__spine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--rep-accent), transparent 85%);
+  opacity: 0.8;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.rep-panel > *:not(.rep-panel__bloom):not(.rep-panel__spine) {
+  position: relative;
+  z-index: 2;
+}
+
+/* ── Head: eyebrow + "known by N" ────────────────────────────────── */
 .rep-panel__head {
   display: flex;
   align-items: center;
@@ -49,129 +89,360 @@
 }
 
 .rep-panel__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55em;
   font-family: var(--font-display);
   font-size: 0.68rem;
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--color-text-tertiary);
+  color: var(--rep-accent);
+}
+.rep-panel__eyebrow::before {
+  content: '';
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--rep-accent), transparent);
 }
 
-.rep-panel__badge {
+.rep-panel__known {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Crest: stamped seal + serif title ───────────────────────────── */
+.rep-panel__crest {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.rep-panel__seal {
+  position: relative;
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 0.45em;
-  padding: 5px 11px;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--rep-accent);
-  background: var(--rep-accent-soft);
   color: var(--rep-accent);
-  font-family: var(--font-display);
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
+  background:
+    radial-gradient(circle at 38% 32%, rgba(255, 255, 255, 0.12), transparent 60%),
+    rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.14),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.5),
+    0 0 18px var(--rep-accent-soft);
 }
 
-.rep-panel__badge-icon {
-  font-size: 0.9em;
-  line-height: 1;
+/* The ring around the seal — the embossed coin edge. */
+.rep-panel__seal-ring {
+  position: absolute;
+  inset: 3px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--rep-accent);
+  opacity: 0.55;
+}
+
+.rep-panel__title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rep-panel__title {
+  font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+  font-size: clamp(1.35rem, 6vw, 1.6rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: 0.005em;
+  color: var(--color-text-primary);
+  text-shadow: 0 0 24px var(--rep-accent-soft);
 }
 
 .rep-panel__blurb {
-  margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.35;
   color: var(--color-text-secondary);
 }
 
-/* ── Axes ────────────────────────────────────────────────────────── */
-.rep-panel__axes {
+/* ── Meters: renown gauge + regard dial ──────────────────────────── */
+.rep-panel__meters {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
+  gap: var(--space-3);
+  margin-top: 2px;
 }
 
-.rep-panel__axis-row {
+.rep-panel__meter {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.rep-panel__meter-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 4px;
 }
 
-.rep-panel__axis-name {
+.rep-panel__meter-name {
   font-family: var(--font-display);
   font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text-tertiary);
 }
 
-.rep-panel__axis-value {
-  font-size: 0.82rem;
-  font-weight: 700;
+.rep-panel__meter-figure {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
-  color: var(--color-text-primary);
+  color: var(--color-gold-bright, #f5d89a);
+}
+.rep-panel__meter-figure--warm {
+  color: var(--rep-warm);
+}
+.rep-panel__meter-figure--hostile {
+  color: var(--rep-hostile);
 }
 
-.rep-panel__axis-value--warm {
-  color: #6ee7b7;
-}
-.rep-panel__axis-value--hostile {
-  color: #fda4af;
-}
-
-.rep-panel__track {
+/* Renown — engraved gold rail. */
+.rep-panel__rail {
   position: relative;
-  width: 100%;
-  height: 7px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.rep-panel__rail-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--color-gold), var(--color-gold-bright, #f5d89a));
+  box-shadow: 0 0 10px rgba(212, 165, 116, 0.4);
+}
+
+/* Hairline ticks engraved across the whole rail — reads as a gauge. */
+.rep-panel__rail-ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent 9px,
+    rgba(0, 0, 0, 0.32) 9px,
+    rgba(0, 0, 0, 0.32) 10px
+  );
+}
+
+/* Regard — bipolar needle dial. */
+.rep-panel__dial {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.rep-panel__dial-track {
+  position: absolute;
+  inset: 50% 0 auto 0;
+  transform: translateY(-50%);
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    rgba(244, 63, 94, 0.6) 0%,
+    rgba(148, 163, 184, 0.22) 50%,
+    rgba(52, 211, 153, 0.6) 100%
+  );
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+/* Centre origin tick (neutral regard). */
+.rep-panel__dial-origin {
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.rep-panel__needle {
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  box-shadow: 0 0 8px currentColor;
+}
+.rep-panel__needle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  transform: translate(-50%, -50%);
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.rep-panel__needle--warm {
+  color: var(--rep-warm);
+}
+.rep-panel__needle--hostile {
+  color: var(--rep-hostile);
+}
+
+.rep-panel__poles {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  opacity: 0.7;
+}
+
+/* ── "Why?" ledger ───────────────────────────────────────────────── */
+.rep-panel__why {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px;
+  padding: 4px 9px 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.rep-panel__why:hover,
+.rep-panel__why:focus-visible {
+  color: var(--rep-accent);
+  outline: none;
+}
+.rep-panel__why-caret {
+  transition: transform 0.25s var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.rep-panel__why-caret.is-open {
+  transform: rotate(180deg);
+}
+
+.rep-panel__ledger {
+  overflow: hidden;
+}
+
+.rep-panel__ledger-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(
+      90deg,
+      transparent,
+      var(--rep-accent-soft) 25%,
+      var(--rep-accent-soft) 75%,
+      transparent
+    )
+    1;
+}
+
+.rep-panel__group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.rep-panel__group-title {
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.rep-panel__driver {
+  display: grid;
+  grid-template-columns: 1fr 80px 26px;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.rep-panel__driver-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rep-panel__driver-track {
+  height: 5px;
   border-radius: var(--radius-full);
   background: rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
-
-.rep-panel__fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
+.rep-panel__driver-fill {
+  display: block;
+  height: 100%;
   border-radius: var(--radius-full);
-  transition: width 0.4s var(--ease-out-expo, ease-out);
+  background: linear-gradient(90deg, var(--color-gold-dark, #a67c4a), var(--color-gold));
 }
 
-.rep-panel__fill--renown {
-  left: 0;
-  background: linear-gradient(90deg, var(--rep-accent), var(--color-gold-bright, #f5d89a));
+.rep-panel__driver-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+.rep-panel__driver-value--warm {
+  color: var(--rep-warm);
+}
+.rep-panel__driver-value--hostile {
+  color: var(--rep-hostile);
 }
 
-/* Centered regard dial: a center mark, fill grows out from 50%. */
-.rep-panel__track--centered {
-  overflow: visible;
-}
-
-.rep-panel__center-mark {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.22);
-}
-
-.rep-panel__fill--regard-warm {
-  background: linear-gradient(90deg, rgba(52, 211, 153, 0.5), #6ee7b7);
-}
-
-.rep-panel__fill--regard-hostile {
-  background: linear-gradient(90deg, #fda4af, rgba(244, 63, 94, 0.5));
+/* Regard rows are label + signed value (no bar). */
+.rep-panel__group--regard .rep-panel__driver {
+  grid-template-columns: 1fr 32px;
 }
 
 @keyframes repRise {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -183,7 +454,7 @@
   .rep-panel {
     animation: none;
   }
-  .rep-panel__fill {
+  .rep-panel__why-caret {
     transition: none;
   }
 }
