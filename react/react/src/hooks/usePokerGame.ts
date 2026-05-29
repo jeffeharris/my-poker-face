@@ -555,6 +555,16 @@ export function usePokerGame({
         toast.error(data.message);
       });
 
+      // PRH-31: the backend emits `reload_required` when a socket action hits a
+      // game that was evicted from memory (server restart / TTL) — the action
+      // path can't cold-load, only GET /api/game-state can. Self-heal by
+      // re-fetching state, which rehydrates the game from persistence.
+      socket.on('reload_required', (_data: { game_id?: string; code?: string }) => {
+        logger.warn('[RESILIENCE] reload_required from server — refreshing game state');
+        const gId = gameIdRef.current;
+        if (gId) refreshGameStateRef.current(gId, true);
+      });
+
       // Cash mode: server-driven bust detection. `cash_rebuy_needed`
       // fires when the human's stack hits 0 but bankroll can still
       // afford a rebuy at this table; `cash_bust` fires when bankroll
@@ -884,8 +894,8 @@ export function usePokerGame({
         }
       }, 30000);
 
-      try {
-        const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
+      const postAction = () =>
+        fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -895,6 +905,28 @@ export function usePokerGame({
             amount: amount || 0,
           }),
         });
+
+      try {
+        let response = await postAction();
+
+        // PRH-31: the action path can't cold-load — it returns 409
+        // RELOAD_REQUIRED when the game was evicted from memory (restart / TTL).
+        // Self-heal: re-fetch state (which rehydrates it via the GET cold-load
+        // path) and retry the action once, so a tap right after a reconnect/
+        // eviction isn't a silently-dropped dead button.
+        if (response.status === 409) {
+          let code: string | undefined;
+          try {
+            code = (await response.clone().json())?.code;
+          } catch {
+            code = undefined;
+          }
+          if (code === 'RELOAD_REQUIRED') {
+            logger.warn('[RESILIENCE] action got RELOAD_REQUIRED — reloading state and retrying');
+            await refreshGameState(gameId, true);
+            response = await postAction();
+          }
+        }
 
         if (!response.ok) {
           throw new Error('Action failed');
