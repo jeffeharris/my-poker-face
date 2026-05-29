@@ -106,7 +106,16 @@ class TestTableIdSlug:
 
 
 def _seed_personalities(db_path: str, count: int = 30) -> None:
-    """Insert `count` cash-eligible personalities."""
+    """Insert `count` cash-eligible personalities, each with a funded
+    `ai_bankroll_state` row.
+
+    The bankroll row matters: `ensure_lobby_seeded` debits each AI's
+    bankroll before committing its seat (Window B atomicity, plan §3), so
+    an AI with no bankroll row has its debit refused (`debit_bankroll_for_seat`
+    returns None for a missing row) and is dropped from the seed rather than
+    seated unfunded. Production seeds bankroll rows (`ensure_ai_bankrolls_seeded`)
+    before the lobby, so this mirrors the real cold-start state.
+    """
     for i in range(count):
         _insert_personality(
             db_path,
@@ -119,6 +128,14 @@ def _seed_personalities(db_path: str, count: int = 30) -> None:
                 "stake_comfort_zone": "$10",
             },
         )
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO ai_bankroll_state "
+                "(personality_id, sandbox_id, chips, last_regen_tick) "
+                "VALUES (?, ?, ?, ?)",
+                (f"p{i}", "test-sandbox-1", 100_000, datetime.utcnow().isoformat()),
+            )
+            conn.commit()
 
 
 class TestEnsureLobbySeeded:
@@ -312,18 +329,31 @@ class TestEnsureLobbySeeded:
             ),
             sandbox_id="test-sandbox-1",
         )
-        # "rich" has no row — defaults to starting_bankroll (rich enough).
+        # "rich" gets a funded row. (Window B: the seed now debits each AI's
+        # bankroll before seating it, so an AI must have a fundable row to be
+        # seated — a missing row would be refused/dropped, not seated unfunded.)
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="rich",
+                chips=100_000,
+                last_regen_tick=datetime(2026, 5, 18),
+            ),
+            sandbox_id="test-sandbox-1",
+        )
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
             sandbox_id="test-sandbox-1",
         )
-        # Find broke in any table — must not appear.
+        # "broke" must not appear; "rich" should be seated.
+        seated = set()
         for t in cash_table_repo.list_all_tables():
             for slot in t.seats:
                 if slot["kind"] == "ai":
                     assert slot["personality_id"] != "broke"
+                    seated.add(slot["personality_id"])
+        assert "rich" in seated
 
 
 # ============================================================

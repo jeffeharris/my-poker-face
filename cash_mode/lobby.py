@@ -22,6 +22,7 @@ and §"Locked decisions" (3 — kill_all_cash_sessions).
 
 from __future__ import annotations
 
+import itertools
 import logging
 import random
 from contextlib import nullcontext
@@ -374,29 +375,69 @@ def ensure_lobby_seeded(
                     continue
 
                 seat_position = next(position_iter)
+                # Debit the AI's bankroll to fund their initial seat
+                # chips BEFORE committing the seat in memory. Without this
+                # debit the chip-ledger audit double-counts (the comment
+                # above this loop explained the original placeholder
+                # semantics). Pure transfer, no ledger entry —
+                # `ai_bankrolls_stored` and `cash_table_seats_ai` move in
+                # opposite directions by `ai_buy_in`, preserving
+                # `actual_outstanding`.
+                #
+                # Window B (cold-start) atomicity: `debit_bankroll_for_seat`
+                # can fail by *returning None* (row missing / projected <
+                # buy-in — the audit-safe refusal) or by *raising*. Either
+                # way the AI is NOT funded, so we must NOT place the seat:
+                # doing so would write a seated-but-unfunded AI (seat chips
+                # with no matching bankroll debit → minted chips once
+                # `save_table` persists the row). Debit-first + drop-on-fail
+                # makes a per-AI debit failure cleanly skip just that AI,
+                # leaving the position open for the next candidate. The
+                # success path (debit returns non-None) is unchanged.
+                from cash_mode.bankroll import debit_bankroll_for_seat
+
+                try:
+                    debit_result = debit_bankroll_for_seat(
+                        bankroll_repo,
+                        pid,
+                        ai_buy_in,
+                        sandbox_id=sandbox_id,
+                        chip_ledger_repo=chip_ledger_repo,
+                        now=now,
+                    )
+                except Exception:
+                    logger.exception(
+                        "[CASH][LOBBY] seed %s/%s: debit raised for %r — "
+                        "skipping seat (no chips moved)",
+                        stake_label,
+                        table_id,
+                        pid,
+                    )
+                    debit_result = None
+
+                if debit_result is None:
+                    # Refused/failed debit: AI was not funded. Return the
+                    # position to the pool (so a later candidate can use it)
+                    # and leave the seat open. Nothing was committed for this
+                    # AI — no seat write, no seated_globally entry, no
+                    # filled++.
+                    position_iter = itertools.chain([seat_position], position_iter)
+                    logger.warning(
+                        "[CASH][LOBBY] seed %s/%s: debit refused for %r "
+                        "(seat %d) — leaving seat open, AI dropped",
+                        stake_label,
+                        table_id,
+                        pid,
+                        seat_position,
+                    )
+                    continue
+
                 seats[seat_position] = ai_slot(pid, ai_buy_in)
                 seated_globally.add(pid)
                 # (If this AI was idle, the seated⇒not-idle invariant is
                 # enforced by the save_table call after this loop — see
                 # CashTableRepository.save_table.)
                 filled += 1
-                # Debit the AI's bankroll to fund their initial seat
-                # chips. Without this debit the chip-ledger audit
-                # double-counts (the comment above this loop explained the
-                # original placeholder semantics). Pure transfer, no
-                # ledger entry — `ai_bankrolls_stored` and
-                # `cash_table_seats_ai` move in opposite directions by
-                # `ai_buy_in`, preserving `actual_outstanding`.
-                from cash_mode.bankroll import debit_bankroll_for_seat
-
-                debit_bankroll_for_seat(
-                    bankroll_repo,
-                    pid,
-                    ai_buy_in,
-                    sandbox_id=sandbox_id,
-                    chip_ledger_repo=chip_ledger_repo,
-                    now=now,
-                )
                 logger.info(
                     "[CASH][LOBBY] seed %s/%s: seated %r at seat %d chips=%d",
                     stake_label,
