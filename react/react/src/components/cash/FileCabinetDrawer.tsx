@@ -139,6 +139,7 @@ export function FileCabinetDrawer({
   const [peopleMet, setPeopleMet] = useState(0);
   const [dossiersUnlocked, setDossiersUnlocked] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [sort, setSort] = useState<SortKey>('most_played');
   const [search, setSearch] = useState('');
 
@@ -153,6 +154,7 @@ export function FileCabinetDrawer({
       logger.error('[filecabinet] fetch failed', e);
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   }, []);
 
@@ -263,7 +265,10 @@ export function FileCabinetDrawer({
               onOpen={onOpenDossier}
             />
           ))}
-          {!loading && people.length === 0 && (
+          {!loaded && loading && (
+            <p className="archive__no-match">Pulling files…</p>
+          )}
+          {loaded && people.length === 0 && (
             <div className="archive__empty">
               <div className="archive__empty-stamp" aria-hidden="true">
                 NO FILES
