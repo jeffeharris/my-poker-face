@@ -760,3 +760,36 @@ class TestMenuCompliance:
         assert analysis.menu_chosen_ev is None
         assert analysis.menu_picked_best is None
         assert analysis.menu_num_options is None
+
+
+class TestGetAnalyzerIterations:
+    """PRH-30: the in-game analyzer's MC iteration count is env-configurable."""
+
+    def _reset_singleton(self):
+        import poker.decision_analyzer as da
+
+        da._analyzer_instance = None
+
+    def test_default_iterations(self, monkeypatch):
+        monkeypatch.delenv("DECISION_ANALYSIS_ITERATIONS", raising=False)
+        self._reset_singleton()
+        from poker.decision_analyzer import get_analyzer
+
+        assert get_analyzer().iterations == 2000
+        self._reset_singleton()
+
+    def test_env_lowers_iterations(self, monkeypatch):
+        monkeypatch.setenv("DECISION_ANALYSIS_ITERATIONS", "500")
+        self._reset_singleton()
+        from poker.decision_analyzer import get_analyzer
+
+        assert get_analyzer().iterations == 500
+        self._reset_singleton()
+
+    def test_explicit_arg_wins_over_env(self, monkeypatch):
+        monkeypatch.setenv("DECISION_ANALYSIS_ITERATIONS", "500")
+        self._reset_singleton()
+        from poker.decision_analyzer import get_analyzer
+
+        assert get_analyzer(iterations=123).iterations == 123
+        self._reset_singleton()
