@@ -213,7 +213,15 @@ _test_schema_template_path = None
 #       Read-only scoreboard — never injected into core AI thresholds. See
 #       `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
 #       Renumbered from v121 on the prestige→prep-for-main merge (collision).
-SCHEMA_VERSION = 122
+# v123: Create `tournaments` — durable state for multi-table tournaments
+#       (the MTT meta-layer). One row per tournament: the serialized
+#       `TournamentSession` (session_json, source of truth for
+#       field/seating/standings), the human's live `game_id` (NULL until
+#       they sit), `status` ('active'|'complete'), `resolver_kind`
+#       ('fake'|'engine', rebuilt on rehydrate — resolvers aren't stored).
+#       Re-enterable across navigation / TTL eviction / restart, mirroring
+#       cash cold-load. See docs/plans/TOURNAMENT_PERSISTENCE_HANDOFF.md.
+SCHEMA_VERSION = 123
 
 
 class SchemaManager:
@@ -1240,6 +1248,29 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)"
             )
 
+            # 23b. Multi-table tournament (MTT) durable state (v123) — see
+            # _migrate_v123_create_tournaments. session_json is the source of
+            # truth for the meta-layer; the live per-table hand state lives in
+            # the games row.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tournaments (
+                    tournament_id TEXT PRIMARY KEY,
+                    owner_id      TEXT NOT NULL,
+                    game_id       TEXT,
+                    status        TEXT NOT NULL,
+                    resolver_kind TEXT NOT NULL DEFAULT 'fake',
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL,
+                    session_json  TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournaments_owner ON tournaments(owner_id, status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)"
+            )
+
             # 24. Experiments (v43) - experiment metadata and configuration
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS experiments (
@@ -2007,6 +2038,10 @@ class SchemaManager:
             122: (
                 self._migrate_v122_create_prestige_snapshots,
                 "Create prestige_snapshots table — sandbox-scoped human-player reputation (renown ratchets, regard swings) captured by the ticker with component breakdown; add idx_relationship_states_opponent for the inbound-edge aggregate",
+            ),
+            123: (
+                self._migrate_v123_create_tournaments,
+                "Create tournaments table — durable multi-table tournament meta-state (serialized TournamentSession + live game_id + status + resolver_kind) so a tournament survives navigation / TTL eviction / restart",
             ),
         }
 
@@ -6401,3 +6436,39 @@ class SchemaManager:
                 ON relationship_states(opponent_id)
         """)
         logger.info("Migration v122 complete: prestige_snapshots table created")
+
+    def _migrate_v123_create_tournaments(self, conn: sqlite3.Connection) -> None:
+        """Migration v123: create `tournaments` — durable multi-table
+        tournament (MTT) meta-state.
+
+        One row per tournament holding the serialized `TournamentSession`
+        (`session_json`, the source of truth for field/seating/standings), the
+        human's live `game_id` (NULL until they sit), `status`
+        ('active'|'complete'), and `resolver_kind` ('fake'|'engine', rebuilt on
+        rehydrate — resolvers aren't serialized). Makes a tournament
+        re-enterable across navigation / TTL eviction / server restart,
+        mirroring how cash sessions cold-load. The live per-table hand state
+        still lives in the `games` row.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). See
+        `docs/plans/TOURNAMENT_PERSISTENCE_HANDOFF.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournaments (
+                tournament_id TEXT PRIMARY KEY,
+                owner_id      TEXT NOT NULL,
+                game_id       TEXT,
+                status        TEXT NOT NULL,
+                resolver_kind TEXT NOT NULL DEFAULT 'fake',
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL,
+                session_json  TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tournaments_owner ON tournaments(owner_id, status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)"
+        )
+        logger.info("Migration v123 complete: tournaments table created")
