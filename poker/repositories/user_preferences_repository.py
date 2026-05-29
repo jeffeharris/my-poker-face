@@ -11,6 +11,7 @@ See `docs/plans/CASH_MODE_REALTIME_TICKER.md`.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from .base_repository import BaseRepository
@@ -108,3 +109,57 @@ class UserPreferencesRepository(BaseRepository):
                 (user_id, stored),
             )
         return trimmed
+
+    # === preferences_json scalar prefs ===
+    # The v115 `preferences_json` blob is reserved for scalar prefs that don't
+    # each warrant a column. Read-merge-write so settings sharing the blob don't
+    # clobber each other.
+
+    def _get_preferences_json(self, user_id: str) -> dict:
+        """Return the parsed preferences_json blob, or {} if unset/malformed.
+
+        Malformed JSON degrades to {} so one bad write can't break reads.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT preferences_json FROM user_preferences WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        if not row or not row[0]:
+            return {}
+        try:
+            data = json.loads(row[0])
+        except (ValueError, TypeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _set_preference_scalar(self, user_id: str, key: str, value) -> None:
+        """Merge one scalar into preferences_json (read-merge-write, UPSERT)."""
+        prefs = self._get_preferences_json(user_id)
+        prefs[key] = value
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_preferences (user_id, preferences_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    preferences_json = excluded.preferences_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, json.dumps(prefs)),
+            )
+
+    def get_auto_fast_fold(self, user_id: str) -> bool:
+        """Whether to auto-fast-forward the rest of the hand once the human folds.
+
+        Default False (opt-in). When on, the game handler flips the existing
+        `fast_forward` flag the moment the human folds, so the remaining AIs
+        resolve the orbit with no-LLM tiered controllers instead of multi-second
+        LLM decisions. Trade-off: no per-turn AI table talk for that orbit.
+        """
+        return bool(self._get_preferences_json(user_id).get('auto_fast_fold', False))
+
+    def set_auto_fast_fold(self, user_id: str, enabled: bool) -> bool:
+        """Persist the auto-fast-fold preference; return the stored value."""
+        self._set_preference_scalar(user_id, 'auto_fast_fold', bool(enabled))
+        return bool(enabled)

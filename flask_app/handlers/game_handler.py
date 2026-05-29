@@ -3662,6 +3662,51 @@ def _resolve_human_bio(current_game_data: dict) -> str:
     return bio
 
 
+def _resolve_auto_fast_fold(current_game_data: dict) -> bool:
+    """Resolve the owner's 'speed through after I fold' preference, cached per game.
+
+    Read once per game (lazily). It's a set-and-forget user preference, so a
+    mid-game toggle not taking effect until the game reloads is acceptable, and
+    this avoids a DB hit on every fold. Mirrors `_resolve_human_bio`.
+    """
+    if 'auto_fast_fold' in current_game_data:
+        return current_game_data['auto_fast_fold']
+    owner_id = current_game_data.get('owner_id')
+    if not owner_id:
+        current_game_data['auto_fast_fold'] = False
+        return False
+    try:
+        from ..extensions import user_prefs_repo
+
+        value = bool(user_prefs_repo.get_auto_fast_fold(owner_id)) if user_prefs_repo else False
+    except Exception as e:
+        # Don't cache on failure — a transient DB error shouldn't pin the pref
+        # off for the rest of the session; retry on the next fold.
+        logger.debug(f"Could not resolve auto_fast_fold for {owner_id}: {e}")
+        return False
+    current_game_data['auto_fast_fold'] = value
+    return value
+
+
+def maybe_engage_auto_fast_fold(game_id: str, action: str) -> None:
+    """If the human just folded and opted in, fast-forward the rest of the orbit.
+
+    Sets the existing `fast_forward` flag so `handle_ai_action` swaps the
+    remaining AIs to no-LLM tiered controllers; the flag auto-clears when action
+    returns to the human next hand (progress_game's human-turn branch). Call
+    after applying the human's action, before progress_game.
+    """
+    if action != 'fold':
+        return
+    current_game_data = game_state_service.get_game(game_id)
+    if not current_game_data or current_game_data.get('fast_forward'):
+        return
+    if _resolve_auto_fast_fold(current_game_data):
+        current_game_data['fast_forward'] = True
+        game_state_service.set_game(game_id, current_game_data)
+        logger.info(f"[FF] game={game_id} auto fast-forward engaged after human fold")
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")

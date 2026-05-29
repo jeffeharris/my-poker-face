@@ -1,0 +1,125 @@
+/* Section menu — same column rhythm as the home menu's mode cards. The
+   .mode-card visuals come from HomeMenu.css (imported by SettingsPage). */
+.settings-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Back link inside a drilled-in sub-view (e.g. the avatar edit view). */
+.settings-subback {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 6px 4px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #9aa4b6);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.settings-subback:hover:not(:disabled) {
+  color: var(--color-text-primary, #e8ecf4);
+}
+
+.settings-subback:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The avatar/bio buttons now carry icons — keep icon + label aligned.
+   ProfilePage.css is only consumed alongside this file, so scoping here is safe. */
+.profile-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* ── Gameplay section ── */
+.settings-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* A labeled toggle row: text on the left, switch on the right */
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.settings-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-toggle-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e8ecf4;
+}
+
+.settings-toggle-desc {
+  font-size: 0.85rem;
+  color: #9aa4b6;
+  line-height: 1.4;
+}
+
+/* iOS-style switch */
+.settings-switch {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.18s ease;
+}
+
+.settings-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-switch.is-on {
+  background: rgba(120, 160, 255, 0.85);
+  border-color: rgba(120, 160, 255, 0.85);
+}
+
+.settings-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.18s ease;
+}
+
+.settings-switch.is-on .settings-switch-knob {
+  transform: translateX(20px);
+}

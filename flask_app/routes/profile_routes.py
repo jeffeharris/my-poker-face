@@ -62,6 +62,7 @@ def get_profile():
             'success': True,
             'avatar_url': extensions.user_avatar_service.get_avatar_url(user_id),
             'bio': extensions.user_prefs_repo.get_bio(user_id),
+            'auto_fast_fold': extensions.user_prefs_repo.get_auto_fast_fold(user_id),
         }
     )
 
@@ -78,6 +79,24 @@ def set_bio():
 
     stored = extensions.user_prefs_repo.set_bio(g.profile_user['id'], bio)
     return jsonify({'success': True, 'bio': stored})
+
+
+@profile_bp.route('/api/profile/auto-fast-fold', methods=['PUT'])
+@_auth_required
+def set_auto_fast_fold():
+    """Toggle 'speed through the hand after I fold' (sticky per-user preference).
+
+    When on, folding kicks the rest of the orbit into fast-forward (no-LLM
+    tiered decisions) so the next hand arrives quickly. See game_handler's
+    fold path and _resolve_auto_fast_fold.
+    """
+    data = request.get_json(silent=True) or {}
+    enabled = data.get('enabled')
+    if not isinstance(enabled, bool):
+        return jsonify({'success': False, 'error': 'enabled must be a boolean'}), 400
+
+    stored = extensions.user_prefs_repo.set_auto_fast_fold(g.profile_user['id'], enabled)
+    return jsonify({'success': True, 'auto_fast_fold': stored})
 
 
 @profile_bp.route('/api/profile/avatar/upload', methods=['POST'])

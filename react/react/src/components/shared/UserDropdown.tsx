@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, LogOut, Settings, Home, GraduationCap, UserCircle } from 'lucide-react';
+import { ChevronDown, LogOut, Settings, Home, GraduationCap, Wrench } from 'lucide-react';
 import { config } from '../../config';
 import './UserDropdown.css';
 
@@ -155,12 +155,12 @@ export function UserDropdown({
             className="user-dropdown__menu-item"
             onClick={() => {
               setIsOpen(false);
-              navigate('/profile');
+              navigate('/settings');
             }}
             role="menuitem"
           >
-            <UserCircle size={16} />
-            <span>Profile</span>
+            <Settings size={16} />
+            <span>Settings</span>
           </button>
 
           {onMainMenu && (
@@ -186,7 +186,7 @@ export function UserDropdown({
               }}
               role="menuitem"
             >
-              <Settings size={16} />
+              <Wrench size={16} />
               <span>Admin Tools</span>
             </button>
           )}
