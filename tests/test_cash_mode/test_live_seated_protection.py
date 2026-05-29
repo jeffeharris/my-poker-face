@@ -242,6 +242,88 @@ class TestRefreshHonorsLiveSeated:
         assert "blackbeard" not in self._seated_pids(cash_table_repo)
 
 
+# ============================================================
+# _restore_cash_table_binding — cold-load seat-orphan self-heal
+# ============================================================
+
+
+class _FakeSession:
+    def __init__(self, cash_table_id, cash_seat_index):
+        self.cash_table_id = cash_table_id
+        self.cash_seat_index = cash_seat_index
+
+
+class _FakeSessionRepo:
+    def __init__(self, session):
+        self._session = session
+        self.loaded_with = None
+
+    def load(self, game_id):
+        self.loaded_with = game_id
+        return self._session
+
+
+class TestRestoreCashTableBinding:
+    """Regression: a cold-loaded cash game loses `cash_table_id` (it's
+    memory-only, not in `game_state_json`). When the hand-boundary refresh
+    early-returns on the missing id, the human seat is never re-stamped into
+    the `cash_tables` row, `refresh_unseated_tables` then treats the table as
+    empty and refills the human's seat with AIs — the "my seat got taken,
+    Resume shows different players" split-brain. `_restore_cash_table_binding`
+    re-attaches the binding from the durable `cash_sessions` row so the
+    refresh keeps the seat protected across cold-loads.
+    """
+
+    def _patch_repo(self, monkeypatch, session):
+        repo = _FakeSessionRepo(session)
+        import flask_app.extensions as ext
+
+        monkeypatch.setattr(ext, "cash_session_repo", repo, raising=False)
+        saved: dict = {}
+        monkeypatch.setattr(
+            game_state_service,
+            "set_game",
+            lambda gid, data: saved.update({"gid": gid, "data": data}),
+        )
+        return repo, saved
+
+    def test_present_binding_is_returned_untouched(self, monkeypatch):
+        repo, saved = self._patch_repo(monkeypatch, _FakeSession("cash-table-2-001", 4))
+        game_data = {"cash_table_id": "already-here", "cash_seat_index": 2}
+        out = game_handler._restore_cash_table_binding("cash-x", game_data)
+        assert out == "already-here"
+        # No session lookup, no write-back when the binding is already present.
+        assert repo.loaded_with is None
+        assert saved == {}
+
+    def test_recovers_binding_from_session_and_writes_back(self, monkeypatch):
+        repo, saved = self._patch_repo(monkeypatch, _FakeSession("cash-table-2-001", 4))
+        game_data = {}
+        out = game_handler._restore_cash_table_binding("cash-P3lh", game_data)
+        assert out == "cash-table-2-001"
+        assert repo.loaded_with == "cash-P3lh"
+        # Re-stamped onto game_data so subsequent refreshes + leave see it.
+        assert game_data["cash_table_id"] == "cash-table-2-001"
+        assert game_data["cash_seat_index"] == 4
+        assert saved["gid"] == "cash-P3lh"
+
+    def test_no_session_row_returns_none(self, monkeypatch):
+        _repo, saved = self._patch_repo(monkeypatch, None)
+        game_data = {}
+        out = game_handler._restore_cash_table_binding("cash-legacy", game_data)
+        # Legacy /api/cash/start games never had a binding — nothing to heal.
+        assert out is None
+        assert "cash_table_id" not in game_data
+        assert saved == {}
+
+    def test_session_without_table_id_returns_none(self, monkeypatch):
+        _repo, _saved = self._patch_repo(monkeypatch, _FakeSession(None, None))
+        game_data = {}
+        out = game_handler._restore_cash_table_binding("cash-coldstart", game_data)
+        assert out is None
+        assert "cash_table_id" not in game_data
+
+
 if __name__ == "__main__":
     import unittest
 

@@ -1316,6 +1316,59 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
     return picks
 
 
+def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
+    """Re-attach a cash game's lobby-table binding from the durable
+    ``cash_sessions`` row when it's missing from ``game_data``.
+
+    ``cash_table_id`` / ``cash_seat_index`` are memory-only fields: they're
+    stamped at sit-down but are NOT part of the persisted
+    ``game_state_json``. Any cold-load that doesn't pass through the
+    ``/api/game-state`` restore block (e.g. a background hand advance after
+    the game was evicted from memory) leaves them ``None``. Without the
+    binding the hand-boundary refresh below early-returns, so the human seat
+    is never re-stamped into the ``cash_tables`` row; ``refresh_unseated_tables``
+    then treats the table as empty and refills the human's seat with AIs —
+    the "my seat got taken, Resume shows different players" split-brain.
+
+    Mirrors the same ``cash_sessions`` fallback ``leave_table`` already uses
+    (cash_routes.py). Writes the recovered ids back onto ``game_data`` via
+    ``set_game`` so subsequent hand-boundary refreshes and the eventual leave
+    see them too. Returns the resolved ``table_id`` (or ``None`` if it can't
+    be recovered — legacy ``/api/cash/start`` games never had a binding).
+    """
+    table_id = game_data.get('cash_table_id')
+    if table_id:
+        return table_id
+    try:
+        from flask_app.extensions import cash_session_repo
+
+        if cash_session_repo is None:
+            return None
+        cs = cash_session_repo.load(game_id)
+    except Exception as e:
+        logger.warning(
+            "[CASH][LOBBY] cash_sessions binding restore failed for %r: %s",
+            game_id,
+            e,
+        )
+        return None
+    if cs is None or cs.cash_table_id is None:
+        return None
+    game_data['cash_table_id'] = cs.cash_table_id
+    if game_data.get('cash_seat_index') is None:
+        game_data['cash_seat_index'] = cs.cash_seat_index
+    from flask_app.services import game_state_service
+
+    game_state_service.set_game(game_id, game_data)
+    logger.info(
+        "[CASH][LOBBY] restored cash-table binding %r:%s for orphaned cash game %r",
+        cs.cash_table_id,
+        cs.cash_seat_index,
+        game_id,
+    )
+    return cs.cash_table_id
+
+
 def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machine) -> None:
     """Hand-boundary lobby refresh for the player's active table.
 
@@ -1348,10 +1401,14 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     Failures are caught by the caller — a flaky lobby refresh shouldn't
     block the hand from advancing.
     """
-    table_id = game_data.get('cash_table_id')
+    # Self-heal the table binding from the durable cash_sessions row when a
+    # cold-loaded game lost it (cash_table_id isn't in game_state_json). This
+    # keeps the human seat re-stamped each hand so refresh_unseated_tables
+    # never refills it — closing the cold-load ghost-seat split-brain.
+    table_id = _restore_cash_table_binding(game_id, game_data)
     if not table_id:
-        # Lobby v1.5 didn't tag the game with a table id (older /api/cash/start
-        # path). Nothing to refresh.
+        # No durable binding (legacy /api/cash/start games never had one).
+        # Nothing to refresh.
         return
 
     import random
