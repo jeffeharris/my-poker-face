@@ -14,7 +14,7 @@ See docs/plans/TRAINING_MODE.md.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -83,6 +83,58 @@ TABLE_PRESETS: dict[str, TablePreset] = {
         starting_stack_bb=100,
     ),
 }
+
+@dataclass(frozen=True)
+class ScriptedSpot:
+    """A fixed drill: specific hole cards, board, stacks, and a villain line.
+
+    All chip values are authored in big blinds (`*_bb`) so a spot reads cleanly
+    and scales with the stake; the factory converts to chips. Cards are short
+    strings parsed by `core.card.Card.from_short` ("Ah", "10c", "A♥").
+
+    `hero_position` is a display label in Phase 3 (the factory forces the hero
+    to act by setting `current_player_idx` to the hero seat, so it does not rely
+    on the engine deriving position). Full positional action-order fidelity
+    matters only for the "play it out" continuation and is deferred.
+
+    `villain_holes` is optional: when omitted the factory deals villains random
+    hole cards from the remaining deck (fine for a single-decision drill where
+    the hero faces a known line). Provide it to pin a specific runout.
+    """
+
+    kind: str = "scripted_spot"
+    phase: str = "FLOP"  # PokerPhase name: PRE_FLOP | FLOP | TURN | RIVER
+    big_blind: int = 100
+    hero_hole: list[str] = field(default_factory=list)  # ["Ah", "Ks"]
+    community: list[str] = field(default_factory=list)  # ["Kc", "7d", "2h"]
+    hero_stack_bb: float = 100.0
+    villain_stacks_bb: list[float] = field(default_factory=list)
+    pot_bb: float = 0.0  # total pot before the hero acts (incl. current bets)
+    hero_bet_bb: float = 0.0  # hero's outstanding current-street bet
+    villain_bets_bb: list[float] = field(default_factory=list)  # aligns w/ villain_stacks
+    villain_holes: list[list[str]] | None = None
+    hero_position: str = "BTN"  # display label only (see class docstring)
+
+    def chips(self, bb_amount: float) -> int:
+        return round(bb_amount * self.big_blind)
+
+
+@dataclass(frozen=True)
+class TrainingScenario:
+    """A named, tagged drill wrapping one config variant.
+
+    The wrapper carries catalog metadata (id/name/tags/coach focus) shared by
+    every variant; `config` is the variant payload. New variants (e.g. a
+    captured-hand replay in Phase 3.5) slot in as additional `config` types.
+    """
+
+    id: str
+    name: str
+    description: str
+    config: ScriptedSpot  # widen to a Union as more variants land
+    tags: list[str] = field(default_factory=list)
+    coach_focus_skills: list[str] = field(default_factory=list)
+
 
 DEFAULT_PRESET_ID = "standard"
 

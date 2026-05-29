@@ -412,6 +412,52 @@ pending, and they `play_turn()` before the `progress_game()` lock is involved
 
 ---
 
+## Hand replay from history (Phase 3.5)
+
+Turn the player's *real* hands into review drills: flag a hand mid-game (or let
+the room auto-surface interesting ones), then replay it in the training room —
+dropped into any seat at any street — with the coach. A captured hand is just a
+scripted spot with the cards already filled in, so this **reuses the Phase 3
+factory** end-to-end.
+
+**Why it works (verified):** `hand_history` already persists everything needed
+via `RecordedHand` (`poker/memory/hand_history.py`):
+- `PlayerHandInfo.starting_stack` — hand-start stacks (no reconstruction guess)
+- `RecordedAction{action, amount, phase, player_name, pot_after}` — the line,
+  tagged by street, so replaying actions up to a target street yields each
+  seat's exact bet/stack/folded state
+- `hole_cards{name: [...]}` for all seats, `community_cards_by_phase`, `deck_seed`
+
+**Reconstructor:** `RecordedHand + (street, seat) → PokerGameState` →
+`build_scripted_spot_state_machine`. Start a fresh non-counting `train-` game.
+Defaults: the human's own seat, at the hand's decision point.
+
+**Three content sources, one engine:**
+1. **Manual flag** — an in-game ⚑ "Review later" button → `flagged_hands(owner_id,
+   game_id, hand_number, note, created_at)`.
+2. **Auto-surface (tagging)** — score recent hands by `player_decision_analysis.ev_lost`
+   (big mistakes), `pressure_events` BIG_WIN/BIG_LOSS (coolers/big pots),
+   showdown/all-in; the room proposes "N hands worth reviewing." Either extend
+   the existing `capture_label_repo` tagging or compute tags on the fly (decide
+   at build time).
+3. **Authored spots** — the Phase 3 base catalog.
+
+**Coach:** reuse the existing post-hand review (`/api/coach/<id>/hand-review`)
+plus the Phase-2b inline verdict when you re-decide live.
+
+**Design forks** (ship the simpler side first):
+- *What-if* (act once → coach evaluates vs your real line + GTO → drill ends)
+  before *play-it-out* (bots continue from the divergence using the real villain
+  hole cards).
+- Hide villain hole cards until you act, then reveal (you didn't see them live).
+
+**Notes:** replays are non-counting (fresh `train-` games via the Phase-1
+builder); real `hand_history` is never mutated. The existing admin
+"replay experiment" tool (`replay_experiment_*`) is unrelated — it re-runs
+captured AI *prompt* decisions against models, not playable hand reconstruction.
+
+---
+
 ## Read the Player drill (Phase 5)
 
 Teaches opponent reading and adaptation. Reuses
@@ -475,15 +521,27 @@ just default to `proactive`.
 - [x] `TrainingMenu.tsx` (difficulty cards + table-size) + CSS, `/menu/training` route, "Practice" mode-card on HomeMenu, `isTrainingGameId` util, back-nav + 404-recovery routing for `train-`. TS + eslint clean.
 - [ ] Deferred polish: in-game "Training — doesn't count" badge in the game header (the table welcome message covers it for now); guest hand-limit exemption.
 
-### Phase 2 — Table presets + inline feedback
-- [ ] `scenario.py` + `scenario_library.py` + `config/training_scenarios/` presets (HU short/deep, 6-max, full-ring).
-- [ ] `state_builder.py` TablePreset path; `GET /api/training/scenarios`.
-- [ ] Surface `skill_evaluation` in the action response; `InlineSkillFeedback.tsx`.
+### Phase 2 — Table presets + inline feedback ✅ DONE (2026-05-29, committed `2e96985c` + `c8ea84c3`)
+- [x] `training/scenario.py` `TablePreset` + `TABLE_PRESETS` (standard/heads_up/short_stack/deep/full_ring). Kept as **code constants**, not a JSON library — the JSON-backed catalog lands in Phase 3 where authored content justifies it.
+- [x] `training/state_builder.py` `build_table_preset_state_machine` (the seam Phase 3 extends); `/api/training/start` takes `preset_id`; new `GET /api/training/scenarios`.
+- [x] Inline feedback: `_evaluate_coach_progression` returns the primary verdict; action response carries `skill_evaluation` in training mode; FE shows a verdict toast (chose a toast over a dedicated `InlineSkillFeedback` component to avoid destabilizing the action render tree — revisit if a richer surface is wanted).
 
 ### Phase 3 — Scripted spots
-- [ ] `state_builder.py` ScriptedSpot path (`from_saved_state` + deck filtering + ghost-seat asserts) and its unit test.
-- [ ] Initial drill catalog: one spot per coach skill (11) + extras for the hard ones.
-- [ ] `ScenarioCard.tsx` selector; `POST /api/training/restart` (replay with fresh villains); "Play again" on game-over.
+- [ ] Extend `training/scenario.py` with `ScriptedSpot` + `TrainingScenario` wrapper; add `training/scenario_library.py` (JSON loader) + `config/training_scenarios/*.json`.
+- [ ] `state_builder.py` `build_scripted_spot_state_machine` (`from_saved_state` + card parser `"Ah"→Card('A','Hearts')`, note rank `'10'` not `'T'`; deck = full deck minus pre-placed; ghost-seat + legality asserts) and its unit test. **Verified engine shapes:** `Player(name,stack,is_human,bet,hand=(card,..))`, `PokerGameState(players,deck,pot={'total':N},current_player_idx,current_dealer_idx,community_cards,current_ante,last_raise_amount,raises_this_round,awaiting_action)`, `from_saved_state(game_state, PokerPhase, blind_config, hand_count)`; `highest_bet` is derived from player bets (not stored).
+- [ ] `/api/training/start` accepts `scenario_id` (scripted) distinct from `preset_id`; `GET /api/training/scenarios` lists spots too.
+- [ ] Initial drill catalog: one spot per coach skill (11) + extras for the hard ones; **validate at library-load time**.
+- [ ] `ScenarioSelector` (spots by skill/tag) + replay (same cards/board, fresh seed/villains) + "Play again" on game-over.
+- [ ] Design fork (ship simple first): scripted spot sets up the *first* hand, then the table continues normally; auto-reset-each-hand drill is a follow-on (needs pausing the `HAND_OVER` auto-deal).
+
+### Phase 3.5 — Hand replay from history (review real hands)
+*Builds on the Phase 3 factory: a captured real hand is a scripted spot with the cards already filled in.* See the design section "Hand replay from history" above.
+- [ ] `RecordedHand → (street, seat) → PokerGameState` reconstructor (reuse `build_scripted_spot_state_machine`). Replay actions up to the chosen street to derive each seat's bet/stack/folded state; board from `community_cards_by_phase`; stacks from `PlayerHandInfo.starting_stack`.
+- [ ] In-game ⚑ "Review later" button → `flagged_hands(owner_id, game_id, hand_number, note, created_at)` (tiny owner-scoped table).
+- [ ] Practice-room "Your hands to review" list (flagged + auto-surfaced) → reconstruct → non-counting `train-` drill, hero's seat + decision-point street by default.
+- [ ] Auto-surface ("tagging"): score recent hands by `player_decision_analysis.ev_lost` + `pressure_events` (BIG_WIN/BIG_LOSS) + showdown/all-in; propose "N hands worth reviewing." Confirm whether to extend `capture_label_repo` or compute tags on the fly.
+- [ ] What-if vs play-it-out fork: ship **what-if** first (you act once, coach evaluates vs your real line + GTO, drill ends); play-it-out (bots continue from divergence with real villain cards) is a follow-on.
+- [ ] Hide villain hole cards until you act, then reveal (you didn't see them live).
 
 ### Phase 4 — Interactive intercept coach
 - [ ] `flask_app/services/intercept_service.py` (`should_intercept`, `begin_intercept`, `resolve_intercept`).

@@ -85,6 +85,89 @@ class TestTablePresets(unittest.TestCase):
         self.assertEqual(TABLE_PRESETS['heads_up'].opponents, 1)
 
 
+class TestScriptedSpotFactory(unittest.TestCase):
+    """The Phase 3 from_saved_state injection — the highest-risk new code.
+
+    Pure (no DB/app context needed): asserts the factory produces a legal,
+    human-to-act mid-street state with a consistent deck.
+    """
+
+    def _spot(self, **kw):
+        from training.scenario import ScriptedSpot
+
+        base = dict(
+            phase='FLOP',
+            big_blind=100,
+            hero_hole=['Ah', 'Ks'],
+            community=['Kc', '7d', '2h'],
+            hero_stack_bb=40,
+            villain_stacks_bb=[38],
+            pot_bb=4.5,
+            hero_bet_bb=0,
+            villain_bets_bb=[3.0],  # villain has bet ~2/3 pot
+        )
+        base.update(kw)
+        return ScriptedSpot(**base)
+
+    def test_builds_human_to_act_flop_state(self):
+        from training.state_builder import build_scripted_spot_state_machine
+
+        sm = build_scripted_spot_state_machine(self._spot(), 'Hero', ['Villain'], seed=1)
+        gs = sm.game_state
+        self.assertTrue(gs.awaiting_action)
+        self.assertTrue(gs.players[gs.current_player_idx].is_human)
+        self.assertEqual(gs.players[0].name, 'Hero')
+        self.assertEqual(len(gs.players[0].hand), 2)
+        self.assertEqual(len(gs.community_cards), 3)
+
+    def test_hero_faces_the_villain_bet(self):
+        from training.state_builder import build_scripted_spot_state_machine
+
+        sm = build_scripted_spot_state_machine(self._spot(), 'Hero', ['Villain'], seed=1)
+        gs = sm.game_state
+        # Villain bet 3bb=300; hero bet 0 → highest_bet 300, so a real call cost.
+        self.assertEqual(gs.highest_bet, 300)
+        self.assertEqual(gs.players[0].bet, 0)
+        self.assertEqual(gs.current_ante, 100)
+
+    def test_deck_excludes_placed_cards_auto_dealt_villains(self):
+        from core.card import Card
+        from training.state_builder import build_scripted_spot_state_machine
+
+        sm = build_scripted_spot_state_machine(self._spot(), 'Hero', ['Villain'], seed=7)
+        gs = sm.game_state
+        # placed = 2 hero + 3 board; villains auto-dealt 2 → 52-5-2 = 45 left.
+        self.assertEqual(len(gs.deck), 45)
+        for c in [Card.from_short(x) for x in ['Ah', 'Ks', 'Kc', '7d', '2h']]:
+            self.assertNotIn(c, gs.deck)
+
+    def test_pinned_villain_holes_leave_deck_consistent(self):
+        from training.state_builder import build_scripted_spot_state_machine
+
+        spot = self._spot(villain_holes=[['Qd', 'Qs']])
+        sm = build_scripted_spot_state_machine(spot, 'Hero', ['Villain'], seed=3)
+        gs = sm.game_state
+        # placed = 2 hero + 3 board + 2 villain = 7 → 52-7 = 45 left.
+        self.assertEqual(len(gs.deck), 45)
+        self.assertEqual(gs.players[1].hand[0].rank, 'Q')
+
+    def test_river_needs_five_board_cards(self):
+        from training.state_builder import build_scripted_spot_state_machine
+
+        with self.assertRaises(ValueError):
+            # FLOP-length board on a RIVER spot is rejected.
+            build_scripted_spot_state_machine(
+                self._spot(phase='RIVER'), 'Hero', ['Villain'], seed=1
+            )
+
+    def test_river_spot_builds_with_five_cards(self):
+        from training.state_builder import build_scripted_spot_state_machine
+
+        spot = self._spot(phase='RIVER', community=['Kc', '7d', '2h', '9s', 'Jc'])
+        sm = build_scripted_spot_state_machine(spot, 'Hero', ['Villain'], seed=1)
+        self.assertEqual(len(sm.game_state.community_cards), 5)
+
+
 class TestTrainingStartRoute(unittest.TestCase):
     """End-to-end tests of /api/training/start and the resulting game_data."""
 
