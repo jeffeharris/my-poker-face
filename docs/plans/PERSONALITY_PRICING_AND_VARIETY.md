@@ -47,6 +47,7 @@ runs in Docker: `docker compose exec -T backend python ...`.
 2. **Multistreet flop+turn barrel-continuation** (`d1781b30`) — `enable_multistreet_context=True`, `multistreet_h1_streets={FLOP,TURN}` (river leg dropped, measured −EV), H2 off. +3–12 bb/100 vs realistic opponents.
 3. **Value overbet** (`170a86ac`) — `enable_overbet_context=True`, `overbet_size=150`, classes `{nuts,strong_made}`, streets `{TURN,RIVER}`. **The big one: +40 HU / +77 6-max cumulative vs former self, no regression** (`2329d0eb`).
 4. **Spot-tendency variety system (item 3)** — `poker/strategy/spot_tendencies.py` (`apply_spot_tendencies`, general layer) + slow-play leak (priced **free**) + per-personality override hook (`spot_tendencies` key in personalities.json → `TieredBotController.deviation_profile` merge) + the `--a-disable/--b-disable` pricing-gate flag. Defaults OFF. Commits `bdf150fe`/`3973ab25`/`1f63f658`/`ba98183a`. See the catalog for what's next.
+5. **Give-up-turn leak (2026-05-29)** — second `spot_tendencies` handler (`_give_up_turn`), the **dual of the multistreet H1 barrel** (first leak whose exploiter is already built). Priced **free** (intrinsic −1.47, jeff −1.54, punisher +0.14; all CI∋0). Turn-only, disjoint from slow-play by hand class. See "Give-up turn" subsection below.
 
 **Key measured findings (don't re-litigate):**
 - The cheap chart frontier (frequency, sizing granularity, dimensional coverage) is **tapped**; the remaining strength lever is the **parked solver program** (HU/multiway, expensive).
@@ -343,6 +344,43 @@ slow-play OFF (`--a-disable spot_tendencies:slowplay`) vs ON, 24k HU:
   reg doesn't over-bluff into a check). Its EV would *rise* in a field with aggressive
   bettors → variety is self-reinforcing (a reason to build the aggressive tendencies too).
 
+### Give-up turn / one-and-done — BUILT + PRICED (2026-05-29)
+
+The **second leak**, and the first that closes a full loop: it is the **dual of the
+multistreet H1 barrel** (already `built✅`). H1 *pumps* turn bet frequency for the
+thin/semi-bluff classes with initiative; give-up-turn *dampens* it — the "no second
+barrel" player c-bets the flop then checks back everything that isn't strong value on
+the turn. The exploiter (**float flop → steal turn**) is exactly the H1 barrel, so
+attaching this leak to a personality hands that dormant skill a target.
+
+Mechanism shipped (`spot_tendencies.py` `_give_up_turn` handler, reusing slow-play's
+`_dampen_aggression` reshape; registered in `_RULE_IDS_BY_LAYER`; ablatable via
+`--a-disable spot_tendencies:give_up_turn`; control = 100% NO_DIVERGENCE / +0.00,
+verified; `test_strategy` green). **Gate:** turn-only, `has_initiative`,
+`action_context == 'unopened'`, `hand_class ∈ {medium_made, weak_made, air_strong_draw,
+air_no_draw}` — disjoint from slow-play (nuts/strong_made), so both can be configured
+without conflict (unit-tested). Priced on the same TAG carrier (cap 0.30), strength 0.8,
+24k HU:
+
+| Opponent | give-up-turn price (bb/100) | verdict |
+|---|---|---|
+| Baseline (self-play, **intrinsic**) | **−1.47** [−4.13, +1.18] | **free** — CI∋0 |
+| jeff (over-folder) | **−1.54** [−3.31, +0.24] | **free** — CI barely ∋0 |
+| punisher (reg) | **+0.14** [−1.21, +1.48] | **free** — CI∋0, dead neutral |
+
+- Fires on ~1% of hands; **every** diverging node is a `turn|…` spot (gate is exact),
+  cost spread thin across 122 nodes self-play (largest single-node −0.77 → no
+  concentration) → the cheap-variety signature.
+- **Verdict: FREE variety** — even cheaper than slow-play (which cost −5.13 vs jeff).
+  Why cheaper: the give-up classes are the *thin* part of the range where the chart bets
+  least to begin with, so abandoning the barrel forgoes little realized value in the
+  current field. Shippable.
+- **Same self-reinforcing finding:** in a homogeneous field nobody punishes a checked
+  turn (the over-folder takes a free card; the reg doesn't stab). The leak's cost would
+  *rise* against floaters/turn-stabbers — and its exploiter (multistreet H1) is already
+  built, so this is the cleanest leak↔exploiter loop to demo: attach give-up-turn to one
+  personality, turn on H1 for another, and the second extracts from the first.
+
 ## Tendency & skill catalog (running list — single source of truth)
 
 This is a **symmetric skill system** with three move-types; a bot is composed from a
@@ -363,7 +401,7 @@ Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` 
 | Leak (tendency) | Trigger spot | Exploiter (adaptive counter) | Leak | Exploiter |
 |---|---|---|---|---|
 | slow-play / trap | strong made + initiative, unopened, flop/turn | value-bet thin vs the trapper | **priced (free)** | — |
-| give-up turn (one-and-done, no barrel) | turn, initiative, checked to | float flop → steal turn | backlog | **built✅** (multistreet H1) |
+| give-up turn (one-and-done, no barrel) | turn, initiative, checked to | float flop → steal turn | **priced (free)** | **built✅** (multistreet H1) |
 | over-fold to 2nd barrel | turn facing bet, marginal made | double-barrel | backlog | partial (multistreet H2, off) |
 | fit-or-fold / over-fold to c-bet | flop facing c-bet, air | barrel relentlessly | backlog | partial (`exploitation.py`) |
 | auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | backlog | — |
@@ -378,10 +416,12 @@ Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` 
 | position-blindness (plays OOP like IP) | OOP nodes | attack the overplays | backlog | — |
 
 **Priority:** the leaks whose exploiter is already `built✅` close a full loop immediately
-(add the leak → a dormant skill gets a target → human gets a learnable counter). Top of list:
-**give-up-turn** (dual of the multistreet H1 barrel) and **fit-or-fold** (classic, very readable).
-Each leak still priced + budgeted before shipping; preflop leaks need the layer wired into the
-preflop path (slow-play is postflop-only today).
+(add the leak → a dormant skill gets a target → human gets a learnable counter). **give-up-turn
+(dual of the multistreet H1 barrel) is now priced free + shipped** ✅. Next top-of-list:
+**fit-or-fold / over-fold-to-c-bet** (classic, very readable; exploiter `partial` in
+`exploitation.py`) and **sticky/pays-off** (exploiter `built✅` as the value overbet). Each leak
+still priced + budgeted before shipping; preflop leaks need the layer wired into the preflop path
+(slow-play + give-up-turn are postflop-only today).
 
 ### Ownership (updated 2026-05-29)
 The parallel exploitation session has **wrapped** — `exploitation.py` / `OpponentModelManager`
