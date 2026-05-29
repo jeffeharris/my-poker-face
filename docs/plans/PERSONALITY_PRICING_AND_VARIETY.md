@@ -334,18 +334,56 @@ slow-play OFF (`--a-disable spot_tendencies:slowplay`) vs ON, 24k HU:
   reg doesn't over-bluff into a check). Its EV would *rise* in a field with aggressive
   bettors → variety is self-reinforcing (a reason to build the aggressive tendencies too).
 
-### Backlog (priority order, each priced + budgeted before shipping)
-~~slow-play~~ (DONE) → donk-bet → open-limp → spot over/under-bluff → position-blindness →
-**sizing tells / face-up** (the strategic one; also exploitability-tested; ties to item 4).
+## Tendency & skill catalog (running list — single source of truth)
 
-### Coordination
-The parallel session owns `exploitation.py` / the reader side (EXP_005 maniac-counter).
-**Slow-play / donk / limp are independent** (pure variety, no reader interaction).
-**Sizing-tells creates the exact target their layer reads — sync before building it.**
+This is a **symmetric skill system** with three move-types; a bot is composed from a
+menu of them, which is what makes the skill gradient:
+- **Leak** — a suboptimal spot tendency (the exploitable side; variety / weaker bots). This
+  session's `spot_tendencies` layer.
+- **Adaptive / exploiter** — *detect* an opponent's leak (via `OpponentModelManager` stats)
+  and apply the counter. `exploitation.py` + the multistreet barrel + the value overbet.
+- **Defense** — stay unexploitable in a spot (frequency guard). The river bluff guardrail.
+
+**Leaks and exploiters are duals:** every leak has a detector that punishes it, and several
+already-built exploiters were parked only because the homogeneous field gave them no target.
+Adding the leak lights up the exploiter — *and* gives a human a learnable counter. Sourced
+from poker pedagogy (Upswing, Range Craft, PokerVIP, MyPokerCoaching) + our own measured work.
+
+Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` / `partial` / `parked` / `—`.
+
+| Leak (tendency) | Trigger spot | Exploiter (adaptive counter) | Leak | Exploiter |
+|---|---|---|---|---|
+| slow-play / trap | strong made + initiative, unopened, flop/turn | value-bet thin vs the trapper | **priced (free)** | — |
+| give-up turn (one-and-done, no barrel) | turn, initiative, checked to | float flop → steal turn | backlog | **built✅** (multistreet H1) |
+| over-fold to 2nd barrel | turn facing bet, marginal made | double-barrel | backlog | partial (multistreet H2, off) |
+| fit-or-fold / over-fold to c-bet | flop facing c-bet, air | barrel relentlessly | backlog | partial (`exploitation.py`) |
+| auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | backlog | — |
+| under-bluff river (no triple barrel) | river, air, as bettor | over-fold their river bets; call their turn bets | backlog | — |
+| sticky / pays off (can't fold) | facing river bet/raise, weak made | value-bet thin + overbet, never bluff | (≈station) | **built✅** (overbet, +42 vs payers) |
+| over-bluff (too many bluffs) | river, air, as bettor | over-call bluff-catchers | backlog | **built✅ as defense** (river guardrail) |
+| face-up sizing (big=strong, min-raise=nuts, overbet=nuts) | any bet node; strength→size | read size → call/fold | backlog (**strategic**) | parked (sizing-aware D1) |
+| over-fold to 3-bet | preflop facing 3-bet | 3-bet wide as a bluff | backlog | — |
+| face-up / nitty 3-bet (value only) | preflop 3-bet decision | fold to their 3-bets, stop paying | backlog | — |
+| open-limp | preflop RFI | iso-raise wide | backlog | — |
+| donk-when-weak / tiny donk | OOP lead, weak | raise it | backlog | — |
+| position-blindness (plays OOP like IP) | OOP nodes | attack the overplays | backlog | — |
+
+**Priority:** the leaks whose exploiter is already `built✅` close a full loop immediately
+(add the leak → a dormant skill gets a target → human gets a learnable counter). Top of list:
+**give-up-turn** (dual of the multistreet H1 barrel) and **fit-or-fold** (classic, very readable).
+Each leak still priced + budgeted before shipping; preflop leaks need the layer wired into the
+preflop path (slow-play is postflop-only today).
+
+### Ownership (updated 2026-05-29)
+The parallel exploitation session has **wrapped** — `exploitation.py` / `OpponentModelManager`
+(the detector + defense half) and the `spot_tendencies` layer (the leak half) are now **both
+ours**. So we can build full leak↔exploiter loops end-to-end: add a leak, then verify/tune the
+detector that punishes it, in one pass. (Earlier drafts of this doc told us to sync with the
+parallel session before touching the reader side — that constraint is gone.)
 
 ## Handoff pointers
 
 - Postflop forward plan + ruled-out frontier: `docs/plans/POSTFLOP_NEXT_LEVER.md`.
 - Sizing-aware scope (parked, revived by variety): `docs/plans/SIZING_AWARE_OPPONENT_MODELING.md`.
 - Full session narrative (wrong turns + corrections): `docs/captains-log/lookup-tables/eval-harness-and-exploitation.md`.
-- Coordination: `OpponentModelManager`/`exploitation.py` is the parallel session's territory; the deviation system + attribution gate are this session's. The `--a-hero/--b-hero` extension is additive (byte-identical when both = `--hero`).
+- Ownership: the parallel session wrapped 2026-05-29 — `OpponentModelManager`/`exploitation.py` (detectors/defenses) AND the deviation system + `spot_tendencies` + attribution gate are now all ours; build leak↔exploiter loops end-to-end. The `--a-hero/--b-hero` and `--a-disable/--b-disable` gate extensions are additive (byte-identical when unset).
