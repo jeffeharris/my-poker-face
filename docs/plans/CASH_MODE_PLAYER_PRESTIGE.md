@@ -181,7 +181,7 @@ the load-bearing one for symmetry; the achievement bridge is a human-side bonus.
   per-game, but the cash/world-sim path doesn't persist eliminator attribution
   yet. Wiring it serves both renown (scalps) and the `bounty`/`double_knockout`
   achievements, for the human **and** AIs. Lower priority than shipping the
-  metric, per the product call.
+  metric, per the product call. **Full spec: `CASH_MODE_SCALP_TRACKER.md`.**
 
 ## Renown as a live competition — world speed & keeping pace
 
