@@ -1027,33 +1027,12 @@ class TieredBotController(AIPlayerController):
         # exploitation. Reshapes only on the node/line spots a configured
         # tendency targets (e.g. slow-play a strong hand with initiative).
         # OFF (profile.spot_tendencies empty) is byte-identical.
-        if (
-            anchors
-            and not self.skip_personality_distortion
-            and self.deviation_profile.spot_tendencies
-        ):
-            from .strategy.multistreet_context import derive_signals
-            from .strategy.spot_tendencies import apply_spot_tendencies
-
-            spot_signals = derive_signals(self, node.street)
-            modified_strategy, spot_traces = apply_spot_tendencies(
-                modified_strategy,
-                spot_tendencies=self.deviation_profile.spot_tendencies,
-                max_per_action_shift=self.deviation_profile.max_per_action_shift,
-                hand_class=hand_strength,
-                action_context=node.facing_action,
-                street=node.street,
-                has_initiative=spot_signals.was_prev_street_aggressor,
-                facing_double_barrel=spot_signals.facing_double_barrel,
-                position=node.position,
-                disable_rules=getattr(self, "disable_rules", frozenset()),
-            )
-            self._last_intervention_trace.extend(spot_traces)
-            if self.debug_logging:
-                logger.info(
-                    f"[TIERED_BOT] {self.player_name}: "
-                    f"spot_tendencies={modified_strategy.action_probabilities}"
-                )
+        modified_strategy = self._layer_spot_tendencies(
+            modified_strategy,
+            node=node,
+            anchors=anchors,
+            hand_strength=hand_strength,
+        )
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(
@@ -1143,40 +1122,15 @@ class TieredBotController(AIPlayerController):
         # feeds prior_layer_fired so the floor defers when it replaces the
         # distribution; downstream math_floor keeps final say on pot-odds
         # mandates. OFF arm is byte-identical to current behavior.
-        multistreet_trace = make_no_op_trace(
-            layer='multistreet_context',
-            rule_id='default',
-            layer_order=layer_order_for('multistreet_context'),
-            reason_code='flag_disabled',
+        modified_strategy, multistreet_trace = self._layer_multistreet_context(
+            modified_strategy,
+            node=node,
+            hand_strength=hand_strength,
+            active_count=active_count,
+            induce_override_trace=induce_override_trace,
+            value_override_trace=value_override_trace,
+            bluff_catch_trace=bluff_catch_trace,
         )
-        if getattr(self, 'enable_multistreet_context', False):
-            from .strategy.multistreet_context import (
-                apply_multistreet_context,
-                derive_signals,
-            )
-
-            signals = derive_signals(self, node.street)
-            ms_prior_fired = (
-                induce_override_trace.fired or value_override_trace.fired or bluff_catch_trace.fired
-            )
-            modified_strategy, multistreet_trace = apply_multistreet_context(
-                modified_strategy,
-                signals=signals,
-                hand_class=hand_strength,
-                action_context=node.facing_action,
-                active_count=active_count,
-                h1_enabled=getattr(self, 'multistreet_h1_barrel', True),
-                h2_enabled=getattr(self, 'multistreet_h2_foldbarrel', True),
-                h1_classes=getattr(self, 'multistreet_h1_classes', None),
-                h1_streets=getattr(self, 'multistreet_h1_streets', None),
-                street=node.street,
-                prior_layer_fired=ms_prior_fired,
-                disable_rules=getattr(self, "disable_rules", frozenset()),
-            )
-            multistreet_trace = _fill_prior_action_source(
-                multistreet_trace,
-                self._last_intervention_trace,
-            )
         self._last_intervention_trace.append(multistreet_trace)
 
         # 6a.5b.3 Overbet sizing (docs/plans/POSTFLOP_NEXT_LEVER.md).
@@ -1187,45 +1141,16 @@ class TieredBotController(AIPlayerController):
         # jeff +42 HU / +73 6-max, station +159. Multistreet sets the bet
         # *frequency*; this layer sets the *size* — so it runs immediately after.
         # Behind enable_overbet_context; OFF arm is byte-identical.
-        overbet_trace = make_no_op_trace(
-            layer='overbet_context',
-            rule_id='default',
-            layer_order=layer_order_for('overbet_context'),
-            reason_code='flag_disabled',
+        modified_strategy, overbet_trace = self._layer_overbet_context(
+            modified_strategy,
+            node=node,
+            hand_strength=hand_strength,
+            active_count=active_count,
+            induce_override_trace=induce_override_trace,
+            value_override_trace=value_override_trace,
+            bluff_catch_trace=bluff_catch_trace,
+            multistreet_trace=multistreet_trace,
         )
-        # Adaptive gate: scale the overbet fraction by the live station-detection
-        # intensity (set by _apply_exploitation above, which runs earlier this
-        # decision). 0.0 when no manager / no detected payer → the overbet
-        # no-ops, so we don't bloat the pot vs balanced or sizing-reading
-        # opponents. The static path (adaptive_overbet=False) is unchanged.
-        _overbet_fraction = self._effective_overbet_fraction()
-        if getattr(self, 'enable_overbet_context', False) and _overbet_fraction > 0.0:
-            from .strategy.overbet_context import apply_overbet_context
-
-            overbet_prior_fired = (
-                induce_override_trace.fired
-                or value_override_trace.fired
-                or bluff_catch_trace.fired
-                or multistreet_trace.fired
-            )
-            modified_strategy, overbet_trace = apply_overbet_context(
-                modified_strategy,
-                hand_class=hand_strength,
-                action_context=node.facing_action,
-                street=node.street,
-                active_count=active_count,
-                overbet_size=getattr(self, 'overbet_size', 150),
-                overbet_fraction=_overbet_fraction,
-                overbet_classes=getattr(self, 'overbet_classes', None),
-                overbet_streets=getattr(self, 'overbet_streets', None),
-                overbet_max_active=getattr(self, 'overbet_max_active', None),
-                prior_layer_fired=overbet_prior_fired,
-                disable_rules=getattr(self, "disable_rules", frozenset()),
-            )
-            overbet_trace = _fill_prior_action_source(
-                overbet_trace,
-                self._last_intervention_trace,
-            )
         self._last_intervention_trace.append(overbet_trace)
 
         # NOTE: the value-bet floor override (§12) was retired (§14) once its
@@ -1242,29 +1167,16 @@ class TieredBotController(AIPlayerController):
         # distribution (prior_layer_fired). Reads §1's hand_class +
         # nut_status + danger_flags from the postflop node and §4's
         # required_equity + facing_bet from DecisionContext.
-        from .strategy.defense_floor import apply_defense_floor
-
-        prior_layer_fired = (
-            induce_override_trace.fired
-            or value_override_trace.fired
-            or bluff_catch_trace.fired
-            or multistreet_trace.fired
-            or overbet_trace.fired
-        )
-        defense_floor_facing_bet = outer_decision_context.bet_bucket is not None
-        modified_strategy, defense_floor_trace = apply_defense_floor(
+        modified_strategy, defense_floor_trace = self._layer_defense_floor(
             modified_strategy,
-            hand_class=hand_strength,
-            nut_status=node.nut_status,
-            danger_flags=node.danger_flags,
-            required_equity=outer_decision_context.required_equity,
-            facing_bet=defense_floor_facing_bet,
-            prior_layer_fired=prior_layer_fired,
-            disable_rules=getattr(self, "disable_rules", frozenset()),
-        )
-        defense_floor_trace = _fill_prior_action_source(
-            defense_floor_trace,
-            self._last_intervention_trace,
+            node=node,
+            hand_strength=hand_strength,
+            outer_decision_context=outer_decision_context,
+            induce_override_trace=induce_override_trace,
+            value_override_trace=value_override_trace,
+            bluff_catch_trace=bluff_catch_trace,
+            multistreet_trace=multistreet_trace,
+            overbet_trace=overbet_trace,
         )
         self._last_intervention_trace.append(defense_floor_trace)
 
@@ -1355,6 +1267,211 @@ class TieredBotController(AIPlayerController):
         }
         self._attach_expression(decision, game_state, player_idx, phase=node.street)
         return decision
+
+    # ── Postflop pipeline layers (extracted from _get_postflop_decision) ──────
+    # Each helper preserves the EXACT body, ordering, thresholds, and side
+    # effects of the inline block it replaced (trace extends/appends and
+    # snapshot writes). Extraction-only: byte-identical decisions.
+
+    def _layer_spot_tendencies(
+        self,
+        modified_strategy,
+        *,
+        node,
+        anchors,
+        hand_strength,
+    ):
+        """6.b Spot/line-specific personality tendencies.
+
+        Reshapes the strategy only on the node/line spots a configured
+        tendency targets. OFF (profile.spot_tendencies empty) is byte-identical.
+        Extends `self._last_intervention_trace` with the spot traces, exactly as
+        the inline block did.
+        """
+        if (
+            anchors
+            and not self.skip_personality_distortion
+            and self.deviation_profile.spot_tendencies
+        ):
+            from .strategy.multistreet_context import derive_signals
+            from .strategy.spot_tendencies import apply_spot_tendencies
+
+            spot_signals = derive_signals(self, node.street)
+            modified_strategy, spot_traces = apply_spot_tendencies(
+                modified_strategy,
+                spot_tendencies=self.deviation_profile.spot_tendencies,
+                max_per_action_shift=self.deviation_profile.max_per_action_shift,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                street=node.street,
+                has_initiative=spot_signals.was_prev_street_aggressor,
+                facing_double_barrel=spot_signals.facing_double_barrel,
+                position=node.position,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            self._last_intervention_trace.extend(spot_traces)
+            if self.debug_logging:
+                logger.info(
+                    f"[TIERED_BOT] {self.player_name}: "
+                    f"spot_tendencies={modified_strategy.action_probabilities}"
+                )
+        return modified_strategy
+
+    def _layer_multistreet_context(
+        self,
+        modified_strategy,
+        *,
+        node,
+        hand_strength,
+        active_count,
+        induce_override_trace,
+        value_override_trace,
+        bluff_catch_trace,
+    ):
+        """6a.5b.2 Multi-street context (STRUCTURAL_PASSIVITY_PLAN.md).
+
+        Behind enable_multistreet_context (default off). OFF arm is
+        byte-identical. Returns (modified_strategy, multistreet_trace); the
+        orchestrator appends the trace (preserving append order).
+        """
+        multistreet_trace = make_no_op_trace(
+            layer='multistreet_context',
+            rule_id='default',
+            layer_order=layer_order_for('multistreet_context'),
+            reason_code='flag_disabled',
+        )
+        if getattr(self, 'enable_multistreet_context', False):
+            from .strategy.multistreet_context import (
+                apply_multistreet_context,
+                derive_signals,
+            )
+
+            signals = derive_signals(self, node.street)
+            ms_prior_fired = (
+                induce_override_trace.fired or value_override_trace.fired or bluff_catch_trace.fired
+            )
+            modified_strategy, multistreet_trace = apply_multistreet_context(
+                modified_strategy,
+                signals=signals,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                active_count=active_count,
+                h1_enabled=getattr(self, 'multistreet_h1_barrel', True),
+                h2_enabled=getattr(self, 'multistreet_h2_foldbarrel', True),
+                h1_classes=getattr(self, 'multistreet_h1_classes', None),
+                h1_streets=getattr(self, 'multistreet_h1_streets', None),
+                street=node.street,
+                prior_layer_fired=ms_prior_fired,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            multistreet_trace = _fill_prior_action_source(
+                multistreet_trace,
+                self._last_intervention_trace,
+            )
+        return modified_strategy, multistreet_trace
+
+    def _layer_overbet_context(
+        self,
+        modified_strategy,
+        *,
+        node,
+        hand_strength,
+        active_count,
+        induce_override_trace,
+        value_override_trace,
+        bluff_catch_trace,
+        multistreet_trace,
+    ):
+        """6a.5b.3 Overbet sizing (docs/plans/POSTFLOP_NEXT_LEVER.md).
+
+        Behind enable_overbet_context; OFF arm is byte-identical. Returns
+        (modified_strategy, overbet_trace); the orchestrator appends the trace.
+        """
+        overbet_trace = make_no_op_trace(
+            layer='overbet_context',
+            rule_id='default',
+            layer_order=layer_order_for('overbet_context'),
+            reason_code='flag_disabled',
+        )
+        # Adaptive gate: scale the overbet fraction by the live station-detection
+        # intensity (set by _apply_exploitation above, which runs earlier this
+        # decision). 0.0 when no manager / no detected payer → the overbet
+        # no-ops, so we don't bloat the pot vs balanced or sizing-reading
+        # opponents. The static path (adaptive_overbet=False) is unchanged.
+        _overbet_fraction = self._effective_overbet_fraction()
+        if getattr(self, 'enable_overbet_context', False) and _overbet_fraction > 0.0:
+            from .strategy.overbet_context import apply_overbet_context
+
+            overbet_prior_fired = (
+                induce_override_trace.fired
+                or value_override_trace.fired
+                or bluff_catch_trace.fired
+                or multistreet_trace.fired
+            )
+            modified_strategy, overbet_trace = apply_overbet_context(
+                modified_strategy,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                street=node.street,
+                active_count=active_count,
+                overbet_size=getattr(self, 'overbet_size', 150),
+                overbet_fraction=_overbet_fraction,
+                overbet_classes=getattr(self, 'overbet_classes', None),
+                overbet_streets=getattr(self, 'overbet_streets', None),
+                overbet_max_active=getattr(self, 'overbet_max_active', None),
+                prior_layer_fired=overbet_prior_fired,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            overbet_trace = _fill_prior_action_source(
+                overbet_trace,
+                self._last_intervention_trace,
+            )
+        return modified_strategy, overbet_trace
+
+    def _layer_defense_floor(
+        self,
+        modified_strategy,
+        *,
+        node,
+        hand_strength,
+        outer_decision_context,
+        induce_override_trace,
+        value_override_trace,
+        bluff_catch_trace,
+        multistreet_trace,
+        overbet_trace,
+    ):
+        """6a.5c Plan §2: price-sensitive defense floor.
+
+        Pumps call probability for legitimate made hands at favorable prices.
+        Defers when any prior override fired (prior_layer_fired). Returns
+        (modified_strategy, defense_floor_trace); the orchestrator appends it.
+        """
+        from .strategy.defense_floor import apply_defense_floor
+
+        prior_layer_fired = (
+            induce_override_trace.fired
+            or value_override_trace.fired
+            or bluff_catch_trace.fired
+            or multistreet_trace.fired
+            or overbet_trace.fired
+        )
+        defense_floor_facing_bet = outer_decision_context.bet_bucket is not None
+        modified_strategy, defense_floor_trace = apply_defense_floor(
+            modified_strategy,
+            hand_class=hand_strength,
+            nut_status=node.nut_status,
+            danger_flags=node.danger_flags,
+            required_equity=outer_decision_context.required_equity,
+            facing_bet=defense_floor_facing_bet,
+            prior_layer_fired=prior_layer_fired,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+        defense_floor_trace = _fill_prior_action_source(
+            defense_floor_trace,
+            self._last_intervention_trace,
+        )
+        return modified_strategy, defense_floor_trace
 
     def _effective_overbet_fraction(self) -> float:
         """Overbet fraction after the adaptive gate.
