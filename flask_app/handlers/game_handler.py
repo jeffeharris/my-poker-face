@@ -1419,6 +1419,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from cash_mode.bankroll import AIBankrollState
     from cash_mode.lobby import _global_seated_set
     from cash_mode.movement import refresh_table_roster
+    from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
     from cash_mode.tables import ai_slot, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
@@ -1532,7 +1533,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         next_tier_min_buy_in = next_min
 
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
-    seated_globally = _global_seated_set([t for t in all_tables if t.table_id != table_id])
+    seated_globally = SeatOccupancyRegistry(
+        _global_seated_set([t for t in all_tables if t.table_id != table_id]),
+        label="game_handler.hand_boundary_refresh",
+    )
     seated_globally.update(s["personality_id"] for s in synced_seats if s["kind"] == "ai")
 
     # Exclude off-grid AIs (on a vice / side hustle) from BOTH seating

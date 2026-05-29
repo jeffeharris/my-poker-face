@@ -57,6 +57,7 @@ from cash_mode.movement import (
     refresh_table_roster,
     reseat_readiness,
 )
+from cash_mode.seat_registry import SeatOccupancyRegistry
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
 from cash_mode.stakes_ladder import (
@@ -919,7 +920,9 @@ def refresh_unseated_tables(
                 )
 
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
-    seated_globally = _global_seated_set(tables)
+    seated_globally = SeatOccupancyRegistry(
+        _global_seated_set(tables), label="refresh_unseated_tables"
+    )
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
 
     # A persona the human is playing live counts as occupied even when the
