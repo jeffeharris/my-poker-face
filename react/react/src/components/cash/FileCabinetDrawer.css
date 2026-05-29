@@ -453,31 +453,6 @@
   }
 }
 
-/* ── Lobby entry: a single "Intel" trigger that opens the field-office hub.
- *    Lobby-native styling (it lives in the dark chrome). Defined here — the
- *    archive stylesheet is what's bundled now that the old whereabouts drawer
- *    is retired. */
-.cash-entry__whereabouts-row {
-  display: flex;
-  justify-content: flex-end;
-  margin: -2px 0 2px;
-}
-.cash-entry__intel-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 3px 4px;
-  font-size: 12px;
-  color: var(--text-secondary, #9aa0aa);
-  transition: color 0.15s ease;
-}
-.cash-entry__intel-trigger:hover {
-  color: var(--text-primary, #f5f5f5);
-}
-
 /* ── Search: a typed query line on the paper ────────────────────── */
 .archive__search {
   position: relative;
@@ -539,6 +514,9 @@
 
 .intel-hub {
   width: min(560px, 96vw);
+  /* Lock the height so switching tabs doesn't resize the whole panel — only
+     the inner content scrolls. Capped to the viewport on short screens. */
+  height: min(78vh, 720px);
 }
 
 /* Tabs as file-divider folder tabs along the top of the drawer */

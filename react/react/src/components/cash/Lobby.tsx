@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Eye } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -570,19 +570,12 @@ export function Lobby() {
             </div>
           )}
 
-          <div className="cash-entry__whereabouts-row">
-            <button
-              type="button"
-              className="cash-entry__intel-trigger"
-              onClick={() => setIntelHubOpen(true)}
-              title="Open the intel field office — the wire, whereabouts & case files"
-            >
-              <Eye size={13} aria-hidden="true" />
-              Intel
-            </button>
-          </div>
-
-          <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
+          <ActivityTicker
+            events={events}
+            worldPace={worldPace}
+            onPaceChange={handlePaceChange}
+            onOpenIntel={() => setIntelHubOpen(true)}
+          />
 
           {loadError && (
             <div className="cash-entry__error" role="alert">
