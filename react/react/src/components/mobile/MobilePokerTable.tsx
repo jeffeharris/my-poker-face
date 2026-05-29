@@ -183,6 +183,7 @@ export function MobilePokerTable({
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
   const aiInstant = useGameStore((state) => state.aiInstant);
+  const alwaysFastForward = useGameStore((state) => state.alwaysFastForward);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -1117,7 +1118,8 @@ export function MobilePokerTable({
                   humanPlayer &&
                   currentPlayer &&
                   !currentPlayer.is_human &&
-                  !aiInstant && (
+                  !aiInstant &&
+                  !alwaysFastForward && (
                     <button
                       className={`action-btn ff-btn ${fastForward ? 'queued' : ''}`}
                       data-testid="action-btn-ff"

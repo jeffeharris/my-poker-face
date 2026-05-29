@@ -48,6 +48,8 @@ interface GameStore {
   worldEvents: BufferedWorldEvent[];
   /** Every AI seat resolves with zero LLM calls → nothing to fast-forward. */
   aiInstant: boolean;
+  /** Owner's game speed is 'always' (fast-forward every turn) → FF button hidden. */
+  alwaysFastForward: boolean;
   // Run-out reveal director (mobile, all-in run-outs). The backend emits the
   // per-card reaction schedule once at reveal; `useRunoutDirector` walks it to
   // play per-card avatar reactions on a client-owned beat. `runoutDirectorActive`
@@ -91,6 +93,7 @@ const initialState = {
   fastForward: false,
   worldEvents: [] as BufferedWorldEvent[],
   aiInstant: false,
+  alwaysFastForward: false,
   runoutSchedule: null as RunoutSchedule | null,
   runoutDirectorActive: false,
 };
@@ -208,6 +211,7 @@ export const useGameStore = create<GameStore>((set) => ({
         cashMode: state.cash_mode ?? null,
         fastForward: state.fast_forward ?? false,
         aiInstant: state.ai_instant ?? false,
+        alwaysFastForward: state.always_fast_forward ?? false,
       };
     });
   },

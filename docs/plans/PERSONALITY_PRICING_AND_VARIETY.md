@@ -2,7 +2,7 @@
 purpose: Methodology + handoff for pricing the tiered bot's personality deviations (EV cost of non-max-EV play) and using that to add bounded, characterful variety to the AI field
 type: guide
 created: 2026-05-28
-last_updated: 2026-05-28
+last_updated: 2026-05-29
 ---
 
 # Personality pricing & variety — process + handoff
@@ -31,15 +31,27 @@ emergent **skill gradient** across the AI players.
 
 ---
 
-## Current state (handoff — what's true as of 2026-05-28)
+## Current state (handoff — what's true as of 2026-05-29)
 
 **Branch `lookup-tables`** (merged with `origin/development`, pushed). All Python
 runs in Docker: `docker compose exec -T backend python ...`.
+
+> **NEW-CONTEXT START HERE.** The live frontier is **item 3 — the spot-tendency
+> variety system** (the "Item 3 scope" + "Tendency & skill catalog" sections below).
+> Mechanism + first leak (slow-play) + per-personality hook are shipped; the catalog
+> is the running to-do. Maniac/personality-pricing (the "Results" table) is done. The
+> strength-side gameplay layers (1–3 below) are also done — don't re-open them.
 
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.
 2. **Multistreet flop+turn barrel-continuation** (`d1781b30`) — `enable_multistreet_context=True`, `multistreet_h1_streets={FLOP,TURN}` (river leg dropped, measured −EV), H2 off. +3–12 bb/100 vs realistic opponents.
 3. **Value overbet** (`170a86ac`) — `enable_overbet_context=True`, `overbet_size=150`, classes `{nuts,strong_made}`, streets `{TURN,RIVER}`. **The big one: +40 HU / +77 6-max cumulative vs former self, no regression** (`2329d0eb`).
+4. **Spot-tendency variety system (item 3)** — `poker/strategy/spot_tendencies.py` (`apply_spot_tendencies`, general layer) + slow-play leak (priced **free**) + per-personality override hook (`spot_tendencies` key in personalities.json → `TieredBotController.deviation_profile` merge) + the `--a-disable/--b-disable` pricing-gate flag. Defaults OFF. Commits `bdf150fe`/`3973ab25`/`1f63f658`/`ba98183a`. See the catalog for what's next.
+5. **Give-up-turn leak (2026-05-29)** — second `spot_tendencies` handler (`_give_up_turn`), the **dual of the multistreet H1 barrel** (first leak whose exploiter is already built). Priced **free** (intrinsic −1.47, jeff −1.54, punisher +0.14; all CI∋0). Turn-only, disjoint from slow-play by hand class. See "Give-up turn" subsection below.
+6. **Fit-or-fold + auto-c-bet leaks (2026-05-29)** — `_fit_or_fold` / `_auto_cbet` on two new bounded reshapes (`_pump_fold`, `_pump_aggression`). Both priced **free/+EV** — and that surfaced a methodology finding: a *correct-spot* leak is recognizable flavor but **not exploitable**, so it doesn't close the loop. See "Fit-or-fold + auto-c-bet" subsection + the open design question.
+7. **Sticky/pays-off + over-bluff + under-bluff leaks (2026-05-29)** — `_sticky` (`_dampen_fold`) priced **−1.87/−0.46/−0.26 (CI-clear −EV everywhere)** → the first real "skill"-tier leak, the payer the value overbet targets. `_over_bluff` (`_pump_aggression`) free intrinsically, −EV vs callers. `_under_bluff` (`_dampen_aggression`) the over-bluff dual: free/+EV, a style/face-up leak. See "Sticky + over-bluff" subsection.
+8. **`--hero-spot-tendency` gate flag (2026-05-29)** — prices a spot tendency without editing a deviation profile in source (sets the controller's `_spot_tendencies_override`). Retires the "carrier" hack. Validated (fires on the right nodes; control = 100% NO_DIVERGENCE).
+9. **Multiway pricing gate (delegated 2026-05-29)** — a parallel agent is scoping/validating 6-max pricing (does fit-or-fold/auto-c-bet flip to −EV multiway?) → `docs/plans/MULTIWAY_PRICING_GATE.md`.
 
 **Key measured findings (don't re-litigate):**
 - The cheap chart frontier (frequency, sizing granularity, dimensional coverage) is **tapped**; the remaining strength lever is the **parked solver program** (HU/multiway, expensive).
@@ -50,11 +62,13 @@ runs in Docker: `docker compose exec -T backend python ...`.
 - `poker/strategy/personality_modifier.py` — `modify_strategy(base, anchors, emotional_state, deviation_profile)` distorts the baseline chart in logit space, **bounded** by `max_kl` / `max_per_action_shift`.
 - `poker/strategy/deviation_profiles.py` — `DEVIATION_PROFILES`: **`nit, rock, tag, calling_station, lag, maniac`**. Axes: `aggression_scale`, `looseness_scale`, `risk_scale`, `ego_fold_penalty`, + the KL bounds.
 - Sim wiring: `simulate_bb100.make_controller` sets `controller._deviation_profile = DEVIATION_PROFILES[profile_key]` (None for `Baseline`, which sets `skip_personality_distortion=True`). `ARCHETYPES[name]` carries `{kind, profile, anchors}`.
+- **Spot-specific extension (item 3):** `poker/strategy/spot_tendencies.py` adds *per-spot* tendencies on top of the global scalars (the layer is node/line-aware; the scalars are not). `DeviationProfile.spot_tendencies` (profile-level) + the personalities.json `spot_tendencies` key (per-character) drive it. See "Item 3 scope" + the catalog.
 
 **The eval gates (the pricing instruments):**
 - `experiments/ab_node_attribution.py` — **paired-CRN first-divergence per-node attribution** (the primary pricing tool). Already supports `--a-mode/--b-mode` (multistreet), `--overbet-a/-b`, `--adaptive-opp` (D1 oracle), `--h1-streets`, `--heads-up`, `--stack-bb`. **`--a-hero/--b-hero`** (per-arm hero archetype) — BUILT 2026-05-28; control `--a-hero Baseline --b-hero Baseline` = 100% NO_DIVERGENCE / +0.00, verified. Local self-play roster: `baseline` (= `['Baseline']*5`).
 - `experiments/measure_passivity.py` — Tier-A diagnostics + `--leak-report`.
-- `experiments/champion_challenger.py`, `experiments/sng_runner.py`, `experiments/exploit_bb100.py` — other gates (parallel session's; coordinate).
+- For pricing a **spot tendency** (CLEAN RECIPE as of 2026-05-29): `--hero-spot-tendency name:strength` configures the tendency on the hero (both arms) with **no source edits** (it sets the controller's `_spot_tendencies_override`), and `--a-disable spot_tendencies:<name>` turns it OFF on arm A. The paired delta (B−A) is the tendency's marginal cost. Requires a non-Baseline `--hero` (e.g. `TAG`; Baseline skips the personality layer). Example: `... baseline 3000 $SEEDS --hero TAG --hero-spot-tendency sticky:0.8 --a-disable spot_tendencies:sticky --heads-up`. Control = `--a-disable ... --b-disable ...` (same on both) → 100% NO_DIVERGENCE / +0.00. **This retires the old "carrier" hack** (temporarily editing `DEVIATION_PROFILES[...]` in source — fragile, easy to forget to revert, collides across parallel sessions). `--a-disable/--b-disable` alone (BUILT 2026-05-29) still toggles any layer-rule per arm.
+- `experiments/champion_challenger.py`, `experiments/sng_runner.py`, `experiments/exploit_bb100.py` — other gates (now also ours; parallel session wrapped).
 
 ---
 
@@ -236,12 +250,336 @@ AI personalities wants, and the thing that revives the parked adaptation work.
 3. **New spot/line-specific tendencies** (today's deviations are *global scalars*):
    sizing tells / face-up, slow-play/trap, donk-bet, open-limp, position-blindness,
    spot-specific over/under-bluffing. Each priced + budgeted before shipping.
+   **→ SCOPED 2026-05-28, see "Item 3 scope" below.**
 4. **Close the loop:** with exploitable personalities in the field, re-judge the
    parked sizing-aware C (attack) + bluff-catch calibration — they now have targets.
+
+## Item 3 scope — spot/line-specific tendencies (2026-05-28)
+
+**Decisions (locked with the user):** build the **general mechanism first**; validate
+it on **slow-play** (an easy action-mass reshape) before the harder sizing tell.
+
+### Why the deviation layer can't do this today (the structural fact)
+`modify_strategy` is **spot-blind** — it takes only `base / legal_actions / anchors /
+emotional_state / deviation_profile` and applies global logit scalars uniformly. The
+`node` (position IP/OOP, street, `made_tier`, `draw_modifier`, key-encoded board texture
++ `pot_type` + SPR) and the initiative signals (`was_prev_street_aggressor`,
+`preflop_aggressor`, `_find_preflop_raiser_idx`, SPR buckets from `postflop_classifier`)
+all **exist at the call site** (`tiered_bot_controller` ~650 preflop / ~878 postflop) —
+they're just not passed into the deviation layer.
+
+### Mechanism (general, build once) — mirrors `apply_river_bluff_guardrail`
+- **`apply_spot_tendencies(strategy, node, signals, profile)`** — an additive
+  post-personality layer that runs right after `modify_strategy` in both decision paths
+  (the river guardrail is the existing precedent; it's postflop-only, this is pre+postflop).
+- **Each tendency** = a named reshape `(node, signals) → adjusted probs | no-op`, gated by
+  per-profile config, **bounded by `clamp_divergence`** (reuse the per-action + KL caps so
+  every tendency is EV-bounded like the global scalars), emits an `InterventionTrace`, and is
+  **ablatable via `disable_rules`** under a stable rule id (e.g. `spot.slowplay`).
+- **Per-profile config:** a `spot_tendencies: {name: strength∈[0,1]}` map on the profile
+  (strength scales the reshape; absent/0 = off). **Default profiles ship with NO spot
+  tendencies on** until each is individually priced + budgeted in.
+- **Signals plumbing:** assemble a small `SpotSignals` from the same fields the multistreet
+  layer already reads (initiative, preflop-aggressor==hero, spr_bucket, is-first-in) so sim
+  and live agree; the harness already drives the `_sim_*` shadow fields.
+
+### Attaching tendencies — profile-level vs per-personality (BUILT 2026-05-29)
+Two attach points, both shipping:
+- **Profile-level** — `DeviationProfile.spot_tendencies = (('slowplay', 0.8), ...)`. Affects
+  **every** personality that classifies into that archetype (`select_deviation_profile`
+  maps anchors → one of the 6 shared profiles). Use for archetype-wide flavor.
+- **Per-personality override** — a specific character carries its own tendencies independent
+  of its archetype, via a `spot_tendencies` key in its **personalities.json** entry:
+  ```json
+  "spot_tendencies": [["slowplay", 0.8]]
+  ```
+  Resolution lives in `TieredBotController.deviation_profile`: it lazy-resolves the archetype
+  profile, then merges the override (`dataclasses.replace`). Precedence: an explicit
+  `controller._spot_tendencies_override` (sims/tests) > the personality-config key > the
+  archetype profile's own `spot_tendencies`. A **non-empty** character config *replaces* the
+  archetype's; **absent/empty** inherits; an explicit `()` opts a character *out*. Strength is
+  still bounded by the profile's `max_per_action_shift`. Parser: `parse_spot_tendencies`.
+  Tests: `test_spot_tendencies.py` (parse + the 5 resolution/precedence cases). Defaults: no
+  personality ships a tendency yet — that's a per-character content call (slow-play is priced
+  free, so it's safe to attach when desired).
+
+### First tendency — slow-play / trap (mechanism validation)
+- **Spot predicate:** `made_tier ∈ {nuts, strong_made}` AND hero has initiative
+  (`was_prev_street_aggressor`) AND `street ∈ {flop, turn}` (river slow-play is a different
+  animal and the guardrail already touches river).
+- **Effect:** shift a `strength`-scaled fraction of aggressive mass (`bet_*/raise_*`) → check,
+  bounded by `clamp_divergence`. Trap instead of fast-play.
+- **Why first:** cleanest reshape (no sizing dimension), recognizable character, signals exist,
+  and its cost (forgone value/protection) should **localize on the strong-hand flop/turn nodes**
+  — a sharp test that the per-node attribution prices a spot tendency where we expect.
+
+### Pricing path per tendency (the session contract)
+1. **Gate extension needed:** `--a-disable / --b-disable <rule_ids>` on `ab_node_attribution`,
+   feeding each arm's hero `disable_rules` (mirror of `--a-hero/--b-hero`). A/B = tendency
+   OFF (arm A disables it) vs ON (arm B). Control: identical disables both arms = 100%
+   NO_DIVERGENCE / +0.00.
+2. **Self-play intrinsic = the price**; jeff/punisher = field vector; **24k**; per-node
+   localization; budget verdict (free 0..−5 spread / priced −5..−15 localized / broken <−15
+   or one-node). Same bands the 6 profiles calibrated.
+3. **Sizing-tell only:** additionally measure **exploitability** via the D1 oracle
+   (`--adaptive-opp`, already built) — the point of that tendency is a punishable tell, which
+   is what makes roadmap item 4 (the parked sizing-aware attack) finally worth reviving.
+
+### Slow-play — BUILT + PRICED (2026-05-28)
+
+Mechanism shipped (`spot_tendencies.py` + controller wiring + `--a-disable/--b-disable`
+gate flag; control = 100% NO_DIVERGENCE, verified; `test_strategy` green 1329). Priced
+on a TAG carrier (near-GTO, per-action cap 0.30), strength 0.8 (cap-saturated), A/B =
+slow-play OFF (`--a-disable spot_tendencies:slowplay`) vs ON, 24k HU:
+
+| Opponent | slow-play price (bb/100) | verdict |
+|---|---|---|
+| Baseline (self-play, **intrinsic**) | **−0.16** [−4.78, +4.46] | **free** — CI∋0 |
+| jeff (over-folder) | **−5.13** [−7.22, −3.03] | mild cost — the trap backfires |
+| punisher (reg) | **−1.56** [−3.16, +0.05] | ~free |
+
+- Fires on ~1% of hands (strong made + initiative + `unopened` + flop/turn); **every**
+  diverging node is a `flop/turn|…strong_/nuts` spot, cost spread thin across many (no
+  single-node concentration) → the cheap-variety signature.
+- **Verdict: FREE/CHEAP variety** — recognizable trappy character at ~0 intrinsic and
+  ≤−5 bb/100 worst-case (vs the over-folder field). Shippable; sets the slow-play budget.
+- **Finding (validates the variety thesis):** slow-play pays off vs *no* opponent in the
+  current field — a trap with no one to trap (the over-folder just takes a free card; the
+  reg doesn't over-bluff into a check). Its EV would *rise* in a field with aggressive
+  bettors → variety is self-reinforcing (a reason to build the aggressive tendencies too).
+
+### Give-up turn / one-and-done — BUILT + PRICED (2026-05-29)
+
+The **second leak**, and the first that closes a full loop: it is the **dual of the
+multistreet H1 barrel** (already `built✅`). H1 *pumps* turn bet frequency for the
+thin/semi-bluff classes with initiative; give-up-turn *dampens* it — the "no second
+barrel" player c-bets the flop then checks back everything that isn't strong value on
+the turn. The exploiter (**float flop → steal turn**) is exactly the H1 barrel, so
+attaching this leak to a personality hands that dormant skill a target.
+
+Mechanism shipped (`spot_tendencies.py` `_give_up_turn` handler, reusing slow-play's
+`_dampen_aggression` reshape; registered in `_RULE_IDS_BY_LAYER`; ablatable via
+`--a-disable spot_tendencies:give_up_turn`; control = 100% NO_DIVERGENCE / +0.00,
+verified; `test_strategy` green). **Gate:** turn-only, `has_initiative`,
+`action_context == 'unopened'`, `hand_class ∈ {medium_made, weak_made, air_strong_draw,
+air_no_draw}` — disjoint from slow-play (nuts/strong_made), so both can be configured
+without conflict (unit-tested). Priced on the same TAG carrier (cap 0.30), strength 0.8,
+24k HU:
+
+| Opponent | give-up-turn price (bb/100) | verdict |
+|---|---|---|
+| Baseline (self-play, **intrinsic**) | **−1.47** [−4.13, +1.18] | **free** — CI∋0 |
+| jeff (over-folder) | **−1.54** [−3.31, +0.24] | **free** — CI barely ∋0 |
+| punisher (reg) | **+0.14** [−1.21, +1.48] | **free** — CI∋0, dead neutral |
+
+- Fires on ~1% of hands; **every** diverging node is a `turn|…` spot (gate is exact),
+  cost spread thin across 122 nodes self-play (largest single-node −0.77 → no
+  concentration) → the cheap-variety signature.
+- **Verdict: FREE variety** — even cheaper than slow-play (which cost −5.13 vs jeff).
+  Why cheaper: the give-up classes are the *thin* part of the range where the chart bets
+  least to begin with, so abandoning the barrel forgoes little realized value in the
+  current field. Shippable.
+- **Same self-reinforcing finding:** in a homogeneous field nobody punishes a checked
+  turn (the over-folder takes a free card; the reg doesn't stab). The leak's cost would
+  *rise* against floaters/turn-stabbers — and its exploiter (multistreet H1) is already
+  built, so this is the cleanest leak↔exploiter loop to demo: attach give-up-turn to one
+  personality, turn on H1 for another, and the second extracts from the first.
+
+### Fit-or-fold + auto-c-bet — BUILT + PRICED, with a methodology finding (2026-05-29)
+
+Two more handlers (`_fit_or_fold`, `_auto_cbet`) on two new bounded reshapes
+(`_pump_fold` = non-fold mass → fold; `_pump_aggression` = check/call mass → bet, the
+inverse of `_dampen_aggression`). **fit_or_fold:** flop, `facing_bet`, `{weak_made,
+air_no_draw}` → over-fold the air the chart floats. **auto_cbet:** flop, `unopened`,
+initiative, thin classes → c-bet the checking range (the flop dual of give-up-turn).
+Both default OFF; 41 spot-tendency tests green. Priced on the TAG carrier (both on,
+disable one per arm to isolate), 24k HU:
+
+| Tendency | self-play (intrinsic) | jeff (over-folder) | punisher (reg) |
+|---|---|---|---|
+| fit_or_fold | +1.71 [−0.30, +3.72] | +0.28 [−0.32, +0.87] | **+1.89 [+0.79, +2.99]** |
+| auto_cbet | +0.34 [−3.96, +4.65] | +1.30 [−0.95, +3.54] | +0.08 [−1.05, +1.20] |
+
+**Both price free — even mildly +EV — and that is the finding, not a win.** A leak that's
+EV-neutral is *not exploitable*, which is the catalog's whole point (the loop + the
+human-learnable counter). Why they came out free:
+- **fit-or-fold (free*):** in **HU**, folding pure air/weak to a single flop c-bet is ~the
+  correct play (your equity is low, you have no initiative, floating needs later barrels to
+  pay) — vs the aggressive reg it's even CI-clear +EV (you stop paying off his barrels). The
+  textbook fit-or-fold leak supposedly bites when you fold hands **with equity/playability** (2nd
+  pair, draws). I'd guessed that (and "or multiway") was the missing piece — **both refuted**: the
+  multiway gate showed it free in 6-max, and *widening the gate to fold equity hands ALSO stayed
+  free* (see the WIDENING note below). In HU/6-max over-folding to a c-bet is just cheap. So
+  "barrel relentlessly" has nothing to punish: the folds are ~correct, at any gate width.
+- **auto-c-bet (free*):** HU c-bet ranges are already very wide, so betting the marginal
+  checking range is ~EV-neutral. Its *exploitability* doesn't live in the flop bet (free) —
+  it lives in the **follow-through**: an auto-c-bettor who then abandons the turn is the
+  textbook "one-and-done," i.e. **auto_cbet + give_up_turn composed** (disjoint streets, so
+  they stack on one personality). Alone, auto-c-bet is just free flavor.
+
+**Open design question (the reason to pause — see "Roadmap / decision" below):** the cheap,
+*correct-spot* version of a leak is recognizable flavor but creates **no exploitable tell**.
+Making these genuine loop-closing leaks means deliberately gating them onto **−EV spots**
+(fit-or-fold also folding `medium_made`/`air_strong_draw`; etc.). That is a philosophy call —
+"free recognizable flavor" vs "priced, exploitable, teachable leak" — and it recurs for every
+remaining catalog leak.
+
+**RESOLVED for the regime half (multiway gate, 2026-05-29):** the hypothesis that fit-or-fold/
+auto-c-bet are real leaks our HU instrument just can't see is **REFUTED**. A delegated agent
+built + validated a 6-max pricing path (just omit `--heads-up`; control = 100% NO_DIVERGENCE,
+residual exactly +0.000; full runbook in **`docs/plans/MULTIWAY_PRICING_GATE.md`**) and
+re-priced them: `fit_or_fold` is **+3.90** [+1.17, +6.63] self-play in 6-max (still free/+EV),
+`auto_cbet` **+3.18**. So the non-exploitability is the **gate's narrowness, not the regime** —
+the layer fires only on `{weak_made, air_no_draw}`, which are fold-profitable everywhere; the
+textbook leak needs folding hands *with equity* (draws/2nd pair), which the gate excludes. The
+multiway gate also characterized the **suppression interaction** (`multiway` step 4 runs before
+`spot_tendencies` step 6.b): slowplay exempt, give_up_turn partially eaten, auto_cbet
+antagonistic (undoes suppression), fit_or_fold orthogonal — and prices the composed behavior
+correctly. **Takeaway (then):** to make fit-or-fold exploitable, *widen its hand-class gate* —
+don't chase the regime.
+
+**WIDENING TRIED — and it did NOT make fit-or-fold −EV (2026-05-29).** Per the above, widened
+`_FITFOLD_CLASSES` to `{medium_made, weak_made, air_strong_draw, air_no_draw}` (fold everything
+but strong made — incl. 2nd pair + draws, the equity hands). Re-priced 24k HU: **+1.61** [−1.67,
++4.89] self-play, **+0.40** vs jeff, **+0.81** vs punisher — **still free** (CI∋0 everywhere).
+That's now **three concordant measurements** (narrow HU +1.71, narrow 6-max +3.90, widened HU
++1.61). The equity hands *do* over-fold (they show up as diverging nodes), but folding them to a
+flop c-bet is ~EV-neutral in HU/6-max: a 2nd pair or a draw facing a c-bet has to survive turn +
+river barrels to realize, so folding the flop ≈ folding the turn in EV — the chips "lost" by
+folding equity ≈ the chips "saved" by not paying barrels (per-node contributions are mixed-sign,
+small, netting ~0). **Conclusion: "fit-or-fold" is a *full-ring* leak intuition; in HU/6-max
+over-folding to a c-bet is structurally cheap and fit-or-fold is a STYLE leak, not a skill one —
+the gate width was never the lever.** The widened gate is KEPT (it folds a wider, more
+visibly-weak-tight range → a better *style* leak) but it does not close the "barrel relentlessly"
+loop. To force a real over-fold leak you'd have to defeat the bot's own **math/defense floors**
+(they run after the spot layer and re-add pot-odds-mandated calls — the structural reason over-fold
+leaks self-limit to near-neutral folds), which is a larger change, not a gate tweak. The philosophy
+fork (free-flavor vs engineered-−EV) thus narrows: **on early streets, "free flavor" may be the
+only honest option short of disabling the floors.**
+
+### Sticky/pays-off + over-bluff — BUILT + PRICED, the first real −EV leaks (2026-05-29)
+
+After fit-or-fold/auto-c-bet priced free-but-inert, these two were chosen *because*
+their exploiters are already built and they should price as genuine −EV — the "skill"
+tier (weaker bots a built exploiter and a human can punish), vs the "style" tier (the
+free flavor). Both reuse the bounded-reshape pattern: `_dampen_fold` (fold mass → call)
+and `_pump_aggression` (the over-bet reshape, shared with auto-c-bet). Priced via the new
+`--hero-spot-tendency` flag (no source edits), 24k HU:
+
+| Tendency | Trigger | self-play (intrinsic) | jeff (loose station) | punisher (reg) |
+|---|---|---|---|---|
+| **sticky** | river, facing bet/raise, weak/medium made | **−1.87 [−2.58, −1.16]** | **−0.46 [−0.79, −0.12]** | **−0.26 [−0.48, −0.05]** |
+| **over_bluff** | river, unopened, air | +0.39 [−0.83, +1.61] | **−1.44 [−2.88, −0.00]** | −0.64 [−1.76, +0.49] |
+
+- **sticky is the first CI-clear −EV leak across the board** (and the cost profile is
+  poker-coherent: *worst* vs the balanced Baseline that value-bets a full range; *least-bad*
+  vs the aggressive reg, because crying-calling also catches *his* bluffs, offsetting the
+  value he gets paid). It is exactly the **payer the +42 value-overbet exploiter targets** —
+  attach sticky to a personality and the overbet bot extracts from it. Fires on ~0.25% of
+  hands (the river bluff-catch spot is rare), so the per-hand cost is large but the bb/100 is
+  modest — that's correct, not weak.
+- **over_bluff is free intrinsically but −EV vs a caller** (−1.44 vs jeff, whose WtSD=0.59
+  means he calls down and punishes river bluffs — a live bluff-catcher doing the exploiter's
+  job). ~free vs the reg (punisher folds the right amount). Its EV would go **+** vs a true
+  over-folder (fold equity) and more **−** vs a dedicated bluff-catcher — the field-dependence
+  a leak should show. Note jeff is mislabeled "over-folder" in the methodology section above;
+  its stats (vpip 0.39, WtSD 0.59, fold_to_cbet 0.45) are *flop* over-fold + *river* station.
+- **Both are the "skill" tier:** recognizable AND punishable, with built exploiters (sticky →
+  value overbet; over-bluff → over-call / the river guardrail is its defensive dual). Shippable
+  as real weak-spots in the gradient.
+
+**under-bluff (the over-bluff dual, same spot opposite direction)** — river, unopened, air →
+*dampen* bet (never bluff). Priced **+0.72 self-play / +1.67 vs jeff / +0.04 vs punisher** —
+free-to-+EV, because not-bluffing-a-caller is actually *correct* (CI-clear +1.67 vs the station).
+So it's a **style/face-up** leak, not a −EV one: it doesn't cost bb/100, but it's *readable* —
+"when they bet the river it's always value," and the human (or a detector) counters by
+over-folding to their river bets. The over-bluff/under-bluff pair is a clean illustration that a
+tendency's *EV sign flips with the field* (over-bluff −EV vs the caller, under-bluff +EV vs the
+same caller) while its *recognizability* is constant — the two axes (priced vs readable) made
+concrete.
+
+### over-fold-2nd-barrel + donk-when-weak — BUILT + PRICED (2026-05-29, signal-plumbed)
+
+Required threading two signals into the spot layer (`facing_double_barrel` from `derive_signals`;
+`position` from `node.position`). Both priced free, 24k HU:
+
+| Tendency | self-play | jeff | punisher | note |
+|---|---|---|---|---|
+| donk_when_weak | −0.58 [−5.55,+4.38] | −0.87 [−2.00,+0.26] | −0.31 [−1.70,+1.09] | free; fires ~5–7% (OOP lead) |
+| over_fold_2nd_barrel | (too rare) | +0.03 [−0.01,+0.07] | +0.29 [−0.54,+1.11] | **near-zero fire rate even vs barrelers** |
+
+- **donk-when-weak** is a clean **style** leak: leading weak OOP into the aggressor is ~EV-neutral
+  in HU (you have fold equity; the checked line often faces a bet anyway), but it's *recognizable*
+  (a face-up weak donk) and the human counter is "raise it."
+- **over-fold-2nd-barrel can't be priced in HU** — the spot (opp bets flop AND turn, hero holding
+  exactly marginal made facing it) fires on ~0% of HU hands even vs the aggressive reg (≈25 hands
+  in 24k). What little fires is free. It's an over-fold leak (so cheap + floor-capped like
+  fit-or-fold) AND too rare for the HU instrument; it may matter in full-ring, but we can't measure
+  it here. Kept (built, OFF) but flagged unmeasurable-in-HU.
+
+### Working principle (LOCKED 2026-05-29): early-street = style, river/commit = skill
+
+Across nine priced leaks a clean pattern holds: **fold-frequency and bet-frequency leaks on the
+flop/turn price free** (auto_cbet, fit_or_fold even widened, donk, under_bluff, over_fold_2nd_barrel,
+give_up_turn) — HU ranges are wide, marginal hands face later barrels, and the math/defense floors
+re-add odds-mandated calls — so they are the **style tier** (recognizable, not −EV, not strongly
+exploitable). The leaks that price **CI-clear −EV are all river / chip-commit spots** (sticky −1.87;
+over_bluff −EV vs callers) — the **skill tier**. Takeaway for future leaks: *don't expect an
+early-street frequency tendency to be a skill leak in HU; build those for flavor, and look to the
+river / committed pots (or the floor-defeating path, under investigation) for −EV.*
+
+## Tendency & skill catalog (running list — single source of truth)
+
+This is a **symmetric skill system** with three move-types; a bot is composed from a
+menu of them, which is what makes the skill gradient:
+- **Leak** — a suboptimal spot tendency (the exploitable side; variety / weaker bots). This
+  session's `spot_tendencies` layer.
+- **Adaptive / exploiter** — *detect* an opponent's leak (via `OpponentModelManager` stats)
+  and apply the counter. `exploitation.py` + the multistreet barrel + the value overbet.
+- **Defense** — stay unexploitable in a spot (frequency guard). The river bluff guardrail.
+
+**Leaks and exploiters are duals:** every leak has a detector that punishes it, and several
+already-built exploiters were parked only because the homogeneous field gave them no target.
+Adding the leak lights up the exploiter — *and* gives a human a learnable counter. Sourced
+from poker pedagogy (Upswing, Range Craft, PokerVIP, MyPokerCoaching) + our own measured work.
+
+Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` / `partial` / `parked` / `—`.
+
+| Leak (tendency) | Trigger spot | Exploiter (adaptive counter) | Leak | Exploiter |
+|---|---|---|---|---|
+| slow-play / trap | strong made + initiative, unopened, flop/turn | value-bet thin vs the trapper | **priced (free)** | — |
+| give-up turn (one-and-done, no barrel) | turn, initiative, checked to | float flop → steal turn | **priced (free)** | **built✅** (multistreet H1) |
+| over-fold to 2nd barrel | turn facing bet, marginal made | double-barrel | **priced (unmeasurable in HU — spot too rare; ~free)** | partial (multistreet H2, off) |
+| fit-or-fold / over-fold to c-bet | flop facing c-bet, non-strong (widened to 2nd pair+draws) | barrel relentlessly | **priced (free, STYLE — widening didn't make it −EV; floor-capped)** | partial (`exploitation.py`) |
+| auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | **priced (free*, see below)** | — |
+| under-bluff river (no triple barrel) | river, air, as bettor | over-fold their river bets; call their turn bets | **priced (free/+EV, style/face-up)** | — |
+| sticky / pays off (can't fold) | facing river bet/raise, weak made | value-bet thin + overbet, never bluff | **priced (−EV ✓ real leak)** | **built✅** (overbet, +42 vs payers) |
+| over-bluff (too many bluffs) | river, air, as bettor | over-call bluff-catchers | **priced (mild leak vs callers)** | **built✅ as defense** (river guardrail) |
+| face-up sizing (big=strong, min-raise=nuts, overbet=nuts) | any bet node; strength→size | read size → call/fold | backlog (**strategic**) | parked (sizing-aware D1) |
+| over-fold to 3-bet | preflop facing 3-bet | 3-bet wide as a bluff | backlog | — |
+| face-up / nitty 3-bet (value only) | preflop 3-bet decision | fold to their 3-bets, stop paying | backlog | — |
+| open-limp | preflop RFI | iso-raise wide | backlog | — |
+| donk-when-weak / tiny donk | OOP lead, weak | raise it | **priced (free, STYLE/face-up)** | — |
+| position-blindness (plays OOP like IP) | OOP nodes | attack the overplays | backlog | — |
+
+**Priority:** the leaks whose exploiter is already `built✅` close a full loop immediately
+(add the leak → a dormant skill gets a target → human gets a learnable counter). **give-up-turn
+(dual of the multistreet H1 barrel) is now priced free + shipped** ✅. Next top-of-list:
+**fit-or-fold / over-fold-to-c-bet** (classic, very readable; exploiter `partial` in
+`exploitation.py`) and **sticky/pays-off** (exploiter `built✅` as the value overbet). Each leak
+still priced + budgeted before shipping; preflop leaks need the layer wired into the preflop path
+(slow-play + give-up-turn are postflop-only today).
+
+### Ownership (updated 2026-05-29)
+The parallel exploitation session has **wrapped** — `exploitation.py` / `OpponentModelManager`
+(the detector + defense half) and the `spot_tendencies` layer (the leak half) are now **both
+ours**. So we can build full leak↔exploiter loops end-to-end: add a leak, then verify/tune the
+detector that punishes it, in one pass. (Earlier drafts of this doc told us to sync with the
+parallel session before touching the reader side — that constraint is gone.)
 
 ## Handoff pointers
 
 - Postflop forward plan + ruled-out frontier: `docs/plans/POSTFLOP_NEXT_LEVER.md`.
 - Sizing-aware scope (parked, revived by variety): `docs/plans/SIZING_AWARE_OPPONENT_MODELING.md`.
 - Full session narrative (wrong turns + corrections): `docs/captains-log/lookup-tables/eval-harness-and-exploitation.md`.
-- Coordination: `OpponentModelManager`/`exploitation.py` is the parallel session's territory; the deviation system + attribution gate are this session's. The `--a-hero/--b-hero` extension is additive (byte-identical when both = `--hero`).
+- Ownership: the parallel session wrapped 2026-05-29 — `OpponentModelManager`/`exploitation.py` (detectors/defenses) AND the deviation system + `spot_tendencies` + attribution gate are now all ours; build leak↔exploiter loops end-to-end. The `--a-hero/--b-hero` and `--a-disable/--b-disable` gate extensions are additive (byte-identical when unset).

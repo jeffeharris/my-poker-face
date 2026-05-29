@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from cash_mode.attractiveness import table_deadness
 from cash_mode.staker_history import StakerHistoryStats, candidate_weight
 from cash_mode.staker_profile import StakerProfile
 from cash_mode.stakes_ladder import STAKES_ORDER
@@ -55,6 +56,27 @@ W_STAKE_UP = 0.5  # stack ≥ max_buy_in → eager to book the win
 W_SHORT = 0.6  # stack < min_buy_in → tilt walk or rebuy
 W_DETACHED = 0.3  # hands spent in 'detached' zone (folding too much)
 W_TENURE = 0.2  # tired (low energy)
+# Table-attractiveness leave terms (CASH_MODE_TABLE_ATTRACTIVENESS.md §2).
+# Kept here, next to the other leave-pressure weights, rather than in
+# closed_economy as the spec sketched — they tune compute_leave_pressure
+# and _coerce_predator_retention directly, so this is their cohesive home.
+#
+# W_SLUM scales the slum signal into the stake_up source so a rich AI on
+# a short buy-in still feels the climb. SLUM_DEADZONE is how many multiples
+# of the table max buy-in over 1 an AI must hold before *any* climb fires —
+# a deadzone so a healthy, correctly-tiered grinder (naturally rolled for
+# 10-30 buy-ins) stays content with exactly zero leave pressure, and only
+# the genuinely *slumming* rich climb (the spec's "300k AI at $50"). Without
+# it, any over-roll gave a tiny always-on leave chance (churn) and defeated
+# the `total <= 0 → stay` fast path. The slum signal is
+# `max(0, wealth_over_tier − SLUM_DEADZONE)`; a 300k AI at $50 reads
+# wealth_over_tier ≈ 59 → slum 39 → W_SLUM·39 ≈ 0.39 raw → strong "move up".
+W_SLUM = 0.01
+SLUM_DEADZONE = 20.0
+# W_DEAD scales table "deadness" (0 = juicy, 1 = dead all-shark) into an
+# extra leave term that routes to bored_move. Neutral until the seating
+# path computes per-table deadness (Phase C); the field defaults to 0.
+W_DEAD = 0.4
 LEAVE_K = 2.0  # curve shape: at pressure=1.0, leave prob ≈ 0.33
 
 # Hard floor for `forced_leave` — busted AIs gone regardless of pressure.
@@ -92,6 +114,16 @@ FISH_TILT_LEAVE_THRESHOLD = 0.5
 # (sim: $200 fell to 1 grinder, fish stopped bleeding). 0.2 keeps
 # predators farming while still rotating the most-tenured eventually.
 CASINO_PREDATOR_FATIGUE_FLOOR = 0.2
+
+# Wealth-over-tier (multiples of the table max buy-in, minus 1) at or
+# above which a grinder is "too rich to be farming this stake" and is
+# released from predator retention — it graduates upward (via the
+# wealth-driven stake_up pressure) instead of being pinned to the fish
+# seat. Also the fix for the hoarding bug: a WINNING grinder's energy
+# never drops below the fatigue floor (winning raises energy), so the
+# energy release alone never fired and one stack pinned a 544k seat.
+# 20 ≈ a $50 grinder sitting on ~100k (20× the $5k max buy-in).
+PRESTIGE_RETENTION_OVERRIDE = 20.0
 
 # Minimum cooldown seconds between an AI leaving a table and being
 # eligible to refill the same table. The pressure-derived variable
@@ -159,6 +191,13 @@ class MovementContext:
     zone: str = ""  # 'detached' triggers detached pressure
     hands_in_detached_zone: int = 0  # consecutive hands in detached zone
     emotional_intensity: float = 0.0  # 0..1 — biases rebuy bucket toward min when high
+    # Table attractiveness (CASH_MODE_TABLE_ATTRACTIVENESS.md §2). How
+    # "dead" the current table is FOR THIS AI: 0 = juicy (no added leave
+    # pressure), 1 = dead all-shark (max pressure to go find fish). The
+    # seating path computes it from cash_mode.attractiveness in the
+    # loop-inversion step; defaults to 0 (neutral) so pre-inversion callers
+    # and tests are unchanged.
+    table_deadness: float = 0.0
 
 
 def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
@@ -170,7 +209,19 @@ def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
     """
     min_bi = max(1, ctx.min_buy_in)
     max_bi = max(1, ctx.max_buy_in)
-    stake_up_raw = max(0.0, ctx.ai_chips / max_bi - 1.0)
+    # stake_up has two sources; take the stronger:
+    #   • seat stack over the tier max — "I booked a big win, move up"
+    #   • WEALTH over the tier max — "I'm a 300k AI slumming at $50" — the
+    #     wealth-driven climb from CASH_MODE_TABLE_ATTRACTIVENESS.md. Without
+    #     it `stake_up` read only the seat stack, so a rich AI on a short
+    #     buy-in generated zero climb pressure and the $1000 Pit stayed empty.
+    #     `wealth_excess` is the same formula as
+    #     cash_mode.attractiveness.wealth_over_tier (computed inline against
+    #     the tier max ctx already carries, to keep this hot path import-free).
+    seat_over_tier = ctx.ai_chips / max_bi - 1.0
+    wealth_excess = max(0.0, ctx.projected_bankroll / max_bi - 1.0)
+    slum_signal = max(0.0, wealth_excess - SLUM_DEADZONE)
+    stake_up_raw = max(0.0, seat_over_tier, W_SLUM * slum_signal)
     short_raw = max(0.0, 1.0 - ctx.ai_chips / min_bi)
     detached_raw = (ctx.hands_in_detached_zone / 8.0) if ctx.zone == "detached" else 0.0
     # Tenure only kicks in once energy drops below 0.5. At energy=0.5
@@ -183,6 +234,11 @@ def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
         "short": W_SHORT * short_raw,
         "detached": W_DETACHED * detached_raw,
         "tenure": W_TENURE * tenure_raw,
+        # Dead-table push: 0 at a juicy table, rising toward a dead
+        # all-shark one — extra pressure to go find fish. Routes to
+        # `bored_move` when dominant (see evaluate_ai_movement). Neutral
+        # until the seating path populates ctx.table_deadness (Phase C).
+        "dead": W_DEAD * max(0.0, min(1.0, ctx.table_deadness)),
     }
 
 
@@ -241,7 +297,8 @@ def evaluate_ai_movement(
            Returns `rebuy` or `take_break`.
          - `stake_up` → `stake_up` if a higher tier is affordable,
            else `take_break`.
-         - `detached` or `tenure` → `bored_move`.
+         - `detached`, `tenure`, or `dead` → `bored_move` (go find a
+           better table; `dead` is the table-attractiveness term).
     """
     if ctx.min_buy_in <= 0:
         return "stay"
@@ -267,6 +324,9 @@ def evaluate_ai_movement(
             and ctx.projected_bankroll >= ctx.next_tier_min_buy_in
         )
         return "stake_up" if can_stake_up else "take_break"
+    # detached / tenure / dead all route here — discretionary "go elsewhere"
+    # leaves that drop into the idle pool and re-seat via the attractiveness
+    # pull (a dead-table leaver is steered toward fish/juicier rooms).
     return "bored_move"
 
 
@@ -310,6 +370,8 @@ def _coerce_predator_retention(
     decision: MovementDecision,
     table_has_fish: bool,
     energy: float,
+    *,
+    wealth_excess: float = 0.0,
 ) -> MovementDecision:
     """Keep a grinder from *drifting* off a fish table out of boredom —
     but never block the `stake_up` graduation exit.
@@ -333,11 +395,32 @@ def _coerce_predator_retention(
     Boredom suppression is gated on energy: once a predator is worn down
     past `CASINO_PREDATOR_FATIGUE_FLOOR` even its `bored_move` stands, so a
     tired grinder cycles out too.
+
+    `wealth_excess` (multiples of the table max buy-in over 1, i.e.
+    `cash_mode.attractiveness.wealth_over_tier`) adds a second release: a
+    grinder rich enough to be slumming (`>= PRESTIGE_RETENTION_OVERRIDE`)
+    is no longer pinned — it graduates, climbing via the wealth-driven
+    `stake_up` pressure rather than wandering sideways. This is the
+    hoarding-bug fix: a WINNING grinder's energy never drops below the
+    fatigue floor (winning raises energy), so the energy release alone
+    never fired and one stack pinned a 544k fish seat forever.
     """
     if not table_has_fish:
         return decision
     if energy < CASINO_PREDATOR_FATIGUE_FLOOR:
         return decision  # worn down — let it cycle out
+    if wealth_excess >= PRESTIGE_RETENTION_OVERRIDE:
+        # Too rich to farm this stake — graduate UPWARD, not sideways. A
+        # boredom drift becomes a `stake_up`: a grinder this far over the
+        # tier max (≥ PRESTIGE_RETENTION_OVERRIDE × max buy-in) is
+        # comfortably rolled for the next tier, so it climbs rather than
+        # wandering to another same-stake table. The conversion (not just a
+        # release) is what guarantees "up, not sideways" — the wealth
+        # stake_up pressure only begins to ramp at SLUM_DEADZONE, so at the
+        # release threshold it isn't yet dominant on its own. Other
+        # decisions (stake_up / take_break / forced_leave) already route up
+        # or out correctly.
+        return "stake_up" if decision == "bored_move" else decision
     if decision == "bored_move":
         return "stay"
     return decision
@@ -858,6 +941,12 @@ def refresh_table_roster(
     table_max_buy_in: int,
     next_tier_min_buy_in: Optional[int] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
+    # When False, run Step 1 (per-AI movement) only and skip the per-seat
+    # live-fill (Step 2). Used by the table-attractiveness loop inversion
+    # (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): the lobby disables local fill
+    # here and runs a single GLOBAL greedy fill pass instead. Defaults True
+    # so existing callers / tests keep the per-table fill behavior.
+    enable_live_fill: bool = True,
     defer_freshly_vacated_live_fill: bool = True,
     psych_lookup: Optional[Callable[[str], Dict[str, Any]]] = None,
     # Idle-recovery gate: recovery fraction toward baseline for an idle AI
@@ -981,6 +1070,19 @@ def refresh_table_roster(
     # Fish are casino-only, so this is non-trivial only at casinos.
     table_has_fish = any(s.get("kind") == "ai" and s.get("archetype") == "fish" for s in new_seats)
 
+    # Dead-table push (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): a casino that
+    # has lost its fish pushes its stuck grinders to go find action. Computed
+    # once per table from the current seats; fed to each seated AI's
+    # MovementContext below (fish ignore it — their movement is coerced).
+    _grinder_count = sum(
+        1 for s in new_seats if s.get("kind") == "ai" and s.get("archetype") != "fish"
+    )
+    _deadness = table_deadness(
+        is_casino=(table.table_type == "casino"),
+        has_fish=table_has_fish,
+        grinder_count=_grinder_count,
+    )
+
     # Step 1: process AI seats.
     for i, slot in enumerate(new_seats):
         if slot["kind"] != "ai":
@@ -1008,6 +1110,7 @@ def refresh_table_roster(
             zone=str(psych.get("zone", "")),
             hands_in_detached_zone=int(psych.get("hands_in_detached_zone", 0)),
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
+            table_deadness=_deadness,
         )
         decision = evaluate_ai_movement(ctx, rng)
         # Fish are casino-bound chip donors: they reload from their
@@ -1018,9 +1121,13 @@ def refresh_table_roster(
         else:
             # Predator retention: grinders stay to farm a seated fish
             # rather than booking the win and leaving (the pull that
-            # staffs high-stakes casinos), until they tire and cycle out.
+            # staffs high-stakes casinos), until they tire and cycle out —
+            # or until they're rich enough to graduate (wealth_excess).
             # See `_coerce_predator_retention`.
-            decision = _coerce_predator_retention(decision, table_has_fish, ctx.energy)
+            wealth_excess = max(0.0, ctx.projected_bankroll / max(1, ctx.max_buy_in) - 1.0)
+            decision = _coerce_predator_retention(
+                decision, table_has_fish, ctx.energy, wealth_excess=wealth_excess
+            )
         # Vice-on-leave: a discretionary leaver who is rich enough goes
         # straight off-grid to a vice instead of the idle pool. Rolling
         # the existing wealth×psych vice probability HERE (at the leave)
@@ -1246,13 +1353,22 @@ def refresh_table_roster(
         cooldown_seconds = compute_leave_cooldown_seconds(ctx, rng)
         record_leave_cooldown(table.table_id, pid, cooldown_seconds, now)
 
-    # Step 2: live-fill open seats.
+    # Step 2: live-fill open seats. Skipped entirely when
+    # `enable_live_fill=False` (the loop-inversion path fills globally in the
+    # lobby instead) — no open_indices ⇒ the fill loop below no-ops and
+    # `freshly_seated` stays empty, so no fill-side BankrollChange/idle
+    # changes are emitted here.
     freshly_seated: List[str] = []
-    open_indices = [
-        i
-        for i, s in enumerate(new_seats)
-        if s["kind"] == "open" and not (defer_freshly_vacated_live_fill and i in freshly_vacated)
-    ]
+    open_indices = (
+        [
+            i
+            for i, s in enumerate(new_seats)
+            if s["kind"] == "open"
+            and not (defer_freshly_vacated_live_fill and i in freshly_vacated)
+        ]
+        if enable_live_fill
+        else []
+    )
 
     # Idle pool candidates (oldest first), filtered to those NOT
     # globally seated and whose `target_stake` allows this table, and

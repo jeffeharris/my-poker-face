@@ -787,6 +787,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     # skip, so the UI hides the fast-forward button.
     game_state_dict['ai_instant'] = _all_ai_no_llm(current_game_data.get('ai_controllers') or {})
 
+    # Always-fast-forward: the owner set game speed to 'always', so every AI turn
+    # resolves via the no-LLM path. Like ai_instant, this lets the UI hide the
+    # (now permanently-on) fast-forward button.
+    game_state_dict['always_fast_forward'] = _resolve_game_speed(current_game_data) == 'always'
+
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
@@ -3710,6 +3715,73 @@ def _resolve_human_bio(current_game_data: dict) -> str:
     return bio
 
 
+def _resolve_game_speed(current_game_data: dict) -> str:
+    """Resolve the owner's game-speed preference, cached per game.
+
+    'standard' / 'after_fold' / 'always'. Read once per game (lazily) — it's a
+    set-and-forget user preference, so a mid-game change not taking effect until
+    the game reloads is acceptable, and this avoids a DB hit on every AI turn.
+    Mirrors `_resolve_human_bio`.
+    """
+    if 'game_speed' in current_game_data:
+        return current_game_data['game_speed']
+    owner_id = current_game_data.get('owner_id')
+    if not owner_id:
+        current_game_data['game_speed'] = 'standard'
+        return 'standard'
+    try:
+        from ..extensions import user_prefs_repo
+
+        value = user_prefs_repo.get_game_speed(owner_id) if user_prefs_repo else 'standard'
+    except Exception as e:
+        # Don't cache on failure — retry on the next turn.
+        logger.debug(f"Could not resolve game_speed for {owner_id}: {e}")
+        return 'standard'
+    current_game_data['game_speed'] = value
+    return value
+
+
+def maybe_engage_fast_forward_on_fold(game_id: str, action: str) -> None:
+    """If the human just folded and their speed is 'after_fold', fast-forward.
+
+    Sets the one-orbit `fast_forward` flag so `handle_ai_action` swaps the
+    remaining AIs to no-LLM tiered controllers; it auto-clears when action
+    returns to the human next hand. ('always' doesn't need this — handle_ai_action
+    fast-forwards every turn on its own.) Call after applying the human's action,
+    before progress_game.
+    """
+    if action != 'fold':
+        return
+    current_game_data = game_state_service.get_game(game_id)
+    if not current_game_data or current_game_data.get('fast_forward'):
+        return
+    if _resolve_game_speed(current_game_data) == 'after_fold':
+        current_game_data['fast_forward'] = True
+        game_state_service.set_game(game_id, current_game_data)
+        logger.info(f"[FF] game={game_id} fast-forward engaged after human fold")
+
+
+def stamp_coach_default_mode(game_id: str, owner_id: Optional[str]) -> None:
+    """Seed a new game's coach mode from the owner's default preference.
+
+    The user's "default coaching mode" is a sticky per-user pref; applying it to
+    each new game at creation is what makes it carry across devices (the games
+    table is the source of truth the in-game coach reads). The in-game coach
+    panel still overrides per game. No-op for guests, or when the default is the
+    column default ('off') so we don't write redundantly.
+    """
+    if not owner_id:
+        return
+    try:
+        from ..extensions import user_prefs_repo
+
+        mode = user_prefs_repo.get_coach_default_mode(owner_id) if user_prefs_repo else 'off'
+        if mode and mode != 'off':
+            game_repo.save_coach_mode(game_id, mode)
+    except Exception as e:
+        logger.debug(f"[Coach] failed to stamp default mode for game {game_id}: {e}")
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -3726,11 +3798,11 @@ def handle_ai_action(game_id: str) -> None:
     logger.debug(f"[AI_ACTION] Current AI player: {current_player.name}")
 
     # Fast-forward dispatch: swap to a tiered controller (solver + personality,
-    # no LLM expression) so the rest of the orbit resolves quickly. The flag
-    # auto-resets in progress_game once action returns to the human. Per-game
-    # FF controllers are cached in `ff_controllers` to avoid rebuilding the
-    # strategy tables on every decision.
-    if current_game_data.get('fast_forward'):
+    # no LLM expression) so the turn resolves quickly. Engaged by the one-orbit
+    # `fast_forward` flag (manual FF button / after-fold trigger) OR permanently
+    # when the owner's game speed is 'always'. Per-game FF controllers are
+    # cached in `ff_controllers` to avoid rebuilding the strategy tables.
+    if current_game_data.get('fast_forward') or _resolve_game_speed(current_game_data) == 'always':
         controller = _get_or_build_ff_controller(
             current_game_data,
             current_player.name,
