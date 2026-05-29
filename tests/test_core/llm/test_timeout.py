@@ -61,3 +61,11 @@ def test_no_timeout_is_not_passed_to_sdk(mock_openai_class, usage_tracker):
     )
     _, kwargs = mock_client.chat.completions.create.call_args
     assert "timeout" not in kwargs
+
+
+def test_ticker_timeout_is_tighter_than_ingame():
+    """PRH-21: the world-ticker narration (shared greenlet, all-users blast
+    radius) must be bounded tighter than a single in-game decision (PRH-18)."""
+    from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS, TICKER_LLM_TIMEOUT_SECONDS
+
+    assert 0 < TICKER_LLM_TIMEOUT_SECONDS < INGAME_LLM_TIMEOUT_SECONDS

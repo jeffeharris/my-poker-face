@@ -14,6 +14,13 @@ import os
 # LLM_INGAME_TIMEOUT.
 INGAME_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_INGAME_TIMEOUT", "30.0"))
 
+# PRH-21: the world-ticker narration (vice / side-hustle) runs synchronously in
+# the single shared ticker greenlet that advances EVERY active sandbox, so a
+# stall there pauses the lobby for ALL users — a wider blast radius than a single
+# hand. It's pure flavor, so give it a TIGHTER bound than the in-game decision
+# timeout. Override with LLM_TICKER_TIMEOUT.
+TICKER_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TICKER_TIMEOUT", "10.0"))
+
 # =============================================================================
 # OpenAI Configuration
 # =============================================================================
