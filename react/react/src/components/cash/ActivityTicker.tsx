@@ -96,7 +96,7 @@ export function ActivityTicker({ events, worldPace = null, onPaceChange }: Activ
   return (
     <div className="lobby-ticker" aria-label="Recent table activity">
       <div className="lobby-ticker__header">
-        <h3 className="lobby-ticker__heading">Activity</h3>
+        <h3 className="lobby-ticker__heading">The Wire</h3>
         {showPace && (
           <div
             className="lobby-ticker__pace"

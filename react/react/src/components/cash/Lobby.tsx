@@ -570,19 +570,19 @@ export function Lobby() {
             </div>
           )}
 
-          <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
-
           <div className="cash-entry__whereabouts-row">
             <button
               type="button"
               className="cash-entry__intel-trigger"
               onClick={() => setIntelHubOpen(true)}
-              title="Open the intel field office — dispatches, whereabouts & case files"
+              title="Open the intel field office — the wire, whereabouts & case files"
             >
               <Eye size={13} aria-hidden="true" />
               Intel
             </button>
           </div>
+
+          <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
 
           {loadError && (
             <div className="cash-entry__error" role="alert">

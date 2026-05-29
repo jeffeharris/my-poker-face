@@ -26,7 +26,7 @@ import './FileCabinetDrawer.css';
 type IntelTab = 'dispatches' | 'whereabouts' | 'files';
 
 const TABS: { key: IntelTab; label: string; Icon: typeof Radio }[] = [
-  { key: 'dispatches', label: 'Dispatches', Icon: Radio },
+  { key: 'dispatches', label: 'The Wire', Icon: Radio },
   { key: 'whereabouts', label: 'Whereabouts', Icon: MapPin },
   { key: 'files', label: 'Case Files', Icon: FolderOpen },
 ];
