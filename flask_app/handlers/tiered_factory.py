@@ -131,11 +131,40 @@ def build_controller(
                               — this mirrors the restore path, which treats an
                               unknown bot_type as a rule-bot strategy name.
 
+    Unknown-bot_type contract (intentional divergence -- NOT a bug):
+        The create paths and the restore path send unknown bot_types down
+        DIFFERENT fallbacks, and that is correct because they handle
+        NON-OVERLAPPING input domains:
+
+        * CREATE paths (``api_new_game``, cash sit/refill) never emit an
+          unknown bot_type. ``api_new_game`` rejects anything outside
+          ``VALID_BOT_TYPES`` (+ legacy aliases) with a 400; cash/refill only
+          pass ``assign_bot`` outputs (chaos/standard/sharp) or the literals
+          'fish'/'sharp'. So for create ``default_strategy is None`` and the
+          Hybrid fallback is reachable ONLY via the recognised 'standard' key.
+        * The RESTORE path reads PERSISTED bot_types. Today those are always
+          VALID_BOT_TYPES (handled by explicit branches above) or legacy
+          aliases (remapped before this call). The ``default_strategy``
+          else-branch below therefore only ever catches LEGACY RAW
+          rule-strategy names from old/experiment saves (e.g. 'abc',
+          'always_fold', 'case_based', 'pot_odds_robot') -- and routing those
+          to ``RuleBotController(strategy=bot_type)`` is exactly right (they
+          ARE rule-bot strategy names; RuleBotController itself defaults an
+          unrecognised strategy to always_fold).
+
+        Net: the "same unknown value builds a different class on create vs
+        restore" scenario cannot occur for any value a create path can emit.
+        If you ever add a NEW value to ``VALID_BOT_TYPES`` in game_routes you
+        MUST add a matching explicit branch here (above the else), or restored
+        games will silently route it to RuleBot. The regression test
+        ``tests/test_strategy/test_build_controller_unknown_bot_type.py`` pins
+        this contract.
+
     Args:
         default_strategy: When provided (any truthy marker), unknown bot types
             are routed to ``RuleBotController(strategy=bot_type)`` rather than
             ``HybridAIController``. Used by the restore path. Defaults to None
-            (new-game / cash semantics: unknown → Hybrid).
+            (new-game / cash semantics: unknown -> Hybrid).
         fish_leak: Passed through only on the ``'fish'`` branch.
         debug_logging: Forwarded to ``build_tiered_controller`` (sharp /
             baseline_solver branches).
