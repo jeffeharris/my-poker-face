@@ -256,6 +256,13 @@ def update_personality(name):
 
         if owner_id and owner_id != user_id and not is_admin:
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
+        # System/built-in personalities have no owner (owner_id is None); the
+        # guard above short-circuits on them, so only admins may overwrite the
+        # shared catalog. Mirrors update_avatar_description / update_reference_image.
+        if not owner_id and not is_admin:
+            return jsonify(
+                {'success': False, 'error': 'Only admins can edit system personalities'}
+            ), 403
 
         personality_config = request.json
 
@@ -366,6 +373,13 @@ def delete_personality(name):
 
         if owner_id and owner_id != user_id and not is_admin:
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
+        # System/built-in personalities have no owner (owner_id is None); the
+        # guard above short-circuits on them, so only admins may delete from the
+        # shared catalog (delete also cascades to avatar images below).
+        if not owner_id and not is_admin:
+            return jsonify(
+                {'success': False, 'error': 'Only admins can delete system personalities'}
+            ), 403
 
         # Delete associated avatar images
         extensions.personality_repo.delete_avatar_images(name)

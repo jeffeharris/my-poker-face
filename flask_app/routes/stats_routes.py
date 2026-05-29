@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request
-from openai import OpenAI
 
 from core.llm import CallType, LLMClient
 from flask_app.handlers.chat_reads import target_social_read
@@ -138,35 +137,28 @@ def get_career_stats():
 
 
 @stats_bp.route('/api/models', methods=['GET'])
+@limiter.limit("30/minute")
 def get_available_models():
-    """Get available OpenAI models for game configuration."""
+    """Get available models for game configuration.
+
+    SBP-003: serves the curated static ``AVAILABLE_MODELS``. Previously this
+    public, unauthenticated route made a live ``OpenAI().models.list()`` call
+    with the server API key on every request — an outbound-provider abuse
+    surface (latency, quota/throttle consumption) with no auth, cache, or limit.
+    The current frontend uses the DB-backed ``/api/user-models``; this route is
+    kept only for legacy callers and no longer touches a provider or server key.
+    """
     from core.llm import AVAILABLE_MODELS, DEFAULT_REASONING_EFFORT
 
-    default_model = config.get_default_model()
-    try:
-        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        models = client.models.list()
-        available = [m.id for m in models.data if m.id.startswith(('gpt-5', 'gpt-4o'))]
-        return jsonify(
-            {
-                'success': True,
-                'models': sorted(available),
-                'default_model': default_model,
-                'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-                'default_reasoning': DEFAULT_REASONING_EFFORT,
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error fetching models: {e}")
-        return jsonify(
-            {
-                'success': True,
-                'models': AVAILABLE_MODELS,
-                'default_model': default_model,
-                'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-                'default_reasoning': DEFAULT_REASONING_EFFORT,
-            }
-        )
+    return jsonify(
+        {
+            'success': True,
+            'models': AVAILABLE_MODELS,
+            'default_model': config.get_default_model(),
+            'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
+            'default_reasoning': DEFAULT_REASONING_EFFORT,
+        }
+    )
 
 
 @stats_bp.route('/settings/<game_id>')

@@ -13,7 +13,7 @@ from flask_socketio import emit, join_room
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 from core.moderation import moderate_text
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
-from poker.authorization import get_authorization_service
+from poker.authorization import get_authorization_service, require_permission
 from poker.betting_context import BettingContext
 from poker.controllers import AIPlayerController
 
@@ -1231,8 +1231,13 @@ def api_user_models():
 
 
 @game_bp.route('/api/system-models', methods=['GET'])
+@require_permission('can_access_admin_tools')
 def api_system_models():
     """Get LLM providers and models available for system/admin features.
+
+    Admin-only (SBP-002): returns system-only models + cost tiers meant for the
+    admin tooling below; only the admin-surface hooks (scope='system') call it,
+    while user-facing game setup uses the public `/api/user-models`.
 
     Returns models where enabled=1 (ignores user_enabled).
     This includes "System-only" models that admins can use but users cannot see.

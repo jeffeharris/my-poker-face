@@ -58,7 +58,7 @@ echo "==> Waiting for services to start..."
 sleep 15
 
 echo "==> Running database migrations..."
-ssh ${SERVER} "cd ${APP_DIR} && ${COMPOSE} run --rm backend python scripts/migrate_avatars_to_db.py"
+ssh ${SERVER} "cd ${APP_DIR} && ${COMPOSE} run --rm backend python -m poker.migrations.migrate_avatars_to_db"
 
 echo "==> Checking health..."
 if ! ssh ${SERVER} "curl -sf http://localhost/health"; then

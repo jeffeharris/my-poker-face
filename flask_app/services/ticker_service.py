@@ -283,7 +283,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
     from flask_app.handlers.game_handler import live_cash_seated_pids
-    from flask_app.services import presence
+    from flask_app.services import game_state_service, presence
 
     hand_sim_prob, run_every = _resolve_pace(owner_id)
     if run_every > 1 and (_cycle % run_every) != 0:
@@ -295,20 +295,27 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         existing = recent_events(limit=1, sandbox_id=sandbox_id)
         _last_marker[owner_id] = existing[0].created_at if existing else ""
 
-    refresh_unseated_tables(
-        cash_table_repo=extensions.cash_table_repo,
-        personality_repo=extensions.personality_repo,
-        bankroll_repo=extensions.bankroll_repo,
-        user_id=owner_id,
-        sandbox_id=sandbox_id,
-        hand_sim_prob=hand_sim_prob,
-        chip_ledger_repo=extensions.chip_ledger_repo,
-        relationship_repo=extensions.relationship_repo,
-        stake_repo=extensions.stake_repo,
-        vice_repo=extensions.vice_state_repo,
-        side_hustle_repo=extensions.side_hustle_state_repo,
-        live_seated_pids=live_cash_seated_pids(sandbox_id),
-    )
+    # Hold the per-sandbox seat lock around the read-modify-write of the
+    # sandbox's tables so the ticker's live-fill serializes with the route-side
+    # seat claims (human sit / sponsor-sit), which take the same lock. Without
+    # it, a human sit interleaving across refresh's load→save DB-yield gap is
+    # last-write-wins → a stranded already-debited AI buy-in or a double-seat /
+    # seated_and_idle split-brain. See game_state_service.get_sandbox_lock.
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        refresh_unseated_tables(
+            cash_table_repo=extensions.cash_table_repo,
+            personality_repo=extensions.personality_repo,
+            bankroll_repo=extensions.bankroll_repo,
+            user_id=owner_id,
+            sandbox_id=sandbox_id,
+            hand_sim_prob=hand_sim_prob,
+            chip_ledger_repo=extensions.chip_ledger_repo,
+            relationship_repo=extensions.relationship_repo,
+            stake_repo=extensions.stake_repo,
+            vice_repo=extensions.vice_state_repo,
+            side_hustle_repo=extensions.side_hustle_state_repo,
+            live_seated_pids=live_cash_seated_pids(sandbox_id),
+        )
 
     _maybe_record_holdings_snapshot(sandbox_id)
     # Recompute the human's reputation scoreboard. Placed before the

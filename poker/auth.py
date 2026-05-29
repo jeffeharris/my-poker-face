@@ -23,7 +23,26 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 logger = logging.getLogger(__name__)
 
 # JWT configuration
-JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', secrets.token_hex(32))
+# Mirror flask_app.config's SECRET_KEY handling: in production a missing OR
+# empty JWT_SECRET_KEY is fatal. An empty secret signs forgeable tokens (full
+# auth bypass), and `docker-compose.prod.yml` interpolates an unset
+# `${JWT_SECRET_KEY}` to "" — a present-but-empty value that os.environ.get
+# would otherwise hand back unchecked. JWT_SECRET_KEY is also the fallback
+# secret for the signed guest cookies below, so an empty value poisons those too.
+# In development, fall back to an ephemeral random secret.
+_jwt_is_development = (
+    os.environ.get('FLASK_ENV', 'production') == 'development'
+    or os.environ.get('FLASK_DEBUG', '0') == '1'
+)
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+if not JWT_SECRET_KEY:
+    if _jwt_is_development:
+        JWT_SECRET_KEY = secrets.token_hex(32)
+    else:
+        raise RuntimeError(
+            "JWT_SECRET_KEY environment variable is required in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
 
 # Signed-cookie support for guest_id (T1-26).
 # The raw guest_id cookie was previously format-checked only — anyone
