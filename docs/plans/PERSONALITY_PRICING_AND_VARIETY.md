@@ -36,11 +36,36 @@ emergent **skill gradient** across the AI players.
 **Branch `lookup-tables`** (merged with `origin/development`, pushed). All Python
 runs in Docker: `docker compose exec -T backend python ...`.
 
-> **NEW-CONTEXT START HERE.** The live frontier is **item 3 — the spot-tendency
-> variety system** (the "Item 3 scope" + "Tendency & skill catalog" sections below).
-> Mechanism + first leak (slow-play) + per-personality hook are shipped; the catalog
-> is the running to-do. Maniac/personality-pricing (the "Results" table) is done. The
-> strength-side gameplay layers (1–3 below) are also done — don't re-open them.
+> **NEW-CONTEXT START HERE (updated 2026-05-29 — read this first).**
+>
+> **The live frontier is making the variety VISIBLE.** The spot-tendency leak system
+> (9 leaks built + priced) and the adaptive-exploit side are DONE and explored — do
+> not re-open them (see "what's settled" below). The audit that matters: the 6
+> archetypes **barely play differently** at the table. Measured (`measure_passivity
+> --hero <archetype> --opponents gto --hands 2500`), same opponents:
+>
+> | archetype | VPIP | PFR | postflop AF |  | archetype | VPIP | PFR | AF |
+> |---|---|---|---|---|---|---|---|---|
+> | Nit | 22% | 21% | 0.19 |  | Calling Station | 26% | 23% | 0.22 |
+> | Rock | 22% | 21% | 0.20 |  | LAG | 27% | 25% | 0.36 |
+> | TAG | 23% | 22% | 0.31 |  | Maniac | 32% | 31% | 0.48 |
+>
+> A nit and a maniac differ by 10 pts of VPIP (a real field is ~12%→~55%); **PFR≈VPIP
+> for everyone → nobody limps/calls**, so the "Calling Station" *doesn't call* (26/23).
+> The variety is nominal because the priced-"free" deviations are too small to move
+> aggregate stats — **free = invisible.**
+>
+> **THE TASK:** widen the per-archetype deviation `aggression_scale`/`looseness_scale`
+> + `max_per_action_shift` (in `poker/strategy/deviation_profiles.py`) until this
+> VPIP/PFR/AF table looks like a real field, and **re-shape `calling_station`** to move
+> preflop raise→call + postflop fold→call (high VPIP, low PFR, high WtSD — a real
+> caller, not just "looser"). **Acceptance test = re-run that table until the archetypes
+> are visibly distinct.** Variety *costs EV* and that's correct — a wild bot SHOULD
+> bleed (the bleed is the skill gradient); use the pricing gate to keep it bounded, but
+> budget weak characters generously, not ~0. Optional fan-out: sweep candidate
+> scale-sets via parallel `measure_passivity` runs (workflow-shaped) then eyeball-pick.
+>
+> The strength-side gameplay layers (1–3 below) are done — don't re-open them.
 
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.
@@ -50,8 +75,12 @@ runs in Docker: `docker compose exec -T backend python ...`.
 5. **Give-up-turn leak (2026-05-29)** — second `spot_tendencies` handler (`_give_up_turn`), the **dual of the multistreet H1 barrel** (first leak whose exploiter is already built). Priced **free** (intrinsic −1.47, jeff −1.54, punisher +0.14; all CI∋0). Turn-only, disjoint from slow-play by hand class. See "Give-up turn" subsection below.
 6. **Fit-or-fold + auto-c-bet leaks (2026-05-29)** — `_fit_or_fold` / `_auto_cbet` on two new bounded reshapes (`_pump_fold`, `_pump_aggression`). Both priced **free/+EV** — and that surfaced a methodology finding: a *correct-spot* leak is recognizable flavor but **not exploitable**, so it doesn't close the loop. See "Fit-or-fold + auto-c-bet" subsection + the open design question.
 7. **Sticky/pays-off + over-bluff + under-bluff leaks (2026-05-29)** — `_sticky` (`_dampen_fold`) priced **−1.87/−0.46/−0.26 (CI-clear −EV everywhere)** → the first real "skill"-tier leak, the payer the value overbet targets. `_over_bluff` (`_pump_aggression`) free intrinsically, −EV vs callers. `_under_bluff` (`_dampen_aggression`) the over-bluff dual: free/+EV, a style/face-up leak. See "Sticky + over-bluff" subsection.
-8. **`--hero-spot-tendency` gate flag (2026-05-29)** — prices a spot tendency without editing a deviation profile in source (sets the controller's `_spot_tendencies_override`). Retires the "carrier" hack. Validated (fires on the right nodes; control = 100% NO_DIVERGENCE).
-9. **Multiway pricing gate (delegated 2026-05-29)** — a parallel agent is scoping/validating 6-max pricing (does fit-or-fold/auto-c-bet flip to −EV multiway?) → `docs/plans/MULTIWAY_PRICING_GATE.md`.
+8. **`--hero-spot-tendency` + `--opp-spot-tendency` gate flags (2026-05-29)** — price a spot tendency on hero or opponent without editing a deviation profile in source. Retires the "carrier" hack. Validated (control = 100% NO_DIVERGENCE). Plus a `tag` opponent roster.
+9. **over-fold-2nd-barrel + donk-when-weak leaks (2026-05-29)** — signal-plumbed (`facing_double_barrel`, `position`). Both free; over-fold-2nd-barrel too rare to price in HU. **9 leaks total now.**
+10. **Multiway pricing gate (2026-05-29, DONE)** — validated; **refuted** the "fit-or-fold is a hidden multiway leak" hypothesis (still +3.90 in 6-max). `docs/plans/MULTIWAY_PRICING_GATE.md`.
+11. **Leak × counter matrix + floor investigation (2026-05-29)** — a leak's cost is a **matchup** (over-bluff −7.6 vs a caller; sticky ±2 by opponent), not a number. Over-fold leaks are floor-capped (`docs/plans/FLOOR_DEFEATING_LEAKS.md`). See those subsections.
+12. **Adaptive overbet / detector (2026-05-29) — built, MEASURED, SHELVED as prospective.** Doesn't fire (gates on the safety-dampened `value_vs_station` signal → ~0 vs tight fields) AND has no target (no sizing-reader in the field). Default OFF, harmless. Real fix + why it's prospective in the "Adaptive detector" subsection. **Do not re-open the AI-vs-AI exploit side** — settled with the user.
+13. **Personality wiring + variety audit (2026-05-29)** — 3 exemplars wired (`docs/plans/PERSONALITY_LEAK_WIRING.md`); audit found the archetypes barely differ → **the variety-widening task is now the frontier (see NEW-CONTEXT callout above).**
 
 **Key measured findings (don't re-litigate):**
 - The cheap chart frontier (frequency, sizing granularity, dimensional coverage) is **tapped**; the remaining strength lever is the **parked solver program** (HU/multiway, expensive).
