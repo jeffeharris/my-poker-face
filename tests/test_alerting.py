@@ -40,6 +40,7 @@ def handler():
 
 # --- alertable gating -------------------------------------------------------
 
+
 def test_error_is_alertable(handler):
     assert handler._is_alertable(_record(logging.ERROR, "boom")) is True
 
@@ -92,6 +93,7 @@ def test_no_url_is_noop():
 
 # --- throttle ---------------------------------------------------------------
 
+
 def test_same_signature_is_throttled(handler):
     handler.emit(_record(logging.ERROR, "repeat me"))
     handler.emit(_record(logging.ERROR, "repeat me"))
@@ -112,6 +114,7 @@ def test_global_per_minute_cap(handler):
 
 
 # --- URL resolution (DB setting over env) -----------------------------------
+
 
 class _FakeSettingsRepo:
     def __init__(self, value):
@@ -160,6 +163,7 @@ def test_mask_url():
 
 
 # --- init -------------------------------------------------------------------
+
 
 def test_init_always_attaches_and_is_idempotent(monkeypatch):
     monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)

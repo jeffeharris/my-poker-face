@@ -482,9 +482,7 @@ class TestComputeAudit:
                 self.is_human = is_human
 
         class FakeGameState:
-            players = [FakePlayer(human_stack, is_human=True)] + [
-                FakePlayer(s) for s in ai_stacks
-            ]
+            players = [FakePlayer(human_stack, is_human=True)] + [FakePlayer(s) for s in ai_stacks]
 
         class FakeStateMachine:
             game_state = FakeGameState()

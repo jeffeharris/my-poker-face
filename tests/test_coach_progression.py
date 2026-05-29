@@ -1726,9 +1726,7 @@ class TestSessionEvaluationPersistence(unittest.TestCase):
         """save_session_evaluations → load_session_evaluations →
         from_evaluations_json restores the full per-hand history."""
         sm = self._memory_with_history()
-        self.coach_repo.save_session_evaluations(
-            self.game_id, 'user-1', sm.to_evaluations_json()
-        )
+        self.coach_repo.save_session_evaluations(self.game_id, 'user-1', sm.to_evaluations_json())
 
         raw = self.coach_repo.load_session_evaluations(self.game_id)
         self.assertIsNotNone(raw)
@@ -1749,9 +1747,7 @@ class TestSessionEvaluationPersistence(unittest.TestCase):
         )
         sm2 = SessionMemory()
         sm2.record_hand_evaluation(3, self._eval('bet_sizing', 'correct'))
-        self.coach_repo.save_session_evaluations(
-            self.game_id, 'user-1', sm2.to_evaluations_json()
-        )
+        self.coach_repo.save_session_evaluations(self.game_id, 'user-1', sm2.to_evaluations_json())
         restored = SessionMemory.from_evaluations_json(
             self.coach_repo.load_session_evaluations(self.game_id)
         )

@@ -25,6 +25,7 @@ from poker.repositories import create_repos
 # Repo layer: preserve visibility/owner on re-save
 # ===========================================================================
 
+
 @pytest.fixture
 def prepo(tmp_path):
     from poker.repositories.personality_repository import PersonalityRepository
@@ -50,7 +51,9 @@ def test_resave_preserves_private_and_owner(prepo):
     repo, db = prepo
     repo.save_personality('Hero', {'play_style': 'x'}, owner_id='u1', visibility='private')
     # Simulate an avatar-description edit: re-save passing neither owner nor visibility.
-    repo.save_personality('Hero', {'play_style': 'x', 'avatar_description': 'cape'}, source='updated')
+    repo.save_personality(
+        'Hero', {'play_style': 'x', 'avatar_description': 'cape'}, source='updated'
+    )
     row = _row(db, 'Hero')
     assert row['visibility'] == 'private'
     assert row['owner_id'] == 'u1'
@@ -77,6 +80,7 @@ def test_explicit_visibility_override_still_wins_and_owner_preserved(prepo):
 # ===========================================================================
 # Route layer: admin-only publish
 # ===========================================================================
+
 
 def _mock_authorization_service(user, has_admin_permission):
     authz = MagicMock()

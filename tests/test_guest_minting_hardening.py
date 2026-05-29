@@ -47,6 +47,7 @@ def _patch_request(monkeypatch, req):
 
 # --- signed tracking cookie round trip --------------------------------------
 
+
 class TestTrackingIdSigning:
     def test_sign_unsign_round_trip(self, auth_manager):
         raw = 'ipguest_' + 'a' * 32
@@ -64,6 +65,7 @@ class TestTrackingIdSigning:
 
 
 # --- resolve_guest_tracking_id ---------------------------------------------
+
 
 class TestResolveTrackingId:
     def test_valid_signed_cookie_wins(self, auth_manager, monkeypatch):
@@ -103,6 +105,7 @@ class TestResolveTrackingId:
 
 # --- minting predicate (rate-limit key) ------------------------------------
 
+
 class TestGuestMintingRequest:
     def test_guest_without_cookie_is_minting(self, auth_manager, monkeypatch):
         _patch_request(monkeypatch, FakeRequest(cookies={}, json_data={'guest': True}))
@@ -126,6 +129,7 @@ class TestGuestMintingRequest:
 
 
 # --- guest bot coercion -----------------------------------------------------
+
 
 class TestGuestBotCoercion:
     def test_guest_forced_to_sharp(self):
