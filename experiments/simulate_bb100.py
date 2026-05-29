@@ -148,6 +148,22 @@ ARCHETYPES = {
             recovery_rate=0.15,
         ),
     },
+    # Isolation: calling_station + position_blind only (station table), to price
+    # position-blindness alone vs plain Calling Station + test depth-independence.
+    'StationPBlind': {
+        'profile': 'calling_station_pblind',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.3,
+            baseline_looseness=0.75,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.4,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        ),
+    },
     'Nit': {
         'profile': 'nit',
         'anchors': PersonalityAnchors(

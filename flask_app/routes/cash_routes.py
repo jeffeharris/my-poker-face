@@ -885,9 +885,12 @@ def _build_cash_game(
             else None
         )
         if rule_strategy_override == "fish":
-            fish_leak = (personality_config or {}).get("fish_leak")
             bot_types[player.name] = "fish"
             player_llm_configs[player.name] = {}
+            # Pass the table's stake_label so build_fish_controller can force the
+            # weak_fish loadout at the $2 bottom tier (rather than relying on its
+            # big_blind reverse-lookup fallback). The fish's tell rides on persona
+            # spot_tendencies, so the legacy `fish_leak` kwarg is no longer threaded.
             controller = build_controller(
                 bot_type="fish",
                 player_name=player.name,
@@ -896,7 +899,7 @@ def _build_cash_game(
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
                 decision_analysis_repo=decision_analysis_repo,
-                fish_leak=fish_leak,
+                stake_label=stake_label,
             )
             ai_controllers[player.name] = controller
             continue

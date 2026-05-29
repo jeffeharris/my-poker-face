@@ -107,6 +107,7 @@ def build_controller(
     expression_enabled: bool = True,
     debug_logging: bool = False,
     fish_leak=None,
+    stake_label: Optional[str] = None,
     default_strategy: Optional[str] = None,
 ):
     """Construct the AI controller for a given ``bot_type``.
@@ -119,7 +120,9 @@ def build_controller(
     fish detection, memory wiring, logging) stays at the call site.
 
     Dispatch:
-        - ``'fish'``        → RuleBotController(strategy='fish', fish_leak=...)
+        - ``'fish'``        → build_fish_controller(...) — a tiered calling_station
+                              (unified off the rule bot); ``stake_label`` forces the
+                              weak_fish loadout at the $2 bottom tier
         - ``'sharp'``       → build_tiered_controller(...)
         - ``'baseline_solver'`` → build_tiered_controller(..., baseline=True)
         - ``'casebot'`` / ``'gto_lite'`` → RuleBotController with the mapped
@@ -165,7 +168,11 @@ def build_controller(
             are routed to ``RuleBotController(strategy=bot_type)`` rather than
             ``HybridAIController``. Used by the restore path. Defaults to None
             (new-game / cash semantics: unknown -> Hybrid).
-        fish_leak: Passed through only on the ``'fish'`` branch.
+        fish_leak: Legacy kwarg, now IGNORED — the fish's tell rides on its
+            persona ``spot_tendencies``. Kept on the signature for back-compat.
+        stake_label: Forwarded to ``build_fish_controller`` on the ``'fish'``
+            branch; selects the weak_fish loadout at the $2 bottom tier. When
+            None, build_fish_controller reverse-looks-it-up from the big blind.
         debug_logging: Forwarded to ``build_tiered_controller`` (sharp /
             baseline_solver branches).
     """
@@ -185,6 +192,7 @@ def build_controller(
             owner_id=owner_id,
             capture_label_repo=capture_label_repo,
             decision_analysis_repo=decision_analysis_repo,
+            stake_label=stake_label,
         )
 
     if bot_type == 'sharp':
@@ -294,6 +302,7 @@ def build_fish_controller(
     owner_id=None,
     capture_label_repo=None,
     decision_analysis_repo=None,
+    stake_label: Optional[str] = None,
 ) -> TieredBotController:
     """Build a casino fish as a tiered `calling_station` (the unified engine).
 
@@ -310,6 +319,12 @@ def build_fish_controller(
     — sit, live-fill, and cold-load restore alike — so the leak survives a restart
     (no sit-only override). To convert a legacy `fish_leak` name to its tendency,
     see `poker.strategy.fish_loadout.fish_spot_tendencies` (the authoring helper).
+
+    At the WEAK_FISH_STAKES bottom tier ($2) the fish is forced to the `weak_fish`
+    loadout (weak_station table + can't-fold + sticky/over_bluff + position_blind)
+    — an explicit profile not reachable from anchors — so the $2 tables keep a
+    strong bottom trickle; higher tiers stay the realistic calling_station.
+    `stake_label` defaults to a reverse-lookup of the game's big_blind.
     See docs/plans/FISH_AS_CALLING_STATION.md.
     """
     controller = build_tiered_controller(
@@ -323,4 +338,17 @@ def build_fish_controller(
         expression_enabled=False,
     )
     controller.skip_equity_in_analysis = True
+    from cash_mode.stakes_ladder import WEAK_FISH_STAKES, stake_label_for_big_blind
+
+    if stake_label is None:
+        gs = getattr(state_machine, 'game_state', None)
+        # The engine stores the big blind as `current_ante`.
+        big_blind = getattr(gs, 'current_ante', None) or getattr(gs, 'big_blind', None)
+        stake_label = stake_label_for_big_blind(big_blind)
+    if stake_label in WEAK_FISH_STAKES:
+        # Force the weak_fish loadout (explicit profile, not anchor-reachable).
+        # _table_archetype_key reverse-looks-up this profile → weak_station table.
+        from poker.strategy.deviation_profiles import DEVIATION_PROFILES
+
+        controller._deviation_profile = DEVIATION_PROFILES['weak_fish']
     return controller

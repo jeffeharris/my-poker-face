@@ -410,3 +410,40 @@ deep-bankroll $200 whale cycled well). The weak fish doubles the realistic botto
 at the bottom tables** (a realistic fish at 100bb drains −68, 7×), not a weaker fish. Perf
 bonus: the tiered fish is also ~10× cheaper per decision than the rule fish (table lookup vs
 `calculate_quick_equity`'s 300-iteration Monte Carlo on every postflop decision).
+
+### Position-blindness — a new "dimensional awareness" weakness axis (2026-05-29)
+
+Lever (Jeff's idea): make a weak player by REMOVING awareness of position/depth, not by
+adding caricature looseness. Built `position_blind: float` on DeviationProfile (a node-LOOKUP
+reshape — it changes which chart cell the bot reads, so distortion + floors still layer on top):
+- **preflop facing scenarios** (vs_open/3bet/4bet): shift the hero's seat LATER → over-defends
+  from bad position. RFI is deliberately EXEMPT (shifting the opening seat just opens a wider
+  range = extra *stealing*, which is +EV vs a foldy field — the opposite of a leak; measured it
+  HELPING at 100bb before the exemption).
+- **postflop**: collapse OOP→IP (P=strength) → overplays out of position (c-bet/barrel/float OOP).
+
+Depth-awareness, separately, is already mostly gone for width-tier archetypes (they use their
+100bb chart at every depth post the precedence fix) and is a minor lever (charts + floors limit it).
+
+**Priced (StationPBlind = calling_station + position_blind 0.8, vs the plain station, vs TAG, 4500h):**
+
+| | bb/100 @40bb | bb/100 @100bb |
+|---|---|---|
+| Calling Station | −9.6 | −68.0 |
+| + position_blind | **−24.1** (−14.5) | −44.0 (+24, HELPS) |
+
+**Finding: position-blindness is depth-INVERTED, not depth-independent.** The OOP→IP overplay
+adds *betting* (AF rises 0.31→0.33), and vs a foldy grinder field aggression STEALS at deep
+stacks (+EV) but gets committed/called shallow (−EV) — so it drains MORE at 40bb and LESS at
+100bb. **That's exactly right for the $2 bottom tier (40bb):** it's the strongest bottom-tier
+drain lever found (−14.5 added, vs the looseness/sticky levers that the depth-cap muted). Caveat:
+do NOT put position_blind on DEEP fish/whales (it would help them vs a foldy field); and the
++EV-at-deep is partly the TAG-field-over-folds artifact (a calling field punishes the OOP
+overplay at depth too — field-dependent).
+
+`weak_fish` carries position_blind 0.8: full loadout (weak_station table + sticky 0.85 +
+over_bluff 0.55 + position_blind 0.8) drains **−40.2 @40bb** (2× the no-pblind weak fish's −19;
+4× the realistic station) at a still-believable 43/15 — the realistic "strong bottom trickle."
+Takeaway (the deeper principle): a *passive* player's losses are all pay-off-flavored = depth-
+capped; the depth-sensitive drain at shallow stacks comes from putting chips in BADLY via
+*betting/commitment* (over_bluff, position-overplay), i.e. AGGRESSION leaks, not passive ones.
