@@ -461,6 +461,25 @@ def restore_ai_controllers(
                         decision_analysis_repo=decision_analysis_repo,
                     )
                     logger.info(f"[RESTORE] Created LeanBoundedController for {player.name}")
+                elif strategy == 'fish':
+                    # Fish now restore as a tiered calling_station (unified engine).
+                    # Anchors → calling_station + station width-tier table. The
+                    # specific fish_leak spot-tendency strength is not re-applied
+                    # here (the restore loop doesn't load persona configs) — the
+                    # bare station is still a loose-passive caller; full leak
+                    # fidelity on cold-load is a follow-up (store spot_tendencies
+                    # in the persona). See docs/plans/FISH_AS_CALLING_STATION.md.
+                    from flask_app.handlers.tiered_factory import build_fish_controller
+
+                    controller = build_fish_controller(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        game_id=game_id,
+                        owner_id=owner_id,
+                        capture_label_repo=capture_label_repo,
+                        decision_analysis_repo=decision_analysis_repo,
+                    )
+                    logger.info(f"[RESTORE] Created tiered fish (calling_station) for {player.name}")
                 else:
                     # Rule-based controller with psychology (e.g., case_based, abc, always_fold)
                     controller = RuleBotController(
@@ -1972,21 +1991,20 @@ def _seat_freshly_filled_ais(
         state_machine.game_state = game_state
         occupied_names.add(name)
 
-        # Route fish-archetype personalities to RuleBotController with
-        # strategy='fish'. Without this, mid-session live fills would
-        # build a HybridAIController for a fish — wasting LLM calls and
-        # ignoring the designated `fish_leak`. Mirrors the sit-route's
-        # `rule_strategy_override` branch in cash_routes.py.
+        # Route fish-archetype personalities to the unified tiered engine as a
+        # calling_station (station width-tier table), with the legacy fish_leak
+        # re-expressed as a spot tendency. Mirrors the sit-route in cash_routes.py.
+        # See docs/plans/FISH_AS_CALLING_STATION.md.
         rule_strategy_override = (
             (personality or {}).get("rule_strategy") if isinstance(personality, dict) else None
         )
         if rule_strategy_override == "fish":
+            from flask_app.handlers.tiered_factory import build_fish_controller
+
             fish_leak = (personality or {}).get("fish_leak")
-            controller = RuleBotController(
+            controller = build_fish_controller(
                 player_name=name,
                 state_machine=state_machine,
-                strategy="fish",
-                llm_config={},
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,

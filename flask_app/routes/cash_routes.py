@@ -732,7 +732,7 @@ def _build_cash_game(
 
     # 2. Build the game state.
     from flask_app.game_adapter import StateMachineAdapter
-    from flask_app.handlers.tiered_factory import build_tiered_controller
+    from flask_app.handlers.tiered_factory import build_fish_controller, build_tiered_controller
     from flask_app.routes.game_routes import generate_game_id, load_game_mode_preset
     from poker.cash_bot_assignment import assign_bot
     from poker.controllers import AIPlayerController
@@ -808,16 +808,18 @@ def _build_cash_game(
             else None
         )
         if rule_strategy_override == "fish":
-            from poker.rule_bot_controller import RuleBotController
-
+            # Fish now run through the unified tiered engine as a true
+            # calling_station (the station width-tier table), with the legacy
+            # fish_leak re-expressed as a spot tendency. archetype='fish' is
+            # untouched (the economy/seating key); bot_type stays 'fish' so the
+            # restore path rebuilds the same fish controller. See
+            # docs/plans/FISH_AS_CALLING_STATION.md.
             fish_leak = (personality_config or {}).get("fish_leak")
             bot_types[player.name] = "fish"
             player_llm_configs[player.name] = {}
-            controller = RuleBotController(
+            controller = build_fish_controller(
                 player_name=player.name,
                 state_machine=state_machine,
-                strategy="fish",
-                llm_config={},
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,

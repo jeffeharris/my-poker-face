@@ -78,3 +78,44 @@ def build_tiered_controller(
         controller._expression_call_type = CallType.COMMENTARY
 
     return controller
+
+
+def build_fish_controller(
+    *,
+    player_name: str,
+    state_machine,
+    game_id=None,
+    owner_id=None,
+    capture_label_repo=None,
+    decision_analysis_repo=None,
+    fish_leak: Optional[str] = None,
+) -> TieredBotController:
+    """Build a casino fish as a tiered `calling_station` (the unified engine).
+
+    Fish used to be RuleBotController(`fish`) bots; they now run through the
+    tiered engine, where their loose-passive anchors classify as `calling_station`
+    and pick up the station width-tier table (a true caller: VPIP ~45 / PFR ~16 /
+    pays off). The legacy `fish_leak` tell is re-expressed as a `spot_tendency`
+    override (see fish_loadout.fish_spot_tendencies). Expression (LLM) is OFF —
+    fish make no LLM calls, exactly like the rule bot — and the per-decision
+    equity Monte Carlo is skipped (analyzer-only, not the table decision), so the
+    fish stay table-lookup fast. See docs/plans/FISH_AS_CALLING_STATION.md.
+    """
+    from poker.strategy.fish_loadout import fish_spot_tendencies
+
+    controller = build_tiered_controller(
+        player_name=player_name,
+        state_machine=state_machine,
+        llm_config={},
+        game_id=game_id,
+        owner_id=owner_id,
+        capture_label_repo=capture_label_repo,
+        decision_analysis_repo=decision_analysis_repo,
+        expression_enabled=False,
+    )
+    tendencies = fish_spot_tendencies(fish_leak)
+    if tendencies:
+        controller._spot_tendencies_override = tendencies
+        controller._spot_tendencies_resolved = True
+    controller.skip_equity_in_analysis = True
+    return controller
