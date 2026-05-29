@@ -144,8 +144,10 @@ def main(argv=None) -> int:
             return 3
         _log("off-box copy: ok")
     else:
-        _log("WARN no --remote-cmd / BACKUP_REMOTE_CMD set — backup is ON-BOX ONLY "
-             "(a single-disk failure still loses everything; set a remote target)")
+        _log(
+            "WARN no --remote-cmd / BACKUP_REMOTE_CMD set — backup is ON-BOX ONLY "
+            "(a single-disk failure still loses everything; set a remote target)"
+        )
 
     _log("done")
     return 0

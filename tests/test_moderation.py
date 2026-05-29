@@ -45,7 +45,9 @@ def test_empty_text_is_noop(monkeypatch):
 
 def test_flagged_content(monkeypatch):
     _enable(monkeypatch)
-    monkeypatch.setattr(mod, "_get_client", lambda: _fake_client(True, {"hate": True, "violence": False}))
+    monkeypatch.setattr(
+        mod, "_get_client", lambda: _fake_client(True, {"hate": True, "violence": False})
+    )
     r = mod.moderate_text("something nasty")
     assert r.flagged is True
     assert r.checked is True
@@ -96,6 +98,7 @@ def test_fail_open_on_api_error(monkeypatch):
 
 # --- player chat screening (length cap + moderation) ------------------------
 
+
 def test_player_chat_rejection_too_long():
     from flask_app.routes import game_routes as gr
 
@@ -121,6 +124,7 @@ def test_player_chat_rejection_clean(monkeypatch):
 
 
 # --- personality image-input screening (avatar_description / visual_identity) --
+
 
 def test_personality_image_text_collects_all_fields():
     from flask_app.routes import personality_routes as pr

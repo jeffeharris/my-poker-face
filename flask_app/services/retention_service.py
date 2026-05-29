@@ -39,7 +39,6 @@ def run_retention_sweep() -> dict:
     # Prompt captures (retention from DB setting → env; 0 = keep all).
     try:
         from core.llm.capture_config import get_retention_days
-
         from flask_app import extensions
 
         days = get_retention_days()

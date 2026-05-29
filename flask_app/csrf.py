@@ -81,8 +81,10 @@ def init_csrf(app: Flask) -> None:
         # Both must be present and equal (constant-time compare). A missing
         # cookie means the client never loaded the SPA bootstrap that mints it,
         # so a forged cross-site request can't satisfy the header either.
-        if not cookie_token or not header_token or not hmac.compare_digest(
-            str(cookie_token), str(header_token)
+        if (
+            not cookie_token
+            or not header_token
+            or not hmac.compare_digest(str(cookie_token), str(header_token))
         ):
             logger.warning(
                 "[CSRF] rejected %s %s (cookie=%s header=%s)",
