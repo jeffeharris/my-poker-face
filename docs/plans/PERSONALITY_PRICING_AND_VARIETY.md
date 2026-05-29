@@ -406,10 +406,11 @@ human-learnable counter). Why they came out free:
 - **fit-or-fold (free*):** in **HU**, folding pure air/weak to a single flop c-bet is ~the
   correct play (your equity is low, you have no initiative, floating needs later barrels to
   pay) — vs the aggressive reg it's even CI-clear +EV (you stop paying off his barrels). The
-  textbook fit-or-fold leak bites when you fold hands **with equity/playability** (2nd pair,
-  draws) — which my narrow `{weak_made, air_no_draw}` gate excludes. So "barrel relentlessly"
-  has nothing to punish: the folds are correct. (I'd initially guessed "or multiway" too — the
-  multiway gate **refuted** that; it's the gate, not the regime. See the RESOLVED note below.)
+  textbook fit-or-fold leak supposedly bites when you fold hands **with equity/playability** (2nd
+  pair, draws). I'd guessed that (and "or multiway") was the missing piece — **both refuted**: the
+  multiway gate showed it free in 6-max, and *widening the gate to fold equity hands ALSO stayed
+  free* (see the WIDENING note below). In HU/6-max over-folding to a c-bet is just cheap. So
+  "barrel relentlessly" has nothing to punish: the folds are ~correct, at any gate width.
 - **auto-c-bet (free*):** HU c-bet ranges are already very wide, so betting the marginal
   checking range is ~EV-neutral. Its *exploitability* doesn't live in the flop bet (free) —
   it lives in the **follow-through**: an auto-c-bettor who then abandons the turn is the
@@ -434,9 +435,27 @@ textbook leak needs folding hands *with equity* (draws/2nd pair), which the gate
 multiway gate also characterized the **suppression interaction** (`multiway` step 4 runs before
 `spot_tendencies` step 6.b): slowplay exempt, give_up_turn partially eaten, auto_cbet
 antagonistic (undoes suppression), fit_or_fold orthogonal — and prices the composed behavior
-correctly. **Takeaway:** to make fit-or-fold exploitable, *widen its hand-class gate* (a 1-line
-change in `spot_tendencies.py`) — don't chase the regime. The remaining philosophy fork (ship
-free-flavor vs widen-to-exploitable) is still the user's call.
+correctly. **Takeaway (then):** to make fit-or-fold exploitable, *widen its hand-class gate* —
+don't chase the regime.
+
+**WIDENING TRIED — and it did NOT make fit-or-fold −EV (2026-05-29).** Per the above, widened
+`_FITFOLD_CLASSES` to `{medium_made, weak_made, air_strong_draw, air_no_draw}` (fold everything
+but strong made — incl. 2nd pair + draws, the equity hands). Re-priced 24k HU: **+1.61** [−1.67,
++4.89] self-play, **+0.40** vs jeff, **+0.81** vs punisher — **still free** (CI∋0 everywhere).
+That's now **three concordant measurements** (narrow HU +1.71, narrow 6-max +3.90, widened HU
++1.61). The equity hands *do* over-fold (they show up as diverging nodes), but folding them to a
+flop c-bet is ~EV-neutral in HU/6-max: a 2nd pair or a draw facing a c-bet has to survive turn +
+river barrels to realize, so folding the flop ≈ folding the turn in EV — the chips "lost" by
+folding equity ≈ the chips "saved" by not paying barrels (per-node contributions are mixed-sign,
+small, netting ~0). **Conclusion: "fit-or-fold" is a *full-ring* leak intuition; in HU/6-max
+over-folding to a c-bet is structurally cheap and fit-or-fold is a STYLE leak, not a skill one —
+the gate width was never the lever.** The widened gate is KEPT (it folds a wider, more
+visibly-weak-tight range → a better *style* leak) but it does not close the "barrel relentlessly"
+loop. To force a real over-fold leak you'd have to defeat the bot's own **math/defense floors**
+(they run after the spot layer and re-add pot-odds-mandated calls — the structural reason over-fold
+leaks self-limit to near-neutral folds), which is a larger change, not a gate tweak. The philosophy
+fork (free-flavor vs engineered-−EV) thus narrows: **on early streets, "free flavor" may be the
+only honest option short of disabling the floors.**
 
 ### Sticky/pays-off + over-bluff — BUILT + PRICED, the first real −EV leaks (2026-05-29)
 
@@ -501,7 +520,7 @@ Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` 
 | slow-play / trap | strong made + initiative, unopened, flop/turn | value-bet thin vs the trapper | **priced (free)** | — |
 | give-up turn (one-and-done, no barrel) | turn, initiative, checked to | float flop → steal turn | **priced (free)** | **built✅** (multistreet H1) |
 | over-fold to 2nd barrel | turn facing bet, marginal made | double-barrel | backlog | partial (multistreet H2, off) |
-| fit-or-fold / over-fold to c-bet | flop facing c-bet, air | barrel relentlessly | **priced (free*, see below)** | partial (`exploitation.py`) |
+| fit-or-fold / over-fold to c-bet | flop facing c-bet, non-strong (widened to 2nd pair+draws) | barrel relentlessly | **priced (free, STYLE — widening didn't make it −EV; floor-capped)** | partial (`exploitation.py`) |
 | auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | **priced (free*, see below)** | — |
 | under-bluff river (no triple barrel) | river, air, as bettor | over-fold their river bets; call their turn bets | **priced (free/+EV, style/face-up)** | — |
 | sticky / pays off (can't fold) | facing river bet/raise, weak made | value-bet thin + overbet, never bluff | **priced (−EV ✓ real leak)** | **built✅** (overbet, +42 vs payers) |

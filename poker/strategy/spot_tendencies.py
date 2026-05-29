@@ -272,13 +272,16 @@ def _give_up_turn(
 
 
 # ── fit-or-fold / over-fold to c-bet ─────────────────────────────────────────
-# The classic "no-pair-no-play" leak: facing a flop c-bet, fold everything that
-# didn't connect (air, weak pairs) instead of floating/bluff-catching at a
-# defensible frequency. Its exploiter is "barrel relentlessly" (any two cards
-# print vs a player who only continues with a made hand). Draws are excluded
-# (air_strong_draw has the equity/initiative to continue — a fit-or-fold player
-# folds dry air, not flush draws).
-_FITFOLD_CLASSES = frozenset({'weak_made', 'air_no_draw'})
+# The classic "no-pair-no-play" leak: facing a flop c-bet, continue ONLY with a
+# strong made hand and fold everything else. Its exploiter is "barrel
+# relentlessly" (any two cards print vs a player who only continues with the
+# nuts-ish). Crucially this includes folding hands WITH equity — 2nd pair and
+# flush/straight draws — which is what makes it a genuine −EV leak the barreler
+# punishes (the narrow weak/air-only version priced free, because folding pure
+# air is ~correct; the multiway gate confirmed it's the gate width, not the
+# regime — docs/plans/MULTIWAY_PRICING_GATE.md). So the fold range is everything
+# except {nuts, strong_made}.
+_FITFOLD_CLASSES = frozenset({'medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'})
 _FITFOLD_STREETS = frozenset({'flop'})
 
 

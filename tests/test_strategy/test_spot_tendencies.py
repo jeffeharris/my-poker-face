@@ -227,8 +227,10 @@ def test_give_up_turn_emitted_traces_validate():
 # Pumps fold for weak/air facing a flop bet. Input distribution must contain a
 # fold action (facing a bet), so these use FACING, not BASE.
 
-def test_fit_or_fold_pumps_fold_on_weak_air():
-    for hc in ('weak_made', 'air_no_draw'):
+def test_fit_or_fold_pumps_fold_on_non_strong():
+    # The widened range: fold everything except strong made — incl. equity hands
+    # (2nd pair, draws), which is what makes it a real -EV leak.
+    for hc in ('medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'):
         out, traces = _apply(
             FACING, tendencies=FITFOLD, hand_class=hc,
             action_context='facing_bet', street='flop',
@@ -238,9 +240,9 @@ def test_fit_or_fold_pumps_fold_on_weak_air():
         assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9, hc
 
 
-def test_fit_or_fold_no_op_on_made_hands():
-    # A connected hand isn't a fit-or-fold candidate.
-    for hc in ('nuts', 'strong_made', 'medium_made', 'air_strong_draw'):
+def test_fit_or_fold_no_op_on_strong_made():
+    # Strong hands continue (the only part of the range a fit-or-fold player keeps).
+    for hc in ('nuts', 'strong_made'):
         out, traces = _apply(
             FACING, tendencies=FITFOLD, hand_class=hc,
             action_context='facing_bet', street='flop',
