@@ -199,6 +199,11 @@ EVENT_SEVERITY = {
     'social_praise_stoic': 'minor',
     'social_flattery_vain': 'minor',
     'social_flattery_seen_through': 'minor',
+    # Player-prestige hook 4 (AI demeanor): sitting at a high-renown human's
+    # table. The villain's intimidation is normal-stakes (a real composure
+    # press, poise-filtered); the legend's warmth is minor (a light lift).
+    'reputation_villain_intimidation': 'normal',
+    'reputation_legend_warmth': 'minor',
 }
 
 

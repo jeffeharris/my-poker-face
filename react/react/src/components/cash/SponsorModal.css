@@ -117,6 +117,19 @@
   border-radius: 8px;
 }
 
+/* Player-prestige hook 2: the "you're too reviled for named backing" note.
+   Ruby-tinted like an error but framed as lore, not a failure. */
+.sponsor-modal__restricted {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.24);
+  border-radius: 10px;
+  padding: 11px 13px;
+  margin-bottom: 4px;
+}
+
 .sponsor-modal__offer {
   background: var(--surface-2, #262a31);
   border: 1px solid rgba(255, 255, 255, 0.06);

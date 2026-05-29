@@ -94,6 +94,15 @@ SNAPSHOT_INTERVAL_SECONDS = 600.0
 # sandbox_id -> monotonic time of its last recorded snapshot.
 _last_snapshot_at: Dict[str, float] = {}
 
+# Prestige recompute cadence. Reputation drifts even more slowly than net
+# worth (it aggregates a relationship graph that barely moves tick-to-tick),
+# and recomputing scans the human's inbound edges + completed sessions, so a
+# fine cadence would only add load. 5 minutes per active sandbox is plenty
+# to keep the lobby scoreboard fresh.
+PRESTIGE_INTERVAL_SECONDS = 300.0
+# sandbox_id -> monotonic time of its last prestige recompute.
+_last_prestige_at: Dict[str, float] = {}
+
 # Stale-session watchdog (T2.3). A cash session whose `games` row hasn't
 # been touched within STALE_SESSION_TTL_SECONDS — and which isn't in
 # memory (so nobody's actively playing it) — is an abandoned orphan: it
@@ -302,6 +311,10 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     )
 
     _maybe_record_holdings_snapshot(sandbox_id)
+    # Recompute the human's reputation scoreboard. Placed before the
+    # event-emit block below so a quadrant-shift beat it records into the
+    # activity buffer rides out on this same tick.
+    _maybe_recompute_prestige(owner_id, sandbox_id)
 
     room = presence.lobby_room_name(owner_id)
     # Push new ticker events (newest-first from the buffer; emit oldest
@@ -356,3 +369,80 @@ def _maybe_record_holdings_snapshot(sandbox_id: str) -> None:
         )
     except Exception:
         logger.exception("[TICKER] holdings snapshot failed for sandbox=%s", sandbox_id)
+
+
+def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
+    """Recompute + persist the human's prestige for this sandbox, rate-limited.
+
+    Captures at most once per `PRESTIGE_INTERVAL_SECONDS` per sandbox. Renown
+    ratchets (we pass the persisted peak into the compute, which takes the
+    max), regard swings. When the quadrant changes from the previous capture,
+    records a one-line "the room sees you differently" beat into the activity
+    ring buffer so the existing emit path surfaces it on the lobby ticker.
+
+    Best-effort: any failure is logged and swallowed — prestige must never
+    delay or break the world tick.
+    """
+    now_mono = time.monotonic()
+    last = _last_prestige_at.get(sandbox_id)
+    if last is not None and (now_mono - last) < PRESTIGE_INTERVAL_SECONDS:
+        return
+    try:
+        from datetime import datetime, timedelta
+
+        from cash_mode import activity
+        from cash_mode.prestige import compute_prestige, iso_utc
+        from flask_app import extensions
+        from poker.repositories.prestige_snapshots_repository import (
+            DEFAULT_RETENTION_DAYS,
+        )
+
+        repo = getattr(extensions, "prestige_snapshots_repo", None)
+        if repo is None:
+            return
+        # Stamp the attempt BEFORE the work: a persistently failing recompute
+        # (DB lock, schema mismatch) must back off to the normal cadence, not
+        # retry the full aggregate on every tick.
+        _last_prestige_at[sandbox_id] = now_mono
+
+        prev = repo.load_latest(sandbox_id, owner_id)
+        peak = repo.load_renown_peak(sandbox_id, owner_id)
+        now = datetime.utcnow()
+        score = compute_prestige(
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
+            now=now,
+            relationship_repo=extensions.relationship_repo,
+            cash_session_repo=extensions.cash_session_repo,
+            renown_peak=peak,
+        )
+        repo.record(
+            captured_at=score.computed_at,
+            sandbox_id=sandbox_id,
+            owner_id=owner_id,
+            score=score,
+        )
+        try:
+            cutoff = iso_utc(now - timedelta(days=DEFAULT_RETENTION_DAYS))
+            repo.prune(cutoff)
+        except Exception as exc:
+            logger.warning("[TICKER] prestige prune failed: %s", exc)
+
+        # Quadrant flip → ticker beat (only when we have a prior capture to
+        # compare against, so the first-ever capture is silent).
+        if prev is not None and prev.get("quadrant") != score.quadrant:
+            activity.record_event(
+                activity.LobbyEvent(
+                    type=activity.EVENT_REPUTATION_SHIFT,
+                    table_id="",
+                    stake_label="",
+                    personality_id="",
+                    name="",
+                    reason=score.quadrant,
+                    message=activity.format_reputation_shift_message(score.quadrant),
+                    created_at=score.computed_at,
+                    sandbox_id=sandbox_id,
+                )
+            )
+    except Exception:
+        logger.exception("[TICKER] prestige recompute failed for owner=%s", owner_id)

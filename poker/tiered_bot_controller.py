@@ -3460,6 +3460,7 @@ class TieredBotController(AIPlayerController):
                 opponent_observations=opponent_observations,
                 relationship_context=relationship_context,
                 human_bio=human_bio_block,
+                human_reputation_tone=getattr(self, 'human_reputation_tone', '') or '',
             )
 
             capture_id_holder = [None]

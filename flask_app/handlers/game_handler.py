@@ -935,6 +935,106 @@ def handle_phase_cards_dealt(
             memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
 
+def _reputation_order_refill_pool(eligible_pool, *, owner_id, sandbox_id, now):
+    """Reorder the cash refill candidate pool by the human's reputation.
+
+    Player-prestige hook 1 (table pull / rival-draw): *who* sits down with the
+    human reflects their room-level reputation. Returns the pool unchanged
+    unless the human is a high-renown figure, in which case candidates are
+    stable-sorted by `cash_mode.prestige.refill_affinity`:
+
+      - Beloved Legend → warm admirers (high inbound likability+respect) lead.
+      - Infamous Villain → a rival cohort (AIs with heat to settle) leads;
+        the cold/neutral room hangs back.
+
+    No candidate is removed — the table still fills, so the human always has
+    opponents (no wedge); the reputation effect is *ordering* only. Best-effort:
+    any failure (no snapshot, repo down, low-renown quadrant) returns the input
+    order, preserving the pre-hook behavior. Python's `sorted` is stable, so
+    equal-affinity candidates keep the pool's deterministic personality_id order.
+    """
+    if not eligible_pool or not owner_id or not sandbox_id:
+        return eligible_pool
+    try:
+        from cash_mode.prestige import (
+            QUADRANT_BELOVED_LEGEND,
+            QUADRANT_INFAMOUS_VILLAIN,
+            refill_affinity,
+        )
+
+        from ..extensions import prestige_snapshots_repo, relationship_repo
+
+        if prestige_snapshots_repo is None or relationship_repo is None:
+            return eligible_pool
+        snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+        if snap is None or snap["quadrant"] not in (
+            QUADRANT_BELOVED_LEGEND,
+            QUADRANT_INFAMOUS_VILLAIN,
+        ):
+            return eligible_pool  # no figure → the room doesn't reorder
+        quadrant = snap["quadrant"]
+        inbound = relationship_repo.load_inbound_relationships(owner_id, now=now)
+        return sorted(
+            eligible_pool,
+            key=lambda e: refill_affinity(quadrant, inbound.get(e["personality_id"])),
+            reverse=True,
+        )
+    except Exception as e:
+        logger.debug("Could not reputation-order refill pool: %s", e)
+        return eligible_pool
+
+
+def _apply_reputation_demeanor(game_data: dict, state_machine) -> None:
+    """Player-prestige hook 4 (AI demeanor): once-per-hand reputation nudge.
+
+    Nudges the psychology of the AIs seated with the human by the human's
+    room-level reputation quadrant: a feared **Infamous Villain** rattles
+    low-poise opponents (a composure press → scared / tilt-prone, the
+    exploitable edge), while a **Beloved Legend** loosens them up (a confidence
+    / energy lift). The poise/ego filter inside `apply_pressure_event` does the
+    "low-poise rattle, composed shrug" split for free. The nudge drives both
+    decisions (the emotional-window shift on bounded options) AND table-talk
+    demeanor (the expression generator reflects the axes), so one mechanism
+    delivers both.
+
+    This is the ONE prestige hook that touches the decision path, so it's
+    behind a dedicated kill switch (`economy_flags.REPUTATION_DEMEANOR_ENABLED`):
+    flip that to False to disable it completely with zero residual effect.
+    Best-effort and called once at the hand boundary (not per action, which
+    would compound) — never blocks the hand.
+    """
+    from cash_mode import economy_flags
+
+    if not economy_flags.REPUTATION_DEMEANOR_ENABLED:
+        return
+    owner_id = game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(game_data)
+    if not owner_id or not sandbox_id:
+        return
+    try:
+        from cash_mode.prestige import reputation_demeanor_stimulus
+
+        from ..extensions import prestige_snapshots_repo
+
+        if prestige_snapshots_repo is None:
+            return
+        snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+        if snap is None:
+            return
+        stimulus = reputation_demeanor_stimulus(snap['quadrant'])
+        if stimulus is None:
+            return  # low-renown human — the room doesn't react
+        ai_controllers = game_data.get('ai_controllers', {})
+        for player in state_machine.game_state.players:
+            if getattr(player, 'is_human', False):
+                continue
+            ctrl = ai_controllers.get(player.name)
+            if ctrl is not None and getattr(ctrl, 'psychology', None) is not None:
+                ctrl.psychology.react_to_table_reputation(stimulus)
+    except Exception as e:
+        logger.debug("Could not apply reputation demeanor: %s", e)
+
+
 def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     """Cash-mode helper: replace busted AI seats with fresh personalities.
 
@@ -991,6 +1091,14 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         # query returns it twice).
         and e['name'] not in {game_state.players[i].name for i in busted_indices}
     ]
+
+    # Player-prestige hook 1 (table pull / rival-draw): bias WHO refills the
+    # human's table by their reputation — warm admirers lead a Beloved Legend's
+    # table, a rival cohort leads an Infamous Villain's. No-op for low-renown /
+    # no-snapshot. The affordability loop below then picks from the head.
+    eligible_pool = _reputation_order_refill_pool(
+        eligible_pool, owner_id=owner_id, sandbox_id=sandbox_id, now=now
+    )
 
     refilled_count = 0
 
@@ -3205,6 +3313,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
                 f"[CASH] Failed to refill seats for {game_id}: {e}",
                 exc_info=True,
             )
+        # Player-prestige hook 4: nudge seated AIs' demeanor by the human's
+        # reputation (kill-switched via REPUTATION_DEMEANOR_ENABLED). After
+        # refill so fresh arrivals feel it too. Self-protecting (best-effort
+        # internally) — never raises into the hand flow.
+        _apply_reputation_demeanor(game_data, state_machine)
         # Symmetric check for the human seat: emit a bust event so
         # the frontend can open the rebuy/sponsor modal. Wrapped
         # separately so a bust-emit failure doesn't taint the
@@ -3890,6 +4003,49 @@ def stamp_coach_default_mode(game_id: str, owner_id: Optional[str]) -> None:
         logger.debug(f"[Coach] failed to stamp default mode for game {game_id}: {e}")
 
 
+def _resolve_human_reputation_tone(current_game_data: dict) -> str:
+    """Resolve a table-talk tone hint from the human's reputation, cached per game.
+
+    Hook 3 of the prestige system: the human's room-level reputation quadrant
+    colors how AIs address them in their table talk — warm/deferential for a
+    Beloved Legend, needling/hostile for an Infamous Villain, and silent for
+    low-renown players the room doesn't react to yet (see
+    `cash_mode.prestige.reputation_chat_tone`). Read-only FLAVOR: the hint only
+    reaches the ExpressionGenerator's prompt suffix, never the action math.
+
+    Cached on `game_data` like `human_bio`: reputation drifts slowly (the world
+    ticker recomputes it on the order of minutes, and renown ratchets), so a
+    per-game read is fresh enough and avoids a DB hit on every AI decision. A
+    quadrant change mid-session won't reflect until the game reloads — an
+    accepted tradeoff matching the bio precedent. Tournament games (no
+    sandbox/owner) and pre-first-capture sessions resolve to "".
+    """
+    if 'human_reputation_tone' in current_game_data:
+        return current_game_data['human_reputation_tone']
+    owner_id = current_game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(current_game_data)
+    if not owner_id or not sandbox_id:
+        current_game_data['human_reputation_tone'] = ""
+        return ""
+    try:
+        from cash_mode.prestige import reputation_chat_tone
+
+        from ..extensions import prestige_snapshots_repo
+
+        tone = ""
+        if prestige_snapshots_repo is not None:
+            snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+            if snap is not None:
+                tone = reputation_chat_tone(snap['quadrant'])
+    except Exception as e:
+        # Don't cache on failure — a transient DB error shouldn't suppress the
+        # tone for the rest of the session; retry on the next decision.
+        logger.debug(f"Could not resolve human reputation tone for {owner_id}: {e}")
+        return ""
+    current_game_data['human_reputation_tone'] = tone
+    return tone
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -3927,6 +4083,10 @@ def handle_ai_action(game_id: str) -> None:
     # Surface the human's self-description so the AI can needle them about it in
     # its table talk (dramatic_sequence). Runtime context, not config.
     controller.human_bio = _resolve_human_bio(current_game_data)
+    # Surface the human's room-level reputation so the AI's table talk skews by
+    # it (warm for a Beloved Legend, needling for an Infamous Villain). Flavor
+    # only — it reaches the narration prompt, never the action math.
+    controller.human_reputation_tone = _resolve_human_reputation_tone(current_game_data)
 
     response_addressing = []  # Default for fallback / exception paths
     try:

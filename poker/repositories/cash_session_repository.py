@@ -225,6 +225,31 @@ class CashSessionRepository(BaseRepository):
             ).fetchall()
             return [_row_to_session(r) for r in rows]
 
+    def list_completed_for_sandbox(
+        self,
+        owner_id: str,
+        sandbox_id: str,
+    ) -> List[CashSession]:
+        """All completed sessions for owner in this sandbox, oldest first.
+
+        "Completed" = `ended_at IS NOT NULL`. Used by the prestige
+        aggregator to derive renown inputs: highest stake tier reached,
+        tenure (Σ hands_played), and the high-stakes-win flag. Unbounded —
+        renown is a lifetime ratchet, so capping would under-count tenure
+        and could miss an early high-stakes session that fell out of a
+        recent-N window. Per-sandbox completed sessions stay modest.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM cash_sessions
+                WHERE owner_id = ? AND sandbox_id = ? AND ended_at IS NOT NULL
+                ORDER BY started_at ASC
+                """,
+                (owner_id, sandbox_id),
+            ).fetchall()
+            return [_row_to_session(r) for r in rows]
+
     def update_total_buy_in(self, session_id: str, total_buy_in: int) -> bool:
         """Replace `total_buy_in` for an active session.
 
