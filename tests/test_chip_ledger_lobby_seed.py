@@ -75,7 +75,8 @@ def _seed_personalities(db_path: str, pids: list[str]) -> None:
     with sqlite3.connect(db_path) as conn:
         for pid in pids:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id, circulating) "
+                "VALUES (?, ?, ?, 1)",
                 (pid.title(), json.dumps({"bankroll_knobs": knobs}), pid),
             )
         conn.commit()

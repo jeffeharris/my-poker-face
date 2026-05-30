@@ -1062,6 +1062,23 @@ def refresh_unseated_tables(
         idle_pool = [entry for entry in idle_pool if entry.personality_id not in unavailable]
         eligible = [cand for cand in eligible if cand.get("personality_id") not in unavailable]
 
+    # Circulating gate (v123): an idle persona only walks back to a seat if
+    # it's still in the eligible (circulating) set. `eligible` is already
+    # circulating-only (list_eligible_for_cash_mode gates on it), so a persona
+    # demoted to circulating=0 — a leaked sim/test zombie, or any deliberately
+    # retired persona — DRAINS out of the lobby: its idle rows are skipped here
+    # instead of cycling back in via the idle-first re-seat path, which keys on
+    # personality_id and would otherwise bypass the gate (the re-seat candidate
+    # pools take idle AIs before consulting `eligible`). One filter here covers
+    # both seat-fill consumers (per-table refresh_table_roster + the global
+    # greedy fill), mirroring the `unavailable` filter above. Legit AIs are
+    # unaffected — list_eligible returns every circulating persona regardless of
+    # bankroll, so the intersection only removes non-circulating idlers.
+    _circulating_ids = {
+        cand.get("personality_id") for cand in eligible if cand.get("personality_id")
+    }
+    idle_pool = [entry for entry in idle_pool if entry.personality_id in _circulating_ids]
+
     # Closed-economy: fish are a casino-only player class. The lobby
     # never live-fills a fish; this set is the defense-in-depth filter
     # for fish that may have entered `list_idle` after leaving a
