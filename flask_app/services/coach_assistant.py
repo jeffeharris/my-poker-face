@@ -29,6 +29,8 @@ Rules:
 - Note opponent stack sizes and all-in status — this affects what actions make sense.
 - Be concise and actionable. For proactive tips: 1-2 sentences max. For questions: 2-3 short paragraphs.
 - Explain the math simply (e.g., "You need 22% equity to call, and you have 45% — easy call")
+- A "Recommended action" (computed from the math) may be provided. Default to it. If you advise something different, you MUST say why in one phrase (e.g. a teaching point or a read) — never silently contradict the equity/pot-odds.
+- When an opponent archetype is given (e.g. "calling station", "maniac"), use it: say how to exploit it (value-bet thin vs a station; don't bluff a station; trap a maniac).
 - Mention opponent tendencies when relevant
 - Be encouraging but honest about mistakes
 - Use poker terminology naturally but explain concepts for beginners when asked
@@ -68,10 +70,11 @@ You are in REVIEW mode. Analyze what just happened.
 """
 
 PROACTIVE_TIP_PROMPT = """\
-Given these stats, provide a brief 1-2 sentence coaching tip for the player's current situation. \
-If a SKILL FOCUS is listed, your tip MUST teach or reinforce that specific concept using the current hand as an example. \
-Start with the key action or insight — no preamble, no filler words, no greeting. \
-Be direct and actionable.\
+Given these stats, give the player a brief 1-2 sentence nudge that helps them THINK — \
+point out the single most important factor (their position, the price they're getting, an opponent's tendency, their hand's relative strength) or pose a short guiding question. \
+Do NOT tell them which action to take and do NOT name fold/check/call/raise — the whole point is that THEY decide. Set "action" to null. \
+If a SKILL FOCUS is listed, aim the nudge at that concept using the current hand. \
+No preamble, no greeting.\
 """
 
 HAND_REVIEW_PROMPT = """\
@@ -401,7 +404,12 @@ def _format_stats_for_prompt(data: Dict) -> str:
                 else:
                     parts.append(f"${stack}")
 
-            if opp.get('style') and opp['style'] != 'unknown':
+            # Lead with the detection-layer archetype when we have one — it's a
+            # diagnosis the player can act on ("exploit the calling station by
+            # value-betting thin"). Fall back to the looser style label.
+            if opp.get('archetype'):
+                parts.append(opp['archetype'])
+            elif opp.get('style') and opp['style'] != 'unknown':
                 parts.append(opp['style'])
 
             # Compact VPIP/PFR/AF triple — the standard read-trio.

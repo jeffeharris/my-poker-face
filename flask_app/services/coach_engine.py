@@ -380,6 +380,34 @@ def _get_style_label(vpip: float, aggression: float) -> str:
         return 'loose-passive'
 
 
+# Detection-layer archetype labels → coach-friendly phrasing. The classifier
+# only returns a label past its sample-size gate (≥15 hands), so a fresh table
+# stays silent rather than guessing.
+_ARCHETYPE_COACH_LABELS = {
+    'pure_station': 'calling station (calls too much, rarely raises)',
+    'hyper_aggressive': 'maniac (over-aggressive — bets/raises relentlessly)',
+    'sticky_jammer': 'sticky jammer (calls light, then jams)',
+}
+
+
+def _classify_opp_archetype(tendencies) -> Optional[str]:
+    """Coach-friendly opponent archetype from the tiered bots' detection layer.
+
+    Reuses the exact classifier the AI uses to exploit opponents, so the coach's
+    read matches the table's reality. Best-effort: returns None on any issue or
+    below the classifier's sample gate.
+    """
+    try:
+        from poker.memory.opponent_model import _build_aggregate_from_single
+        from poker.strategy.exploitation import classify_opponent_archetype
+
+        label = classify_opponent_archetype(_build_aggregate_from_single(tendencies))
+        return _ARCHETYPE_COACH_LABELS.get(label) if label else None
+    except Exception as e:
+        logger.debug(f"_classify_opp_archetype failed: {e}")
+        return None
+
+
 def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
     """Extract opponent stats from memory manager, including stack and all-in status.
 
@@ -464,6 +492,11 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
                             'aggression': round(tendencies.aggression_factor, 1),
                             'style': tendencies.get_play_style_label(),
                             'hands_observed': tendencies.hands_observed,
+                            # Detection-layer archetype — the same read the
+                            # tiered bots exploit. A diagnosis ("calling
+                            # station") is far more actionable for the coach
+                            # than raw VPIP/PFR/AF. None below the sample gate.
+                            'archetype': _classify_opp_archetype(tendencies),
                         }
                     )
                 except (AttributeError, KeyError) as e:
