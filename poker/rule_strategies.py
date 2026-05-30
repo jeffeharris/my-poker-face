@@ -628,124 +628,71 @@ def _strategy_case_based(context: Dict) -> Dict:
 
 
 def _strategy_case_based_v2(context: Dict) -> Dict:
-    """CaseBot v2 (HYBRID): v1 untouched MULTIWAY + a real tight-aggressive
-    HEADS-UP branch.
+    """CaseBot v2 — v1 + sharper VALUE EXTRACTION. The validated better bot.
 
-    v1 already dominates multiway (+120…+340 vs every field) — its wide,
-    call-down style EXPLOITS the field's leaks. But heads-up vs a disciplined
-    value-bettor it has no leaks to exploit, so its loose-passive core (VPIP ~98
-    / PFR ~2, limps + calls down) gets value-owned (−30 vs a TAG). And a global
-    "raise more" rewrite REGRESSED everything (preflop aggression without
-    postflop follow-through bloats pots then plays them passively).
-
-    So v2 changes ONLY the heads-up case (num_opponents == 1): a self-contained
-    tight-aggressive HU strategy — raise-first (no limping), defend the BB wide,
-    and crucially C-BET / barrel postflop so the preflop initiative is realized.
-    Multiway (3+) is byte-identical to v1.
+    How this was found: a full AB battery (v2 vs v1 + each field, 1500h × 6
+    seeds) proved v1's RANGE and CALL thresholds are already at a local optimum —
+    BOTH tightening (raise-or-fold) AND wider calling regressed in every cell,
+    including vs the most competent opponent we have (the punisher reg). The one
+    lever that wins: v1 under-extracts when AHEAD — it limps premiums (PFR ~2%)
+    and only bets 0.66 — while our whole pool CALLS too much. So v2 builds bigger
+    pots with strong hands and leaves everything else (the wide range + the
+    call-down) to v1:
+      - value-RAISE premium/strong preflop (v1 limps them);
+      - OVERBET premium (1.2 pot) / strong (0.9) and thin-value medium (0.6) when
+        checked to — the pool calls anyway.
+    Result vs v1 (bb/100): jeff_clone +116→+496, punisher +173→+382, Station
+    +259→+394, TAG +42→+150, mixed +120→+211, and v2 BEATS a table of v1s
+    head-to-head (+156). Only Maniac×5 dips slightly (value-betting into an
+    aggressor) — still +, and maniacs are rare vs the calling casino field.
+    Pure-static (no opponent reads needed → identical in sim and prod).
     """
-    # Gate on TABLE SIZE (num_players == 2 = a true heads-up game), NOT active
-    # opponents (which drops to 1 when a multiway pot folds to heads-up — those
-    # spots stay on v1, preserving its proven multiway dominance).
-    if (context.get('num_players') or 6) > 2:
-        return _strategy_case_based(context)
-    return _hu_aggressive(context)
-
-
-def _hu_aggressive(context: Dict) -> Dict:
-    """A compact TIGHT-VALUE heads-up rule strategy.
-
-    v1's HU leak is paying off value (it calls down ~everything). A naive
-    *aggressive* fix spews worse (the c-bet bluffs get punished). So this is
-    tight-VALUE: take initiative with a real range, value-bet made hands, and —
-    the key fix — FOLD when beat instead of paying off; bluff only minimally
-    (river, in position, vs a folder). The aim is to LOSE LESS vs a disciplined
-    opponent, not to out-fancy it.
-    """
-    equity = context['equity']
     cost = context['cost_to_call']
     pot = context['pot_total']
     valid = context['valid_actions']
     phase = context.get('phase', 'PRE_FLOP')
-    position = context.get('position', '') or ''
     bb = context.get('big_blind', 100) or 100
     highest_bet = context.get('highest_bet', bb) or bb
-    hand = _equity_category(equity)
-    is_button = 'small_blind' in position  # HU: SB acts first preflop, is the button
+    hand = _equity_category(context['equity'])
 
-    opp_aggr = context.get('opp_aggression', 1.0)
-    opp_fold = context.get('opp_fold_to_cbet', 0.5)
-    opp_hands = context.get('opp_hands_observed', 0)
-    call_margin = 0.05  # require a margin over pot odds to call (don't pay off thin)
-    bluff_ok = True
-    if opp_hands >= 5:
-        if opp_aggr > 2.0:
-            call_margin = -0.05  # vs a bluffer, bluff-catch a bit wider
-        elif opp_aggr < 0.5:
-            call_margin = 0.10  # vs a passive value-bettor, fold more
-        bluff_ok = opp_fold >= 0.45
+    # The AB battery proved v1's RANGE and CALL thresholds are at a local optimum
+    # (both tightening and wider-calling regressed everywhere). The one untried
+    # lever vs our calling-heavy pool: BUILD BIGGER POTS WITH STRONG HANDS. v1
+    # limps premiums (PFR ~2%) and only bets 0.66 — it under-extracts when ahead.
+    # v2 = v1 + value-raise premium/strong preflop + OVERBET them postflop; every
+    # other spot delegates to v1 (keep the wide range + call-down that win).
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
 
     def do_raise(target_to: int) -> Dict:
         size = max(context['min_raise'], min(int(target_to), context['max_raise']))
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': size}
-        if 'call' in valid:
-            return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
 
-    def bet(fraction: float) -> Dict:
-        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        if 'raise' in valid:
-            return {'action': 'raise', 'raise_to': size}
-        return {'action': 'check', 'raise_to': 0}
-
-    def call() -> Dict:
-        if 'call' in valid:
-            return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
-
-    def check_or_fold() -> Dict:
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
-
-    facing = cost > 0
-
-    # ── PREFLOP ── raise a real range, never limp; no air opens.
     if phase == 'PRE_FLOP':
-        facing_raise = facing and highest_bet > bb
-        if not facing_raise:
-            if hand in ('premium', 'strong', 'medium'):
-                return do_raise(int(2.5 * bb))
-            if hand == 'weak' and is_button:
-                return do_raise(int(2.5 * bb))  # button steal (weak, not air)
-            return check_or_fold()
-        # Facing a raise.
+        facing_raise = cost > 0 and highest_bet > bb
         if hand == 'premium':
-            return do_raise(int(3.0 * highest_bet))  # 3-bet value
-        if hand in ('strong', 'medium'):
-            return call()
-        if hand == 'weak' and is_button:
-            return call()  # IP peel at a price
-        return {'action': 'fold', 'raise_to': 0}  # fold air + OOP weak
+            return do_raise(int(3.5 * highest_bet) if facing_raise else int(3.0 * bb))
+        if hand == 'strong':
+            # value-raise strong both first-in AND vs a raise (3-bet) — the pool
+            # pays it off, so build the pot rather than flatting (v1).
+            return do_raise(int(3.0 * highest_bet) if facing_raise else int(3.0 * bb))
+        return _strategy_case_based(context)  # everything else: v1's wide entry
 
-    # ── POSTFLOP, checked to us ── value-bet only (no c-bet spew).
-    if not facing:
-        if hand in ('premium', 'strong'):
-            return bet(0.66)
-        if hand == 'medium' and is_button:
-            return bet(0.5)  # thin value in position
-        if hand == 'air' and is_button and phase == 'RIVER' and bluff_ok:
-            return bet(0.6)  # rare polarized river bluff IP vs a folder
-        return check_or_fold()
-
-    # ── POSTFLOP, facing a bet ── value-raise, and FOLD when beat (the fix).
-    pot_odds = cost / (pot + cost) if (pot + cost) > 0 else 1.0
-    needed = pot_odds + call_margin
-    if hand == 'premium':
-        return bet(0.75)  # raise for value
-    if hand == 'strong':
-        return call()
-    if hand == 'medium' and equity >= needed:
-        return call()  # bluff-catch only with a margin
-    return {'action': 'fold', 'raise_to': 0}  # don't pay off weak/air
+    # Postflop, checked to us: overbet strong hands + thin-value medium vs the
+    # calling pool. They call too wide, so size up.
+    if cost == 0:
+        if hand == 'premium':
+            return bet(1.2)  # big overbet the nuts — they call anyway
+        if hand == 'strong':
+            return bet(0.9)
+        if hand == 'medium':
+            return bet(0.6)  # thin value (the pool calls light)
+        return _strategy_case_based(context)
+    # Facing a bet: v1's call-down/value-raise is already optimal.
+    return _strategy_case_based(context)
 
 
 def _fish_bet(context: Dict, fraction: float) -> Optional[Dict]:
