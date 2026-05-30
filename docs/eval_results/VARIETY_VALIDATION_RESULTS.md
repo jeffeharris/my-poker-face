@@ -184,12 +184,33 @@ can price. But for the question that mattered — "does aggression secretly blee
 vs a competent opponent?" — the answer across foldy, calling, AND punisher fields
 is a consistent **no**.
 
+### Validation: does over_bluff fire on an aggressive base? (yes, but modestly)
+
+Control for the "inert on a passive base" finding. Added `maniac_overbluff`
+profile / `ManiacOverBluff` archetype (maniac base + over_bluff 0.55) and ran it
+head-to-head vs plain Maniac, same foldy field, same seeds (1500h×3):
+
+| Maniac base | air unopened bet/raise | bb/100 |
+|---|---|---|
+| over_bluff OFF | 45% (n=642) | +56.0 |
+| over_bluff ON (0.55) | **48%** (n=642) | +51.0 |
+
+**It fires** — air-bet% moves 45→48% on the aggressive base, vs *byte-identical*
+on the station. So the lever is correctly gated, not broken: only a player who
+takes the betting lead reaches the unopened-air-turn/river spot. **But the effect
+is small even on a maniac** (+3pts air, EV flat within noise): the aggressive base
+already bluffs near the cap (`max_per_action_shift` 0.35), so over_bluff has
+little headroom. Conclusion: over_bluff is a **flavor nudge on aggressive
+archetypes, not a big EV/drain lever anywhere** — and it cannot register on a
+passive fish at all.
+
 ### Design takeaways
 
-- `over_bluff` as currently gated is **near-dead weight** on fish — if we want the
-  spew tell to actually drain (or to be a face-up exploit target), it needs to
-  fire on a base that takes the betting lead, or the gate must widen beyond
-  unopened-air-turn/river. Today it's mostly cosmetic on $2 weak_fish.
+- `over_bluff` is the wrong leak for a *passive* fish (it can't reach the spot) and
+  only a **modest flavor tell** on an aggressive base. To get a visibly-spewing
+  fish you'd build a spewy-*aggressive* base (looser table + aggression so it
+  takes the lead) — and even then, for a STRONG tell, raise strength / widen the
+  gate / add the sizing tell. As-is on $2 weak_fish it's cosmetic (invisible).
 - `position_blind` is the fish's real EV leak; keep it $2-stake-gated (shallow).
 - Aggression (`maniac`/`lag`) is robustly +EV vs every field tested — the variety
   is safe to ship; the skill gradient lives entirely on the passive end.

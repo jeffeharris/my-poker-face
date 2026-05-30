@@ -131,6 +131,23 @@ ARCHETYPES = {
             recovery_rate=0.1,
         ),
     },
+    # Validation twin of Maniac WITH over_bluff (maniac_overbluff profile), to
+    # confirm over_bluff fires + shifts EV on an aggressive base (the control for
+    # its inertness on the passive station base). Compare vs 'Maniac'.
+    'ManiacOverBluff': {
+        'profile': 'maniac_overbluff',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.9,
+            baseline_looseness=0.85,
+            ego=0.7,
+            poise=0.3,
+            expressiveness=0.8,
+            risk_identity=0.8,
+            adaptation_bias=0.3,
+            baseline_energy=0.8,
+            recovery_rate=0.1,
+        ),
+    },
     # Weakest realistic fish (the $2-tier trickle): loose-passive anchors + the
     # weak_fish profile (weak_station table + can't-fold + sticky/over_bluff).
     'WeakFish': {

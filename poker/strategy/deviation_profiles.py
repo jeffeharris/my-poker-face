@@ -171,6 +171,19 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=1.6,
         ego_fold_penalty=0.60,
     ),
+    # Validation (measurement only): the maniac base + over_bluff, to confirm the
+    # over_bluff lever FIRES and shifts EV on an AGGRESSIVE base (one that takes
+    # the betting lead) — the control for the finding that it's inert on a passive
+    # station base. Compare vs plain 'maniac'. Not assigned in production.
+    'maniac_overbluff': DeviationProfile(
+        max_kl=1.2,
+        max_per_action_shift=0.35,
+        aggression_scale=2.2,
+        looseness_scale=1.2,
+        risk_scale=1.6,
+        ego_fold_penalty=0.60,
+        spot_tendencies=(('over_bluff', 0.55),),
+    ),
 }
 
 
@@ -199,6 +212,7 @@ ARCHETYPE_WIDTH_TABLE: Dict[str, Optional[str]] = {
     'weak_fish': 'preflop_100bb_6max_weak_station.json',
     'calling_station_pblind': 'preflop_100bb_6max_station.json',  # isolation: station table
     'calling_station_overbluff': 'preflop_100bb_6max_station.json',  # isolation: station table
+    'maniac_overbluff': 'preflop_100bb_6max_loose.json',  # validation: maniac base + over_bluff
 }
 
 
