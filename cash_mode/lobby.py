@@ -3719,6 +3719,7 @@ def _boot_sweep_stale_cash_rows(
         CLOSED_STATUS_BOOT_SWEPT,
         CLOSED_STATUS_STALE_SWEPT,
         SESSION_STATE_BROKEN,
+        SESSION_STATES_BLOCKING,
     )
 
     closed_status = CLOSED_STATUS_STALE_SWEPT if source == "watchdog" else CLOSED_STATUS_BOOT_SWEPT
@@ -3772,6 +3773,27 @@ def _boot_sweep_stale_cash_rows(
                 ):
                     continue  # resumed into memory since the snapshot — don't sweep
                 session = cash_session_repo.load(row.game_id) if cash_session_repo else None
+                # FREEZE-FOREVER GUARD (CASH_MODE_STATE_MODEL.md §5.4, §10 Cut 1).
+                # Never sweep a session the player can still resume. A frozen
+                # (active/paused/abandoning) session IS the player's sacred table —
+                # zeroing its chips (final_chips_at_table=0, player_take_home=0) and
+                # deleting its games row is the silent-forfeiture bug that destroyed
+                # real buy-ins. Leave it wholly intact: the sit guard already treats
+                # a blocking session as the one resumable table per owner (by
+                # design), and the games row is durable hand history (kept forever).
+                # Only genuinely-dead rows — closed/broken sessions, or sessionless
+                # orphans from a sit that errored before its row landed — fall
+                # through to the cleanup below, and those carry no live chips.
+                if session is not None and session.session_state in SESSION_STATES_BLOCKING:
+                    logger.debug(
+                        "[CASH][LOBBY] %s sweep skipped resumable session %r "
+                        "(state=%s, age=%.0fs) — frozen table preserved",
+                        source,
+                        row.game_id,
+                        session.session_state,
+                        age,
+                    )
+                    continue
                 # 1. Resolve any active stake so its principal doesn't dangle.
                 if stake_repo is not None:
                     active_stake = stake_repo.load_active_for_session(row.game_id)
