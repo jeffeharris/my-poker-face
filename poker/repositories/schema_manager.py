@@ -233,7 +233,13 @@ _test_schema_template_path = None
 #       postflop aggression, polarization equity-at-action). Counts/sums only;
 #       rates derive on read through the canonical OpponentTendencies. Guarded
 #       ALTERs, additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
-SCHEMA_VERSION = 125
+# v126: Add preflop opportunity-count columns to `opponent_observation_lifetime`
+#       (preflop_voluntary_action/opportunities + open_raise/open_opportunities)
+#       so vpip_per_voluntary_opportunity / pfr_per_open_opportunity derive on
+#       read — the player-count-stable signals the station/nit exploitation
+#       detectors gate on (dossier "the read", Part B2). Guarded ALTERs,
+#       additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+SCHEMA_VERSION = 126
 
 
 class SchemaManager:
@@ -2039,6 +2045,10 @@ class SchemaManager:
             125: (
                 self._migrate_v125_add_deep_postflop_lifetime_counts,
                 "Add deep postflop count/sum columns to opponent_observation_lifetime (fold-to-cbet, c-bet %, barreling, all-in freq, postflop aggression, polarization equity sums) — Tier-2 dossier reads; rates derive on read",
+            ),
+            126: (
+                self._migrate_v126_add_preflop_opportunity_lifetime_counts,
+                "Add preflop opportunity-count columns to opponent_observation_lifetime (voluntary action/opportunities + open raise/opportunities) so vpip_per_voluntary_opportunity / pfr_per_open_opportunity derive — the signals the station/nit exploitation detectors gate on (dossier 'the read')",
             ),
         }
 
@@ -6600,5 +6610,50 @@ class SchemaManager:
         logger.info(
             "Migration v125 complete: %d deep postflop column(s) added to "
             "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v126_add_preflop_opportunity_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v126: add the preflop opportunity-count columns to
+        `opponent_observation_lifetime`.
+
+        The Part-B2 dossier "the read" reuses the tiered-bot exploitation
+        detectors (`poker.strategy.exploitation`). The station and tight-nit
+        detectors gate on `vpip_per_voluntary_opportunity` (and the steal read
+        on `pfr_per_open_opportunity`) — the player-count-stable, opportunity-
+        normalized preflop rates, NOT the raw hands-dealt-normalized vpip/pfr.
+        Those rates derive from preflop opportunity counters that v123 didn't
+        store, so without these columns the station/nit reads could never fire
+        from lifetime data. The counters are already serialized in
+        `tendencies_json`, so the existing delta-fold picks them up once they
+        join `_LIFETIME_COUNT_FIELDS`.
+
+        Guarded ALTERs, additive, idempotent. See
+        `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+        """
+        new_columns = [
+            'preflop_voluntary_action_count',
+            'preflop_voluntary_opportunities',
+            'preflop_open_raise_count',
+            'preflop_open_opportunities',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v126 complete: %d preflop opportunity column(s) added "
+            "to opponent_observation_lifetime",
             len(new_columns),
         )

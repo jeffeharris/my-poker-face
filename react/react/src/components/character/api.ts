@@ -79,6 +79,22 @@ export interface DossierDeeperReads {
   lifetime?: boolean;
 }
 
+/** B2 "the read" — one piece of exploit advice from the tiered-bot
+ *  exploitation detectors. `intensity` (0–1, or null) is how strongly the
+ *  pattern matches, for phrasing emphasis. */
+export interface DossierReadTip {
+  pattern: string;
+  text: string;
+  intensity: number | null;
+}
+
+/** Coarse opponent archetype badge (B2). Null until the archetype tier is
+ *  unlocked, or when the opponent doesn't match a surfaced archetype. */
+export interface DossierArchetype {
+  id: string;
+  label: string;
+}
+
 export interface DossierPressureSummary {
   total_events?: number;
   wins?: number;
@@ -164,6 +180,10 @@ export interface DossierResponse {
   /** Tier-2 deep postflop reads. Null when ungated/no data; individual
    *  fields null when their grind tier is still locked. */
   deeper_reads?: DossierDeeperReads | null;
+  /** B2 "the read": exploit advice lines. Empty when locked/no read. */
+  the_read?: DossierReadTip[];
+  /** B2 archetype badge. Null when locked or unmatched. */
+  archetype?: DossierArchetype | null;
   pressure_summary: DossierPressureSummary | null;
   /** AI's off-table bankroll (chips), projected through regen.
    *  Null when no bankroll row exists yet (AI never sat down). */

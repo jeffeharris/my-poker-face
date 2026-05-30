@@ -1394,3 +1394,50 @@
   font-style: italic;
   color: var(--ink-faint);
 }
+
+/* ───────────────────────────────────────────────────────────────
+   THE READ (B2) — exploit advice + archetype badge
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__read {
+  position: relative;
+  z-index: 2;
+  padding: 4px 2px 2px;
+}
+
+.dossier__read-badge {
+  margin-bottom: 10px;
+}
+
+.dossier__read-tips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.dossier__read-tip {
+  position: relative;
+  padding-left: 16px;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.dossier__read-tip::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--emerald-deep);
+  font-size: 0.78rem;
+}
+
+.dossier__read-empty {
+  margin: 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--ink-faint);
+}

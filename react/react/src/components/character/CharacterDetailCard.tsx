@@ -695,6 +695,10 @@ export function CharacterDetailCard({
     (Object.keys(deeperReads) as (keyof typeof deeperReads)[]).some(
       (k) => k !== 'lifetime' && deeperReads[k] != null
     );
+  // B2 "the read": exploit advice + archetype badge.
+  const theRead = fetched?.the_read ?? [];
+  const archetype = fetched?.archetype ?? null;
+  const hasRead = theRead.length > 0 || !!archetype;
   const hasChips =
     !!character.chips &&
     (character.chips.atTable !== undefined || character.chips.bankroll !== undefined);
@@ -1248,6 +1252,32 @@ export function CharacterDetailCard({
                       label="Equity when calling"
                       value={`${Math.round(deeperReads.equity_when_calling * 100)}%`}
                     />
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasRead && (
+              <>
+                <SectionRule>THE READ</SectionRule>
+                <section className="dossier__read">
+                  {archetype && (
+                    <div className="dossier__read-badge">
+                      <span className="dossier__archetype">{archetype.label}</span>
+                    </div>
+                  )}
+                  {theRead.length > 0 ? (
+                    <ul className="dossier__read-tips">
+                      {theRead.map((tip) => (
+                        <li key={tip.pattern} className="dossier__read-tip">
+                          {tip.text}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="dossier__read-empty">
+                      No clear exploit yet — keep watching them play.
+                    </p>
                   )}
                 </section>
               </>

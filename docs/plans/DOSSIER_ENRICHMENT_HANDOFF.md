@@ -193,13 +193,41 @@ range something to unlock and makes a maxed dossier genuinely deep.
    (fold lossless-merge for the new counts) + `tests/test_dossier_scouting*`
    (gate redaction for the new item ids).
 
-### B2. Exploit hints ("the read")
-Turn stats into one-line advice: *"folds to c-bets 62% — barrel relentlessly"*,
-*"stations the river — value-bet thin, don't bluff."* A pure function over the
-(unlocked) tendencies → a short string, surfaced as a gated bit. The doc lists
-"a specific exploit line" as an intended unlock. There's an exploitation/
-deviation layer (`poker/strategy/`, deviation profiles) whose thresholds can
-inform the phrasing, but a standalone rules-on-stats function is enough for v1.
+### B2. Exploit hints ("the read") ✅ DONE (2026-05-30)
+
+Shipped — and **not** as a standalone rules-on-stats function. The
+`development` merge brought the tiered-bot exploitation detector layer
+(`poker/strategy/exploitation.py`) into reach, so "the read" is a thin
+PRESENTATION layer over the *calibrated* detectors the bots use to exploit
+these archetypes — the dossier read matches how the AI itself plays them.
+
+- **`flask_app/services/dossier_read.py`** `build_the_read(tendencies)` →
+  `{tips: [{pattern, text, intensity}], archetype: {id,label}|None}`. It calls
+  `classify_detected_patterns` (→ exploit lines), `classify_opponent_archetype`
+  (→ badge), and `compute_pattern_intensity` (→ phrasing strength). A
+  `{pattern: advice}` map is the only new logic; unmapped/inert patterns are
+  dropped (per the eval discipline — don't dress up a non-edge).
+- **`character_routes._tendencies_from_lifetime`** is the shared full rebuild
+  (now also feeds `deeper_reads`); the route attaches `the_read` + `archetype`.
+- **Gate:** hand-only tiers `archetype_badge` @120, `the_read` @200 (the
+  detectors self-gate on sample size, so an unlocked-but-thin opponent shows no
+  read rather than a wrong one). `_redact_item` nulls `the_read`/`archetype`.
+  Informant section `tactical_read` ($1250) bundles both. Frontend: `THE READ`
+  section + archetype chip; types `DossierReadTip` / `DossierArchetype`.
+
+> **Gotcha (why this needed a migration):** the station + tight-nit detectors
+> gate on `vpip_per_voluntary_opportunity` / `pfr_per_open_opportunity` — the
+> player-count-stable opportunity-normalized rates, NOT raw vpip/pfr. Those
+> derive from preflop opportunity counters the lifetime store didn't persist,
+> so the station read (the headline "don't bluff the station") could never
+> fire from dossier data. **Migration v126** adds the 4 preflop opportunity
+> counts (already in `tendencies_json` → the fold picks them up via
+> `_LIFETIME_COUNT_FIELDS` automatically). Without it, only the AF-based
+> (maniac) and c-bet-fold reads work; the all-important station/nit reads stay
+> dark. Backfill caveat as always: old rows lack the counts until re-folded.
+
+> **The archetype badge** — a previously *parked* item — fell out for free
+> from `classify_opponent_archetype` (Calling Station / Sticky Jammer / Maniac).
 
 ### B3. Trend / tilt indicator
 `OpponentTendencies.recent_trend` and the pressure `tilt_score` already exist.
@@ -213,9 +241,11 @@ field's VPIP/AF/FTC distribution. Precompute percentile buckets; show the
 opponent's standing. Contextualizes the raw numbers.
 
 ### Also parked (bigger, separate efforts)
-- **Archetype badge** (fish/whale/regular) as a gated bit — needs a
-  classification source wired from the whale/fish work
-  (`CASH_MODE_WHALE_AT_CARDROOM.md`, `CASH_MODE_FISH_AS_PERSONAS.md`).
+- ~~**Archetype badge**~~ — ✅ done as part of B2 (Calling Station / Sticky
+  Jammer / Maniac, from `classify_opponent_archetype`). A *fish/whale/regular*
+  economic badge is still separate — that needs the whale/fish classification
+  source (`CASH_MODE_WHALE_AT_CARDROOM.md`, `CASH_MODE_FISH_AS_PERSONAS.md`);
+  B2's badge is behavioral (how they play), not economic (their stakes/role).
 - **Tells system** (`TELLS_SYSTEM.md`).
 - **Relationship-history hands** — surface the rivalry-defining coolers
   (`relationship_events`).
@@ -226,8 +256,9 @@ opponent's standing. Contextualizes the raw numbers.
 ## Suggested order
 1. ~~File cabinet (Part A)~~ — ✅ done (the Intel hub).
 2. ~~**B1 deep reads**~~ — ✅ done (2026-05-29, schema v125).
-3. **B2 exploit hints** ← **next** — high flavor, small.
-4. **B3 / B4** — polish.
+3. ~~**B2 exploit hints**~~ — ✅ done (2026-05-30, "the read" over the
+   exploitation detectors + archetype badge; schema v126).
+4. **B3 / B4** ← **next** — polish (trend/tilt + field-relative percentiles).
 
 ## Open tuning knobs (not blocking)
 - Per-item grind thresholds + informant prices (flat first-pass today).

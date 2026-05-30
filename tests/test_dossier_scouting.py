@@ -53,6 +53,11 @@ def _full_response():
             'equity_when_calling': 0.55,
             'lifetime': True,
         },
+        'the_read': [
+            {'pattern': 'hyper_passive', 'text': 'value-bet thin, stop bluffing',
+             'intensity': 0.8},
+        ],
+        'archetype': {'id': 'pure_station', 'label': 'Calling Station'},
     }
 
 
@@ -229,6 +234,40 @@ def test_barrel_tier_gates_both_barrel_fields():
     assert resp['deeper_reads']['barrel_frequency'] == 0.4
     assert resp['deeper_reads']['third_barrel_frequency'] == 0.3
     assert resp['deeper_reads']['equity_when_betting'] is None
+
+
+# --- B2 "the read" + archetype badge ----------------------------------------
+
+def test_read_and_archetype_gate_by_tier():
+    resp = _full_response()
+    # 150 hands: archetype (120) unlocked, the read (200) still locked.
+    apply_scouting_gate(resp, hands_observed=150)
+    assert resp['archetype'] == {'id': 'pure_station', 'label': 'Calling Station'}
+    assert resp['the_read'] == []
+    s = resp['scouting']
+    assert 'archetype_badge' in s['unlocked']
+    assert 'the_read' not in s['unlocked']
+
+
+def test_read_unlocks_at_its_tier():
+    resp = _full_response()
+    apply_scouting_gate(resp, hands_observed=250)
+    assert resp['the_read'] and resp['the_read'][0]['pattern'] == 'hyper_passive'
+    assert resp['archetype']['id'] == 'pure_station'
+
+
+def test_read_below_floor_redacted():
+    resp = _full_response()
+    apply_scouting_gate(resp, hands_observed=5)
+    assert resp['the_read'] == []
+    assert resp['archetype'] is None
+
+
+def test_informant_tactical_read_section_unlocks_read_items():
+    s = compute_scouting(0, purchased_sections={'tactical_read'})
+    for item in INFORMANT_SECTIONS['tactical_read']['items']:
+        assert item in s['unlocked']
+    assert 'tactical_read' not in {o['id'] for o in s['informant_offers']}
 
 
 def test_informant_deep_reads_section_unlocks_all_deep_items():

@@ -330,6 +330,32 @@ def test_deeper_reads_from_lifetime_empty_is_none():
     assert _deeper_reads_from_lifetime({'hands_observed': 0}) is None
 
 
+def test_fold_stores_preflop_opportunity_counts(repo, db_path):
+    """v126: the preflop opportunity counters fold into the lifetime row and
+    drive the opportunity-normalized rate on read (the signal the station/nit
+    'the read' detectors gate on)."""
+    _insert_model(
+        db_path, "g1", "obs1", "opp1",
+        _counts(hands_observed=40, hands_dealt=40,
+                _preflop_voluntary_action_count=27,
+                _preflop_voluntary_opportunities=30,
+                _preflop_open_raise_count=4,
+                _preflop_open_opportunities=30),
+    )
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 1
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['preflop_voluntary_action_count'] == 27
+    assert life['preflop_voluntary_opportunities'] == 30
+    assert life['preflop_open_raise_count'] == 4
+    assert life['preflop_open_opportunities'] == 30
+
+    # And the reconstructed tendency derives vpip_per_voluntary_opportunity.
+    from flask_app.routes.character_routes import _tendencies_from_lifetime
+    t = _tendencies_from_lifetime(life)
+    assert t.vpip_per_voluntary_opportunity == pytest.approx(0.9)  # 27 / 30
+
+
 # --- Informant unlock store (Phase 3) ---------------------------------------
 
 def test_informant_unlock_record_and_load(repo):

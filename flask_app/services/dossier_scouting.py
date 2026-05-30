@@ -84,6 +84,13 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     ScoutingTier('polarization', 'Polarization', 260,
                  ('equity_betting_count', 'equity_raising_count',
                   'equity_calling_count'), 25, 'showdown-equity reads'),
+    # B2 "the read" — exploit advice + archetype badge, derived from the
+    # tiered-bot exploitation detectors. Hand-only tiers: the per-pattern
+    # detectors enforce their own sample minimums, so an unlocked-but-thin
+    # opponent simply shows no read rather than a wrong one. Archetype unlocks
+    # first ("what they are"), the advice later ("how to beat them").
+    ScoutingTier('archetype_badge', 'Archetype', 120),
+    ScoutingTier('the_read', 'The read', 200),
 ]
 
 _LABELS = {tier.id: tier.label for tier in SCOUTING_SCHEDULE}
@@ -142,6 +149,11 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
             'fold_to_cbet', 'cbet_pct', 'postflop_aggression',
             'all_in_freq', 'barrel', 'polarization',
         ],
+    },
+    'tactical_read': {
+        'label': 'The read',
+        'price': 1250,
+        'items': ['archetype_badge', 'the_read'],
     },
 }
 
@@ -245,6 +257,10 @@ def _redact_item(response: Dict[str, Any], item_id: str) -> None:
     if item_id in _DEEPER_FIELDS:
         for field in _DEEPER_FIELDS[item_id]:
             _strip_deeper_field(response, field)
+    elif item_id == 'the_read':
+        response['the_read'] = []
+    elif item_id == 'archetype_badge':
+        response['archetype'] = None
     elif item_id in ('play_style', 'vpip', 'pfr', 'aggression_factor'):
         _strip_observation_field(response, item_id)
     elif item_id == 'behavioral_index':

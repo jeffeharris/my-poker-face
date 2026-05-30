@@ -916,6 +916,13 @@ class GameRepository(BaseRepository):
         '_equity_betting_count': 'equity_betting_count',
         '_equity_raising_count': 'equity_raising_count',
         '_equity_calling_count': 'equity_calling_count',
+        # v126 preflop opportunity counts — denominators for the player-count-
+        # stable vpip_per_voluntary_opportunity / pfr_per_open_opportunity the
+        # station/nit exploitation detectors gate on (dossier "the read").
+        '_preflop_voluntary_action_count': 'preflop_voluntary_action_count',
+        '_preflop_voluntary_opportunities': 'preflop_voluntary_opportunities',
+        '_preflop_open_raise_count': 'preflop_open_raise_count',
+        '_preflop_open_opportunities': 'preflop_open_opportunities',
     }
 
     # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
