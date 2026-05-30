@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Sprout, Target, Flame, GraduationCap, Play } from 'lucide-react';
+import { Sprout, Target, Flame, GraduationCap, Play, TrendingUp, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
@@ -49,11 +49,18 @@ const FALLBACK_PRESETS: TablePreset[] = [
 interface TrainingMenuProps {
   playerName: string;
   onStart: (difficulty: TrainingDifficulty, presetId: string) => void;
+  onReviewGame: () => void;
   onBack: () => void;
   isCreating?: boolean;
 }
 
-export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }: TrainingMenuProps) {
+export function TrainingMenu({
+  playerName,
+  onStart,
+  onReviewGame,
+  onBack,
+  isCreating = false,
+}: TrainingMenuProps) {
   const [difficulty, setDifficulty] = useState<TrainingDifficulty>('medium');
   const [presets, setPresets] = useState<TablePreset[]>(FALLBACK_PRESETS);
   const [presetId, setPresetId] = useState('standard');
@@ -103,6 +110,15 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
           drills alike. The coach is on the whole time; nothing here touches your
           bankroll, reputation, or stats.
         </div>
+
+        <button type="button" className="training-menu__review" onClick={onReviewGame}>
+          <TrendingUp size={20} />
+          <span className="training-menu__review-text">
+            <strong>Review my preflop game</strong>
+            <span>See which hands you over-play, from your real sessions</span>
+          </span>
+          <ChevronRight size={18} />
+        </button>
 
         {/* Difficulty — shared by free play and drills */}
         <fieldset className="training-menu__group" disabled={isCreating}>

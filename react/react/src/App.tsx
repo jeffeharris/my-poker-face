@@ -54,6 +54,9 @@ const Lobby = lazy(() => import('./components/cash/Lobby').then((m) => ({ defaul
 const TrainingMenu = lazy(() =>
   import('./components/training/TrainingMenu').then((m) => ({ default: m.TrainingMenu }))
 );
+const PreflopLeaks = lazy(() =>
+  import('./components/training/PreflopLeaks').then((m) => ({ default: m.PreflopLeaks }))
+);
 const PrivacyPolicy = lazy(() =>
   import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
 );
@@ -509,9 +512,19 @@ function App() {
                   <TrainingMenu
                     playerName={playerName}
                     onStart={handleStartTraining}
+                    onReviewGame={() => navigate('/menu/training/leaks')}
                     onBack={() => navigate('/menu')}
                     isCreating={isCreatingGame}
                   />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/leaks"
+              element={
+                <ProtectedRoute>
+                  <PreflopLeaks onBack={() => navigate('/menu/training')} />
                 </ProtectedRoute>
               }
             />
