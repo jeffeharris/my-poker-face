@@ -163,15 +163,36 @@ tight-value HU branch) keeps 6-max byte-identical but only touches the
 *unmeasurable* HU case — so I can't validate it either, and a naive-aggressive HU
 branch *spewed* far worse (−98) than v1's passivity.
 
-**Honest conclusion: CaseBot v1 is already the best simple bot we have.** It
-dominates 6-max (the game's normal case); HU is noisy/neutral and not reliably
-improvable at feasible sample sizes. I will NOT ship unvalidated complexity. The
-real lesson (again, see [[feedback_verify_user_premise]] / confidence
-calibration): I treated a 1-seed number as a fact and built a multi-hour quest on
-it. Should have re-run the baseline and checked variance *before* "fixing" it.
-The right way to ever settle HU would be a **paired-CRN** measure (same hands,
-v2−v1) to cancel the variance — not absolute bb/100. Kept the gauntlet as a tool;
-v2 stays an unvalidated experiment.
+I almost stopped there — "v1 is already best, HU is noise." Then Jeff pushed:
+*"but it's just a simple heuristic, you can't see ANY way to improve it?"* Fair.
+The cop-out was measuring against caricatures (which v1 already near-maxes) in
+the noisy HU regime. The fix: measure the **low-variance** way — **v2 vs v1 at a
+full table** (does the candidate beat v1?), plus vs the **clone profiles** (jeff
+= calls-down human, punisher = competent reg), the realistic opponents.
+
+That AB battery cracked it. First it ruled out the obvious: a tight-aggressive
+rewrite (raise-or-fold + c-bet + fold-don't-pay-off) **regressed in every cell**,
+incl. vs the punisher (+173→+5) — because the punisher *barrels air* and v1
+*catches it* while the tight bot folds. Then wider-calling **also** regressed
+(pays off the stations). So v1's range and call thresholds are a **local
+optimum** — perturbing either way loses.
+
+The lever that actually wins: v1 **under-extracts when ahead** — it limps
+premiums (PFR ~2%), bets only 0.66 — while our whole pool **calls too much.** So
+v2 = v1 + **bigger pots with strong hands**: value-raise premium/strong preflop,
+overbet premium (1.2) / strong (0.9) + thin-value medium (0.6) when checked to;
+everything else (the wide range + the call-down) stays v1. Result vs v1:
+**jeff +116→+496, punisher +173→+382, Station +259→+394, TAG +42→+150,
+mixed +120→+211, and it beats a table of v1s head-to-head +156.** 4–12× better
+vs the realistic human clones. Only Maniac×5 dips (value-betting into an
+aggressor; still +). Pure-static → identical in sim and prod. Shipped as
+`case_based_v2` (`49af908b`), ready to promote the `casebot` bot type.
+
+Lessons banked: (1) the HU-noise detour came from trusting a 1-seed number — the
+[[feedback_verify_user_premise]] rule; (2) measure improvements the low-variance
+way (candidate-vs-incumbent + realistic opponents), not absolute bb/100 vs
+caricatures; (3) Jeff's "you can't improve a heuristic?" push was right — the win
+was real, I'd just been measuring it wrong.
 
 ## 2026-05-30 (later) — the spewy fish, and "can the game punish aggression?"
 
