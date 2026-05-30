@@ -1520,7 +1520,7 @@ def api_new_game():
                 from poker.rule_bot_controller import RuleBotController
 
                 strategy_for_type = {
-                    'casebot': 'case_based',
+                    'casebot': 'case_based_v2',  # promoted: value-extraction beats v1 4-12x vs clones
                     'gto_lite': 'pot_odds_robot',
                 }[bot_type]
                 new_controller = RuleBotController(

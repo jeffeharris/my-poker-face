@@ -419,7 +419,7 @@ def restore_ai_controllers(
                 elif strategy in ('casebot', 'gto_lite'):
                     # Rule bots exposed in Custom Game for training/practice
                     strategy_for_type = {
-                        'casebot': 'case_based',
+                        'casebot': 'case_based_v2',  # promoted: value-extraction beats v1 4-12x vs clones
                         'gto_lite': 'pot_odds_robot',
                     }[strategy]
                     controller = RuleBotController(
