@@ -2,7 +2,7 @@
 purpose: Grounded narrative log of building the headless multi-table tournament engine (branch tournaments)
 type: reference
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-05-30
 ---
 
 # Captain's log — multi-table tournament engine (tournaments worktree)
@@ -286,3 +286,133 @@ controllers + memory, 12s). What's still only manually checkable: the gated hook
 firing through a full `progress_game` human hand (the 8-line glue calls
 already-tested code) and the frontend navigating register/sit → the live table.
 Left those honestly flagged rather than claimed.
+
+---
+
+## 2026-05-30 — UI review → persistence unification (steps 1+2)
+
+**Started as a UI review of the "Main Event," found a real layout bug, then the
+bigger fish was persistence.** The standings screen on mobile loaded with the
+clock + your-own-stack strip clipped off the top and unreachable — root cause was
+`.tourney` using `min-height:100dvh` inside the global `body { overflow:hidden;
+display:flex; align-items:center }` shell: a taller-than-viewport child gets
+vertically centered and the top overflows with no scroll. Every other screen
+dodges this via `PageLayout`; the tournament screens render raw. One-line fix
+(`height:100dvh` so centering is a no-op and it owns its scroll). Verified by
+measuring `.clock` at y=65 after the fix vs −296 before.
+
+**The real question the user raised: tournament games leaked into the saved-games
+list as standalone entries.** Traced it: `list_games` denylisted `cash-` but not
+`tourney-`, so the human's live MTT table (an ordinary `games` row keyed
+`tourney-…`) showed up detached from its `TournamentSession`. Worse, the generic
+cold-load path re-attached the legacy `tournament_tracker` but had *zero*
+references to `tournament_session` — so an evicted/restarted MTT table silently
+froze its field (the hand-boundary hook is gated on
+`game_data['tournament_session']`). The user's framing — "all games are
+tournaments; the old game is just a 1-table tournament" — is right, and pointed
+straight at the seam.
+
+**Scoped it honestly into 1 / 2 / (3 = design doc).** The thing I had to keep
+clear: the handler dispatches to the MTT completion path *purely* on
+`tournament_session is not None` (`game_handler:3490`). So literally wrapping
+single games in a `TournamentSession` can't be separated from unifying
+completion (`tournament_complete`/`TournamentResult` vs `mtt_complete`/standings)
+— that's step 3. Step 2 therefore wraps single games in a lightweight
+`tournaments` **envelope** (`resolver_kind='single'`, identity/index only, NOT
+attached to game_data) so they stay tracker-driven. Said so plainly rather than
+overreaching.
+
+**Wrong turn, caught by checking the live DB.** After wiring envelope-on-create
++ lazy-wrap-on-load, the dev DB showed `single-tourney-…` rows — MTT *orphan*
+tables (no session row) had fallen into the single branch and been mislabeled
+`single`. Added a prefix guard (`persist_single_envelope` refuses
+`tourney-`/`cash-` ids), a regression test, and cleaned the two bad rows. Lesson
+re-learned: verify against real DB state, not just green unit tests.
+
+**Verified the headline fix the real way.** Restarted the backend (evicts all
+in-memory games), cold-loaded ReviewBot's MTT table, drove ~20 hands through the
+action API: the field advanced rounds 0→10, persisted each boundary, chips
+conserved at 180,000. Without the re-attach that counter stays at 0. Also
+confirmed `/api/games` now hides the `tourney-` table, a new single game gets an
+envelope + still lists, and delete cleans the envelope. 17 new tests; full
+tournament + repo suite green. Step 3 written up in
+`docs/plans/TOURNAMENT_UNIFICATION_STEP3.md` and tracked as TRIAGE T3-75.
+
+## 2026-05-30 (cont.) — step 3: one wrapper, one completion (3A + 3B)
+
+**Mapped before touching.** The completion path is the most load-bearing code in
+the app, so I traced every seam first: the tracker owns career stats, the
+`TournamentComplete` screen, per-elim messages, the final-hand banner, AND AI
+spectator commentary — four things MTT had no equivalent for. The doc had
+under-stated that. Surfaced it, the user said full cutover, proceeded.
+
+**3A — unify completion (safe, additive).** Built a `TournamentSession → result`
+adapter + one `finalize_tournament` path; wired MTT completion to record career
+stats + show the same end screen. Two real finds: MTT humans usually bust EARLY
+(HUMAN_OUT), so finalize had to fire there too (the tracker records on human
+elimination) — not only at COMPLETE; and `useTournamentEvents.onComplete`
+auto-routed to the hub, so I had to drop that nav or the unified screen would
+flash-and-vanish. Checked mobile renders the screen too before trusting it.
+
+**3B — single games ARE 1-table tournaments.** The pivotal discovery:
+`PokerStateMachine` self-escalates blinds from its own `blind_config`
+(poker_state_machine.py:329). So the safe design is the session as a PASSIVE
+field observer — the live engine keeps full authority over play and blinds, zero
+gameplay change. Single games get a light boundary (`fold_live_hand` → record
+eliminations → end at the human's terminal moment), NOT the MTT reconcile/pacing
+path. Matched legacy behaviour exactly: a single game ends the instant the human
+busts (game_handler:3291), never AI-only spectating. Engine gained a
+named-player construction path so the field is the real players, not `P01..`.
+
+**Bugs I caught by reasoning / checking reality, not trusting green tests:**
+(1) `build_session_for_new_game` first read `players[0].stack` as the buy-in —
+but blinds are already posted at build time, so stacks differ and the field
+wouldn't conserve. The conservation guard caught my bad test input and I traced
+it to the real cause; fixed to pass the configured buy-in. (2) Live full-game
+driving via REST is impossible — AI turns need the socket/action flow, so a
+headless poll sits forever on an AI's turn (no bug, a harness limit). Pivoted to
+an in-process `progress_game` integration test (build a 1-table MTT game, flip
+`tournament_multi_table=False`) which drove a real single-table session game to
+completion and asserted one career-stats write. (3) A real Groq call leaked from
+the psychology-narration path in that integration test — pre-existing infra gap,
+flagged not fixed.
+
+**Paused before 3C, then did it.** Physically deleting the tracker sprawls into
+cash-mode guards (documented misroute-bug history), the schema table, a legacy
+tracker→session migration, and 6 test files — so I checkpointed, scoped it in
+TRIAGE T3-75, and the user said go.
+
+## 2026-05-30 (cont.) — 3C: retire TournamentTracker
+
+**Cash audit first (the riskiest surface).** The only cash dependency was the
+`cash_mode` guard *inside* the deleted functions — but cash is already isolated
+structurally: cash games carry no `tournament_session`, and the single-table
+dispatch is gated on one. So deleting `handle_eliminations` /
+`check_tournament_complete` is safe for cash; I replaced the obsolete cash-noop
+tests with one asserting the structural invariant.
+
+**Cold-load became the keystone.** To truly retire the tracker, cold-load had to
+stop building one. Now every non-cash game becomes session-backed on load:
+convert a legacy saved-tracker blob into a session
+(`session_from_legacy_tracker`, preserving elimination history + asserting
+conservation), else seed fresh. Deleted `poker/tournament_tracker.py`,
+`save_tournament_tracker`, and all live tracker branches; kept
+`load_tournament_tracker` read-only for the migration.
+
+**The long tail was test-infra, not the feature.** Running the affected test
+files together surfaced two PRE-EXISTING gremlins my combined command exposed:
+(1) a real **Groq narration call** leaking from `_run_async_narration` made the
+integration tests slow + network-bound (one run timed out at 400s) — stubbed it;
+(2) **import-copy/xdist pollution** — `game_handler` AND `message_handler` (and
+friends) do `from ..extensions import game_repo, …` at import time, so when a
+sibling test file imports them before `init_persistence`, the copies are None and
+the real `progress_game` loop NPEs (`save_game`, then `save_message` — whack-a-
+mole). Fixed generically: a helper that re-binds every None extension-global
+across all imported `flask_app.handlers.*` modules. Tests pass in isolation
+(the legitimate signal) and now in mixed single-process runs too. Lesson
+(again): green-in-isolation + red-in-combined ⇒ suspect the import-copy gotcha,
+per tests/CLAUDE.md — not the feature change.
+
+Net: one wrapper type, one completion path, one persistence/load path. ~40 new
+tests; tracker unit-tests dropped (logic now lives in `TournamentField` /
+`build_completion_result`).

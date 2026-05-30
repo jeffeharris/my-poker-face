@@ -2,7 +2,7 @@
 purpose: Pre-release tech debt and code quality review findings triaged by release-blocking severity
 type: reference
 created: 2025-06-15
-last_updated: 2026-05-29
+last_updated: 2026-05-30
 ---
 
 > **Pre-main batch status (2026-05-15):** All 50+ items in T1-28..T1-39,
@@ -294,6 +294,7 @@ Issues to address once live, during ongoing development.
 | T3-72 | N+1 query in `get_experiment_game_snapshots` | `poker/repositories/experiment_repository.py:1198-1311` | Loads controller_states + emotional_states per game inside outer cursor loop. 50-game experiment = 100 extra round-trips. Slow monitoring pages. | |
 | T3-73 | `RAISE_LEVEL_ACTIONS` missing 2-bet entry | `poker/controllers.py:115-118` | Maps `0: 'open_raise'`, `1: '3bet'`, falls back to `'4bet+'`. Two prior raises maps to `4bet+` not `4bet`. Minor labeling imprecision, not correctness. | **FIXED** — added `2: '4bet'` to `RAISE_LEVEL_ACTIONS` (now in `poker/raise_utils.py`); `4bet+` still applies for ≥3. Coach-engine and bounded-options tests updated. |
 | T3-74 | `test_call_type_count` pre-existing flake | `tests/test_core/llm/test_tracking.py:50` | CallType enum count assertion. Not caused by this branch; track separately. | |
+| T3-75 | Tournament unification step 3: collapse `TournamentTracker` into `TournamentSession` | `poker/tournament_tracker.py` (deleted), `flask_app/handlers/game_handler.py`, `flask_app/handlers/single_table_tournament.py`, `flask_app/handlers/tournament_completion.py`, `flask_app/routes/game_routes.py` | **DONE & verified** (branch `tournaments`, steps 1–3C). Every game is now a `TournamentSession` (single = 1-table); one unified completion path/screen/career-stats, one persistence + cold-load path. `TournamentTracker` + `handle_eliminations`/`check_tournament_complete` deleted; cold-load migrates legacy saved-tracker blobs into sessions; cash isolation is structural (no session ⇒ no tournament completion). Design + progress: [`docs/plans/TOURNAMENT_UNIFICATION_STEP3.md`](/docs/plans/TOURNAMENT_UNIFICATION_STEP3.md). **FIXED** | Follow-up (separate): the `tournament_tracker` DB table + `load_tournament_tracker` are retained read-only for legacy migration — drop once no legacy games remain. |
 
 ---
 
