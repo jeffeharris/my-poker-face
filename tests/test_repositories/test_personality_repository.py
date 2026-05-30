@@ -72,6 +72,29 @@ def test_list_personalities_with_limit(repo):
     assert len(result) == 3
 
 
+def test_list_personalities_circulating_only(repo):
+    # A circulating public persona, a demoted public persona (circulating=0),
+    # and the caller's own private persona.
+    repo.save_personality("Star", {"style": "a"}, circulating=True)
+    repo.save_personality("Zombie", {"style": "b"}, circulating=False)
+    repo.save_personality(
+        "Mine", {"style": "c"}, owner_id="user_1", visibility="private", circulating=False
+    )
+
+    # Default (management view): everything public shows, including the zombie.
+    default_names = {p["name"] for p in repo.list_personalities(user_id="user_1")}
+    assert {"Star", "Zombie", "Mine"} <= default_names
+
+    # Player-facing: the demoted zombie is hidden, but Star (circulating) and
+    # Mine (the user's own) remain.
+    gated_names = {
+        p["name"] for p in repo.list_personalities(user_id="user_1", circulating_only=True)
+    }
+    assert "Star" in gated_names
+    assert "Mine" in gated_names
+    assert "Zombie" not in gated_names
+
+
 def test_delete_personality(repo):
     repo.save_personality("ToDelete", {"style": "x"})
     assert repo.delete_personality("ToDelete") is True

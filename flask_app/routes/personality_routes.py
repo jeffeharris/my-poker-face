@@ -78,10 +78,15 @@ def get_personalities():
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
 
+        # Players see the circulating pool + their own personas; demoted
+        # sim/test zombies (public but circulating=0) are hidden from the
+        # opponent picker. Admins see everything for curation. Mirrors the
+        # cash circuit (v123 / list_eligible_for_cash_mode).
         db_personalities = extensions.personality_repo.list_personalities(
             limit=200,
             user_id=user_id,
             include_disabled=is_admin,
+            circulating_only=not is_admin,
         )
 
         personalities = {}
@@ -572,8 +577,11 @@ def generate_theme():
         # Load personality names from database filtered by user visibility
         current_user = extensions.auth_manager.get_current_user()
         user_id = current_user.get('id') if current_user else None
+        # A themed game auto-rosters from this pool, so it must only draw
+        # circulating personas (+ the user's own) — never a demoted sim/test
+        # zombie (v123). Same gate as the opponent picker above.
         db_personalities = extensions.personality_repo.list_personalities(
-            limit=200, user_id=user_id
+            limit=200, user_id=user_id, circulating_only=True
         )
         if db_personalities:
             all_personalities = [p['name'] for p in db_personalities]
