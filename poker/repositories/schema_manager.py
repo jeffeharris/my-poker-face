@@ -248,7 +248,17 @@ _test_schema_template_path = None
 #       detectors gate on (dossier "the read", Part B2). Guarded ALTERs,
 #       additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
 #       Renumbered from v126.
-SCHEMA_VERSION = 127
+# v128: Create `entity_presence` — the single authoritative presence row per
+#       (entity_id, sandbox_id) for the Presence state machine (Cut 3). Compound
+#       PK structurally forbids an entity being in two places, plus a partial
+#       UNIQUE index forbids two entities sharing one (table_id, seat_index) seat,
+#       making `seated_and_idle` / `double_seat` unrepresentable. ADDITIVE AND
+#       DORMANT — nothing reads/writes it yet; a later human-reviewed phase
+#       reroutes the seat/idle/hustle/vice writers through it. CREATE ... IF NOT
+#       EXISTS, non-destructive, idempotent. See
+#       `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6) and
+#       `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`.
+SCHEMA_VERSION = 128
 
 
 class SchemaManager:
@@ -2062,6 +2072,10 @@ class SchemaManager:
             127: (
                 self._migrate_v127_add_preflop_opportunity_lifetime_counts,
                 "Add preflop opportunity-count columns to opponent_observation_lifetime (voluntary action/opportunities + open raise/opportunities) so vpip_per_voluntary_opportunity / pfr_per_open_opportunity derive — the signals the station/nit exploitation detectors gate on (dossier 'the read')",
+            ),
+            128: (
+                self._migrate_v128_create_entity_presence,
+                "Create entity_presence — single authoritative presence row per (entity_id, sandbox_id) for the Presence state machine (Cut 3); compound PK + partial unique seat index make seated_and_idle / double_seat unrepresentable. Additive and dormant.",
             ),
         }
 
@@ -6719,3 +6733,70 @@ class SchemaManager:
             "to opponent_observation_lifetime",
             len(new_columns),
         )
+
+    def _migrate_v128_create_entity_presence(self, conn: sqlite3.Connection) -> None:
+        """Migration v128: create `entity_presence` (Cut 3 of the state-model plan).
+
+        The single authoritative presence row per `(entity_id, sandbox_id)` for
+        the Presence state machine (`cash_mode/presence.py`). The point of the
+        table is *structural* impossibility of two bug classes:
+
+          - **`seated_and_idle` / two-states-at-once.** The compound PRIMARY KEY
+            `(entity_id, sandbox_id)` allows exactly one row — therefore exactly
+            one `state` — per entity per sandbox. There is nowhere to record a
+            second, contradictory state.
+          - **`double_seat`.** A partial UNIQUE index over
+            `(sandbox_id, table_id, seat_index)` WHERE `state = 'seated'` forbids
+            two entities occupying the same physical seat. (Non-seated rows carry
+            NULL table_id/seat_index and are excluded from the constraint.)
+
+        `entity_id` uses the ledger convention (`player:<owner_id>` /
+        `ai:<personality_id>`; pool-funded casino AI also live here with a `pool`
+        origin state). `table_id` / `seat_index` are populated iff `state =
+        'seated'` (enforced in the application layer by the pure machine and
+        structurally by the CHECK constraint below).
+
+        ADDITIVE AND DORMANT: nothing reads or writes this table yet. A later,
+        human-reviewed phase reroutes the seat / idle-pool / hustle / vice writers
+        through the machine (see `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`).
+        Until then `cash_idle_pool`, `ai_side_hustle_state`, `ai_vice_state`, and
+        the occupancy half of `cash_tables` remain the authorities — this table
+        changes no behaviour.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). See
+        `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS entity_presence (
+                entity_id   TEXT NOT NULL,
+                sandbox_id  TEXT NOT NULL DEFAULT 'default',
+                state       TEXT NOT NULL,
+                table_id    TEXT,
+                seat_index  INTEGER,
+                updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (entity_id, sandbox_id),
+                CHECK (state IN ('offline','seated','idle','side_hustle','vice','pool')),
+                CHECK (
+                    (state = 'seated' AND table_id IS NOT NULL AND seat_index IS NOT NULL)
+                    OR
+                    (state <> 'seated' AND table_id IS NULL AND seat_index IS NULL)
+                )
+            )
+        """)
+        # Forbid two entities sharing one physical seat (the double_seat class).
+        # Partial index: only seated rows participate; non-seated rows have NULL
+        # seat fields and are excluded.
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_presence_seat
+                ON entity_presence(sandbox_id, table_id, seat_index)
+                WHERE state = 'seated'
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_entity_presence_sandbox
+                ON entity_presence(sandbox_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_entity_presence_sandbox_state
+                ON entity_presence(sandbox_id, state)
+        """)
+        logger.info("Migration v128 complete: entity_presence table created")
