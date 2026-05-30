@@ -29,14 +29,12 @@ class TestLeakClassification:
         assert loose[0].severity == 6
         assert loose[0].vpip_pct == 100.0
 
-    def test_too_tight_folding_an_open_hand(self):
-        # Folding AKs (in ref) from BTN, repeatedly.
+    def test_folding_an_in_range_hand_is_not_graded(self):
+        # too_tight is intentionally NOT flagged: the reference is an opening
+        # range and we can't tell opens from correct folds-to-a-raise.
         rep = compute_preflop_leaks(_decisions('AKs', 'BTN', 'fold', 5), reference=_fake_ref)
-        tight = [lk for lk in rep.leaks if lk.leak_type == 'too_tight']
-        assert len(tight) == 1
-        assert tight[0].canon == 'AKs'
-        assert tight[0].position_group == 'late'
-        assert tight[0].severity == 5
+        assert rep.leaks == []
+        assert all(lk.leak_type != 'too_tight' for lk in rep.leaks)
 
     def test_in_range_and_played_is_not_a_leak(self):
         rep = compute_preflop_leaks(_decisions('AKs', 'BTN', 'raise', 5), reference=_fake_ref)
@@ -59,7 +57,11 @@ class TestLeakClassification:
 
     def test_position_summary(self):
         rep = compute_preflop_leaks(_decisions('72o', 'UTG', 'call', 6), reference=_fake_ref)
-        assert rep.by_position_summary['early']['too_loose'] == 6
+        summary = rep.by_position_summary['early']
+        assert summary['decisions'] == 6
+        assert summary['loose_plays'] == 6  # all 6 were voluntary plays of a below-range hand
+        assert summary['vpip_pct'] == 100.0
+        assert 'reference_vpip_pct' in summary  # context value present
 
 
 class TestPositionMapping:

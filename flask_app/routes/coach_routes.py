@@ -209,6 +209,63 @@ def coach_ask(game_id: str):
     )
 
 
+@coach_bp.route('/api/coach/preflop-leaks', methods=['GET'])
+@limiter.limit("20/minute")
+@_coach_required
+def coach_preflop_leaks():
+    """Your preflop range vs a reference — the leak-finder, across your real games.
+
+    User-scoped (not game-scoped): aggregates the caller's OWN preflop decisions.
+    Returns per-position context (your VPIP next to an opening-range reference —
+    context only, since VPIP includes calls/defense) plus the actionable signal:
+    specific below-range hands you keep voluntarily playing. The too-tight
+    direction is deliberately not graded (can't tell opens from correct folds to
+    a raise). See flask_app/services/coach_leaks for the scope caveats.
+    """
+    from ..services.coach_leaks import compute_preflop_leaks, load_owner_preflop_decisions
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    # Below this, the signal is too thin to act on — the UI shows "keep playing".
+    min_for_signal = 50
+
+    try:
+        decisions = load_owner_preflop_decisions(extensions.persistence_db_path, owner_id)
+        report = compute_preflop_leaks(decisions)
+    except Exception as e:
+        logger.error(f"preflop-leaks failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not compute leaks'}), 500
+
+    by_position = [
+        {'position': g, **report.by_position_summary[g]}
+        for g in ('early', 'middle', 'late', 'blind')
+        if g in report.by_position_summary
+    ]
+    leaks = [
+        {
+            'position': lk.position_group,
+            'hand': lk.canon,
+            'times_played': lk.severity,
+            'times_seen': lk.n,
+            'vpip_pct': lk.vpip_pct,
+        }
+        for lk in report.leaks
+        if lk.leak_type == 'too_loose'
+    ][:15]
+
+    return jsonify(
+        {
+            'total_decisions': report.total_decisions,
+            'enough_data': report.total_decisions >= min_for_signal,
+            'min_for_signal': min_for_signal,
+            'by_position': by_position,
+            'leaks': leaks,
+        }
+    )
+
+
 @coach_bp.route('/api/coach/<game_id>/config', methods=['GET'])
 @limiter.limit("30/minute")
 @_coach_required

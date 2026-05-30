@@ -132,6 +132,39 @@ def _ensure_group_names() -> None:
     )
 
 
+def _combos_count(canon: str) -> int:
+    """Card combinations for a canonical hand (pair=6, suited=4, offsuit=12)."""
+    if len(canon) == 2:
+        return 6
+    if canon.endswith('s'):
+        return 4
+    return 12
+
+
+_REFERENCE_VPIP_PCT: dict[str, float] = {}
+
+
+def reference_vpip_pct(group: str) -> float:
+    """Combo-weighted % of all 1326 hands the reference OPENS from this group.
+
+    CONTEXT ONLY. This is an opening (RFI) frequency; a player's measured VPIP
+    also includes calls + blind defense, so it is NOT apples-to-apples and must
+    never be turned into a "too loose" verdict on its own (that would flag
+    everyone). Shown next to the player's VPIP for orientation; the actionable
+    signal is the specific below-range hands (too_loose leaks).
+    """
+    if group in _REFERENCE_VPIP_PCT:
+        return _REFERENCE_VPIP_PCT[group]
+    _ensure_position_groups()
+    from poker.hand_ranges import OPENING_RANGES
+
+    p = _POSITION_GROUP_BY_NAME.get(group)
+    combos = sum(_combos_count(c) for c in OPENING_RANGES.get(p, ())) if p else 0
+    pct = round(100.0 * combos / 1326.0, 1)
+    _REFERENCE_VPIP_PCT[group] = pct
+    return pct
+
+
 def compute_preflop_leaks(
     decisions: Iterable[dict],
     reference: Callable[[str, str], bool] = reference_plays,
@@ -159,37 +192,50 @@ def compute_preflop_leaks(
         if action in _VOLUNTARY:
             agg[(group, canon)][0] += 1
 
+    # Per-position rollup (ungated — VPIP context + total loose-play count).
+    pos: dict[str, dict] = defaultdict(
+        lambda: {'decisions': 0, 'voluntary': 0, 'loose_plays': 0}
+    )
     leaks: list[PreflopLeak] = []
-    by_pos: dict[str, dict] = defaultdict(lambda: {'too_loose': 0, 'too_tight': 0, 'decisions': 0})
     sampled = 0
     for (group, canon), (vol, n) in agg.items():
-        by_pos[group]['decisions'] += n
-        if n < min_sample:
-            continue
-        sampled += 1
         plays_ref = reference(canon, group)
-        vpip_pct = 100.0 * vol / n
-        if not plays_ref and vol > 0:
-            # Voluntarily playing a hand the reference folds — too loose.
-            leaks.append(
-                PreflopLeak(group, canon, 'too_loose', n, round(vpip_pct, 1), plays_ref, vol)
-            )
-            by_pos[group]['too_loose'] += vol
-        elif plays_ref and vol < n:
-            # Folding a hand the reference opens — too tight.
-            folds = n - vol
-            leaks.append(
-                PreflopLeak(group, canon, 'too_tight', n, round(vpip_pct, 1), plays_ref, folds)
-            )
-            by_pos[group]['too_tight'] += folds
+        pos[group]['decisions'] += n
+        pos[group]['voluntary'] += vol
+        if not plays_ref:
+            # Every voluntary play of a below-range hand is a loose play. We
+            # count these ungated (the position-level signal), but only flag a
+            # *specific* hand as a leak once it recurs (min_sample) — one loose
+            # call isn't a leak, a habit is.
+            pos[group]['loose_plays'] += vol
+            if n >= min_sample and vol > 0:
+                sampled += 1
+                leaks.append(
+                    PreflopLeak(
+                        group, canon, 'too_loose', n, round(100.0 * vol / n, 1), plays_ref, vol
+                    )
+                )
+        # too_tight (folding an in-range hand) is intentionally NOT graded: the
+        # reference is an *opening* range, and we can't tell from the human's
+        # rows whether they were opening or correctly folding to a raise. Calling
+        # it a leak would be noise.
 
-    # Worst first: by how many wrong decisions, then by how extreme.
+    by_position_summary: dict[str, dict] = {}
+    for group, d in pos.items():
+        n = d['decisions']
+        by_position_summary[group] = {
+            'decisions': n,
+            'vpip_pct': round(100.0 * d['voluntary'] / n, 1) if n else 0.0,
+            'reference_vpip_pct': reference_vpip_pct(group),  # context only — see docstring
+            'loose_plays': d['loose_plays'],
+        }
+
     leaks.sort(key=lambda lk: (lk.severity, lk.n), reverse=True)
     return PreflopLeakReport(
         leaks=leaks,
         total_decisions=total,
         sampled_combos=sampled,
-        by_position_summary=dict(by_pos),
+        by_position_summary=by_position_summary,
     )
 
 
