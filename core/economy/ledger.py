@@ -85,6 +85,11 @@ LEDGER_REASONS = frozenset(
         # straight to the pool to preserve drift==0.
         # Annotation (amount=0, audit reconciliation only)
         'forgive_balance',  # borrower left short of principal on a house stake
+        'informant_unlock',  # player → bank pool: chips spent buying a dossier
+        # section from the informant (the scouting meta-game
+        # chip sink). Recyclable (see BANK_POOL_DEPOSIT_REASONS)
+        # so scouting fees refill the AI-funding pool. See
+        # OPPONENT_DOSSIER_PROGRESSION.md.
     }
 )
 
@@ -108,6 +113,7 @@ BANK_POOL_DEPOSIT_REASONS = frozenset(
         'vice_spending',
         'casino_seat_return',
         'table_rake',
+        'informant_unlock',
     }
 )
 
@@ -281,6 +287,33 @@ def record_player_seed(
         sink=player(owner_id),
         amount=amount,
         reason='player_seed',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_informant_unlock(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """Dossier informant purchase: player → bank pool (a recyclable sink).
+
+    The scouting meta-game's chip sink — the player pays to reveal a dossier
+    section. Accepts repo=None (no-op). Mirrors the vice-spending direction
+    (destruction into the recyclable pool), just sourced from the player.
+    """
+    if repo is None:
+        return None
+    return record(
+        repo,
+        source=player(owner_id),
+        sink=bank(),
+        amount=amount,
+        reason='informant_unlock',
         context=context,
         sandbox_id=sandbox_id,
     )

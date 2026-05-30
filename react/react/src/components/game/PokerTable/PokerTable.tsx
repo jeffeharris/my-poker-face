@@ -503,6 +503,9 @@ export function PokerTable({
         character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
         origin={dossierOrigin}
         identifier={dossierPlayer?.name}
+        // Informant purchasing only in the Circuit (cash) — tournaments show
+        // the scouted reads but no chip-cost buttons.
+        circuitContext={!!gameState.cash_mode}
       />
     </>
   );

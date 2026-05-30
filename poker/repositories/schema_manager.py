@@ -218,7 +218,37 @@ _test_schema_template_path = None
 #       The cash-mode seat-filler now only auto-seats circulating=1 personas;
 #       new ownerless auto-creations default to 0. Closes the "test/zombie
 #       persona silently pollutes everyone's circuit" class structurally.
-SCHEMA_VERSION = 123
+# v124: Create `opponent_observation_lifetime` — the Circuit's durable,
+#       per-sandbox scouting memory: cumulative behavioral COUNTS (not rates)
+#       per (sandbox_id, observer_id, opponent_id), summed across every game
+#       in that sandbox. Rates (VPIP/PFR/AF/showdown) derive on read. Filled
+#       only from sandbox-bound games (legacy per-game `opponent_models` stays
+#       unchanged and serves live in-game AI as before). Also add
+#       `opponent_models.lifetime_applied_json` — the per-game high-water mark
+#       of counts already folded in, so the continuous delta-fold is
+#       resume-safe and never double-counts. Additive/idempotent. See
+#       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+#       Renumbered from v123 on the dossiers→development merge (circulating
+#       took v123 on development; the create-before-alter order is preserved).
+# v125: Create `dossier_informant_unlocks` — sections the player paid the
+#       informant (chip sink) to reveal on an opponent's dossier, per
+#       (sandbox_id, observer_id, opponent_id, section_id). Unioned with the
+#       grind unlocks (bypasses the floor). Additive/idempotent. See
+#       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`. Renumbered from v124.
+# v126: Add deep postflop count/sum columns to `opponent_observation_lifetime`
+#       (Tier-2 dossier reads — fold-to-cbet, c-bet %, barreling, all-in freq,
+#       postflop aggression, polarization equity-at-action). Counts/sums only;
+#       rates derive on read through the canonical OpponentTendencies. Guarded
+#       ALTERs, additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+#       Renumbered from v125.
+# v127: Add preflop opportunity-count columns to `opponent_observation_lifetime`
+#       (preflop_voluntary_action/opportunities + open_raise/open_opportunities)
+#       so vpip_per_voluntary_opportunity / pfr_per_open_opportunity derive on
+#       read — the player-count-stable signals the station/nit exploitation
+#       detectors gate on (dossier "the read", Part B2). Guarded ALTERs,
+#       additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+#       Renumbered from v126.
+SCHEMA_VERSION = 127
 
 
 class SchemaManager:
@@ -2016,6 +2046,22 @@ class SchemaManager:
             123: (
                 self._migrate_v123_add_personality_circulating,
                 "Add circulating flag to personalities — decouple visibility (who can see/pick) from auto-seeding into the opponent pool; backfill preserves current behavior (all public rows circulate)",
+            ),
+            124: (
+                self._migrate_v124_create_opponent_observation_lifetime,
+                "Create opponent_observation_lifetime — per-sandbox cumulative behavioral counts (the Circuit's scouting memory); add opponent_models.lifetime_applied_json high-water mark for the resume-safe delta-fold",
+            ),
+            125: (
+                self._migrate_v125_create_dossier_informant_unlocks,
+                "Create dossier_informant_unlocks — sections the player paid the informant to reveal per (sandbox, observer, opponent); unioned with grind unlocks to bypass the floor",
+            ),
+            126: (
+                self._migrate_v126_add_deep_postflop_lifetime_counts,
+                "Add deep postflop count/sum columns to opponent_observation_lifetime (fold-to-cbet, c-bet %, barreling, all-in freq, postflop aggression, polarization equity sums) — Tier-2 dossier reads; rates derive on read",
+            ),
+            127: (
+                self._migrate_v127_add_preflop_opportunity_lifetime_counts,
+                "Add preflop opportunity-count columns to opponent_observation_lifetime (voluntary action/opportunities + open raise/opportunities) so vpip_per_voluntary_opportunity / pfr_per_open_opportunity derive — the signals the station/nit exploitation detectors gate on (dossier 'the read')",
             ),
         }
 
@@ -6458,4 +6504,218 @@ class SchemaManager:
         logger.info(
             f"Migration v123 complete: added circulating column, "
             f"marked {updated} public personas circulating"
+        )
+
+    def _migrate_v124_create_opponent_observation_lifetime(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v124: create `opponent_observation_lifetime` + add the
+        `opponent_models.lifetime_applied_json` high-water mark.
+
+        The Circuit's durable scouting memory. One row per
+        (sandbox_id, observer_id, opponent_id) holding cumulative behavioral
+        COUNTS summed across every game in that sandbox; rates (VPIP, PFR,
+        aggression factor, showdown win-rate) are derived on read. Storing
+        counts (not rates) is what lets games merge losslessly — a new game's
+        tallies simply add to the running totals.
+
+        Filled ONLY from sandbox-bound games (Circuit cash + Circuit
+        tournaments). The legacy per-game `opponent_models` table is
+        unchanged and keeps serving the live in-game AI as before — this is a
+        Circuit-only feature layered on top, not a change to how any mode
+        models opponents.
+
+        `opponent_models.lifetime_applied_json` is the per-(game, observer,
+        opponent) high-water mark of counts already folded into the lifetime
+        row. The fold is a continuous delta-fold at each hand-boundary save
+        (`delta = current − applied; lifetime += delta; applied = current`),
+        which is resume-safe (cold-load reuses game_id) and never
+        double-counts. The ALTER is guarded by a PRAGMA check so the
+        migration is safe on a partially-applied DB.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS, guarded ALTER).
+        See `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS opponent_observation_lifetime (
+                sandbox_id      TEXT NOT NULL,
+                observer_id     TEXT NOT NULL,
+                opponent_id     TEXT NOT NULL,
+                hands_dealt     INTEGER NOT NULL DEFAULT 0,
+                hands_observed  INTEGER NOT NULL DEFAULT 0,
+                vpip_count      INTEGER NOT NULL DEFAULT 0,
+                pfr_count       INTEGER NOT NULL DEFAULT 0,
+                bet_raise_count INTEGER NOT NULL DEFAULT 0,
+                call_count      INTEGER NOT NULL DEFAULT 0,
+                showdowns_seen  INTEGER NOT NULL DEFAULT 0,
+                showdowns_won   INTEGER NOT NULL DEFAULT 0,
+                first_seen      TIMESTAMP,
+                last_updated    TIMESTAMP,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_obs_lifetime_observer
+                ON opponent_observation_lifetime(sandbox_id, observer_id)
+        """)
+
+        # Add the high-water mark column to opponent_models, guarded so the
+        # migration is safe whether or not the column already exists (fresh
+        # installs create opponent_models in _init_db without it; a
+        # partially-applied DB may already have it).
+        cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(opponent_models)").fetchall()
+        }
+        if "lifetime_applied_json" not in cols:
+            conn.execute(
+                "ALTER TABLE opponent_models ADD COLUMN lifetime_applied_json TEXT"
+            )
+
+        logger.info(
+            "Migration v124 complete: opponent_observation_lifetime created + "
+            "opponent_models.lifetime_applied_json added"
+        )
+
+    def _migrate_v125_create_dossier_informant_unlocks(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v125: create `dossier_informant_unlocks` (Phase 3).
+
+        Records sections the player has paid the informant to reveal on an
+        opponent's dossier, per (sandbox_id, observer_id, opponent_id,
+        section_id). The dossier's effective unlock state is the grind
+        unlocks (derived from observed hands) UNION these purchased sections,
+        so a purchase bypasses the grind floor and persists.
+
+        `price_paid` is stored per row so the audit / future pricing tweaks
+        can see what was actually charged. Non-destructive, idempotent
+        (CREATE ... IF NOT EXISTS). See
+        `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dossier_informant_unlocks (
+                sandbox_id   TEXT NOT NULL,
+                observer_id  TEXT NOT NULL,
+                opponent_id  TEXT NOT NULL,
+                section_id   TEXT NOT NULL,
+                price_paid   INTEGER NOT NULL DEFAULT 0,
+                purchased_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id, section_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_informant_unlocks_pair
+                ON dossier_informant_unlocks(sandbox_id, observer_id, opponent_id)
+        """)
+        logger.info(
+            "Migration v125 complete: dossier_informant_unlocks table created"
+        )
+
+    def _migrate_v126_add_deep_postflop_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v126: extend `opponent_observation_lifetime` with the deep
+        postflop count/sum columns (Tier-2 dossier reads).
+
+        v124 stored only the headline counts (VPIP/PFR/AF/showdown).
+        `OpponentTendencies` already tracks far more (fold-to-cbet, c-bet
+        attempt, barrel/3rd-barrel, all-in, postflop aggression, and the
+        equity-at-action polarization sums). This promotes those counters into
+        the durable per-sandbox store so they accumulate cross-game, feeding
+        the new grind tiers past 180 hands. Same principle as v124: store
+        COUNTS (and the equity SUMS), derive rates on read through the
+        canonical `OpponentTendencies` formula so definitions never drift.
+
+        Each derived rate needs both numerator AND denominator counts because
+        the read reconstructs an `OpponentTendencies` and re-derives the rate.
+        The equity polarization means are mean = sum / count, so we store the
+        REAL sum alongside its integer count.
+
+        Every ALTER is guarded by a PRAGMA check so the migration is safe on a
+        partially-applied DB. Additive, idempotent. See
+        `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+        """
+        # (column, sql_type) — integer counts, then the REAL equity sums.
+        new_columns = [
+            ('all_in_count', 'INTEGER'),
+            ('fold_to_cbet_count', 'INTEGER'),
+            ('cbet_faced_count', 'INTEGER'),
+            ('cbet_attempt_count', 'INTEGER'),
+            ('postflop_seen_as_pfr_count', 'INTEGER'),
+            ('barrel_count', 'INTEGER'),
+            ('barrel_opportunity_count', 'INTEGER'),
+            ('third_barrel_count', 'INTEGER'),
+            ('third_barrel_opportunity_count', 'INTEGER'),
+            ('postflop_bet_raise_count', 'INTEGER'),
+            ('postflop_call_count', 'INTEGER'),
+            ('equity_betting_count', 'INTEGER'),
+            ('equity_raising_count', 'INTEGER'),
+            ('equity_calling_count', 'INTEGER'),
+            ('equity_betting_sum', 'REAL'),
+            ('equity_raising_sum', 'REAL'),
+            ('equity_calling_sum', 'REAL'),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col, sql_type in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} {sql_type} NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v126 complete: %d deep postflop column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v127_add_preflop_opportunity_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v127: add the preflop opportunity-count columns to
+        `opponent_observation_lifetime`.
+
+        The Part-B2 dossier "the read" reuses the tiered-bot exploitation
+        detectors (`poker.strategy.exploitation`). The station and tight-nit
+        detectors gate on `vpip_per_voluntary_opportunity` (and the steal read
+        on `pfr_per_open_opportunity`) — the player-count-stable, opportunity-
+        normalized preflop rates, NOT the raw hands-dealt-normalized vpip/pfr.
+        Those rates derive from preflop opportunity counters that v124 didn't
+        store, so without these columns the station/nit reads could never fire
+        from lifetime data. The counters are already serialized in
+        `tendencies_json`, so the existing delta-fold picks them up once they
+        join `_LIFETIME_COUNT_FIELDS`.
+
+        Guarded ALTERs, additive, idempotent. See
+        `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+        """
+        new_columns = [
+            'preflop_voluntary_action_count',
+            'preflop_voluntary_opportunities',
+            'preflop_open_raise_count',
+            'preflop_open_opportunities',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v127 complete: %d preflop opportunity column(s) added "
+            "to opponent_observation_lifetime",
+            len(new_columns),
         )

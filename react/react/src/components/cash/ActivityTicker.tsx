@@ -19,7 +19,7 @@
 
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Gauge } from 'lucide-react';
+import { Gauge, Eye, ArrowUpRight } from 'lucide-react';
 import type { LobbyEvent, WorldPace } from './types';
 import { feedEventKey, dedupeFeed, renderEventIcon } from './tickerEvents';
 import './CashMode.css';
@@ -30,6 +30,10 @@ interface ActivityTickerProps {
   worldPace?: WorldPace | null;
   /** Pace setter — required for the speed control to render. */
   onPaceChange?: (pace: WorldPace) => void;
+  /** When provided, the heading becomes the door to the Intel hub — the
+   *  live wire is the preview, this expands it into the full field office.
+   *  Omit to render a plain heading. */
+  onOpenIntel?: () => void;
 }
 
 /** Pace presented as a fast-forward speed control. The real tick
@@ -52,7 +56,12 @@ const CASCADE_CAP = 6;
 const ROW_DURATION_S = 0.28;
 const ROW_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-export function ActivityTicker({ events, worldPace = null, onPaceChange }: ActivityTickerProps) {
+export function ActivityTicker({
+  events,
+  worldPace = null,
+  onPaceChange,
+  onOpenIntel,
+}: ActivityTickerProps) {
   const visibleEvents = useMemo(() => dedupeFeed(events), [events]);
   const showPace = worldPace != null && typeof onPaceChange === 'function';
   const prefersReduced = useReducedMotion();
@@ -96,7 +105,23 @@ export function ActivityTicker({ events, worldPace = null, onPaceChange }: Activ
   return (
     <div className="lobby-ticker" aria-label="Recent table activity">
       <div className="lobby-ticker__header">
-        <h3 className="lobby-ticker__heading">Activity</h3>
+        {onOpenIntel ? (
+          <button
+            type="button"
+            className="lobby-ticker__open"
+            onClick={onOpenIntel}
+            title="Open Intel — the wire, the floor & the files"
+          >
+            <Eye size={14} className="lobby-ticker__open-eye" aria-hidden="true" />
+            <h3 className="lobby-ticker__heading">The Wire</h3>
+            <span className="lobby-ticker__open-hint">
+              Intel
+              <ArrowUpRight size={13} aria-hidden="true" />
+            </span>
+          </button>
+        ) : (
+          <h3 className="lobby-ticker__heading">The Wire</h3>
+        )}
         {showPace && (
           <div
             className="lobby-ticker__pace"

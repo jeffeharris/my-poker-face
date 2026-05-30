@@ -127,6 +127,22 @@ REPUTATION_DEMEANOR_ENABLED: bool = True
 LIVE_FILL_HUMAN_HEADROOM: int = 1
 
 
+# --- Opponent dossier scouting gate (Phase 2) -----------------------------
+
+# Kill switch for the dossier scouting meta-game's grind gate. When True
+# (default), the opponent dossier's *earnable* reads (behavioral tendencies,
+# track record, table posture) are gated behind hands observed against that
+# opponent in the active sandbox: below the floor the file is "classified",
+# and individual reads unlock as the sample grows. Identity/standing/notes
+# are never gated. Applies ONLY in a Circuit context (a sandbox + observer
+# with a lifetime observation row); outside the Circuit the dossier is
+# ungated as before. Flip to False to show every read immediately again
+# (zero residual effect — the gate is a pure read-time transform). See
+# `flask_app/services/dossier_scouting.py` and
+# `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+DOSSIER_SCOUTING_GATE_ENABLED: bool = True
+
+
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
 
