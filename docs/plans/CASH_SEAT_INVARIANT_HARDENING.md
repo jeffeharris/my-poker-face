@@ -2,7 +2,7 @@
 purpose: Design + phased plan to harden cash-mode seat-occupancy invariants (the ghost-seat bug class) via a SeatOccupancyRegistry and atomic chip/seat commits
 type: design
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-05-30
 ---
 
 # Cash Seat-Invariant Hardening
@@ -47,7 +47,24 @@ Two root issues:
     The atomicity windows — especially **Window A (Phase 2)** — remain the real correctness
     risk and are NOT covered here; each needs its own targeted fail→pass reproduction test, and
     the harness should be EXTENDED to the live-seated/aspiration paths to truly close the class.
-- Phases 1–4: not started. Each gated by the Phase 0 harness (+ its own targeted test).
+- **Phase 1 (SeatOccupancyRegistry): DONE** (`42070939`) — drop-in wrapper, log-and-continue
+  on double-seat, zero collisions across the seeded sim. Behavior-preserving hardening.
+- **Phase 2 (Window A — aspiration mint): DONE** (`eb68fce0`) — reproduced (debit failure by
+  raise OR None return minted `principal`; create_stake failure lost staker chips); reordered
+  financial-first, structural-last with staker refund. fail→pass tests, success path identical.
+- **Phase 3 (Window B — seed mint): DONE** (`4b001417`) — reproduced (refused debit left an AI
+  seated-but-unfunded → mint); reordered debit-first, drop-on-fail. Fixed an existing test that
+  encoded the bug (unfunded fixtures → funded, mirroring production).
+- **Phase 4 (Window C — offer_stake race/orphan): DONE** (`58a8d2d7`) — reproduced (player
+  debited above the lock → stranded on a raced seat; create_stake orphan); moved all commits
+  inside the sandbox lock after seat re-verify + create_stake rollback (un-seat + refund).
+  fail→pass tests, success path identical.
+
+All landed on `development`; each verified bit-/behavior-identical on its success path via the
+Phase 0 harness staying 40/40 + a stash-proven fail→pass reproduction; full cash bucket green
+(925). **Accepted residuals** (single-connection SQLite, no cross-repo txn): a rollback step
+that itself fails is logged loudly and left to the chip-ledger audit; the cold-start
+debit-ok/save_table-fail case (Window B) self-heals on the next hand-boundary live-fill.
 
 ---
 
