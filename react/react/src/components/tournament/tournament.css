@@ -27,6 +27,12 @@
   --body: 'Hanken Grotesk', system-ui, sans-serif;
 
   position: relative;
+  /* Fill the viewport and own our scrolling. The global app shell
+     (body { height:100dvh; overflow:hidden; display:flex; align-items:center })
+     vertically centers and clips taller-than-viewport children, which would push
+     the clock + you-strip off the top of mobile with no way to scroll up. A fixed
+     100dvh height makes the centering a no-op and lets overflow-y scroll from the top. */
+  height: 100dvh;
   min-height: 100dvh;
   width: 100%;
   background:
@@ -179,6 +185,16 @@
   color: var(--muted);
   margin-top: 2px;
 }
+.clock__next {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.clock__next em {
+  font-style: normal;
+  color: var(--muted-2);
+}
 
 .clock__remaining {
   text-align: right;
@@ -243,6 +259,101 @@
   font-size: 11px;
   color: var(--muted);
   font-weight: 400;
+}
+
+/* ── money line (ITM / bubble / places paid) ─────────────────────────────── */
+
+.money {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px clamp(14px, 4vw, 22px);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  background: var(--panel);
+}
+.money__label {
+  font-family: var(--display);
+  letter-spacing: 0.16em;
+  font-size: 14px;
+  color: var(--ink);
+}
+.money__meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.money--bubble {
+  border-color: rgba(224, 70, 106, 0.5);
+  background: linear-gradient(90deg, rgba(224, 70, 106, 0.16), var(--panel) 60%);
+}
+.money--bubble .money__label {
+  color: var(--crimson);
+}
+.money--itm {
+  border-color: rgba(232, 196, 104, 0.45);
+  background: linear-gradient(90deg, rgba(232, 196, 104, 0.14), var(--panel) 60%);
+}
+.money--itm .money__label {
+  color: var(--gold);
+}
+
+.you-strip__itm {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--charcoal);
+  background: var(--gold);
+}
+
+/* ── chip leaders ────────────────────────────────────────────────────────── */
+
+.leaders {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.leader {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  background: var(--panel);
+}
+.leader--human {
+  border-color: rgba(232, 196, 104, 0.45);
+  background: linear-gradient(90deg, rgba(232, 196, 104, 0.1), var(--panel) 55%);
+}
+.leader__rank {
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+.leader--human .leader__rank {
+  color: var(--gold);
+}
+.leader__name {
+  font-family: var(--body);
+  font-size: 15px;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.leader__stack {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--gold);
 }
 
 /* ── champion banner ─────────────────────────────────────────────────────── */

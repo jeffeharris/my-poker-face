@@ -37,7 +37,7 @@ export function TournamentStandings({
   onBack,
 }: Props) {
   const reduce = useReducedMotion();
-  const { level, human, complete, winner } = standings;
+  const { level, next_level: nextLevel, leaders, payout, human, complete, winner } = standings;
 
   const fade = (i: number) =>
     reduce
@@ -75,6 +75,15 @@ export function TournamentStandings({
                 {fmt(level.big_blind)}
               </div>
               {level.ante > 0 && <div className="clock__ante">ante {fmt(level.ante)}</div>}
+              {nextLevel && !complete && (
+                <div className="clock__next">
+                  Next {fmt(nextLevel.small_blind)}/{fmt(nextLevel.big_blind)}
+                  <em>
+                    {' '}
+                    · {nextLevel.hands_until} hand{nextLevel.hands_until === 1 ? '' : 's'}
+                  </em>
+                </div>
+              )}
             </div>
             <div className="clock__remaining">
               <div className="clock__stat-label">Players Left</div>
@@ -86,13 +95,35 @@ export function TournamentStandings({
           </div>
         </motion.div>
 
+        {/* ── money line: ITM / bubble / places paid ── */}
+        {payout && !complete && (
+          <motion.div
+            className={`money${payout.on_bubble ? ' money--bubble' : ''}${
+              payout.in_money ? ' money--itm' : ''
+            }`}
+            {...fade(1)}
+          >
+            <span className="money__label">
+              {payout.in_money
+                ? 'In the money'
+                : payout.on_bubble
+                  ? 'On the bubble'
+                  : `${payout.players_to_money} to the money`}
+            </span>
+            <span className="money__meta">{payout.paid_places} places paid</span>
+          </motion.div>
+        )}
+
         {/* ── you ── */}
         <motion.div
           className={`you-strip${human.out ? ' you-strip--out' : ''}`}
           {...fade(1)}
         >
           <div>
-            <div className="you-strip__tag">{human.out ? 'Busted' : 'Your Standing'}</div>
+            <div className="you-strip__tag">
+              {human.out ? 'Busted' : 'Your Standing'}
+              {human.in_money && <span className="you-strip__itm">ITM</span>}
+            </div>
             <div className="you-strip__rank">
               {human.rank != null ? (
                 <>
@@ -119,6 +150,29 @@ export function TournamentStandings({
               {winner === human.player_id ? 'You' : winner}
             </div>
           </motion.div>
+        )}
+
+        {/* ── chip leaders ── */}
+        {leaders && leaders.length > 0 && !complete && (
+          <>
+            <div className="tourney__heading">Chip Leaders</div>
+            <div className="leaders">
+              {leaders.map((l, i) => (
+                <motion.div
+                  key={l.player_id}
+                  className={`leader${l.is_human ? ' leader--human' : ''}`}
+                  {...fade(2 + i)}
+                >
+                  <span className="leader__rank">{l.rank}</span>
+                  <span className="leader__name">
+                    {l.is_human ? 'You' : l.player_id}
+                    {l.is_human && <span className="you">YOU</span>}
+                  </span>
+                  <span className="leader__stack">{fmt(l.stack)}</span>
+                </motion.div>
+              ))}
+            </div>
+          </>
         )}
 
         {/* ── tables ── */}

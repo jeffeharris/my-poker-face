@@ -38,6 +38,32 @@ export interface TournamentHuman {
   rank: number | null;
   stack: number | null;
   table_id: number | null;
+  in_money: boolean;
+}
+
+/** Blinds after the current level + how many of the human's hands until it hits
+ *  (tournament time is player-gated, so the clock is in hands, not minutes). */
+export interface TournamentNextLevel {
+  level: number;
+  small_blind: number;
+  big_blind: number;
+  ante: number;
+  hands_until: number;
+}
+
+export interface TournamentLeader {
+  rank: number;
+  player_id: string;
+  stack: number;
+  is_human: boolean;
+}
+
+/** In-the-money status — display-only until real payouts ship. */
+export interface TournamentPayout {
+  paid_places: number;
+  players_to_money: number;
+  on_bubble: boolean;
+  in_money: boolean;
 }
 
 export interface TournamentStandings {
@@ -47,6 +73,9 @@ export interface TournamentStandings {
   complete: boolean;
   winner: string | null;
   level: TournamentLevel;
+  next_level: TournamentNextLevel | null;
+  leaders: TournamentLeader[];
+  payout: TournamentPayout;
   human: TournamentHuman;
   tables: TournamentTable[];
   recent_eliminations: TournamentElimination[];
