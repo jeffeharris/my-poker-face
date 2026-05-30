@@ -54,6 +54,18 @@ def seed_sim_sandbox(
     logger.info("Using db: %s", resolved)
     repos = create_repos(resolved)
 
+    # A fresh isolated --db-path has the schema but no personality roster
+    # (those rows are loaded from poker/personalities.json into the DB, not
+    # by create_repos). Without them ensure_ai_bankrolls_seeded funds zero
+    # AIs and the sim drives an empty economy. Seed the roster idempotently
+    # so a throwaway sim DB has real opponents to seat. overwrite=False makes
+    # it a no-op against a DB that already has them.
+    json_path = str(Path(__file__).parent.parent / 'poker' / 'personalities.json')
+    seeded = repos['personality_repo'].seed_personalities_from_json(
+        json_path, overwrite=False
+    )
+    logger.info("Seeded personalities from JSON: %s", seeded)
+
     sandbox = repos['sandbox_repo'].create(owner_id=owner_id, name=name)
     logger.info(
         "Created sandbox: name=%r owner=%r sandbox_id=%s",
