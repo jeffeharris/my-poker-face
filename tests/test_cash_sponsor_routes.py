@@ -151,6 +151,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 },
             },
             source='test_seed',
+            circulating=True,
         )
         self.buddha_id = self.personality_repo.save_personality(
             'Buddha',
@@ -172,6 +173,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 },
             },
             source='test_seed',
+            circulating=True,
         )
         self.mime_id = self.personality_repo.save_personality(
             'A Mime',
@@ -180,6 +182,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 'staker_profile': {'willing': False},
             },
             source='test_seed',
+            circulating=True,
         )
 
         # Healthy AI bankrolls for the willing lenders.

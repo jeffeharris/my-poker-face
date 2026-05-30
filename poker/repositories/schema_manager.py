@@ -213,7 +213,12 @@ _test_schema_template_path = None
 #       Read-only scoreboard — never injected into core AI thresholds. See
 #       `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
 #       Renumbered from v121 on the prestige→prep-for-main merge (collision).
-SCHEMA_VERSION = 122
+# v123: Add `circulating` to personalities — decouple "visible/selectable"
+#       (visibility) from "auto-seeded into the opponent pool" (circulating).
+#       The cash-mode seat-filler now only auto-seats circulating=1 personas;
+#       new ownerless auto-creations default to 0. Closes the "test/zombie
+#       persona silently pollutes everyone's circuit" class structurally.
+SCHEMA_VERSION = 123
 
 
 class SchemaManager:
@@ -2007,6 +2012,10 @@ class SchemaManager:
             122: (
                 self._migrate_v122_create_prestige_snapshots,
                 "Create prestige_snapshots table — sandbox-scoped human-player reputation (renown ratchets, regard swings) captured by the ticker with component breakdown; add idx_relationship_states_opponent for the inbound-edge aggregate",
+            ),
+            123: (
+                self._migrate_v123_add_personality_circulating,
+                "Add circulating flag to personalities — decouple visibility (who can see/pick) from auto-seeding into the opponent pool; backfill preserves current behavior (all public rows circulate)",
             ),
         }
 
@@ -6401,3 +6410,52 @@ class SchemaManager:
                 ON relationship_states(opponent_id)
         """)
         logger.info("Migration v122 complete: prestige_snapshots table created")
+
+    def _migrate_v123_add_personality_circulating(self, conn: sqlite3.Connection) -> None:
+        """Migration v123: add `circulating` to personalities.
+
+        Decouples two ideas that `visibility` previously conflated:
+          - `visibility` (public/private/disabled) — who can SEE / PICK a
+            persona. Unchanged.
+          - `circulating` (0/1) — whether the persona is AUTOMATICALLY
+            seeded into the opponent pool (the cash-mode seat-filler) with
+            nobody explicitly choosing it.
+
+        Why: an ownerless persona — a sim seat, an admin/test creation, an
+        unknown-name auto-generate — was written `visibility='public'` and
+        therefore immediately auto-seated into EVERY player's cash games.
+        That's the recurring "test/zombie persona pollutes the circuit"
+        class (Test Player, Unknown Celebrity, AI 12-15, Fishy, … all
+        leaked this way and racked up tens of thousands of seatings). The
+        `RESERVED_PERSONA_NAMES` guard only caught a hardcoded list and
+        only blocked the WRITE; this makes the safe behaviour structural —
+        new ownerless personas are public-but-not-circulating, and entering
+        the live pool becomes an explicit, curated act (`set_circulating`,
+        or seeding with `circulating=1`).
+
+        Backfill preserves CURRENT behaviour exactly: every row that is
+        public today keeps circulating, so the whole seeded celebrity
+        corpus (including the good `ai_generated` ones — Cthulhu, Snoop
+        Dogg, Yoda, …) is unaffected. Only the forward default changes.
+        Demoting the existing junk rows is a separate, explicit data step
+        (it's environment-specific — prod has different junk than dev), not
+        baked into this generic, reusable migration. Non-destructive,
+        additive, reversible.
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+        if 'circulating' not in columns:
+            conn.execute(
+                "ALTER TABLE personalities ADD COLUMN circulating INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_personalities_circulating "
+            "ON personalities(circulating)"
+        )
+        # Preserve today's behaviour: everything currently public auto-seats.
+        updated = conn.execute(
+            "UPDATE personalities SET circulating = 1 WHERE visibility = 'public'"
+        ).rowcount
+        logger.info(
+            f"Migration v123 complete: added circulating column, "
+            f"marked {updated} public personas circulating"
+        )

@@ -91,6 +91,7 @@ class _CutoverBase(unittest.TestCase):
                     'heat_ceiling': 0.70,
                 },
             },
+            circulating=True,
         )
         self.bankroll_repo.save_ai_bankroll(
             AIBankrollState(
