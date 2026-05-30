@@ -171,8 +171,9 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
                   <li key={`${lk.position}-${lk.hand}`} className="pfl-leak">
                     <span className="pfl-leak-hand">{lk.hand}</span>
                     <span className="pfl-leak-detail">
-                      played <strong>{lk.times_played}</strong> of {lk.times_seen} times from{' '}
-                      {POSITION_LABEL[lk.position] ?? lk.position}
+                      from {POSITION_LABEL[lk.position] ?? lk.position} — dealt it{' '}
+                      <strong>{lk.times_seen}×</strong>, played it{' '}
+                      <strong>{lk.times_played}×</strong>
                     </span>
                   </li>
                 ))}

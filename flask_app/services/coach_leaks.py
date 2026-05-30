@@ -289,7 +289,7 @@ def format_leaks_for_prompt(report: PreflopLeakReport) -> str:
         for lk in loose[:10]:
             lines.append(
                 f"- {lk.canon} from {_POSITION_LABEL[lk.position_group]}: "
-                f"played {lk.severity} of {lk.n} times."
+                f"dealt {lk.n} time(s), played it {lk.severity} of those."
             )
     else:
         lines.append(

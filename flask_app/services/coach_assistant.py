@@ -100,9 +100,10 @@ Be honest — if they played well, say so briefly. If they made an error, explai
 LEAK_FEEDBACK_PROMPT = """\
 Given this preflop profile, give the player concise, prioritized feedback (3-5 sentences):
 - Name their single biggest preflop leak first, and why it costs chips.
+- Quantify it using the profile's numbers — how many times they played the hand out of how many they were dealt it (e.g. "you played KJo 2 of the 2 times you were dealt it in the blinds").
 - Give one concrete fix — which specific hands or positions to tighten up.
 - If a position looks disciplined, acknowledge it briefly.
-Use ONLY the hands, positions, and numbers in the profile above — do not invent stats or hands, and do not reference postflop play. Set "action" to null.\
+Name ONLY hands that appear in the profile above — do not invent or add example hands of your own, do not invent stats, and do not reference postflop play. Set "action" to null.\
 """
 
 
