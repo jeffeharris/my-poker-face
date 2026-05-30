@@ -1255,7 +1255,10 @@ def refresh_table_roster(
                 )
             )
             # `seated_globally` stays unchanged — pid still occupies
-            # the seat, just freshly funded by the staker.
+            # the seat, just freshly funded by the staker. (Intentional
+            # no-discard; the SeatOccupancyRegistry exposes an explicit
+            # `vacate_or_retain` for this case, but the op is kept as a
+            # bare no-op here so plain-set callers/tests stay drop-in.)
             continue
 
         if decision == "stay":

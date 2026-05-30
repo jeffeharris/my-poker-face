@@ -20,14 +20,12 @@ from poker.ai_resilience import (
 from poker.betting_context import BettingContext
 from poker.card_utils import card_to_string
 from poker.config import AI_MESSAGE_CONTEXT_LIMIT, MIN_RAISE
-from poker.controllers import AIPlayerController
 from poker.emotional_state import EmotionalState
 from poker.equity_snapshot import HandEquityHistory
 from poker.equity_tracker import EquityTracker
 from poker.game_helpers import should_clear_player_options
 from poker.guest_limits import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 from poker.hand_evaluator import HandEvaluator
-from poker.hybrid_ai_controller import HybridAIController
 from poker.player_psychology import ComposureState
 from poker.poker_game import (
     advance_to_next_active_player,
@@ -381,126 +379,44 @@ def restore_ai_controllers(
     for player in state_machine.game_state.players:
         if not player.is_human:
             # Check if this player should use a special controller type
+            from flask_app.handlers.tiered_factory import build_controller
+
             if player.name in bot_types:
                 raw_strategy = bot_types[player.name]
                 strategy = _BOT_TYPE_ALIASES.get(raw_strategy, raw_strategy)
                 # Get player-specific llm_config or fall back to default (for personality loading)
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
 
-                if strategy == 'standard':
-                    # Standard: HybridAIController (full prompt pipeline + bounded options)
-                    controller = HybridAIController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created HybridAIController for {player.name}")
-                elif strategy == 'sharp':
-                    # Sharp: solver baselines + personality distortion + LLM expression
-                    from flask_app.handlers.tiered_factory import build_tiered_controller
-
-                    controller = build_tiered_controller(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                        expression_enabled=ai_chat,
-                        debug_logging=True,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created TieredBotController for {player.name} "
-                        f"(expression={'on' if ai_chat else 'off'})"
-                    )
-                elif strategy == 'baseline_solver':
-                    # Pure solver, no personality distortion, no expression layer
-                    from flask_app.handlers.tiered_factory import build_tiered_controller
-
-                    controller = build_tiered_controller(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                        baseline=True,
-                    )
-                    logger.info(f"[RESTORE] Created BaselineSolverBot for {player.name}")
-                elif strategy in ('casebot', 'gto_lite'):
-                    # Rule bots exposed in Custom Game for training/practice
-                    strategy_for_type = {
-                        'casebot': 'case_based',
-                        'gto_lite': 'pot_odds_robot',
-                    }[strategy]
-                    controller = RuleBotController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        strategy=strategy_for_type,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created RuleBotController for {player.name} ({strategy} → {strategy_for_type})"
-                    )
-                elif strategy == 'chaos':
-                    # Chaos: full LLM, full personality, no bounded options
-                    controller = AIPlayerController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created AIPlayerController (chaos) for {player.name}")
-                elif strategy == 'lean':
-                    # Lean: minimal LLM prompt, options-bounded
-                    from poker.lean_bounded_controller import LeanBoundedController
-
-                    controller = LeanBoundedController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created LeanBoundedController for {player.name}")
-                else:
-                    # Rule-based controller with psychology (e.g., case_based, abc, always_fold)
-                    controller = RuleBotController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        strategy=strategy,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created RuleBotController for {player.name} with strategy '{strategy}'"
-                    )
+                # Unified dispatch. `default_strategy` flips the unknown-bot_type
+                # fallback to RuleBotController(strategy=strategy) — the restore
+                # path treats unrecognised strategies (e.g. 'abc', 'always_fold',
+                # 'case_based') as rule-bot names rather than Hybrid. 'standard'
+                # (the `hybrid` alias) still resolves to HybridAIController.
+                # `debug_logging=True` is honored on the tiered (sharp /
+                # baseline_solver) branches only.
+                controller = build_controller(
+                    bot_type=strategy,
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=llm_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                    expression_enabled=ai_chat,
+                    debug_logging=True,
+                    default_strategy=strategy,
+                )
+                logger.info(
+                    f"[RESTORE] Created controller for {player.name} (bot_type={strategy})"
+                )
             else:
                 # No bot_types entry — match the new-game route's default of
                 # 'sharp' (the tiered solver bot, the core engine). Legacy
                 # saves with no bot_types stamp fall through here.
-                from flask_app.handlers.tiered_factory import build_tiered_controller
-
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
-                controller = build_tiered_controller(
+                controller = build_controller(
+                    bot_type='sharp',
                     player_name=player.name,
                     state_machine=state_machine,
                     llm_config=llm_config,
@@ -1316,6 +1232,145 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
     return picks
 
 
+def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
+    """Re-attach a cash game's lobby-table binding from the durable
+    ``cash_sessions`` row when it's missing from ``game_data``.
+
+    ``cash_table_id`` / ``cash_seat_index`` are memory-only fields: they're
+    stamped at sit-down but are NOT part of the persisted
+    ``game_state_json``. Any cold-load that doesn't pass through the
+    ``/api/game-state`` restore block (e.g. a background hand advance after
+    the game was evicted from memory) leaves them ``None``. Without the
+    binding the hand-boundary refresh below early-returns, so the human seat
+    is never re-stamped into the ``cash_tables`` row; ``refresh_unseated_tables``
+    then treats the table as empty and refills the human's seat with AIs —
+    the "my seat got taken, Resume shows different players" split-brain.
+
+    Mirrors the same ``cash_sessions`` fallback ``leave_table`` already uses
+    (cash_routes.py). Writes the recovered ids back onto ``game_data`` via
+    ``set_game`` so subsequent hand-boundary refreshes and the eventual leave
+    see them too. Returns the resolved ``table_id`` (or ``None`` if it can't
+    be recovered — legacy ``/api/cash/start`` games never had a binding).
+    """
+    table_id = game_data.get('cash_table_id')
+    if table_id:
+        return table_id
+    try:
+        from flask_app.extensions import cash_session_repo
+
+        if cash_session_repo is None:
+            return None
+        cs = cash_session_repo.load(game_id)
+    except Exception as e:
+        logger.warning(
+            "[CASH][LOBBY] cash_sessions binding restore failed for %r: %s",
+            game_id,
+            e,
+        )
+        return None
+    if cs is None or cs.cash_table_id is None:
+        return None
+    game_data['cash_table_id'] = cs.cash_table_id
+    if game_data.get('cash_seat_index') is None:
+        game_data['cash_seat_index'] = cs.cash_seat_index
+    from flask_app.services import game_state_service
+
+    game_state_service.set_game(game_id, game_data)
+    logger.info(
+        "[CASH][LOBBY] restored cash-table binding %r:%s for orphaned cash game %r",
+        cs.cash_table_id,
+        cs.cash_seat_index,
+        game_id,
+    )
+    return cs.cash_table_id
+
+
+def _ensure_cash_mode(game_id: str, game_data: dict) -> bool:
+    """Guarantee a cash game's memory-only cash metadata is present, and
+    report whether the hand-end cash flow should run for it.
+
+    ``cash_mode``, ``cash_table_id``, ``cash_seat_index``,
+    ``cash_stake_label``, ``cash_personality_ids`` and ``sandbox_id`` are
+    stamped at sit-down but are NOT part of the persisted
+    ``game_state_json``. The ``/api/game-state`` restore block rehydrates
+    them on a warm reload, but a *background* hand advance after the game was
+    evicted from memory (the world ticker / socket loop) bypasses that block,
+    so ``cash_mode`` comes back falsy. Every hand-end cash step is gated on
+    ``cash_mode`` — refill, human-bust detection, the lobby-table refresh, and
+    the table-binding self-heal (`_restore_cash_table_binding`) inside it — so
+    a dropped flag silently skips all of them: the human seat is never
+    re-stamped into ``cash_tables``, ``refresh_unseated_tables`` treats it as
+    empty and refills it, and the live game decays out of sync with the world
+    table. The cold-load ghost-seat split-brain (the binding self-heal was
+    unreachable because it lived behind the very flag the cold-load dropped).
+
+    ``game_id.startswith("cash-")`` is the durable, memory-free signal — it's
+    exactly how the restore block decides ``is_cash_game``. When it's a cash
+    game whose flag is missing, rebuild the dropped fields from the durable
+    ``cash_sessions`` row + the live players so the cash flow can run.
+    Idempotent: a no-op once ``cash_mode`` is set (the warm path).
+    """
+    if game_data.get('cash_mode'):
+        return True
+    if not game_id.startswith('cash-'):
+        return False
+
+    game_data['cash_mode'] = True
+    # Table + seat binding from the durable cash_sessions row (persists itself
+    # when it recovers one; legacy /api/cash/start games have none).
+    _restore_cash_table_binding(game_id, game_data)
+
+    state_machine = game_data.get('state_machine')
+    players = state_machine.game_state.players if state_machine is not None else ()
+
+    # Stake label + table buy-in cap, resolved from the big blind. Mirrors the
+    # /api/game-state restore block so refill's affordability math matches.
+    try:
+        from flask_app.routes.cash_routes import STAKES_LADDER
+
+        big_blind = (state_machine.game_state.current_ante or 100) if state_machine else 100
+        stake_label = next(
+            (label for label, cfg in STAKES_LADDER.items() if cfg["big_blind"] == big_blind),
+            None,
+        )
+        if game_data.get('cash_stake_label') is None:
+            game_data['cash_stake_label'] = stake_label
+        if stake_label is not None:
+            mm = game_data.get('memory_manager')
+            if mm is not None:
+                from cash_mode.stakes_ladder import table_buy_in_window
+
+                _, _, cold_load_max_buy_in = table_buy_in_window(stake_label)
+                mm.set_table_max_buy_in(cold_load_max_buy_in)
+    except Exception as e:
+        logger.warning("[CASH] stake-label rehydrate failed for %r: %s", game_id, e)
+
+    # cash_personality_ids feeds the lobby refresh's busted-slot reconciliation
+    # AND the world sim's live_cash_seated_pids (so the human's live opponents
+    # aren't double-booked at another table). Rebuild from current opponents.
+    if not game_data.get('cash_personality_ids'):
+        from flask_app.extensions import personality_repo
+
+        cash_personality_ids = {}
+        for player in players:
+            if player.is_human:
+                continue
+            try:
+                pid = personality_repo.resolve_name_to_personality_id(player.name)
+            except Exception:
+                pid = None
+            if pid:
+                cash_personality_ids[player.name] = pid
+        game_data['cash_personality_ids'] = cash_personality_ids
+
+    game_state_service.set_game(game_id, game_data)
+    logger.info(
+        "[CASH] rehydrated cash metadata for cold-loaded game %r (background advance)",
+        game_id,
+    )
+    return True
+
+
 def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machine) -> None:
     """Hand-boundary lobby refresh for the player's active table.
 
@@ -1348,10 +1403,14 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     Failures are caught by the caller — a flaky lobby refresh shouldn't
     block the hand from advancing.
     """
-    table_id = game_data.get('cash_table_id')
+    # Self-heal the table binding from the durable cash_sessions row when a
+    # cold-loaded game lost it (cash_table_id isn't in game_state_json). This
+    # keeps the human seat re-stamped each hand so refresh_unseated_tables
+    # never refills it — closing the cold-load ghost-seat split-brain.
+    table_id = _restore_cash_table_binding(game_id, game_data)
     if not table_id:
-        # Lobby v1.5 didn't tag the game with a table id (older /api/cash/start
-        # path). Nothing to refresh.
+        # No durable binding (legacy /api/cash/start games never had one).
+        # Nothing to refresh.
         return
 
     import random
@@ -1360,6 +1419,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from cash_mode.bankroll import AIBankrollState
     from cash_mode.lobby import _global_seated_set
     from cash_mode.movement import refresh_table_roster
+    from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
     from cash_mode.tables import ai_slot, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
@@ -1473,7 +1533,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         next_tier_min_buy_in = next_min
 
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
-    seated_globally = _global_seated_set([t for t in all_tables if t.table_id != table_id])
+    seated_globally = SeatOccupancyRegistry(
+        _global_seated_set([t for t in all_tables if t.table_id != table_id]),
+        label="game_handler.hand_boundary_refresh",
+    )
     seated_globally.update(s["personality_id"] for s in synced_seats if s["kind"] == "ai")
 
     # Exclude off-grid AIs (on a vice / side hustle) from BOTH seating
@@ -2201,13 +2264,14 @@ def _seat_freshly_filled_ais(
         rule_strategy_override = (
             (personality or {}).get("rule_strategy") if isinstance(personality, dict) else None
         )
+        from flask_app.handlers.tiered_factory import build_controller
+
         if rule_strategy_override == "fish":
             fish_leak = (personality or {}).get("fish_leak")
-            controller = RuleBotController(
+            controller = build_controller(
+                bot_type="fish",
                 player_name=name,
                 state_machine=state_machine,
-                strategy="fish",
-                llm_config={},
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
@@ -2215,9 +2279,8 @@ def _seat_freshly_filled_ais(
                 fish_leak=fish_leak,
             )
         else:
-            from flask_app.handlers.tiered_factory import build_tiered_controller
-
-            controller = build_tiered_controller(
+            controller = build_controller(
+                bot_type="sharp",
                 player_name=name,
                 state_machine=state_machine,
                 llm_config=game_data.get('llm_config', {}),
@@ -3565,6 +3628,14 @@ def progress_game(game_id: str) -> None:
         current_game_data = game_state_service.get_game(game_id)
         if not current_game_data:
             return
+
+        # Rehydrate cash-mode metadata when a background hand advance (world
+        # ticker / socket) cold-loaded this game without passing through the
+        # /api/game-state restore block. Otherwise the hand-end cash flow
+        # (refill, bust-detect, lobby refresh + table-binding self-heal) is
+        # gated off by the dropped `cash_mode` flag and the human seat
+        # orphans — the cold-load ghost-seat split-brain.
+        _ensure_cash_mode(game_id, current_game_data)
 
         while True:
             # Refresh game data (may have been updated by handle_ai_action)

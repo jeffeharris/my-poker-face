@@ -325,6 +325,59 @@ class HandOutcomeDetector:
             )
         return events
 
+    def _compute_revealed_ranks(
+        self,
+        hand: RecordedHand,
+    ) -> Optional[Tuple[list, Dict[str, int], Set[str], str]]:
+        """Shared setup for the revealed-ranks showdown detectors.
+
+        Folds the block that ``_detect_hero_calls``,
+        ``_detect_dominated_showdown``, and ``_detect_coolers`` repeat
+        verbatim:
+
+          1. Require a showdown (else preconditions fail).
+          2. Parse the community board (degraded data → preconditions
+             fail rather than crash).
+          3. Evaluate every revealed player's hand_rank from
+             ``hole_cards + community`` (silently skipping players whose
+             cards don't parse), requiring at least two ranks.
+          4. Collect winner names and the hand summary.
+
+        Returns ``(community, revealed_ranks, winner_names, summary)`` on
+        success, or ``None`` when any precondition fails — callers do
+        ``ctx = self._compute_revealed_ranks(hand); if ctx is None:
+        return []`` to preserve the original short-circuits exactly.
+
+        Local imports of ``Card`` / ``HandEvaluator`` keep the
+        relationship module's load-time import graph clean (same
+        rationale the inlined blocks documented).
+        """
+        if not hand.was_showdown:
+            return None
+
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return None
+
+        revealed_ranks: Dict[str, int] = {}
+        for name, hole in hand.hole_cards.items():
+            try:
+                cards = [Card.from_short(c) for c in hole] + community
+                result = HandEvaluator(cards).evaluate_hand()
+                revealed_ranks[name] = result['hand_rank']
+            except Exception:
+                continue
+        if len(revealed_ranks) < 2:
+            return None
+
+        winner_names = {w.name for w in hand.winners}
+        summary = hand.get_summary()
+        return community, revealed_ranks, winner_names, summary
+
     def _detect_hero_calls(self, hand: RecordedHand) -> List[DetectedEvent]:
         """Emit HERO_CALL events for river calls that beat a worse hand.
 
@@ -364,38 +417,14 @@ class HandOutcomeDetector:
         (`WinnerInfo.hand_rank`). The compute is local and cheap;
         no DB round-trip.
         """
-        if not hand.was_showdown:
+        # Shared setup: showdown gate, board parse, revealed ranks,
+        # winner names, summary. `community` is computed by the helper
+        # but unused here (hero-call works off ranks + river actions).
+        ctx = self._compute_revealed_ranks(hand)
+        if ctx is None:
             return []
+        _community, revealed_ranks, winner_names, summary = ctx
 
-        # Local imports — avoid importing heavy poker.* modules at
-        # detector module-load time (keeps the import graph clean
-        # for the relationship layer's other consumers).
-        from core.card import Card
-        from poker.hand_evaluator import HandEvaluator
-
-        # Compute hand_rank for every revealed player. `hole_cards`
-        # is keyed by name and only contains showdown-reaching
-        # players (folded players are stripped before
-        # complete_hand). Errors parsing cards / evaluating skip
-        # that player silently — degraded data shouldn't crash the
-        # detector.
-        try:
-            community = [Card.from_short(c) for c in hand.community_cards]
-        except Exception:
-            return []
-
-        revealed_ranks: Dict[str, int] = {}
-        for name, hole in hand.hole_cards.items():
-            try:
-                cards = [Card.from_short(c) for c in hole] + community
-                result = HandEvaluator(cards).evaluate_hand()
-                revealed_ranks[name] = result['hand_rank']
-            except Exception:
-                continue
-        if len(revealed_ranks) < 2:
-            return []
-
-        winner_names = {w.name for w in hand.winners}
         # A hero call needs at least one winner that reached showdown
         # with a rank we computed. Most of the time
         # winner_info.hand_rank matches our computed value, but
@@ -405,7 +434,6 @@ class HandOutcomeDetector:
         if not river_actions:
             return []
 
-        summary = hand.get_summary()
         events: List[DetectedEvent] = []
 
         for winner in winner_names:
@@ -635,29 +663,13 @@ class HandOutcomeDetector:
         sharing the import path keeps the relationship module's
         load-time footprint small.
         """
-        if not hand.was_showdown:
+        # Shared setup (same block as `_detect_hero_calls` /
+        # `_detect_coolers`); `community` unused here.
+        ctx = self._compute_revealed_ranks(hand)
+        if ctx is None:
             return []
+        _community, revealed_ranks, winner_names, summary = ctx
 
-        from core.card import Card
-        from poker.hand_evaluator import HandEvaluator
-
-        try:
-            community = [Card.from_short(c) for c in hand.community_cards]
-        except Exception:
-            return []
-
-        revealed_ranks: Dict[str, int] = {}
-        for name, hole in hand.hole_cards.items():
-            try:
-                cards = [Card.from_short(c) for c in hole] + community
-                result = HandEvaluator(cards).evaluate_hand()
-                revealed_ranks[name] = result['hand_rank']
-            except Exception:
-                continue
-        if len(revealed_ranks) < 2:
-            return []
-
-        winner_names = {w.name for w in hand.winners}
         # Postflop-committed losers only. "Committed" = called a
         # bet/raise/all_in on FLOP, TURN, or RIVER. A river-only call
         # qualifies; so does a flop call that mucks no further bets.
@@ -671,7 +683,6 @@ class HandOutcomeDetector:
         if not postflop_committed:
             return []
 
-        summary = hand.get_summary()
         events: List[DetectedEvent] = []
 
         for loser in postflop_committed:
@@ -742,29 +753,13 @@ class HandOutcomeDetector:
         Mutually exclusive with DOMINATED_SHOWDOWN by construction:
         DOMINATED skips the both-strong case and lets this fire.
         """
-        if not hand.was_showdown:
+        # Shared setup (same block as `_detect_hero_calls` /
+        # `_detect_dominated_showdown`); `community` unused here.
+        ctx = self._compute_revealed_ranks(hand)
+        if ctx is None:
             return []
+        _community, revealed_ranks, winner_names, summary = ctx
 
-        from core.card import Card
-        from poker.hand_evaluator import HandEvaluator
-
-        try:
-            community = [Card.from_short(c) for c in hand.community_cards]
-        except Exception:
-            return []
-
-        revealed_ranks: Dict[str, int] = {}
-        for name, hole in hand.hole_cards.items():
-            try:
-                cards = [Card.from_short(c) for c in hole] + community
-                result = HandEvaluator(cards).evaluate_hand()
-                revealed_ranks[name] = result['hand_rank']
-            except Exception:
-                continue
-        if len(revealed_ranks) < 2:
-            return []
-
-        winner_names = {w.name for w in hand.winners}
         postflop_committed = {
             a.player_name
             for a in hand.actions
@@ -775,7 +770,6 @@ class HandOutcomeDetector:
         if not postflop_committed:
             return []
 
-        summary = hand.get_summary()
         events: List[DetectedEvent] = []
 
         for loser in postflop_committed:

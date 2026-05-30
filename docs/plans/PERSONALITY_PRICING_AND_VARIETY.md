@@ -3,6 +3,7 @@ purpose: Methodology + handoff for pricing the tiered bot's personality deviatio
 type: guide
 created: 2026-05-28
 last_updated: 2026-05-29
+status_note: "2026-05-29 — the variety-widening task is BUILT (hybrid width-tier tables + retuned distortion). See 'VARIETY WIDENING — BUILT' below; the older NEW-CONTEXT callout that posed it as open is left for narrative."
 ---
 
 # Personality pricing & variety — process + handoff
@@ -36,11 +37,189 @@ emergent **skill gradient** across the AI players.
 **Branch `lookup-tables`** (merged with `origin/development`, pushed). All Python
 runs in Docker: `docker compose exec -T backend python ...`.
 
-> **NEW-CONTEXT START HERE.** The live frontier is **item 3 — the spot-tendency
-> variety system** (the "Item 3 scope" + "Tendency & skill catalog" sections below).
-> Mechanism + first leak (slow-play) + per-personality hook are shipped; the catalog
-> is the running to-do. Maniac/personality-pricing (the "Results" table) is done. The
-> strength-side gameplay layers (1–3 below) are also done — don't re-open them.
+> **NEW-CONTEXT START HERE (updated 2026-05-29 — read this first).**
+>
+> **The live frontier is making the variety VISIBLE.** The spot-tendency leak system
+> (9 leaks built + priced) and the adaptive-exploit side are DONE and explored — do
+> not re-open them (see "what's settled" below). The audit that matters: the 6
+> archetypes **barely play differently** at the table. Measured (`measure_passivity
+> --hero <archetype> --opponents gto --hands 2500`), same opponents:
+>
+> | archetype | VPIP | PFR | postflop AF |  | archetype | VPIP | PFR | AF |
+> |---|---|---|---|---|---|---|---|---|
+> | Nit | 22% | 21% | 0.19 |  | Calling Station | 26% | 23% | 0.22 |
+> | Rock | 22% | 21% | 0.20 |  | LAG | 27% | 25% | 0.36 |
+> | TAG | 23% | 22% | 0.31 |  | Maniac | 32% | 31% | 0.48 |
+>
+> A nit and a maniac differ by 10 pts of VPIP (a real field is ~12%→~55%); **PFR≈VPIP
+> for everyone → nobody limps/calls**, so the "Calling Station" *doesn't call* (26/23).
+> The variety is nominal because the priced-"free" deviations are too small to move
+> aggregate stats — **free = invisible.**
+>
+> **THE TASK:** widen the per-archetype deviation `aggression_scale`/`looseness_scale`
+> + `max_per_action_shift` (in `poker/strategy/deviation_profiles.py`) until this
+> VPIP/PFR/AF table looks like a real field, and **re-shape `calling_station`** to move
+> preflop raise→call + postflop fold→call (high VPIP, low PFR, high WtSD — a real
+> caller, not just "looser"). **Acceptance test = re-run that table until the archetypes
+> are visibly distinct.** Variety *costs EV* and that's correct — a wild bot SHOULD
+> bleed (the bleed is the skill gradient); use the pricing gate to keep it bounded, but
+> budget weak characters generously, not ~0. Optional fan-out: sweep candidate
+> scale-sets via parallel `measure_passivity` runs (workflow-shaped) then eyeball-pick.
+>
+> The strength-side gameplay layers (1–3 below) are done — don't re-open them.
+
+> **ARCHITECTURE for the widening task — read before you crank caps.** Don't try to
+> reach the loose archetypes by distortion alone: it has a **hard ceiling**. A bounded
+> logit offset **cannot open a hand the base chart folds ~100%** (no raise/call mass to
+> amplify; the per-action cap keeps it ~0). This is a prior measured finding on this
+> project ("offsets can't open fold-1.0 hands → table-selection"), and it's exactly why
+> the audit's Maniac capped at **32% VPIP, not 55%**. So the decision splits:
+> - **Tightening (Nit/Rock):** distortion works — you can always shift toward fold. No new table.
+> - **Loosening (LAG/Maniac/Station/loose personas):** needs a **wider base TABLE** — distortion
+>   can't get there. Tables already exist: `preflop_100bb_6max_tight_rfi.json` /
+>   `_6max.json` (standard) / `_wider_rfi.json`; add an even-wider maniac/station chart only
+>   if `wider_rfi` isn't loose enough (the acceptance-test table decides).
+> - **Postflop (sticky/aggression/the leaks):** distortion works — reshapes move mass between
+>   *existing legal* actions (fold→call etc.), so no new postflop tables. (sticky already did this.)
+>
+> **Architecture = a few (~3–4) width-tiered preflop tables SELECTED by archetype tier, +
+> the existing distortion on top for fine personality + the spot tendencies.** NOT 62
+> per-personality tables (unmaintainable / expensive to solve). NOT pure distortion (can't
+> reach the loose end). Tables carry the coarse VPIP *envelope*; distortion carries the flavor
+> *within* it. **Wiring needed:** table-selection is currently by stack (`depth_strategy_tables`)
+> and field size (`hu_strategy_table`) only — **add an archetype→width-tier map** alongside those
+> (small change in the controller's table picker + `make_controller`). Then widen scales/caps for
+> the per-archetype flavor and iterate the VPIP/PFR/AF table.
+
+> **VARIETY WIDENING — BUILT (2026-05-29).** The hybrid architecture above is now
+> implemented and the acceptance test passes. **Answer to the framing question
+> ("a few tuned tables vs. the adjustment system"): BOTH — and they do different
+> jobs.** Width-tier preflop TABLES carry the coarse VPIP *envelope* (distortion
+> has a hard ceiling — it can't open hands the base chart folds ~100%); the
+> distortion layer carries the *flavor within* (aggression/passivity character +
+> the tight-end separation, which distortion CAN reach since it can always boost
+> fold). Confirmed empirically: table-only envelopes (Baseline hero, no distortion)
+> = tight 21% VPIP / std 25% / **loose 50%** / **station 43% VPIP, 19% PFR** —
+> distortion alone topped out ~32–43% and could not make a caller.
+>
+> **What shipped:**
+> - **3 new preflop tables** (`experiments/build_archetype_charts.py` →
+>   `_loose.json`, `_loose_mid.json`, `_station.json`). Loose = wide RFI at every
+>   position + wide continues (Maniac). Loose-mid = moderate RFI + continues,
+>   landing between TAG and Maniac (LAG — textbook LAG is *not* as loose as a
+>   maniac). Station = TIGHT RFI (opens few → low PFR, textbook ~8–12%) but heavy
+>   flat-CALLING vs_open (fold→call) → a real caller. Tight (`_tight_rfi`) predates
+>   this (Nit/Rock); TAG uses the standard base. **5 width tiers total:**
+>   tight→Nit/Rock, std→TAG, loose-mid→LAG, loose→Maniac, station→Calling Station.
+> - **Archetype→table wiring** (preflop-only; postflop stays on the base chart):
+>   `ARCHETYPE_WIDTH_TABLE` + `select_deviation_profile_key` (deviation_profiles.py),
+>   `load_archetype_preflop_tables` (strategy_table.py), `archetype_preflop_tables`
+>   param + `_archetype_base_table` / `_select_preflop_table` (tiered_bot_controller.py),
+>   wired in BOTH `flask_app/handlers/tiered_factory.py` (prod) and
+>   `experiments/simulate_bb100.make_controller` (sims; `--preflop-chart` still wins
+>   for Baseline-hero experiments — measure_passivity clears the hero's archetype
+>   tables when a chart is forced).
+> - **Retuned distortion** (deviation_profiles.py): tables now carry VPIP so the
+>   scales carry flavor. Nit's 0.20 cap (which had throttled it to byte-identical
+>   with Rock) → 0.30 + stronger looseness_scale so nit's tighter anchors express;
+>   TAG aggression bumped for AF separation from Rock; station aggression_scale up
+>   (raise→call) + high ego_fold_penalty (sticky/pays-off); maniac aggression_scale
+>   2.0→2.2 for top-of-field AF (cap held at the priced 0.35).
+>
+> **Acceptance-test result** (`measure_passivity --hero <arch>` vs a 5×Baseline
+> roster, 4500 hands; VPIP/PFR are ~opponent-independent so they anchor the spread).
+> Last column = textbook 6-max VPIP/PFR bands — **all six match** and the ordering
+> is textbook-correct (a station is looser than a LAG; clean passive/aggressive split):
+>
+> | arch | VPIP | PFR | gap | AF* | payoff | textbook VPIP/PFR |
+> |---|---|---|---|---|---|---|
+> | Nit | 15 | 10 | 5 | 0.36 | 60% | 12–16 / 8–13 ✅ |
+> | Rock | 19 | 12 | 7 | 0.34 | 69% | 15–20 / 8–14 ✅ |
+> | TAG | 24 | 20 | 4 | 0.70 | 80% | 18–24 / 15–20 ✅ (reg anchor, lower edge) |
+> | LAG | 38 | 30 | 8 | 0.80 | 74% | 26–34 / 20–28 ✅ (top edge) |
+> | Calling Station | 45 | 16 | **29** | 0.26 | 79% | 35–50 / 5–14 ✅ **the caller** |
+> | Maniac | 56 | 48 | 8 | 1.25 | 59% | 50–75 / 35–55 ✅ |
+>
+> \* **AF here is NOT standard tracker AF.** This metric = aggressive / (check+call);
+> PokerTracker AF = (bet+raise)/call (checks excluded), so these run lower and aren't
+> a like-for-like with "TAG AF ≈ 2.5–3." Use the *ordering* (passives Nit/Rock/Station
+> low, aggressives TAG/LAG/Maniac high) + the VPIP–PFR *gap* (the caller's 29 vs
+> everyone else's ~5–8), which ARE standard.
+>
+> vs the doc's problem-state audit (Nit 22 → Maniac 32, a 10-pt spread, PFR≈VPIP,
+> "station doesn't call"): now a **41-pt VPIP spread**, Nit≠Rock, a clean
+> passive/aggressive split, and **the station calls**. `test_strategy` +
+> `test_psychology_drift` green (1529 passed).
+>
+> **Tuning history (toward textbook):** v1 had LAG/Maniac both on the loose table
+> (54/44 vs 56/48 — LAG was a maniac clone) and the station opening too much (PFR 19).
+> Fixed by giving LAG its own **loose-mid** tier (→ 38/30, between TAG and Maniac) and
+> giving the station a **tight RFI** (opens few → PFR 19→16) while keeping its wide
+> flat-call vs_open. The hybrid lever (a better table) is what closed both gaps —
+> distortion couldn't. Finally pulled **TAG down to the lower edge** (26→24/20) by
+> raising its looseness_scale 0.6→1.6 (its negative looseness deviation boosts fold →
+> tightens entry; aggression_scale 1.6 stays for the AF flavor): TAG is the
+> competent-reg anchor, so it should sit at the bottom of its band, not over the top —
+> this sharpens the gradient (TAG = the standard the loose archetypes are measured
+> against) and widens the gap to LAG. **Design principle (the "upper vs lower bound"
+> call): push the spread — weak/characterful archetypes (Station/Maniac) lean to the
+> LOOSE edge (more exploitable, more action, the EV bleed is the intended handicap);
+> the competent reg (TAG) leans TIGHT (near-optimal, no un-intended leak). Looser also
+> means more multiway pots, which mute postflop skill — another reason not to loosen
+> the strong end.**
+>
+> **Combo price — PAIRED-CRN, DONE (2026-05-29).** `ab_node_attribution` already
+> prices the full combo: `_run_one_hand` builds the hero via `make_controller`, which
+> attaches the archetype tables, so `--a-hero Baseline --b-hero <ARCH>` makes arm B use
+> its width table while arm A (Baseline) uses the base — the paired delta is the
+> table+distortion cost. **Must be 6-max** (HU bypasses the archetype table via the
+> HU-chart branch in `_select_preflop_table`). Control `--a-hero Baseline --b-hero
+> Baseline` = 100% NO_DIVERGENCE / +0.00, verified. Self-play vs 5×Baseline, 24k
+> (`baseline 3000 42,3042,...,21042 --a base --b base`):
+>
+> | arch | combo price (bb/100) | 95% CI | verdict |
+> |---|---|---|---|
+> | Nit | +0.12 | [−11.2, +11.5] | free (CI∋0) |
+> | Rock | +2.09 | [−7.3, +11.5] | free (CI∋0) |
+> | TAG | +5.00 | [−4.0, +14.0] | free, ~+EV (CI∋0) |
+> | LAG | +25.01 | [+6.0, +44.1] | CI-clear **+EV** |
+> | Calling Station | **−51.29** | [−72.1, −30.5] | CI-clear **−EV** (the fish) |
+> | Maniac | +53.78 | [+29.6, +78.0] | CI-clear **+EV** |
+>
+> **Read (the load-bearing caveat): self-play-vs-Baseline is NOT a clean "distance from
+> optimal."** Baseline is a *static, non-adapting* solver bot that OVER-FOLDS to 6-max
+> aggression, so the aggressive archetypes (LAG +25, Maniac +54) score +EV by *exploiting
+> that over-fold* — not by playing well; their edge is pure stolen fold-equity and would
+> crater vs a field that simply defends (stops over-folding). The robust signal is the
+> **Calling Station −51 (CI-clear)** — a station bleeds vs everyone; it's the intended
+> weak end of the gradient, now *priced*. The tight three are free (CI∋0). Divergence
+> rate tracks table-width: TAG 5% (≈base chart), Nit/Rock ~11–14%, loose three 26–41%.
+> So the gradient *direction* is right (Station = the fish; tight = solid; aggressive =
+> beats a static field) but the aggressive magnitudes are field-specific — price vs the
+> realistic mix, not one static roster (the session's recurring lesson). The competent-reg
+> (punisher) vector is the missing cost-side column (punisher is slow in 6-max + the HU
+> clone defends multiway poorly — a 1-seed probe read Maniac +138, unreliable); the proper
+> cost-side test is **re-pricing vs an exploitation-ON defender** (the `hyper_aggressive`
+> counter: detect high AF → stop over-folding / call down), which is roadmap item 4.
+>
+> **Other open follow-ups:** (1) LAG VPIP (38) is ~4pts over the textbook ceiling — fine.
+> (2) Depth (50/25bb) + HU charts are still width-tier-agnostic (100bb only).
+>
+> **Loop-closing test — DONE (2026-05-29): variety makes the maniac DETECTABLE, but the
+> adaptive counter doesn't CONVERT.** `exploit_bb100 --archetype TAG --backdrop
+> Maniac,Maniac,Maniac,Maniac` (exploit-ON vs exploit-OFF TAG twins reading a 4×new-Maniac
+> field, 96k paired hands): the `hyper_aggressive` layer flipped **10.7%** of actions (vs
+> ~1% it managed against the `ManiacBot` caricature in EXP_004/005 — the realistic Maniac's
+> bounded, hand-shaped aggression reads as a confident signal where the caricature's
+> raise-everything noise didn't), **but the paired EV edge was −2.8 bb/100, CI [−13.5, +7.8],
+> per-seed sign-disagreeing → INCONCLUSIVE/null** (a 2k/1-seed smoke had misread +15 — noise).
+> Reconciles the combo-pricing + EXP_004/005 reads: the maniac's profit is fold-equity stolen
+> from an over-folder, and a competent bot already refuses to over-fold via the static
+> defense/math floors, so detecting the aggression and "calling more" adds little the floors
+> weren't already doing. **Takeaway: defense-vs-aggression is essentially STATIC (don't
+> over-fold), which the bot has; the adaptive layer's real value is the OTHER direction —
+> attacking passive/sticky leaks with thin value + the overbet.** So the leak↔exploiter loop
+> that closes on EV is the *station* (passive payer → overbet extracts), not the maniac.
 
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.
@@ -50,8 +229,12 @@ runs in Docker: `docker compose exec -T backend python ...`.
 5. **Give-up-turn leak (2026-05-29)** — second `spot_tendencies` handler (`_give_up_turn`), the **dual of the multistreet H1 barrel** (first leak whose exploiter is already built). Priced **free** (intrinsic −1.47, jeff −1.54, punisher +0.14; all CI∋0). Turn-only, disjoint from slow-play by hand class. See "Give-up turn" subsection below.
 6. **Fit-or-fold + auto-c-bet leaks (2026-05-29)** — `_fit_or_fold` / `_auto_cbet` on two new bounded reshapes (`_pump_fold`, `_pump_aggression`). Both priced **free/+EV** — and that surfaced a methodology finding: a *correct-spot* leak is recognizable flavor but **not exploitable**, so it doesn't close the loop. See "Fit-or-fold + auto-c-bet" subsection + the open design question.
 7. **Sticky/pays-off + over-bluff + under-bluff leaks (2026-05-29)** — `_sticky` (`_dampen_fold`) priced **−1.87/−0.46/−0.26 (CI-clear −EV everywhere)** → the first real "skill"-tier leak, the payer the value overbet targets. `_over_bluff` (`_pump_aggression`) free intrinsically, −EV vs callers. `_under_bluff` (`_dampen_aggression`) the over-bluff dual: free/+EV, a style/face-up leak. See "Sticky + over-bluff" subsection.
-8. **`--hero-spot-tendency` gate flag (2026-05-29)** — prices a spot tendency without editing a deviation profile in source (sets the controller's `_spot_tendencies_override`). Retires the "carrier" hack. Validated (fires on the right nodes; control = 100% NO_DIVERGENCE).
-9. **Multiway pricing gate (delegated 2026-05-29)** — a parallel agent is scoping/validating 6-max pricing (does fit-or-fold/auto-c-bet flip to −EV multiway?) → `docs/plans/MULTIWAY_PRICING_GATE.md`.
+8. **`--hero-spot-tendency` + `--opp-spot-tendency` gate flags (2026-05-29)** — price a spot tendency on hero or opponent without editing a deviation profile in source. Retires the "carrier" hack. Validated (control = 100% NO_DIVERGENCE). Plus a `tag` opponent roster.
+9. **over-fold-2nd-barrel + donk-when-weak leaks (2026-05-29)** — signal-plumbed (`facing_double_barrel`, `position`). Both free; over-fold-2nd-barrel too rare to price in HU. **9 leaks total now.**
+10. **Multiway pricing gate (2026-05-29, DONE)** — validated; **refuted** the "fit-or-fold is a hidden multiway leak" hypothesis (still +3.90 in 6-max). `docs/plans/MULTIWAY_PRICING_GATE.md`.
+11. **Leak × counter matrix + floor investigation (2026-05-29)** — a leak's cost is a **matchup** (over-bluff −7.6 vs a caller; sticky ±2 by opponent), not a number. Over-fold leaks are floor-capped (`docs/plans/FLOOR_DEFEATING_LEAKS.md`). See those subsections.
+12. **Adaptive overbet / detector (2026-05-29) — built, MEASURED, SHELVED as prospective.** Doesn't fire (gates on the safety-dampened `value_vs_station` signal → ~0 vs tight fields) AND has no target (no sizing-reader in the field). Default OFF, harmless. Real fix + why it's prospective in the "Adaptive detector" subsection. **Do not re-open the AI-vs-AI exploit side** — settled with the user.
+13. **Personality wiring + variety audit (2026-05-29)** — 3 exemplars wired (`docs/plans/PERSONALITY_LEAK_WIRING.md`); audit found the archetypes barely differ → **the variety-widening task is now the frontier (see NEW-CONTEXT callout above).**
 
 **Key measured findings (don't re-litigate):**
 - The cheap chart frontier (frequency, sizing granularity, dimensional coverage) is **tapped**; the remaining strength lever is the **parked solver program** (HU/multiway, expensive).
@@ -621,6 +804,45 @@ its core. To tighten the *static* attribution without the detector, add an oppon
 
 **Status:** static loop demonstrated (attacker profits vs the leak). Adaptive detector + clean
 leak-attribution = next, when picked up.
+
+### Adaptive detector (adaptive overbet) — BUILT, MEASURED, two findings (2026-05-29)
+
+Built the surgical attacker: `adaptive_overbet` flag (default OFF, byte-identical) →
+`_effective_overbet_fraction()` gates the overbet on the live `value_vs_station` detection
+(`_last_value_vs_station_intensity_raw`, set by `_apply_exploitation`); fires only on a detected
+payer. Per-personality via a `"adaptive_overbet": true` key (read in `__init__`). 6 unit tests on
+the gate logic. Measured via `exploit_bb100 --change adaptive_overbet` (CRN, adaptive ON vs static
+OFF, shared opponent model). **Two findings, both negative — keep the build, but it is NOT a
+current win:**
+
+1. **It doesn't fire in the multiway harness — root-caused.** vs a CallStation+FoldyBot backdrop
+   the adaptive arm makes **+347 bb/100 vs the static arm's +667 → −320 CI-clear** (and the
+   threshold-gate variant was *byte-identical*, proving both collapse to ~0 overbet). Cause: the
+   gate reads `compute_value_vs_station_intensity`, which applies a **safety dampener**
+   (`safety = 1 − weight·tightness`) keyed on tight players in the field. The two **FoldyBots**
+   (maximally tight) drive tightness→1 → safety→0 → **intensity→0**, so the overbet never fires.
+   That dampener is correct for *thin* value-betting (a nit may have you beat) but **wrong for a
+   nutted overbet** (you don't fear the nit). **The bug is the signal, not the gate shape.**
+   **Real fix:** gate the overbet on **raw payer-presence** (the un-dampened station `upside`, or a
+   "≥1 confidently-detected hyper-passive station in the continuing field" boolean), not the
+   thin-value intensity — combined with a **threshold** (fire full once detected, don't
+   linear-scale). Needs exposing that un-dampened signal from `_apply_exploitation`.
+2. **Even fixed, it has no target in the current field — the deeper finding.** Every available
+   backdrop **pays** the overbet: static makes **+667 vs CallStation, +373 vs GTO-Lite/ABCBot**
+   ("competent" rule bots are not sizing-readers — they call overbets too). The adaptive overbet's
+   only edge is dodging the static's **−24 vs a sizing-reader** (D1 oracle, `ab_node_attribution`),
+   and **no sizing-reader exists in the live field**. So a perfectly-calibrated adaptive overbet
+   converges to **≈ static** here — selectivity can only *match* (best case) or *lose* (mis-gated).
+   Its value is **prospective**: it materializes when sizing-reading opponents exist (the revived
+   sizing-aware program, or a future skilled bot). Same homogeneous-field lesson that parked the
+   original sizing-aware work.
+
+**Disposition:** kept (default OFF, byte-identical, unit-tested; the mechanism + the dynamic-clamp
+pattern are the deliverable). **Sherlock Holmes' wired `adaptive_overbet:true` is currently inert**
+(the signal reads ~0 → he plays as a normal TAG, no overbet) — harmless, not negative, pending the
+signal fix. The static overbet remains the right default for the current payer-heavy field. Do NOT
+ship adaptive-as-default until (a) the un-dampened payer signal is wired AND (b) the field actually
+contains sizing-readers to make selectivity pay.
 
 ## Tendency & skill catalog (running list — single source of truth)
 
