@@ -22,9 +22,10 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 from flask_app.services import tournament_registry as registry
+from tournament.beats import build_beats, level_up_beat
 from tournament.config import DEFAULT_FIELD_ARCHETYPES, TournamentConfig
 from tournament.director import FakeHandResolver, build_initial_state
-from tournament.session import TournamentSession
+from tournament.session import TournamentSession, paid_places_for
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,9 @@ def _build_resolver(kind: str, entries: dict[str, str]):
     return FakeHandResolver()
 
 
-def _emit_update(owner_id: str, tournament_id: str, standings: dict) -> None:
+def _emit_update(
+    owner_id: str, tournament_id: str, standings: dict, beats: list | None = None
+) -> None:
     """Best-effort push to the owner's lobby room (already joined on connect)."""
     try:
         from flask_app.extensions import socketio
@@ -70,11 +73,34 @@ def _emit_update(owner_id: str, tournament_id: str, standings: dict) -> None:
         if socketio is not None:
             socketio.emit(
                 'mtt_update',
-                {'tournament_id': tournament_id, 'standings': standings},
+                {
+                    'tournament_id': tournament_id,
+                    'standings': standings,
+                    'beats': beats or [],
+                },
                 to=presence.lobby_room_name(owner_id),
             )
     except Exception as exc:  # noqa: BLE001 — emit is best-effort observability
         logger.debug("mtt_update emit failed: %s", exc)
+
+
+def _beats_for(session, reports, remaining_before: int, level_before: int) -> list:
+    """Translate a burst of round reports into activity beats, appending a
+    level-up beat when the blind clock crossed a level during the burst."""
+    beats = build_beats(
+        reports,
+        paid_places=paid_places_for(session.field.field_size),
+        table_size=session.config.table_size,
+        human_id=session.human_id,
+        remaining_before=remaining_before,
+    )
+    level_after = session.current_level()
+    if level_after.level > level_before:
+        # Key the level-up off the last round in this burst (session.rounds has
+        # already advanced past it), so its de-dup key sits with that round.
+        round_idx = reports[-1].round_index if reports else session.rounds
+        beats.append(level_up_beat(level_after, round_index=round_idx))
+    return beats
 
 
 def _owned_record(tournament_id: str):
@@ -236,14 +262,18 @@ def advance(tournament_id):
 
     session: TournamentSession = rec['session']
     with registry.get_lock(tournament_id):
+        remaining_before = session.field.active_count
+        level_before = session.current_level().level
+        reports: list = []
         if not session.is_complete():
             if session.human_out:
-                session.play_out()
+                reports = session.play_out()
             else:
-                session.play_round(rec['resolver'].resolve)
+                reports = [session.play_round(rec['resolver'].resolve)]
         standings = session.standings_view()
+        beats = _beats_for(session, reports, remaining_before, level_before)
         registry.persist(tournament_id)
-    _emit_update(owner_id, tournament_id, standings)
+    _emit_update(owner_id, tournament_id, standings, beats)
     return jsonify(standings)
 
 
@@ -260,10 +290,13 @@ def play_out(tournament_id):
 
     session: TournamentSession = rec['session']
     with registry.get_lock(tournament_id):
-        session.play_out()
+        remaining_before = session.field.active_count
+        level_before = session.current_level().level
+        reports = session.play_out()
         standings = session.standings_view()
+        beats = _beats_for(session, reports, remaining_before, level_before)
         registry.persist(tournament_id)
-    _emit_update(owner_id, tournament_id, standings)
+    _emit_update(owner_id, tournament_id, standings, beats)
     return jsonify(standings)
 
 

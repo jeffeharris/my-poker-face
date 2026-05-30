@@ -143,6 +143,44 @@ def test_live_bridge_follows_relocation():
         assert relocated
 
 
+_KNOWN_BEAT_TYPES = {'knockout', 'table_break', 'bubble', 'milestone', 'level_up', 'level_up_next'}
+
+
+def test_beats_flow_through_the_boundary():
+    # An 18-runner event with a 3-round blind clock produces knockouts and (since
+    # it spans many rounds) at least one level-up; every beat is well-formed.
+    session = _session(18, table_size=6, seed=4)
+    sm = _make_live_state(session)
+    game_data = _game_data(session)
+    all_beats: list = []
+    guard = 0
+    while True:
+        _play_live_hand(session, sm)
+        outcome = advance_tournament_after_hand(game_data, sm, make_controller=_stub_make)
+        all_beats.extend(outcome.beats)
+        guard += 1
+        assert guard < 100_000
+        if outcome.kind in (HUMAN_OUT, COMPLETE):
+            break
+
+    types = {b['type'] for b in all_beats}
+    assert 'knockout' in types
+    assert types <= _KNOWN_BEAT_TYPES
+    assert all('round' in b for b in all_beats)
+    # knockout beats carry the field-global finishing position + human flag
+    for ko in (b for b in all_beats if b['type'] == 'knockout'):
+        assert ko['finishing_position'] >= 1
+        assert ko['is_human'] == (ko['player_id'] == session.human_id)
+
+
+def test_session_round_reports_capture_broken_tables():
+    # 24 runners on 6-max collapses to a single winner — tables MUST break.
+    session = _session(24, table_size=6, seed=5)
+    reports = session.play_out()
+    assert session.is_complete()
+    assert any(r.broken_tables for r in reports)
+
+
 def test_human_out_stops_the_bridge():
     for seed in range(12):
         session = _session(12, table_size=4, seed=seed)

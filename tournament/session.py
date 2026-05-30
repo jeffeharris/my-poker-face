@@ -317,6 +317,7 @@ class TournamentSession:
         level = self.current_level()
         pre = dict(self.field.stacks)
         table_of_player = {pid: t.table_id for t in self.seating.tables for pid in t.players}
+        tables_before = {t.table_id for t in self.seating.tables}
 
         human_table_id = None
         if not self.human_out and (human_hand is not None or human_result is not None):
@@ -354,11 +355,13 @@ class TournamentSession:
                 table.remove(pid)
 
         seat_moves = self.seating_manager.rebalance(self.seating)
+        tables_after = {t.table_id for t in self.seating.tables}
         report = RoundReport(
             round_index=self.rounds,
             level=level,
             eliminations=tuple(events),
             seat_moves=tuple(seat_moves),
+            broken_tables=tuple(sorted(tables_before - tables_after)),
         )
         self.round_reports.append(report)
         self.rounds += 1

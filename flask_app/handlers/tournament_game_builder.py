@@ -228,7 +228,13 @@ def _emit_tournament(game_data, outcome, *, RELOCATED, HUMAN_OUT, COMPLETE) -> N
         owner_id = game_data.get("owner_id")
         tournament_id = game_data.get("tournament_id")
         room = presence.lobby_room_name(owner_id)
-        payload = {"tournament_id": tournament_id, "standings": outcome.standings}
+        payload = {
+            "tournament_id": tournament_id,
+            "standings": outcome.standings,
+            # Activity beats since the human's last hand (KOs / breaks / bubble /
+            # milestones / level-up) — the ticker, toasts, and hub feed read these.
+            "beats": getattr(outcome, "beats", []),
+        }
         socketio.emit("mtt_update", payload, to=room)
         if outcome.kind == RELOCATED:
             socketio.emit(

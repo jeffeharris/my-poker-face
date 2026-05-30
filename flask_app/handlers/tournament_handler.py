@@ -14,9 +14,10 @@ consumes the `SeatSpec`s this module produces.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from tournament.session import TournamentSession
+from tournament.beats import build_beats, level_transition_beats
+from tournament.session import TournamentSession, paid_places_for
 
 # Outcome kinds for the human's game after a hand boundary.
 CONTINUE = 'continue'  # human still in, same table — deal the next hand
@@ -32,6 +33,10 @@ class BoundaryOutcome:
     kind: str
     table_id: int | None
     standings: dict
+    # Activity beats produced by the round(s) folded in at this boundary (KOs,
+    # table breaks, bubble, milestones, level-ups). Rendered on the ticker /
+    # toasts / hub feed; empty when nothing narratable happened.
+    beats: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -58,17 +63,36 @@ def coordinate_after_human_hand(
     table after the just-completed live hand. `prev_table_id` is the table the
     human's game was running before this boundary (to detect relocation).
     """
-    session.apply_live_round(human_table_result)
+    remaining_before = session.field.active_count
+    level_before = session.current_level().level
+
+    report = session.apply_live_round(human_table_result)
     standings = session.standings_view()
 
+    beats = build_beats(
+        [report],
+        paid_places=paid_places_for(session.field.field_size),
+        table_size=session.config.table_size,
+        human_id=session.human_id,
+        remaining_before=remaining_before,
+    )
+    # Blind-clock beats: announce the bump on the raise hand, and pre-announce it
+    # one hand early ("blinds up next hand"). session.rounds is post-advance.
+    beats += level_transition_beats(
+        session.schedule,
+        prev_level=level_before,
+        rounds=session.rounds,
+        round_index=report.round_index,
+    )
+
     if session.is_complete():
-        return BoundaryOutcome(COMPLETE, None, standings)
+        return BoundaryOutcome(COMPLETE, None, standings, beats)
     if session.human_out:
-        return BoundaryOutcome(HUMAN_OUT, None, standings)
+        return BoundaryOutcome(HUMAN_OUT, None, standings, beats)
 
     table_id = session.human_table.table_id
     kind = RELOCATED if table_id != prev_table_id else CONTINUE
-    return BoundaryOutcome(kind, table_id, standings)
+    return BoundaryOutcome(kind, table_id, standings, beats)
 
 
 def reconcile_live_table(

@@ -4,10 +4,12 @@ import type { Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import { isTournamentGameId } from '../utils/gameId';
 import { getOrdinal } from '../types/tournament';
+import { beatIcon, beatText, isStructuralBeat } from '../components/tournament/tournamentBeats';
 import type {
   MttCompleteEvent,
   MttEliminatedEvent,
   MttRelocatedEvent,
+  MttUpdateEvent,
 } from '../components/tournament/types';
 
 interface UseTournamentEventsParams {
@@ -65,6 +67,19 @@ export function useTournamentEvents({
       toast(`You've been moved to Table ${e.table_id}`, { icon: '🪑' });
     };
 
+    // Each field advance carries the beats since the human's last hand. Surface
+    // only the structural beats (table breaks, blinds up, bubble, milestones)
+    // as toasts so routine knockouts don't spam the felt during the human's own
+    // hand (routine KOs are intentionally dropped — they're still in the payload).
+    const onUpdate = (e: MttUpdateEvent) => {
+      const beats = e.beats ?? [];
+      for (const beat of beats) {
+        if (isStructuralBeat(beat)) {
+          toast(beatText(beat), { icon: beatIcon(beat) });
+        }
+      }
+    };
+
     // Route to the standings hub after the ending hand's reveal has played.
     const routeToHub = () => {
       if (navTimerRef.current) return; // a terminal beat already scheduled
@@ -96,11 +111,13 @@ export function useTournamentEvents({
       // exit. Early busts route to the hub via `mtt_eliminated` (onEliminated).
     };
 
+    socket.on('mtt_update', onUpdate);
     socket.on('mtt_relocated', onRelocated);
     socket.on('mtt_eliminated', onEliminated);
     socket.on('mtt_complete', onComplete);
 
     return () => {
+      socket.off('mtt_update', onUpdate);
       socket.off('mtt_relocated', onRelocated);
       socket.off('mtt_eliminated', onEliminated);
       socket.off('mtt_complete', onComplete);

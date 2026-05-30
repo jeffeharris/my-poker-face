@@ -125,15 +125,18 @@ class RoundReport:
     """What happened in one round — the raw material for the activity ticker.
 
     Captures the blind level in effect, who was eliminated (with finishing
-    position and eliminator), and every seat move the rebalance produced (table
-    breaks/balancing). Later phases turn these into "Table 6 broke",
-    "You've been moved", and knockout/pay-jump beats.
+    position and eliminator), every seat move the rebalance produced (table
+    breaks/balancing), and the ids of any tables that broke this round (an id
+    that was present before the rebalance and gone after — a broken/consolidated
+    table, or one whose last players all busted). `tournament/beats.py` turns
+    these into "Table 6 broke", "You've been moved", and knockout beats.
     """
 
     round_index: int
     level: BlindLevel
     eliminations: tuple[Elimination, ...]
     seat_moves: tuple[SeatMove, ...]
+    broken_tables: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

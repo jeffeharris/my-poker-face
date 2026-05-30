@@ -114,9 +114,67 @@ export interface RegisterResponse {
  * lobby room on connect, so these arrive while the human is at the live table.
  * See flask_app/handlers/tournament_game_builder.py `_emit_tournament`.
  */
+/**
+ * Activity beats — narratable things that happened across the field since the
+ * human's last hand (time is player-gated, so they arrive in a burst at each
+ * hand boundary). Built by tournament/beats.py and carried on `mtt_update`.
+ * Rendered on the felt ticker, as rare structural toasts, and in the hub feed.
+ * Each beat carries the producing `round` so the client can build a stable key.
+ */
+export interface TournamentKnockoutBeat {
+  type: 'knockout';
+  round: number;
+  player_id: string;
+  finishing_position: number;
+  eliminator: string | null;
+  is_human: boolean;
+}
+export interface TournamentTableBreakBeat {
+  type: 'table_break';
+  round: number;
+  table_id: number;
+}
+export interface TournamentBubbleBeat {
+  type: 'bubble';
+  round: number;
+  player_id: string;
+  paid_places: number;
+}
+export interface TournamentMilestoneBeat {
+  type: 'milestone';
+  round: number;
+  kind: 'final_table' | 'down_to' | 'heads_up';
+  remaining: number;
+}
+export interface TournamentLevelUpBeat {
+  type: 'level_up';
+  round: number;
+  level: number;
+  small_blind: number;
+  big_blind: number;
+  ante: number;
+}
+/** One-hand heads-up: blinds raise to this level on the *next* hand. */
+export interface TournamentLevelUpNextBeat {
+  type: 'level_up_next';
+  round: number;
+  level: number;
+  small_blind: number;
+  big_blind: number;
+  ante: number;
+}
+export type TournamentBeat =
+  | TournamentKnockoutBeat
+  | TournamentTableBreakBeat
+  | TournamentBubbleBeat
+  | TournamentMilestoneBeat
+  | TournamentLevelUpBeat
+  | TournamentLevelUpNextBeat;
+
 export interface MttUpdateEvent {
   tournament_id: string;
   standings: TournamentStandings;
+  beats?: TournamentBeat[];
 }
 
 export interface MttRelocatedEvent {
