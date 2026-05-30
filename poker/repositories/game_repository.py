@@ -1079,20 +1079,35 @@ class GameRepository(BaseRepository):
         result['last_updated'] = row['last_updated']
         return result
 
+    # Opportunity denominators the dossier scouting gate's Tier-2 tiers read
+    # (kept in sync with `dossier_scouting.SCOUTING_SCHEDULE` sample_fields).
+    # Exposed on the roster so the file cabinet's unlock % matches the dossier
+    # (hand count alone can't decide a sample-gated tier). Named here rather
+    # than imported because this repo (poker/) must not depend on flask_app/.
+    _ROSTER_SAMPLE_COLUMNS = (
+        'cbet_faced_count', 'postflop_seen_as_pfr_count',
+        'postflop_bet_raise_count', 'postflop_call_count',
+        'barrel_opportunity_count', 'equity_betting_count',
+        'equity_raising_count', 'equity_calling_count',
+    )
+
     def list_observation_lifetime_for_observer(
         self, sandbox_id: str, observer_id: str
     ) -> List[Dict[str, Any]]:
         """Every opponent this observer has a lifetime observation row for, in
         this sandbox — the roster spine for the file cabinet. Returns
-        opponent_id + hands_observed + hands_dealt + last_updated per row
-        (the file cabinet derives unlock status from hands_observed and joins
-        PnL / relationship / names separately). Ordered most-observed first.
+        opponent_id + hands_observed + hands_dealt + last_updated plus the
+        Tier-2 opportunity counts (`_ROSTER_SAMPLE_COLUMNS`) so the file
+        cabinet can compute the same sample-gated unlock state the dossier
+        does. PnL / relationship / names are joined separately. Ordered
+        most-observed first.
         """
+        sample_cols = ", ".join(self._ROSTER_SAMPLE_COLUMNS)
         with self._get_connection() as conn:
             rows = conn.execute(
-                """
-                SELECT opponent_id, hands_observed, hands_dealt, first_seen,
-                       last_updated
+                f"""
+                SELECT opponent_id, hands_observed, hands_dealt, {sample_cols},
+                       first_seen, last_updated
                 FROM opponent_observation_lifetime
                 WHERE sandbox_id = ? AND observer_id = ?
                   AND opponent_id != observer_id
@@ -1100,16 +1115,18 @@ class GameRepository(BaseRepository):
                 """,
                 (sandbox_id, observer_id),
             ).fetchall()
-        return [
-            {
+        result = []
+        for r in rows:
+            entry = {
                 'opponent_id': r['opponent_id'],
                 'hands_observed': r['hands_observed'] or 0,
                 'hands_dealt': r['hands_dealt'] or 0,
                 'first_seen': r['first_seen'],
                 'last_updated': r['last_updated'],
             }
-            for r in rows
-        ]
+            entry.update({col: r[col] or 0 for col in self._ROSTER_SAMPLE_COLUMNS})
+            result.append(entry)
+        return result
 
     def load_lifetime_memorable_hands(
         self, owner_id: str, opponent_name: str, limit: int = 5

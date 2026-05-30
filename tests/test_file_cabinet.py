@@ -35,15 +35,32 @@ class _NamesRepo:
         return {i: self._m[i] for i in ids if i in self._m}
 
 
-def _seed_lifetime(db_path, opponent_id, hands_observed):
+# The Tier-2 opportunity columns the roster exposes (mirrors
+# GameRepository._ROSTER_SAMPLE_COLUMNS). Saturating them lets a deep-history
+# opponent fully unlock the sample-gated reads.
+_SAMPLE_COLS = (
+    'cbet_faced_count', 'postflop_seen_as_pfr_count',
+    'postflop_bet_raise_count', 'postflop_call_count',
+    'barrel_opportunity_count', 'equity_betting_count',
+    'equity_raising_count', 'equity_calling_count',
+)
+_FULL_SAMPLES = {c: 100 for c in _SAMPLE_COLS}
+
+
+def _seed_lifetime(db_path, opponent_id, hands_observed, samples=None):
+    samples = samples or {}
+    cols = ", ".join(_SAMPLE_COLS)
+    placeholders = ", ".join("?" for _ in _SAMPLE_COLS)
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO opponent_observation_lifetime "
-            "(sandbox_id, observer_id, opponent_id, hands_observed, hands_dealt, "
-            " first_seen, last_updated) "
-            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-            (SB, OBS, opponent_id, hands_observed, hands_observed),
+            f"INSERT OR REPLACE INTO opponent_observation_lifetime "
+            f"(sandbox_id, observer_id, opponent_id, hands_observed, hands_dealt, "
+            f" {cols}, first_seen, last_updated) "
+            f"VALUES (?, ?, ?, ?, ?, {placeholders}, "
+            f"        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            (SB, OBS, opponent_id, hands_observed, hands_observed,
+             *(int(samples.get(c, 0)) for c in _SAMPLE_COLS)),
         )
         conn.commit()
     finally:
@@ -61,8 +78,9 @@ def test_empty_roster_for_new_player(repos):
 
 def test_roster_joins_stats_and_counts_unlocks(repos):
     gr, rr, db_path = repos
-    # greg: deep history (fully unlocked); cleo: just past the floor.
-    _seed_lifetime(db_path, "greg", 500)
+    # greg: deep history + plenty of postflop samples (fully unlocked);
+    # cleo: just past the floor.
+    _seed_lifetime(db_path, "greg", 500, samples=_FULL_SAMPLES)
     _seed_lifetime(db_path, "cleo", 30)
     rr.save_cash_pair_stats(
         OBS, "greg", CashPairStats(OBS, "greg", cumulative_pnl=2500,

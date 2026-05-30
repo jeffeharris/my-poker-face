@@ -207,12 +207,18 @@ function ScoutingStrip({
 }) {
   const { hands_observed, floor, floor_met, locked } = scouting;
   const offers = scouting.informant_offers ?? [];
-  // Next threshold to cross (floor when below it, else the nearest locked
-  // item's threshold). Drives the progress bar toward the next reveal.
+  // Next HAND threshold to cross (floor when below it, else the nearest
+  // locked item's hand floor still ahead of us). Drives the progress bar.
+  // Sample-gated tiers whose hand floor is already met are excluded — their
+  // remaining requirement is opportunity count, shown per-row below, not on
+  // this hand bar — so once every hand floor is cleared the bar retires.
   const nextAt = !floor_met
     ? floor
     : locked.reduce<number | null>(
-        (min, l) => (min == null || l.unlocks_at < min ? l.unlocks_at : min),
+        (min, l) =>
+          l.unlocks_at > hands_observed && (min == null || l.unlocks_at < min)
+            ? l.unlocks_at
+            : min,
         null
       );
   const pct = nextAt ? Math.min(100, Math.round((hands_observed / nextAt) * 100)) : 100;
@@ -249,7 +255,14 @@ function ScoutingStrip({
                   🔒
                 </span>
                 <span className="dossier__scouting-lock-label">{l.label}</span>
-                <span className="dossier__scouting-lock-at">{l.unlocks_at} hands</span>
+                <span className="dossier__scouting-lock-at">
+                  {/* Sample-gated reads (Tier-2) show progress toward the
+                      opportunity requirement — the binding, honest gate —
+                      rather than just a hand count. */}
+                  {l.sample_min
+                    ? `${l.samples_observed ?? 0}/${l.sample_min} ${l.sample_noun ?? 'seen'}`
+                    : `${l.unlocks_at} hands`}
+                </span>
               </li>
             ))}
           </ul>

@@ -56,15 +56,27 @@ def _full_response():
     }
 
 
+# A counts dict with every opportunity denominator saturated — used wherever a
+# test wants "fully scouted" so the Tier-2 sample gates are satisfied too.
+def _maxed(hands=10_000):
+    return {
+        'hands_observed': hands,
+        'cbet_faced_count': 100, 'postflop_seen_as_pfr_count': 100,
+        'postflop_bet_raise_count': 100, 'postflop_call_count': 100,
+        'barrel_opportunity_count': 100, 'equity_betting_count': 100,
+        'equity_raising_count': 100, 'equity_calling_count': 100,
+    }
+
+
 def test_floor_equals_lowest_threshold():
-    assert FLOOR_HANDS == min(t for _, _, t in SCOUTING_SCHEDULE)
+    assert FLOOR_HANDS == min(tier.hands for tier in SCOUTING_SCHEDULE)
 
 
 def test_below_floor_locks_everything_earnable():
     s = compute_scouting(10)
     assert s['floor_met'] is False
     assert s['unlocked'] == []
-    assert {e['id'] for e in s['locked']} == {i for i, _, _ in SCOUTING_SCHEDULE}
+    assert {e['id'] for e in s['locked']} == {tier.id for tier in SCOUTING_SCHEDULE}
 
 
 def test_floor_unlocks_first_reads():
@@ -80,8 +92,10 @@ def test_progressive_unlock():
     assert 'pfr' in compute_scouting(40)['unlocked']
     assert 'aggression_factor' in compute_scouting(60)['unlocked']
     assert 'behavioral_index' in compute_scouting(80)['unlocked']
-    full = compute_scouting(10_000)
-    assert full['locked'] == []                # everything earned eventually
+    # Everything earned eventually — needs both the hand floor AND the Tier-2
+    # opportunity counts saturated.
+    full = compute_scouting(_maxed())
+    assert full['locked'] == []
 
 
 def test_gate_below_floor_redacts_all_earnable():
@@ -127,7 +141,8 @@ def test_gate_partial_unlock_reveals_some_redacts_rest():
 
 def test_gate_full_unlock_keeps_everything():
     resp = _full_response()
-    apply_scouting_gate(resp, hands_observed=10_000)
+    # _maxed(): hand floor + Tier-2 opportunity samples all satisfied.
+    apply_scouting_gate(resp, _maxed())
     assert resp['observation']['aggression_factor'] == 1.25
     assert resp['personality']['anchors']['aggression'] == 0.7
     assert resp['cash_pair_stats']['cumulative_pnl'] == 1500
@@ -138,19 +153,50 @@ def test_gate_full_unlock_keeps_everything():
 
 # --- Informant (Phase 3) ----------------------------------------------------
 
-# --- Tier-2 deep reads (B1) -------------------------------------------------
+# --- Tier-2 deep reads (B1) — HYBRID gate (hands AND opportunity samples) ----
 
-def test_deep_reads_locked_until_their_tiers():
+def test_deep_reads_hybrid_unlock_needs_hand_floor_and_samples():
     resp = _full_response()
-    # 250 hands: fold_to_cbet (220) unlocked; c-bet (260) + the rest still not.
-    apply_scouting_gate(resp, hands_observed=250)
+    # Hand floor met for fold_to_cbet (180) with 20 c-bets faced → unlocked;
+    # c-bet% has hand floor met but too few flops-as-raiser → still locked.
+    apply_scouting_gate(resp, {
+        'hands_observed': 250,
+        'cbet_faced_count': 25,
+        'postflop_seen_as_pfr_count': 5,
+    })
     assert resp['deeper_reads']['fold_to_cbet'] == 0.6
     assert resp['deeper_reads']['cbet_attempt_rate'] is None
     assert resp['deeper_reads']['barrel_frequency'] is None
-    assert resp['deeper_reads']['equity_when_betting'] is None
     s = resp['scouting']
     assert 'fold_to_cbet' in s['unlocked']
     assert 'cbet_pct' not in s['unlocked']
+
+
+def test_high_hands_low_samples_stays_locked():
+    """The honesty fix: 300 hands but only 4 c-bets faced → fold_to_cbet stays
+    locked (the stat would be noise). The locked descriptor carries the
+    opportunity progress for the UI."""
+    s = compute_scouting({'hands_observed': 300, 'cbet_faced_count': 4})
+    assert 'fold_to_cbet' not in s['unlocked']
+    lock = next(l for l in s['locked'] if l['id'] == 'fold_to_cbet')
+    assert lock['sample_min'] == 20
+    assert lock['samples_observed'] == 4
+    assert lock['sample_noun'] == 'c-bets faced'
+
+
+def test_samples_met_but_hand_floor_not_stays_locked():
+    # Plenty of c-bet samples but under the 180-hand floor → still locked.
+    s = compute_scouting({'hands_observed': 100, 'cbet_faced_count': 50})
+    assert 'fold_to_cbet' not in s['unlocked']
+
+
+def test_scalar_input_keeps_sample_gated_tiers_locked():
+    # Legacy scalar (no sample data) can't satisfy a Tier-2 gate, but the
+    # hand-only tiers still unlock.
+    s = compute_scouting(10_000)
+    assert 'play_style' in s['unlocked']
+    assert 'all_in_freq' in s['unlocked']      # hand-only Tier-2 tier
+    assert 'fold_to_cbet' not in s['unlocked']  # needs c-bet samples
 
 
 def test_deep_reads_below_floor_collapse_to_none():
@@ -162,7 +208,7 @@ def test_deep_reads_below_floor_collapse_to_none():
 
 def test_deep_reads_full_unlock_keeps_everything():
     resp = _full_response()
-    apply_scouting_gate(resp, hands_observed=10_000)
+    apply_scouting_gate(resp, _maxed())
     dr = resp['deeper_reads']
     assert dr['fold_to_cbet'] == 0.6
     assert dr['cbet_attempt_rate'] == 0.7
@@ -174,14 +220,19 @@ def test_deep_reads_full_unlock_keeps_everything():
 
 def test_barrel_tier_gates_both_barrel_fields():
     resp = _full_response()
-    # 400 unlocks 'barrel' (both turn + river barrel); 480 polarization not yet.
-    apply_scouting_gate(resp, hands_observed=400)
+    # barrel: hand floor 220 + 12 barrel spots → both barrel fields unlock;
+    # polarization needs equity samples (none here) → stays locked.
+    apply_scouting_gate(resp, {
+        'hands_observed': 400,
+        'barrel_opportunity_count': 15,
+    })
     assert resp['deeper_reads']['barrel_frequency'] == 0.4
     assert resp['deeper_reads']['third_barrel_frequency'] == 0.3
     assert resp['deeper_reads']['equity_when_betting'] is None
 
 
 def test_informant_deep_reads_section_unlocks_all_deep_items():
+    # The informant bypasses BOTH gates (hands and samples).
     s = compute_scouting(0, purchased_sections={'deep_reads'})
     for item in INFORMANT_SECTIONS['deep_reads']['items']:
         assert item in s['unlocked']

@@ -784,11 +784,12 @@ def get_dossier(identifier: str):
                 from flask_app.extensions import game_repo
                 from flask_app.services.dossier_scouting import apply_scouting_gate
 
-                hands_observed = (life_counts or {}).get('hands_observed', 0)
                 purchased = game_repo.load_informant_unlocks(
                     sandbox_id, observer_id, personality_id
                 )
-                apply_scouting_gate(response, hands_observed, purchased)
+                # Pass the full lifetime counts (not just hands) so the Tier-2
+                # opportunity gates can read their sample denominators.
+                apply_scouting_gate(response, life_counts or {}, purchased)
         except Exception as e:
             logger.debug("[CHARACTER] scouting gate failed: %s", e)
 
@@ -939,9 +940,8 @@ def post_informant_unlock(identifier: str):
     # Only sections with still-locked items are buyable (a payment always
     # makes progress — never "you paid for what you already had").
     life = game_repo.load_observation_lifetime(sandbox_id, observer_id, personality_id)
-    hands_observed = (life or {}).get('hands_observed', 0)
     purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
-    offers = {o['id'] for o in compute_scouting(hands_observed, purchased)['informant_offers']}
+    offers = {o['id'] for o in compute_scouting(life or {}, purchased)['informant_offers']}
     if section_id not in offers:
         return jsonify({'error': 'Section already unlocked'}), 409
 
@@ -983,7 +983,7 @@ def post_informant_unlock(identifier: str):
         context={'opponent_id': personality_id, 'section_id': section_id},
     )
 
-    updated = compute_scouting(hands_observed, purchased | {section_id})
+    updated = compute_scouting(life or {}, purchased | {section_id})
     return jsonify({
         'scouting': updated,
         'bankroll': new_bankroll.chips,

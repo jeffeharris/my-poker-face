@@ -54,7 +54,9 @@ def build_file_cabinet(
     dossiers_unlocked = 0
     for r in roster:
         oid = r['opponent_id']
-        scouting = compute_scouting(r['hands_observed'], purchases.get(oid))
+        # Pass the whole row (hands + Tier-2 opportunity counts) so the
+        # cabinet's unlock % matches the dossier's sample-gated state.
+        scouting = compute_scouting(r, purchases.get(oid))
         reads_unlocked = len(scouting['unlocked'])
         fully = not scouting['locked']
         if fully:

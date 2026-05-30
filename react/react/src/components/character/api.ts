@@ -129,7 +129,14 @@ export interface DossierStakeSummary {
 export interface DossierScoutingLock {
   id: string;
   label: string;
+  /** Hand-count floor for this read (always present). */
   unlocks_at: number;
+  /** Tier-2 opportunity gate (present only for sample-gated reads): the read
+   *  also needs `samples_observed` to reach `sample_min` of `sample_noun`
+   *  (e.g. "c-bets faced") before it unlocks. */
+  sample_min?: number;
+  samples_observed?: number;
+  sample_noun?: string;
 }
 
 /** A still-buyable informant section (Phase 3): pay `price` chips to

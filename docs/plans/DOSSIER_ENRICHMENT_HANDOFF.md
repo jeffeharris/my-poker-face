@@ -114,11 +114,29 @@ in `CharacterDetailCard.tsx` (type `DossierDeeperReads` in `api.ts`). Tests in
 > Everything else (fold-to-cbet, c-bet, barrel, all-in, postflop AF) DOES come
 > out of `_recalculate_stats()` as the plan described.
 
-> **Follow-up under investigation:** gating the deep tiers on *opportunity
-> counts* (e.g. fold-to-cbet unlocks at `cbet_faced_count >= K`) instead of
-> raw `hands_observed`, so the unlock is an honest 1:1 with what was actually
-> witnessed (a 300-hand nit may give only 3 c-bet samples). The opportunity
-> denominators are already stored as of v125. Hand-count gating shipped first.
+> **B1.5 — hybrid opportunity-count gate ✅ DONE (2026-05-30):** the deep
+> tiers now unlock on a hand floor **AND** enough samples of the actual spot
+> (e.g. fold-to-cbet needs 180 hands + 20 c-bets faced), so the unlocked stat
+> is statistically real — a 300-hand nit who's shown you 4 c-bets keeps that
+> read classified instead of surfacing noise. No migration (the opportunity
+> denominators were already stored at v125). Mechanics:
+> - `SCOUTING_SCHEDULE` entries are now a `ScoutingTier` NamedTuple
+>   `(id, label, hands, sample_fields, sample_min, sample_noun)`; Tier-1 reads
+>   leave `sample_fields` empty (hands = their sample count). `all_in_freq`
+>   stays hand-only (its denominator IS hands). `sample_fields` is a tuple so a
+>   read can sum several buckets (postflop AF = bet/raise+call; polarization =
+>   the three equity counts).
+> - `compute_scouting` / `apply_scouting_gate` now take the **lifetime counts
+>   dict** (still accept a bare int for legacy callers — sample-gated tiers
+>   then stay locked). The dossier route + informant routes pass `life_counts`;
+>   the file cabinet path widened `list_observation_lifetime_for_observer`
+>   (+`_ROSTER_SAMPLE_COLUMNS`) so the cabinet's unlock % matches the dossier.
+> - Locked descriptors carry `sample_min`/`samples_observed`/`sample_noun`; the
+>   `ScoutingStrip` renders "12/20 c-bets faced" and the hand progress bar
+>   retires once every hand floor is cleared (sample-only remainder shows
+>   per-row). Frontend `DossierScoutingLock` gained the three optional fields.
+> - **Tuning knobs (all in `dossier_scouting.py`):** per-tier hand floors
+>   (180–300) + `sample_min` (12–30). First-pass values; easy to retune.
 
 **ORIGINAL PLAN (kept for reference):**
 

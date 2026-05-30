@@ -23,37 +23,70 @@ informant — Phase 3 — will unlock a whole section at once).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # The floor: earnable reads are fully classified below this many observed
 # hands. Equals the lowest threshold in the schedule by construction.
 FLOOR_HANDS = 25
 
-# Ordered drip schedule: (item_id, display_label, hands_observed threshold).
-# Each item controls one or more response fields (see `_ITEM_FIELDS`). Order
-# is cosmetic — gating compares the count to each threshold independently.
-SCOUTING_SCHEDULE: List[Tuple[str, str, int]] = [
-    ('play_style', 'Play style', 25),
-    ('vpip', 'VPIP', 25),
-    ('pfr', 'PFR', 40),
-    ('aggression_factor', 'Aggression', 60),
-    ('behavioral_index', 'Behavioral index', 80),
-    ('track_record', 'Track record', 100),
-    ('pressure', 'Pressure profile', 100),
-    ('memorable', 'Memorable hands', 140),
-    ('table_posture', 'Table posture', 180),
-    # Tier-2 deep postflop reads (B1) — the long-grind unlocks that give the
-    # 200–500-hand range something to earn. Each gates one or more fields of
-    # the `deeper_reads` block (see `_DEEPER_FIELDS`).
-    ('fold_to_cbet', 'Fold to c-bet', 220),
-    ('cbet_pct', 'C-bet frequency', 260),
-    ('postflop_aggression', 'Postflop aggression', 300),
-    ('all_in_freq', 'All-in frequency', 340),
-    ('barrel', 'Barreling', 400),
-    ('polarization', 'Polarization', 480),
+class ScoutingTier(NamedTuple):
+    """One earnable dossier read and the condition that unlocks it.
+
+    `hands` is the hand-count floor — always required. `sample_fields` +
+    `sample_min` add an OPPORTUNITY gate (hybrid AND): the read also needs the
+    summed lifetime count across `sample_fields` to reach `sample_min`. An
+    empty `sample_fields` ⇒ hand-count only (the Tier-1 reads, where the hand
+    count *is* the sample count — every hand is a VPIP/PFR observation).
+
+    Why hybrid: a raw hand-count gate lies for opportunity-rare reads. You can
+    play 300 hands against a nit and see them c-bet only a handful of times;
+    "folds to c-bet 60%" off 4 samples is noise. Requiring N samples of the
+    actual spot makes the unlocked stat statistically real, while the hand
+    floor keeps a high-variance opponent from trivializing a deep read after a
+    short sit. `sample_noun` is the UI phrase for the opportunity.
+    """
+    id: str
+    label: str
+    hands: int
+    sample_fields: Tuple[str, ...] = ()
+    sample_min: int = 0
+    sample_noun: str = ''
+
+
+# Ordered drip schedule. Gating compares the lifetime counts to each tier's
+# condition independently (order is cosmetic). Thresholds are tuning, not
+# design — edit freely.
+SCOUTING_SCHEDULE: List[ScoutingTier] = [
+    ScoutingTier('play_style', 'Play style', 25),
+    ScoutingTier('vpip', 'VPIP', 25),
+    ScoutingTier('pfr', 'PFR', 40),
+    ScoutingTier('aggression_factor', 'Aggression', 60),
+    ScoutingTier('behavioral_index', 'Behavioral index', 80),
+    ScoutingTier('track_record', 'Track record', 100),
+    ScoutingTier('pressure', 'Pressure profile', 100),
+    ScoutingTier('memorable', 'Memorable hands', 140),
+    ScoutingTier('table_posture', 'Table posture', 180),
+    # Tier-2 deep postflop reads (B1) — HYBRID gate: a hand floor AND enough
+    # samples of the specific spot, so the unlocked stat isn't noise. The
+    # sample fields are the opportunity denominators stored on the lifetime
+    # row (schema v125); they're summed when a read spans several action
+    # buckets. all_in_freq is hand-only because its denominator IS hands.
+    ScoutingTier('fold_to_cbet', 'Fold to c-bet', 180,
+                 ('cbet_faced_count',), 20, 'c-bets faced'),
+    ScoutingTier('cbet_pct', 'C-bet frequency', 180,
+                 ('postflop_seen_as_pfr_count',), 15, 'flops as raiser'),
+    ScoutingTier('postflop_aggression', 'Postflop aggression', 200,
+                 ('postflop_bet_raise_count', 'postflop_call_count'), 30,
+                 'postflop actions'),
+    ScoutingTier('all_in_freq', 'All-in frequency', 300),
+    ScoutingTier('barrel', 'Barreling', 220,
+                 ('barrel_opportunity_count',), 12, 'barrel spots'),
+    ScoutingTier('polarization', 'Polarization', 260,
+                 ('equity_betting_count', 'equity_raising_count',
+                  'equity_calling_count'), 25, 'showdown-equity reads'),
 ]
 
-_LABELS = {item_id: label for item_id, label, _ in SCOUTING_SCHEDULE}
+_LABELS = {tier.id: tier.label for tier in SCOUTING_SCHEDULE}
 
 # Maps each Tier-2 grind item to the `deeper_reads` field(s) it controls.
 # A locked item nulls its field(s) so the deep read never reaches the client.
@@ -123,27 +156,59 @@ def _purchased_item_ids(purchased_sections) -> set:
     return items
 
 
-def compute_scouting(hands_observed: int, purchased_sections=None) -> Dict[str, Any]:
-    """Derive the unlock state for a given observed-hand count, accounting
-    for any informant-purchased sections.
+def _normalize_counts(observed) -> Dict[str, Any]:
+    """Accept either a scalar hand count (legacy callers) or the full lifetime
+    counts dict (which carries the opportunity denominators the hybrid gate
+    needs). Always returns a dict with at least `hands_observed`."""
+    if isinstance(observed, dict):
+        return observed
+    return {'hands_observed': observed or 0}
 
-    Effective unlock = grind unlocks (hands ≥ threshold) ∪ purchased-section
-    items. Returns the descriptor the dossier surfaces to the client:
+
+def compute_scouting(observed, purchased_sections=None) -> Dict[str, Any]:
+    """Derive the unlock state, accounting for informant-purchased sections.
+
+    `observed` is either the lifetime counts dict (preferred — enables the
+    Tier-2 opportunity gates) or a bare hand count (legacy; sample-gated tiers
+    then read 0 samples and stay locked until the dict is supplied).
+
+    Effective unlock = grind unlocks (hand floor AND, for Tier-2, enough
+    samples) ∪ purchased-section items. Returns the descriptor the dossier
+    surfaces to the client:
       - `hands_observed`, `floor`, `floor_met`
       - `unlocked`: list of unlocked item_ids
-      - `locked`: list of {id, label, unlocks_at} still to earn by grinding
+      - `locked`: list of {id, label, unlocks_at[, sample_min, samples_observed,
+        sample_noun]} still to earn by grinding
       - `informant_offers`: still-buyable sections {id, label, price}
     """
-    hands = max(0, int(hands_observed or 0))
+    counts = _normalize_counts(observed)
+    hands = max(0, int(counts.get('hands_observed', 0) or 0))
     bought = _purchased_item_ids(purchased_sections)
 
     unlocked: List[str] = []
     locked: List[Dict[str, Any]] = []
-    for item_id, label, threshold in SCOUTING_SCHEDULE:
-        if hands >= threshold or item_id in bought:
-            unlocked.append(item_id)
+    for tier in SCOUTING_SCHEDULE:
+        hand_ok = hands >= tier.hands
+        if tier.sample_fields:
+            samples = sum(int(counts.get(f, 0) or 0) for f in tier.sample_fields)
+            sample_ok = samples >= tier.sample_min
         else:
-            locked.append({'id': item_id, 'label': label, 'unlocks_at': threshold})
+            samples = None
+            sample_ok = True
+
+        if (hand_ok and sample_ok) or tier.id in bought:
+            unlocked.append(tier.id)
+        else:
+            entry: Dict[str, Any] = {
+                'id': tier.id, 'label': tier.label, 'unlocks_at': tier.hands,
+            }
+            # Surface the sample requirement + progress so the UI can render
+            # "Face them c-bet 20 times (12/20)" instead of a bare hand count.
+            if tier.sample_fields:
+                entry['sample_min'] = tier.sample_min
+                entry['samples_observed'] = samples
+                entry['sample_noun'] = tier.sample_noun
+            locked.append(entry)
 
     unlocked_set = set(unlocked)
     # A section is still buyable when any of its items remain locked.
@@ -204,19 +269,21 @@ def _redact_item(response: Dict[str, Any], item_id: str) -> None:
 
 def apply_scouting_gate(
     response: Dict[str, Any],
-    hands_observed: Optional[int],
+    hands_observed,
     purchased_sections=None,
 ) -> Dict[str, Any]:
     """Gate a dossier `response` in place and return the scouting descriptor.
 
-    Strips the values of every still-locked earnable read so locked intel is
-    never sent to the client, then returns the descriptor (also attached as
+    `hands_observed` is either the lifetime counts dict (preferred — drives the
+    Tier-2 opportunity gates) or a bare hand count (legacy). Strips the values
+    of every still-locked earnable read so locked intel is never sent to the
+    client, then returns the descriptor (also attached as
     `response['scouting']`). Informant-purchased sections count as unlocked
     (they bypass the grind floor). When nothing is unlocked, every earnable
     read is redacted. Always-free sections (PROFILE, STANDING, FIELD NOTES,
     emotion) are untouched.
     """
-    scouting = compute_scouting(hands_observed or 0, purchased_sections)
+    scouting = compute_scouting(hands_observed, purchased_sections)
     locked_ids = {entry['id'] for entry in scouting['locked']}
     for item_id in locked_ids:
         _redact_item(response, item_id)

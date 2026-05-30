@@ -39,6 +39,23 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
         '_vpip_count': max(1, hands // 3), '_pfr_count': max(1, hands // 5),
         '_bet_raise_count': max(1, hands // 4), '_call_count': max(1, hands // 6),
         '_showdowns': max(1, hands // 10), '_showdowns_won': max(0, hands // 20),
+        # Deep postflop opportunity counts (v125) scaled to hands so the
+        # Tier-2 sample gates clear at high hand counts (a 500-hand sample has
+        # plenty of c-bets, barrels, equity reads).
+        '_all_in_count': max(0, hands // 50),
+        '_fold_to_cbet_count': max(1, hands // 4),
+        '_cbet_faced_count': max(1, hands // 3),
+        '_cbet_attempt_count': max(1, hands // 4),
+        '_postflop_seen_as_pfr_count': max(1, hands // 4),
+        '_barrel_count': max(1, hands // 8),
+        '_barrel_opportunity_count': max(1, hands // 5),
+        '_third_barrel_count': max(0, hands // 12),
+        '_third_barrel_opportunity_count': max(1, hands // 8),
+        '_postflop_bet_raise_count': max(1, hands // 3),
+        '_postflop_call_count': max(1, hands // 4),
+        '_equity_betting_count': max(1, hands // 4),
+        '_equity_raising_count': max(1, hands // 6),
+        '_equity_calling_count': max(1, hands // 5),
     }
     conn = sqlite3.connect(db_path)
     try:
@@ -265,15 +282,27 @@ class TestDossierScoutingRoute(unittest.TestCase):
     # --- File cabinet route (Phase 4) --------------------------------------
 
     def test_file_cabinet_route_lists_roster(self):
+        # Tier-2 opportunity columns the roster exposes; saturate greg so the
+        # sample-gated deep reads fully unlock, leave cleo at 0.
+        sample_cols = (
+            'cbet_faced_count', 'postflop_seen_as_pfr_count',
+            'postflop_bet_raise_count', 'postflop_call_count',
+            'barrel_opportunity_count', 'equity_betting_count',
+            'equity_raising_count', 'equity_calling_count',
+        )
+        col_sql = ", ".join(sample_cols)
+        ph = ", ".join("?" for _ in sample_cols)
         conn = sqlite3.connect(self.test_db.name)
         try:
-            for oid, hands in [('greg', 500), ('cleo', 30)]:
+            for oid, hands, samp in [('greg', 500, 100), ('cleo', 30, 0)]:
                 conn.execute(
-                    "INSERT OR REPLACE INTO opponent_observation_lifetime "
-                    "(sandbox_id, observer_id, opponent_id, hands_observed, "
-                    " hands_dealt, first_seen, last_updated) "
-                    "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    (self.sandbox_id, OBSERVER, oid, hands, hands),
+                    f"INSERT OR REPLACE INTO opponent_observation_lifetime "
+                    f"(sandbox_id, observer_id, opponent_id, hands_observed, "
+                    f" hands_dealt, {col_sql}, first_seen, last_updated) "
+                    f"VALUES (?, ?, ?, ?, ?, {ph}, "
+                    f"        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    (self.sandbox_id, OBSERVER, oid, hands, hands,
+                     *([samp] * len(sample_cols))),
                 )
             conn.commit()
         finally:
