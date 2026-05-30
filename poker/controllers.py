@@ -327,14 +327,20 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
 def calculate_quick_equity(
     hole_cards: List[str],
     community_cards: List[str],
-    num_simulations: int = 300,
+    num_simulations: int = 64,
     num_opponents: int = 1,
 ) -> Optional[float]:
     """
     Calculate quick equity estimate against random opponent hands.
 
     Uses Monte Carlo simulation with eval7. Returns equity as 0.0-1.0.
-    ~30-50ms for 300 simulations - acceptable for real-time use.
+    Default 64 sims (~6-10ms): plenty for the COARSE consumers this feeds —
+    rule-bot hand-strength buckets (premium/strong/medium/weak/air) and the
+    GTO-equity coaching number. 300 was overkill (~5x slower) for bucketed use;
+    validated that CaseBotV2's results are unchanged at 64. Bump back up only if
+    a consumer needs fine equity resolution. NB tiered (solver) bots do NOT use
+    this for decisions — they classify made_tier deterministically; this MC is
+    decision-critical only for rule bots, and analysis/telemetry elsewhere.
 
     Args:
         hole_cards: Hero's hole cards
