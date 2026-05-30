@@ -26,6 +26,26 @@ from .session_memory import SessionMemory
 
 logger = logging.getLogger(__name__)
 
+# Async equity telemetry (live only). The showdown equity-at-action recording is
+# best-effort enrichment that writes only to in-memory opponent models — it has
+# no bearing on the hand result, so in a LIVE game it can run off the
+# hand-completion path. A single worker serializes the writes (no telemetry-vs-
+# telemetry races); main-thread reads of the maturing models are benign-racy and
+# enrichment-only. Default OFF so SIMS/TESTS stay synchronous + deterministic
+# (the economy sim uses this same AIMemoryManager); the live app flips it on.
+ASYNC_EQUITY_TELEMETRY = False
+_EQUITY_TELEMETRY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix='equity-telemetry'
+)
+
+
+def enable_async_equity_telemetry() -> None:
+    """Call once at LIVE app startup to move showdown equity recording off the
+    hand-completion critical path. Never call from sims/tests (keeps them
+    deterministic)."""
+    global ASYNC_EQUITY_TELEMETRY
+    ASYNC_EQUITY_TELEMETRY = True
+
 
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
@@ -711,10 +731,20 @@ class AIMemoryManager:
             # If eval7 is unavailable or the cards/board can't be parsed
             # for any reason, fall through silently so the rest of the
             # showdown path stays unaffected.
-            try:
-                self._record_showdown_equity_at_actions(recorded_hand)
-            except Exception as e:
-                logger.warning(f"Polarization Phase A equity recording failed: {e}")
+            def _record(rh=recorded_hand):
+                try:
+                    self._record_showdown_equity_at_actions(rh)
+                except Exception as e:
+                    logger.warning(f"Polarization Phase A equity recording failed: {e}")
+
+            if ASYNC_EQUITY_TELEMETRY:
+                # Live: off the hand-completion path (best-effort enrichment).
+                try:
+                    _EQUITY_TELEMETRY_EXECUTOR.submit(_record)
+                except Exception:
+                    _record()  # executor unavailable → fall back to sync
+            else:
+                _record()  # sims/tests: synchronous + deterministic
 
         # Phase 3: relationship event detection + dispatch. Runs only
         # when a relationship_repo is wired; tournament-only games

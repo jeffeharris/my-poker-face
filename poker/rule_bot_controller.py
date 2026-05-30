@@ -182,7 +182,9 @@ class RuleBotController(AIPlayerController):
         effective_stack_bb_val = effective_stack_bb(game_state, player, big_blind=big_blind)
         spr = compute_spr(game_state, player, pot_total=pot_total)
 
-        # Get equity (post-flop) or estimate (pre-flop)
+        # Get equity (post-flop) or estimate (pre-flop). Postflop Monte Carlo at
+        # 64 sims (~6-10ms). A deterministic made_tier swap was tried for speed
+        # but is NOT decision-equivalent (degraded CaseBotV2 vs maniacs); kept MC.
         if community_cards:
             equity = (
                 calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)

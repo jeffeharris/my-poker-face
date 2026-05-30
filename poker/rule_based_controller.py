@@ -222,7 +222,10 @@ class RuleBasedController:
         effective_stack_bb_val = effective_stack_bb(game_state, player, big_blind=big_blind)
         spr = compute_spr(game_state, player, pot_total=pot_total)
 
-        # Get equity (post-flop) or estimate (pre-flop)
+        # Get equity (post-flop) or estimate (pre-flop). Postflop Monte Carlo at
+        # 64 sims (~6-10ms). NB a deterministic made_tier swap was tried for speed
+        # but is NOT decision-equivalent — it made CaseBotV2 lose to maniacs
+        # (-96 vs the MC's +150). Kept the MC. See equity_from_made_tier.
         if community_cards:
             equity = (
                 calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
