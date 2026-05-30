@@ -55,6 +55,15 @@ class PreflopLeak:
     # it's the count of voluntary plays of a fold-hand; for too_tight it's the
     # count of folds of an open-hand. Higher = bleeds more / more habitual.
     severity: int
+    # Confidence tier by sample size: 'watching' (small sample — a tendency to
+    # keep an eye on, could be variance) vs 'confirmed' (seen enough times that
+    # it's a real pattern). Be honest about which we're claiming.
+    status: str = 'watching'
+
+
+# A (position, hand) seen at least this many times is a CONFIRMED leak; below
+# it's something we're WATCHING. Keeps small-sample flags honest.
+CONFIRM_MIN_SEEN = 6
 
 
 @dataclass(frozen=True)
@@ -213,9 +222,11 @@ def compute_preflop_leaks(
             pos[group]['loose_plays'] += vol
             if n >= min_sample and vol > 0:
                 sampled += 1
+                status = 'confirmed' if n >= CONFIRM_MIN_SEEN else 'watching'
                 leaks.append(
                     PreflopLeak(
-                        group, canon, 'too_loose', n, round(100.0 * vol / n, 1), plays_ref, vol
+                        group, canon, 'too_loose', n, round(100.0 * vol / n, 1), plays_ref, vol,
+                        status=status,
                     )
                 )
         # too_tight (folding an in-range hand) is intentionally NOT graded: the
@@ -282,15 +293,27 @@ def format_leaks_for_prompt(report: PreflopLeakReport) -> str:
     loose = [lk for lk in report.leaks if lk.leak_type == 'too_loose']
     lines.append("")
     if loose:
-        lines.append(
-            "WEAKNESSES — hands the player repeatedly plays voluntarily that sit "
-            "below their position's standard range:"
-        )
-        for lk in loose[:10]:
-            lines.append(
+        confirmed = [lk for lk in loose if lk.status == 'confirmed']
+        watching = [lk for lk in loose if lk.status != 'confirmed']
+
+        def _line(lk):
+            return (
                 f"- {lk.canon} from {_POSITION_LABEL[lk.position_group]}: "
                 f"dealt {lk.n} time(s), played it {lk.severity} of those."
             )
+
+        if confirmed:
+            lines.append(
+                "CONFIRMED LEAKS — enough hands to be sure; below-range and played repeatedly:"
+            )
+            lines.extend(_line(lk) for lk in confirmed[:10])
+        if watching:
+            lines.append("")
+            lines.append(
+                "WATCHING — small sample so far (could be variance); keep an eye on these, "
+                "don't state them as certain leaks:"
+            )
+            lines.extend(_line(lk) for lk in watching[:10])
     else:
         lines.append(
             "STRENGTH — no habitual below-range hands flagged; preflop hand selection "
@@ -299,21 +322,23 @@ def format_leaks_for_prompt(report: PreflopLeakReport) -> str:
     return "\n".join(lines)
 
 
-def get_owner_leak_set(db_path: str, owner_id: str) -> set[tuple[str, str]]:
-    """The player's recurring preflop leaks as a set of (position_group, canon).
+def get_owner_leak_set(db_path: str, owner_id: str) -> dict[tuple[str, str], str]:
+    """The player's recurring preflop leaks: {(position_group, canon): status}.
 
-    For live recall: load once per session, then a turn-time membership check is
-    O(1). Only too_loose leaks (recurring below-range hands) — these are the
-    spots worth a live nudge. Best-effort; empty on any issue.
+    For live recall: load once per session, then a turn-time lookup is O(1) and
+    carries the confidence tier ('confirmed' | 'watching') so the live nudge can
+    hedge a small-sample watch-item. Only too_loose leaks. Best-effort.
     """
     try:
         report = compute_preflop_leaks(load_owner_preflop_decisions(db_path, owner_id))
         return {
-            (lk.position_group, lk.canon) for lk in report.leaks if lk.leak_type == 'too_loose'
+            (lk.position_group, lk.canon): lk.status
+            for lk in report.leaks
+            if lk.leak_type == 'too_loose'
         }
     except Exception as e:
         logger.warning("get_owner_leak_set failed for %s: %s", owner_id, e)
-        return set()
+        return {}
 
 
 def load_owner_preflop_decisions(db_path: str, owner_id: str) -> list[dict]:

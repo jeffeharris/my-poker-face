@@ -889,8 +889,13 @@ def _annotate_known_preflop_leak(result, game_data, range_analysis, position_key
             game_data['_preflop_leak_set'] = get_owner_leak_set(
                 extensions.persistence_db_path, owner_id
             )
-        if (group, canon) in game_data['_preflop_leak_set']:
-            result['known_preflop_leak'] = {'canon': canon, 'position_group': group}
+        leak_set = game_data['_preflop_leak_set']
+        if (group, canon) in leak_set:
+            result['known_preflop_leak'] = {
+                'canon': canon,
+                'position_group': group,
+                'status': leak_set[(group, canon)],  # 'confirmed' | 'watching'
+            }
     except Exception as e:
         logger.debug(f"known-leak annotation failed: {e}")
 

@@ -116,7 +116,7 @@ class TestFormatForPrompt:
         assert 'PREFLOP PROFILE' in txt
         assert 'Early position' in txt
         assert '72o' in txt
-        assert 'WEAKNESS' in txt
+        assert ('CONFIRMED LEAKS' in txt) or ('WATCHING' in txt)
 
     def test_clean_profile_notes_discipline(self):
         from flask_app.services.coach_leaks import compute_preflop_leaks, format_leaks_for_prompt
@@ -124,3 +124,25 @@ class TestFormatForPrompt:
         rep = compute_preflop_leaks(_decisions('AKs', 'BTN', 'raise', 6), reference=_fake_ref)
         txt = format_leaks_for_prompt(rep)
         assert 'STRENGTH' in txt or 'disciplined' in txt
+
+
+class TestLeakStatusTier:
+    def test_small_sample_is_watching(self):
+        from flask_app.services.coach_leaks import compute_preflop_leaks
+
+        rep = compute_preflop_leaks(_decisions('72o', 'UTG', 'call', 3), reference=_fake_ref)
+        assert rep.leaks[0].status == 'watching'  # 3 < CONFIRM_MIN_SEEN
+
+    def test_large_sample_is_confirmed(self):
+        from flask_app.services.coach_leaks import compute_preflop_leaks
+
+        rep = compute_preflop_leaks(_decisions('72o', 'UTG', 'call', 8), reference=_fake_ref)
+        assert rep.leaks[0].status == 'confirmed'  # 8 >= CONFIRM_MIN_SEEN
+
+    def test_leak_set_carries_status(self):
+        from flask_app.services.coach_leaks import compute_preflop_leaks
+
+        rep = compute_preflop_leaks(_decisions('72o', 'UTG', 'call', 8), reference=_fake_ref)
+        # mirror get_owner_leak_set's dict shape
+        mapping = {(lk.position_group, lk.canon): lk.status for lk in rep.leaks}
+        assert mapping[('early', '72o')] == 'confirmed'

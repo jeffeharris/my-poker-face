@@ -17,20 +17,33 @@ from flask_app.services.coach_assistant import (
 class TestKnownLeakSurfacing(unittest.TestCase):
     """The live leak-recall flag must reach the coach prompt as a KNOWN LEAK line."""
 
-    def test_known_leak_surfaced_in_stats(self):
+    def test_confirmed_leak_surfaced_as_known_leak(self):
         text = _format_stats_for_prompt(
             {
                 'phase': 'PRE_FLOP',
                 'position': 'Big Blind',
-                'known_preflop_leak': {'canon': 'KJo', 'position_group': 'blind'},
+                'known_preflop_leak': {'canon': 'KJo', 'position_group': 'blind', 'status': 'confirmed'},
             }
         )
         self.assertIn('KNOWN LEAK', text)
         self.assertIn('KJo', text)
 
+    def test_watching_leak_surfaced_softly(self):
+        text = _format_stats_for_prompt(
+            {
+                'phase': 'PRE_FLOP',
+                'position': 'Big Blind',
+                'known_preflop_leak': {'canon': 'KJo', 'position_group': 'blind', 'status': 'watching'},
+            }
+        )
+        self.assertIn('WATCHING', text)
+        self.assertNotIn('KNOWN LEAK', text)  # hedged, not asserted as a leak
+        self.assertIn('KJo', text)
+
     def test_no_leak_no_line(self):
         text = _format_stats_for_prompt({'phase': 'PRE_FLOP', 'position': 'Big Blind'})
         self.assertNotIn('KNOWN LEAK', text)
+        self.assertNotIn('WATCHING', text)
 
 
 class TestNormalizeAction(unittest.TestCase):

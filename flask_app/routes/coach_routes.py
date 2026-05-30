@@ -250,6 +250,7 @@ def coach_preflop_leaks():
             'times_played': lk.severity,
             'times_seen': lk.n,
             'vpip_pct': lk.vpip_pct,
+            'status': lk.status,  # 'confirmed' | 'watching'
         }
         for lk in report.leaks
         if lk.leak_type == 'too_loose'

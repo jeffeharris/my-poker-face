@@ -18,6 +18,7 @@ interface Leak {
   times_played: number;
   times_seen: number;
   vpip_pct: number;
+  status: string; // 'confirmed' | 'watching'
 }
 interface LeaksResponse {
   total_decisions: number;
@@ -160,25 +161,39 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
               ))}
             </div>
 
-            <h3 className="pfl-leaks-head">Hands you keep playing that are below your range</h3>
+            <h3 className="pfl-leaks-head">Hands you play below your range</h3>
             {data.leaks.length === 0 ? (
               <p className="pfl-clean">
                 Nothing jumps out — you're not habitually playing trash. Nice discipline.
               </p>
             ) : (
               <ul className="pfl-leaks">
-                {data.leaks.map((lk) => (
-                  <li key={`${lk.position}-${lk.hand}`} className="pfl-leak">
-                    <span className="pfl-leak-hand">{lk.hand}</span>
-                    <span className="pfl-leak-detail">
-                      from {POSITION_LABEL[lk.position] ?? lk.position} — dealt it{' '}
-                      <strong>{lk.times_seen}×</strong>, played it{' '}
-                      <strong>{lk.times_played}×</strong>
-                    </span>
-                  </li>
-                ))}
+                {data.leaks.map((lk) => {
+                  const confirmed = lk.status === 'confirmed';
+                  return (
+                    <li
+                      key={`${lk.position}-${lk.hand}`}
+                      className={`pfl-leak${confirmed ? '' : ' pfl-leak--watch'}`}
+                    >
+                      <span className="pfl-leak-hand">{lk.hand}</span>
+                      <span className="pfl-leak-detail">
+                        from {POSITION_LABEL[lk.position] ?? lk.position} — dealt it{' '}
+                        <strong>{lk.times_seen}×</strong>, played it{' '}
+                        <strong>{lk.times_played}×</strong>
+                      </span>
+                      <span className={`pfl-leak-badge${confirmed ? '' : ' watch'}`}>
+                        {confirmed ? 'leak' : 'watching'}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
+            <p className="pfl-note pfl-note--tier">
+              <strong>watching</strong> = small sample so far (could be variance);{' '}
+              <strong>leak</strong> = seen enough to be sure. Keep playing and watch-items
+              graduate (or clear).
+            </p>
             <p className="pfl-note">
               Compared to a standard tight-aggressive opening range. We only flag hands you
               voluntarily play that sit below your position's range — folding tight isn't

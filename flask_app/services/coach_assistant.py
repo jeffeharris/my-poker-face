@@ -73,7 +73,8 @@ PROACTIVE_TIP_PROMPT = """\
 Given these stats, give the player a brief 1-2 sentence nudge that helps them THINK — \
 point out the single most important factor (their position, the price they're getting, an opponent's tendency, their hand's relative strength) or pose a short guiding question. \
 Do NOT tell them which action to take and do NOT name fold/check/call/raise — the whole point is that THEY decide. Set "action" to null. \
-If a KNOWN LEAK is shown, this is the priority: gently remind them this is a spot they tend to overplay (name the hand + position) and ask whether it's really worth it here — do not lecture, just the nudge. \
+If a KNOWN LEAK (confirmed) is shown, this is the priority: gently remind them this is a spot they tend to overplay (name the hand + position) and ask whether it's really worth it here — do not lecture, just the nudge. \
+If a WATCHING item is shown instead, give an even softer heads-up — frame it as something you've noticed a couple of times, not a settled habit ("I've seen you play this here once or twice — worth a thought?"). \
 Otherwise, if a SKILL FOCUS is listed, aim the nudge at that concept using the current hand. \
 No preamble, no greeting.\
 """
@@ -100,7 +101,8 @@ Be honest — if they played well, say so briefly. If they made an error, explai
 LEAK_FEEDBACK_PROMPT = """\
 Given this preflop profile, give the player concise, prioritized feedback (3-5 sentences):
 - Name their single biggest preflop leak first, and why it costs chips.
-- Quantify it using the profile's numbers — how many times they played the hand out of how many they were dealt it (e.g. "you played KJo 2 of the 2 times you were dealt it in the blinds").
+- Quantify it using the EXACT counts shown in the profile — how many times they played the hand out of how many they were dealt it. Do not use any hand or number that is not in the profile.
+- Respect the CONFIRMED vs WATCHING split: state confirmed leaks plainly, but frame WATCHING items as small-sample tendencies you're keeping an eye on — not settled mistakes.
 - Give one concrete fix — which specific hands or positions to tighten up.
 - If a position looks disciplined, acknowledge it briefly.
 Name ONLY hands that appear in the profile above — do not invent or add example hands of your own, do not invent stats, and do not reference postflop play. Set "action" to null.\
@@ -412,10 +414,17 @@ def _format_stats_for_prompt(data: Dict) -> str:
     # own history) — the proactive prompt turns this into a Socratic reminder.
     leak = data.get('known_preflop_leak')
     if leak:
-        lines.append(
-            f"KNOWN LEAK: {leak.get('canon')} from {leak.get('position_group')} position is a "
-            "hand this player tends to OVERPLAY (seen repeatedly in their own history)."
-        )
+        if leak.get('status') == 'confirmed':
+            lines.append(
+                f"KNOWN LEAK (confirmed): {leak.get('canon')} from {leak.get('position_group')} "
+                "position is a hand this player reliably OVERPLAYS (seen many times in their history)."
+            )
+        else:
+            lines.append(
+                f"WATCHING (small sample): {leak.get('canon')} from {leak.get('position_group')} "
+                "position is a hand this player MAY be overplaying — only seen a few times, so this "
+                "is a gentle heads-up, not a confirmed leak."
+            )
 
     opponents = data.get('opponent_stats', [])
     if opponents:
