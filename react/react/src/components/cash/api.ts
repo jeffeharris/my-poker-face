@@ -132,6 +132,19 @@ export async function sponsorAndSit(
   });
 }
 
+/** Release a sponsorship seat-hold placed by the /sit 402 path.
+ *
+ * Called when the SponsorModal is dismissed without sitting so the held
+ * seat returns to the live-fill pool immediately. Idempotent server-side
+ * (a hold that's already gone returns released:false), so this is safe to
+ * fire on any close path; failures are swallowed by the caller. */
+export async function releaseSeat(
+  tableId: string,
+  seatIndex: number
+): Promise<{ released: boolean; table_id: string; seat_index: number }> {
+  return postJson('/release-seat', { table_id: tableId, seat_index: seatIndex });
+}
+
 export async function rebuy(amount: number): Promise<{ stack: number; bankroll: number }> {
   return postJson('/rebuy', { amount });
 }
@@ -302,7 +315,11 @@ export async function sitAtTable(
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+    const err = new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+    // Attach status so the lobby can self-heal on a 409 (seat-race /
+    // full-table) by reloading rather than dead-ending the tap.
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
   return (await res.json()) as SitResponse;
 }

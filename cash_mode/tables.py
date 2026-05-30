@@ -13,6 +13,16 @@ typed slot dicts in `seats`. Slot kinds:
   - `"human"` — `{"kind": "human", "personality_id": owner_id, "chips": int}`
                 (set transiently while the player is seated; reverts
                 to `"open"` on leave).
+  - `"reserved"` — `{"kind": "reserved", "personality_id": owner_id,
+                "reserved_at": iso, "expire_at": iso}` — a short-lived
+                hold placed when a player taps a seat they can only
+                afford via sponsorship, so the world ticker's live-fill
+                can't seat an AI in it while the SponsorModal is open.
+                Resolves to `"human"` on sponsor-accept, back to `"open"`
+                on modal-close (explicit release) or TTL expiry (swept by
+                `refresh_unseated_tables`). Distinct from `"human"` so the
+                expiry sweep can target abandoned holds without any risk
+                of evicting a genuinely seated player.
 
 Per-seat chips are persisted: an AI who wins big keeps those chips for
 the next player who sits down (or, per movement rules, may stake-up
@@ -27,7 +37,7 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -36,6 +46,15 @@ logger = logging.getLogger(__name__)
 TABLE_SEAT_COUNT = 6
 BASELINE_AI_SEATS = 4
 OPEN_SEATS = 2
+
+# How long a sponsorship seat-hold survives before the lobby refresh
+# sweeps it back to `"open"`. Long enough that a player can read the
+# SponsorModal's offers and pick a lender; short enough that an
+# abandoned modal (closed tab, dropped network) doesn't strand the seat
+# against AI live-fill for more than a couple minutes. The frontend
+# releases explicitly on modal-close, so this is the safety net for the
+# cases where that call never arrives.
+SEAT_RESERVATION_TTL_SECONDS = 120
 
 
 def open_slot() -> Dict[str, Any]:
@@ -112,6 +131,47 @@ def human_slot(owner_id: str, chips: int) -> Dict[str, Any]:
     return {"kind": "human", "personality_id": owner_id, "chips": int(chips)}
 
 
+def reserved_slot(owner_id: str, now: datetime) -> Dict[str, Any]:
+    """Return a short-lived seat-hold slot for `owner_id`.
+
+    Placed when a player taps a seat they can only afford via
+    sponsorship: it pins the seat as non-`"open"` (so the world
+    ticker's live-fill skips it) while the SponsorModal is up, then
+    resolves to `"human"` on accept or `"open"` on release/expiry.
+
+    `expire_at` is stamped `SEAT_RESERVATION_TTL_SECONDS` ahead of
+    `now` so the lobby refresh can reclaim abandoned holds without any
+    server-side timer — the sweep just compares against the wall clock
+    it already has. Both timestamps are ISO strings to match the rest
+    of the seats_json payload (plain JSON, no datetime objects).
+    """
+    expire_at = now + timedelta(seconds=SEAT_RESERVATION_TTL_SECONDS)
+    return {
+        "kind": "reserved",
+        "personality_id": owner_id,
+        "reserved_at": now.isoformat(),
+        "expire_at": expire_at.isoformat(),
+    }
+
+
+def is_reservation_expired(slot: Dict[str, Any], now: datetime) -> bool:
+    """True if `slot` is a `"reserved"` hold whose TTL has elapsed.
+
+    Tolerant of a missing/garbled `expire_at` (treats it as expired) so
+    a malformed hold can never wedge a seat permanently — the sweep
+    frees it on the next refresh.
+    """
+    if not isinstance(slot, dict) or slot.get("kind") != "reserved":
+        return False
+    raw = slot.get("expire_at")
+    if not raw:
+        return True
+    try:
+        return datetime.fromisoformat(raw) <= now
+    except (ValueError, TypeError):
+        return True
+
+
 @dataclass
 class CashTableState:
     """Persisted cash-mode table row from the `cash_tables` SQLite table.
@@ -166,9 +226,10 @@ class CashTableState:
         for i, slot in enumerate(self.seats):
             if not isinstance(slot, dict) or "kind" not in slot:
                 raise ValueError(f"Slot {i} is malformed: {slot!r}")
-            if slot["kind"] not in ("open", "ai", "human"):
+            if slot["kind"] not in ("open", "ai", "human", "reserved"):
                 raise ValueError(
-                    f"Slot {i} has unknown kind {slot['kind']!r}; " f"expected open/ai/human"
+                    f"Slot {i} has unknown kind {slot['kind']!r}; "
+                    f"expected open/ai/human/reserved"
                 )
 
     # --- read helpers ---
@@ -185,6 +246,18 @@ class CashTableState:
         """Return the human seat's index if a human is seated, else None."""
         for i, s in enumerate(self.seats):
             if s["kind"] == "human":
+                return i
+        return None
+
+    def reserved_seat_index_for(self, owner_id: str) -> Optional[int]:
+        """Return the index of a `"reserved"` seat held by `owner_id`, else None.
+
+        Used to recognise a player's own active sponsorship hold so the
+        sit/sponsor paths treat it as claimable-by-them rather than a
+        409 "seat is not open".
+        """
+        for i, s in enumerate(self.seats):
+            if s["kind"] == "reserved" and s.get("personality_id") == owner_id:
                 return i
         return None
 

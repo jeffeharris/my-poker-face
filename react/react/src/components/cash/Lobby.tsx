@@ -27,7 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
-import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
+import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
@@ -420,28 +420,53 @@ export function Lobby() {
       try {
         const result = await sitAtTable(table.table_id, seatIndex);
         if ('kind' in result) {
-          // Open sponsor modal scoped to this specific seat. Without
-          // seatIndex the backend would fall back to the legacy fresh-
-          // sample path and seat the player against a different AI
-          // lineup than the lobby card showed.
+          // Open sponsor modal scoped to the seat the backend actually
+          // reserved. It echoes table_id + seat_index because live-fill
+          // may have taken the tapped seat and the server fell back to
+          // another open one — targeting the original index would then
+          // reserve the wrong (or a taken) seat.
           setSponsorState({
             stakeLabel: result.data.stake_label,
-            tableId: table.table_id,
-            seatIndex,
+            tableId: result.data.table_id ?? table.table_id,
+            seatIndex: result.data.seat_index ?? seatIndex,
           });
           return;
         }
         navigate(`/game/${result.game_id}`);
       } catch (e) {
+        const status = (e as Error & { status?: number }).status;
         const msg = e instanceof Error ? e.message : String(e);
         logger.error('Sit failed:', msg);
-        setSitError(msg);
+        if (status === 409) {
+          // Seat-race or full table: the lobby snapshot was stale. Refresh
+          // it so the seat state reconciles instead of leaving a silently
+          // dead button, and tell the player to try again.
+          setSitError('That seat just filled up — refreshing the lobby. Try again.');
+          void reloadLobbyRef.current();
+        } else {
+          setSitError(msg);
+        }
       } finally {
         setBusy(false);
       }
     },
     [busy, navigate]
   );
+
+  /** Dismiss the SponsorModal, releasing the seat-hold the /sit 402
+   *  placed so an AI can't be cut out of taking it (and so the player
+   *  isn't shown as parked there). Fire-and-forget + idempotent
+   *  server-side: a successful sponsor-and-sit already converted the
+   *  hold to a human seat, so release is a harmless no-op there. */
+  const handleSponsorClose = useCallback(() => {
+    const held = sponsorState;
+    setSponsorState(null);
+    if (held) {
+      releaseSeat(held.tableId, held.seatIndex).catch((e) => {
+        logger.warn('Failed to release sponsorship seat-hold:', e instanceof Error ? e.message : String(e));
+      });
+    }
+  }, [sponsorState]);
 
   /** Resume the player's in-progress game. The lobby knows the seated
    *  table_id but not the game_id, so we resolve it via /api/cash/state
@@ -756,7 +781,7 @@ export function Lobby() {
               ? (tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null)
               : null
           }
-          onClose={() => setSponsorState(null)}
+          onClose={handleSponsorClose}
         />
         <CharacterDetailCard
           isOpen={dossier !== null}

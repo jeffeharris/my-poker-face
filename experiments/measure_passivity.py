@@ -55,11 +55,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # dominate runtime and bury the report.
 logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
+from experiments._hand_loop import drive_hand
 from experiments.simulate_bb100 import (
     ARCHETYPES,
     DEFAULT_RULE_OPPONENTS,
-    MAX_ACTIONS_PER_HAND,
-    TERMINAL_PHASES,
     _make_seat_names,
     compute_stats,
     make_controller,
@@ -70,11 +69,7 @@ from experiments.simulate_bb100 import (
 # controller looks up, so an attribution bucket maps directly to a chart entry.
 from poker.card_utils import card_to_string
 from poker.controllers import _get_canonical_hand
-from poker.poker_game import (
-    advance_to_next_active_player,
-    play_turn,
-)
-from poker.poker_state_machine import PokerPhase, PokerStateMachine
+from poker.poker_state_machine import PokerStateMachine
 from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET, derive_signals
 from poker.strategy.preflop_classifier import build_preflop_node
 from poker.strategy.preflop_isolate import build_isolation_table
@@ -308,54 +303,29 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
     """
     controller_map = {c.player_name: c for c in controllers}
     hero = controller_map.get(hero_name)
-    action_count = 0
-
-    # Reset sim-path multi-street state at hand start (mirrors
-    # MemoryManager.on_hand_start in production).
-    if hero is not None:
-        hero._sim_last_preflop_aggressor = None
-        hero._sim_recent_aggressor = None
-        hero._sim_hero_bet_by_street = {}  # {phase: True} streets hero bet/raised
-        hero._sim_opp_bet_by_street = {}  # {phase: True} streets any opp bet/raised
-    sim_current_street: Optional[str] = None
 
     # Per-hand line tracking (hero perspective).
     hero_actions_by_street: Dict[str, List[str]] = defaultdict(list)
     opp_bet_by_street: Dict[str, bool] = defaultdict(bool)
-    hero_reached_river = False
+    state = {'hero_reached_river': False}
 
-    while sm.phase not in TERMINAL_PHASES:
-        sm.run_until(list(TERMINAL_PHASES))
-        if sm.phase in TERMINAL_PHASES:
-            break
-        gs = sm.game_state
-
-        if gs.run_it_out:
-            sm.game_state = gs.update(run_it_out=False, awaiting_action=False)
-            next_phase = {
-                PokerPhase.PRE_FLOP: PokerPhase.DEALING_CARDS,
-                PokerPhase.FLOP: PokerPhase.DEALING_CARDS,
-                PokerPhase.TURN: PokerPhase.DEALING_CARDS,
-                PokerPhase.RIVER: PokerPhase.EVALUATING_HAND,
-            }.get(sm.phase, PokerPhase.EVALUATING_HAND)
-            sm.phase = next_phase
-            continue
-
-        current_player = gs.current_player
-        controller = controller_map[current_player.name]
-        controller.state_machine = sm
-
-        is_hero = current_player.name == hero_name
-        phase_name = sm.phase.name
-
+    def _pre_decision(controller, current_player, phase_name):
         # Clear the snapshot before the hero acts so a stale postflop snapshot
         # from a prior street can't be misread as this decision's.
-        if is_hero:
+        if current_player.name == hero_name:
             controller._last_pipeline_snapshot = {}
 
-        decision = controller.decide_action()
-        action = decision['action']
-        raise_to = decision.get('raise_to', 0) or 0
+    def _on_decision(
+        current_player,
+        controller,
+        action,
+        raise_to,
+        phase_name,
+        gs,
+        sim_current_street,
+        decision,
+    ):
+        is_hero = current_player.name == hero_name
 
         # ── Per-node attribution trace (hero only) ──────────────────────────
         # Record (phase, node_key, action, raise_to). node_key is the exact
@@ -444,7 +414,7 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                 )
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
-                hero_reached_river = True
+                state['hero_reached_river'] = True
             # Inert-trap check: did the multi-street layer fire / change the
             # distribution this decision? Read its trace off the controller.
             for tr in getattr(controller, '_last_intervention_trace', []):
@@ -457,36 +427,27 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                 else:
                     stats.layer_noop_reasons[tr.reason_code] += 1
 
-        new_gs = play_turn(gs, action, raise_to)
-
-        # ── Drive sim aggressor / multi-street state (accepted actions) ─────
-        if phase_name == 'PRE_FLOP' and action in ('raise', 'all_in') and hero is not None:
-            hero._sim_last_preflop_aggressor = current_player.name
-
-        if hero is not None:
-            if sim_current_street != phase_name:
-                hero._sim_recent_aggressor = None
-                sim_current_street = phase_name
-            if phase_name in _POSTFLOP_STREETS and action in _AGGRESSIVE:
-                hero._sim_recent_aggressor = current_player.name
-                # New fields: split hero's own line from opponents' line.
-                if is_hero:
-                    hero._sim_hero_bet_by_street[phase_name] = True
-                else:
-                    hero._sim_opp_bet_by_street[phase_name] = True
-
+    def _post_action(current_player, action, raise_to, phase_name, gs, new_gs):
         # Mirror into the per-hand line trackers (used for end-of-hand metrics).
-        if phase_name in _POSTFLOP_STREETS and action in _AGGRESSIVE and not is_hero:
+        # The shared _sim_* aggressor bookkeeping is applied by drive_hand; this
+        # only tracks the passivity-specific opp_bet_by_street view.
+        if (
+            phase_name in _POSTFLOP_STREETS
+            and action in _AGGRESSIVE
+            and current_player.name != hero_name
+        ):
             opp_bet_by_street[phase_name] = True
 
-        advanced = advance_to_next_active_player(new_gs)
-        sm.game_state = advanced if advanced is not None else new_gs
-
-        action_count += 1
-        if action_count >= MAX_ACTIONS_PER_HAND:
-            break
-
-    final_stacks = {p.name: p.stack for p in sm.game_state.players}
+    final_stacks = drive_hand(
+        sm,
+        controllers,
+        hero_name=hero_name,
+        hero_controller=hero,
+        pre_decision=_pre_decision,
+        on_decision=_on_decision,
+        post_action=_post_action,
+    )
+    hero_reached_river = state['hero_reached_river']
 
     # ── End-of-hand line metrics ────────────────────────────────────────────
     flop_aggressor = any(a in _AGGRESSIVE for a in hero_actions_by_street.get('FLOP', []))
@@ -542,6 +503,11 @@ def run_passivity_matchup(
     if len(opponents) < 1:
         raise ValueError(f"need >=1 opponent, got {len(opponents)}")
 
+    # When an explicit hero chart is forced (--preflop-chart or entry=isolate),
+    # it must win over the archetype width-tier auto-selection — so we clear the
+    # hero's archetype_preflop_tables below. A plain `--hero X` (no forced chart)
+    # keeps the auto-selected width table (the real acceptance-test path).
+    hero_chart_forced = hero_table is not None or entry == 'isolate'
     if hero_table is None:
         hero_table = strategy_table
     hero_table = build_isolation_table(hero_table) if entry == 'isolate' else hero_table
@@ -574,6 +540,11 @@ def run_passivity_matchup(
         sm.current_hand_seed = hand_seed
 
         controllers = [make_controller(hero_name, config_arch, hero_table, sm, rng_seed=hand_seed)]
+        if hero_chart_forced:
+            # The forced --preflop-chart / isolate table is the hero's
+            # strategy_table; drop archetype auto-selection so it isn't
+            # overridden by a width-tier chart.
+            controllers[0].archetype_preflop_tables = {}
         # No opponent_manager: Baseline (anchors=None) skips exploitation and
         # equity recording only writes to models, so omitting it is identical
         # for decisions/stacks and disables equity-MC (plan requirement).

@@ -22,6 +22,7 @@ and §"Locked decisions" (3 — kill_all_cash_sessions).
 
 from __future__ import annotations
 
+import itertools
 import logging
 import random
 from contextlib import nullcontext
@@ -57,6 +58,7 @@ from cash_mode.movement import (
     refresh_table_roster,
     reseat_readiness,
 )
+from cash_mode.seat_registry import SeatOccupancyRegistry
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
 from cash_mode.stakes_ladder import (
@@ -373,29 +375,69 @@ def ensure_lobby_seeded(
                     continue
 
                 seat_position = next(position_iter)
+                # Debit the AI's bankroll to fund their initial seat
+                # chips BEFORE committing the seat in memory. Without this
+                # debit the chip-ledger audit double-counts (the comment
+                # above this loop explained the original placeholder
+                # semantics). Pure transfer, no ledger entry —
+                # `ai_bankrolls_stored` and `cash_table_seats_ai` move in
+                # opposite directions by `ai_buy_in`, preserving
+                # `actual_outstanding`.
+                #
+                # Window B (cold-start) atomicity: `debit_bankroll_for_seat`
+                # can fail by *returning None* (row missing / projected <
+                # buy-in — the audit-safe refusal) or by *raising*. Either
+                # way the AI is NOT funded, so we must NOT place the seat:
+                # doing so would write a seated-but-unfunded AI (seat chips
+                # with no matching bankroll debit → minted chips once
+                # `save_table` persists the row). Debit-first + drop-on-fail
+                # makes a per-AI debit failure cleanly skip just that AI,
+                # leaving the position open for the next candidate. The
+                # success path (debit returns non-None) is unchanged.
+                from cash_mode.bankroll import debit_bankroll_for_seat
+
+                try:
+                    debit_result = debit_bankroll_for_seat(
+                        bankroll_repo,
+                        pid,
+                        ai_buy_in,
+                        sandbox_id=sandbox_id,
+                        chip_ledger_repo=chip_ledger_repo,
+                        now=now,
+                    )
+                except Exception:
+                    logger.exception(
+                        "[CASH][LOBBY] seed %s/%s: debit raised for %r — "
+                        "skipping seat (no chips moved)",
+                        stake_label,
+                        table_id,
+                        pid,
+                    )
+                    debit_result = None
+
+                if debit_result is None:
+                    # Refused/failed debit: AI was not funded. Return the
+                    # position to the pool (so a later candidate can use it)
+                    # and leave the seat open. Nothing was committed for this
+                    # AI — no seat write, no seated_globally entry, no
+                    # filled++.
+                    position_iter = itertools.chain([seat_position], position_iter)
+                    logger.warning(
+                        "[CASH][LOBBY] seed %s/%s: debit refused for %r "
+                        "(seat %d) — leaving seat open, AI dropped",
+                        stake_label,
+                        table_id,
+                        pid,
+                        seat_position,
+                    )
+                    continue
+
                 seats[seat_position] = ai_slot(pid, ai_buy_in)
                 seated_globally.add(pid)
                 # (If this AI was idle, the seated⇒not-idle invariant is
                 # enforced by the save_table call after this loop — see
                 # CashTableRepository.save_table.)
                 filled += 1
-                # Debit the AI's bankroll to fund their initial seat
-                # chips. Without this debit the chip-ledger audit
-                # double-counts (the comment above this loop explained the
-                # original placeholder semantics). Pure transfer, no
-                # ledger entry — `ai_bankrolls_stored` and
-                # `cash_table_seats_ai` move in opposite directions by
-                # `ai_buy_in`, preserving `actual_outstanding`.
-                from cash_mode.bankroll import debit_bankroll_for_seat
-
-                debit_bankroll_for_seat(
-                    bankroll_repo,
-                    pid,
-                    ai_buy_in,
-                    sandbox_id=sandbox_id,
-                    chip_ledger_repo=chip_ledger_repo,
-                    now=now,
-                )
                 logger.info(
                     "[CASH][LOBBY] seed %s/%s: seated %r at seat %d chips=%d",
                     stake_label,
@@ -542,6 +584,7 @@ def _process_global_greedy_fills(
     now,
     rng,
     seek_rate: float = DEFAULT_SEEK_RATE,
+    human_headroom: int = 0,
 ) -> None:
     """The loop inversion (CASH_MODE_TABLE_ATTRACTIVENESS.md §2).
 
@@ -578,6 +621,15 @@ def _process_global_greedy_fills(
         usable = [
             i for i, s in enumerate(tbl.seats) if s.get("kind") == "open" and i in preburst_open
         ]
+        # Reserve `human_headroom` of the open seats for a human who taps
+        # Sit/Sponsor in the lobby — the fill leaves the highest-index
+        # open seats untouched so the ticker can't saturate a table and
+        # crowd the player out (the stale-snapshot 409 race). 0 = no
+        # reservation (sims/tests fill to full). We keep the LOW-index
+        # seats fillable so reserved seats are deterministic.
+        if human_headroom > 0 and usable:
+            reserve = min(len(usable), human_headroom)
+            usable = usable[: len(usable) - reserve]
         if not usable:
             continue
         is_lobby = tbl.table_type == "lobby"
@@ -644,12 +696,26 @@ def _process_global_greedy_fills(
             projected = project_idle_energy(stored, baseline, idle_seconds)
         return 1.0 if baseline <= 0 else min(1.0, projected / baseline)
 
-    def _can_afford_target(target_stake: str, projected: int) -> bool:
+    def _can_afford_target(
+        target_stake: str, projected: int, buy_in_multiplier: float
+    ) -> bool:
+        """Whether `projected` covers this AI's ACTUAL buy-in at `target_stake`.
+
+        Must mirror the placement gate (`assign_seats_greedy` →
+        `seeker_buy_in`): `round(min_buy_in × buy_in_multiplier)` capped at the
+        tier max — NOT the raw min. Gating stickiness on the raw min while the
+        greedy seats on the multiplied amount opens a dead band
+        `[min, min × mult]`: an AI there is rich enough to refuse lower tables
+        (this gate) yet too poor to ever be placed at its target (greedy), so
+        it strands forever as "stale idle". Mirroring the formula here lets
+        such an AI relax down to a tier it can actually sit at.
+        """
         try:
-            _, t_min, _ = table_buy_in_window(target_stake)
+            _, t_min, t_max = table_buy_in_window(target_stake)
         except Exception:
             return True  # unknown tier — don't gate
-        return projected >= t_min
+        required = min(round(t_min * buy_in_multiplier), t_max)
+        return projected >= required
 
     # 2. Candidate pool: idle AIs first, then eligible-never-seated; exclude
     #    fish (casino-only) and the already-seated.
@@ -694,7 +760,9 @@ def _process_global_greedy_fills(
                 entry is not None
                 and entry.target_stake is not None
                 and entry.target_stake != ft.stake_label
-                and _can_afford_target(entry.target_stake, projected)
+                and _can_afford_target(
+                    entry.target_stake, projected, knobs.buy_in_multiplier
+                )
             ):
                 continue  # target-stake stickiness (relaxed if can't afford target)
             allowed.add(tid)
@@ -828,6 +896,11 @@ def refresh_unseated_tables(
     # opponent at another table mid-hand. None → no live games to honor
     # (the default for sim/test callers, preserving their behavior).
     live_seated_pids: Optional[Set[str]] = None,
+    # Number of open seats the global greedy fill leaves untouched on each
+    # table, reserving them for a human who taps Sit/Sponsor in the lobby.
+    # 0 (default) = full saturation, which is what sims/tests want; the
+    # LIVE lobby + ticker pass `economy_flags.LIVE_FILL_HUMAN_HEADROOM`.
+    human_headroom: int = 0,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -856,8 +929,41 @@ def refresh_unseated_tables(
         vice_mode = _economy_flags.VICE_MODE
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+
+    # Sponsorship seat-hold expiry — runs BEFORE seated_globally / the
+    # per-table loop so a hold whose TTL lapsed this refresh frees its
+    # seat back to "open" and becomes fillable in the same tick. The
+    # frontend releases holds explicitly on SponsorModal-close; this is
+    # the safety net for the abandoned-modal case (closed tab, dropped
+    # network) so a stale hold can't strand a seat against live-fill.
+    # Mutates the loaded `tables` in place so the rest of the refresh
+    # sees the freed seats.
+    from cash_mode.tables import is_reservation_expired, open_slot
+
+    for table in tables:
+        freed_any = False
+        for idx, slot in enumerate(table.seats):
+            if is_reservation_expired(slot, now):
+                table.seats[idx] = open_slot()
+                freed_any = True
+        if freed_any:
+            try:
+                cash_table_repo.save_table(table, sandbox_id=sandbox_id, now=now)
+                logger.info(
+                    "[CASH][LOBBY] expired sponsorship seat-hold(s) on table=%r",
+                    table.table_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] failed to free expired seat-hold on %r: %s",
+                    table.table_id,
+                    exc,
+                )
+
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
-    seated_globally = _global_seated_set(tables)
+    seated_globally = SeatOccupancyRegistry(
+        _global_seated_set(tables), label="refresh_unseated_tables"
+    )
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
 
     # A persona the human is playing live counts as occupied even when the
@@ -1709,6 +1815,7 @@ def refresh_unseated_tables(
         now=now,
         rng=rng,
         seek_rate=seek_rate,
+        human_headroom=human_headroom,
     )
 
     # Emit the last-stand predator signal for AIs newly committed since
@@ -4195,32 +4302,33 @@ def _process_aspiration_asks(
             continue
         staker_id, staker_profile = picked
 
-        # Commit. Vacate the seat, return seat chips to bankroll, add
-        # the stake principal to the asker's bankroll, debit the
-        # staker, create the Stake row, place asker in the idle pool
-        # targeting the new tier.
+        # Commit — financial operations FIRST, structural mutations LAST
+        # (Window A atomicity, CASH_SEAT_INVARIANT_HARDENING §3).
+        #
+        # Order: (1) debit the staker; (2) create the Stake row, refunding
+        # the staker if that write fails; (3) only after BOTH financial
+        # ops have committed, vacate the seat + queue the chip-return.
+        #
+        # Rationale: the seat vacate and `from_seat` chip-return credit
+        # the asker `seat_chips + principal`. If they ran before a failed
+        # staker debit (the historical order), nobody was debited the
+        # `principal` → minted chips. Reordering makes the structural
+        # mutations pure in-memory writes on `result` that only run on the
+        # fully-committed financial path — they have no independent
+        # failure of their own. The success end-state is identical: the
+        # same debit, the same stake row, the same seat vacate, the same
+        # single `from_seat` of `seat_chips + principal`.
         seat_chips = int(slot.get("chips", 0) or 0)
-        table.seats[seat_idx] = open_slot()
 
-        # Single BankrollChange combining the seat-chip return and the
-        # stake-principal credit. The post-burst code applies
-        # from_seat changes via credit_ai_cash_out, which writes one
-        # row + handles regen — combining the two amounts is a
-        # single write, cleaner than two separate calls.
-        result.bankroll_changes.append(
-            BankrollChange(
-                direction="from_seat",
-                personality_id=asker_pid,
-                amount=seat_chips + principal,
-            )
-        )
-
-        # Debit the staker inline (matches Phase 4's stake_creations
-        # post-loop debit pattern).
+        # (1) Debit the staker inline (matches Phase 4's stake_creations
+        # post-loop debit pattern). `debit_bankroll_for_seat` signals
+        # failure two ways: it RAISES, or it returns None (insufficient
+        # funds / missing row — the audit-safe refusal). BOTH must skip
+        # the ask cleanly without touching the seat, or chips mint.
         try:
             from cash_mode.bankroll import debit_bankroll_for_seat
 
-            debit_bankroll_for_seat(
+            debited = debit_bankroll_for_seat(
                 bankroll_repo,
                 staker_id,
                 principal,
@@ -4238,8 +4346,20 @@ def _process_aspiration_asks(
                 exc,
             )
             continue
+        if debited is None:
+            logger.warning(
+                "[CASH][LOBBY] aspiration: staker debit refused "
+                "staker=%r pid=%r principal=%d — skipping climb",
+                staker_id,
+                asker_pid,
+                principal,
+            )
+            continue
 
-        # Create the stake row.
+        # (2) Create the stake row. If the write fails AFTER the staker
+        # was debited, refund the staker the `principal` (reversing only
+        # the transfer portion — any regen the debit committed is real
+        # and stays) and skip the ask. The seat has NOT been touched yet.
         import uuid
 
         stake = Stake(
@@ -4268,7 +4388,65 @@ def _process_aspiration_asks(
                 staker_id,
                 exc,
             )
+            # Refund the staker so the committed debit isn't a silent
+            # loss. `debited` is the post-debit AIBankrollState; add the
+            # principal back to it (the transfer is reversed; the regen
+            # commit, if any, is preserved).
+            try:
+                from cash_mode.bankroll import AIBankrollState
+
+                bankroll_repo.save_ai_bankroll(
+                    AIBankrollState(
+                        personality_id=staker_id,
+                        chips=debited.chips + principal,
+                        last_regen_tick=debited.last_regen_tick,
+                    ),
+                    sandbox_id=sandbox_id,
+                )
+            except TypeError as te:
+                if "sandbox_id" not in str(te):
+                    logger.warning(
+                        "[CASH][LOBBY] aspiration: staker refund failed "
+                        "staker=%r principal=%d: %s",
+                        staker_id,
+                        principal,
+                        te,
+                    )
+                else:
+                    bankroll_repo.save_ai_bankroll(
+                        AIBankrollState(
+                            personality_id=staker_id,
+                            chips=debited.chips + principal,
+                            last_regen_tick=debited.last_regen_tick,
+                        )
+                    )
+            except Exception as refund_exc:
+                logger.warning(
+                    "[CASH][LOBBY] aspiration: staker refund failed "
+                    "staker=%r principal=%d: %s",
+                    staker_id,
+                    principal,
+                    refund_exc,
+                )
             continue
+
+        # (3) Both financial ops committed — now vacate the seat and queue
+        # the chip-return. Pure in-memory mutations on `result`; no
+        # independent failure path.
+        table.seats[seat_idx] = open_slot()
+
+        # Single BankrollChange combining the seat-chip return and the
+        # stake-principal credit. The post-burst code applies
+        # from_seat changes via credit_ai_cash_out, which writes one
+        # row + handles regen — combining the two amounts is a
+        # single write, cleaner than two separate calls.
+        result.bankroll_changes.append(
+            BankrollChange(
+                direction="from_seat",
+                personality_id=asker_pid,
+                amount=seat_chips + principal,
+            )
+        )
 
         # Relationship event — same shape as bust-stake.
         if relationship_repo is not None:
