@@ -207,32 +207,6 @@ class GameRepository(BaseRepository):
                 'owner_name': row['owner_name'],
             }
 
-    @retry_on_lock()
-    def load_tournament_tracker(self, game_id: str) -> Optional[Dict[str, Any]]:
-        """Load a LEGACY tournament-tracker blob (pre-3B games).
-
-        Retained read-only: `TournamentTracker` is retired, but cold-load uses
-        this to migrate a legacy game's elimination history into a
-        `TournamentSession` (see `single_table_tournament.session_from_legacy_tracker`).
-        New games never write this table.
-
-        Args:
-            game_id: The game identifier
-
-        Returns:
-            Dict that can be passed to TournamentTracker.from_dict(), or None if not found
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT tracker_json FROM tournament_tracker WHERE game_id = ?", (game_id,)
-            )
-            row = cursor.fetchone()
-
-            if not row:
-                return None
-
-            return json.loads(row[0])
-
     def list_games(
         self, owner_id: Optional[str] = None, limit: int = 20, offset: int = 0
     ) -> List[SavedGame]:
@@ -289,7 +263,6 @@ class GameRepository(BaseRepository):
             conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM game_messages WHERE game_id = ?", (game_id,))
-            conn.execute("DELETE FROM tournament_tracker WHERE game_id = ?", (game_id,))
             # pressure_events intentionally preserved — they record per-hand
             # drama events that the admin dashboard and player_career_stats
             # read back for post-session analytics. Cash leave used to wipe

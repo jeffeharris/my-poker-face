@@ -897,40 +897,26 @@ def api_game_state(game_id):
                             and single_session is None
                         ):
                             # Legacy single game (pre-3B): no session row yet.
-                            # Convert its saved tracker blob into a session
-                            # (preserving elimination history), or seed a fresh
-                            # one from the live table. Either way the game becomes
-                            # session-backed — TournamentTracker is fully retired.
+                            # Seed a fresh single-table session from the live
+                            # table so the game becomes session-backed.
+                            # TournamentTracker is fully retired (v124) — any
+                            # legacy tracker blob is NOT migrated; stacks may have
+                            # diverged mid-hand, the next boundary resyncs the field.
                             from flask_app.handlers.single_table_tournament import (
                                 build_session_for_new_game,
-                                session_from_legacy_tracker,
                             )
 
                             players = state_machine.game_state.players
-                            tracker_data = extensions.game_repo.load_tournament_tracker(game_id)
-                            if tracker_data:
-                                single_session = session_from_legacy_tracker(tracker_data, players)
-                                if single_session is not None:
-                                    logger.info(
-                                        "[LOAD] migrated legacy tracker -> session for %s "
-                                        "(%d eliminations)",
-                                        game_id,
-                                        len(single_session.field.eliminations),
-                                    )
-                            if single_session is None:
-                                # No usable history: seed a fresh single-table
-                                # session. Stacks may have diverged mid-hand; the
-                                # next hand boundary resyncs the field.
-                                total = sum(p.stack for p in players)
-                                n = len(players)
-                                starting_stack = (
-                                    total // n
-                                    if n and total % n == 0
-                                    else (players[0].stack if players else 0)
-                                )
-                                single_session = build_session_for_new_game(
-                                    players, starting_stack=starting_stack, seed=0
-                                )
+                            total = sum(p.stack for p in players)
+                            n = len(players)
+                            starting_stack = (
+                                total // n
+                                if n and total % n == 0
+                                else (players[0].stack if players else 0)
+                            )
+                            single_session = build_session_for_new_game(
+                                players, starting_stack=starting_stack, seed=0
+                            )
                             try:
                                 from flask_app.services import tournament_registry
 

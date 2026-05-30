@@ -199,15 +199,6 @@ def test_coach_mode(repo):
     assert repo.load_coach_mode("game1") == "on"
 
 
-# --- Tournament Tracker ---
-
-
-# TournamentTracker is retired (the TournamentSession owns eliminations now);
-# `load_tournament_tracker` is kept read-only for the legacy cold-load migration.
-def test_legacy_tournament_tracker_load_not_found(repo):
-    assert repo.load_tournament_tracker("nonexistent") is None
-
-
 # --- Messages ---
 
 

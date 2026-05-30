@@ -61,52 +61,6 @@ def test_fold_live_hand_rejects_chip_leak():
         s.fold_live_hand({'Jeff': 10000, 'Gordon': 15000, 'Bob': 0}, eliminator='Gordon')
 
 
-def test_session_from_legacy_tracker_preserves_history():
-    """Cold-load migration: a legacy TournamentTracker blob + live stacks rebuild
-    an equivalent session (active stacks + elimination history)."""
-    from flask_app.handlers.single_table_tournament import session_from_legacy_tracker
-
-    class P:
-        def __init__(self, name, stack, is_human=False):
-            self.name, self.stack, self.is_human = name, stack, is_human
-
-    tracker_data = {
-        'starting_players': [
-            {'name': 'Jeff', 'is_human': True},
-            {'name': 'Gordon', 'is_human': False},
-            {'name': 'Bob', 'is_human': False},
-        ],
-        'eliminations': [
-            {'eliminated_player': 'Bob', 'eliminator': 'Gordon',
-             'finishing_position': 3, 'hand_number': 4},
-        ],
-        'hand_count': 7,
-    }
-    # Live table mid-game: Bob busted (0), Jeff + Gordon active, total conserved.
-    players = (P('Jeff', 12000, True), P('Gordon', 18000), P('Bob', 0))
-    s = session_from_legacy_tracker(tracker_data, players)
-
-    assert s is not None
-    assert not s.is_complete() and not s.human_out
-    assert s.field.stacks == {'Jeff': 12000, 'Gordon': 18000}
-    assert [(e.player_id, e.finishing_position, e.eliminator) for e in s.field.eliminations] == [
-        ('Bob', 3, 'Gordon')
-    ]
-    s.field.assert_conservation()
-
-
-def test_session_from_legacy_tracker_bails_on_unconserved():
-    from flask_app.handlers.single_table_tournament import session_from_legacy_tracker
-
-    class P:
-        def __init__(self, name, stack, is_human=False):
-            self.name, self.stack, self.is_human = name, stack, is_human
-
-    tracker_data = {'starting_players': [{'name': 'A', 'is_human': True}, {'name': 'B'}]}
-    # Total 9001 not divisible by 2 -> can't cleanly reconstruct -> None.
-    assert session_from_legacy_tracker(tracker_data, (P('A', 9001, True), P('B', 0))) is None
-
-
 def test_build_session_for_new_game_uses_buyin_not_live_stacks():
     """Blinds are posted by the time the session is built, so the buy-in must be
     passed explicitly — not read off a (reduced) live stack."""

@@ -221,7 +221,7 @@ _test_schema_template_path = None
 #       ('fake'|'engine', rebuilt on rehydrate — resolvers aren't stored).
 #       Re-enterable across navigation / TTL eviction / restart, mirroring
 #       cash cold-load. See docs/plans/TOURNAMENT_PERSISTENCE_HANDOFF.md.
-SCHEMA_VERSION = 123
+SCHEMA_VERSION = 124
 
 
 class SchemaManager:
@@ -1235,18 +1235,11 @@ class SchemaManager:
             except Exception:
                 pass  # Columns will be added by migration v71, which creates these indexes
 
-            # 23. Tournament tracker (v29)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS tournament_tracker (
-                    game_id TEXT PRIMARY KEY,
-                    tracker_json TEXT NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)"
-            )
+            # 23. Tournament tracker (v29) — DROPPED in v124. `TournamentTracker`
+            # was retired by the tournament-unification work (every game is now a
+            # `TournamentSession`; a single game is a 1-table session). Fresh DBs
+            # never create it; existing DBs drop it in
+            # `_migrate_v124_drop_tournament_tracker`.
 
             # 23b. Multi-table tournament (MTT) durable state (v123) — see
             # _migrate_v123_create_tournaments. session_json is the source of
@@ -2042,6 +2035,10 @@ class SchemaManager:
             123: (
                 self._migrate_v123_create_tournaments,
                 "Create tournaments table — durable multi-table tournament meta-state (serialized TournamentSession + live game_id + status + resolver_kind) so a tournament survives navigation / TTL eviction / restart",
+            ),
+            124: (
+                self._migrate_v124_drop_tournament_tracker,
+                "Drop legacy tournament_tracker table — TournamentTracker retired by the unification (every game is a TournamentSession); brute-force cut drops any games that still depended on it (pre-release, no real user data)",
             ),
         }
 
@@ -6472,3 +6469,27 @@ class SchemaManager:
             "CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)"
         )
         logger.info("Migration v123 complete: tournaments table created")
+
+    def _migrate_v124_drop_tournament_tracker(self, conn: sqlite3.Connection) -> None:
+        """Migration v124: drop the legacy `tournament_tracker` table.
+
+        `TournamentTracker` was retired by the tournament-unification work (every
+        game is now a `TournamentSession`; a single game is a 1-table session).
+        The table lingered briefly, read-only, only to migrate legacy
+        saved-tracker blobs into sessions on cold-load — that shim is now removed.
+
+        Brute-force clean cut (pre-release, no real user data): any game that
+        still depended on the tracker is dropped along with the table rather than
+        migrated. Targeted by the tracker's own `game_id`s, so cash games and
+        session-backed games are untouched. May leave a few orphan rows in
+        related tables for those dropped games — acceptable for this cut.
+        """
+        try:
+            conn.execute(
+                "DELETE FROM games WHERE game_id IN (SELECT game_id FROM tournament_tracker)"
+            )
+        except sqlite3.OperationalError:
+            pass  # table already absent on this DB — nothing to clean
+        conn.execute("DROP INDEX IF EXISTS idx_tournament_tracker_game")
+        conn.execute("DROP TABLE IF EXISTS tournament_tracker")
+        logger.info("Migration v124 complete: tournament_tracker dropped (legacy tracker retired)")

@@ -60,52 +60,6 @@ def build_session_for_new_game(players, *, starting_stack: int, seed: int) -> To
     )
 
 
-def session_from_legacy_tracker(tracker_data: dict, players) -> TournamentSession | None:
-    """Convert a legacy saved `TournamentTracker` blob + the live player tuple
-    into an equivalent single-table `TournamentSession`, so pre-3B games that
-    cold-load after the tracker was retired keep their elimination history and
-    can still finish through the unified path.
-
-    Best-effort: returns None if the blob is unusable or chips don't reconcile,
-    in which case the caller builds a fresh session. `players` is the live
-    `Player` tuple (busted players linger at stack 0)."""
-    from tournament.field import Elimination
-
-    starting = tracker_data.get('starting_players') or []
-    if not starting:
-        return None
-    entries = {p['name']: ('human' if p.get('is_human') else 'ai') for p in starting}
-    human_id = next((p['name'] for p in starting if p.get('is_human')), None)
-    if human_id is None:
-        return None
-    field_size = len(entries)
-    total = sum(p.stack for p in players)  # chips are conserved across the table
-    if field_size == 0 or total <= 0 or total % field_size != 0:
-        return None
-    starting_stack = total // field_size
-
-    session = TournamentSession.for_single_table(
-        entries=entries, human_id=human_id, starting_stack=starting_stack, seed=0
-    )
-    session.field.stacks = {p.name: p.stack for p in players if p.stack > 0}
-    session.field.eliminations = [
-        Elimination(
-            player_id=e['eliminated_player'],
-            finishing_position=e['finishing_position'],
-            round_index=e.get('hand_number', 0),
-            eliminator=e.get('eliminator'),
-        )
-        for e in tracker_data.get('eliminations', [])
-    ]
-    session._hand_counter = tracker_data.get('hand_count', 0)
-    session.rounds = tracker_data.get('hand_count', 0)
-    try:
-        session.field.assert_conservation()
-    except AssertionError:
-        return None
-    return session
-
-
 def single_table_hand_boundary(
     game_id: str,
     game_data: dict,

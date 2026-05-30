@@ -1607,7 +1607,6 @@ def api_storage_stats():
                 'hand_commentary',
                 'tournament_results',
                 'tournament_standings',
-                'tournament_tracker',
             ],
             'ai_state': [
                 'ai_player_state',
