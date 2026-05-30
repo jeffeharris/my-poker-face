@@ -3,6 +3,7 @@ purpose: Executable handoff — validate the shipped variety/fish work at short 
 type: guide
 created: 2026-05-29
 last_updated: 2026-05-29
+status: A PASS (validated), D done, B re-run vs proper calling fields, C script built+validated (apply pending merge), E pending
 ---
 
 # Variety + fish validation & deploy — NEW-CONTEXT START HERE
@@ -82,6 +83,16 @@ then run the migration there against that worktree's DB.
    personas from the fixture, fresh prod fish get them automatically; if prod has **existing bare
    fish rows**, run the migration script against the prod DB (Hetzner `/opt/poker`, backend-stopped,
    backup first). Determine which by checking how prod seeds fish.
+   **RESOLVED (2026-05-29):** `deploy.sh:57` runs `migrate_avatars_to_db.py` **without `--overwrite`**,
+   and `seed_personalities_from_json(overwrite=False)` **SKIPS existing rows**. So prod's existing
+   fish rows will **NOT** auto-pick-up the new fixture `spot_tendencies` on deploy — only brand-new
+   (never-seeded) fish names would. **→ The migration script (`scripts/migrate_fish_spot_tendencies.py`)
+   IS required for prod's existing fish.** (An equivalent alternative: a one-off
+   `migrate_avatars_to_db.py --overwrite` — but that overwrites ALL persona configs from the fixture,
+   blowing away any prod-side hand-edits; the targeted migration script only touches fish_leak +
+   spot_tendencies on fish rows, so it's the safer surgical choice.) Script is built + dry-run-validated
+   on the lookup-tables DB (correctly maps Greg/Brenda/Bobby→sticky, Cruise Carl→bare); WAL-safe backup,
+   idempotent, conservation-safe, DRY-RUN by default.
 3. The `weak_fish`/`calling_station_pblind`/`StationPBlind` measurement archetypes are harmless in
    prod (only `weak_fish` is assigned, via the $2 stake gate).
 4. **Don't** let `position_blind` reach DEEP fish/whales (it helps them vs foldy fields) — it's
