@@ -14,6 +14,7 @@ from .cash_table_repository import CashTableRepository
 from .chip_ledger_repository import ChipLedgerRepository
 from .coach_repository import CoachRepository
 from .decision_analysis_repository import DecisionAnalysisRepository
+from .entity_presence_repository import EntityPresenceRepository
 from .experiment_repository import ExperimentRepository
 from .game_repository import GameRepository, SavedGame
 from .guest_tracking_repository import GuestTrackingRepository
@@ -94,6 +95,7 @@ __all__ = [
     'ChipLedgerRepository',
     'CoachRepository',
     'DecisionAnalysisRepository',
+    'EntityPresenceRepository',
     'ExperimentRepository',
     'GameRepository',
     'GuestTrackingRepository',
