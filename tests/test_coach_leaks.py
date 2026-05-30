@@ -45,10 +45,13 @@ class TestLeakClassification:
         assert rep.leaks == []
 
     def test_min_sample_gate(self):
-        # Only 2 plays of a fold-hand — below the default gate, not flagged.
-        rep = compute_preflop_leaks(_decisions('72o', 'UTG', 'call', 2), reference=_fake_ref)
+        # A single one-off play is not a leak (default gate is 2 = a repeat).
+        rep = compute_preflop_leaks(_decisions('72o', 'UTG', 'call', 1), reference=_fake_ref)
         assert rep.leaks == []
-        assert rep.total_decisions == 2
+        assert rep.total_decisions == 1
+        # Two plays of the same below-range hand IS flagged (a repeat).
+        rep2 = compute_preflop_leaks(_decisions('72o', 'UTG', 'call', 2), reference=_fake_ref)
+        assert len(rep2.leaks) == 1 and rep2.leaks[0].canon == '72o'
 
     def test_ranked_worst_first(self):
         decisions = _decisions('72o', 'UTG', 'call', 8) + _decisions('J5o', 'CO', 'call', 4)

@@ -33,9 +33,12 @@ logger = logging.getLogger(__name__)
 # Actions that count as Voluntarily Putting $ In Pot.
 _VOLUNTARY = {'call', 'raise', 'bet', 'all_in'}
 
-# Minimum times a (position, hand) combo must appear before we call it a leak —
-# one loose call isn't a leak, a pattern is.
-DEFAULT_MIN_SAMPLE = 4
+# Minimum times a (position, hand) combo must appear before we flag it — one
+# loose call isn't a leak, a repeat is. Set to 2 (a *repeated* below-range play):
+# validated against real data, a gate of 4 never fired at realistic session
+# volume (~100 hands), since any single (position, hand) is rarely seen 4×. The
+# overall sample is still guarded by the endpoint's enough_data gate.
+DEFAULT_MIN_SAMPLE = 2
 
 
 @dataclass(frozen=True)
