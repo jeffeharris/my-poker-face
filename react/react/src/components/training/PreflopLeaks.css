@@ -136,3 +136,49 @@
   line-height: 1.5;
   color: var(--color-text-muted, #9ca3af);
 }
+
+.pfl-ask {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.25rem;
+  padding: 0.7rem 1.1rem;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-emerald, #10b981);
+  color: #04150f;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.pfl-ask:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.pfl-ask:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.pfl-feedback {
+  margin-top: 1rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: 12px;
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+.pfl-feedback-label {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-emerald, #34d399);
+}
+.pfl-feedback p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--color-text, #e5e7eb);
+}

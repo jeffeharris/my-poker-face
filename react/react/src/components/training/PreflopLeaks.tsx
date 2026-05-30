@@ -42,6 +42,27 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
   const [data, setData] = useState<LeaksResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+
+  const askCoach = async () => {
+    if (feedbackLoading) return;
+    setFeedbackLoading(true);
+    try {
+      const resp = await fetch(`${config.API_URL}/api/coach/preflop-leaks/feedback`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await resp.json();
+      setFeedback(resp.ok ? json.feedback : (json.error ?? 'The coach is unavailable right now.'));
+    } catch (err) {
+      logger.error('Failed to get coach feedback:', err);
+      setFeedback('The coach is unavailable right now.');
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -146,6 +167,21 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
               voluntarily play that sit below your position's range — folding tight isn't
               counted (it can be the right play facing a raise).
             </p>
+
+            <button
+              type="button"
+              className="pfl-ask"
+              onClick={askCoach}
+              disabled={feedbackLoading}
+            >
+              {feedbackLoading ? 'Coach is reviewing…' : 'Ask the coach about this'}
+            </button>
+            {feedback && (
+              <div className="pfl-feedback">
+                <span className="pfl-feedback-label">Coach</span>
+                <p>{feedback}</p>
+              </div>
+            )}
           </div>
         )}
       </PageLayout>
