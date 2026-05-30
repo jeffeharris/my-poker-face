@@ -3811,7 +3811,7 @@ def offer_stake_to_ai():
     import random as _random
 
     from cash_mode.lobby import ensure_lobby_seeded
-    from cash_mode.tables import ai_slot
+    from cash_mode.tables import ai_slot, open_slot
 
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
@@ -3854,105 +3854,198 @@ def offer_stake_to_ai():
     table, open_seat_index = _random.choice(seatable)
     target_table_id = table.table_id
 
-    # Atomic-ish commit: debit player bankroll (+ AI bankroll for the
-    # match in match-share), persist seat, persist stake row. If any
-    # step fails after the player debit, the chip-ledger audit will
-    # surface the drift — the alternative (full transactional wrap)
-    # would require pulling all four repos into one connection, which
-    # the BaseRepository API doesn't expose. Order matters: charge the
-    # player BEFORE seating so an exception leaves them under-charged
-    # (recoverable via account credit) not over-charged.
+    # Phase 4 (CASH_SEAT_INVARIANT_HARDENING §1.2/§3 Window C): commit
+    # all chip + seat + stake mutations INSIDE the per-sandbox lock, and
+    # only AFTER re-verifying the chosen seat is still open. This closes
+    # two partial-commit windows on this real-money human route:
+    #   (race)   the seat is taken by a concurrent ticker live-fill
+    #            between selection and the write → we now 409 with NO
+    #            player debit (previously the player was debited above
+    #            the lock and stranded).
+    #   (orphan) `create_stake` raises after the seat write → we now
+    #            roll back (un-seat + refund player + reverse AI
+    #            fee/match) instead of leaving an AI seated with the
+    #            player's principal and no backing stake row.
+    # SQLite has no cross-repo transaction, so rollback is manual; if
+    # rollback itself fails the chip-ledger audit is the backstop. The
+    # SUCCESS end-state is byte-identical to the prior ordering (same
+    # player debit, AI fee/match, seat write, stake row) — only the
+    # commit *timing* (now under the lock) changed.
     seat_chips = principal + (match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0)
-
     new_player_chips = bankroll.chips - total_player_outlay
-    bankroll_repo.save_player_bankroll(
-        PlayerBankrollState(
-            player_id=bankroll.player_id,
-            chips=new_player_chips,
-            starting_bankroll=bankroll.starting_bankroll,
-        )
-    )
-
-    # Pure-stake origination fee: chips move player bankroll → AI
-    # bankroll at deal time. The total_player_outlay above already
-    # deducted from the player; credit the AI side here. Use
-    # credit_ai_cash_out so the regen + ledger semantics stay
-    # consistent with the rest of the AI-credit surface.
-    if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
-        credit_ai_cash_out(
-            bankroll_repo,
-            target_pid,
-            origination_fee,
-            sandbox_id=sandbox_id,
-            now=now,
-            chip_ledger_repo=chip_ledger_repo,
-            ledger_context={
-                'site': 'player_stake_origination_fee',
-                'stake_label': stake_label,
-            },
-        )
-
-    # Match-share: debit the AI's match contribution from their bankroll
-    # before the seat write. Atomic regen+debit (chip_ledger_repo passed
-    # so any pending regen commits via `ai_regen` instead of being
-    # ignored and silently clamped at the debit).
-    if stake_format == STAKE_FORMAT_MATCH_SHARE:
-        from cash_mode.bankroll import debit_bankroll_for_seat
-
-        debit_bankroll_for_seat(
-            bankroll_repo,
-            target_pid,
-            match_amount,
-            sandbox_id=sandbox_id,
-            chip_ledger_repo=chip_ledger_repo,
-            now=now,
-        )
-
-    # Persist the seat under the per-sandbox lock, re-reading the table
-    # first so we don't clobber a ticker live-fill that took our chosen
-    # seat between selection and now (which would strand that AI's already
-    # debited buy-in). Saving the FRESH table preserves any other seat the
-    # ticker changed meanwhile.
-    from flask_app.services import game_state_service
-
-    with game_state_service.get_sandbox_lock(sandbox_id):
-        fresh = cash_table_repo.load_table(target_table_id, sandbox_id=sandbox_id)
-        if fresh is None or fresh.seats[open_seat_index].get("kind") != "open":
-            # Lost the seat in the race window. The player was already
-            # debited above; like the other post-debit steps here, the
-            # resulting drift is surfaced by the chip-ledger audit. Ask
-            # them to retry rather than clobbering whoever took the seat.
-            return jsonify({"error": "That seat was just taken — please try again"}), 409
-        # save_table enforces the seated⇒not-idle invariant: if the staked AI
-        # was resting in the idle pool, its row is cleared in the same write
-        # (see CashTableRepository.save_table).
-        updated_table = fresh.with_seat(open_seat_index, ai_slot(target_pid, seat_chips))
-        cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
 
     import uuid as _uuid
 
+    from cash_mode.bankroll import debit_bankroll_for_seat
+    from flask_app.services import game_state_service
+
     stake_id = f"player_stake_{_uuid.uuid4().hex[:12]}"
     session_id = f"player_session_{target_pid}_{int(now.timestamp())}"
-    stake_repo.create_stake(
-        Stake(
-            stake_id=stake_id,
-            session_id=session_id,
-            staker_id=owner_id,
-            staker_kind=STAKER_KIND_HUMAN,
-            borrower_id=target_pid,
-            borrower_kind=BORROWER_KIND_PERSONALITY,
-            format=stake_format,
-            principal=principal,
-            match_amount=match_amount,
-            origination_fee=origination_fee,
-            cut=cut,
-            status=STAKE_STATUS_ACTIVE,
-            carry_amount=0,
-            stake_tier=stake_label,
-            created_at=now,
-            table_id=target_table_id,
+
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        # Re-read the table under the lock so we don't clobber a ticker
+        # live-fill that took our chosen seat between selection and now.
+        fresh = cash_table_repo.load_table(target_table_id, sandbox_id=sandbox_id)
+        if fresh is None or fresh.seats[open_seat_index].get("kind") != "open":
+            # Lost the seat in the race window. No chips have moved yet —
+            # the player debit + AI fee/match now happen below, AFTER this
+            # gate — so we return a clean 409 with NOTHING committed.
+            return jsonify({"error": "That seat was just taken — please try again"}), 409
+
+        # Debit the player (principal + origination_fee). Done inside the
+        # lock now that the seat is confirmed ours.
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=new_player_chips,
+                starting_bankroll=bankroll.starting_bankroll,
+            )
         )
-    )
+
+        # Pure-stake origination fee: chips move player bankroll → AI
+        # bankroll at deal time. The total_player_outlay above already
+        # deducted from the player; credit the AI side here. Use
+        # credit_ai_cash_out so the regen + ledger semantics stay
+        # consistent with the rest of the AI-credit surface.
+        if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
+            credit_ai_cash_out(
+                bankroll_repo,
+                target_pid,
+                origination_fee,
+                sandbox_id=sandbox_id,
+                now=now,
+                chip_ledger_repo=chip_ledger_repo,
+                ledger_context={
+                    'site': 'player_stake_origination_fee',
+                    'stake_label': stake_label,
+                },
+            )
+
+        # Match-share: debit the AI's match contribution from their
+        # bankroll before the seat write. Atomic regen+debit
+        # (chip_ledger_repo passed so any pending regen commits via
+        # `ai_regen` instead of being ignored and silently clamped).
+        if stake_format == STAKE_FORMAT_MATCH_SHARE:
+            debit_bankroll_for_seat(
+                bankroll_repo,
+                target_pid,
+                match_amount,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
+            )
+
+        # save_table enforces the seated⇒not-idle invariant: if the staked
+        # AI was resting in the idle pool, its row is cleared in the same
+        # write (see CashTableRepository.save_table). Saving the FRESH
+        # table preserves any other seat the ticker changed meanwhile.
+        updated_table = fresh.with_seat(open_seat_index, ai_slot(target_pid, seat_chips))
+        cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
+
+        # Write the backing stake row LAST, with manual rollback on
+        # failure: a raise here would otherwise leave the AI seated with
+        # the player's principal but no stake → settlement-time chip loss
+        # for the player.
+        try:
+            stake_repo.create_stake(
+                Stake(
+                    stake_id=stake_id,
+                    session_id=session_id,
+                    staker_id=owner_id,
+                    staker_kind=STAKER_KIND_HUMAN,
+                    borrower_id=target_pid,
+                    borrower_kind=BORROWER_KIND_PERSONALITY,
+                    format=stake_format,
+                    principal=principal,
+                    match_amount=match_amount,
+                    origination_fee=origination_fee,
+                    cut=cut,
+                    status=STAKE_STATUS_ACTIVE,
+                    carry_amount=0,
+                    stake_tier=stake_label,
+                    created_at=now,
+                    table_id=target_table_id,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "[STAKE][PLAYER_OFFER] create_stake FAILED after seat write — "
+                "rolling back: owner=%r target=%r table=%r seat=%d principal=%d "
+                "match=%d fee=%d",
+                owner_id,
+                target_pid,
+                target_table_id,
+                open_seat_index,
+                principal,
+                match_amount,
+                origination_fee,
+            )
+            # 1) Un-seat the AI — revert exactly the seat we wrote.
+            try:
+                cash_table_repo.save_table(
+                    updated_table.with_seat(open_seat_index, open_slot()),
+                    sandbox_id=sandbox_id,
+                    now=now,
+                )
+            except Exception:
+                logger.exception(
+                    "[STAKE][PLAYER_OFFER] ROLLBACK un-seat FAILED — orphaned "
+                    "AI seat at %r[%d]; chip-ledger audit is the backstop",
+                    target_table_id,
+                    open_seat_index,
+                )
+            # 2) Refund the player to their pre-debit balance.
+            try:
+                bankroll_repo.save_player_bankroll(
+                    PlayerBankrollState(
+                        player_id=bankroll.player_id,
+                        chips=bankroll.chips,
+                        starting_bankroll=bankroll.starting_bankroll,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "[STAKE][PLAYER_OFFER] ROLLBACK player refund FAILED — "
+                    "player %r short %d chips; chip-ledger audit is the backstop",
+                    owner_id,
+                    total_player_outlay,
+                )
+            # 3) Reverse any AI fee/match moves so the AI bankroll nets
+            #    flat. Best-effort: regen-aware primitives may not restore
+            #    byte-exact, but they keep conservation close and the audit
+            #    surfaces residual drift.
+            try:
+                if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
+                    debit_bankroll_for_seat(
+                        bankroll_repo,
+                        target_pid,
+                        origination_fee,
+                        sandbox_id=sandbox_id,
+                        chip_ledger_repo=chip_ledger_repo,
+                        now=now,
+                    )
+                elif stake_format == STAKE_FORMAT_MATCH_SHARE:
+                    credit_ai_cash_out(
+                        bankroll_repo,
+                        target_pid,
+                        match_amount,
+                        sandbox_id=sandbox_id,
+                        now=now,
+                        chip_ledger_repo=chip_ledger_repo,
+                        ledger_context={
+                            'site': 'player_stake_offer_rollback',
+                            'stake_label': stake_label,
+                        },
+                    )
+            except Exception:
+                logger.exception(
+                    "[STAKE][PLAYER_OFFER] ROLLBACK AI fee/match reversal "
+                    "FAILED for %r; chip-ledger audit is the backstop",
+                    target_pid,
+                )
+            return jsonify(
+                {"error": "Failed to record the stake — your chips were refunded."}
+            ), 500
 
     # STAKE_OFFERED event: actor=player, target=AI. Mirrors the
     # personality-staker path's event firing. Player extends trust;
