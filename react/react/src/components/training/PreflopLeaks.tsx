@@ -34,9 +34,13 @@ const POSITION_LABEL: Record<string, string> = {
   blind: 'Blinds (SB / BB)',
 };
 
-// Bars scale to this VPIP %, not 100 — real VPIPs sit ~6-35%, so a full-100
-// scale leaves the bars (and the reference line) cramped, especially on mobile.
-const VPIP_SCALE_MAX = 50;
+// Bars auto-scale to the player's own data (with ~15% headroom, rounded to 5)
+// so they always fill the track with a bit of room left — a full-100 scale
+// leaves real VPIPs (~6-35%) cramped, especially on mobile.
+function computeScaleMax(rows: PositionRow[]): number {
+  const dataMax = Math.max(1, ...rows.flatMap((r) => [r.vpip_pct, r.reference_vpip_pct]));
+  return Math.min(100, Math.max(20, Math.ceil((dataMax * 1.15) / 5) * 5));
+}
 
 interface PreflopLeaksProps {
   onBack: () => void;
@@ -90,6 +94,8 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
     };
   }, []);
 
+  const scaleMax = data ? computeScaleMax(data.by_position) : 50;
+
   return (
     <>
       <MenuBar showUserInfo />
@@ -128,7 +134,7 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
             </p>
 
             <p className="pfl-scale-note">
-              Bars scaled to {VPIP_SCALE_MAX}% · the line marks a standard opening frequency
+              Bars scaled to {scaleMax}% · the line marks a standard opening frequency
             </p>
             <div className="pfl-positions">
               {data.by_position.map((row) => (
@@ -137,11 +143,11 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
                   <span className="pfl-pos-bar-wrap">
                     <span
                       className="pfl-pos-bar"
-                      style={{ width: `${Math.min(100, (row.vpip_pct / VPIP_SCALE_MAX) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (row.vpip_pct / scaleMax) * 100)}%` }}
                     />
                     <span
                       className="pfl-pos-ref"
-                      style={{ left: `${Math.min(100, (row.reference_vpip_pct / VPIP_SCALE_MAX) * 100)}%` }}
+                      style={{ left: `${Math.min(100, (row.reference_vpip_pct / scaleMax) * 100)}%` }}
                       title={`standard opens ~${row.reference_vpip_pct}%`}
                     />
                   </span>
