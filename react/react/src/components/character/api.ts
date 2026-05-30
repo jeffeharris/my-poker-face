@@ -95,6 +95,26 @@ export interface DossierArchetype {
   label: string;
 }
 
+/** B3 emotional read — how they handle pressure. `tilt_score`/`tilt_label`
+ *  present only with enough pressure history; `poise` (tilt resistance) and
+ *  `expressiveness` (readability) are 0–1 personality anchors. `lines` are the
+ *  one-line tells. */
+export interface DossierTemperament {
+  tilt_score: number | null;
+  tilt_label: string | null;
+  poise: number | null;
+  expressiveness: number | null;
+  lines: string[];
+}
+
+/** B4 — where the opponent sits in the LLM field for VPIP / aggression. */
+export interface DossierFieldPosition {
+  vpip_pct?: number;
+  vpip_label?: string;
+  af_pct?: number;
+  af_label?: string;
+}
+
 export interface DossierPressureSummary {
   total_events?: number;
   wins?: number;
@@ -184,6 +204,10 @@ export interface DossierResponse {
   the_read?: DossierReadTip[];
   /** B2 archetype badge. Null when locked or unmatched. */
   archetype?: DossierArchetype | null;
+  /** B3 emotional read (tilt / poise / readability). Null when locked. */
+  temperament?: DossierTemperament | null;
+  /** B4 field-relative standing. Null when locked. */
+  field_position?: DossierFieldPosition | null;
   pressure_summary: DossierPressureSummary | null;
   /** AI's off-table bankroll (chips), projected through regen.
    *  Null when no bankroll row exists yet (AI never sat down). */

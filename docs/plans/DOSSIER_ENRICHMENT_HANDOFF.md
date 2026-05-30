@@ -229,16 +229,27 @@ these archetypes — the dossier read matches how the AI itself plays them.
 > **The archetype badge** — a previously *parked* item — fell out for free
 > from `classify_opponent_archetype` (Calling Station / Sticky Jammer / Maniac).
 
-### B3. Trend / tilt indicator
-`OpponentTendencies.recent_trend` and the pressure `tilt_score` already exist.
-Surface *"VPIP climbing — they're steaming"* / a tilt gauge. Mostly display.
+### B3. Temperament / emotional read ✅ DONE (2026-05-30)
+Shipped as the dossier's **emotional read** — `dossier_signals.build_temperament`
+synthesizes the pressure `tilt_score` (a tilt gauge, event-gated so it isn't
+noise), `poise` (tilt resistance), and `expressiveness` (readability) into a
+`TEMPERAMENT` section: *"Rattles easily — keep the pressure on"*, *"Stone-faced
+— trust the math over reads."* Gate `temperament` @100; informant `tells`
+section. Distinct from the live in-the-moment `emotion` wax-seal the dossier
+already shows.
 
-### B4. Field-relative percentiles
-*"Looser than 80% of the field."* Anchor a stat against the population:
-`experiments/profile_population.py` + `llm_field.csv` (see
-`project_archetype_exploitation_goNoGo` in memory) characterize the real LLM
-field's VPIP/AF/FTC distribution. Precompute percentile buckets; show the
-opponent's standing. Contextualizes the raw numbers.
+> **The VPIP loosening/tightening *trend* was NOT built** — `recent_trend` is
+> dormant (never computed, always 'stable'), and a real trend needs windowed
+> snapshots the lifetime store doesn't keep (only cumulative counts). That's a
+> separate storage effort; flagged, not faked.
+
+### B4. Field-relative percentiles ✅ DONE (2026-05-30)
+Shipped — `dossier_signals.field_position(vpip, af)` ranks the opponent against
+the real LLM field (EXP_004's `llm_field.csv`, 26 personas, baked as a sorted
+constant — no runtime file dep): *"Looser than 80% of the field."* `FIELD
+STANDING` section, gated `field_position` @90. VPIP + aggression only — the CSV
+has no fold-to-cbet column, so FTC percentiles are out until a wider audit.
+Refresh the baked baseline when a new population audit lands.
 
 ### Also parked (bigger, separate efforts)
 - ~~**Archetype badge**~~ — ✅ done as part of B2 (Calling Station / Sticky
@@ -258,7 +269,11 @@ opponent's standing. Contextualizes the raw numbers.
 2. ~~**B1 deep reads**~~ — ✅ done (2026-05-29, schema v125).
 3. ~~**B2 exploit hints**~~ — ✅ done (2026-05-30, "the read" over the
    exploitation detectors + archetype badge; schema v126).
-4. **B3 / B4** ← **next** — polish (trend/tilt + field-relative percentiles).
+4. ~~**B3 / B4**~~ — ✅ done (2026-05-30, temperament/emotional read +
+   field-relative percentiles). **Part B complete.** What's left is the
+   "parked" backlog below (tells system, fish/whale economic badge,
+   relationship-history coolers, Data Collector perk) + the dormant-`recent_trend`
+   storage effort if a real loosening/tightening trend is wanted.
 
 ## Open tuning knobs (not blocking)
 - Per-item grind thresholds + informant prices (flat first-pass today).

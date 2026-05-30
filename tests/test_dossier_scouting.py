@@ -58,6 +58,15 @@ def _full_response():
              'intensity': 0.8},
         ],
         'archetype': {'id': 'pure_station', 'label': 'Calling Station'},
+        'temperament': {
+            'tilt_score': 0.7, 'tilt_label': 'On tilt',
+            'poise': 0.3, 'expressiveness': 0.8,
+            'lines': ['Rattles easily — keep the pressure on.'],
+        },
+        'field_position': {
+            'vpip_pct': 77, 'vpip_label': 'Looser than 77% of the field',
+            'af_pct': 60, 'af_label': 'More aggressive than 60% of the field',
+        },
     }
 
 
@@ -261,6 +270,39 @@ def test_read_below_floor_redacted():
     apply_scouting_gate(resp, hands_observed=5)
     assert resp['the_read'] == []
     assert resp['archetype'] is None
+
+
+# --- B3 temperament + B4 field standing -------------------------------------
+
+def test_temperament_and_field_gate_by_tier():
+    resp = _full_response()
+    # 95 hands: field standing (90) unlocked, temperament (100) still locked.
+    apply_scouting_gate(resp, hands_observed=95)
+    assert resp['field_position']['vpip_pct'] == 77
+    assert resp['temperament'] is None
+    s = resp['scouting']
+    assert 'field_position' in s['unlocked']
+    assert 'temperament' not in s['unlocked']
+
+
+def test_temperament_unlocks_at_its_tier():
+    resp = _full_response()
+    apply_scouting_gate(resp, hands_observed=110)
+    assert resp['temperament']['tilt_label'] == 'On tilt'
+    assert resp['field_position']['af_pct'] == 60
+
+
+def test_temperament_and_field_below_floor_redacted():
+    resp = _full_response()
+    apply_scouting_gate(resp, hands_observed=5)
+    assert resp['temperament'] is None
+    assert resp['field_position'] is None
+
+
+def test_informant_tells_section_unlocks_items():
+    s = compute_scouting(0, purchased_sections={'tells'})
+    for item in INFORMANT_SECTIONS['tells']['items']:
+        assert item in s['unlocked']
 
 
 def test_informant_tactical_read_section_unlocks_read_items():

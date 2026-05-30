@@ -91,6 +91,11 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     # first ("what they are"), the advice later ("how to beat them").
     ScoutingTier('archetype_badge', 'Archetype', 120),
     ScoutingTier('the_read', 'The read', 200),
+    # B3 emotional read + B4 field standing. Hand-only: poise/expressiveness
+    # are static personality traits and the tilt gauge self-gates on event
+    # count, so a thin file simply shows less rather than something wrong.
+    ScoutingTier('field_position', 'Field standing', 90),
+    ScoutingTier('temperament', 'Temperament', 100),
 ]
 
 _LABELS = {tier.id: tier.label for tier in SCOUTING_SCHEDULE}
@@ -154,6 +159,11 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
         'label': 'The read',
         'price': 1250,
         'items': ['archetype_badge', 'the_read'],
+    },
+    'tells': {
+        'label': 'Tells & temperament',
+        'price': 600,
+        'items': ['temperament', 'field_position'],
     },
 }
 
@@ -261,6 +271,10 @@ def _redact_item(response: Dict[str, Any], item_id: str) -> None:
         response['the_read'] = []
     elif item_id == 'archetype_badge':
         response['archetype'] = None
+    elif item_id == 'temperament':
+        response['temperament'] = None
+    elif item_id == 'field_position':
+        response['field_position'] = None
     elif item_id in ('play_style', 'vpip', 'pfr', 'aggression_factor'):
         _strip_observation_field(response, item_id)
     elif item_id == 'behavioral_index':

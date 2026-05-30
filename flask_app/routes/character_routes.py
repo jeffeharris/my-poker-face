@@ -823,6 +823,28 @@ def get_dossier(identifier: str):
     except Exception as e:
         logger.debug("[CHARACTER] player_bankroll load failed: %s", e)
 
+    # B3 emotional read + B4 field standing — pure derivations over numbers
+    # already loaded (pressure tilt, psychology anchors, observation vpip/af).
+    # Computed before the gate so it can redact them by their own tiers.
+    try:
+        from flask_app.services.dossier_signals import (
+            build_temperament,
+            field_position,
+        )
+
+        anchors_block = (response.get('personality') or {}).get('anchors')
+        response['temperament'] = build_temperament(
+            response.get('pressure_summary'), anchors_block
+        )
+        obs_block = response.get('observation') or {}
+        response['field_position'] = field_position(
+            obs_block.get('vpip'), obs_block.get('aggression_factor')
+        )
+    except Exception as e:
+        logger.debug("[CHARACTER] temperament/field signals failed: %s", e)
+        response['temperament'] = None
+        response['field_position'] = None
+
     # Scouting gate (Phase 2 — the grind). Circuit-only: applies when a
     # sandbox is in play, gating the earnable reads behind hands observed
     # against this opponent. Outside the Circuit (no sandbox) the dossier is

@@ -699,6 +699,16 @@ export function CharacterDetailCard({
   const theRead = fetched?.the_read ?? [];
   const archetype = fetched?.archetype ?? null;
   const hasRead = theRead.length > 0 || !!archetype;
+  // B3 emotional read + B4 field standing.
+  const temperament = fetched?.temperament ?? null;
+  const hasTemperament =
+    !!temperament &&
+    (temperament.lines.length > 0 ||
+      temperament.tilt_label != null ||
+      temperament.poise != null ||
+      temperament.expressiveness != null);
+  const fieldPos = fetched?.field_position ?? null;
+  const hasFieldPos = !!fieldPos && (!!fieldPos.vpip_label || !!fieldPos.af_label);
   const hasChips =
     !!character.chips &&
     (character.chips.atTable !== undefined || character.chips.bankroll !== undefined);
@@ -1279,6 +1289,61 @@ export function CharacterDetailCard({
                       No clear exploit yet — keep watching them play.
                     </p>
                   )}
+                </section>
+              </>
+            )}
+
+            {hasTemperament && temperament && (
+              <>
+                <SectionRule>TEMPERAMENT</SectionRule>
+                <section className="dossier__posture">
+                  {temperament.tilt_label && (
+                    <DataRow
+                      label="Tilt"
+                      value={
+                        temperament.tilt_score != null
+                          ? `${temperament.tilt_label} (${Math.round(temperament.tilt_score * 100)}%)`
+                          : temperament.tilt_label
+                      }
+                    />
+                  )}
+                  {temperament.poise != null && (
+                    <DataRow
+                      label="Composure"
+                      value={`${Math.round(temperament.poise * 100)}%`}
+                    />
+                  )}
+                  {temperament.expressiveness != null && (
+                    <DataRow
+                      label="Readability"
+                      value={`${Math.round(temperament.expressiveness * 100)}%`}
+                    />
+                  )}
+                  {temperament.lines.length > 0 && (
+                    <ul className="dossier__read-tips">
+                      {temperament.lines.map((line, i) => (
+                        <li key={i} className="dossier__read-tip">
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasFieldPos && fieldPos && (
+              <>
+                <SectionRule>FIELD STANDING</SectionRule>
+                <section className="dossier__read">
+                  <ul className="dossier__read-tips">
+                    {fieldPos.vpip_label && (
+                      <li className="dossier__read-tip">{fieldPos.vpip_label}</li>
+                    )}
+                    {fieldPos.af_label && (
+                      <li className="dossier__read-tip">{fieldPos.af_label}</li>
+                    )}
+                  </ul>
                 </section>
               </>
             )}
