@@ -859,10 +859,40 @@ def compute_coaching_data(
             position_key = _position_label_to_key(position)
             range_analysis = is_hand_in_standard_range(hand_strs[0], hand_strs[1], position_key)
             result['player_range_analysis'] = range_analysis
+
+            # Live leak recall: if THIS hand+position is one of the player's
+            # recurring preflop leaks (from their own history), flag it so the
+            # proactive coach can give a Socratic reminder in the moment. Only
+            # preflop; the leak set is loaded once per session and cached.
+            if result.get('phase') == 'PRE_FLOP':
+                _annotate_known_preflop_leak(result, game_data, range_analysis, position_key)
         except Exception as e:
             logger.warning(f"Player range analysis failed: {e}")
 
     return result
+
+
+def _annotate_known_preflop_leak(result, game_data, range_analysis, position_key) -> None:
+    """Set result['known_preflop_leak'] when the hand+position matches a recurring
+    leak in the player's own history. Best-effort; never raises."""
+    try:
+        from flask_app import extensions
+
+        from .coach_leaks import get_owner_leak_set, position_to_group
+
+        owner_id = game_data.get('owner_id')
+        canon = (range_analysis or {}).get('canonical_hand')
+        group = position_to_group(position_key)
+        if not (owner_id and canon and group):
+            return
+        if '_preflop_leak_set' not in game_data:
+            game_data['_preflop_leak_set'] = get_owner_leak_set(
+                extensions.persistence_db_path, owner_id
+            )
+        if (group, canon) in game_data['_preflop_leak_set']:
+            result['known_preflop_leak'] = {'canon': canon, 'position_group': group}
+    except Exception as e:
+        logger.debug(f"known-leak annotation failed: {e}")
 
 
 def compute_coaching_data_with_progression(

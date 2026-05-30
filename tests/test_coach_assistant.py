@@ -8,9 +8,29 @@ from unittest.mock import patch
 
 from flask_app.services.coach_assistant import (
     CoachResponse,
+    _format_stats_for_prompt,
     _normalize_action,
     _parse_coach_response,
 )
+
+
+class TestKnownLeakSurfacing(unittest.TestCase):
+    """The live leak-recall flag must reach the coach prompt as a KNOWN LEAK line."""
+
+    def test_known_leak_surfaced_in_stats(self):
+        text = _format_stats_for_prompt(
+            {
+                'phase': 'PRE_FLOP',
+                'position': 'Big Blind',
+                'known_preflop_leak': {'canon': 'KJo', 'position_group': 'blind'},
+            }
+        )
+        self.assertIn('KNOWN LEAK', text)
+        self.assertIn('KJo', text)
+
+    def test_no_leak_no_line(self):
+        text = _format_stats_for_prompt({'phase': 'PRE_FLOP', 'position': 'Big Blind'})
+        self.assertNotIn('KNOWN LEAK', text)
 
 
 class TestNormalizeAction(unittest.TestCase):

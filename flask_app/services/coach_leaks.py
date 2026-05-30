@@ -296,6 +296,23 @@ def format_leaks_for_prompt(report: PreflopLeakReport) -> str:
     return "\n".join(lines)
 
 
+def get_owner_leak_set(db_path: str, owner_id: str) -> set[tuple[str, str]]:
+    """The player's recurring preflop leaks as a set of (position_group, canon).
+
+    For live recall: load once per session, then a turn-time membership check is
+    O(1). Only too_loose leaks (recurring below-range hands) — these are the
+    spots worth a live nudge. Best-effort; empty on any issue.
+    """
+    try:
+        report = compute_preflop_leaks(load_owner_preflop_decisions(db_path, owner_id))
+        return {
+            (lk.position_group, lk.canon) for lk in report.leaks if lk.leak_type == 'too_loose'
+        }
+    except Exception as e:
+        logger.warning("get_owner_leak_set failed for %s: %s", owner_id, e)
+        return set()
+
+
 def load_owner_preflop_decisions(db_path: str, owner_id: str) -> list[dict]:
     """Load an owner's HUMAN preflop decisions from player_decision_analysis.
 
