@@ -101,3 +101,31 @@ set has no balanced GTO opponent; that's the only gap left.
 Bottom line across foldy/calling/punisher: no hidden aggression cost anywhere,
 passivity is the punished trait, and `position_blind` (not over_bluff) is the
 fish's real EV leak. Box torn down. Committing.
+
+## 2026-05-30 (later) — the spewy fish, and "can the game punish aggression?"
+
+Jeff asked to add a spewy aggressive fish. Built `spewy_fish` (loose table +
+over_bluff + sticky) + `SpewyFish`. It spews (VPIP 58) but is a **universal
+winner**: +67 vs grinders, +1426 vs callers. The tell is the air-bet column —
+the engine's EV floor suppresses the bluffs exactly where they'd be called (43%
+→ 14% vs the pure caller) and value-bets the donors. **A chart-based aggressive
+bot can't be a losing fish** — aggression is EV-gated; only passivity is an
+engine-compatible leak. Jeff: don't add it. Good call.
+
+That surfaced his real worry: can the game punish aggression at all, or does
+"just bet" win? Ran two experiments. **The field DOES lose to a maniac** (1
+Maniac vs 5 tight bots: maniac +57; the bots play 10–16% VPIP and fold blinds to
+its steals). But **heads-up the same bots BEAT the maniac** (+8 to +17, widening
+to 53% VPIP). So it's not an engine flaw — it's that the static personalities
+don't *adapt* (fixed tight range) in multiway, so a maniac steals blinds from a
+passive field. Real poker: a maniac prints at a table of nits.
+
+Then the wrong turn worth recording: I smoke-tested the engine's adaptive counter
+(`hyper_aggressive`) on 2 seeds and got **+36 paired edge** — "the fix works!" —
+and spun up Hetzner to confirm. At 8 seeds it collapsed to **−9 / −2, CI spanning
+0, inconclusive**. The +36 was pure noise, and the per-seed signs had *already
+disagreed* in the smoke (the exact tell I've written down twice). Lesson
+re-learned: never trust a 2-seed CRN edge, especially with sign disagreement.
+The honest result: the adaptive counter is **inert** vs aggression (re-confirming
+EXP_004/005). So the reliable lever is field *variety* (don't let tables be
+all-passive), not the counter. Box torn down.

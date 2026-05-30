@@ -304,19 +304,70 @@ defend wider, 3-bet/raise back, isolate — which the engine demonstrably *can* 
    isn't a passive steal-target — the vulnerable case is an ALL-passive field.
    Variety dilutes the problem on its own.
 2. **Adaptive defense** (`hyper_aggressive` exploitation counter: detect high
-   aggression → widen calls/defense, 3-bet back). The machinery exists. NB these
-   measurements ran with the opponent model OFF (`measure_passivity` disables it),
-   so the adaptive counter **never fired** — it's untested in the multiway
-   passive-field case that actually needs it. (EXP_004/005's "layer inert, bot
-   beats ManiacBot +30.7" was HU/isolated, where static defense already wins —
-   so the layer looked inert because it wasn't needed there.)
+   aggression → widen calls/defense, 3-bet back) — **TESTED, and it does NOT
+   work.** `exploit_bb100` (TAG and Nit, ON vs OFF twin, **Maniac×4 backdrop**,
+   opponent-model ON, 8000h × 8 seeds):
 
-**For the game:** a human playing maniac at a passive AI table *will* currently
-print (real exploit of the static field). The decision-relevant fixes are (a)
-don't let casino/career tables be all-passive (variety), and (b) validate +
-wire the adaptive counter so AIs widen vs an aggressive human. **Open follow-up:**
-test the `hyper_aggressive` counter in the multiway passive-field scenario
-(opponent-model ON) — the one scenario where a human maniac currently prints.
+   | hero | ON bb/100 | OFF bb/100 | paired edge | 95% CI | verdict |
+   |---|---|---|---|---|---|
+   | TAG | −13.3 | −4.0 | **−9.3** | [−22.3, +3.7] | inconclusive/null |
+   | Nit | −9.7 | −7.8 | **−1.9** | [−12.2, +8.3] | null |
+
+   The counter flips an action on 7–11% of hands but moves **no net EV** (both CIs
+   span 0; per-seed signs disagree). So the engine's intended adaptive defense is
+   **inert vs aggression** — re-confirming EXP_004/005. _(A 2-seed smoke showed a
+   misleading +36 paired edge; it was noise — the per-seed-sign-disagreement trap.
+   8 seeds killed it.)_
+
+### WHY the counter is inert (code-grounded)
+
+`exploitation.py:13-15` — the `hyper_aggressive` rule by design **(a) tightens
+your own opens** and **(b) widens calls vs all-ins / big bets.** But the maniac's
++57 comes from **min-raising your blinds and you folding** — neither an all-in nor
+your own open. The rule has **no blind/steal-defense** component, and the code
+flags it explicitly (`exploitation.py:121`): *"Placeholder proxy until
+`fold_to_open` lands — see PHASE_8_1 doc for the proper fix."* So the
+"defend-blinds-wider-vs-a-loose-opener" rule is **unimplemented** — the counter
+defends the wrong street, which is why it flips ~10% of actions but moves no EV.
+(HU it doesn't matter: the wide HU chart already defends blinds, which is why the
+bots beat the maniac HU.)
+
+### Archetype-shift as a counter (Jeff's idea) — tested
+
+Does shifting to a different archetype vs the maniac help more than the logit
+offset? Each hero vs Maniac×5:
+
+| hero | bb/100 | VPIP | note |
+|---|---|---|---|
+| Nit / Rock | −50 | 10–13% | tightest = worst |
+| LAG | −49 | 29% | a *moderate* widen does NOT help |
+| TAG / Defender / Baseline | −37…−44 | 15–16% | |
+| Calling Station | −29 | 35% | looser folds fewer blinds → least-bad of the losers |
+| **Maniac (mirror)** | **+0.2** | 43% | **only a full maniac breaks even** |
+
+The pattern is sharp and true to real poker: at a table of maniacs you either
+**match the aggression fully** (the maniac mirror breaks even — fights back,
+defends wide, 3-bets light) or **get run over** — and a half-measure (LAG) is the
+worst of both (tightens to 29% under the onslaught, still folds blinds). So
+"shift archetype wider" works, but only at the **full-maniac** extreme, which
+brings coin-flip variance — not a clean fix.
+
+### So: the levers, ranked
+
+1. **Field variety (shipped) — the reliable one.** A maniac vs a passive field is
+   +57; a maniac in a field that *includes* aggressive players is held to ~0 (the
+   mirror result). So a casino/career table that isn't all-passive caps a lone
+   maniac's edge automatically. Don't let tables be all-passive.
+2. **Implement the missing blind-defense rule** (`fold_to_open` / PHASE_8_1): defend
+   blinds wider vs a detected high-PFR opener. This is the **surgical** version of
+   "shift wider" — it plugs the exact leak (preflop steals) without the
+   full-maniac variance. The codebase already scoped it; it's just not built.
+3. **The existing `hyper_aggressive` logit counter: don't rely on it** — it's inert
+   here (defends the wrong street).
+
+**For the game:** a human maniac at a passive AI table *will* print, and the
+current adaptive counter won't stop them. Fixes #1 (already done) and #2 (a
+scoped, real project) are the answers; #3 is a dead end as-is.
 
 ## E — Recurring eval: ON-DEMAND (no schedule, per Jeff 2026-05-29)
 
