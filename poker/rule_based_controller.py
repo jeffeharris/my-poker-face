@@ -200,6 +200,57 @@ class RuleBasedController:
             'hands_observed': total_hands,
         }
 
+    def _range_equity(self, game_state, player, hole_cards, community_cards):
+        """Range-AWARE postflop equity (adaptive prototype): equity vs the
+        opponents' estimated RANGE rather than vs random.
+
+        Per-opponent range comes from `get_opponent_range` (action / VPIP / PFR /
+        position). Stats source priority:
+          1. `self._assumed_opp_stats` — a perfect-read stats dict the harness
+             sets (concept test: does knowing the field's looseness help?).
+          2. the live opponent_model_manager (real observed stats, prod path).
+          3. None → position-based static ranges.
+        The adaptive payoff: vs a loose field (maniac, VPIP high) the range is
+        wide → equity reads HIGH → value-bet/call more; vs a tight field the
+        range is premium → equity reads LOW → fold. Returns None on any failure
+        (caller falls back to vs-random).
+        """
+        try:
+            from .hand_ranges import (
+                EquityConfig,
+                build_opponent_info,
+                calculate_equity_vs_ranges,
+            )
+
+            opps = [p for p in game_state.players if not p.is_folded and p.name != player.name]
+            if not opps:
+                return None
+            pos_by_name = {name: pos for pos, name in game_state.table_positions.items()}
+            assumed = getattr(self, '_assumed_opp_stats', None)
+            infos = []
+            for o in opps:
+                stats = assumed
+                if stats is None and self.opponent_model_manager:
+                    om = self.opponent_model_manager.get_model(self.player_name, o.name)
+                    if om and om.tendencies:
+                        stats = om.tendencies.to_dict()
+                infos.append(
+                    build_opponent_info(
+                        name=o.name,
+                        position=pos_by_name.get(o.name, 'button'),
+                        opponent_model=stats,
+                    )
+                )
+            return calculate_equity_vs_ranges(
+                hole_cards,
+                community_cards,
+                infos,
+                iterations=200,
+                config=EquityConfig(use_enhanced_ranges=True),
+            )
+        except Exception:
+            return None
+
     def _build_context(self, game_state, player) -> Dict:
         """Build context dictionary for rule evaluation."""
         big_blind = game_state.current_ante or 100
@@ -226,11 +277,18 @@ class RuleBasedController:
         # 64 sims (~6-10ms). NB a deterministic made_tier swap was tried for speed
         # but is NOT decision-equivalent — it made CaseBotV2 lose to maniacs
         # (-96 vs the MC's +150). Kept the MC. See equity_from_made_tier.
+        # When use_range_equity is set, compute equity vs the opponents' RANGE
+        # (range-aware adaptive prototype) instead of vs-random.
         if community_cards:
-            equity = (
-                calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
-                or 0.5
-            )
+            if getattr(self, 'use_range_equity', False):
+                equity = (
+                    self._range_equity(game_state, player, hole_cards, community_cards) or 0.5
+                )
+            else:
+                equity = (
+                    calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
+                    or 0.5
+                )
         else:
             # Pre-flop equity estimate based on hand ranking
             canonical = _get_canonical_hand(hole_cards) if hole_cards else ''

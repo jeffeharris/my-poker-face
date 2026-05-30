@@ -442,6 +442,47 @@ loose-value** (the validated maniac-killer) — NOT tight-defense. `reg_vs_mania
 is kept only as the documented dead end. Bots: `Reg` / `RegVsManiac` (sim
 archetypes), `reg`/`reg_vs_maniac`/`reg_adaptive` (strategies).
 
+## Range-aware equity makes CaseBot WORSE — the "naive errors are features" finding
+
+Hypothesis: swap CaseBotV2's equity from vs-RANDOM to vs-RANGE
+(`calculate_equity_vs_ranges` + `get_opponent_range`, fed perfect-read field
+stats) → adaptive, should beat the maniac MORE (knows its range is wide) and
+stop paying off nits (knows they're tight). Built `CaseBotRange`. **REFUTED:**
+
+| opponent | vs-random (vanilla) | vs-range (CaseBotRange) |
+|---|---|---|
+| Maniac | +149.8 | **+0.6** |
+| Nit | +119.9 | +109.3 |
+| Station | +497.8 | +377.9 |
+| jeff (human) | +544.5 | +293.3 |
+| punisher | +457.7 | +213.3 |
+
+Range-aware is worse everywhere and **collapses vs the maniac.** Why — and it's
+the unifying lesson of the whole exploitation thread:
+
+- **vs the maniac:** `get_opponent_range`'s *aggression adjustment* treats a
+  high-AF opponent's bets as a STRONG range. But a maniac's aggression means
+  WIDE/weak (it bluffs). So range-aware **folds to the maniac's barrels** instead
+  of calling them down — losing exactly the call-down edge that let vanilla beat
+  it (+150). The model can't tell "aggressive because strong" from "aggressive
+  because maniac," and assumes strong.
+- **vs callers (jeff/station):** vanilla's vs-random equity *overstates* a made
+  hand's strength → CaseBotV2 value-bets/overbets MORE → the callers pay off
+  (+544). Range-aware "corrects" the equity down → bets less → extracts less
+  (+293).
+
+So vanilla equity-vs-random's two "inaccuracies" are exactly aligned with
+exploiting a leaky pool: **overstating equity → more value-betting (callers
+pay), and ignoring aggression → calling down (catches bluffers).** The "more
+accurate" range model corrects both → plays more *balanced* → extracts less from
+exploitable opponents. Same lesson as the made_tier swap and the inert tieredbot
+exploitation layer: **against a leaky pool, a naive aggressive exploiter beats a
+sophisticated/accurate bot, because the naivety happens to align with the
+exploit.** Adaptation that would actually help is opponent-TYPE-specific (call
+down vs bluffers, fold vs value-bettors) — but a generic range model with
+"aggression = strength" gets the bluffers backwards. `CaseBotRange` /
+`use_range_equity` kept as a documented dead end (measurement-only, not wired).
+
 ## E — Recurring eval: ON-DEMAND (no schedule, per Jeff 2026-05-29)
 
 No cron/routine. The sweeps are DB-free and bit-identical local↔box, so fresh

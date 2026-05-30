@@ -276,6 +276,16 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'case_based_v2',
     },
+    # Range-AWARE CaseBotV2 (adaptive prototype): same value strategy, but its
+    # postflop equity is computed vs the opponents' estimated RANGE instead of
+    # vs-random. `use_range_equity` is honored by the harness, which feeds
+    # perfect-read field stats (ARCHETYPE_STATS) so we can test the concept
+    # ceiling before building real opponent modeling.
+    'CaseBotRange': {
+        'kind': 'rule_bot',
+        'strategy': 'case_based_v2',
+        'use_range_equity': True,
+    },
     'Reg': {
         'kind': 'rule_bot',
         'strategy': 'reg',
@@ -315,6 +325,24 @@ ARCHETYPES = {
         'strategy': 'fish',
         'fish_leak': 'sticky_then_pops',
     },
+}
+
+# Perfect-read opponent stats per archetype (measured VPIP/PFR + estimated AF),
+# for the range-aware prototype (CaseBotRange). Lets the bot's range estimator
+# "know" the field's looseness without waiting for opponent modeling — the
+# concept-test ceiling. Production would feed real observed stats instead.
+ARCHETYPE_STATS = {
+    'Maniac': {'vpip': 0.56, 'pfr': 0.48, 'aggression_factor': 3.0, 'hands_observed': 100},
+    'LAG': {'vpip': 0.37, 'pfr': 0.30, 'aggression_factor': 2.2, 'hands_observed': 100},
+    'TAG': {'vpip': 0.24, 'pfr': 0.20, 'aggression_factor': 2.0, 'hands_observed': 100},
+    'Rock': {'vpip': 0.19, 'pfr': 0.12, 'aggression_factor': 1.5, 'hands_observed': 100},
+    'Nit': {'vpip': 0.15, 'pfr': 0.10, 'aggression_factor': 1.2, 'hands_observed': 100},
+    'Calling Station': {'vpip': 0.45, 'pfr': 0.15, 'aggression_factor': 0.3, 'hands_observed': 100},
+    'WeakFish': {'vpip': 0.50, 'pfr': 0.10, 'aggression_factor': 0.4, 'hands_observed': 100},
+    'Jeff_clone': {'vpip': 0.39, 'pfr': 0.15, 'aggression_factor': 0.6, 'hands_observed': 100},
+    'Punisher_clone': {'vpip': 0.25, 'pfr': 0.22, 'aggression_factor': 2.5, 'hands_observed': 100},
+    'CaseBot': {'vpip': 0.95, 'pfr': 0.05, 'aggression_factor': 0.8, 'hands_observed': 100},
+    'CaseBotV2': {'vpip': 0.95, 'pfr': 0.20, 'aggression_factor': 1.5, 'hands_observed': 100},
 }
 
 TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}

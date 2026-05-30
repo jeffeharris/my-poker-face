@@ -590,6 +590,14 @@ def run_passivity_matchup(
         controllers[0].opponent_model_manager = None
         _apply_mode(controllers[0], mode)
         controllers[0].multistreet_h1_classes = h1_classes
+        # Range-aware prototype: turn on equity-vs-range for the hero and feed it
+        # perfect-read field stats (uniform-field assumption: all opponents share
+        # the first opponent archetype's stats). Concept-test ceiling.
+        if config_arch.get('use_range_equity'):
+            from experiments.simulate_bb100 import ARCHETYPE_STATS
+
+            controllers[0].use_range_equity = True
+            controllers[0]._assumed_opp_stats = ARCHETYPE_STATS.get(opponents[0])
 
         for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
             controllers.append(
