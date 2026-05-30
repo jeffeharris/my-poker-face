@@ -369,6 +369,41 @@ brings coin-flip variance — not a clean fix.
 current adaptive counter won't stop them. Fixes #1 (already done) and #2 (a
 scoped, real project) are the answers; #3 is a dead end as-is.
 
+### The counter DOES exist in code — CaseBot proves it (the resolution)
+
+The decisive test: **CaseBot** (`_strategy_case_based`) **demolishes the maniac
+field — +175 bb/100 vs Maniac×5**, where every tiered archetype LOST −44…−50.
+(Not "any rule bot": GTO-Lite gets crushed −480 vs the same field.) CaseBot is
+exactly the two behaviors the tiered bots lack:
+- **Wide preflop defense** — it calls preflop whenever equity clears the pot
+  odds, so it plays ~everything and **never gets blind-stolen** (the maniac's
+  whole edge).
+- **Adaptive call-down vs aggression** — *"Calls lighter vs aggressive opponents
+  (aggression > 2.0)"*, `call_adjust = −0.08` (`rule_strategies.py:474/507`) →
+  it **catches the over-bluffs** instead of folding.
+
+So the engine *can* punish relentless aggression; the tiered **personalities**
+just don't implement the counter (they over-fold preflop + don't adapt).
+
+**Caveat — CaseBot is a universal winner, not an aggression specialist:** TAG
++60, Nit +60, Station +340, Maniac +175, mixed +127/+264. It steals blinds from
+tight fields (it's aggressive too) AND calls down loose ones, so it beats every
+static archetype. Honest read: **CaseBot is just a stronger adaptive bot than our
+personality caricatures** (which carry deliberate leaks) — competent adaptive
+play beats static caricatures, which also implies a *skilled human* beats the AI
+field (probably fine — the AIs are characters; the challenge is variety +
+psychology, not GTO-resistance).
+
+**Updated lever list:** in addition to #1 (variety) and #2 (blind-defense rule),
+the cleanest options are: **(2b)** port CaseBot's call-down + wide-defense into
+some tiered archetypes (tuned so they punish maniacs without becoming universally
+dominant), or **(3b)** just **seat `casebot`-type players** in some tables as the
+built-in maniac-punisher — it already exists as a bot type.
+
+**Bottom line for the worry:** NOT an engine flaw. The engine can punish
+aggression (CaseBot +175 vs the maniac); the static personality archetypes just
+don't, because they over-fold preflop and don't adapt.
+
 ## E — Recurring eval: ON-DEMAND (no schedule, per Jeff 2026-05-29)
 
 No cron/routine. The sweeps are DB-free and bit-identical local↔box, so fresh
