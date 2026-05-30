@@ -266,6 +266,44 @@ def coach_preflop_leaks():
     )
 
 
+@coach_bp.route('/api/coach/preflop-leaks/feedback', methods=['POST'])
+@limiter.limit("10/minute")
+@_coach_required
+def coach_preflop_leaks_feedback():
+    """Have the coach interpret the player's preflop profile into feedback.
+
+    Recomputes the profile server-side (never trusts client-sent data) and feeds
+    the text description to the coach (Assistant tier). The coach explains real,
+    computed data — it can't invent leaks. User-initiated (one LLM call/click).
+    """
+    from ..services.coach_assistant import CoachAssistant
+    from ..services.coach_leaks import (
+        compute_preflop_leaks,
+        format_leaks_for_prompt,
+        load_owner_preflop_decisions,
+    )
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    try:
+        decisions = load_owner_preflop_decisions(extensions.persistence_db_path, owner_id)
+        report = compute_preflop_leaks(decisions)
+        if report.total_decisions == 0:
+            return jsonify({'feedback': "Play some hands first — there's nothing to review yet."})
+        profile_text = format_leaks_for_prompt(report)
+        coach = CoachAssistant(game_id=f'preflop-leaks-{owner_id}', owner_id=owner_id, mode='review')
+        feedback = coach.review_preflop_leaks(profile_text)
+    except TimeoutError:
+        return jsonify({'error': 'Coach is taking too long, please try again'}), 504
+    except Exception as e:
+        logger.error(f"preflop-leaks feedback failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Coach unavailable'}), 503
+
+    return jsonify({'feedback': feedback})
+
+
 @coach_bp.route('/api/coach/<game_id>/config', methods=['GET'])
 @limiter.limit("30/minute")
 @_coach_required

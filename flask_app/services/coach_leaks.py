@@ -239,6 +239,63 @@ def compute_preflop_leaks(
     )
 
 
+_POSITION_LABEL = {
+    'early': 'Early position (UTG/MP)',
+    'middle': 'Middle position (HJ)',
+    'late': 'Late position (CO/BTN)',
+    'blind': 'Blinds (SB/BB)',
+}
+
+
+def format_leaks_for_prompt(report: PreflopLeakReport) -> str:
+    """Render a leak report as a plain-text preflop PROFILE for the coach prompt.
+
+    A description of the player's range tendencies (strengths + weaknesses) the
+    LLM coach can interpret — grounded so it explains real data instead of
+    inventing leaks. Honest framing: VPIP is labeled as play-frequency (includes
+    calls/defense), and the reference is an opening range shown for orientation;
+    the actionable weaknesses are the specific below-range hands.
+    """
+    if report.total_decisions == 0:
+        return "No preflop history yet for this player."
+
+    lines = [
+        f"PREFLOP PROFILE — from {report.total_decisions} of the player's real preflop decisions.",
+        "",
+        "Play frequency by position (this VPIP includes calls and blind defense; "
+        "the 'standard opens' figure is a tight-aggressive OPENING range, shown for "
+        "orientation only — not a target):",
+    ]
+    for g in ('early', 'middle', 'late', 'blind'):
+        s = report.by_position_summary.get(g)
+        if not s:
+            continue
+        lines.append(
+            f"- {_POSITION_LABEL[g]}: plays {s['vpip_pct']}% of hands "
+            f"(standard opens ~{s['reference_vpip_pct']}%), over {s['decisions']} decisions; "
+            f"{s['loose_plays']} below-range play(s)."
+        )
+
+    loose = [lk for lk in report.leaks if lk.leak_type == 'too_loose']
+    lines.append("")
+    if loose:
+        lines.append(
+            "WEAKNESSES — hands the player repeatedly plays voluntarily that sit "
+            "below their position's standard range:"
+        )
+        for lk in loose[:10]:
+            lines.append(
+                f"- {lk.canon} from {_POSITION_LABEL[lk.position_group]}: "
+                f"played {lk.severity} of {lk.n} times."
+            )
+    else:
+        lines.append(
+            "STRENGTH — no habitual below-range hands flagged; preflop hand selection "
+            "looks disciplined."
+        )
+    return "\n".join(lines)
+
+
 def load_owner_preflop_decisions(db_path: str, owner_id: str) -> list[dict]:
     """Load an owner's HUMAN preflop decisions from player_decision_analysis.
 

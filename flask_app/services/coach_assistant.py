@@ -96,6 +96,15 @@ Be honest — if they played well, say so briefly. If they made an error, explai
 """
 
 
+LEAK_FEEDBACK_PROMPT = """\
+Given this preflop profile, give the player concise, prioritized feedback (3-5 sentences):
+- Name their single biggest preflop leak first, and why it costs chips.
+- Give one concrete fix — which specific hands or positions to tighten up.
+- If a position looks disciplined, acknowledge it briefly.
+Use ONLY the hands, positions, and numbers in the profile above — do not invent stats or hands, and do not reference postflop play. Set "action" to null.\
+"""
+
+
 _MODE_PROMPTS = {
     'learn': LEARN_MODE_PROMPT,
     'compete': COMPETE_MODE_PROMPT,
@@ -235,6 +244,21 @@ class CoachAssistant:
         message = f"Current stats:\n{stats_text}\n\n{PROACTIVE_TIP_PROMPT}"
         response = self._assistant.chat(message, json_format=True)
         return _parse_coach_response(response, coaching_data)
+
+    def review_preflop_leaks(self, profile_text: str) -> str:
+        """Interpret a player's preflop PROFILE into prioritized feedback.
+
+        Grounded: the coach explains the supplied profile (which is computed from
+        real data) — it must not invent hands or stats. Returns the advice text.
+        """
+        message = f"{profile_text}\n\n{LEAK_FEEDBACK_PROMPT}"
+        response = self._assistant.chat(message, json_format=True)
+        try:
+            data = json.loads(response)
+            return data.get('advice') or response.strip()
+        except json.JSONDecodeError as e:
+            logger.warning(f"Coach leak feedback JSON parse failed: {e}, raw: {response[:200]}")
+            return response.strip()
 
     def review_hand(self, hand_context_text: str) -> str:
         """Generate a post-hand review.
