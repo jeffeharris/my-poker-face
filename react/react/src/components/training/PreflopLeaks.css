@@ -22,6 +22,12 @@
   color: var(--color-text-muted, #9ca3af);
 }
 
+.pfl-scale-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
 .pfl-positions {
   display: flex;
   flex-direction: column;
@@ -88,6 +94,21 @@
   color: var(--color-text-muted, #9ca3af);
   min-width: 4rem;
   text-align: right;
+}
+
+/* Narrow screens: give the bar more room — shrink the name column and drop the
+   hand-count (it's secondary; the % + bar carry the read). */
+@media (max-width: 480px) {
+  .pfl-pos {
+    grid-template-columns: 5.5rem 1fr auto;
+    gap: 0.5rem;
+  }
+  .pfl-pos-name {
+    font-size: 0.78rem;
+  }
+  .pfl-pos-n {
+    display: none;
+  }
 }
 
 .pfl-leaks-head {

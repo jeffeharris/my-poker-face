@@ -34,6 +34,10 @@ const POSITION_LABEL: Record<string, string> = {
   blind: 'Blinds (SB / BB)',
 };
 
+// Bars scale to this VPIP %, not 100 — real VPIPs sit ~6-35%, so a full-100
+// scale leaves the bars (and the reference line) cramped, especially on mobile.
+const VPIP_SCALE_MAX = 50;
+
 interface PreflopLeaksProps {
   onBack: () => void;
 }
@@ -123,15 +127,21 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
               blind defense).
             </p>
 
+            <p className="pfl-scale-note">
+              Bars scaled to {VPIP_SCALE_MAX}% · the line marks a standard opening frequency
+            </p>
             <div className="pfl-positions">
               {data.by_position.map((row) => (
                 <div key={row.position} className="pfl-pos">
                   <span className="pfl-pos-name">{POSITION_LABEL[row.position] ?? row.position}</span>
                   <span className="pfl-pos-bar-wrap">
-                    <span className="pfl-pos-bar" style={{ width: `${Math.min(100, row.vpip_pct)}%` }} />
+                    <span
+                      className="pfl-pos-bar"
+                      style={{ width: `${Math.min(100, (row.vpip_pct / VPIP_SCALE_MAX) * 100)}%` }}
+                    />
                     <span
                       className="pfl-pos-ref"
-                      style={{ left: `${Math.min(100, row.reference_vpip_pct)}%` }}
+                      style={{ left: `${Math.min(100, (row.reference_vpip_pct / VPIP_SCALE_MAX) * 100)}%` }}
                       title={`standard opens ~${row.reference_vpip_pct}%`}
                     />
                   </span>
