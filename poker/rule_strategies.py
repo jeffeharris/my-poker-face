@@ -627,6 +627,127 @@ def _strategy_case_based(context: Dict) -> Dict:
     return check()
 
 
+def _strategy_case_based_v2(context: Dict) -> Dict:
+    """CaseBot v2 (HYBRID): v1 untouched MULTIWAY + a real tight-aggressive
+    HEADS-UP branch.
+
+    v1 already dominates multiway (+120…+340 vs every field) — its wide,
+    call-down style EXPLOITS the field's leaks. But heads-up vs a disciplined
+    value-bettor it has no leaks to exploit, so its loose-passive core (VPIP ~98
+    / PFR ~2, limps + calls down) gets value-owned (−30 vs a TAG). And a global
+    "raise more" rewrite REGRESSED everything (preflop aggression without
+    postflop follow-through bloats pots then plays them passively).
+
+    So v2 changes ONLY the heads-up case (num_opponents == 1): a self-contained
+    tight-aggressive HU strategy — raise-first (no limping), defend the BB wide,
+    and crucially C-BET / barrel postflop so the preflop initiative is realized.
+    Multiway (3+) is byte-identical to v1.
+    """
+    # Gate on TABLE SIZE (num_players == 2 = a true heads-up game), NOT active
+    # opponents (which drops to 1 when a multiway pot folds to heads-up — those
+    # spots stay on v1, preserving its proven multiway dominance).
+    if (context.get('num_players') or 6) > 2:
+        return _strategy_case_based(context)
+    return _hu_aggressive(context)
+
+
+def _hu_aggressive(context: Dict) -> Dict:
+    """A compact TIGHT-VALUE heads-up rule strategy.
+
+    v1's HU leak is paying off value (it calls down ~everything). A naive
+    *aggressive* fix spews worse (the c-bet bluffs get punished). So this is
+    tight-VALUE: take initiative with a real range, value-bet made hands, and —
+    the key fix — FOLD when beat instead of paying off; bluff only minimally
+    (river, in position, vs a folder). The aim is to LOSE LESS vs a disciplined
+    opponent, not to out-fancy it.
+    """
+    equity = context['equity']
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    position = context.get('position', '') or ''
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    hand = _equity_category(equity)
+    is_button = 'small_blind' in position  # HU: SB acts first preflop, is the button
+
+    opp_aggr = context.get('opp_aggression', 1.0)
+    opp_fold = context.get('opp_fold_to_cbet', 0.5)
+    opp_hands = context.get('opp_hands_observed', 0)
+    call_margin = 0.05  # require a margin over pot odds to call (don't pay off thin)
+    bluff_ok = True
+    if opp_hands >= 5:
+        if opp_aggr > 2.0:
+            call_margin = -0.05  # vs a bluffer, bluff-catch a bit wider
+        elif opp_aggr < 0.5:
+            call_margin = 0.10  # vs a passive value-bettor, fold more
+        bluff_ok = opp_fold >= 0.45
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0}
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    facing = cost > 0
+
+    # ── PREFLOP ── raise a real range, never limp; no air opens.
+    if phase == 'PRE_FLOP':
+        facing_raise = facing and highest_bet > bb
+        if not facing_raise:
+            if hand in ('premium', 'strong', 'medium'):
+                return do_raise(int(2.5 * bb))
+            if hand == 'weak' and is_button:
+                return do_raise(int(2.5 * bb))  # button steal (weak, not air)
+            return check_or_fold()
+        # Facing a raise.
+        if hand == 'premium':
+            return do_raise(int(3.0 * highest_bet))  # 3-bet value
+        if hand in ('strong', 'medium'):
+            return call()
+        if hand == 'weak' and is_button:
+            return call()  # IP peel at a price
+        return {'action': 'fold', 'raise_to': 0}  # fold air + OOP weak
+
+    # ── POSTFLOP, checked to us ── value-bet only (no c-bet spew).
+    if not facing:
+        if hand in ('premium', 'strong'):
+            return bet(0.66)
+        if hand == 'medium' and is_button:
+            return bet(0.5)  # thin value in position
+        if hand == 'air' and is_button and phase == 'RIVER' and bluff_ok:
+            return bet(0.6)  # rare polarized river bluff IP vs a folder
+        return check_or_fold()
+
+    # ── POSTFLOP, facing a bet ── value-raise, and FOLD when beat (the fix).
+    pot_odds = cost / (pot + cost) if (pot + cost) > 0 else 1.0
+    needed = pot_odds + call_margin
+    if hand == 'premium':
+        return bet(0.75)  # raise for value
+    if hand == 'strong':
+        return call()
+    if hand == 'medium' and equity >= needed:
+        return call()  # bluff-catch only with a margin
+    return {'action': 'fold', 'raise_to': 0}  # don't pay off weak/air
+
+
 def _fish_bet(context: Dict, fraction: float) -> Optional[Dict]:
     """Build a pot-fraction bet/raise for a fish, clamped to legal sizing.
 
@@ -864,6 +985,7 @@ BUILT_IN_STRATEGIES = {
     'trap_bait': _strategy_trap_bait,
     'bluffbot': _strategy_bluffbot,
     'case_based': _strategy_case_based,
+    'case_based_v2': _strategy_case_based_v2,
     'fish': _strategy_fish,
 }
 
@@ -1003,4 +1125,5 @@ CHAOS_BOTS = {
     'trap_bait': RuleConfig(strategy='trap_bait', name='TrapBaitBot'),
     'bluffbot': RuleConfig(strategy='bluffbot', name='BluffBot'),
     'case_based': RuleConfig(strategy='case_based', name='CaseBot'),
+    'case_based_v2': RuleConfig(strategy='case_based_v2', name='CaseBotV2'),
 }

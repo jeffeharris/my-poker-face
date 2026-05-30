@@ -102,6 +102,77 @@ Bottom line across foldy/calling/punisher: no hidden aggression cost anywhere,
 passivity is the punished trait, and `position_blind` (not over_bluff) is the
 fish's real EV leak. Box torn down. Committing.
 
+## 2026-05-30 — chasing "can the game punish aggression?" to CaseBot, then sharpening it
+
+Jeff's worry: does the game have any counter to relentless aggression, or does
+"just bet" win? Long thread. The honest arc:
+
+1. A lone Maniac beats a passive field +57 (blind-steals; the tight bots fold
+   their blinds). HU, though, the same bots BEAT the maniac (+8…+17) — they widen
+   to 53% VPIP and defend. So not an engine flaw — the static personalities just
+   don't *adapt* in multiway.
+2. Tried the engine's own adaptive counter (`hyper_aggressive`). A 2-seed smoke
+   showed +36 "it works!" — I spun up Hetzner — and at 8 seeds it collapsed to
+   −9/−2, CI spanning 0. **Pure noise; the per-seed signs had already disagreed
+   in the smoke.** Re-learned (again): never trust a 2-seed CRN edge. Root cause
+   in code: the counter widens calls vs *all-ins/big-bets* + tightens your own
+   opens, but has **no blind/steal-defense** (the `fold_to_open`/PHASE_8_1 rule is
+   explicitly unimplemented) — it defends the wrong street.
+3. Tested "shift archetype" instead — only a full Maniac mirror breaks even
+   (+0.2); LAG doesn't help (−49). And at a realistic mixed table (2 LAG + 3 TAG)
+   a lone maniac still prints +29 (a normal TAG is −9.5 there).
+4. Then **Jeff corrected me twice and both unlocked the answer:** (a) I'd called
+   CaseBot a "fish" — it isn't; the clean tiered station drains −74, CaseBot is a
+   competent adaptive bot. (b) "look at its rules" — CaseBot's `_strategy_case_based`
+   *calls lighter vs aggression (>2.0 AF, −0.08 equity)* and plays ~everything
+   preflop, so it **never gets blind-stolen AND snaps the over-bluffs.** It
+   **demolishes the maniac field +175** where every tiered archetype lost −44…−50
+   (GTO-Lite −480, so it's the strategy, not "any rule bot"). So the counter to
+   aggression already existed in the codebase — wide blind-defense + adaptive
+   call-down. CaseBot beats *everything* 6-max (+60…+340) — it's just a stronger
+   adaptive bot than our personality caricatures (which carry deliberate leaks).
+
+5. Jeff: "how does it play HU? … make it the best we have." Probed HU — and
+   **CaseBot LOSES heads-up vs a single TAG (−29.6)**: it limps 100% / raises 2%,
+   so a disciplined value-bettor isolates and value-owns it. Its whole edge
+   (catching bluffs) evaporates 1-on-1 vs someone who doesn't over-bluff. So
+   CaseBot is a *multiway field-exploiter*, not a sound fundamental player; its
+   core (wide + low-PFR + call-down) is itself a calling-station leak.
+
+So now sharpening it. First v2 attempt was *tighten the preflop calls* — wrong
+diagnosis; the HU loss showed the leak is **passivity, not looseness.** v2 redone
+as **raise-first preflop** (open/3-bet a real range, keep wide blind-defense, stop
+limping), postflop still delegating to v1's adaptive play. Built a **gauntlet**
+(`experiments/casebot_gauntlet.py`) — one scorecard across HU + 6-max vs every
+field type, scored on the WORST cell.
+
+**Then the gauntlet humbled me — I'd been chasing noise.** The "CaseBot loses HU
+−29.6" that kicked this whole thread off was a **single-seed, 800-hand reading**.
+At higher samples the same cell swung wildly: HU-vs-TAG came back −34.8 (300h×2),
+then **+10** (600h×3), then **−59.8** (800h×4). HU-vs-Nit: +8.4 then −70. The HU
+cells swing **±60 bb/100 across samples** — CaseBot's per-decision equity Monte
+Carlo makes HU hands ~0.75s each, so I can't feasibly sim enough HU hands to get
+a stable sign. **The HU "weakness" is unmeasurable at any scale I can run; it's
+roughly break-even buried in variance.** The 6-max cells, by contrast, are
+robustly positive every run (+57…+412).
+
+And both "improvement" attempts were dead ends: a global raise-first rewrite
+*regressed everything* (preflop aggression with v1's passive postflop bloats pots
+then plays them passively); a hybrid (v1 multiway, gated on table-size==2, +
+tight-value HU branch) keeps 6-max byte-identical but only touches the
+*unmeasurable* HU case — so I can't validate it either, and a naive-aggressive HU
+branch *spewed* far worse (−98) than v1's passivity.
+
+**Honest conclusion: CaseBot v1 is already the best simple bot we have.** It
+dominates 6-max (the game's normal case); HU is noisy/neutral and not reliably
+improvable at feasible sample sizes. I will NOT ship unvalidated complexity. The
+real lesson (again, see [[feedback_verify_user_premise]] / confidence
+calibration): I treated a 1-seed number as a fact and built a multi-hour quest on
+it. Should have re-run the baseline and checked variance *before* "fixing" it.
+The right way to ever settle HU would be a **paired-CRN** measure (same hands,
+v2−v1) to cancel the variance — not absolute bb/100. Kept the gauntlet as a tool;
+v2 stays an unvalidated experiment.
+
 ## 2026-05-30 (later) — the spewy fish, and "can the game punish aggression?"
 
 Jeff asked to add a spewy aggressive fish. Built `spewy_fish` (loose table +

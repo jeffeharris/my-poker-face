@@ -333,6 +333,7 @@ class RuleBasedController:
             'street': street,
             'position': position,
             'num_opponents': num_opponents,
+            'num_players': len(game_state.players),
             'effective_stack': effective_stack,
             'effective_stack_bb': effective_stack_bb_val,
             'spr': spr,

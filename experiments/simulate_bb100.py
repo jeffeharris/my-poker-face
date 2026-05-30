@@ -272,6 +272,10 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'case_based',
     },
+    'CaseBotV2': {
+        'kind': 'rule_bot',
+        'strategy': 'case_based_v2',
+    },
     'CallStation': {
         'kind': 'rule_bot',
         'strategy': 'always_call',
