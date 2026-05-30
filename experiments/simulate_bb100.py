@@ -163,6 +163,23 @@ ARCHETYPES = {
             recovery_rate=0.15,
         ),
     },
+    # Isolation: calling_station + over_bluff only (station table), to price the
+    # over-bluff (spew) lever ALONE vs the punisher clone (the honest cost of
+    # bluffing into a competent folder-and-barreler). Mirrors StationPBlind.
+    'StationOverBluff': {
+        'profile': 'calling_station_overbluff',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.3,
+            baseline_looseness=0.75,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.4,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        ),
+    },
     'Nit': {
         'profile': 'nit',
         'anchors': PersonalityAnchors(

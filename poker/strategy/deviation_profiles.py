@@ -144,6 +144,21 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         ego_fold_penalty=0.55,
         position_blind=0.8,
     ),
+    # Isolation profile (measurement only): calling_station + over_bluff, on the
+    # standard station table, to price the over-bluff (spew) lever ALONE (vs
+    # plain calling_station) — the honest cost of bluffing vs a competent
+    # folder-and-barreler (the punisher clone). over_bluff strength matches the
+    # weak_fish loadout (0.55). Not assigned in production. See
+    # docs/eval_results/VARIETY_VALIDATION_RESULTS.md (punisher test).
+    'calling_station_overbluff': DeviationProfile(
+        max_kl=0.8,
+        max_per_action_shift=0.40,
+        aggression_scale=1.2,
+        looseness_scale=0.8,
+        risk_scale=0.4,
+        ego_fold_penalty=0.55,
+        spot_tendencies=(('over_bluff', 0.55),),
+    ),
     # Maniac: the wildest — loose table + the highest aggression so its AF tops
     # the field (its VPIP shares the loose envelope with LAG; the wildness shows
     # in aggression). Cap held at 0.35 (the priced ceiling); aggression_scale
@@ -183,6 +198,7 @@ ARCHETYPE_WIDTH_TABLE: Dict[str, Optional[str]] = {
     # explicit loadout assigned to $2 fish. See FISH_AS_CALLING_STATION.md.
     'weak_fish': 'preflop_100bb_6max_weak_station.json',
     'calling_station_pblind': 'preflop_100bb_6max_station.json',  # isolation: station table
+    'calling_station_overbluff': 'preflop_100bb_6max_station.json',  # isolation: station table
 }
 
 

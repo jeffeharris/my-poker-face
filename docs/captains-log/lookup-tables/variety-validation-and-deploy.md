@@ -77,3 +77,27 @@ optional.
 
 Tore the box down (no servers left; ~25 min ≈ pennies). Everything staged on
 lookup-tables, not committed — waiting on Jeff.
+
+## 2026-05-30 (later) — the punisher test
+
+Jeff: "do the punisher test" (the one open thread). Added a clean `over_bluff`-only
+isolation (`calling_station_overbluff` profile + `StationOverBluff` archetype,
+mirroring the existing position_blind isolation) and a sweep `P` in variety_eval,
+then ran 2000h×8 on a fresh box.
+
+The smoke test flagged something before the real run: StationOverBluff came back
+**byte-identical** to plain Calling Station. Not a bug — `_over_bluff` only fires
+on *unopened + air + turn/river* (hero must hold the betting lead with a busted
+hand), and a passive station vs an aggressor almost never reaches that spot. The
+full run confirmed it at scale: over_bluff Δ vs the punisher is +0.1 / −1.7, and
+vs the over-folder it's ~0 too. So **over_bluff is near-dead weight on a passive
+base** — the "cost of over-bluffing" can't even be priced there because the base
+doesn't bluff with the lever maxed. The archetypes that *do* bluff (Maniac/LAG via
+aggression_scale) are +EV even vs the punisher (+44 to +107). And the punisher
+itself turns out beatable by stations (it barrels air, the station calls down) —
+so it prices over-FOLDING cleanly but is a weak test of over-calling. The clone
+set has no balanced GTO opponent; that's the only gap left.
+
+Bottom line across foldy/calling/punisher: no hidden aggression cost anywhere,
+passivity is the punished trait, and `position_blind` (not over_bluff) is the
+fish's real EV leak. Box torn down. Committing.

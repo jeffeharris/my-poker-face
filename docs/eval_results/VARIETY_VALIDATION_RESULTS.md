@@ -2,7 +2,7 @@
 purpose: Results of the variety/fish validation sweeps (short-stack safety, depth-drain curve, aggression priced vs calling fields) backing the deploy decision
 type: reference
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-05-30
 ---
 
 # Variety + fish validation — results
@@ -18,7 +18,10 @@ box (ccx63, 48 dedicated cores; bit-identical to local) and torn down after.
 (deeper bottom buy-in is the biggest economy-cycling lever). And the feared "aggression is only +EV vs foldy fields" caveat
 is **refuted** — aggression earns *more* vs fields that call (they pay off
 value); the punished trait is **passivity**, exposed by a competent *folder*,
-not a caller (see B).
+not a caller (see B). The **punisher test** (P) closes the loop: aggression is
++EV even vs a competent folder-and-barreler, and the `over_bluff` spew lever is
+**near-inert** (it can't fire on a passive base) — so there is no measurable
+over-bluffing penalty anywhere; `position_blind` is the fish's real EV leak.
 
 ## A — Short-stack validation (PASS)
 
@@ -130,15 +133,66 @@ This **validates the existing $2-only stake gate** for `position_blind`
 (handoff consideration #4): it's a shallow-stack drain lever; on deep fish it
 would slightly *help* them. Keep it stake-gated.
 
-### Caveat / remaining nuance
+## P — The punisher test: pricing over-bluff vs a competent folder+barreler
 
-None of these fields is a *competent aggressor that punishes over-bluffing by
-folding correctly AND barreling air back* — that's the `punisher` clone
-(`measure_passivity --opponents punisher`). The honest cost of **over-bluffing
-specifically** (vs total aggression EV, answered here) would use that field; it's
-the one open follow-up if we ever want to price the bluff-heavy levers in
-isolation. For the question asked — "does aggression secretly bleed vs a field
-that calls?" — the answer is a clear **no**.
+_Closes B's one open thread. PUNISHER=Punisher_clone×5 (folds correctly AND
+barrels air — the disciplined reg). FOLDY=Baseline×5 for contrast. Added a clean
+`over_bluff`-only isolation (`calling_station_overbluff` profile / `StationOverBluff`
+archetype, over_bluff 0.55 = the weak_fish strength) alongside the existing
+position_blind isolation. Hetzner 2000h × 8 seeds. bb/100._
+
+| hero | depth | vs PUNISHER | vs FOLDY |
+|---|---|---|---|
+| Calling Station | 40 / 100bb | +12.9 / +28.3 | −3.1 / −61.0 |
+| **StationOverBluff** | 40 / 100bb | +13.0 / +26.7 | −2.2 / −62.5 |
+| StationPBlind | 40 / 100bb | +0.3 / +20.0 | −16.6 / −53.1 |
+| WeakFish | 40 / 100bb | −0.7 / +5.0 | −44.0 / −94.5 |
+| LAG | 40 / 100bb | +43.6 / +70.1 | +25.4 / +23.1 |
+| Maniac | 40 / 100bb | +106.9 / +98.7 | +37.2 / +72.3 |
+
+**Lever isolation vs PUNISHER** (hero − Calling Station):
+
+| lever | 40bb | 100bb |
+|---|---|---|
+| over_bluff | +0.1 | −1.7 |
+| position_blind | −12.6 | −8.4 |
+
+### There is no measurable over-bluffing penalty — because the lever barely fires
+
+`over_bluff` is **inert** on a passive base: StationOverBluff ≈ Calling Station
+vs the punisher (Δ +0.1 / −1.7) **and** vs the over-folder (−2.2/−62.5 ≈
+baseline). The handler only fires on **unopened + air + turn/river** (hero must
+have the betting lead with a busted hand) — a spot a passive caller rarely
+reaches, so at 16k hands it still moves EV by ~0. So the "cost of over-bluffing"
+**can't be priced on a station base**: the base doesn't bluff much even with the
+lever maxed. The archetypes that *do* bluff a lot take the lead via
+`aggression_scale` (Maniac/LAG), and they are **+EV even vs the punisher**
+(Maniac +107/+99, LAG +44/+70). Net: **no hidden aggression/over-bluff cost
+anywhere in the system; passivity stays the punished trait.**
+
+`position_blind` again prices as the real (modest) drain lever: −12.6/−8.4 vs the
+punisher, consistent with its B isolation. It, not over_bluff, is what makes the
+weak fish bleed.
+
+**Why even the punisher looks beatable:** every hero is ~break-even-to-+EV vs it,
+because the punisher *barrels air* — and a never-folding station simply **calls
+its bluffs down** (Calling Station +28 @100bb). So the punisher cleanly prices
+the cost of **over-FOLDING** (it stabs your air) but is itself exploited by
+stations, making it a *weak* test of over-CALLING/over-bluffing. The clone set
+has no truly balanced (GTO) opponent — that's the one thing none of these fields
+can price. But for the question that mattered — "does aggression secretly bleed
+vs a competent opponent?" — the answer across foldy, calling, AND punisher fields
+is a consistent **no**.
+
+### Design takeaways
+
+- `over_bluff` as currently gated is **near-dead weight** on fish — if we want the
+  spew tell to actually drain (or to be a face-up exploit target), it needs to
+  fire on a base that takes the betting lead, or the gate must widen beyond
+  unopened-air-turn/river. Today it's mostly cosmetic on $2 weak_fish.
+- `position_blind` is the fish's real EV leak; keep it $2-stake-gated (shallow).
+- Aggression (`maniac`/`lag`) is robustly +EV vs every field tested — the variety
+  is safe to ship; the skill gradient lives entirely on the passive end.
 
 ## E — Recurring eval: ON-DEMAND (no schedule, per Jeff 2026-05-29)
 
@@ -149,10 +203,14 @@ declined to avoid Hetzner teardown risk / idle billing.
 ## How to reproduce
 
 ```bash
-# local dev-first pass
+# local dev-first pass (sweeps: A short-stack, B pricing, D depth, P punisher)
 docker compose exec -T backend python -m experiments.variety_eval all --hands 1500 --seeds 42,3042,6042
+docker compose exec -T backend python -m experiments.variety_eval P    --hands 1500 --seeds 42,3042,6042
 
 # Hetzner heavy pass (see docs/EVAL_RUNNER.md; poker-bot-optimization only, tear down after)
 ssh root@<box> 'cd /root/poker && docker compose run --rm --no-deps backend \
   python -m experiments.variety_eval all --hands 3000 --seeds 42,142,242,342,442,542,642,742'
 ```
+
+`variety_eval` sweeps: `A` (short-stack), `B` (pricing vs foldy/calling/neverfold),
+`D` (depth drain), `P` (punisher/over-bluff), `all` (= A+D+B).
