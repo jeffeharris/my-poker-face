@@ -164,6 +164,23 @@ ARCHETYPES = {
             recovery_rate=0.15,
         ),
     },
+    # Spewy aggressive fish: the loose-aggressive donator who bluffs off his
+    # stack (spewy_fish profile — loose table + over_bluff + sticky). Loose +
+    # tilty anchors (low poise, high ego/risk) so psychology amplifies the spew.
+    'SpewyFish': {
+        'profile': 'spewy_fish',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.85,
+            baseline_looseness=0.85,
+            ego=0.75,
+            poise=0.25,
+            expressiveness=0.7,
+            risk_identity=0.8,
+            adaptation_bias=0.2,
+            baseline_energy=0.7,
+            recovery_rate=0.1,
+        ),
+    },
     # Isolation: calling_station + position_blind only (station table), to price
     # position-blindness alone vs plain Calling Station + test depth-independence.
     'StationPBlind': {

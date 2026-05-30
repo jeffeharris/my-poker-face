@@ -171,6 +171,27 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=1.6,
         ego_fold_penalty=0.60,
     ),
+    # Spewy aggressive fish (the frat-bro who can't stop bluffing). Unlike the
+    # passive calling_station fish (loses by paying off), this fish loses by
+    # SPEWING: a loose-aggressive base (loose table, so it enters as the raiser
+    # and TAKES the betting lead — the precondition over_bluff needs to fire) +
+    # a cranked over_bluff (barrels air it should give up on) + sticky (can't
+    # fold when a grinder plays back, so the spew gets paid off). The aggression
+    # is deliberately MIS-calibrated: a real maniac is +EV because foldy fields
+    # over-fold to it, but this one bluffs into callers and can't fold to raises,
+    # so it bleeds vs disciplined opponents (the casino's grinders) while staying
+    # swingy/fun vs passive tables. max_per_action_shift bumped to 0.45 so the
+    # spew actually shifts (the cap throttled it to ~+3pts on the maniac base).
+    # See docs/eval_results/VARIETY_VALIDATION_RESULTS.md (spewy fish).
+    'spewy_fish': DeviationProfile(
+        max_kl=1.0,
+        max_per_action_shift=0.45,
+        aggression_scale=1.8,
+        looseness_scale=1.2,
+        risk_scale=1.2,
+        ego_fold_penalty=0.55,
+        spot_tendencies=(('over_bluff', 0.8), ('sticky', 0.5)),
+    ),
     # Validation (measurement only): the maniac base + over_bluff, to confirm the
     # over_bluff lever FIRES and shifts EV on an AGGRESSIVE base (one that takes
     # the betting lead) — the control for the finding that it's inert on a passive
@@ -213,6 +234,7 @@ ARCHETYPE_WIDTH_TABLE: Dict[str, Optional[str]] = {
     'calling_station_pblind': 'preflop_100bb_6max_station.json',  # isolation: station table
     'calling_station_overbluff': 'preflop_100bb_6max_station.json',  # isolation: station table
     'maniac_overbluff': 'preflop_100bb_6max_loose.json',  # validation: maniac base + over_bluff
+    'spewy_fish': 'preflop_100bb_6max_loose.json',  # aggressive fish: wide loose entry
 }
 
 

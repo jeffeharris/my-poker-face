@@ -215,6 +215,46 @@ passive fish at all.
 - Aggression (`maniac`/`lag`) is robustly +EV vs every field tested — the variety
   is safe to ship; the skill gradient lives entirely on the passive end.
 
+## Spewy aggressive fish — can't be built on the tiered engine (finding)
+
+Attempt to build the frat-bro spewer: a `spewy_fish` profile (loose table +
+`over_bluff` 0.8 + `sticky` 0.5, cap 0.45) + `SpewyFish` sim archetype. It
+**spews** as designed (VPIP 58 / PFR 49 / AF ~1.0) but it is a **universal
+winner**, not a fish:
+
+| SpewyFish vs… | bb/100 | air-bet% (unopened) |
+|---|---|---|
+| TAG grinders | **+67** | 43% |
+| foldy (Baseline) | +48 | 42% |
+| always-call | **+1426** | **14%** |
+| passive fish (Calling Station) | +136 | 29% |
+
+The tell is the **air-bet% column**: the engine's EV / math-blocking floor
+**suppresses the bluffs exactly where they'd be called** (43% → 14% vs the pure
+caller) and just value-bets the donors. So a chart-based aggressive bot
+value-bets vs callers AND bluffs vs folders — it wins both ways. **Aggression is
+EV-gated, so an aggressive bot on the tiered engine structurally cannot be a
+losing fish.** (Contrast: a passive fish loses because *passivity* — checking
+value, paying off — is genuinely −EV and the engine faithfully executes it. The
+asymmetry: the engine lets you play too passively, but not too aggressively.)
+
+For reference, the **rule-based** `Fish-Spew` bot (no EV floor → unconditional
+spew) does lose to TAG (−54 bb/100) — i.e. the *losing* spewer needs the rule
+path, not the tiered engine. (Caveat: the tiered passivity harness can't read a
+rule bot's actions faithfully — that −54's VPIP/AF readout is an artifact — so
+treat it as suggestive.)
+
+**Implication / open decision:** a "spewy aggressive fish that drains" isn't
+achievable on the unified tiered engine. Three paths: (A) drop it — keep fish
+passive (the engine fights aggression-as-leak); (B) deploy the tiered SpewyFish
+as a *winning* grinder-PUNISHER (it beats TAG grinders — a natural counter to the
+grinder-hoard problem — but it's not a fish and would accumulate chips); (C)
+re-introduce the rule-based spew path for aggression-leak personas, or add a
+per-profile "bypass EV floor" flag (invasive). `spewy_fish`/`SpewyFish` are kept
+as **measurement-only** (NOT wired into `build_fish_controller`) pending that
+call. The over_bluff fish leaks (`spews_bluffs`, `spite_raises_when_losing`)
+remain near-inert on the passive station base today.
+
 ## E — Recurring eval: ON-DEMAND (no schedule, per Jeff 2026-05-29)
 
 No cron/routine. The sweeps are DB-free and bit-identical local↔box, so fresh
