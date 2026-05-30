@@ -5,6 +5,9 @@ created: 2026-05-29
 last_updated: 2026-05-30
 ---
 
+<!-- newest entries at the bottom -->
+
+
 # Captain's log — multi-table tournament engine (tournaments worktree)
 
 Honest record of starting the WSOP-style multi-table tournament capability from
@@ -416,3 +419,86 @@ per tests/CLAUDE.md — not the feature change.
 Net: one wrapper type, one completion path, one persistence/load path. ~40 new
 tests; tracker unit-tests dropped (logic now lives in `TournamentField` /
 `build_completion_result`).
+
+## 2026-05-30 (cont.) — streaming standings beats (ticker + toasts + hub feed)
+
+**The whole feature was plumbing, not computing — the data already existed and
+was being thrown away.** Every round, `session._round()` builds a `RoundReport`
+(eliminations with eliminator + finishing position, seat moves) and
+`apply_live_round` *returns* it — but `coordinate_after_human_hand` ignored the
+return value. So "stream tournament beats to the felt" was mostly: catch what's
+already produced, translate it, and ride it on the `mtt_update` emit that already
+fires every boundary. Reading the engine before designing kept the scope honest:
+no new socket event, no schema change, no money, conservation untouched.
+
+**One missing fact, derived cleanly.** Table breaks weren't explicit in the
+report. Rather than parse the seat-move list (a balance and a break both carry a
+`from_table`, so they're ambiguous from moves alone), I added one field —
+`RoundReport.broken_tables` — populated in `_round` by a `tables_before −
+tables_after` set diff around the rebalance. Exact (catches `_break_smallest`,
+final-table consolidation, and empty-table drops), defaulted to `()` so the
+headless director and its tests are untouched.
+
+**A pure adapter so the logic is testable without Flask.** `tournament/beats.py`
+turns a burst of reports into typed dicts (knockout / table_break / bubble /
+milestone) with `build_beats(...)`; the caller appends a `level_up` beat by
+comparing `current_level()` before/after the advance (cross-boundary level state
+I deliberately kept *out* of the pure function). 12 unit tests across single- and
+multi-round bursts, big multi-bust rounds, the bubble boy (`finishing_position ==
+paid_places + 1`), and milestone threshold crossings.
+
+**Product call: option 3 — always-on felt ticker + rare structural toasts + a
+live hub feed.** The user picked the most immersive surface. The discipline that
+keeps it from being a notification firehose: toasts fire ONLY for *structural*
+beats (table breaks, blinds up, bubble, milestones); routine knockouts ride the
+ticker and the hub feed only — the same "primary" filter the cash world ticker
+uses. The frontend clones that ticker's shape: a `tournamentBeats.ts` helper
+(icon / text / `beatKey` / `isStructuralBeat`), a capped+de-duped `gameStore`
+buffer, a fixed-overlay `TournamentTicker` mounted on both table layouts
+(`pointer-events: none` so it never eats a tap), and the hub's static "Recent
+Knockouts" upgraded to a live "Recent Activity" feed (falling back to the durable
+`recent_eliminations` on a cold reconnect — beats are ephemeral by design).
+
+**Player-gated time makes the cadence bursty, and that's correct.** Beats don't
+trickle — they arrive in a clump at each of the human's hand boundaries ("what
+happened across the field since your last hand"). Streaming already-resolved
+rounds advances nothing, so it never fights the world-pause guarantee.
+
+**Two real bugs caught by the reviewer, both off-by-something.** (1) The play-out
+route stamped the `level_up` beat with `session.rounds` (already advanced past the
+burst), so its de-dup key didn't sit with the round that produced it — fixed to
+the last report's `round_index`. (2) The milestone `kind` ladder checked
+`heads_up` before `final_table`, so a 2-handed final table would read "Heads up!"
+with a handshake instead of "Final table" — reordered. Added a regression test
+for the `table_size == 3` final-table case. The reviewer also flagged that the
+legacy `advance` route runs a full `play_out()` inside the request lock on
+`human_out` — but that predates this work (I only wrapped beats around it), so I
+left it as a separate concern.
+
+Verified: 137 tournament tests green, `tsc` + eslint clean. Not yet exercised in
+a live browser (this project can't drive its dev server headlessly) — the socket
+emit + the React buffering are unit/inspection-checked, honestly flagged as the
+one surface still wanting a manual pass.
+
+**Walk-back: killed the felt ticker (same day).** Seen live, the always-on strip
+underwhelmed — player-gated time means beats arrive sparsely, so most of the time
+it showed a single stale line ("it says just 1 thing"). An "always-on" strip
+that's usually one cold beat isn't worth the felt real estate. Pulled it
+(component + both mounts + the store buffer + the `.mtt-ticker` CSS). Kept the two
+surfaces that don't have the empty-state problem: the **structural toasts** (fire
+only on a real event — a break/blinds/bubble — then vanish) and the **hub activity
+feed** (a deliberate place you go to read history, where sparse-but-complete is
+exactly right). The backend beats plumbing stays — it feeds both. Lesson: an
+ambient strip needs an ambient *baseline* to justify being always-on; without one,
+event-triggered surfaces (toasts) and pull surfaces (the hub) fit bursty data better.
+
+**Then pulled the hub activity feed too — toasts only.** Same call extended: with
+the felt ticker gone, the user trimmed the standings-hub "Recent Activity" feed as
+well, leaving **just the structural toasts** as the tournament-event surface for
+now. Reverted `TournamentStandings` to its plain "Recent Knockouts" list, dropped
+the beat buffering in `TournamentPage`, removed the `.activity` CSS and the unused
+`beatKey` helper. What survives: the backend `RoundReport`→`build_beats`→`mtt_update`
+stream (untouched, fully tested) and `tournamentBeats.ts`'s icon/text/structural
+helpers — feeding the one remaining surface (`useTournamentEvents` toasts) and
+sitting ready if a richer surface is wanted again. The whole beats data path stayed
+worth keeping; only the always-rendered UI came off.
