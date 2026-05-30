@@ -404,6 +404,44 @@ built-in maniac-punisher — it already exists as a bot type.
 aggression (CaseBot +175 vs the maniac); the static personality archetypes just
 don't, because they over-fold preflop and don't adapt.
 
+## Anti-maniac / "don't let aggression dominate" — variety is the answer, not tight defense
+
+Goal: stop a few aggressive players dominating ("endless raising with nothing")
+and keep playstyle variety viable. Intuition tested: *can a tight player
+neutralize a maniac by defending harder?*
+
+**No — tightening backfires.** Built a tight-aggressive `Reg` + a `RegVsManiac`
+mode that defends blinds wide, calls down wide, and raises back. The maniac's
+edge got WORSE, not better (maniac as hero, 1200h×4):
+
+| maniac vs a field of… | maniac bb/100 |
+|---|---|
+| Reg×5 (don't defend) | +102 |
+| **RegVsManiac×5 (defend wide)** | **+352** |
+| **varied field (CaseBotV2 + Reg + Station + TAG + LAG)** | **+13.6** (≈break-even) |
+
+Why tight-defense fails: the tiered maniac has a **real value range** (the EV
+floor stops it pure-bluffing), so calling down wider **pays off its value** and
+raising back gets **stacked**. You can't out-tight a maniac — fold and it steals,
+call and it value-owns you.
+
+**What actually beats a maniac:** loose *value-extraction* — CaseBot **+175 vs
+Maniac×5** (it value-bets the maniac harder than it gets value-owned, never folds
+its blinds). It out-*values* the maniac rather than out-folding it.
+
+**So the lever for variety is FIELD COMPOSITION, not a tight anti-maniac bot.**
+Rock-paper-scissors: maniac beats tight-passive (steals + out-volumes) → a
+tight/passive monoculture lets maniacs dominate (+57…+102); loose-value (CaseBot)
+beats maniac (+175); a *varied* field that includes a loose-value counter holds
+the maniac to **~break-even (+13.6)**. Maniac domination is a symptom of a
+too-passive field, not an unbeatable maniac.
+
+Profile-switching done right (`reg_adaptive`): default = tight reg; on a
+maniac read (`_is_maniac_read`, ~8-hand AF bucket) switch to **CaseBot
+loose-value** (the validated maniac-killer) — NOT tight-defense. `reg_vs_maniac`
+is kept only as the documented dead end. Bots: `Reg` / `RegVsManiac` (sim
+archetypes), `reg`/`reg_vs_maniac`/`reg_adaptive` (strategies).
+
 ## E — Recurring eval: ON-DEMAND (no schedule, per Jeff 2026-05-29)
 
 No cron/routine. The sweeps are DB-free and bit-identical local↔box, so fresh

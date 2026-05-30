@@ -276,6 +276,14 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'case_based_v2',
     },
+    'Reg': {
+        'kind': 'rule_bot',
+        'strategy': 'reg',
+    },
+    'RegVsManiac': {
+        'kind': 'rule_bot',
+        'strategy': 'reg_vs_maniac',
+    },
     'CallStation': {
         'kind': 'rule_bot',
         'strategy': 'always_call',

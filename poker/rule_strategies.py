@@ -695,6 +695,141 @@ def _strategy_case_based_v2(context: Dict) -> Dict:
     return _strategy_case_based(context)
 
 
+def _is_maniac_read(context: Dict) -> bool:
+    """Coarse opponent classifier: is the table dominated by a hyper-aggressive
+    player? Reads the aggregated opponent aggression factor (bets+raises / calls)
+    once there's a small sample. AF ~4 = ManiacBot/maniac; balanced regs sit
+    ≤1. Threshold 2.2 separates them. Needs only ~8 hands (a BUCKET decision, not
+    a tuned offset), so it's usable live — unlike the 100-hand confidence ramp
+    the tiered exploitation layer needs.
+    """
+    if context.get('opp_hands_observed', 0) < 8:
+        return False
+    return context.get('opp_aggression', 1.0) >= 2.2
+
+
+def _reg_decision(context: Dict, anti_maniac: bool) -> Dict:
+    """A tight-aggressive REG (the competent baseline) with an optional
+    anti-maniac DEFENSE mode.
+
+    The point: a tight player should NEUTRALIZE a lone maniac, not get run over —
+    and the way you do that in real poker is to WIDEN YOUR DEFENSE, not to fold.
+    A maniac's whole edge is (a) stealing blinds you fold too readily and (b)
+    bluffing bets you fold to. So `anti_maniac=True` keeps the same tight OPENING
+    range but: defends the blinds wide vs a raise, calls down much wider
+    (bluff-catch), and 3-bets/raises back. Default mode is a disciplined reg
+    (tight, value-bet, fold when beat) — strong vs everyone who isn't a maniac.
+
+    This is the unit of the profile-switching design: a coarse classifier
+    (`_is_maniac_read`) flips between the two modes. Keeps variety alive — when
+    the field defends, aggression stops dominating and you get real poker
+    (flops/showdowns) instead of endless preflop raising.
+    """
+    equity = context['equity']
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    pos = _position_category(context.get('position', '') or '')
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    hand = _equity_category(equity)
+    is_blind = pos == 'blind'
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    # ── PREFLOP: tight raise-or-fold; anti-maniac DEFENDS wide vs a raise ──
+    if phase == 'PRE_FLOP':
+        facing_raise = cost > 0 and highest_bet > bb
+        if not facing_raise:
+            if hand in ('premium', 'strong', 'medium'):
+                return do_raise(int(2.5 * bb))
+            return check_or_fold()
+        # Facing a raise.
+        if hand == 'premium':
+            return do_raise(int(3.0 * highest_bet))  # 3-bet for value
+        if hand == 'strong':
+            return do_raise(int(3.0 * highest_bet)) if (pos == 'late' or anti_maniac) else call()
+        if hand == 'medium':
+            if anti_maniac or pos in ('late', 'blind'):
+                return call()
+            return {'action': 'fold', 'raise_to': 0}
+        # weak/air: a disciplined reg folds — but vs a MANIAC, defend the blinds
+        # wide (its raising range is trash, so you're not folding the best hand).
+        if anti_maniac and is_blind:
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # ── POSTFLOP, facing a bet: value-raise; anti-maniac CALLS DOWN wide ──
+    if cost > 0:
+        pot_odds = cost / (pot + cost) if (pot + cost) > 0 else 1.0
+        if hand == 'premium':
+            return bet(0.75)  # raise for value
+        if hand == 'strong':
+            return do_raise(int(highest_bet * 2.5)) if anti_maniac else call()  # raise back vs a maniac
+        if hand == 'medium':
+            thresh = pot_odds * (0.7 if anti_maniac else 1.0)
+            return call() if equity >= thresh else {'action': 'fold', 'raise_to': 0}
+        if hand == 'weak' and anti_maniac and equity >= pot_odds * 0.55:
+            return call()  # bluff-catch the maniac (its bets are mostly air)
+        return {'action': 'fold', 'raise_to': 0}
+
+    # ── POSTFLOP, checked to us: value-bet ──
+    if hand in ('premium', 'strong'):
+        return bet(0.66)
+    if hand == 'medium':
+        return bet(0.5) if pos in ('late', 'blind') else check_or_fold()
+    return check_or_fold()
+
+
+def _strategy_reg(context: Dict) -> Dict:
+    """Tight-aggressive reg, no adaptation (the 'vs-competent' baseline)."""
+    return _reg_decision(context, anti_maniac=False)
+
+
+def _strategy_reg_vs_maniac(context: Dict) -> Dict:
+    """DEAD END (kept for the record): a tight reg that "defends wide" vs a
+    maniac. It BACKFIRES — measured the maniac's edge going from +102 (vs a plain
+    Reg field) to +352. Why: the tiered maniac has a REAL value range (the EV
+    floor stops it pure-bluffing), so calling down wider pays off its value and
+    raising back gets stacked. You cannot out-tight a maniac. See
+    docs/eval_results/VARIETY_VALIDATION_RESULTS.md (anti-maniac)."""
+    return _reg_decision(context, anti_maniac=True)
+
+
+def _strategy_reg_adaptive(context: Dict) -> Dict:
+    """The production unit — profile-switching done RIGHT.
+
+    Default: a disciplined tight reg (strong vs everyone who isn't a maniac).
+    When it READS a maniac (`_is_maniac_read`): switch to the LOOSE-VALUE
+    CaseBot profile — the one style that actually beats a maniac (+175 vs
+    Maniac×5), by value-betting the maniac harder than it gets value-owned and
+    never folding to its steals. NOT tight-defense (`reg_vs_maniac`), which the
+    data proved backfires. (In sims with no opponent stats it stays in reg mode;
+    the classifier is live-only — but both endpoint profiles are independently
+    validated, and the classifier is a cheap ~8-hand bucket call that works in
+    prod where stats exist.)"""
+    if _is_maniac_read(context):
+        return _strategy_case_based_v2(context)  # loose-value beats maniacs
+    return _reg_decision(context, anti_maniac=False)
+
+
 def _fish_bet(context: Dict, fraction: float) -> Optional[Dict]:
     """Build a pot-fraction bet/raise for a fish, clamped to legal sizing.
 
@@ -933,6 +1068,9 @@ BUILT_IN_STRATEGIES = {
     'bluffbot': _strategy_bluffbot,
     'case_based': _strategy_case_based,
     'case_based_v2': _strategy_case_based_v2,
+    'reg': _strategy_reg,
+    'reg_vs_maniac': _strategy_reg_vs_maniac,
+    'reg_adaptive': _strategy_reg_adaptive,
     'fish': _strategy_fish,
 }
 
@@ -1073,4 +1211,7 @@ CHAOS_BOTS = {
     'bluffbot': RuleConfig(strategy='bluffbot', name='BluffBot'),
     'case_based': RuleConfig(strategy='case_based', name='CaseBot'),
     'case_based_v2': RuleConfig(strategy='case_based_v2', name='CaseBotV2'),
+    'reg': RuleConfig(strategy='reg', name='Reg'),
+    'reg_vs_maniac': RuleConfig(strategy='reg_vs_maniac', name='RegVsManiac'),
+    'reg_adaptive': RuleConfig(strategy='reg_adaptive', name='RegAdaptive'),
 }
