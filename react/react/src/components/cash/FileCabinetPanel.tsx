@@ -123,24 +123,23 @@ export function FileCabinetPanel({
   const [dossiersUnlocked, setDossiersUnlocked] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [sort, setSort] = useState<SortKey>('most_played');
-  const [reversed, setReversed] = useState(false);
+  // Sort key + direction kept as ONE piece of state so toggling is a single
+  // pure update. (Nesting setReversed() inside a setSort() updater made the
+  // toggle a side effect, which StrictMode double-invokes — flipping reversed
+  // twice and cancelling it out, so reverse silently did nothing.)
+  const [sortState, setSortState] = useState<{ key: SortKey; reversed: boolean }>({
+    key: 'most_played',
+    reversed: false,
+  });
+  const { key: sort, reversed } = sortState;
   const [search, setSearch] = useState('');
 
   // Click a sort to select it; click the active one again to reverse it.
-  const chooseSort = useCallback(
-    (key: SortKey) => {
-      setSort((cur) => {
-        if (cur === key) {
-          setReversed((r) => !r);
-          return cur;
-        }
-        setReversed(false);
-        return key;
-      });
-    },
-    []
-  );
+  const chooseSort = useCallback((key: SortKey) => {
+    setSortState((cur) =>
+      cur.key === key ? { key, reversed: !cur.reversed } : { key, reversed: false }
+    );
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
