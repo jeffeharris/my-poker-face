@@ -28,13 +28,24 @@ from typing import Callable
 
 from .blinds import BlindLevel
 from .config import TournamentConfig
-from .director import RoundReport, build_initial_state
+from .director import FakeHandResolver, RoundReport, build_initial_state
 from .field import TournamentField, attribute_eliminators
 from .seating import Seating, SeatingManager
 
 # A jittered hand count per AI table per human hand. Weighted so the mean is
 # exactly 1.0 (0+1+1+2)/4 — the field tracks the human without drifting.
 PACING_CHOICES = (0, 1, 1, 2)
+
+# Fraction of the field that finishes "in the money" — a DISPLAY-ONLY cutoff
+# (no payouts exist yet) so the standings can show ITM/OTM + the bubble. Real
+# MTTs pay ~10–15%; the P2 economy design front-loads the top ~30%. Replaced by
+# the actual payout structure when the economy ships. Tune freely.
+IN_THE_MONEY_FRACTION = 0.15
+
+
+def paid_places_for(field_size: int) -> int:
+    """How many places are 'in the money' for a given field size (min 2)."""
+    return max(2, round(field_size * IN_THE_MONEY_FRACTION))
 
 # Signature shared by the AI resolver's `.resolve` and the human-table callback.
 HandFn = Callable[..., dict[str, int]]
@@ -43,13 +54,22 @@ HandFn = Callable[..., dict[str, int]]
 class TournamentSession:
     """A multi-table tournament with one live human at one table."""
 
-    def __init__(self, config: TournamentConfig, ai_resolver, human_id: str | None = None):
+    def __init__(
+        self,
+        config: TournamentConfig,
+        ai_resolver,
+        human_id: str | None = None,
+        *,
+        entries: dict[str, str] | None = None,
+    ):
         self.config = config
         self._ai_resolve: HandFn = ai_resolver.resolve
         self.schedule = config.blind_schedule()
         self.seating_manager = SeatingManager()
 
-        player_ids, self.entries, self.field, self.seating = build_initial_state(config)
+        player_ids, self.entries, self.field, self.seating = build_initial_state(
+            config, entries=entries
+        )
         self.human_id = human_id or player_ids[0]
         if self.human_id not in self.entries:
             raise ValueError(f"human_id {self.human_id!r} is not in the field")
@@ -58,6 +78,60 @@ class TournamentSession:
         self._hand_counter = 0  # unique per hand played (seed source)
         self.round_reports: list[RoundReport] = []
         self.field.assert_conservation()
+
+    @classmethod
+    def for_single_table(
+        cls,
+        *,
+        entries: dict[str, str],
+        human_id: str,
+        starting_stack: int,
+        seed: int = 0,
+    ) -> 'TournamentSession':
+        """A one-table tournament from REAL players — the unification of the
+        legacy single-table game. `entries` is an ordered `name -> archetype`
+        map (the human + their opponents, in seat order); `human_id` is the
+        human's name.
+
+        The session is a passive field/standings/completion tracker here: the
+        live poker state machine remains the authority for play AND blinds (it
+        self-escalates from its own `blind_config`), so the blind schedule below
+        is unused — only `current_level()` would read it, and a single-table game
+        never shows the standings clock. No AI resolver runs (there are no other
+        tables), so a no-op `FakeHandResolver` is fine."""
+        n = len(entries)
+        config = TournamentConfig(
+            field_size=n,
+            table_size=n,
+            starting_stack=starting_stack,
+            seed=seed,
+        )
+        return cls(config, FakeHandResolver(), human_id=human_id, entries=entries)
+
+    def fold_live_hand(
+        self, stacks_after: dict[str, int], eliminator: str | None = None
+    ) -> list:
+        """Fold a completed live hand at the (single) table into the field and
+        record any eliminations — without touching seating, blinds, or pacing.
+
+        This is the single-table analog of `apply_live_round`: the live poker
+        engine owns the table (players, busts, blinds); the session only needs
+        the resulting stacks to keep the field standings + elimination log (and
+        thus completion) correct. `stacks_after` maps each still-active player to
+        their post-hand stack; `eliminator` is the hand's winner (best-effort
+        attribution for anyone who busted). Returns the Elimination events."""
+        active = self.field.active_ids()
+        pre = {pid: self.field.stacks[pid] for pid in active}
+        for pid, stack in stacks_after.items():
+            if pid in self.field.stacks:
+                self.field.stacks[pid] = stack
+        busted = [(pid, pre[pid]) for pid in active if self.field.stacks[pid] <= 0]
+        attribution = {pid: eliminator for pid, _ in busted if eliminator}
+        events = self.field.record_eliminations(busted, self.rounds, attribution)
+        self._hand_counter += 1
+        self.rounds += 1
+        self.field.assert_conservation()
+        return events
 
     # ── status / views ─────────────────────────────────────────────────────────
 
@@ -89,6 +163,57 @@ class TournamentSession:
         hs = self.field.stacks[self.human_id]
         return 1 + sum(1 for s in self.field.stacks.values() if s > hs)
 
+    def leaderboard(self, top: int = 5) -> list[dict]:
+        """The current chip leaders (1 = chip leader), highest stack first."""
+        ranked = sorted(self.field.stacks.items(), key=lambda kv: -kv[1])
+        return [
+            {
+                'rank': i + 1,
+                'player_id': pid,
+                'stack': stack,
+                'is_human': pid == self.human_id,
+            }
+            for i, (pid, stack) in enumerate(ranked[:top])
+        ]
+
+    def payout_view(self) -> dict:
+        """In-the-money status (display-only until real payouts land): how many
+        places pay, how many busts until the bubble bursts, and whether the
+        remaining field has all locked up a cash."""
+        paid = paid_places_for(self.field.field_size)
+        remaining = self.field.active_count
+        return {
+            'paid_places': paid,
+            'players_to_money': max(0, remaining - paid),
+            'on_bubble': remaining == paid + 1,
+            'in_money': remaining <= paid,  # everyone left has cashed
+        }
+
+    def next_level_view(self) -> dict | None:
+        """The blind level after the current one, with how many of the human's
+        hands until it hits (time is player-gated, so the clock is in hands, not
+        minutes). None once the schedule is at its top level."""
+        sched = self.schedule
+        cur_idx = self.rounds // sched.rounds_per_level
+        if cur_idx + 1 >= len(sched.levels):
+            return None
+        nxt = sched.levels[cur_idx + 1]
+        return {
+            'level': nxt.level,
+            'small_blind': nxt.small_blind,
+            'big_blind': nxt.big_blind,
+            'ante': nxt.ante,
+            'hands_until': max(0, (cur_idx + 1) * sched.rounds_per_level - self.rounds),
+        }
+
+    def _human_in_money(self, paid_places: int) -> bool:
+        """Has the human secured a cash? Out → their finish paid; in → the field
+        has collapsed to the paid places (all survivors are ITM)."""
+        if self.human_out:
+            rank = self.human_rank()
+            return rank is not None and rank <= paid_places
+        return self.field.active_count <= paid_places
+
     def _table_view(self, table) -> dict:
         return {
             'table_id': table.table_id,
@@ -112,6 +237,7 @@ class TournamentSession:
         is right now — this is a pure read, it never advances anything."""
         level = self.current_level()
         ht = self.human_table
+        payout = self.payout_view()
         return {
             'field_size': self.field.field_size,
             'players_remaining': self.field.active_count,
@@ -124,12 +250,16 @@ class TournamentSession:
                 'big_blind': level.big_blind,
                 'ante': level.ante,
             },
+            'next_level': self.next_level_view(),
+            'leaders': self.leaderboard(),
+            'payout': payout,
             'human': {
                 'player_id': self.human_id,
                 'out': self.human_out,
                 'rank': self.human_rank(),
                 'stack': self.field.stacks.get(self.human_id),
                 'table_id': ht.table_id if ht else None,
+                'in_money': self._human_in_money(payout['paid_places']),
             },
             'tables': [self._table_view(t) for t in sorted(self.seating.tables, key=lambda t: t.table_id)],
             'recent_eliminations': [

@@ -134,8 +134,6 @@ class TestPostRoundHandOrdering(unittest.TestCase):
             patch.object(game_handler, 'game_repo', MagicMock()),
             patch.object(game_handler, 'event_repository', MagicMock()),
             patch.object(game_handler, 'coach_repo', MagicMock()),
-            patch.object(game_handler, 'handle_eliminations', MagicMock(return_value=False)),
-            patch.object(game_handler, 'check_tournament_complete', MagicMock(return_value=False)),
             patch.object(game_handler, 'update_and_emit_game_state', MagicMock()),
             patch.object(game_handler.game_state_service, 'set_game', MagicMock()),
             patch.object(

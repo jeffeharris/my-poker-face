@@ -23,16 +23,27 @@ from .seating import Seating, SeatMove, SeatingManager, build_initial_seating
 
 def build_initial_state(
     config: TournamentConfig,
+    *,
+    entries: dict[str, str] | None = None,
 ) -> tuple[list[str], dict[str, str], TournamentField, Seating]:
     """Build the starting field + seating for a tournament config.
 
-    Players are `P01..PNN`, each assigned an archetype cycled from
-    `config.field_archetypes`. Shared by the headless director and the live
-    `TournamentSession` so both start from an identical world.
+    By default players are generated `P01..PNN`, each assigned an archetype
+    cycled from `config.field_archetypes` — the headless director and the live
+    multi-table `TournamentSession` both start from this identical world.
+
+    Pass explicit `entries` (an ordered `player_id -> archetype/name` map) to
+    build the field from REAL players instead — this is how a single-table game
+    becomes a one-table tournament (the human + their chosen opponents, by name).
+    Seat order follows the `entries` insertion order.
     """
-    player_ids = [f"P{i + 1:02d}" for i in range(config.field_size)]
-    archetypes = config.field_archetypes
-    entries = {pid: archetypes[i % len(archetypes)] for i, pid in enumerate(player_ids)}
+    if entries is not None:
+        player_ids = list(entries)
+        entries = dict(entries)
+    else:
+        player_ids = [f"P{i + 1:02d}" for i in range(config.field_size)]
+        archetypes = config.field_archetypes
+        entries = {pid: archetypes[i % len(archetypes)] for i, pid in enumerate(player_ids)}
     field = TournamentField(starting_stack=config.starting_stack, entries=entries)
     seating = build_initial_seating(player_ids, config.table_size)
     return player_ids, entries, field, seating

@@ -115,6 +115,8 @@ def find_active_for_owner(owner_id: str) -> Optional[str]:
     """The owner's first not-yet-complete tournament, checking memory then the
     repo (rehydrating into memory on a hit)."""
     for tid, rec in _tournaments.items():
+        if rec.get('resolver_kind') == SINGLE_KIND:
+            continue  # single-table envelopes are not resumable MTT events
         if rec.get('owner_id') == owner_id and not rec['session'].is_complete():
             return tid
     repo = _repo()
@@ -187,6 +189,90 @@ def persist(tournament_id: str) -> None:
         game_id=rec.get('game_id'),
         created_at=rec.get('created_at'),
     )
+
+
+# ── single-table "envelope" rows ─────────────────────────────────────────────
+# Every ordinary (non-cash) game is conceptually a one-table tournament. We
+# record that with a lightweight `tournaments` row (`resolver_kind='single'`)
+# so all games share one durable identity in the same table the multi-table
+# field uses. These envelopes are an INDEX/identity record only — they are NOT
+# rehydrated into a `TournamentSession` and are NOT attached to game_data, so
+# the single-table game keeps running on its `TournamentTracker` (the legacy
+# elimination/`TournamentResult` completion path). Collapsing the tracker into a
+# real 1-table session — and unifying completion — is deferred to step 3
+# (`docs/plans/TOURNAMENT_UNIFICATION_STEP3.md`).
+
+
+SINGLE_KIND = 'single'
+
+
+def single_envelope_id(game_id: str) -> str:
+    """Deterministic tournament_id for a game's single-table envelope, so
+    create-on-new-game and lazy-wrap-on-load upsert the same row (idempotent)."""
+    return f"single-{game_id}"
+
+
+# Game-id prefixes that own a dedicated tournament/session record and must
+# never be wrapped as a single-table envelope: cash sessions and multi-table
+# tournament tables (whose field lives in a real `TournamentSession` row).
+_NON_SINGLE_PREFIXES = ('cash-', 'tourney-')
+
+
+def persist_single_envelope(*, game_id: str, owner_id: Optional[str]) -> None:
+    """Upsert the single-table tournament envelope for an ordinary game.
+    Best-effort and idempotent; memory-only when persistence isn't wired.
+    No-op for cash games and multi-table tournament tables (by id prefix) — an
+    orphaned `tourney-` table with a missing session must not be mislabeled
+    `single`."""
+    repo = _repo()
+    if repo is None or not game_id or game_id.startswith(_NON_SINGLE_PREFIXES):
+        return
+    try:
+        repo.save(
+            tournament_id=single_envelope_id(game_id),
+            owner_id=owner_id or '',
+            status='active',
+            resolver_kind=SINGLE_KIND,
+            session_json=json.dumps({'single': True, 'game_id': game_id}),
+            created_at=_now_iso(),
+            game_id=game_id,
+        )
+    except Exception:  # noqa: BLE001 — durability layer, never break game create/load
+        logger.exception("failed to persist single-table envelope for %s", game_id)
+
+
+def persist_single_session(*, game_id: str, owner_id: Optional[str], session) -> None:
+    """Upsert the durable row for a single-table game's TournamentSession
+    (resolver_kind='single', a REAL serialized session). Same `single-<game_id>`
+    id as the lightweight envelope, so this just enriches it. Best-effort."""
+    repo = _repo()
+    if repo is None or not game_id or session is None or game_id.startswith(_NON_SINGLE_PREFIXES):
+        return
+    try:
+        status = 'complete' if session.is_complete() else 'active'
+        repo.save(
+            tournament_id=single_envelope_id(game_id),
+            owner_id=owner_id or '',
+            status=status,
+            resolver_kind=SINGLE_KIND,
+            session_json=json.dumps(session.to_dict()),
+            created_at=_now_iso(),
+            game_id=game_id,
+        )
+    except Exception:  # noqa: BLE001 — durability layer, never break play
+        logger.exception("failed to persist single-table session for %s", game_id)
+
+
+def delete_single_envelope(game_id: str) -> None:
+    """Remove a game's single-table envelope (called when the game is deleted).
+    Only touches the `single-<game_id>` row, never a multi-table session."""
+    repo = _repo()
+    if repo is None or not game_id:
+        return
+    try:
+        repo.delete(single_envelope_id(game_id))
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to delete single-table envelope for %s", game_id)
 
 
 def delete(tournament_id: str) -> Optional[dict]:

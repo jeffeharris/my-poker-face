@@ -114,3 +114,25 @@ def test_delete(repo):
     )
     repo.delete('t1')
     assert repo.load('t1') is None
+
+
+def test_find_active_for_owner_excludes_single_envelopes(repo):
+    """A single-table envelope row (resolver_kind='single') must never be
+    returned as the owner's active *multi-table* tournament — otherwise it would
+    shadow a real MTT in the lobby or be rehydrated as a session and crash."""
+    # Only a single envelope exists -> no active MTT.
+    repo.save(
+        tournament_id='single-tourney-x', owner_id='owner-a', status='active',
+        resolver_kind='single', session_json='{"single": true}',
+        created_at='2026-05-29T02:00:00', game_id='tourney-x',
+    )
+    assert repo.find_active_for_owner('owner-a') is None
+    # A real MTT is found even though the single envelope is newer.
+    repo.save(
+        tournament_id='t-mtt', owner_id='owner-a', status='active',
+        resolver_kind='fake', session_json=_session_json(), created_at='2026-05-29T01:00:00',
+    )
+    found = repo.find_active_for_owner('owner-a')
+    assert found is not None and found['tournament_id'] == 't-mtt'
+    # The single envelope is still directly addressable by game_id.
+    assert repo.find_by_game_id('tourney-x')['resolver_kind'] == 'single'

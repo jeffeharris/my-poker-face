@@ -208,34 +208,13 @@ class GameRepository(BaseRepository):
             }
 
     @retry_on_lock()
-    def save_tournament_tracker(self, game_id: str, tracker) -> None:
-        """Save tournament tracker state to the database.
-
-        Args:
-            game_id: The game identifier
-            tracker: TournamentTracker instance or dict from to_dict()
-        """
-        if hasattr(tracker, 'to_dict'):
-            tracker_dict = tracker.to_dict()
-        else:
-            tracker_dict = tracker
-
-        tracker_json = json.dumps(tracker_dict)
-
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO tournament_tracker (game_id, tracker_json, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(game_id) DO UPDATE SET
-                    tracker_json = excluded.tracker_json,
-                    updated_at = CURRENT_TIMESTAMP
-            """,
-                (game_id, tracker_json),
-            )
-
     def load_tournament_tracker(self, game_id: str) -> Optional[Dict[str, Any]]:
-        """Load tournament tracker state from the database.
+        """Load a LEGACY tournament-tracker blob (pre-3B games).
+
+        Retained read-only: `TournamentTracker` is retired, but cold-load uses
+        this to migrate a legacy game's elimination history into a
+        `TournamentSession` (see `single_table_tournament.session_from_legacy_tracker`).
+        New games never write this table.
 
         Args:
             game_id: The game identifier

@@ -146,6 +146,7 @@ def build_tournament_game(
         # `cash_mode`, so handle_eliminations / check_tournament_complete /
         # the cash block all early-return for this game.
         "tournament_session": session,
+        "tournament_multi_table": True,  # use the MTT boundary, not the single-table one
         "tournament_id": tournament_id,
         "tournament_table_id": session.human_table.table_id,
         "tournament_human_id": session.human_id,
@@ -173,6 +174,18 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
 
     outcome = advance_tournament_after_hand(game_data, state_machine, make_controller=_make)
     _emit_tournament(game_data, outcome, RELOCATED=RELOCATED, HUMAN_OUT=HUMAN_OUT, COMPLETE=COMPLETE)
+    if outcome.kind in (COMPLETE, HUMAN_OUT):
+        # Unified completion: persist the result row + the human's career stats,
+        # the same way a single-table game does — at the human's terminal moment
+        # (field complete, or the human busting out). Emit `tournament_complete`
+        # to the game room only when the field is actually COMPLETE (the human is
+        # at the table for the finish — they won, or busted on the last hand), so
+        # both single- and multi-table tournaments land on the same
+        # TournamentComplete screen. On an early bust (HUMAN_OUT) we only record
+        # stats; the human routes to the standings hub to watch/leave.
+        from flask_app.handlers.tournament_completion import finalize_tournament
+
+        finalize_tournament(game_id, game_data, emit=(outcome.kind == COMPLETE))
     _persist_boundary(game_id, game_data)
     return outcome.kind in (HUMAN_OUT, COMPLETE)
 

@@ -202,22 +202,10 @@ def test_coach_mode(repo):
 # --- Tournament Tracker ---
 
 
-def test_tournament_tracker_save_load(repo):
-    tracker_data = {"round": 1, "players_remaining": 4}
-    repo.save_tournament_tracker("game1", tracker_data)
-    loaded = repo.load_tournament_tracker("game1")
-    assert loaded == tracker_data
-
-
-def test_tournament_tracker_not_found(repo):
+# TournamentTracker is retired (the TournamentSession owns eliminations now);
+# `load_tournament_tracker` is kept read-only for the legacy cold-load migration.
+def test_legacy_tournament_tracker_load_not_found(repo):
     assert repo.load_tournament_tracker("nonexistent") is None
-
-
-def test_tournament_tracker_upsert(repo):
-    repo.save_tournament_tracker("game1", {"round": 1})
-    repo.save_tournament_tracker("game1", {"round": 2})
-    loaded = repo.load_tournament_tracker("game1")
-    assert loaded["round"] == 2
 
 
 # --- Messages ---

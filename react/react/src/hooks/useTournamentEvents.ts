@@ -89,7 +89,11 @@ export function useTournamentEvents({
         const place = human?.rank != null ? getOrdinal(human.rank) : null;
         toast(place ? `Tournament over — you finished ${place}` : 'Tournament over');
       }
-      routeToHub();
+      // Do NOT route to the hub here: when the field completes with the human
+      // still at the table, the backend also emits `tournament_complete`, which
+      // usePokerGame renders as the shared TournamentComplete screen (the same
+      // end screen single-table games use). Its "Return to Menu" button is the
+      // exit. Early busts route to the hub via `mtt_eliminated` (onEliminated).
     };
 
     socket.on('mtt_relocated', onRelocated);

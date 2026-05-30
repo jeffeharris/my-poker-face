@@ -94,12 +94,16 @@ class TournamentSessionRepository(BaseRepository):
             return self._row_to_dict(row) if row else None
 
     def find_active_for_owner(self, owner_id: str) -> Optional[dict]:
-        """The owner's most-recently-updated active tournament, if any."""
+        """The owner's most-recently-updated active *multi-table* tournament, if
+        any. Excludes `resolver_kind='single'` envelope rows — those wrap an
+        ordinary single-table game (still tracker-driven) and must never be
+        rehydrated as an MTT session or shadow a real MTT in the lobby."""
         with self._get_connection() as conn:
             row = conn.execute(
                 """
                 SELECT * FROM tournaments
                 WHERE owner_id = ? AND status = 'active'
+                  AND resolver_kind != 'single'
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """,

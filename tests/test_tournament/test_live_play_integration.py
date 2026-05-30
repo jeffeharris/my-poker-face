@@ -13,6 +13,28 @@ import pytest
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
+def _rebind_handler_globals(monkeypatch):
+    """Repair import-copied extension globals across every already-imported
+    `flask_app.handlers.*` module. Those modules do `from ..extensions import
+    game_repo, ...` at import time; if a test file imported them before
+    init_persistence ran, the copies are None and the real progress_game loop
+    NPEs (the documented xdist import-ordering gotcha in tests/CLAUDE.md). We
+    only touch copies that are currently None, so this is side-effect-free in a
+    correctly-ordered run.
+    """
+    import sys
+
+    import flask_app.extensions as ext
+
+    live = {n: getattr(ext, n) for n in dir(ext) if not n.startswith('_')}
+    for modname, mod in list(sys.modules.items()):
+        if mod is None or not modname.startswith('flask_app.handlers'):
+            continue
+        for name, value in live.items():
+            if value is not None and getattr(mod, name, 'x') is None:
+                monkeypatch.setattr(mod, name, value, raising=False)
+
+
 
 @pytest.fixture(scope="module")
 def app():
@@ -23,11 +45,17 @@ def app():
     return application
 
 
-def test_human_plays_real_hands_to_a_terminal_state(app):
+def test_human_plays_real_hands_to_a_terminal_state(app, monkeypatch):
     """Build a small tournament, drive the human (auto check/call/fold) through
     real hands, and assert it reaches a terminal state without looping —
     conservation holds and the human actually got to act."""
     with app.app_context():
+        import flask_app.extensions as _ext
+        import flask_app.handlers.game_handler as _gh
+
+        _rebind_handler_globals(monkeypatch)
+        monkeypatch.setattr(_gh, '_run_async_narration', lambda *a, **k: None, raising=False)
+
         from flask_app import config as cfgmod
         from flask_app.handlers.game_handler import progress_game
         from flask_app.handlers.tournament_game_builder import build_tournament_game
