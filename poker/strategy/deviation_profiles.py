@@ -171,6 +171,23 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=1.6,
         ego_fold_penalty=0.60,
     ),
+    # Balanced defender (measurement only): the apex anti-aggression reg, to test
+    # whether a competent DEFENSE neutralizes the maniac's edge (the field-overfold
+    # vs engine-flaw question). The anti-aggression weapons, expressed via levers:
+    # calls DOWN to catch bluffs (ego_fold_penalty 0.45 — folds less than TAG's
+    # 0.20, so it doesn't over-fold to barrels) + TRAPS strong hands to induce the
+    # spew (slowplay 0.5) + 3-bets back (moderate aggression). On the standard
+    # competent table. Not a station (it still folds air), not a nit (it doesn't
+    # over-fold). Not assigned in production.
+    'balanced_defender': DeviationProfile(
+        max_kl=0.6,
+        max_per_action_shift=0.30,
+        aggression_scale=1.3,
+        looseness_scale=1.0,
+        risk_scale=0.7,
+        ego_fold_penalty=0.45,
+        spot_tendencies=(('slowplay', 0.5),),
+    ),
     # Spewy aggressive fish (the frat-bro who can't stop bluffing). Unlike the
     # passive calling_station fish (loses by paying off), this fish loses by
     # SPEWING: a loose-aggressive base (loose table, so it enters as the raiser

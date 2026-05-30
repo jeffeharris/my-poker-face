@@ -255,6 +255,69 @@ as **measurement-only** (NOT wired into `build_fish_controller`) pending that
 call. The over_bluff fish leaks (`spews_bluffs`, `spite_raises_when_losing`)
 remain near-inert on the passive station base today.
 
+## Is aggression counterable? (field-tuning, not an engine flaw)
+
+The spewy-fish finding (aggression is +EV everywhere it was tested) raised the
+worry: does the engine fail to punish aggressive/spewy play, so "just bet"
+dominates? Tested directly.
+
+**A lone Maniac beats a FIELD of tight bots** (1 Maniac + 5 X, bb/100 to the
+hero X, vs Maniac×5):
+
+| X (hero) vs Maniac×5 | bb/100 | X's VPIP | X's fold-to-bet |
+|---|---|---|---|
+| TAG | −44 | 15% | 35% |
+| Baseline | −37 | 16% | 40% |
+| Nit | −50 | 10% | 33% |
+| Calling Station | −29 | 35% | 35% |
+| Defender (balanced) | −43 | 16% | 36% |
+
+Every grinder loses. The mechanism is **preflop**: they play 10–16% VPIP vs the
+maniac and **fold their blinds to its relentless steals**. So yes — against a
+*passive multiway field*, relentless aggression is +EV. (My `Defender` archetype
+— call-down + trap levers — FAILED identically, because those levers are
+postflop; the leak is preflop blind-theft, which they don't address.)
+
+**But heads-up, the SAME bots BEAT the maniac:**
+
+| X vs Maniac (heads-up) | bb/100 | X's VPIP HU |
+|---|---|---|
+| Baseline | +8 | 53% |
+| TAG | +17 | 53% |
+| Defender | +8 | 53% |
+
+Isolated, the competent bot **widens to 53% VPIP** (the HU chart defends
+correctly) and the maniac's edge **evaporates**. So the engine's decision layer
+is fully capable of beating aggression — it defends well when it's the only one
+who has to.
+
+**Conclusion: not an engine flaw — a field-composition + static-strategy issue.**
+The maniac's +57 is **blind-theft from a passive multiway field** (exactly real
+poker — a maniac prints at a table of nits). The personalities play a **fixed
+tight range regardless of how loose the table is**, so they don't widen their
+defense when one opponent is a maniac. The counter is the same as real poker:
+defend wider, 3-bet/raise back, isolate — which the engine demonstrably *can* do
+(HU proves it), it just isn't *adapting* in multiway.
+
+**Two fixes, both already partly in the codebase:**
+1. **Field variety (just shipped).** A table with LAGs/Maniacs/aggressive AIs
+   isn't a passive steal-target — the vulnerable case is an ALL-passive field.
+   Variety dilutes the problem on its own.
+2. **Adaptive defense** (`hyper_aggressive` exploitation counter: detect high
+   aggression → widen calls/defense, 3-bet back). The machinery exists. NB these
+   measurements ran with the opponent model OFF (`measure_passivity` disables it),
+   so the adaptive counter **never fired** — it's untested in the multiway
+   passive-field case that actually needs it. (EXP_004/005's "layer inert, bot
+   beats ManiacBot +30.7" was HU/isolated, where static defense already wins —
+   so the layer looked inert because it wasn't needed there.)
+
+**For the game:** a human playing maniac at a passive AI table *will* currently
+print (real exploit of the static field). The decision-relevant fixes are (a)
+don't let casino/career tables be all-passive (variety), and (b) validate +
+wire the adaptive counter so AIs widen vs an aggressive human. **Open follow-up:**
+test the `hyper_aggressive` counter in the multiway passive-field scenario
+(opponent-model ON) — the one scenario where a human maniac currently prints.
+
 ## E — Recurring eval: ON-DEMAND (no schedule, per Jeff 2026-05-29)
 
 No cron/routine. The sweeps are DB-free and bit-identical local↔box, so fresh

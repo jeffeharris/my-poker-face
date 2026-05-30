@@ -164,6 +164,25 @@ ARCHETYPES = {
             recovery_rate=0.15,
         ),
     },
+    # Balanced defender: the apex anti-aggression reg (balanced_defender profile —
+    # calls down to catch bluffs + traps + 3-bets back, without over-folding).
+    # Disciplined anchors (high poise, high adaptation_bias). The control for
+    # "does competent defense neutralize the maniac, or is aggression structurally
+    # +EV in this engine?"
+    'Defender': {
+        'profile': 'balanced_defender',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.6,
+            baseline_looseness=0.35,
+            ego=0.5,
+            poise=0.85,
+            expressiveness=0.3,
+            risk_identity=0.45,
+            adaptation_bias=0.6,
+            baseline_energy=0.5,
+            recovery_rate=0.2,
+        ),
+    },
     # Spewy aggressive fish: the loose-aggressive donator who bluffs off his
     # stack (spewy_fish profile — loose table + over_bluff + sticky). Loose +
     # tilty anchors (low poise, high ego/risk) so psychology amplifies the spew.
