@@ -254,6 +254,7 @@ export function MobilePokerTable({
     schedule: runoutSchedule,
     runItOut,
     revealed: !!revealedCards,
+    heroFolded: !!humanPlayer?.is_folded,
     communityCardCount: communityCards?.length ?? 0,
     handNumber,
     fastForward,
