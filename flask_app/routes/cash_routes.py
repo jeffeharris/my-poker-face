@@ -615,11 +615,35 @@ def _record_cash_session_start(**kwargs) -> None:
 
 
 def _increment_cash_session_buy_in(game_id: str, amount: int) -> None:
-    """Thin wrapper — see `cash_mode.cash_session_persistence.increment_cash_session_buy_in`."""
+    """Thin wrapper — see `cash_mode.cash_session_persistence.increment_cash_session_buy_in`.
+
+    Also emits the Cut-2 human chip statement: a rebuy / top-up is the
+    same bankroll -> seat movement as the initial buy-in, so it gets a
+    paired `player_buy_in` transfer row. owner_id + sandbox_id are read
+    off the session (the only place they're reliably in scope from both
+    the rebuy and top-up call sites). Conservation-neutral; best-effort.
+    """
     from cash_mode.cash_session_persistence import increment_cash_session_buy_in
-    from flask_app.extensions import cash_session_repo
+    from flask_app.extensions import cash_session_repo, chip_ledger_repo
 
     increment_cash_session_buy_in(cash_session_repo, game_id, amount)
+
+    if chip_ledger_repo is None or amount <= 0 or cash_session_repo is None:
+        return
+    try:
+        session = cash_session_repo.load(game_id)
+    except Exception:
+        session = None
+    if session is None:
+        return
+    chip_ledger.record_player_buy_in(
+        chip_ledger_repo,
+        owner_id=session.owner_id,
+        game_id=game_id,
+        amount=amount,
+        context={'site': 'cash_rebuy_or_topup'},
+        sandbox_id=session.sandbox_id,
+    )
 
 
 def _load_human_stake_or_404(stake_id: str, owner_id: str):
@@ -1454,6 +1478,23 @@ def sit_at_table():
             chips=player_bankroll.chips - buy_in,
             starting_bankroll=player_bankroll.starting_bankroll,
         )
+    )
+
+    # Human chip statement (Cut 2): record the initial self-funded buy-in
+    # as a transfer player -> seat, paired with the leave-time cash-out.
+    # Conservation-neutral; best-effort, never blocks the sit. (Rebuy /
+    # top-up emit their own buy-in rows via _increment_cash_session_buy_in.
+    # Staked sit-downs put up 0 of the player's own chips on a pure stake,
+    # so they have no self-funded buy-in to record here.)
+    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+
+    chip_ledger.record_player_buy_in(
+        _chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=buy_in,
+        context={'site': 'cash_sit', 'stake_label': stake_label},
+        sandbox_id=sandbox_id,
     )
 
     # Stash the table_id + seat_index on the game_data so /api/cash/leave
@@ -4736,6 +4777,24 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 starting_bankroll=bankroll.starting_bankroll,
             )
         )
+        returned_chips = chips_at_table
+
+    # Human chip statement (Cut 2): record the take-home as a transfer
+    # seat -> player. `returned_chips` is the take-home in both branches
+    # (borrower_credit when staked, chips_at_table when self-funded). A
+    # 0-take-home bust writes no row — the buy_in with no matching
+    # cash_out IS the record that the seat busted. Conservation-neutral;
+    # best-effort, never blocks the leave.
+    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+
+    chip_ledger.record_player_cash_out(
+        _chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=returned_chips,
+        context={'site': 'cash_leave', 'sponsor_repaid': sponsor_repaid},
+        sandbox_id=sandbox_id,
+    )
 
     # Now that settlement is done we know `sponsor_repaid` (chips the
     # staker pulled off the top) and `returned_chips` (what actually

@@ -90,6 +90,33 @@ LEDGER_REASONS = frozenset(
         # chip sink). Recyclable (see BANK_POOL_DEPOSIT_REASONS)
         # so scouting fees refill the AI-funding pool. See
         # OPPONENT_DOSSIER_PROGRESSION.md.
+        # Transfers (NO central_bank side) — pure movement between two
+        # non-bank surfaces. These DO NOT change the size of the
+        # universe, so they are invisible to the creation/destruction
+        # drift math (`sum_creations/destructions_by_reason` filter on
+        # `central_bank`). They exist solely as a human-readable
+        # transaction history / statement (Cut 2 of CASH_MODE_STATE_MODEL.md):
+        # the audit-trail the silent-forfeiture bug exposed as missing.
+        # Written via `record_transfer` (NOT `record`, which rejects
+        # bank-less rows by design).
+        'player_buy_in',  # player:<id> → seat:<game_id>: chips committed to a
+        # cash seat at sit-down. Conservation-neutral (both
+        # player_bankrolls and the live human seat stack are
+        # already counted by the audit).
+        'player_cash_out',  # seat:<game_id> → player:<id>: chips returned to
+        # bankroll at leave/cash-out (the take-home).
+    }
+)
+
+# Transfer reasons — entries with NO central_bank side (see the
+# "Transfers" note in LEDGER_REASONS). `record()` rejects these; they
+# must go through `record_transfer`, and the audit's creation/destruction
+# sums ignore them. Kept as a set so a consumer can cleanly exclude
+# transfer rows from any bank-oriented view.
+TRANSFER_REASONS = frozenset(
+    {
+        'player_buy_in',
+        'player_cash_out',
     }
 )
 
@@ -152,6 +179,21 @@ def ai(personality_id: str) -> str:
     if not personality_id:
         raise ValueError("ai() requires a non-empty personality_id")
     return f"ai:{personality_id}"
+
+
+def seat(game_id: str) -> str:
+    """Format `game_id` into the canonical `seat:<game_id>` form.
+
+    A `seat:` entity is the chips physically at a player's cash seat for
+    one session. It is a *transfer* counterparty only (player_buy_in /
+    player_cash_out) — never a creation/destruction side — so it never
+    enters the conservation drift math. It exists so the human chip
+    statement reads as a balanced pair (bankroll → seat at sit-down,
+    seat → bankroll at leave).
+    """
+    if not game_id:
+        raise ValueError("seat() requires a non-empty game_id")
+    return f"seat:{game_id}"
 
 
 def record(
@@ -256,6 +298,150 @@ def record(
             e,
         )
         return None
+
+
+def record_transfer(
+    repo: ChipLedgerRepository,
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    reason: str,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """Write one TRANSFER ledger entry — a move between two non-bank
+    surfaces that does NOT change the size of the universe.
+
+    Distinct from `record()`, which rejects rows with no `central_bank`
+    side (its job is creations/destructions only). Transfers are the
+    human transaction-history rows (`player_buy_in` / `player_cash_out`):
+    conservation-neutral (both surfaces are already counted by the
+    audit), so they are deliberately invisible to the drift math. This
+    helper exists so that invariant is explicit at the one write point
+    rather than smuggled through `record()`.
+
+    Validation: `reason` must be in `TRANSFER_REASONS`; `amount` a
+    non-negative int; NEITHER side may be the central bank (a transfer
+    that touched the bank would be a real creation/destruction and
+    belongs in `record()`). Failures log and return None — never take
+    down a chip-moving path for a best-effort history row.
+    """
+    if reason not in TRANSFER_REASONS:
+        logger.warning(
+            "chip ledger: rejecting record_transfer() with non-transfer "
+            "reason=%r (use record() for creations/destructions)",
+            reason,
+        )
+        return None
+    try:
+        amount_int = int(amount)
+    except (TypeError, ValueError):
+        logger.warning(
+            "chip ledger: rejecting record_transfer() with non-int amount=%r "
+            "(reason=%s)",
+            amount,
+            reason,
+        )
+        return None
+    if amount_int < 0:
+        logger.warning(
+            "chip ledger: rejecting record_transfer() with negative amount=%d "
+            "(reason=%s); flip source/sink instead",
+            amount_int,
+            reason,
+        )
+        return None
+    if source == CENTRAL_BANK or sink == CENTRAL_BANK:
+        logger.warning(
+            "chip ledger: rejecting record_transfer() that touches central_bank "
+            "(source=%s sink=%s reason=%s); use record() for bank-side flows",
+            source,
+            sink,
+            reason,
+        )
+        return None
+    try:
+        return repo.record(
+            source=source,
+            sink=sink,
+            amount=amount_int,
+            reason=reason,
+            context=context,
+            sandbox_id=sandbox_id,
+        )
+    except Exception as e:
+        # Best-effort: a missing history row is a forensics gap, not a
+        # conservation problem (the move is bank-neutral). Log, don't raise.
+        logger.error(
+            "[LEDGER] transfer record failed (reason=%s amount=%d source=%s "
+            "sink=%s): %s",
+            reason,
+            amount_int,
+            source,
+            sink,
+            e,
+        )
+        return None
+
+
+def record_player_buy_in(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    game_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """player:<owner_id> → seat:<game_id> — chips committed at sit-down.
+
+    The human-statement counterpart of the bankroll debit. Conservation-
+    neutral (player_bankrolls drops, the live human seat stack rises;
+    both already counted by the audit). No-op when `repo` is None or
+    `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=player(owner_id),
+        sink=seat(game_id),
+        amount=amount,
+        reason='player_buy_in',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_player_cash_out(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    game_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """seat:<game_id> → player:<owner_id> — take-home chips at leave.
+
+    The human-statement counterpart of the bankroll credit on leave /
+    cash-out. Conservation-neutral. No-op when `repo` is None or
+    `amount <= 0` (a bust-out leave with 0 take-home writes no row —
+    the absence of a cash_out paired with a buy_in IS the record that
+    the seat busted).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=seat(game_id),
+        sink=player(owner_id),
+        amount=amount,
+        reason='player_cash_out',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
 
 
 # --- Reason-specific helpers ---
