@@ -65,6 +65,7 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     ScoutingTier('track_record', 'Track record', 100),
     ScoutingTier('pressure', 'Pressure profile', 100),
     ScoutingTier('memorable', 'Memorable hands', 140),
+    ScoutingTier('rivalry', 'The history', 140),
     ScoutingTier('table_posture', 'Table posture', 180),
     # Tier-2 deep postflop reads (B1) — HYBRID gate: a hand floor AND enough
     # samples of the specific spot, so the unlocked stat isn't noise. The
@@ -140,7 +141,7 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
     'track_record': {
         'label': 'Track record',
         'price': 1000,
-        'items': ['track_record', 'pressure', 'memorable'],
+        'items': ['track_record', 'pressure', 'memorable', 'rivalry'],
     },
     'table_posture': {
         'label': 'Table posture',
@@ -289,6 +290,8 @@ def _redact_item(response: Dict[str, Any], item_id: str) -> None:
         response['pressure_summary'] = None
     elif item_id == 'memorable':
         response['memorable_hands'] = []
+    elif item_id == 'rivalry':
+        response['relationship_history'] = None
     elif item_id == 'table_posture':
         response['ai_bankroll'] = None
         response['stake_summary'] = {

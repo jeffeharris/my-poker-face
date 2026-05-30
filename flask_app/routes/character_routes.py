@@ -804,6 +804,24 @@ def get_dossier(identifier: str):
     except Exception as e:
         logger.debug("[CHARACTER] lifetime memorable merge failed: %s", e)
 
+    # The history (rivalry read): aggregate the logged relationship events
+    # between the human and this opponent into a headline + defining clash +
+    # clash/banter tallies. Owner-scoped, from the same memorable_hands store.
+    response['relationship_history'] = None
+    try:
+        from flask_app.extensions import game_repo
+        from flask_app.services.dossier_history import (
+            CLASH_EVENTS,
+            build_relationship_history,
+        )
+
+        hist = game_repo.load_relationship_history(
+            observer_id, player_name, CLASH_EVENTS
+        )
+        response['relationship_history'] = build_relationship_history(hist)
+    except Exception as e:
+        logger.debug("[CHARACTER] relationship history failed: %s", e)
+
     # Player-authored note (v95). None when no row OR row has NULL note.
     try:
         response['note'] = relationship_repo.load_note(observer_id, personality_id)

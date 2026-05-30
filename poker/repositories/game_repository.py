@@ -1175,6 +1175,64 @@ class GameRepository(BaseRepository):
             for r in rows
         ]
 
+    def load_relationship_history(
+        self, owner_id: str, opponent_name: str, clash_types=()
+    ) -> Dict[str, Any]:
+        """Aggregate the human's logged relationship events vs `opponent_name`
+        across all their games — the rivalry view for the dossier.
+
+        Owner-scoped, human-as-observer (same scoping as
+        `load_lifetime_memorable_hands`). Returns:
+          - `counts`: {memory_type: n} over every logged event (clash + chat).
+          - `defining`: the single highest-impact "clash" hand (a
+            rivalry-defining moment) as {event, impact_score, narrative,
+            timestamp}, or None. `clash_types` names which memory_types count
+            as clashes (the taxonomy lives in the service layer).
+        """
+        with self._get_connection() as conn:
+            count_rows = conn.execute(
+                """
+                SELECT m.memory_type AS memory_type, COUNT(*) AS n
+                FROM memorable_hands m
+                JOIN games g ON m.game_id = g.game_id
+                WHERE g.owner_id = ?
+                  AND m.opponent_name = ?
+                  AND m.observer_name = g.owner_name
+                GROUP BY m.memory_type
+                """,
+                (owner_id, opponent_name),
+            ).fetchall()
+            counts = {r['memory_type']: r['n'] for r in count_rows}
+
+            defining = None
+            clash_types = tuple(clash_types)
+            if clash_types:
+                placeholders = ",".join("?" for _ in clash_types)
+                row = conn.execute(
+                    f"""
+                    SELECT m.memory_type, m.impact_score, m.narrative,
+                           m.created_at
+                    FROM memorable_hands m
+                    JOIN games g ON m.game_id = g.game_id
+                    WHERE g.owner_id = ?
+                      AND m.opponent_name = ?
+                      AND m.observer_name = g.owner_name
+                      AND m.memory_type IN ({placeholders})
+                    ORDER BY m.impact_score DESC
+                    LIMIT 1
+                    """,
+                    (owner_id, opponent_name, *clash_types),
+                ).fetchone()
+                if row is not None:
+                    defining = {
+                        'event': row['memory_type'],
+                        'impact_score': row['impact_score'] or 0.0,
+                        'narrative': row['narrative'] or '',
+                        'timestamp': row['created_at'],
+                    }
+
+        return {'counts': counts, 'defining': defining}
+
     def load_informant_unlocks(
         self, sandbox_id: str, observer_id: str, opponent_id: str
     ) -> set:

@@ -1441,3 +1441,85 @@
   font-style: italic;
   color: var(--ink-faint);
 }
+
+/* ───────────────────────────────────────────────────────────────
+   THE HISTORY — rivalry read (clash + banter tallies)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__history {
+  position: relative;
+  z-index: 2;
+  padding: 4px 2px 2px;
+}
+
+.dossier__history-line {
+  margin: 0 0 10px;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  font-style: italic;
+  color: var(--ink);
+}
+
+.dossier__history-defining {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--emerald-deep);
+  background: var(--paper-shadow);
+}
+
+.dossier__history-defining-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dossier__history-defining-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--emerald-deep);
+}
+
+.dossier__history-defining-impact {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+
+.dossier__history-defining-narrative {
+  margin: 5px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: var(--ink-soft);
+}
+
+.dossier__history-tallies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dossier__history-chip {
+  padding: 2px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  border: 1px solid var(--ink-faint);
+}
+
+.dossier__history-chip--banter {
+  color: var(--ink-faint);
+  border-style: dashed;
+}
+
+.dossier__history-chip-count {
+  font-weight: 700;
+  color: var(--emerald-deep);
+}

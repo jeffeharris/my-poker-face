@@ -258,8 +258,14 @@ Refresh the baked baseline when a new population audit lands.
   source (`CASH_MODE_WHALE_AT_CARDROOM.md`, `CASH_MODE_FISH_AS_PERSONAS.md`);
   B2's badge is behavioral (how they play), not economic (their stakes/role).
 - **Tells system** (`TELLS_SYSTEM.md`).
-- **Relationship-history hands** — surface the rivalry-defining coolers
-  (`relationship_events`).
+- ~~**Relationship-history hands**~~ — ✅ done (2026-05-30) as **THE HISTORY**:
+  `dossier_history.build_relationship_history` over a new
+  `GameRepository.load_relationship_history` aggregate (event counts by type +
+  the highest-impact defining clash, from `memorable_hands.memory_type` — no
+  new table). Renders a rivalry headline, the defining hand, and clash/banter
+  tallies. Gated `rivalry` @140 (with `memorable`), in the `track_record`
+  informant section. The raw per-hand memorable list already showed coolers;
+  this adds the *synthesis* (counts + headline + defining hand).
 - **Perks / "Data Collector"** passive scouting (parent doc "Future").
 
 ---

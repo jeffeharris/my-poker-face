@@ -67,6 +67,13 @@ def _full_response():
             'vpip_pct': 77, 'vpip_label': 'Looser than 77% of the field',
             'af_pct': 60, 'af_label': 'More aggressive than 60% of the field',
         },
+        'relationship_history': {
+            'line': "Bad blood.",
+            'defining': {'event': 'cooler', 'label': 'cooler',
+                         'impact_score': 0.92, 'narrative': 'kings into aces'},
+            'clash': [{'event': 'cooler', 'label': 'cooler', 'count': 2}],
+            'banter': [],
+        },
     }
 
 
@@ -297,6 +304,24 @@ def test_temperament_and_field_below_floor_redacted():
     apply_scouting_gate(resp, hands_observed=5)
     assert resp['temperament'] is None
     assert resp['field_position'] is None
+
+
+def test_rivalry_gates_with_track_record_tier():
+    resp = _full_response()
+    # 130 hands: below the rivalry/memorable tier (140) → history redacted.
+    apply_scouting_gate(resp, hands_observed=130)
+    assert resp['relationship_history'] is None
+    assert 'rivalry' not in resp['scouting']['unlocked']
+    # 150 hands: unlocked.
+    resp2 = _full_response()
+    apply_scouting_gate(resp2, hands_observed=150)
+    assert resp2['relationship_history']['line'] == 'Bad blood.'
+    assert 'rivalry' in resp2['scouting']['unlocked']
+
+
+def test_informant_track_record_section_unlocks_rivalry():
+    s = compute_scouting(0, purchased_sections={'track_record'})
+    assert 'rivalry' in s['unlocked']
 
 
 def test_informant_tells_section_unlocks_items():

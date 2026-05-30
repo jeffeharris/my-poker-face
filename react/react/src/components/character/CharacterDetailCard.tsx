@@ -709,6 +709,10 @@ export function CharacterDetailCard({
       temperament.expressiveness != null);
   const fieldPos = fetched?.field_position ?? null;
   const hasFieldPos = !!fieldPos && (!!fieldPos.vpip_label || !!fieldPos.af_label);
+  // "The history" — rivalry read.
+  const history = fetched?.relationship_history ?? null;
+  const hasHistory =
+    !!history && (history.clash.length > 0 || history.banter.length > 0 || !!history.defining);
   const hasChips =
     !!character.chips &&
     (character.chips.atTable !== undefined || character.chips.bankroll !== undefined);
@@ -1344,6 +1348,62 @@ export function CharacterDetailCard({
                       <li className="dossier__read-tip">{fieldPos.af_label}</li>
                     )}
                   </ul>
+                </section>
+              </>
+            )}
+
+            {hasHistory && history && (
+              <>
+                <SectionRule>THE HISTORY</SectionRule>
+                <section className="dossier__history">
+                  <p className="dossier__history-line">{history.line}</p>
+                  {history.defining && (
+                    <div className="dossier__history-defining">
+                      <div className="dossier__history-defining-head">
+                        <span className="dossier__history-defining-tag">
+                          {history.defining.label}
+                        </span>
+                        <span
+                          className="dossier__history-defining-impact"
+                          title="impact score"
+                        >
+                          {Math.round(history.defining.impact_score * 100)}
+                        </span>
+                      </div>
+                      {history.defining.narrative && (
+                        <p className="dossier__history-defining-narrative">
+                          {history.defining.narrative}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {history.clash.length > 0 && (
+                    <div className="dossier__history-tallies">
+                      {history.clash.map((c) => (
+                        <span key={c.event} className="dossier__history-chip">
+                          {c.label}
+                          {c.count > 1 && (
+                            <span className="dossier__history-chip-count"> ×{c.count}</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {history.banter.length > 0 && (
+                    <div className="dossier__history-tallies dossier__history-tallies--banter">
+                      {history.banter.map((c) => (
+                        <span
+                          key={c.event}
+                          className="dossier__history-chip dossier__history-chip--banter"
+                        >
+                          {c.label}
+                          {c.count > 1 && (
+                            <span className="dossier__history-chip-count"> ×{c.count}</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </section>
               </>
             )}

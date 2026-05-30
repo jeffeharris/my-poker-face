@@ -115,6 +115,26 @@ export interface DossierFieldPosition {
   af_label?: string;
 }
 
+/** One relationship-event tally (clash or banter). */
+export interface DossierHistoryEvent {
+  event: string;
+  label: string;
+  count: number;
+}
+
+/** "The history" — the rivalry read between the human and this opponent. */
+export interface DossierRelationshipHistory {
+  line: string;
+  defining: {
+    event: string;
+    label: string;
+    impact_score: number;
+    narrative: string;
+  } | null;
+  clash: DossierHistoryEvent[];
+  banter: DossierHistoryEvent[];
+}
+
 export interface DossierPressureSummary {
   total_events?: number;
   wins?: number;
@@ -208,6 +228,8 @@ export interface DossierResponse {
   temperament?: DossierTemperament | null;
   /** B4 field-relative standing. Null when locked. */
   field_position?: DossierFieldPosition | null;
+  /** "The history" — rivalry read. Null when locked / no shared history. */
+  relationship_history?: DossierRelationshipHistory | null;
   pressure_summary: DossierPressureSummary | null;
   /** AI's off-table bankroll (chips), projected through regen.
    *  Null when no bankroll row exists yet (AI never sat down). */
