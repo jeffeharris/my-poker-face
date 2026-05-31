@@ -137,3 +137,32 @@ divergence audit is unaffected (no humans in the sim, sim doesn't touch
 
 Net: Phase 1's human blind spot is closed and the human seat lifecycle is now a
 durable regression gate for the flip — which stays deferred.
+
+## 2026-05-31 — design pass for the flip + shadow armed on live dev
+
+Asked to design the flip (leveraging feature-dev agents) and to "push and
+shadow." Ran a code-explorer (territory map) + code-architect (blueprint) pass;
+wrote `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md`. The mechanism: promote the
+proven shadow reconcile-diff into an authoritative write that runs INSIDE
+`save_table`'s sqlite transaction (presence + seats commit together), with origin
+derived from the departing slot (human→GO_OFFLINE, fish→RETURN_TO_POOL,
+AI→LEAVE). One refinement over the raw architect output: keep `cash_idle_pool` a
+written cache and DEFER the SQL-view conversion (their Step-0 view breaks every
+`save_idle` writer at once and contradicts their own deferred `cash_tables`
+demotion). New flag `PRESENCE_AUTHORITY_ENABLED` keeps everything reversible until
+one atomic flip.
+
+Pushed all 47 commits to origin/development (was never pushed). Then armed the
+shadow on the dev backend: env-gated the flag (`_env_flag`, default still False so
+prod is untouched), added a default-off pass-through to docker-compose.yml,
+recreated the backend with `PRESENCE_SHADOW_WRITE_ENABLED=1`, verified
+`is_enabled()` live. The world ticker only churns sandboxes with an ACTIVE human
+(design D4), so on an idle dev box nothing populated — correct, not a bug. To get
+a real-data signal anyway, mirrored the CURRENT seat state of all 12 dev sandboxes
+(147 tables, 1 human + 51 fish seats) into `entity_presence` (presence-only
+writes, `cash_tables` untouched) via the real reconcile, then ran a new READ-ONLY
+auditor (`scripts/audit_presence_divergence.py`): **PASS, 0 unexpected** — 630
+MATCH incl. the human + all fish, only benign MISSING_IDLE + one STALE_SEAT_GONE.
+That's the first validation against real slot shapes the AI-only sim never made.
+Shadow left armed so ongoing real play keeps populating it. The flip stays
+unbuilt, pending review of the blueprint.
