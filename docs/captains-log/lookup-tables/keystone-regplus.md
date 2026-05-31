@@ -156,3 +156,56 @@ RegPlus is the better bot. The disciplined next steps are EITHER:
 justified by current evidence** and is parked. The honest headline: we set out to
 build a competent opponent so we could build a robust bot, and the competent
 opponent we built (RegPlus) turned out to already *be* the robust bot.
+
+## Hardening pass — overbet 1.3, and what the sweep taught
+
+Jeff's call was "harden before shipping." Swept the knobs one-at-a-time (fold gate
+0.7/0.8/0.9, overbet 1.0–1.3, strong/medium sizing, preflop width) vs
+CaseBotV2/TAG/punisher/jeff/Maniac. The sweep was decisive in *both* directions:
+- **One free win: overbet premium 1.1 → 1.3.** Strict improvement, no regressions —
+  worst gauntlet cell +0.0 → **+8.2** (positive everywhere now), jeff +192→+212,
+  punisher +120→+131, mean +66.8→+69.4, Maniac unchanged. Locked as the default.
+- **Every other deviation lost.** Lower fold gate (0.7) bought the CaseBotV2 cell
+  but cost −57 vs Maniac (it crosses the maniac's 0.75-pot barrel size → RegPlus
+  stops bluff-catching) AND raised human-exploitability (folding to normal-sized
+  bets). Bigger strong/medium bets and wider preflop all *cratered the TAG cell*.
+  RegPlus's original thresholds were already near a local optimum — hardening is a
+  tweak, not a rebuild.
+
+The Maniac/gate interaction is the static-vs-adaptive tension in miniature: the
+right fold gate *depends on whether the bettor is value-heavy (fold) or a bluffer
+(call)*. A static gate must compromise; we chose 0.8 (keep the bluff-catch, stay
+less human-exploitable) over chasing the CaseBotV2 number down.
+
+## How a human beats RegPlus (the documented boundary)
+
+Asked directly: a competent human shreds RegPlus, by construction, because it is
+**face-up and never bluffs.** Its bet size is a 1:1 tell — overbet = the nuts,
+0.85 = strong, 0.55 = a medium hand *in position*, a check = it gave up. So a human:
+1. **Folds to its bets.** Every bet is value; pay off nothing, lose the minimum.
+2. **Stabs every check.** A check = weakness; bet and it folds its air/weak.
+3. **Overbet-bluffs its capped lines.** When it called small then checked (so it's
+   not a monster — a monster raises), overbet; it folds all-but-strong to big bets
+   and *can't* be strong. (TrickyAggro failed only because it shoved air into
+   RegPlus's *whole* range; a human fires only into the capped range.)
+4. **Light-3-bets it preflop.** It isos ~38% but defends a 3-bet with ~top-15% →
+   over-folds → 3-bet it with anything.
+5. **Plays the board, not an equity bucket** (RegPlus is vs-random, no
+   texture/blocker sense), and **it never adapts** — the same exploit runs forever.
+
+One sentence: *RegPlus has no bluffs and transparent sizing, so a human always
+knows where they are — they fold when it's strong, attack when it's weak, and it
+never makes them pay for it.*
+
+**The deliberate scope:** RegPlus is the "milk the fish, never lose to a bot"
+value-machine — robust against everything the static eval can build, NOT human-proof.
+Beating a human needs disguised sizing + a bluffing range + 3-bet defense (toward
+balance, which costs fish-extraction) or range-reading adaptation — unmeasurable in
+the bot-only pool. That boundary now lives in the `_strategy_reg_plus` docstring.
+
+## Fork (Jeff's, next session)
+
+(a) **Ship it** — promote RegPlus to a production bot type for the fish-heavy
+casino (it dominates the field it would actually face); or (b) **build the human-
+in-a-bot** — a range-reading attacker that overbets only into capped lines — the
+one opponent that *could* exploit RegPlus, and the prerequisite for a meaningful §3.

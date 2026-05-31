@@ -16,6 +16,7 @@ Custom rules can be expressed via _strategy_custom + RuleConfig.rules.
 
 import json
 import logging
+import os
 import random
 from dataclasses import dataclass, field
 from enum import Enum
@@ -24,6 +25,30 @@ from typing import Dict, Optional
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS, TOP_45_HANDS
 
 logger = logging.getLogger(__name__)
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a tunable from the environment (for eval sweeps), defaulting to the
+    locked production value. Lets `RegPlus` thresholds be swept across sim runs
+    without editing code per-variant — each `docker compose exec -e VAR=...` arm
+    re-imports this module and picks up its override. Production sets nothing →
+    the defaults below ARE the shipped config."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+# RegPlus tunables (defaults = the validated 2026-05-31 config). Sweepable via env.
+REGPLUS_FOLD_GATE = _env_float('REGPLUS_FOLD_GATE', 0.8)  # bet_over_pot ≥ this ⇒ fold medium
+REGPLUS_OVERBET_PREMIUM = _env_float('REGPLUS_OVERBET_PREMIUM', 1.3)  # checked-to premium size
+REGPLUS_BET_STRONG = _env_float('REGPLUS_BET_STRONG', 0.85)  # checked-to strong size
+REGPLUS_BET_MEDIUM = _env_float('REGPLUS_BET_MEDIUM', 0.55)  # checked-to medium (IP) size
+REGPLUS_RAISE_PREMIUM = _env_float('REGPLUS_RAISE_PREMIUM', 0.9)  # facing-bet premium value-raise
+REGPLUS_PF_WIDTH = _env_float('REGPLUS_PF_WIDTH', 0.0)  # 1.0 ⇒ also iso 'weak' first-in OOP
 
 
 class FishLeak(str, Enum):
@@ -852,10 +877,29 @@ def _strategy_reg_plus(context: Dict) -> Dict:
         position) but TIGHTEN vs a raise (a value-heavy opponent's raise = a real
         range), so it isn't paying to enter dominated.
 
-    This is the disciplined profile the adaptive bot (§3) switches to on a
-    competent read. It is NOT meant to beat the fish (it folds to their value and
-    misses their bluffs) — that is the fish-hunter profile's job. Its one mandate:
-    neutralize / beat CaseBotV2 so we finally have a yardstick for robustness.
+    Validated (2026-05-31): positive vs the ENTIRE eval field — it beats CaseBotV2
+    (the prior best) AND out-extracts it from the fish (+200 vs jeff_clone), while
+    holding break-even vs a full TAG table and crushing every purpose-built
+    overbet-bluffer. So "discipline ≠ balance": one static strategy that is both
+    robust vs bots and a fish-extractor. Hardened config = overbet premium 1.3
+    (sweep-locked; bigger value vs the calling pool, no cost to any competent cell).
+    The other knobs are env-tunable (`REGPLUS_*`) but their defaults below are the
+    locked shipping values — the sweep showed every deviation (bigger strong/medium
+    bets, wider preflop, lower fold gate) craters the competent-opponent cells.
+
+    ── BOUNDARY: what this bot is FOR (read before trusting "robust") ──
+    RegPlus is robust against everything our STATIC rule-bot eval can build. It is
+    NOT robust against a thinking HUMAN, by construction, because it is face-up and
+    never bluffs: its bet size is a 1:1 tell of its strength (overbet=nuts,
+    0.85=strong, 0.55=medium-IP, check=give-up), so a human folds when it bets
+    (every bet is value), stabs every check (it gave up), overbet-bluffs its capped
+    lines (it folds all-but-strong to big bets), and light-3-bets it preflop (it
+    over-folds to 3-bets) — and it never adapts to punish any of this. Beating a
+    competent human needs mixed/disguised sizing + a real bluffing range + 3-bet
+    defense (i.e. moves toward balance, which costs fish-extraction) and/or a
+    range-reading adaptation — none of which our bot-only eval can measure. RegPlus
+    is the "milk the fish, never lose to a bot" value-machine and the competent
+    profile the adaptive bot (§3) switches to — not a human-proof bot on its own.
     Pure-static (no opponent reads) so sim == prod.
     """
     cost = context['cost_to_call']
@@ -904,7 +948,7 @@ def _strategy_reg_plus(context: Dict) -> Dict:
             # pot where we have the range + position edge.
             if hand in ('premium', 'strong', 'medium'):
                 return do_raise(int(3.0 * bb))
-            if hand == 'weak' and in_position:
+            if hand == 'weak' and (in_position or REGPLUS_PF_WIDTH >= 1.0):
                 return do_raise(int(3.0 * bb))  # widen IP/blind so we don't bleed
             return check_or_fold()  # fold air OOP (free check in the BB)
         # Facing a raise — a value-heavy opponent's raise is a REAL range. Tighten:
@@ -926,10 +970,10 @@ def _strategy_reg_plus(context: Dict) -> Dict:
         # bet, and a value-heavy opponent (CaseBotV2 overbets only premium/strong)
         # is rarely bluffing there → fold everything but the nuts. Do NOT pay off.
         bet_over_pot = cost / max(1.0, pot - cost)
-        big_bet = bet_over_pot >= 0.8
+        big_bet = bet_over_pot >= REGPLUS_FOLD_GATE
         pot_odds = cost / (pot + cost) if (pot + cost) > 0 else 1.0
         if hand == 'premium':
-            return bet(0.9)  # raise for value
+            return bet(REGPLUS_RAISE_PREMIUM)  # raise for value
         if hand == 'strong':
             return call()  # call down — ahead of most value bets
         if hand == 'medium':
@@ -941,11 +985,11 @@ def _strategy_reg_plus(context: Dict) -> Dict:
 
     # ── POSTFLOP, checked to us: EXTRACT large (the pool calls), never bluff ──
     if hand == 'premium':
-        return bet(1.1)  # overbet the nuts — the station calls anyway
+        return bet(REGPLUS_OVERBET_PREMIUM)  # overbet the nuts — the station calls anyway
     if hand == 'strong':
-        return bet(0.85)
+        return bet(REGPLUS_BET_STRONG)
     if hand == 'medium':
-        return bet(0.55) if in_position else check_or_fold()  # thin value IP only
+        return bet(REGPLUS_BET_MEDIUM) if in_position else check_or_fold()  # thin value IP only
     return check_or_fold()  # weak/air: give up, do NOT bluff a caller
 
 

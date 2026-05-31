@@ -59,6 +59,33 @@ read) is for — and it's unmeasurable in our current pool, so building it needs
 opponent-model harness (§4). **RegPlus is a strong static "better bot" today AND
 the competent profile the adaptive bot switches to.**
 
+### 2026-05-31b — HARDENED (overbet 1.3) + the explicit human boundary
+
+Swept the knobs (fold gate 0.7/0.8/0.9, overbet 1.0–1.3, strong/medium sizing,
+preflop width) one-at-a-time vs CaseBotV2/TAG/punisher/jeff/Maniac. **One free
+win: overbet premium 1.1 → 1.3** (now the locked default in `rule_strategies.py`).
+Strict improvement, no regressions: worst gauntlet cell +0.0 → **+8.2** (positive
+*everywhere*), jeff +192→**+212**, punisher +120→**+131**, mean +66.8→**+69.4**;
+Maniac unchanged (gate left at 0.8 keeps the bluff-catch). Every *other* deviation
+(lower gate, bigger strong/medium bets, wider preflop) CRATERS the competent cells
+— so RegPlus's original thresholds were already near a local optimum; this is a
+tweak, not a rebuild. Knobs are env-tunable (`REGPLUS_*`) for future sweeps;
+defaults = shipping values. (Self-play baseline shifted −77 → −50.7 with the change.)
+
+**The human boundary (why "robust" has an asterisk).** A competent HUMAN beats
+RegPlus easily, by construction — it is *face-up and never bluffs*: bet size is a
+1:1 tell (overbet=nuts, 0.85=strong, 0.55=medium-IP, check=give-up), so a human
+(a) folds to its bets — they're all value, pay off nothing; (b) stabs every check —
+it gave up; (c) overbet-bluffs its *capped* lines — it folds all-but-strong to big
+bets and can't be strong there; (d) light-3-bets it preflop — it over-folds to
+3-bets; and it *never adapts* to punish any of this. Beating a human needs
+disguised/mixed sizing + a real bluffing range + 3-bet defense (moves toward
+*balance*, which costs fish-extraction) and/or range-reading adaptation — none of
+which the bot-only eval can measure. **So RegPlus = "milk the fish, never lose to a
+bot"; it is NOT a human-proof bot.** That's the deliberate scope. The two forks
+from here: (a) ship RegPlus as a production bot type for the fish-heavy casino; or
+(b) build a range-reading opponent (the human-in-a-bot) and only then build §3.
+
 ## TL;DR — the one finding that governs everything
 
 **Our entire opponent pool is exploitable (fish, maniacs, stations, leaky
