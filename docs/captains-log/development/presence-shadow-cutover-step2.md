@@ -95,3 +95,45 @@ irreversible authority flip (table-as-projection) can proceed on a shadow that
 demonstrably tracks reality — which is exactly the precondition the handoff held
 the flip for. Step 1 (validate) and Step 2 (§C dedup) are done; the flip itself
 remains deliberately deferred.
+
+## 2026-05-31 — hardening for the human path (the AI-only blind spot)
+
+Asked whether we were "ready to cut over." We were not — and the reason turned
+out to be sharper than expected. The whole validation above was **AI-only** (the
+economy sim has no human), and the user's original loss was a *human* buy-in. So
+before building the flip I went to validate the human seat path.
+
+**Two real gaps, found by reading the code instead of trusting "Phase 1 done":**
+
+1. **The human path was never shadowed at all.** Phase 1 wired only AI writers
+   (lobby seed/fill/burst, casino, off-grid). The human SIT/LEAVE in
+   `cash_routes.py` — the literal seat write for a paying human — had zero shadow
+   calls. AI-only sims could never have caught this.
+2. **`_shadow_seat_state` didn't recognise a human slot.** `human_slot` stores the
+   owner_id in `personality_id` (so the routing layer treats human + AI seats
+   uniformly), but the shadow reader only checked `owner_id`/`player_id`/`user_id`
+   → a seated human was silently dropped, so even a *wired* reconcile would give
+   the human no presence row. Caught this by checking `human_slot`'s actual shape
+   before writing the wiring on top of it — and the human-path test, run against
+   the un-fixed reader, confirms it (human comes back OFFLINE → red).
+
+**Design call: human cash-out is `GO_OFFLINE`, not `LEAVE`.** The lobby
+reconcile-diff models a vacated seat as `LEAVE`→IDLE, which is right for an AI
+(it rests in the idle pool). A human who leaves has *cashed out of the sandbox* —
+design §5.1 reserves IDLE for the AI idle pool and OFFLINE for "human cashed
+out." So the leave handler emits an explicit `GO_OFFLINE` for the human (and lets
+the subsequent `refresh_unseated_tables` reconcile the freed AI seats). SIT reuses
+the reconcile-diff, which also clears any stale occupant so the human can't be
+stranded by the §C collision.
+
+**Wired** (flag-gated, best-effort, zero behaviour change when off): SIT at the
+self-funded + sponsored sit sites, `GO_OFFLINE` at leave, plus the
+`_shadow_seat_state` human-key fix. **Validated** by `test_shadow_human.py` (7
+tests: sit records a row, no double-seat, stale-occupant cleared, leave→OFFLINE,
+cold-load-leave is a safe swallowed no-op, full sit→leave→re-sit→leave lifecycle
+with no ghost). 167 shadow + cash-route regression tests green; the AI-only
+divergence audit is unaffected (no humans in the sim, sim doesn't touch
+`cash_routes`).
+
+Net: Phase 1's human blind spot is closed and the human seat lifecycle is now a
+durable regression gate for the flip — which stays deferred.

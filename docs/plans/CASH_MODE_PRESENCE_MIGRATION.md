@@ -105,6 +105,28 @@ None of the original doc's named functions (`seat_player_at_table`,
 Net: 3 wired, 2 deliberately skipped. The shadow uses a seat-map *diff*, not
 per-entity events.
 
+### A2. `flask_app/routes/cash_routes.py` — the HUMAN seat path (was UNSHADOWED)
+
+**Phase 1 shadow-wired only AI writers; the human path was missed entirely** —
+and `_shadow_seat_state` didn't even recognise a human slot (`human_slot` stores
+the owner_id in `personality_id`, which the reader's `owner_id/player_id/user_id`
+chain didn't check), so a seated human produced NO `entity_presence` row. Both
+fixed 2026-05-31 (commit after `5af4a495`):
+
+| Line | Enclosing fn | Authoritative write | Shadow action |
+|---|---|---|---|
+| ~1435 | `sit` (self-funded) | `save_table(claimed_table)` | `_shadow_reconcile_table` → `SIT` player (clears stale seat) |
+| ~2191 | `sponsor_and_sit` (final claim) | `save_table(claimed_table)` | `_shadow_reconcile_table` → `SIT` player |
+| ~4932 | `leave` (cash-out) | `save_table(freed_table)` | explicit `GO_OFFLINE` player (NOT `LEAVE`→IDLE — a human cashes OUT of the sandbox; IDLE is the AI idle-pool concept, §5.1) |
+
+Also fixed `_shadow_seat_state` to read the human owner from `personality_id`.
+Rebuy / top-up write no seat (chips only) → no presence event. Cold-load /
+resume writes no seat (memory-only `cash_table_id` rebind) → no event; a
+cold-load leave with no prior shadow SIT just swallows an illegal `GO_OFFLINE`
+from OFFLINE. Validated by `tests/test_cash_mode/test_shadow_human.py` (7 tests,
+incl. the stale-seat collision and the cold-load-leave safety case). Sponsor
+*reservation* (`reserved` slot) is transient and intentionally not shadowed.
+
 ### B. `cash_mode/casino_provisioning.py` — 6 real `save_table` callsites
 
 Original doc named 3 functions that don't exist (`_provision_casino_table`,

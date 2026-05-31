@@ -1433,6 +1433,15 @@ def sit_at_table():
             seat_index = alt
         claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
         cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
+        # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
+        # human SIT into entity_presence. The human path was NOT shadow-wired
+        # in Phase 1 (only AI writers were) — without this a human seat is
+        # invisible to the Presence machine. Reusing the lobby reconcile-diff
+        # also clears any stale occupant of this seat so the human's SIT can't
+        # collide in the partial-unique index. Inside the sandbox lock per the
+        # §6.1 atomicity contract.
+        from cash_mode.lobby import _shadow_reconcile_table
+        _shadow_reconcile_table(claimed_table, sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
     # counts, sourced via the shared preselected-builder.
@@ -2189,6 +2198,10 @@ def sponsor_and_sit():
                 human_slot(owner_id, offer_amount),
             )
             cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
+            # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
+            # sponsored human SIT, same rationale as the self-funded sit path.
+            from cash_mode.lobby import _shadow_reconcile_table
+            _shadow_reconcile_table(claimed_table, sandbox_id)
         preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
             claimed_table=claimed_table,
             seat_index=seat_index,
@@ -4930,6 +4943,21 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 closing_hand_countdown=table.closing_hand_countdown,
             )
             cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
+            # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
+            # human cash-out as GO_OFFLINE — a human leaves the sandbox entirely
+            # (design §5.1: IDLE is the AI idle-pool concept; a cashed-out human
+            # is OFFLINE). The busted/vacated AI seats freed above are reconciled
+            # by the refresh_unseated_tables pass below (its own shadow wiring),
+            # so only the human needs an explicit transition here. GO_OFFLINE is
+            # legal from SEATED/IDLE/POOL; from an absent (already-offline) row it
+            # is illegal and swallowed — fine, the human is already gone.
+            from cash_mode import presence_shadow
+            from cash_mode.presence import PresenceEvent, player_entity_id
+            presence_shadow.shadow_transition(
+                entity_id=player_entity_id(owner_id),
+                sandbox_id=sandbox_id,
+                event=PresenceEvent.GO_OFFLINE,
+            )
             logger.info(
                 "[CASH][LOBBY] freed seat %r:%s and persisted final chip counts",
                 cash_table_id,

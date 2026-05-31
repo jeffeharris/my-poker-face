@@ -104,7 +104,18 @@ def _shadow_seat_state(table: CashTableState) -> Dict[str, Tuple[str, int]]:
             if pid:
                 out[ai_entity_id(pid)] = (table.table_id, idx)
         elif kind == "human":
-            owner = slot.get("owner_id") or slot.get("player_id") or slot.get("user_id")
+            # `human_slot` (cash_mode/tables.py) stores the player owner_id in
+            # `personality_id` (so the routing layer can treat human + AI seats
+            # uniformly when checking occupancy). Check it LAST so the explicit
+            # owner_id/player_id/user_id keys still win if a slot ever carries
+            # them — but without `personality_id` the human is silently dropped
+            # and never gets a Presence row (the merged Phase-1 reader's bug).
+            owner = (
+                slot.get("owner_id")
+                or slot.get("player_id")
+                or slot.get("user_id")
+                or slot.get("personality_id")
+            )
             if owner:
                 out[player_entity_id(owner)] = (table.table_id, idx)
     return out
