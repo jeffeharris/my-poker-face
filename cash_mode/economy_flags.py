@@ -49,6 +49,21 @@ override via a startup hook if/when we want runtime control.
 
 from __future__ import annotations
 
+import os
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    """Read a boolean toggle from the environment, falling back to `default`.
+
+    Lets an operator opt a flag on/off per-deployment (e.g. enable the Presence
+    shadow on dev without flipping the committed default — which would also flip
+    production on the next deploy). Truthy: 1/true/yes/on (case-insensitive)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 # --- Faucet ---------------------------------------------------------------
 
 # Passive regen retired per CASH_MODE_SIDE_HUSTLE.md — the active side
@@ -158,7 +173,7 @@ DOSSIER_SCOUTING_GATE_ENABLED: bool = True
 # stores (`cash_tables`, `cash_idle_pool`, `ai_*_state`) remain the source of
 # truth throughout this phase; only the eventual flip (a separate change) makes
 # `entity_presence` authoritative.
-PRESENCE_SHADOW_WRITE_ENABLED: bool = False
+PRESENCE_SHADOW_WRITE_ENABLED: bool = _env_flag("PRESENCE_SHADOW_WRITE_ENABLED", False)
 
 
 def compute_rake(pot: int, big_blind: int) -> int:

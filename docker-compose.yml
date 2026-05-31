@@ -29,6 +29,11 @@ services:
       - IMAGE_MODEL=${IMAGE_MODEL:-}
       - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY:-}
       - RUNWARE_API_KEY=${RUNWARE_API_KEY:-}
+      # Presence cutover: dual-write shadow toggle (default OFF). Enable on dev
+      # to mirror real traffic into entity_presence, then audit divergence via
+      # scripts/audit_presence_divergence.py. Non-authoritative + best-effort —
+      # cannot affect the real seat write. Prod uses docker-compose.prod.yml.
+      - PRESENCE_SHADOW_WRITE_ENABLED=${PRESENCE_SHADOW_WRITE_ENABLED:-0}
     env_file:
       - .env
     command: python -m flask_app.ui_web
