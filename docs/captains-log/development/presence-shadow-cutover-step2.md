@@ -138,6 +138,45 @@ divergence audit is unaffected (no humans in the sim, sim doesn't touch
 Net: Phase 1's human blind spot is closed and the human seat lifecycle is now a
 durable regression gate for the flip — which stays deferred.
 
+## 2026-05-31 — building the flip behind the flag (Steps 0–4, validated)
+
+"We're good, lets make it happen." Built the Phase-3 flip mechanism — all behind
+a new `PRESENCE_AUTHORITY_ENABLED` flag (env-gated, default off), so the running
+dev backend is unaffected until the one-line cut. Reversible commits:
+- **Step 0** schema v129: `cash_idle_metadata` satellite (idle reason/target_stake
+  the pure machine won't carry); `cash_idle_pool` stays a written cache (view
+  conversion deferred). (Hot-reload bit me: registered the migration before
+  appending its body → backend crash-looped; lesson re-learned, append body
+  first.)
+- **Step 2** `cash_mode/presence_transitions.py`: the authoritative engine.
+  Reconciles `entity_presence` to a saved `CashTableState` ON the caller's sqlite
+  connection. Diff-driven origin (player→GO_OFFLINE, fish→RETURN_TO_POOL,
+  AI→LEAVE+metadata) and — crucially — SIT-precursor promotion (seated-elsewhere→
+  LEAVE, off-grid→END_OFFGRID, fresh fish→SEED) which fixes the exact illegal-and-
+  swallowed transitions live shadowing surfaced. 11 unit tests.
+- **Step 3** `save_table` calls the engine inside its transaction → presence +
+  seats commit atomically. Single chokepoint writer.
+- **Step 4** `is_enabled()` = shadow OR authority, so off-grid keeps mirroring
+  post-flip and the legacy call-site reconciles become harmless redundant no-ops.
+
+**Big simplification found mid-build:** the Phase-1 call-site shadow reconciles
+all gate on the shadow flag, so at the flip (authority on, shadow off) they go
+dormant automatically — `save_table`'s engine is the sole writer with no
+conflict. So Steps 5/6 (lobby/route surgery) are NOT needed. Less code, less risk.
+
+Also built **Step 1** `scripts/backfill_presence.py` (idempotent seed of
+entity_presence from the legacy stores; dry-run on dev = 633 seated + 225 idle
+across 12 sandboxes) and a `--authority` mode on the validator.
+
+**Proof:** authority-mode sim (800 ticks, 8 checkpoints) → PASS, 0 unexpected,
+classes [MATCH, MISSING_IDLE]. The chokepoint keeps presence consistent with the
+legacy stores under real churn. Full cash_mode suite: 1069 passed. All pushed.
+
+**Held:** the atomic cut (`PRESENCE_AUTHORITY_ENABLED=True`) is task #10 — pending
+a pre-flip lock audit (live paths already hold get_sandbox_lock; boot/sim are
+single-threaded), a real backfill run, and explicit go-ahead. Everything to here
+is reversible (flag off ⇒ inert).
+
 ## 2026-05-31 — design pass for the flip + shadow armed on live dev
 
 Asked to design the flip (leveraging feature-dev agents) and to "push and
