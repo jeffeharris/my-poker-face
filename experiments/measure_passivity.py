@@ -121,7 +121,11 @@ def _ensure_clone_registered(profile_path: str, oracle_punish_overbets: bool = F
     `oracle_punish_overbets` (eval-only) registers the perfect-overbet-punisher
     variant under the SAME archetype key — so the existing roster (e.g. 'jeff')
     transparently becomes the oracle opponent for measuring overbet exploitability.
+    Also honoured via the `ORACLE_PUNISH_OVERBETS` env var so ProcessPool workers
+    (which re-register without the kwarg) and the `--oracle-opp` CLI flag both turn
+    the clone into the oracle without threading a flag through the work tuple.
     """
+    oracle_punish_overbets = oracle_punish_overbets or bool(os.environ.get('ORACLE_PUNISH_OVERBETS'))
     from poker.human_clone import load_profile_from_file, register_clone_strategy
 
     profile = load_profile_from_file(profile_path)
@@ -971,7 +975,17 @@ def main():
         "the HU-postflop-leak diagnostic. Collapses the roster to a single "
         "opponent (e.g. --opponents jeff --heads-up = 1 Jeff_clone).",
     )
+    p.add_argument(
+        '--oracle-opp',
+        action='store_true',
+        help="turn the clone opponent(s) into the perfect overbet-PUNISHER "
+        "(folds non-nuts to any >=1.2x-pot bet) — measures the HERO's face-up "
+        "value-overbet exploitability (SIZING_AWARE_OPPONENT_MODELING.md §D). "
+        "Run with/without and diff: the drop = how much a sizing-reader extracts.",
+    )
     args = p.parse_args()
+    if args.oracle_opp:
+        os.environ['ORACLE_PUNISH_OVERBETS'] = '1'  # inherited by ProcessPool workers
     if args.preflop_chart and not os.path.exists(args.preflop_chart):
         print(f"--preflop-chart not found: {args.preflop_chart}")
         sys.exit(1)
