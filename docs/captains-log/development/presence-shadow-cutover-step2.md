@@ -177,6 +177,44 @@ a pre-flip lock audit (live paths already hold get_sandbox_lock; boot/sim are
 single-threaded), a real backfill run, and explicit go-ahead. Everything to here
 is reversible (flag off ⇒ inert).
 
+## 2026-05-31 — the flip, on dev (write-authority soak)
+
+"Flip it." First, a review pass (feature-dev code-reviewer) found two real issues
+I fixed before flipping: (1) `_apply` swallowed `IllegalPresenceTransition` even
+in authority mode — now propagates (rolls back the save, fail-loud) under
+authority; (2) the `is_enabled()=shadow-OR-authority` change had re-armed the
+legacy call-site reconciles under authority with a TOCTOU window — now
+`_shadow_reconcile_table` returns early under authority, so the chokepoint is the
+unambiguous sole seat writer. Re-validated (authority sim PASS, 1071 tests).
+
+Branch-impact check before flipping: all in-flight branches are flag-dormant (a
+merge can't activate the flip); circuit-progression's live career seating uses
+`save_table` (drives presence — the migration doc's "scripted seeding writes
+cash_tables directly" worry is CLEARED); tournaments/training-room don't touch
+cash seats. Only merge work is the usual schema renumber to 130+ and modest
+lobby/schema conflicts.
+
+Honest scope note I gave first: flipping the flag now delivers WRITE-authority
+(presence writes fail-loud on conflict) but the app still READS `cash_tables` —
+the read-side migration (retire reconcilers, read presence) is deferred. So this
+is a write-path soak, reversible (cash_tables still written as a cache).
+
+The flip, on dev, via env (reversible): quiesced presence writes → cleared +
+re-backfilled `entity_presence` from the authoritative stores for a clean
+baseline (638 seated + 221 idle / 12 sandboxes) → `PRESENCE_AUTHORITY_ENABLED=1`.
+A pre-flip audit showed a transient MISSING_SEAT/STALE_SEAT — diagnosed as
+TICKER-CHURN LAG (the world ticker moves `cash_tables` every 2s independent of
+presence, so the backfill snapshot lagged), NOT a real contradiction. (Separately
+confirmed the authoritative data is full of real pre-existing `seated_and_idle`
+contradictions — blackbeard et al. in both a seat and the idle pool — the exact
+class this kills; backfill seated-wins resolves them.) Post-flip + a few churn
+cycles: **audit PASS, 0 unexpected (856 MATCH, benign MISSING_IDLE); no fail-loud
+exceptions under real churn.** The authority engine reconciles presence in
+lockstep with every save_table, so the lag self-healed. Committed default stays
+OFF; only the running dev container has it on. NEXT: soak on dev (play + watch),
+then the read-side migration (Step 8) for the full bug-class kill, then prod (the
+truly irreversible step on real player data).
+
 ## 2026-05-31 — design pass for the flip + shadow armed on live dev
 
 Asked to design the flip (leveraging feature-dev agents) and to "push and
