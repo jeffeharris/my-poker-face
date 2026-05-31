@@ -67,6 +67,10 @@ class Scene0Hand:
     # Larry never figures out he's the mark. Empty = silent (real-game texture).
     fish_setup: str = ""
     fish_react: str = ""
+    # The FINALE: lift the no-bust guard so Sal can drain the fish to zero
+    # (bets uncapped, 'passive' calls the all-in off, 'shove' jams). Sal is seeded
+    # to cover, so the loser's chips just transfer — no minting.
+    bust_ok: bool = False
 
 
 # Pot-fraction for each bet-size tag (scripted aggression). The fish's tells are
@@ -93,6 +97,7 @@ def resolve_scripted_action(
     stack: int,
     big_blind: int,
     size_frac: float = 0.7,
+    allow_bust: bool = False,
 ) -> Optional[Dict]:
     """Turn a scripted intent into a concrete, legal action for the cast.
 
@@ -101,14 +106,19 @@ def resolve_scripted_action(
     'bluff'/'bet' downgrade to fold/check when bet into; 'passive' folds to an
     all-in rather than busting. Bet sizing is `size_frac` of the pot, capped at
     `MAX_SCRIPTED_BET_STACK_FRAC` of the stack (the no-bust guard).
+
+    ``allow_bust`` (the Scene-0 FINALE) lifts the no-bust guard: bets aren't
+    stack-capped, 'passive' CALLS an all-in instead of folding to it, and the
+    'shove' intent jams the whole stack — so Sal can drain Larry to zero. Only set
+    on a hand authored to bust the loser (Sal covers; chips just transfer).
     """
     va = set(valid_actions)
     facing_bet = cost_to_call > 0
 
     def _bet_amount() -> int:
         by_pot = round(size_frac * max(pot_total, big_blind))
-        by_stack = round(stack * MAX_SCRIPTED_BET_STACK_FRAC)
-        return int(min(stack, max(big_blind * 2, min(by_pot, by_stack))))
+        cap = stack if allow_bust else round(stack * MAX_SCRIPTED_BET_STACK_FRAC)
+        return int(min(stack, max(big_blind * 2, min(by_pot, cap))))
 
     if intent == "fold":
         if facing_bet and "fold" in va:
@@ -129,14 +139,27 @@ def resolve_scripted_action(
         return None
 
     if intent == "passive":
-        # Call along (sticky station) — but fold to an all-in rather than bust.
-        if facing_bet and cost_to_call >= stack:
+        # Call along (sticky station). Normally folds to an all-in rather than
+        # bust; on a bust_ok finale it calls the all-in off and busts.
+        if facing_bet and cost_to_call >= stack and not allow_bust:
             if "fold" in va:
                 return {"action": "fold", "amount": 0}
         if "check" in va:
             return {"action": "check", "amount": 0}
         if "call" in va:
             return {"action": "call", "amount": 0}
+        return None
+
+    if intent == "shove":
+        # Jam the whole stack (finale). Open-shove when checked to; if somehow
+        # facing a bet, just commit by calling. raise 'amount' is the raise-TO
+        # total — at street start (bet 0) that's the full remaining stack.
+        if not facing_bet and "raise" in va:
+            return {"action": "raise", "amount": int(stack)}
+        if facing_bet and "call" in va:
+            return {"action": "call", "amount": 0}
+        if "check" in va:
+            return {"action": "check", "amount": 0}
         return None
 
     if intent in ("bluff", "bet"):
@@ -161,6 +184,10 @@ def resolve_scripted_action(
 # fish-name shed, and the vouch. Said light, never overplayed. See
 # docs/plans/CASH_MODE_CAREER_PROGRESSION.md → "The Circuit".
 SAL_GRADUATION_SEQUENCE = [
+    # Bridge off the finale hand he just won — the showing-off "talk to you" beat.
+    "Ha — pay that man his money. Kiddin', it's mine now. THAT's the whole lesson, "
+    "kid: bet your big hands, bleed the fish slow, and they pay you every street. "
+    "You were watchin' close. I could tell.",
     # The reveal: how Sal knew you weren't a fish. The bond and the lesson in one.
     "You ever notice none of 'em answer me, kid? All night I been talkin' — "
     "strategy, tells, the whole bit. Larry never heard a word. But you? You heard "
@@ -294,7 +321,7 @@ _VALUE = Scene0Hand(
     # Pass = the hero stayed in → showdown → Larry's weak pair is public.
     sal_pass="See that? He paid you off with one pair — that's free money. That's why you bet your good hands at a station, kid, not check 'em.",
     sal_fail="A man who calls everything, you bet everything — don't go givin' the fish a free pass next time.",
-    fish_setup="Ooh, a king! I like kings. *blub* You comin' along, friend?",
+    fish_setup="Ooh, a king! I like kings.\n*blub*\nYou comin' along, friend?",
     fish_react="Aw, ya got me. Great hand, buddy — I almost had ya! Deal again, deal again.",
     # Larry just calls the hero's value bets (and never bets himself).
     fish_plan={"PRE_FLOP": "limp", "FLOP": "passive", "TURN": "passive", "RIVER": "passive"},
@@ -328,7 +355,7 @@ _BLUFF_CATCH = Scene0Hand(
     sal_pass="What'd I tell ya — king-high nothin', three streets of it. You looked him up. Better men have folded that and kicked themselves all night.",
     # Fail = hero folded → no showdown → Sal speaks to the tendency, not the muck.
     sal_fail="He pushed ya right off it, kid. A fish that barrels like that is usually full of air — next time, you look him up. Remember the sting.",
-    fish_setup="I'm feelin' lucky on this one, fellas! *blub* Gonna bet big — scaaary, right?",
+    fish_setup="I'm feelin' lucky on this one, fellas!\n*blub*\nGonna bet big — scaaary, right?",
     fish_react="Aw, ya called?! I had nothin'! Heh — ya got me, buddy. Smart cookie.",
     # Larry barrels the bluff — turn + an over-bet river (stack-capped, no bust).
     fish_plan={
@@ -366,7 +393,7 @@ _DISCIPLINE = Scene0Hand(
     sal_pass="Good lay-down. A quiet fella only comes alive like that with the goods. Knowin' when to fold is the whole job, kid — the greats lost titles forgettin' it.",
     # Fail = hero called → showdown → Larry's straight is public.
     sal_fail="Oof — he flopped the joint and trapped ya cold. When the quiet one suddenly bets the farm, believe him. Dodge that one next time.",
-    fish_setup="Oh! Oh! I like THIS hand. *blub blub* Bettin' a lot now, fellas — a LOT.",
+    fish_setup="Oh! Oh! I like THIS hand!\n*blub blub*\nBettin' a lot now, fellas — a LOT.",
     fish_react="Hee hee, I had the good cards that time! See? Even I get 'em. Don't feel bad, friend.",
     # Larry bets his straight for value; the hero should fold top pair.
     fish_plan={
@@ -378,6 +405,39 @@ _DISCIPLINE = Scene0Hand(
     mentor_plan={"PRE_FLOP": "fold"},
 )
 
+# THE FINALE — Sal stacks Larry. Not a lesson the hero plays; a showcase the hero
+# WATCHES. Sal calls his shot ("keep your chips in your pocket… watch me bleed him
+# slow"), flops a set (a callback to the value hand he taught), raises a bit each
+# street, and shoves the river to bust Larry — who, sticky as ever, calls it off.
+# `bust_ok` lifts the no-bust guard; Sal is seeded to cover (see ensure_scene0_seeded).
+_FINALE = Scene0Hand(
+    rigged=True,
+    bust_ok=True,
+    holes={
+        ROLE_MENTOR: ["7s", "7d"],     # Sal flops a set of sevens (the hidden monster)
+        ROLE_FISH: ["Kh", "Qd"],       # Larry: top pair kings — can't lay it down
+        ROLE_HERO: ["Jc", "3h"],       # junk; the hero sits this one out and watches
+    },
+    board=["Ks", "7h", "2c", "9d", "4c"],
+    # No lesson/judging — it's Sal's hand. Sal limps in, then bets a little more
+    # each street, and jams the river. Larry calls all the way (and calls it off).
+    mentor_plan={
+        "PRE_FLOP": "limp",
+        "FLOP": ("bet", "half"),
+        "TURN": ("bet", "twothirds"),
+        "RIVER": ("shove", None),
+    },
+    fish_plan={"PRE_FLOP": "limp", "FLOP": "passive", "TURN": "passive", "RIVER": "passive"},
+    sal_setup=(
+        "Last one, kid — this one's on me. Keep your chips in your pocket and watch. "
+        "See Larry's stack? I'm gonna raise him a little on every street, nice and "
+        "slow, till there's nothin' left. He won't even feel it go."
+    ),
+    fish_setup="Ooh, I like this hand! Feelin' good, Sal, real good.\n*blub*",
+    fish_react="Wh— hey, where'd all my chips go? Heh… you're somethin' else, Sal!",
+)
+
+
 SCENE0_SCRIPT: List[Scene0Hand] = [
     # 0 — just poker. Sal greets you and lets you settle in. The wrong-turn /
     # biscuits-and-gravy gag is carried by the table, never voiced by you.
@@ -388,12 +448,12 @@ SCENE0_SCRIPT: List[Scene0Hand] = [
             "your money in your pocket till I tell ya — first one's just to get "
             "the feel of it."
         ),
-        fish_setup="Hiya, new fella! *blub* You here for the game or the biscuits and gravy? Heh — everybody says the biscuits.",
+        fish_setup="Hiya, new fella!\n*blub*\nYou here for the game or the biscuits and gravy? Heh — everybody says the biscuits.",
     ),
     # 1 — quiet filler; Larry burbles, the table breathes.
     _filler(
         ["Jd", "4s"], ["Qh", "8c", "3d", "Ts", "5h"], fish=["Tc", "6d"],
-        fish_setup="Are clubs higher than spades? I never can remember. *blub*",
+        fish_setup="Are clubs higher than spades? I never can remember.\n*blub*",
     ),
     # 2 — VALUE.
     _VALUE,
@@ -404,7 +464,7 @@ SCENE0_SCRIPT: List[Scene0Hand] = [
     # 5 — quiet filler; a little Sal-and-Larry texture.
     _filler(
         ["Qs", "3h"], ["7d", "6c", "2s", "Th", "4d"], fish=["9d", "5h"],
-        fish_setup="I love it here. The water's always so nice and warm. *blub*",
+        fish_setup="I love it here. The water's always so nice and warm.\n*blub*",
     ),
     # 6 — DISCIPLINE.
     _DISCIPLINE,
@@ -413,10 +473,10 @@ SCENE0_SCRIPT: List[Scene0Hand] = [
     # 8 — quiet filler.
     _filler(
         ["Kh", "5s"], ["Td", "8h", "6s", "4c", "Qc"], fish=["9c", "4h"],
-        fish_setup="Wait, is this the good kind of hand? It's got a picture on it. *blub*",
+        fish_setup="Wait, is this the good kind of hand? It's got a picture on it.\n*blub*",
     ),
-    # 9 — last quiet hand; graduating after this.
-    _filler(["Jh", "6d"], ["9d", "5h", "Qs", "8c", "3d"], fish=["Ts", "4s"]),
+    # 9 — THE FINALE: Sal stacks Larry. Graduation fires after.
+    _FINALE,
 ]
 
 

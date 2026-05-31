@@ -2,7 +2,6 @@ import { memo, useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
 import type { ChatMessage } from '../../types';
-import { renderInlineActions } from '../../utils/chatText';
 import {
   TYPING_SPEED_MS,
   READING_BUFFER_MS,
@@ -13,6 +12,7 @@ import {
   MESSAGE_MIN_DURATION_MS,
   MESSAGE_MAX_DURATION_MS,
 } from '../../config/timing';
+import { parseBeats } from '../../utils/messages';
 import './FloatingChat.css';
 
 // Swipe-to-dismiss thresholds. The opacity ramp is anchored to the
@@ -42,22 +42,6 @@ interface FloatingChatProps {
   playerAvatars?: Map<string, string>;
 }
 
-// Parse a beat to determine if it's an action or speech
-interface ParsedBeat {
-  type: 'action' | 'speech';
-  text: string;
-}
-
-function parseBeats(text: string): ParsedBeat[] {
-  const lines = text.split('\n').filter((b) => b.trim());
-  return lines.map((line) => {
-    const actionMatch = line.match(/^\*(.+)\*$/);
-    if (actionMatch) {
-      return { type: 'action', text: actionMatch[1] };
-    }
-    return { type: 'speech', text: line };
-  });
-}
 
 // Calculate display duration based on message content and timing
 function calculateDuration(message: string, action?: string): number {
@@ -132,9 +116,7 @@ function SpeechBeat({ text, delay }: { text: string; delay: number }) {
 
   return (
     <div className="beat speech">
-      {/* Inline *action* segments render italic even mid-line (e.g. a fish's
-          "*blub*"); whole-line actions are still handled as ActionBeats above. */}
-      {renderInlineActions(displayedText)}
+      {displayedText}
       {displayedText.length < text.length && <span className="typing-cursor">|</span>}
     </div>
   );

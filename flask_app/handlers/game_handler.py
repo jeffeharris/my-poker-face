@@ -1951,6 +1951,7 @@ def _scene_scripted_action(
         stack=current_player.stack,
         big_blind=gs.current_ante,
         size_frac=size_frac,
+        allow_bust=hand.bust_ok,
     )
 
 

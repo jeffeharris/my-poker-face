@@ -152,6 +152,41 @@ def test_fish_stays_cheap_preflop():
     assert free["action"] == "check"
 
 
+def test_shove_jams_full_stack_when_checked_to():
+    r = cs.resolve_scripted_action(
+        intent="shove", valid_actions=["check", "raise", "all_in"],
+        cost_to_call=0, pot_total=40, stack=150, big_blind=2, allow_bust=True,
+    )
+    assert r["action"] == "raise"
+    assert r["amount"] == 150  # raise-to the whole stack (all-in)
+
+
+def test_passive_folds_to_all_in_normally_but_calls_it_off_on_a_bust_hand():
+    # Default (no-bust guard): a sticky station folds rather than bust.
+    folds = cs.resolve_scripted_action(
+        intent="passive", valid_actions=["fold", "call"],
+        cost_to_call=200, pot_total=300, stack=150, big_blind=2,
+    )
+    assert folds["action"] == "fold"
+    # Finale (allow_bust): Larry calls the all-in off and busts.
+    calls = cs.resolve_scripted_action(
+        intent="passive", valid_actions=["fold", "call"],
+        cost_to_call=200, pot_total=300, stack=150, big_blind=2, allow_bust=True,
+    )
+    assert calls["action"] == "call"
+
+
+def test_finale_is_bust_ok_sal_set_vs_larry_top_pair():
+    """The closing hand: Sal flops a set, Larry has top pair, Sal shoves the river."""
+    f = cs.SCENE0_SCRIPT[-1]
+    assert f.bust_ok is True
+    assert f.lesson is None  # a showcase, not a judged lesson
+    assert f.holes[ROLE_MENTOR] == ["7s", "7d"]  # Sal's hidden set
+    assert f.holes[ROLE_FISH] == ["Kh", "Qd"]    # Larry's sticky top pair
+    assert f.mentor_plan["RIVER"][0] == "shove"
+    assert f.fish_plan["RIVER"] == "passive"     # + allow_bust → calls it off
+
+
 def test_fish_passive_checks_then_calls():
     assert cs.resolve_scripted_action(
         intent="passive", valid_actions=["check", "raise"],

@@ -301,12 +301,16 @@ def ensure_scene0_seeded(
 
     seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
 
-    def _seat(pid: str, seat_index: int, *, is_fish: bool) -> bool:
+    def _seat(pid: str, seat_index: int, *, is_fish: bool, buy_in_override: int = None) -> bool:
         _ensure_ai_bankroll_row(
             bankroll_repo, pid, sandbox_id=sandbox_id, chip_ledger_repo=chip_ledger_repo, now=now
         )
         knobs = bankroll_repo.load_personality_knobs(pid)
-        buy_in = min(round(min_buy_in * knobs.buy_in_multiplier), max_buy_in)
+        buy_in = (
+            buy_in_override
+            if buy_in_override is not None
+            else min(round(min_buy_in * knobs.buy_in_multiplier), max_buy_in)
+        )
         try:
             debit = debit_bankroll_for_seat(
                 bankroll_repo,
@@ -325,7 +329,12 @@ def ensure_scene0_seeded(
         seats[seat_index] = ai_slot_fish(pid, buy_in) if is_fish else ai_slot(pid, buy_in)
         return True
 
-    _seat(SAL_ID, SCENE0_SAL_SEAT, is_fish=False)
+    # Sal sits DEEP — enough to stack Larry in the finale (cover his worst-case
+    # late-tutorial stack) so the bust transfers all of Larry's chips to Sal.
+    # Drawn from Sal's own (sandbox-scoped) bankroll, so it's a clean transfer.
+    fish_knobs = bankroll_repo.load_personality_knobs(SCENE0_FISH_ID)
+    fish_buy_in = min(round(min_buy_in * fish_knobs.buy_in_multiplier), max_buy_in)
+    _seat(SAL_ID, SCENE0_SAL_SEAT, is_fish=False, buy_in_override=fish_buy_in * 3)
     fish_seated = _seat(SCENE0_FISH_ID, SCENE0_FISH_SEAT, is_fish=True)
 
     table = CashTableState(

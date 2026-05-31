@@ -18,10 +18,28 @@
 
 import { useEffect } from 'react';
 import type { ChatMessage } from '../../types';
-import { renderInlineActions } from '../../utils/chatText';
+import { parseMessageInline } from '../../utils/messages';
+import {
+  TYPING_SPEED_MS,
+  READING_BUFFER_MS,
+  MESSAGE_BASE_DURATION_MS,
+  MESSAGE_MIN_DURATION_MS,
+  MESSAGE_MAX_DURATION_MS,
+} from '../../config/timing';
 import './SalFloater.css';
 
-const SHOW_MS = 6500;
+/**
+ * How long Sal's bubble lingers — scaled to the line length so his longer
+ * coaching lines get enough reading time (a fixed timer made the multi-sentence
+ * setups auto-dismiss at roughly half the time needed). Same per-char budget as
+ * FloatingChat so the pacing matches the rest of the table; clamped to its
+ * min/max. Tap the floater to advance early.
+ */
+function readMs(text: string): number {
+  const chars = (text || '').trim().length;
+  const ms = chars * (TYPING_SPEED_MS + READING_BUFFER_MS) + MESSAGE_BASE_DURATION_MS;
+  return Math.min(MESSAGE_MAX_DURATION_MS, Math.max(MESSAGE_MIN_DURATION_MS, ms));
+}
 
 interface SalFloaterProps {
   /** Sal's pending lines, oldest first. The head is shown; `onShown` shifts it. */
@@ -32,12 +50,15 @@ interface SalFloaterProps {
 export function SalFloater({ queue, onShown }: SalFloaterProps) {
   const current = queue.length > 0 ? queue[0] : null;
   const currentId = current?.id ?? null;
+  // Tied to currentId: only changes when the head line changes, so the timer
+  // isn't reset by unrelated queue churn while a line is showing.
+  const showMs = current ? readMs(current.message) : 0;
 
   useEffect(() => {
     if (!currentId) return undefined;
-    const t = setTimeout(() => onShown(currentId), SHOW_MS);
+    const t = setTimeout(() => onShown(currentId), showMs);
     return () => clearTimeout(t);
-  }, [currentId, onShown]);
+  }, [currentId, showMs, onShown]);
 
   if (!current) return null;
 
@@ -51,7 +72,7 @@ export function SalFloater({ queue, onShown }: SalFloaterProps) {
       <img className="sal-floater__img" src="/sal.png" alt="Sal Monroe" />
       <div className="sal-floater__bubble">
         <span className="sal-floater__name">Sal</span>
-        {renderInlineActions(current.message)}
+        {parseMessageInline(current.message)}
       </div>
     </div>
   );

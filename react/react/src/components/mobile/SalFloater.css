@@ -52,8 +52,9 @@
   border-color: transparent #14181a transparent transparent;
 }
 
-/* Inline *action* asides (the dramatic_sequence convention) — italic + dimmed. */
-.sal-floater__bubble .chat-action {
+/* Inline beats (the shared dramatic_sequence renderer): action asides italic +
+   dimmed, speech plain. */
+.sal-floater__bubble .beat.action em {
   font-style: italic;
   opacity: 0.82;
 }

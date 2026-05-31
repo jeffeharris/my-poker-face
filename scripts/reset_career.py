@@ -51,12 +51,35 @@ def main() -> int:
         import json
 
         seats = json.loads(row["seats_json"])
+        sal_idx = None
+        larry_chips = 0
         for i, st in enumerate(seats):
             if st.get("kind") == "human":
                 credited = int(st.get("chips", 0))
                 seats[i] = open_slot()
-            elif st.get("kind") == "ai" and st.get("personality_id", "").startswith("sal_moretti"):
-                st["personality_id"] = "sal_moretti"
+            elif st.get("kind") == "ai":
+                pid = st.get("personality_id", "")
+                if pid.startswith("sal_moretti"):
+                    st["personality_id"] = "sal_moretti"
+                    sal_idx = i
+                elif pid == "loose_larry":
+                    larry_chips = int(st.get("chips", 0))
+        # The fresh seeder gives Sal 3x the fish buy-in so he can STACK Larry in
+        # the finale. This dev reset reuses the existing table, so top Sal's seat
+        # up to 3x Larry's stack and debit the difference from his (sandbox-scoped)
+        # bankroll — a clean transfer, no minting.
+        sal_bumped = 0
+        if sal_idx is not None and larry_chips:
+            target = larry_chips * 3
+            cur = int(seats[sal_idx].get("chips", 0))
+            if target > cur:
+                sal_bumped = target - cur
+                seats[sal_idx]["chips"] = target
+                con.execute(
+                    "UPDATE ai_bankroll_state SET chips = chips - ? "
+                    "WHERE personality_id='sal_moretti' AND sandbox_id=?",
+                    (sal_bumped, SB),
+                )
         con.execute(
             "UPDATE cash_tables SET seats_json=? WHERE table_id=? AND sandbox_id=?",
             (json.dumps(seats), SCENE0, SB),

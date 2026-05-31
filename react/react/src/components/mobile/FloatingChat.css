@@ -140,12 +140,6 @@
   color: var(--color-text-primary);
 }
 
-/* Inline *action* asides within a speech beat (e.g. a fish's "*blub*") — match
-   the whole-line action styling: italic + dimmed. */
-.floating-chat-message .beat.speech .chat-action {
-  font-style: italic;
-  color: #c8beb4;
-}
 
 /* Typing cursor */
 .floating-chat-message .typing-cursor {
