@@ -51,7 +51,63 @@ heartbeat); its surfacing is a **registration window** measured in world ticks �
 buy in from your career bankroll, or ignore it and it runs AI-only and
 redistributes chips anyway. Everything below follows from it.
 
-## 3. Decisions (recommendations — flagged for sign-off)
+## 3. Entity-relationship model — NOT a nested sandbox
+
+A tournament does **not** get its own sandbox. It is an **event inside the player's
+single circuit sandbox**, with two chip layers — and the layer that's "isolated" is
+the funny-money field, not a nested world.
+
+```
+Player (global)
+  • career identity
+  • career bankroll  ── one row per player_id, NOT sandbox-scoped
+        │ 1:1
+        ▼
+Sandbox (the player's circuit world)            ← owns the world tick
+  • bank pool (sandbox-scoped reserves)
+  • chip ledger (sandbox-scoped)
+  • AI personas + ai_bankroll_state
+  • cash_tables / idle pool / relationships
+        │ 1 : 0..*   (≤ 1 ACTIVE-entered at a time)
+        ▼
+Tournament (an event in the sandbox)
+  • tournaments row (sandbox-scoped): status, resolver_kind, serialized session
+  • TournamentField — ISOLATED funny-money universe (own conservation,
+        field_size × starting_stack); lives only in the serialized session,
+        never in the cash ledger
+  • escrow account  tournament:<id>  in the SANDBOX chip ledger (real chips)
+  • entrants: a subset of the sandbox's AI personas (+ optionally the human)
+```
+
+**Two chip universes, one economy:**
+
+- **Funny money** (the actual play) — the `TournamentField`. Isolated, self-conserving,
+  transient; cleaned up when the tournament ends. *This* is the "isolated chip
+  universe" — at the field level, where it has always lived.
+- **Real chips** (buy-in / overlay / rake / payout) — the **sandbox's own** economy.
+  Buy-in: career bankroll → `tournament:<id>` escrow. Overlay: sandbox bank pool →
+  escrow (a draw). Rake: pool deposit. Payout: escrow → career bankroll.
+
+**Why not a nested sandbox (the load-bearing reason):** the tournament's whole *point*
+is to redistribute the **same** cash economy — the overlay drains *this* sandbox's
+bank pool and the winnings cycle back into *this* sandbox's cash tables. A separate
+`sandbox_id` would wall the tournament's economy off from the economy it exists to
+regulate, defeating the thermostat. So the tournament shares the sandbox's bank pool +
+ledger + AI bankrolls; only the funny-money field is its own universe. (This corrects
+the earlier "own ephemeral sandbox" note.)
+
+**The only cross-boundary bridge** is career bankroll (global) ↔ `tournament:<id>`
+escrow (sandbox), at buy-in and payout — two ledger transfers, the same shape as the
+cash `seat:<game_id>` statement. Overlay, rake, and AI seed/return are all *within*
+the sandbox.
+
+**Entrants & social context:** the AI seats are the sandbox's *existing* personas
+playing a separate game with separate (funny-money) stacks — so the cast you know from
+the cash felt shows up at the Main Event and relationship/prestige context carries for
+free (same entities). Their cash bankrolls are untouched by the funny-money field; only
+the real-chip buy-in/payout (the P2 tourist / staking levers) move their actual chips.
+
+## 4. Decisions (recommendations — flagged for sign-off)
 
 ### Q1 — Discovery / entry model
 **Recommendation: a Main Event *card* in the cash lobby + a ticker announcement,
@@ -122,26 +178,30 @@ Discipline (carried from the plan): the ticker shows **only top-drama** tourname
 beats (breaks / bubble / final table / winner), never every hand — the same
 "structural only" filter the toasts already use.
 
-### Q5 — Time when you enter (pause the sandbox's ticks)
-**Decided (2026-05-31): entering the Main Event pauses the sandbox's world ticks;
-the tournament is player-gated by the human while they're in it. Exit resumes ticks.**
+### Q5 — Time when you're in a tournament (the world hard-pauses until you finish)
+**Decided (2026-05-31): once you've ENTERED a tournament, the sandbox's world tick is
+suspended — and stays suspended across sessions, for days if need be — until the
+tournament TERMINATES for you (quit / bust / win). Navigating away does NOT resume the
+world; you return to the exact frozen tournament.**
 
-Entering flips the tournament's clock from world-tick (Q2) to **player-gated** —
-nothing in that sandbox ticks except via the human's own hands. Concretely:
+This is *stronger* than cash presence-gating. In cash, the world pauses ~60s after you
+leave and **resumes when you return**. In a tournament, the resume condition is the
+tournament *ending*, not your presence:
 
-- The **cash tables freeze** (state model D4: seat held, chips `AT_TABLE` in the
-  ledger, durable) — they don't tick because the sandbox is paused.
-- The **other tournament tables** advance only when the human plays a hand at theirs
-  (the existing `TournamentSession` player-gated path), so the field stays in step
-  with the human instead of sprinting on ticks.
-- On bust/finish the human returns to the circuit (payout applied) and the sandbox's
-  ticks resume where they left off.
+- While you're in it, the sandbox does not tick: **cash tables freeze** (state model
+  D4 — seat held, chips `AT_TABLE`, durable), and the **other tournament tables**
+  advance only when you play a hand at yours (the `TournamentSession` player-gated
+  path), so the field stays in step with you instead of sprinting on ticks.
+- **Close the tab, come back days later** → the world has not moved; you resume the
+  same frozen tournament. (This is exactly why P1 persistence matters — the suspended
+  tournament *and* the frozen sandbox survive restart.)
+- **Only quit / bust / win** resumes the sandbox tick (payout applied first).
 
-No new mechanism — it's "pause the sandbox tick" + the player-gated session path that
-already exist. The only integration point is the switch: *human enters ⇒ stop ticking
-this sandbox and drive the tournament off the human's hands; human exits ⇒ resume.*
+Mechanism: a sandbox with an `active`-entered tournament is **skipped by the world
+ticker** until that tournament resolves — that gate, plus the clock-driver switch
+(world tick ⇄ the human's hands), is the whole integration. No new machinery.
 
-## 4. Worked player journey
+## 5. Worked player journey
 
 1. Grinding a $2 cash table. Ticker: **"Main Event opens — register (12 in, $480
    pool)."** A Main Event card appears in the lobby strip.
@@ -156,7 +216,7 @@ this sandbox and drive the tournament off the human's hands; human exits ⇒ res
    event: **"…Lady Macbeth takes the Main Event, +$210."** Those chips re-enter the
    cash economy as she sits back down — the thermostat at work.
 
-## 5. Integration surface (reuse, mostly built)
+## 6. Integration surface (reuse, mostly built)
 
 | Need | Existing system | Change |
 |---|---|---|
@@ -169,7 +229,7 @@ this sandbox and drive the tournament off the human's hands; human exits ⇒ res
 | Live event UI | `/tournament` lobby/standings + shipped toasts | reached from the lobby card instead of the standalone menu |
 | Identity/social carry | career bankroll (global) + relationship context | read-only carry-in for v1 |
 
-## 6. Open questions / sign-offs
+## 7. Open questions / sign-offs
 
 - **RESOLVED (2026-05-31) — time model.** The tournament rides the world tick when
   the human is out (Q2); entering pauses the sandbox's ticks and it becomes
@@ -181,12 +241,15 @@ this sandbox and drive the tournament off the human's hands; human exits ⇒ res
   occasional bigger "Main Event". Recommend start with one, tier later.
 - **Social carry-out (prestige/relationship deltas from results)** — P4; out of scope
   here, but the winner-beat is the natural hook.
-- **Sandbox (confirm).** The Main Event spins its **own ephemeral tournament sandbox**
-  (isolated chips), bridged to the global career bankroll only at buy-in/payout — so
-  "pause the sandbox's ticks" on entry (Q5) cleanly freezes the tournament without
-  touching the player's cash sandbox, and conservation stays clean.
+- **Sandbox — NOT nested (decided, §3).** A tournament does not get its own sandbox;
+  it is an event inside the player's single circuit sandbox, sharing its bank pool +
+  ledger + AI bankrolls so redistribution hits the economy it's meant to regulate.
+  Only the funny-money `TournamentField` is its own isolated, self-conserving universe.
+- **One active-entered tournament per sandbox.** While you're in one, the sandbox is
+  ticker-skipped (Q5), so a second can't run "alongside" it. Un-entered ambient events
+  (Q4) only run while you're *not* committed to one.
 
-## 7. Sequencing / dependencies
+## 8. Sequencing / dependencies
 
 This is **P3**, and it is gated:
 
