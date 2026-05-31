@@ -156,7 +156,8 @@ chips do not.** (This is the `TOURNAMENT_ECONOMY_ON_STATE_MODEL.md` contract.)
   (`tournament:<id>` → `player:<id>` transfer), as an **I6 idempotent terminal
   transition**. Busting just means a 0 payout if out of the money.
 - **Career bankroll is global** (one row per `player_id`, NOT sandbox-scoped), so the
-  bridge is clean across the tournament's ephemeral sandbox and the circuit sandbox.
+  bridge — career bankroll ↔ the `tournament:<id>` escrow in the sandbox ledger — is
+  clean and is the only place real chips cross between the two (§3).
 
 ### Q4 — World-ticker surfacing (the broadcast bus)
 **Recommendation: tournament beats ride the existing `lobby:{owner_id}` world
