@@ -177,8 +177,13 @@ def _apply(
             current, event, table_id=table_id, seat_index=seat_index, updated_at=now_iso
         )
     except IllegalPresenceTransition as e:
-        # Post-promotion this shouldn't happen; if it does it's a wiring gap, not
-        # a chip bug — log and skip the entity rather than abort the seat write.
+        # Post-promotion this shouldn't happen. In AUTHORITY mode it's a real
+        # consistency problem (the engine is the final guard) — propagate so the
+        # whole save_table rolls back and the anomaly surfaces loudly, rather
+        # than silently leaving the entity in an un-sittable state. In shadow
+        # mode, log and skip (best-effort must never break the real seat write).
+        if raise_on_integrity:
+            raise
         logger.warning(
             "[PRESENCE] illegal transition skipped (entity=%s sandbox=%s event=%s): %s",
             entity_id, sandbox_id, getattr(event, "value", event), e,
@@ -298,7 +303,8 @@ def emit_presence_transitions_for_save(
             if d is not None and d[0] == seat:
                 continue  # still correctly seated here
             event = _departure_event(eid, old_slots.get(eid))
-            result = _apply(conn, sandbox_id, eid, event, now_iso=now_iso)
+            result = _apply(conn, sandbox_id, eid, event, now_iso=now_iso,
+                            raise_on_integrity=authority)
             if result.state is Presence.IDLE:
                 _idle_meta_write(conn, eid, sandbox_id, idle_metadata, now_iso)
 
@@ -311,15 +317,18 @@ def emit_presence_transitions_for_save(
 
             if cur.state is Presence.SEATED:
                 # Seated elsewhere (a move): LEAVE the old seat first.
-                _apply(conn, sandbox_id, eid, PresenceEvent.LEAVE, now_iso=now_iso)
+                _apply(conn, sandbox_id, eid, PresenceEvent.LEAVE, now_iso=now_iso,
+                       raise_on_integrity=authority)
             elif cur.state in (Presence.SIDE_HUSTLE, Presence.VICE):
                 # Returning off-grid AI: END_OFFGRID → IDLE first.
-                _apply(conn, sandbox_id, eid, PresenceEvent.END_OFFGRID, now_iso=now_iso)
+                _apply(conn, sandbox_id, eid, PresenceEvent.END_OFFGRID, now_iso=now_iso,
+                       raise_on_integrity=authority)
 
             cur = _load_state(conn, eid, sandbox_id)
             if cur.state is Presence.OFFLINE and slot.get("archetype") == "fish":
                 # Fresh pool-funded fish: SEED → POOL before SIT.
-                _apply(conn, sandbox_id, eid, PresenceEvent.SEED, now_iso=now_iso)
+                _apply(conn, sandbox_id, eid, PresenceEvent.SEED, now_iso=now_iso,
+                       raise_on_integrity=authority)
 
             _apply(
                 conn, sandbox_id, eid, PresenceEvent.SIT,

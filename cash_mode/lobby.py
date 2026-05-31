@@ -175,6 +175,15 @@ def _shadow_reconcile_table(
     """
     if sandbox_id is None:
         return
+    # Under the AUTHORITY flip, `save_table` drives presence authoritatively
+    # inside its own transaction — this call-site reconcile (a separate
+    # connection, AFTER the commit) would be redundant and, in a TOCTOU window,
+    # could emit a spurious LEAVE against an entity a later save just seated.
+    # So skip entirely once authority is on; the chokepoint is the sole seat
+    # writer. (Off-grid mirroring still runs via presence_shadow.)
+    from cash_mode import economy_flags
+    if getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
+        return
     if repo is None:
         repo = _shadow_repo()
     if repo is None:

@@ -33,6 +33,7 @@ def conn(tmp_path):
     db = str(tmp_path / "cash.db")
     SchemaManager(db).ensure_schema()
     c = sqlite3.connect(db)
+    c.row_factory = sqlite3.Row  # match BaseRepository._get_connection (prod parity)
     yield c
     c.close()
 
@@ -52,7 +53,7 @@ def _state(conn, entity_id):
         "SELECT state, table_id, seat_index FROM entity_presence WHERE entity_id=? AND sandbox_id=?",
         (entity_id, SANDBOX),
     ).fetchone()
-    return row  # (state, table_id, seat_index) or None
+    return tuple(row) if row is not None else None  # (state, table_id, seat_index) or None
 
 
 def _emit(conn, new_table, old_blob=None, idle_metadata=None):
@@ -110,7 +111,7 @@ def test_ai_departure_goes_idle_with_metadata(conn, monkeypatch):
         "SELECT reason, target_stake FROM cash_idle_metadata WHERE personality_id='alice' AND sandbox_id=?",
         (SANDBOX,),
     ).fetchone()
-    assert row == ("take_break", "$5")
+    assert tuple(row) == ("take_break", "$5")
 
 
 def test_human_departure_goes_offline(conn, monkeypatch):
@@ -198,3 +199,35 @@ def test_shadow_mode_never_raises(conn, monkeypatch):
     # even a degenerate table shouldn't raise in shadow mode
     _emit(conn, _table(TID, [ai_slot("a", 1)]))
     assert _state(conn, ai_entity_id("a")) == ("seated", TID, 0)
+
+
+def test_apply_illegal_transition_raises_under_authority(conn):
+    """Review finding 1: an illegal edge must PROPAGATE when raise_on_integrity
+    (authority) is set — the engine is the final guard — and be swallowed
+    otherwise."""
+    from cash_mode.presence import IllegalPresenceTransition
+    # OFFLINE --end_offgrid--> is not a legal edge.
+    with pytest.raises(IllegalPresenceTransition):
+        pt._apply(conn, SANDBOX, ai_entity_id("ghost"), PresenceEvent.END_OFFGRID,
+                  raise_on_integrity=True)
+    # swallowed when not authoritative — entity stays OFFLINE (no row)
+    pt._apply(conn, SANDBOX, ai_entity_id("ghost"), PresenceEvent.END_OFFGRID,
+              raise_on_integrity=False)
+    assert _state(conn, ai_entity_id("ghost")) is None
+
+
+def test_reconcile_skipped_under_authority(tmp_path, monkeypatch):
+    """Review finding 2: the legacy call-site _shadow_reconcile_table must NOT
+    run under authority (save_table is the sole seat writer; the separate-conn
+    reconcile risks a spurious LEAVE in a TOCTOU window)."""
+    from cash_mode import lobby
+    from poker.repositories.entity_presence_repository import EntityPresenceRepository
+    db = str(tmp_path / "r.db")
+    SchemaManager(db).ensure_schema()
+    repo = EntityPresenceRepository(db)
+    import flask_app.extensions as ext
+    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
+    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False)
+    monkeypatch.setattr(ext, "entity_presence_repo", repo, raising=False)
+    lobby._shadow_reconcile_table(_table(TID, [ai_slot("a", 1)]), SANDBOX)
+    assert repo.list_for_sandbox(SANDBOX) == []  # nothing written by the reconcile
