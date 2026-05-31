@@ -34,6 +34,11 @@ services:
       # scripts/audit_presence_divergence.py. Non-authoritative + best-effort —
       # cannot affect the real seat write. Prod uses docker-compose.prod.yml.
       - PRESENCE_SHADOW_WRITE_ENABLED=${PRESENCE_SHADOW_WRITE_ENABLED:-0}
+      # Presence cutover Phase 3: AUTHORITY flip (default OFF). When 1,
+      # entity_presence is written authoritatively at the save_table chokepoint
+      # (fail-loud on a double-seat/illegal write). Reversible on dev (cash_tables
+      # is still written as a cache). Prod uses docker-compose.prod.yml.
+      - PRESENCE_AUTHORITY_ENABLED=${PRESENCE_AUTHORITY_ENABLED:-0}
     env_file:
       - .env
     command: python -m flask_app.ui_web
