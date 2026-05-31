@@ -216,6 +216,45 @@ def test_apply_illegal_transition_raises_under_authority(conn):
     assert _state(conn, ai_entity_id("ghost")) is None
 
 
+def test_coldload_binding_prefers_presence_over_stale_cash_session(tmp_path, monkeypatch):
+    """Read-side migration: under authority, _restore_cash_table_binding recovers
+    the seat from the authoritative entity_presence row, overriding a STALE
+    cash_sessions binding (e.g. the player moved seats after sit)."""
+    from unittest.mock import MagicMock
+    from poker.repositories.entity_presence_repository import EntityPresenceRepository
+    import flask_app.extensions as ext
+    import flask_app.services.game_state_service as gss
+    from flask_app.handlers import game_handler
+
+    db = str(tmp_path / "cl.db")
+    SchemaManager(db).ensure_schema()
+    epr = EntityPresenceRepository(db)
+    # Authoritative presence: jeff is SEATED at the LIVE seat.
+    epr.persist_transition(player_entity_id("jeff"), SANDBOX, PresenceEvent.SIT,
+                           table_id="cash-table-2-009", seat_index=4)
+    # cash_sessions has a STALE binding (sit-time seat, since moved).
+    cs = MagicMock(owner_id="jeff", sandbox_id=SANDBOX,
+                   cash_table_id="cash-table-2-001", cash_seat_index=0)
+    fake_session_repo = MagicMock()
+    fake_session_repo.load.return_value = cs
+
+    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
+    monkeypatch.setattr(ext, "entity_presence_repo", epr, raising=False)
+    monkeypatch.setattr(ext, "cash_session_repo", fake_session_repo, raising=False)
+    monkeypatch.setattr(gss, "set_game", lambda *a, **k: None)
+
+    gd: dict = {}
+    resolved = game_handler._restore_cash_table_binding("cash-jeff-1", gd)
+    assert resolved == "cash-table-2-009"            # presence (authority) wins
+    assert gd["cash_table_id"] == "cash-table-2-009"
+    assert gd["cash_seat_index"] == 4
+
+    # authority OFF → falls back to the cash_sessions binding (unchanged path)
+    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False)
+    gd2: dict = {}
+    assert game_handler._restore_cash_table_binding("cash-jeff-1", gd2) == "cash-table-2-001"
+
+
 def test_reconcile_skipped_under_authority(tmp_path, monkeypatch):
     """Review finding 2: the legacy call-site _shadow_reconcile_table must NOT
     run under authority (save_table is the sole seat writer; the separate-conn

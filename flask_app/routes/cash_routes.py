@@ -1431,6 +1431,34 @@ def sit_at_table():
                     }
                 ), 409
             seat_index = alt
+        # Presence-authoritative occupancy guard (read-side migration): when
+        # entity_presence is the authority, trust IT for "is this seat free",
+        # not just the cash_tables cache. Catches a cache↔authority disagreement
+        # (a ghost in the cache that presence knows is occupied) at the point of
+        # sit — preventing a double-book the cache alone would allow. Gated:
+        # authority-off keeps the pure cash_tables check unchanged.
+        from cash_mode import economy_flags as _ef
+        if _ef.PRESENCE_AUTHORITY_ENABLED:
+            from flask_app.extensions import entity_presence_repo as _epr
+            from cash_mode.presence import player_entity_id as _peid
+            if _epr is not None:
+                _me = _peid(owner_id)
+
+                def _presence_free(idx: int) -> bool:
+                    occ = _epr.seat_occupant(sandbox_id, table_id, idx)
+                    return occ is None or occ.entity_id == _me
+
+                if not _presence_free(seat_index):
+                    alt = next(
+                        (i for i, s in enumerate(table.seats)
+                         if s.get("kind") == "open" and _presence_free(i)),
+                        None,
+                    )
+                    if alt is None:
+                        return jsonify(
+                            {"error": "Table is full", "seat_kind": "presence_occupied"}
+                        ), 409
+                    seat_index = alt
         claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
         cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
         # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
