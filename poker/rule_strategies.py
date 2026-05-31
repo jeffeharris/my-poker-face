@@ -1129,6 +1129,87 @@ def _strategy_tricky_aggro(context: Dict) -> Dict:
     return check_or_fold()  # medium/weak: pot-control
 
 
+def _strategy_exploiter(context: Dict) -> Dict:
+    """Exploiter — the YARDSTICK FOR THE REAL GOAL: how hard is a bot for a human?
+
+    The goal was never to beat bots or milk fish — it is a bot a competent human
+    can't run over. We can't put a human in the sim, so we measure the proxy:
+    EXPLOITABILITY — how much a best-responder that punishes the target's leaks can
+    win. This is that best-responder, hand-tuned to RegPlus's specific tells. The
+    striking part: RegPlus is so face-up that NO opponent modeling is needed — its
+    *bet size* is the read, and that's already in the decision context. The human
+    game plan, mechanized:
+      - Facing a bet: the SIZE is the strength (RegPlus never bluffs). Fold every
+        hand that isn't ahead of that implied value — pay off NOTHING. And when its
+        bet is *small* (≤0.6 pot ⇒ capped to a medium hand), RAISE big as a bluff:
+        it folds medium to a re-raise and it cannot have better (it would've bet
+        bigger). Punish the cap.
+      - Checked to: RegPlus checked ⇒ it gave up (it always bets premium/strong) ⇒
+        STAB big; it folds its air/weak/medium-OOP. Free money.
+      - Preflop: 3-bet relentlessly — RegPlus isos ~38% but defends a 3-bet with
+        ~top-15%, so light 3-bets print fold equity.
+    bb/100 of this bot vs a candidate = the candidate's human-exploitability. A bot
+    that's genuinely hard for a human drives THIS number toward zero. Eval-only.
+    """
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    pos = _position_category(context.get('position', '') or '')
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    equity = context['equity']
+    hand = _equity_category(equity)
+    in_position = pos in ('late', 'blind')
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    # PREFLOP: 3-bet relentlessly (the target over-folds to 3-bets).
+    if phase == 'PRE_FLOP':
+        facing_raise = cost > 0 and highest_bet > bb
+        if not facing_raise:
+            if hand in ('premium', 'strong', 'medium') or in_position:
+                return do_raise(int(3.0 * bb))
+            return check_or_fold()
+        # facing the target's iso-raise — 3-bet light to make it fold its wide iso.
+        if hand in ('premium', 'strong', 'medium', 'weak'):
+            return do_raise(int(3.2 * highest_bet))
+        return {'action': 'fold', 'raise_to': 0} if not in_position else call()
+
+    # FACING A BET: the size is the tell. Never pay off; raise the capped small bets.
+    if cost > 0:
+        bet_over_pot = cost / max(1.0, pot - cost)
+        if hand == 'premium':
+            return do_raise(int((pot + cost) * 1.0))  # we have the goods — raise
+        if bet_over_pot <= 0.6:
+            # Small bet ⇒ target is CAPPED (medium); it would bet bigger with
+            # strong+. Raise big as a bluff — it folds medium to a re-raise.
+            return do_raise(int((pot + cost) * 1.1))
+        # Medium/large bet ⇒ strong+ value, and it never bluffs ⇒ fold non-value.
+        if hand == 'strong' and bet_over_pot < 0.8:
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # CHECKED TO US: the target gave up (it always bets premium/strong) ⇒ STAB big.
+    return bet(0.9)
+
+
 def _fish_bet(context: Dict, fraction: float) -> Optional[Dict]:
     """Build a pot-fraction bet/raise for a fish, clamped to legal sizing.
 
@@ -1371,6 +1452,7 @@ BUILT_IN_STRATEGIES = {
     'reg_plus': _strategy_reg_plus,
     'tricky_reg': _strategy_tricky_reg,
     'tricky_aggro': _strategy_tricky_aggro,
+    'exploiter': _strategy_exploiter,
     'reg_vs_maniac': _strategy_reg_vs_maniac,
     'reg_adaptive': _strategy_reg_adaptive,
     'fish': _strategy_fish,

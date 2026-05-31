@@ -309,6 +309,12 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'tricky_aggro',
     },
+    # Exploiter — best-responder that punishes a face-up/never-bluff bot's tells.
+    # bb/100 of this vs a candidate = the candidate's human-exploitability proxy.
+    'Exploiter': {
+        'kind': 'rule_bot',
+        'strategy': 'exploiter',
+    },
     'RegVsManiac': {
         'kind': 'rule_bot',
         'strategy': 'reg_vs_maniac',

@@ -209,3 +209,32 @@ the bot-only pool. That boundary now lives in the `_strategy_reg_plus` docstring
 casino (it dominates the field it would actually face); or (b) **build the human-
 in-a-bot** — a range-reading attacker that overbets only into capped lines — the
 one opponent that *could* exploit RegPlus, and the prerequisite for a meaningful §3.
+
+## Recalibration — I could NOT build a bot that exploits RegPlus (4 tries)
+
+Jeff re-centered the goal (correctly): it was never to beat bots or milk fish — it
+was a bot that's hard for a HUMAN. I proposed measuring that via *exploitability*:
+the bb/100 a hand-built best-responder can win. So I built `_strategy_exploiter` —
+the human game plan mechanized (fold to its value bets, stab its checks, overbet
+its capped lines, light-3-bet it). **It got crushed: Exploiter vs RegPlus −149 HU,
+−420 6max (fair −443); vs CaseBotV2 −1100; +252 only vs passive WeakFish; self-play
++23.** It's a spewy maniac, not a best-responder. That makes FOUR purpose-built
+attackers (TrickyReg, TrickyAggro, Exploiter, + earlier inverse tests) that all
+LOSE to RegPlus.
+
+**Honest update on my earlier high-confidence claim ("a human shreds RegPlus").**
+Undemonstrated, and probably overstated. The exploits are theoretically real but
+require *selectivity* — attack ONLY when RegPlus is genuinely capped/weak — which
+is read from the whole line/range. That selectivity IS the human skill, and a
+static rule bot reacting to the current bet size can't express it; it collapses to
+"bet a lot," which RegPlus's real calling/raising range punishes. So (1) RegPlus is
+MORE robust than I claimed — not human-proof, but not trivially run over either;
+and (2) **rule bots fundamentally cannot measure human-difficulty** — I can't even
+build a competent exploiter as one. The "exploitability via hand-built
+best-responder" metric is unachievable this way.
+
+**Therefore measuring "hard for a human" needs EITHER (A) a human in the loop**
+(Jeff plays a session vs RegPlus/CaseBotV2 in the app → ground truth on whether the
+exploits work + bb/100) **OR (B) a learning/solving opponent (CFR/RL)** — a real ML
+build, not a session. Lesson for next context: stop using rule-bot bb/100 as a
+proxy for human-difficulty; it cannot be one. [[feedback_confidence_calibration]]
