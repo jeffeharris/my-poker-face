@@ -115,3 +115,83 @@ class TestSerializationRoundTrip:
         assert restored.sizing_polarization_score == 0.0
         assert restored.fold_to_big_bet == 0.5
         assert restored._big_bet_faced_count == 0
+
+
+def _hand_with_big_and_small_bets():
+    """Bob bets BIG on the flop (150 into 200 = 0.75 pot) and SMALL on the turn
+    (300 into 500 = 0.60 pot), Alice calls both. Bob has the nuts (top set)."""
+    from datetime import datetime
+
+    from poker.memory.hand_history import PlayerHandInfo, RecordedAction, RecordedHand
+
+    return RecordedHand(
+        game_id="t",
+        hand_number=1,
+        timestamp=datetime.now(),
+        players=(
+            PlayerHandInfo(name="Alice", starting_stack=10000, position="BTN", is_human=False),
+            PlayerHandInfo(name="Bob", starting_stack=10000, position="BB", is_human=False),
+        ),
+        hole_cards={"Alice": ["7h", "2d"], "Bob": ["Kh", "Kd"]},
+        community_cards=("3s", "8c", "Kc", "2h", "9d"),
+        actions=(
+            RecordedAction(player_name="Alice", action="call", amount=100, phase="PRE_FLOP", pot_after=200),
+            RecordedAction(player_name="Bob", action="check", amount=0, phase="PRE_FLOP", pot_after=200),
+            RecordedAction(player_name="Bob", action="bet", amount=150, phase="FLOP", pot_after=350),
+            RecordedAction(player_name="Alice", action="call", amount=150, phase="FLOP", pot_after=500),
+            RecordedAction(player_name="Bob", action="bet", amount=300, phase="TURN", pot_after=800),
+            RecordedAction(player_name="Alice", action="call", amount=300, phase="TURN", pot_after=1100),
+        ),
+        winners=(),
+        pot_size=1100,
+        was_showdown=True,
+        community_cards_by_phase={
+            "FLOP": ["3s", "8c", "Kc"],
+            "TURN": ["3s", "8c", "Kc", "2h"],
+        },
+    )
+
+
+class TestBetFractionHelper:
+    def test_bet_fraction_by_action_only_emits_aggressive_sizes(self):
+        hand = _hand_with_big_and_small_bets()
+        fractions = hand.bet_fraction_by_action()
+        by_key = {(a.player_name, a.phase, a.action): fractions.get(id(a)) for a in hand.actions}
+        assert by_key[("Bob", "FLOP", "bet")] == pytest.approx(0.75)  # 150 / (350-150)
+        assert by_key[("Bob", "TURN", "bet")] == pytest.approx(0.60)  # 300 / (800-300)
+        # calls/checks are not aggressive sizes → no entry
+        assert by_key[("Alice", "FLOP", "call")] is None
+
+
+class TestShowdownSizeBinning:
+    def test_showdown_bins_bets_by_size(self):
+        from poker.memory.memory_manager import AIMemoryManager
+
+        mgr = AIMemoryManager(game_id="t", db_path=None)
+        mgr.initialize_for_player("Alice")
+        mgr.initialize_for_player("Bob")
+        mgr._record_showdown_equity_at_actions(_hand_with_big_and_small_bets())
+
+        bob = mgr.opponent_model_manager.get_model("Alice", "Bob").tendencies
+        # Bob's flop bet was big (0.75), turn bet small (0.60) → one in each bin.
+        assert bob._equity_betting_big_count == 1
+        assert bob._equity_betting_small_count == 1
+        # Both bets were the nuts → high equity in both bins.
+        assert bob.equity_when_betting_big > 0.85
+        assert bob.equity_when_betting_small > 0.85
+
+
+class TestFoldToBigBetIntegration:
+    def test_facing_big_bet_records_response(self):
+        from poker.memory.memory_manager import AIMemoryManager
+
+        mgr = AIMemoryManager(game_id="t", db_path=None)
+        mgr.initialize_for_player("Alice")
+        mgr.initialize_for_player("Bob")
+        mgr._record_fold_to_big_bet(_hand_with_big_and_small_bets())
+
+        alice = mgr.opponent_model_manager.get_model("Bob", "Alice").tendencies
+        # Alice faced exactly one BIG bet (Bob's 0.75-pot flop bet); the turn bet
+        # (0.60) is below the big threshold. She called → folded=False.
+        assert alice._big_bet_faced_count == 1
+        assert alice.fold_to_big_bet == pytest.approx(0.0)
