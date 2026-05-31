@@ -7,6 +7,10 @@ last_updated: 2026-05-31
 
 # Cash Presence Cutover — Handoff
 
+> **UPDATE 2026-05-31:** Steps 1 (validate) and 2 (§C dedup) below are now DONE
+> on `development`. The shadow's divergence audit is GREEN. The flip (Step 3) is
+> still deliberately deferred. See `docs/captains-log/development/presence-shadow-cutover-step2.md`.
+
 Pick up here in a fresh session. This is the cutover of cash-mode seat/idle/
 off-grid state onto the **Presence state machine** (`entity_presence` table).
 Everything below is on branch `development`, committed, tree clean.
@@ -94,22 +98,33 @@ well-scoped day's work — see below.)
 
 ## Next steps (in order)
 
-1. **Validate the shadow tracks reality (the gate for the flip).**
-   - Flip `PRESENCE_SHADOW_WRITE_ENABLED = True` **in a sim only** (isolated
-     `--db-path`, never prod). Use the sim harness: `scripts/seed_sim_sandbox.py
-     --db-path X` (now seeds personalities — see `c53b7323`) → `scripts/
-     run_economy_sim.py --sandbox-id <uuid> --ticks N --db-path X --out P`.
-   - Write a **divergence audit**: for each sandbox, compare `entity_presence`
-     against the authoritative `cash_tables` seat map + `cash_idle_pool` +
-     `ai_*_state`. Expect a few *known* benign divergences (off-grid START from a
-     non-IDLE shadow row — swallowed by design; seat→IDLE double-drive — see doc
-     §C). Anything else is a real wiring gap to fix before flipping.
-   - `cash_mode/whereabouts.py` already computes the contradiction view; reuse it.
+1. **✅ DONE 2026-05-31 — Validate the shadow tracks reality (the gate for the flip).**
+   - Built `scripts/validate_presence_shadow.py`: seeds an isolated sandbox,
+     flips `PRESENCE_SHADOW_WRITE_ENABLED` at runtime AND wires
+     `flask_app.extensions.entity_presence_repo` (CRITICAL: the sim writers
+     resolve the repo via extensions, which is `None` outside Flask — without the
+     injection the shadow silently no-ops and the audit is meaningless), runs the
+     economy sim in N checkpointed segments (threaded clock), and compares
+     `entity_presence` vs the authoritative `cash_tables` seat map +
+     `cash_idle_pool` + `ai_*_state`, classifying benign vs unexpected. Writes a
+     JSON report (read the verdict from the FILE, not stdout).
+   - Single end-snapshots look clean but hide transient states (off-grid) and
+     cascades — USE `--checkpoints N` (≥10). A 300-tick single snapshot showed 0
+     off-grid entities; checkpoints surfaced the real failure below.
+   - Result after Step 2: **PASS — 0 unexpected across all checkpoints**, 1510
+     ticks, off-grid exercised. Only benign `MISSING_IDLE` remains (idle not
+     wired → becomes a projection at flip).
 
-2. **Resolve the dedup decision (doc §C).** The seat→IDLE `LEAVE` must be emitted
-   by exactly ONE authority. Decision already made and recorded in the doc: emit it
-   from the **lobby reconcile-diff**, NOT the idle-pool repo layer. Confirm the
-   shadow honors this (idle-pool was deliberately NOT wired).
+2. **✅ DONE 2026-05-31 — Resolve the dedup decision (doc §C).** Validation proved
+   the §C decision was recorded but NOT implemented, and that it was not cosmetic:
+   the lobby reconcile never emitted the seat→IDLE `LEAVE`, so a stale `SEATED`
+   row kept holding the seat in the partial-unique index → the next rightful `SIT`
+   collided (`IntegrityError`, swallowed) → that entity stranded unseated
+   (`MISSING_SEAT` cascade). **Fix:** `_shadow_reconcile_table` now LEAVE-clears
+   any entity the shadow has SEATED at this table that's gone from the new seat map
+   (step 1, before SITting desired occupants). Idle-pool repo stays un-wired (no
+   double-drive). FAIL (8 unexpected) → PASS (0). 216 presence/shadow + neighbor
+   tests green.
 
 3. **The flip (Phase 3) — do SOLO, not via fleet, atomically:**
    - Make `CashTableRepository.save_table` *derive* the seat map from

@@ -146,12 +146,16 @@ def _shadow_reconcile_table(
         illegal `SEATED --sit--> SEATED` self-edge, which would otherwise spam
         the divergence log every refresh tick).
 
-    Vacated seats are NOT turned into `LEAVE`s here: a single `save_table`
-    only carries one table, so an entity that left this table for ANOTHER one
-    is reconciled by that other table's save (its `SIT` clears the stale
-    seat). Pure idle/offgrid departures are driven by the idle-pool / hustle /
-    vice writers (migration inventory C–E), out of scope for this lobby-only
-    pass. This keeps the shadow additive and never strands a real move.
+    Vacated seats ARE turned into `LEAVE`s here (§C dedup decision): an entity
+    that left this table to the idle pool / off-grid / a bust appears only as
+    its absence from the new seat map, so step (1) below LEAVE-clears any stale
+    `SEATED` row this table still holds in the shadow. Without that, the stale
+    row keeps occupying the seat in the partial-unique index and the next
+    rightful `SIT` collides and is swallowed, stranding that entity unseated.
+    A cross-table *move* is still handled per-entity in step (2) (LEAVE-then-SIT
+    against the source table). The destination of a bare idle departure is left
+    to the machine's IDLE state; the idle-pool repo is deliberately NOT also
+    shadow-wired (that would double-drive — migration inventory §C).
 
     Flag-gated + best-effort throughout (`_shadow_repo` returns None when the
     switch is off; each transition goes through `presence_shadow`'s
@@ -165,7 +169,41 @@ def _shadow_reconcile_table(
     if repo is None:
         return
 
-    for entity_id, (table_id, seat_index) in _shadow_seat_state(table).items():
+    desired = _shadow_seat_state(table)  # entity_id -> (table_id, seat_index)
+
+    # (1) Clear STALE occupants of this table first. The lobby persists a whole
+    # `CashTableState`, so a seat an entity vacated (to the idle pool / off-grid
+    # / a bust) shows up only as that entity's *absence* from the new seat map —
+    # never as an event. If we don't emit its `LEAVE`, the shadow keeps a stale
+    # `SEATED` row holding that seat in the partial-unique index, and the next
+    # entity that legitimately takes the seat collides (`IntegrityError`, which
+    # `shadow_transition` swallows) and is stranded unseated. This is the §C
+    # dedup decision (CASH_MODE_PRESENCE_MIGRATION.md): the seat->IDLE `LEAVE` is
+    # emitted HERE, by the reconcile that already sees the seat go empty — not at
+    # the idle-pool repo layer. So: LEAVE everyone the shadow currently has
+    # SEATED at THIS table who is not still in the new map at the same seat.
+    try:
+        seated_here = [
+            s for s in repo.list_for_sandbox(sandbox_id)
+            if s.is_seated and s.table_id == table.table_id
+        ]
+    except Exception:  # noqa: BLE001 — read failure must not break the real path
+        seated_here = []
+    for s in seated_here:
+        if desired.get(s.entity_id) == (s.table_id, s.seat_index):
+            continue  # still correctly seated here — leave it be
+        presence_shadow.shadow_transition(
+            entity_id=s.entity_id,
+            sandbox_id=sandbox_id,
+            event=PresenceEvent.LEAVE,
+            repo=repo,
+        )
+
+    # (2) Seat the desired occupants. A `SIT` is legal from OFFLINE/IDLE/POOL;
+    # an entity SEATED *elsewhere* (a cross-table move) is LEAVE-then-SIT'd here
+    # (step 1 only clears stale rows on THIS table, not the source table of a
+    # move — and SIT-from-SEATED is illegal by design).
+    for entity_id, (table_id, seat_index) in desired.items():
         try:
             current = repo.load(entity_id, sandbox_id)
         except Exception:  # noqa: BLE001 — read failure must not break the real path

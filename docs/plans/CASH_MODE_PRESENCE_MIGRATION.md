@@ -138,12 +138,24 @@ SQL.** The real `cash_idle_pool` writers:
 | `delete_idle(personality_id, *, sandbox_id)` | `poker/repositories/cash_table_repository.py:644` (`DELETE`) | leaving IDLE — destination decided by caller, so NOT shadowed on bare delete |
 
 Driven by change-sets from `refresh_table_roster` (`cash_mode/movement.py`) applied
-in `lobby.py`. **Idle was NOT independently shadow-wired** (the agent correctly
+in `lobby.py`. **Idle is NOT independently shadow-wired** (the agent correctly
 refused — a repo-layer shadow would violate the "shadow after the authoritative
 write, outside the lock" contract). **Decision: the seat→IDLE `LEAVE` is emitted by
 the lobby reconcile-diff (§A), which already sees seats becoming empty. Do not also
 shadow it at the repo layer — that would double-drive.** (Idempotent if it happened
 — a 2nd `LEAVE` from `IDLE` is illegal → swallowed — but pick one authority.)
+
+> **IMPLEMENTED 2026-05-31 (Step 2 done).** `_shadow_reconcile_table` now emits
+> that vacated-seat `LEAVE` (step 1 of the reconcile: LEAVE everyone the shadow
+> has SEATED at this table who isn't still in the new seat map at the same seat,
+> *before* SITting the desired occupants). This was NOT cosmetic: the checkpointed
+> divergence audit (`scripts/validate_presence_shadow.py`) proved that without it,
+> a stale `SEATED` row keeps holding a seat in the partial-unique index, the next
+> rightful `SIT` collides (`IntegrityError`, swallowed), and that entity is
+> stranded unseated — surfacing as `MISSING_SEAT` divergences. With the LEAVE,
+> the audit goes from FAIL (8 unexpected) to PASS (0 unexpected) across all
+> checkpoints; only the benign `MISSING_IDLE` class (idle not wired → projection
+> at flip) remains.
 
 ### D/E. Off-grid: side-hustle + vice — real insert/delete sites
 
