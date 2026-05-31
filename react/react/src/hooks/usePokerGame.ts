@@ -15,6 +15,9 @@ interface UsePokerGameOptions {
   onGameCreated?: (gameId: string) => void;
   onNewAiMessage?: (message: ChatMessage) => void;
   onGameLoadFailed?: () => void;
+  /** Fired when a scripted scene (Scene 0) completes — the backend signals the
+   *  game should return to the lobby (where Sal's handoff beat continues). */
+  onSceneComplete?: () => void;
 }
 
 type QueuedAction = 'check_fold' | null;
@@ -90,6 +93,7 @@ export function usePokerGame({
   onGameCreated,
   onNewAiMessage,
   onGameLoadFailed,
+  onSceneComplete,
 }: UsePokerGameOptions): UsePokerGameResult {
   // Game state lives in Zustand store for granular subscriptions
   const applyGameState = useGameStore((state) => state.applyGameState);
@@ -439,6 +443,12 @@ export function usePokerGame({
         // Placeholder for future player join handling
       });
 
+      // A scripted scene (Scene 0) finished — hand off to the component, which
+      // returns to the lobby once the mentor's closing lines have played.
+      socket.on('scene_complete', () => {
+        if (onSceneComplete) onSceneComplete();
+      });
+
       socket.on('update_game_state', (data: { game_state: GameState }) => {
         clearAiThinkingTimeout();
         // Use buffer logic to handle card animation timing
@@ -672,6 +682,7 @@ export function usePokerGame({
     },
     [
       onNewAiMessage,
+      onSceneComplete,
       clearAiThinkingTimeout,
       updateStorePlayers,
       updateStorePlayerOptions,

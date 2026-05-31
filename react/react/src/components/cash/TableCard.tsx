@@ -40,6 +40,8 @@ interface TableCardProps {
   /** Resume the in-progress game on this table. Required to do anything
    *  useful when `isSeated`. */
   onResume?: () => void;
+  /** Spotlight glow — Sal's post-graduation handoff points the player here. */
+  spotlight?: boolean;
 }
 
 /** "$4.2k" / "$980" — compact chip count for the scouting line. */
@@ -62,6 +64,7 @@ export function TableCard({
   onAiSeatClick,
   isSeated = false,
   onResume,
+  spotlight = false,
 }: TableCardProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -130,7 +133,8 @@ export function TableCard({
         (locked ? ' is-disabled' : '') +
         (sponsorOnly ? ' is-sponsor' : '') +
         (closing ? ' is-closing' : '') +
-        (isSeated ? ' is-seated' : '')
+        (isSeated ? ' is-seated' : '') +
+        (spotlight ? ' is-spotlight' : '')
       }
       aria-label={isSeated ? `${ariaLabel} — you're seated here` : ariaLabel}
     >

@@ -130,6 +130,25 @@ class TestCareerKeyringLobby(unittest.TestCase):
         assert prog.scene0_seeded is True
         assert cp.SCENE0_TABLE_ID in prog.revealed_table_ids
 
+    def test_mentor_intro_handoff_is_served_once_then_cleared(self):
+        # Simulate "just graduated": the first vouch queued Sal's lobby handoff.
+        repo = self.repos['career_progress_repo']
+        sb = self.repos['sandbox_repo'].list_for_owner(PLAYER_OWNER_ID)[0].sandbox_id
+        prog = repo.load(sb, PLAYER_OWNER_ID)
+        prog.mentor_intro_table_id = "cash-table-3-001"
+        repo.save(prog)
+
+        first = self.client.get("/api/cash/lobby").get_json()
+        assert first["mentor_intro"] is not None
+        assert first["mentor_intro"]["table_id"] == "cash-table-3-001"
+        assert first["mentor_intro"]["name"] == cp.SAL_NAME
+        assert first["mentor_intro"]["line"]
+
+        # One-shot: cleared after the first serve so it doesn't replay.
+        second = self.client.get("/api/cash/lobby").get_json()
+        assert second["mentor_intro"] is None
+        assert repo.load(sb, PLAYER_OWNER_ID).mentor_intro_table_id is None
+
     def test_intake_christens_fish_name_and_clears_the_gate(self):
         # Brand-new career player → the lobby asks for the intake first.
         first = self.client.get("/api/cash/lobby").get_json()

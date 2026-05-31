@@ -26,6 +26,7 @@ import { MobileCashButton } from '../cash/MobileCashButton';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { BustModal } from '../cash/BustModal';
 import { SoloTableModal } from '../cash/SoloTableModal';
+import { leaveTable } from '../cash/api';
 import { CharacterDetailCard } from '../character';
 import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
@@ -105,6 +106,12 @@ export function MobilePokerTable({
   const dismissSalMessage = useCallback((id: string) => {
     setSalQueue((q) => q.filter((m) => m.id !== id));
   }, []);
+
+  // Scripted scene finished → return to the lobby once Sal's closing lines have
+  // played (the SalFloater queue drains), where his handoff beat continues. The
+  // backend fires `scene_complete`; we wait for the queue so the reveal isn't cut.
+  const [pendingLobbyReturn, setPendingLobbyReturn] = useState(false);
+  const handleSceneComplete = useCallback(() => setPendingLobbyReturn(true), []);
 
   // Coach state
   const [showCoachPanel, setShowCoachPanel] = useState(false);
@@ -200,6 +207,7 @@ export function MobilePokerTable({
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
     onGameLoadFailed,
+    onSceneComplete: handleSceneComplete,
   });
 
   const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } =
@@ -207,6 +215,24 @@ export function MobilePokerTable({
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();
+
+  // Scene-complete → lobby return. Once Sal's closing lines have played out (the
+  // floater queue is empty), cash out of the tutorial table and go to the lobby,
+  // where his handoff beat greets the player. A fallback timer returns even if
+  // the queue never drains so the player is never stranded.
+  useEffect(() => {
+    if (!pendingLobbyReturn) return undefined;
+    const toLobby = () => {
+      leaveTable()
+        .catch(() => {})
+        .finally(() => {
+          window.location.href = '/cash';
+        });
+    };
+    const delay = salQueue.length === 0 ? 1200 : 45000;
+    const t = setTimeout(toLobby, delay);
+    return () => clearTimeout(t);
+  }, [pendingLobbyReturn, salQueue.length]);
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {

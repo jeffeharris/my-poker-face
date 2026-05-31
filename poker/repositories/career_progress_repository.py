@@ -86,6 +86,11 @@ class CareerProgress:
     # driver restore where it left off. Generic (not scene0-specific) so the
     # reusable scene system can lean on the same store.
     scene_progress: Dict[str, dict] = field(default_factory=dict)
+    # One-shot: the home-court table Sal should ESCORT the player to in the lobby
+    # right after graduation (his portrait + a "let me walk ya over" line, pointing
+    # at the revealed table). Set by the first vouch, served+cleared by the lobby
+    # the first time it renders the handoff. None = no pending handoff.
+    mentor_intro_table_id: Optional[str] = None
 
     def has_vouched(self, personality_id: str) -> bool:
         """True if `personality_id` has already spent its one vouch (v1 rule)."""
@@ -113,6 +118,7 @@ class CareerProgress:
                 "home_court_table_id": self.home_court_table_id,
                 "vouched_by": self.vouched_by,
                 "scene_progress": self.scene_progress,
+                "mentor_intro_table_id": self.mentor_intro_table_id,
             }
         )
 
@@ -150,6 +156,7 @@ class CareerProgress:
             home_court_table_id=blob.get("home_court_table_id"),
             vouched_by=list(blob.get("vouched_by") or []),
             scene_progress=dict(blob.get("scene_progress") or {}),
+            mentor_intro_table_id=blob.get("mentor_intro_table_id"),
         )
 
 

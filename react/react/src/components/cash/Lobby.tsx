@@ -45,6 +45,7 @@ import type {
   BankrollPoint,
   LobbyEvent,
   LobbyTable,
+  MentorIntro,
   ReputationData,
   StakableAiCandidate,
   StakeLabel,
@@ -52,6 +53,8 @@ import type {
   WorldPace,
 } from './types';
 import { STAKES } from './types';
+import type { ChatMessage } from '../../types/chat';
+import { SalFloater } from '../mobile/SalFloater';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { CharacterDetailCard, type CharacterDossierData } from '../character';
@@ -223,6 +226,26 @@ export function Lobby() {
   // that lands right after `submitIntake` flips it false and unmounts the
   // reveal mid-beat (the "flash").
   const [showIntake, setShowIntake] = useState(false);
+  // Sal's one-shot post-graduation handoff: his portrait + bubble, spotlighting
+  // the revealed home court. Sticky once captured; cleared when the bubble plays
+  // out (the server already cleared its copy, so it won't replay on next load).
+  const [mentorIntro, setMentorIntro] = useState<MentorIntro | null>(null);
+  const dismissMentorIntro = useCallback(() => setMentorIntro(null), []);
+  const mentorIntroQueue = useMemo<ChatMessage[]>(
+    () =>
+      mentorIntro
+        ? [
+            {
+              id: `mentor-intro-${mentorIntro.table_id}`,
+              sender: mentorIntro.name,
+              message: mentorIntro.line,
+              timestamp: '',
+              type: 'ai',
+            },
+          ]
+        : [],
+    [mentorIntro]
+  );
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -323,6 +346,9 @@ export function Lobby() {
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setReputation(lobby.reputation ?? null);
         if (lobby.intake_needed) setShowIntake(true); // sticky — never auto-cleared here
+        // One-shot Sal handoff: capture the first time it arrives (the server
+        // clears its copy on serve), then let the floater play it out.
+        if (lobby.mentor_intro) setMentorIntro(lobby.mentor_intro);
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
@@ -801,6 +827,7 @@ export function Lobby() {
                                 onAiSeatClick={setDossier}
                                 isSeated={seatedTableId === t.table_id}
                                 onResume={handleResume}
+                                spotlight={mentorIntro?.table_id === t.table_id}
                               />
                             ))}
                           </div>
@@ -832,6 +859,7 @@ export function Lobby() {
                         onAiSeatClick={setDossier}
                         isSeated={seatedTableId === t.table_id}
                         onResume={handleResume}
+                        spotlight={mentorIntro?.table_id === t.table_id}
                       />
                     ))}
                   </div>
@@ -881,6 +909,9 @@ export function Lobby() {
           refreshTick={stakablePanelTick}
         />
         {showIntake && <LuckyStackIntake onDone={handleIntakeTakeSeat} />}
+        {/* Sal's post-graduation handoff: his portrait + bubble walk the player
+            to the spotlighted home court. Same floater used at the table. */}
+        <SalFloater queue={mentorIntroQueue} onShown={dismissMentorIntro} />
         <StakeOfferModal
           target={stakeTarget}
           bankroll={bankroll ?? 0}

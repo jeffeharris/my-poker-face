@@ -1239,6 +1239,27 @@
 .lobby-table-card.is-disabled {
   opacity: 0.6;
 }
+/* Sal's post-graduation handoff spotlight — the room he just walked you to. */
+.lobby-table-card.is-spotlight {
+  border-color: rgba(216, 178, 74, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(216, 178, 74, 0.7),
+    0 0 22px rgba(216, 178, 74, 0.45);
+  animation: lobby-spotlight-pulse 1.8s ease-in-out infinite;
+}
+@keyframes lobby-spotlight-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(216, 178, 74, 0.6),
+      0 0 16px rgba(216, 178, 74, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(216, 178, 74, 0.95),
+      0 0 28px rgba(216, 178, 74, 0.55);
+  }
+}
 .lobby-table-card.is-disabled .lobby-table-card__seat-image,
 .lobby-table-card.is-disabled .lobby-table-card__pip img {
   filter: grayscale(100%);

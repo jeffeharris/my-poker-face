@@ -5892,6 +5892,31 @@ def get_lobby():
         logger.warning("[CASH][LOBBY] reputation load failed: %s", exc)
         reputation_payload = None
 
+    # Sal's one-shot lobby handoff: right after graduation he walks the player
+    # over to the revealed home court (portrait + bubble pointing at the table).
+    # Served once here, then cleared so it doesn't replay on later loads.
+    mentor_intro = None
+    if (
+        career_progress is not None
+        and career_progress.mentor_intro_table_id
+        and career_progress_repo is not None
+    ):
+        from cash_mode.career_progression import SAL_NAME
+
+        mentor_intro = {
+            "table_id": career_progress.mentor_intro_table_id,
+            "name": SAL_NAME,
+            "line": (
+                "Come on, kid — let me walk ya over to a real room. That one right "
+                "there's yours now. Tell 'em Sal sent ya, and don't make me look bad."
+            ),
+        }
+        try:
+            career_progress.mentor_intro_table_id = None
+            career_progress_repo.save(career_progress)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] failed to clear mentor_intro: %s", exc)
+
     return jsonify(
         {
             "bankroll": bankroll.chips,
@@ -5919,6 +5944,9 @@ def get_lobby():
                 and not career_progress.intake_complete
             ),
             "fish_name": (career_progress.fish_name if career_progress is not None else None),
+            # Sal's one-shot post-graduation handoff (portrait + bubble + which
+            # table to spotlight), or null when there's nothing to show.
+            "mentor_intro": mentor_intro,
         }
     )
 

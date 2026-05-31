@@ -1980,9 +1980,21 @@ def _fire_career_first_vouch(game_id: str, game_data: dict) -> None:
     owner_id, _ = game_state_service.get_game_owner_info(game_id)
     if not owner_id or not sandbox_id:
         return
-    _, event = fire_first_vouch(
+    progress, event = fire_first_vouch(
         career_progress_repo=career_progress_repo, sandbox_id=sandbox_id, owner_id=owner_id
     )
+    # The scene is over — tell the game page to return to the lobby, where Sal's
+    # one-shot handoff beat (queued on `mentor_intro_table_id`) will greet the
+    # player and point at the revealed room. Emitted even if no room was left to
+    # reveal, so the player still exits the finished tutorial gracefully.
+    try:
+        socketio.emit(
+            'scene_complete',
+            {'home_court_table_id': getattr(progress, 'home_court_table_id', None)},
+            to=game_id,
+        )
+    except Exception:
+        logger.warning("[CAREER] scene_complete emit failed", exc_info=True)
     if event is None:
         return
     try:

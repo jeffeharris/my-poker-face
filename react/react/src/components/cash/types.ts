@@ -383,6 +383,17 @@ export interface LobbyResponse {
    *  before the lobby. `fish_name` is the tourist handle once christened. */
   intake_needed?: boolean;
   fish_name?: string | null;
+  /** One-shot, right after Scene-0 graduation: Sal escorts the player to the
+   *  revealed home court. The lobby shows his portrait + bubble (`line`) and
+   *  spotlights the `table_id` card. Served once then cleared server-side, so
+   *  it's present on exactly one load. Null when there's no handoff pending. */
+  mentor_intro?: MentorIntro | null;
+}
+
+export interface MentorIntro {
+  table_id: string;
+  name: string;
+  line: string;
 }
 
 /** How fast the background world ticks for unseated tables. */

@@ -489,6 +489,9 @@ def fire_first_vouch(
         progress.revealed_table_ids.append(home_court_id)
     if SAL_ID not in progress.vouched_by:
         progress.vouched_by.append(SAL_ID)
+    # Queue Sal's lobby handoff: when the player lands back in the lobby, Sal walks
+    # them over to this room (one-shot, cleared by the lobby on first render).
+    progress.mentor_intro_table_id = home_court_id
     career_progress_repo.save(progress, now=now)
 
     event = LobbyEvent(
