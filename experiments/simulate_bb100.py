@@ -290,6 +290,13 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'reg',
     },
+    # Reg+ — the competent yardstick (keystone). Value-extracts like CaseBotV2 but
+    # FOLDS to polarized big bets instead of paying them off, and never bluffs a
+    # caller. Built to beat/neutralize CaseBotV2 so robustness becomes measurable.
+    'RegPlus': {
+        'kind': 'rule_bot',
+        'strategy': 'reg_plus',
+    },
     'RegVsManiac': {
         'kind': 'rule_bot',
         'strategy': 'reg_vs_maniac',

@@ -830,6 +830,125 @@ def _strategy_reg_adaptive(context: Dict) -> Dict:
     return _reg_decision(context, anti_maniac=False)
 
 
+def _strategy_reg_plus(context: Dict) -> Dict:
+    """Reg+ — the COMPETENT YARDSTICK (keystone, docs/plans/BUILD_A_BETTER_BOT.md §2).
+
+    The plain `reg` LOSES to CaseBotV2 (−88 HU, −126 6max) for three reasons:
+    (1) it under-extracts when ahead (0.66-pot value bets — the station would call
+    an overbet), (2) it PAYS OFF CaseBotV2's polarized overbets (calls "medium" by
+    raw pot odds, not seeing that a value-heavy bettor's big bet is strength), and
+    (3) it nits itself out of a fish table preflop (folds ~65%, making nothing).
+
+    Reg+ fixes all three and so does what CaseBotV2 *cannot*:
+      - EXTRACT like CaseBotV2 — overbet premium/strong when checked to, the
+        calling pool pays anyway (kills leak 1);
+      - but FOLD to a polarized big bet instead of calling down (kills leak 2).
+        That is the asymmetry that beats a station: when *Reg+* overbets, the
+        station pays; when the station overbets, Reg+ folds. CaseBotV2 calls down,
+        so it pays off Reg+'s value — Reg+ does not return the favor;
+      - never bluff-barrel a caller — give up air rather than spew (the station
+        calls down, so a bluff just burns money);
+      - play wide enough preflop to not bleed (iso the limpers for value, defend
+        position) but TIGHTEN vs a raise (a value-heavy opponent's raise = a real
+        range), so it isn't paying to enter dominated.
+
+    This is the disciplined profile the adaptive bot (§3) switches to on a
+    competent read. It is NOT meant to beat the fish (it folds to their value and
+    misses their bluffs) — that is the fish-hunter profile's job. Its one mandate:
+    neutralize / beat CaseBotV2 so we finally have a yardstick for robustness.
+    Pure-static (no opponent reads) so sim == prod.
+    """
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    pos = _position_category(context.get('position', '') or '')
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    spr = context.get('spr', 10)
+    stack_bb = context.get('stack_bb', 100)
+    hand = _equity_category(context['equity'])
+    equity = context['equity']
+    in_position = pos in ('late', 'blind')
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+
+    def shove() -> Dict:
+        if 'all_in' in valid:
+            return {'action': 'all_in', 'raise_to': 0}
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': context['max_raise']}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    # ── PREFLOP: iso the limpers for value (don't bleed), tighten vs a raise ──
+    if phase == 'PRE_FLOP':
+        facing_raise = cost > 0 and highest_bet > bb
+        if not facing_raise:
+            # First-in / limped pot. Iso big — the station calls, and we build a
+            # pot where we have the range + position edge.
+            if hand in ('premium', 'strong', 'medium'):
+                return do_raise(int(3.0 * bb))
+            if hand == 'weak' and in_position:
+                return do_raise(int(3.0 * bb))  # widen IP/blind so we don't bleed
+            return check_or_fold()  # fold air OOP (free check in the BB)
+        # Facing a raise — a value-heavy opponent's raise is a REAL range. Tighten:
+        if hand == 'premium':
+            return do_raise(int(3.0 * highest_bet))  # 3-bet for value
+        if hand == 'strong':
+            return call()  # flat, don't bloat vs its value-raise range
+        if hand == 'medium' and in_position:
+            return call()  # see a flop in position
+        return {'action': 'fold', 'raise_to': 0}
+
+    # ── Commit short / low-SPR with a made hand ──
+    if (spr < 3 or stack_bb <= 15) and hand in ('premium', 'strong'):
+        return shove()
+
+    # ── POSTFLOP, facing a bet: bluff-catch small, FOLD to polarized big bets ──
+    if cost > 0:
+        # How big is the bet relative to the pot before it? >=0.8 ≈ a polarized
+        # bet, and a value-heavy opponent (CaseBotV2 overbets only premium/strong)
+        # is rarely bluffing there → fold everything but the nuts. Do NOT pay off.
+        bet_over_pot = cost / max(1.0, pot - cost)
+        big_bet = bet_over_pot >= 0.8
+        pot_odds = cost / (pot + cost) if (pot + cost) > 0 else 1.0
+        if hand == 'premium':
+            return bet(0.9)  # raise for value
+        if hand == 'strong':
+            return call()  # call down — ahead of most value bets
+        if hand == 'medium':
+            # Bluff-catch a SMALL/thin bet by price; fold to a big polarized bet.
+            return call() if (not big_bet and equity >= pot_odds) else {'action': 'fold', 'raise_to': 0}
+        if hand == 'weak' and not big_bet and equity >= pot_odds * 1.1:
+            return call()  # only the cheapest, best-priced bluff-catches
+        return {'action': 'fold', 'raise_to': 0}
+
+    # ── POSTFLOP, checked to us: EXTRACT large (the pool calls), never bluff ──
+    if hand == 'premium':
+        return bet(1.1)  # overbet the nuts — the station calls anyway
+    if hand == 'strong':
+        return bet(0.85)
+    if hand == 'medium':
+        return bet(0.55) if in_position else check_or_fold()  # thin value IP only
+    return check_or_fold()  # weak/air: give up, do NOT bluff a caller
+
+
 def _fish_bet(context: Dict, fraction: float) -> Optional[Dict]:
     """Build a pot-fraction bet/raise for a fish, clamped to legal sizing.
 
@@ -1069,6 +1188,7 @@ BUILT_IN_STRATEGIES = {
     'case_based': _strategy_case_based,
     'case_based_v2': _strategy_case_based_v2,
     'reg': _strategy_reg,
+    'reg_plus': _strategy_reg_plus,
     'reg_vs_maniac': _strategy_reg_vs_maniac,
     'reg_adaptive': _strategy_reg_adaptive,
     'fish': _strategy_fish,

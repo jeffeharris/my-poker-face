@@ -2,7 +2,7 @@
 purpose: Executable plan + hard-won findings for building a genuinely better poker bot — start here next context
 type: guide
 created: 2026-05-30
-last_updated: 2026-05-30
+last_updated: 2026-05-31
 ---
 
 # Build a better bot — NEW-CONTEXT START HERE
@@ -13,6 +13,51 @@ last_updated: 2026-05-30
 > single most important thing to understand before writing any more bot code, and
 > it points at the real next step. Full numbers: `docs/eval_results/VARIETY_VALIDATION_RESULTS.md`.
 > Narrative: `docs/captains-log/lookup-tables/variety-validation-and-deploy.md`.
+
+## ✅ 2026-05-31 — KEYSTONE BUILT: `RegPlus` beats CaseBotV2 (and everything else)
+
+The keystone (§2) is **done**. `RegPlus` (`_strategy_reg_plus` in
+`poker/rule_strategies.py`, archetype `RegPlus`) is the competent opponent that
+punishes "play 95% and call down." It **beats CaseBotV2** and is positive vs the
+entire eval field:
+
+| Cell (RegPlus as hero, 1000h × 3 seeds) | bb/100 | plain `Reg` was |
+|---|---|---|
+| HU vs CaseBotV2 | **+102** | −88 |
+| 6max vs 5×CaseBotV2 | **+38** | −126 |
+| HU vs jeff_clone (calls-down human) | **+115** | — |
+| 6max vs 5×jeff_clone | **+192** | — |
+| HU vs punisher_clone (competent reg) | **+60** | — |
+| 6max vs 5×punisher_clone (the target-B cell) | **+120** | — |
+| Gauntlet worst cell (6max vs 5×TAG) | **+0.0** | — |
+| Gauntlet mean (all 11 cells) | **+67** | — |
+
+Inverse confirms it: **CaseBotV2 vs a table of 5×RegPlus = −199 bb/100** (was
++378 vs plain Reg). A RegPlus table turns the fish-hunter into a big loser.
+
+**Why it works (and how it refutes part of this doc's premise).** The recipe was
+NOT to balance CaseBotV2 (every dead-end below did that and lost). It was:
+- **keep** CaseBotV2's value-extraction — overbet premium/strong when checked to
+  (the calling pool pays → Station +180, jeff +192); AND
+- **add** folding discipline — *fold to a polarized big bet* (`bet_over_pot ≥ 0.8`)
+  instead of paying it off, and **never bluff-barrel a caller** (give up air).
+
+The asymmetry is the whole game: when *RegPlus* overbets, the station pays; when
+the station overbets, RegPlus folds. CaseBotV2 calls down → it pays off RegPlus's
+value but RegPlus doesn't return the favor. **So "discipline ≠ balance":** a static
+bot CAN be both robust (worst cell +0.0 vs 5 TAGs, beats the competent clone +120)
+AND fish-extracting (+180 vs stations). The §5 thesis ("balance under-exploits a
+leaky pool") is right about *balance* — but RegPlus isn't balanced, it's a
+value-extractor with a fold button.
+
+**Caveat / the one residual leak → motivates §3 (C).** RegPlus folds medium to
+overbets because in our eval *no opponent overbet-BLUFFS* (CaseBotV2 only overbets
+value; the punisher barrels but RegPlus's call-down catches it). A thinking HUMAN
+who notices RegPlus over-folds to big bets would overbet-bluff it. That residual
+exploit is exactly what the adaptive call-down sub-case (§3, the maniac/aggression
+read) is for — and it's unmeasurable in our current pool, so building it needs the
+opponent-model harness (§4). **RegPlus is a strong static "better bot" today AND
+the competent profile the adaptive bot switches to.**
 
 ## TL;DR — the one finding that governs everything
 
@@ -108,7 +153,16 @@ without a competent opponent to fail against, and (C)'s classifier must detect
 exactly that opponent to switch. So §2 produces both the yardstick AND the
 profile the adaptive bot switches to.
 
-## §2 — KEYSTONE: build a competent/balanced opponent (do this FIRST)
+## §2 — KEYSTONE: build a competent/balanced opponent ✅ DONE (RegPlus, 2026-05-31)
+
+> **Resolved.** Option 1 below (a rule-based Reg+) was built as `RegPlus` and
+> passes the success test decisively — see the top-of-doc result table. The plain
+> `Reg` lost to CaseBotV2 because it (1) under-extracted (0.66 value bets), (2)
+> paid off the overbets, and (3) nitted itself out of the fish table preflop.
+> `RegPlus` fixes all three. The rest of this section is the original reasoning,
+> kept for the record.
+
+
 
 Everything this session "looked invincible" because the eval only contains fish.
 You cannot build or even *measure* a better/robust bot without an opponent that
