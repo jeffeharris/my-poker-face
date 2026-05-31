@@ -12,12 +12,20 @@ interface PositionRow {
   reference_vpip_pct: number;
   loose_plays: number;
 }
+interface ActionFreq {
+  fold: number;
+  call: number;
+  raise: number;
+}
 interface Leak {
-  position: string;
-  hand: string;
-  times_played: number;
+  scenario: string; // rfi | vs_open | vs_3bet
+  position: string; // 6-max label (UTG/HJ/CO/BTN/SB/BB)
+  hand: string; // canonical, or '' for a position aggregate
+  kind: string; // 'limp' | 'too_loose' | 'over_fold' | 'too_passive'
+  your_freq: ActionFreq;
+  chart_freq: ActionFreq;
+  gap: number;
   times_seen: number;
-  vpip_pct: number;
   status: string; // 'confirmed' | 'watching'
 }
 interface LeaksResponse {
@@ -26,6 +34,39 @@ interface LeaksResponse {
   min_for_signal: number;
   by_position: PositionRow[];
   leaks: Leak[];
+  graded: number;
+  eligible_groups: number;
+  skipped: Record<string, number>;
+}
+
+const SCENARIO_PHRASE: Record<string, string> = {
+  rfi: 'opening from',
+  vs_open: 'facing a raise in',
+  vs_3bet: 'facing a 3-bet in',
+};
+
+const pct = (x: number) => Math.round(x * 100);
+
+// Plain-language description of one chart leak — mirrors the backend's
+// _leak_line so the panel and the coach tell the same story.
+function leakText(lk: Leak): string {
+  const where = `${SCENARIO_PHRASE[lk.scenario] ?? lk.scenario} ${lk.position}`;
+  const subject = lk.hand ? `${lk.hand} ${where}` : where;
+  let detail: string;
+  switch (lk.kind) {
+    case 'limp':
+      detail = `you open-limp ${pct(lk.your_freq.call)}% of the time — the solver raises or folds here, never limps`;
+      break;
+    case 'too_loose':
+      detail = `you play it ${pct(lk.your_freq.call + lk.your_freq.raise)}%; the solver folds ${pct(lk.chart_freq.fold)}%`;
+      break;
+    case 'over_fold':
+      detail = `you fold ${pct(lk.your_freq.fold)}%; the solver continues ${pct(lk.chart_freq.call + lk.chart_freq.raise)}%`;
+      break;
+    default: // too_passive
+      detail = `you just call; the solver raises ${pct(lk.chart_freq.raise)}% of the time`;
+  }
+  return `${subject} — ${detail}`;
 }
 
 const POSITION_LABEL: Record<string, string> = {
@@ -161,10 +202,12 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
               ))}
             </div>
 
-            <h3 className="pfl-leaks-head">Hands you play below your range</h3>
+            <h3 className="pfl-leaks-head">Where your play diverges from the solver</h3>
             {data.leaks.length === 0 ? (
               <p className="pfl-clean">
-                Nothing jumps out — you're not habitually playing trash. Nice discipline.
+                {data.eligible_groups > 0
+                  ? "In the spots with enough volume, your play tracks the charts. Keep playing and we'll keep checking."
+                  : 'Not enough repeated spots yet to call anything a leak — play more and patterns will surface.'}
               </p>
             ) : (
               <ul className="pfl-leaks">
@@ -172,14 +215,11 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
                   const confirmed = lk.status === 'confirmed';
                   return (
                     <li
-                      key={`${lk.position}-${lk.hand}`}
+                      key={`${lk.scenario}-${lk.position}-${lk.hand}-${lk.kind}`}
                       className={`pfl-leak${confirmed ? '' : ' pfl-leak--watch'}`}
                     >
-                      <span className="pfl-leak-hand">{lk.hand}</span>
                       <span className="pfl-leak-detail">
-                        from {POSITION_LABEL[lk.position] ?? lk.position} — dealt it{' '}
-                        <strong>{lk.times_seen}×</strong>, played it{' '}
-                        <strong>{lk.times_played}×</strong>
+                        {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
                       </span>
                       <span className={`pfl-leak-badge${confirmed ? '' : ' watch'}`}>
                         {confirmed ? 'leak' : 'watching'}
@@ -195,9 +235,13 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
               graduate (or clear).
             </p>
             <p className="pfl-note">
-              Compared to a standard tight-aggressive opening range. We only flag hands you
-              voluntarily play that sit below your position's range — folding tight isn't
-              counted (it can be the right play facing a raise).
+              Graded {data.graded} of your decisions against the same solver charts the bots
+              play — measured by how often you take each action, not single hands.
+              {data.skipped?.short_multiway
+                ? ` ${data.skipped.short_multiway} short-stack multiway spots were skipped (no clean reference there).`
+                : ''}{' '}
+              This is the GTO baseline; deliberate adjustments against weak players will show
+              up here as deviations.
             </p>
 
             <button

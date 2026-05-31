@@ -222,7 +222,10 @@ def coach_preflop_leaks():
     direction is deliberately not graded (can't tell opens from correct folds to
     a raise). See flask_app/services/coach_leaks for the scope caveats.
     """
+    from ..services.coach_chart_data import load_owner_chart_decisions
+    from ..services.coach_chart_leaks import compute_chart_leaks
     from ..services.coach_leaks import compute_preflop_leaks, load_owner_preflop_decisions
+    from poker.strategy.preflop_reference import reference_strategy
 
     owner_id = _get_current_user_id()
     if not owner_id:
@@ -232,37 +235,51 @@ def coach_preflop_leaks():
     min_for_signal = 50
 
     try:
-        decisions = load_owner_preflop_decisions(extensions.persistence_db_path, owner_id)
-        report = compute_preflop_leaks(decisions)
+        # VPIP-by-position bars: orientation only (context, not a verdict).
+        vpip_report = compute_preflop_leaks(
+            load_owner_preflop_decisions(extensions.persistence_db_path, owner_id)
+        )
+        # Chart-graded leaks: your frequencies vs the bots' solver charts.
+        chart_report = compute_chart_leaks(
+            load_owner_chart_decisions(extensions.persistence_db_path, owner_id),
+            reference_strategy,
+            group_by='position',
+        )
     except Exception as e:
         logger.error(f"preflop-leaks failed for {owner_id}: {e}", exc_info=True)
         return jsonify({'error': 'Could not compute leaks'}), 500
 
     by_position = [
-        {'position': g, **report.by_position_summary[g]}
+        {'position': g, **vpip_report.by_position_summary[g]}
         for g in ('early', 'middle', 'late', 'blind')
-        if g in report.by_position_summary
+        if g in vpip_report.by_position_summary
     ]
     leaks = [
         {
-            'position': lk.position_group,
-            'hand': lk.canon,
-            'times_played': lk.severity,
+            'scenario': lk.scenario,
+            'position': lk.position,
+            'hand': lk.hand,  # '' for a position aggregate
+            'kind': lk.kind,  # 'limp' | 'too_loose' | 'over_fold' | 'too_passive'
+            'your_freq': lk.your_freq,  # {fold, call, raise}
+            'chart_freq': lk.chart_freq,
+            'gap': lk.gap,
             'times_seen': lk.n,
-            'vpip_pct': lk.vpip_pct,
             'status': lk.status,  # 'confirmed' | 'watching'
         }
-        for lk in report.leaks
-        if lk.leak_type == 'too_loose'
+        for lk in chart_report.leaks
     ][:15]
 
     return jsonify(
         {
-            'total_decisions': report.total_decisions,
-            'enough_data': report.total_decisions >= min_for_signal,
+            'total_decisions': vpip_report.total_decisions,
+            'enough_data': vpip_report.total_decisions >= min_for_signal,
             'min_for_signal': min_for_signal,
             'by_position': by_position,
             'leaks': leaks,
+            # Chart-grading coverage — disclosed, never silently dropped.
+            'graded': chart_report.graded,
+            'eligible_groups': chart_report.eligible_groups,
+            'skipped': chart_report.skipped,
         }
     )
 
@@ -278,22 +295,23 @@ def coach_preflop_leaks_feedback():
     computed data — it can't invent leaks. User-initiated (one LLM call/click).
     """
     from ..services.coach_assistant import CoachAssistant
-    from ..services.coach_leaks import (
-        compute_preflop_leaks,
-        format_leaks_for_prompt,
-        load_owner_preflop_decisions,
-    )
+    from ..services.coach_chart_data import load_owner_chart_decisions
+    from ..services.coach_chart_leaks import compute_chart_leaks, format_chart_leaks_for_prompt
+    from poker.strategy.preflop_reference import reference_strategy
 
     owner_id = _get_current_user_id()
     if not owner_id:
         return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 
     try:
-        decisions = load_owner_preflop_decisions(extensions.persistence_db_path, owner_id)
-        report = compute_preflop_leaks(decisions)
-        if report.total_decisions == 0:
+        report = compute_chart_leaks(
+            load_owner_chart_decisions(extensions.persistence_db_path, owner_id),
+            reference_strategy,
+            group_by='position',
+        )
+        if report.graded == 0:
             return jsonify({'feedback': "Play some hands first — there's nothing to review yet."})
-        profile_text = format_leaks_for_prompt(report)
+        profile_text = format_chart_leaks_for_prompt(report)
         coach = CoachAssistant(game_id=f'preflop-leaks-{owner_id}', owner_id=owner_id, mode='review')
         feedback = coach.review_preflop_leaks(profile_text)
     except TimeoutError:
