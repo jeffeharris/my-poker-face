@@ -865,37 +865,70 @@ def compute_coaching_data(
             # proactive coach can give a Socratic reminder in the moment. Only
             # preflop; the leak set is loaded once per session and cached.
             if result.get('phase') == 'PRE_FLOP':
-                _annotate_known_preflop_leak(result, game_data, range_analysis, position_key)
+                _annotate_known_preflop_leak(
+                    result, game_data, game_state, player_idx, range_analysis
+                )
         except Exception as e:
             logger.warning(f"Player range analysis failed: {e}")
 
     return result
 
 
-def _annotate_known_preflop_leak(result, game_data, range_analysis, position_key) -> None:
-    """Set result['known_preflop_leak'] when the hand+position matches a recurring
-    leak in the player's own history. Best-effort; never raises."""
+def _annotate_known_preflop_leak(result, game_data, game_state, player_idx, range_analysis) -> None:
+    """Set result['known_preflop_leak'] when the CURRENT preflop spot matches one
+    of the player's recurring chart leaks (graded vs the bots' solver charts).
+
+    Two tiers: prefer a specific (scenario, position, hand) match, fall back to
+    the (scenario, position) tendency (e.g. open-limping from the SB). Live
+    nudges are confirmed-only and throttled to once per matched key per session,
+    so the coach reminds without nagging. Best-effort; never raises.
+    """
     try:
         from flask_app import extensions
 
-        from .coach_leaks import get_owner_leak_set, position_to_group
+        from poker.strategy.preflop_classifier import build_preflop_node
+
+        from .coach_chart_data import get_owner_chart_leak_set
 
         owner_id = game_data.get('owner_id')
         canon = (range_analysis or {}).get('canonical_hand')
-        group = position_to_group(position_key)
-        if not (owner_id and canon and group):
+        if not (owner_id and canon):
             return
-        if '_preflop_leak_set' not in game_data:
-            game_data['_preflop_leak_set'] = get_owner_leak_set(
+
+        node = build_preflop_node(game_state, player_idx, canon)
+        scenario, position = node.scenario, node.position
+
+        if '_chart_leak_set' not in game_data:
+            game_data['_chart_leak_set'] = get_owner_chart_leak_set(
                 extensions.persistence_db_path, owner_id
             )
-        leak_set = game_data['_preflop_leak_set']
-        if (group, canon) in leak_set:
-            result['known_preflop_leak'] = {
-                'canon': canon,
-                'position_group': group,
-                'status': leak_set[(group, canon)],  # 'confirmed' | 'watching'
-            }
+        leak_set = game_data['_chart_leak_set']
+
+        # Specific-hand match wins over the spot-tendency match.
+        info = leak_set['by_hand'].get((scenario, position, canon))
+        granularity, hand = ('hand', canon) if info else ('spot', '')
+        if info is None:
+            info = leak_set['by_spot'].get((scenario, position))
+        if info is None:
+            return
+
+        # Throttle: nudge each matched key at most once per session.
+        nudged = game_data.setdefault('_chart_leak_nudged', set())
+        key = (granularity, scenario, position, hand)
+        if key in nudged:
+            return
+        nudged.add(key)
+
+        result['known_preflop_leak'] = {
+            'scenario': scenario,
+            'position': position,
+            'hand': hand,
+            'kind': info['kind'],
+            'status': info['status'],  # confirmed (live is confirmed-only)
+            'your_freq': info['your_freq'],
+            'chart_freq': info['chart_freq'],
+            'granularity': granularity,
+        }
     except Exception as e:
         logger.debug(f"known-leak annotation failed: {e}")
 

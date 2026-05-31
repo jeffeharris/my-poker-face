@@ -5,7 +5,9 @@ Covers the two provenance paths: exact stored node_key (capture-forward) and
 cost-to-call backfill, plus the not-gradeable exclusions.
 """
 
+from flask_app.services import coach_chart_data
 from flask_app.services.coach_chart_data import (
+    get_owner_chart_leak_set,
     infer_scenario,
     position_label,
     reconstruct_context,
@@ -104,3 +106,48 @@ class TestReconstructContext:
     def test_missing_hand_excluded(self):
         row = {'player_position': 'button', 'cost_to_call': 100, 'action_taken': 'raise'}
         assert reconstruct_context(row, bb=100) is None
+
+
+class TestLiveLeakSet:
+    """get_owner_chart_leak_set builds the (confirmed-only) live-recall lookup.
+
+    Uses the real solver charts (available in-container) with synthetic
+    decisions, monkeypatching only the DB loader.
+    """
+
+    def _patch(self, monkeypatch, decisions):
+        monkeypatch.setattr(
+            coach_chart_data, 'load_owner_chart_decisions', lambda *a, **k: decisions
+        )
+
+    def test_confirmed_limp_lands_in_by_spot(self, monkeypatch):
+        # 8 open-limps from the SB (chart raises-or-folds) → confirmed limp leak.
+        decisions = [
+            {
+                'hand': 'KQs', 'position': 'SB', 'scenario': 'rfi', 'opener': None,
+                'effective_stack_bb': 50, 'num_players': 6, 'action': 'call',
+            }
+            for _ in range(8)
+        ]
+        self._patch(monkeypatch, decisions)
+        leak_set = get_owner_chart_leak_set('db', 'owner')
+        assert ('rfi', 'SB') in leak_set['by_spot']
+        assert leak_set['by_spot'][('rfi', 'SB')]['kind'] == 'limp'
+        assert leak_set['by_spot'][('rfi', 'SB')]['status'] == 'confirmed'
+
+    def test_watching_excluded_when_confirmed_only(self, monkeypatch):
+        # 5 plays → eligible but watching tier (< CONFIRM_MIN_SEEN=6) → excluded
+        # from the live (confirmed-only) set.
+        decisions = [
+            {
+                'hand': 'KQs', 'position': 'SB', 'scenario': 'rfi', 'opener': None,
+                'effective_stack_bb': 50, 'num_players': 6, 'action': 'call',
+            }
+            for _ in range(5)
+        ]
+        self._patch(monkeypatch, decisions)
+        leak_set = get_owner_chart_leak_set('db', 'owner', confirmed_only=True)
+        assert leak_set['by_spot'] == {}
+        # ...but present when watching is allowed.
+        loose = get_owner_chart_leak_set('db', 'owner', confirmed_only=False)
+        assert ('rfi', 'SB') in loose['by_spot']

@@ -171,3 +171,45 @@ def load_owner_chart_decisions(db_path: str, owner_id: str) -> list[dict]:
         if ctx is not None:
             out.append(ctx)
     return out
+
+
+def get_owner_chart_leak_set(db_path: str, owner_id: str, *, confirmed_only: bool = True) -> dict:
+    """Build the live-recall lookup of an owner's chart leaks.
+
+    Returns ``{'by_spot': {(scenario, position): info}, 'by_hand':
+    {(scenario, position, hand): info}}`` where info is
+    ``{kind, status, your_freq, chart_freq, gap}``. The two tiers let the
+    in-game coach prefer a specific-hand nudge when one exists and fall back to
+    the spot-tendency nudge otherwise.
+
+    ``confirmed_only`` (default) keeps live nudges to leaks we're sure of;
+    watching-tier items stay in the review surface.
+    """
+    from poker.strategy.preflop_reference import reference_strategy
+
+    from .coach_chart_leaks import compute_chart_leaks
+
+    decisions = load_owner_chart_decisions(db_path, owner_id)
+
+    def info(lk):
+        return {
+            'kind': lk.kind,
+            'status': lk.status,
+            'your_freq': lk.your_freq,
+            'chart_freq': lk.chart_freq,
+            'gap': lk.gap,
+        }
+
+    def keep(lk):
+        return (not confirmed_only) or lk.status == 'confirmed'
+
+    spot = compute_chart_leaks(decisions, reference_strategy, group_by='position')
+    hand = compute_chart_leaks(decisions, reference_strategy, group_by='hand')
+    return {
+        'by_spot': {
+            (lk.scenario, lk.position): info(lk) for lk in spot.leaks if keep(lk)
+        },
+        'by_hand': {
+            (lk.scenario, lk.position, lk.hand): info(lk) for lk in hand.leaks if keep(lk)
+        },
+    }

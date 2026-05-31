@@ -73,8 +73,8 @@ PROACTIVE_TIP_PROMPT = """\
 Given these stats, give the player a brief 1-2 sentence nudge that helps them THINK — \
 point out the single most important factor (their position, the price they're getting, an opponent's tendency, their hand's relative strength) or pose a short guiding question. \
 Do NOT tell them which action to take and do NOT name fold/check/call/raise — the whole point is that THEY decide. Set "action" to null. \
-If a KNOWN LEAK (confirmed) is shown, this is the priority: gently remind them this is a spot they tend to overplay (name the hand + position) and ask whether it's really worth it here — do not lecture, just the nudge. \
-If a WATCHING item is shown instead, give an even softer heads-up — frame it as something you've noticed a couple of times, not a settled habit ("I've seen you play this here once or twice — worth a thought?"). \
+If a KNOWN LEAK (confirmed) is shown, this is the priority: gently remind them this is a spot where they tend to make this specific mistake (name the spot, and the hand if one is shown), and nudge them toward the solver line — raise-or-fold instead of limping, continuing instead of over-folding, or raising instead of just calling — without naming the action outright. Do not lecture, just the nudge. \
+If a WATCHING item is shown instead, give an even softer heads-up — frame it as something you've noticed a couple of times, not a settled habit ("I've seen this from you here once or twice — worth a thought?"). \
 Otherwise, if a SKILL FOCUS is listed, aim the nudge at that concept using the current hand. \
 No preamble, no greeting.\
 """
@@ -410,21 +410,28 @@ def _format_stats_for_prompt(data: Dict) -> str:
     if rec:
         lines.append(f"Recommended action: {rec}")
 
-    # Live recall of one of THIS player's recurring preflop leaks (from their
-    # own history) — the proactive prompt turns this into a Socratic reminder.
+    # Live recall of one of THIS player's recurring preflop leaks, graded vs the
+    # solver charts — the proactive prompt turns this into a Socratic reminder.
     leak = data.get('known_preflop_leak')
     if leak:
-        if leak.get('status') == 'confirmed':
-            lines.append(
-                f"KNOWN LEAK (confirmed): {leak.get('canon')} from {leak.get('position_group')} "
-                "position is a hand this player reliably OVERPLAYS (seen many times in their history)."
-            )
-        else:
-            lines.append(
-                f"WATCHING (small sample): {leak.get('canon')} from {leak.get('position_group')} "
-                "position is a hand this player MAY be overplaying — only seen a few times, so this "
-                "is a gentle heads-up, not a confirmed leak."
-            )
+        spot = {
+            'rfi': 'opening from',
+            'vs_open': 'facing a raise in',
+            'vs_3bet': 'facing a 3-bet in',
+        }.get(leak.get('scenario'), leak.get('scenario', ''))
+        subject = f"{leak['hand']} {spot} {leak['position']}" if leak.get('hand') else f"{spot} {leak['position']}"
+        kind_desc = {
+            'limp': "they tend to OPEN-LIMP here — the solver raises or folds, never limps",
+            'too_loose': "they tend to PLAY hands the solver folds here",
+            'over_fold': "they tend to OVER-FOLD hands the solver continues with here",
+            'too_passive': "they tend to just CALL where the solver raises",
+        }.get(leak.get('kind'), "their play diverges from the solver here")
+        tag = (
+            'KNOWN LEAK (confirmed)'
+            if leak.get('status') == 'confirmed'
+            else 'WATCHING (small sample)'
+        )
+        lines.append(f"{tag}: {subject} — {kind_desc}.")
 
     opponents = data.get('opponent_stats', [])
     if opponents:
