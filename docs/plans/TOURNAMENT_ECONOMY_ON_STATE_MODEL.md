@@ -2,7 +2,7 @@
 purpose: Pin the multi-table tournament economy (P2) to the cash-mode state model — shared ledger, owner taxonomy, custody parcels, and one economy-signal "chairman" — so P2 builds on the unified substrate instead of a parallel system
 type: design
 created: 2026-05-30
-last_updated: 2026-05-30
+last_updated: 2026-05-31
 status: DRAFT — alignment note; supersedes the standalone framing in MULTI_TABLE_TOURNAMENT_P2_ECONOMY.md where they disagree
 ---
 
@@ -64,6 +64,53 @@ exactly as is and orthogonal; real-chip conservation is just I1 over the unified
 ledger, no separate `verify_tournament_conservation` machinery required (it becomes
 a query, not a subsystem).
 
+## The escrow + payout-split contract (the runner never touches real chips)
+
+Decided 2026-05-31. **The tournament runner is a pure function over funny money; the
+circuit sandbox is the sole real-chip authority.** Three stages, three owners:
+
+1. **Escrow-in (sandbox, at registration).** Each entrant's buy-in is moved INTO the
+   `tournament:<id>` escrow:
+   - human / AI buy-in → `player:<id>` / `ai:<id>` → `tournament:<id>` (a `record_transfer`)
+   - bank overlay / bank-seeded AI / freeroll seed → bank-pool **DRAW** → `tournament:<id>`
+
+   The escrow now holds the whole purse. **The overlay-vs-buy-in distinction is made
+   HERE, by reason/category at the source** — overlay is a bank-pool draw (counts in
+   drift), a buy-in is a drift-invisible transfer. (This closes codex's hole: the
+   `tournament:<id>` counterparty alone does NOT distinguish them; the *reason* does.)
+
+2. **Run (runner, funny money only).** The tournament plays its isolated
+   `field_size × starting_stack` universe and emits a **payout split** — a list of
+   `(recipient, percent_of_purse)` tuples summing to 1.0. The runner touches **zero**
+   real chips and has no ledger knowledge; it only maps placements → percentages (the
+   payout curve). Curve *shape* lives with the runner; purse *size* with the sandbox.
+
+3. **Distribute (sandbox, at completion).** The sandbox drains the escrow per the
+   tuples: for each, `tournament:<id> → recipient` for `round(pct × purse)`. After
+   distribution the escrow is 0.
+
+**The escrow-balance invariant (the whole real-chip contract):**
+
+```
+tournament:<id>  ==  Σ buy_ins + Σ overlays      (after escrow-in)
+                 ==  Σ payouts + rake  →  0       (after distribute)
+```
+
+Edge rules so "the sandbox handles it" is unambiguous:
+
+- **Rake** — simplest as a tuple in the split (`(rake_sink, pct)`) so the percents sum
+  to 1.0 and the escrow fully drains; or pre-skim at escrow-in. Tuple-in-split preferred.
+- **Rounding residual → top finisher** (no leakage; `pct × purse` won't divide evenly).
+- **Idempotent distribution (I6)** — mark the escrow drained (a terminal flag) so a
+  retry/restart can't double-pay; the generalised `ended_at`-style guard.
+
+**Cross-scope audit (codex's 1a).** Career bankroll is *global* but the escrow + audit
+are *sandbox-scoped*, so the player side of escrow-in/payout crosses scopes. Make it an
+explicit **cross-scope transfer with BOTH sides audited** (or treat the career bankroll
+as a ledger owner whose parcels attribute to the sandbox event) — otherwise the escrow
+looks "funded from outside the sandbox" to the sandbox read-model. The escrow account is
+the sandbox-scoped bridge; real chips cross only at escrow-in and distribute.
+
 ## The economy-signal chairman (the one genuinely new shared piece)
 
 Both thermostats — the tournament overlay/rake dial **and** the cash-table rake
@@ -98,6 +145,11 @@ Properties (inherited from the state model's discipline):
 - **Setpoint from sim, not guess.** EXP_006 validated a proportional-overlay
   controller parking reserves at ~0.08, conservation-clean. The chairman encodes
   that control law; constants stay sim-tuned (`reference_cash_sim_ab_paired`).
+- **One signal, coordinated actuators (codex caveat).** The chairman is a *signal*,
+  not two blind controllers. Both levers (tournament overlay/rake and cash-rake) must
+  read **one consistent `EconomyState` snapshot per decision** and not each
+  independently over-correct the same reserves — otherwise they fight and oscillate.
+  Compute the snapshot once under the sandbox lock; both levers consume that value.
 
 "Take from the bank vs take from the rich," resolved cleanly: **overlay** is a
 `bank → tournament:<id>` draw (take from the bank); **rake / wealth-tax / tourist

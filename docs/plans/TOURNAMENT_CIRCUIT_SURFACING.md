@@ -189,18 +189,38 @@ This is *stronger* than cash presence-gating. In cash, the world pauses ~60s aft
 leave and **resumes when you return**. In a tournament, the resume condition is the
 tournament *ending*, not your presence:
 
-- While you're in it, the sandbox does not tick: **cash tables freeze** (state model
-  D4 — seat held, chips `AT_TABLE`, durable), and the **other tournament tables**
-  advance only when you play a hand at yours (the `TournamentSession` player-gated
-  path), so the field stays in step with you instead of sprinting on ticks.
-- **Close the tab, come back days later** → the world has not moved; you resume the
+- While you're in it, **gameplay** does not advance: **cash tables freeze** (state model
+  D4 — seat held, chips `AT_TABLE`, durable), and the **other tournament tables** advance
+  only when you play a hand at yours (the `TournamentSession` player-gated path), so the
+  field stays in step with you instead of sprinting on ticks.
+- **Close the tab, come back days later** → gameplay has not moved; you resume the
   same frozen tournament. (This is exactly why P1 persistence matters — the suspended
-  tournament *and* the frozen sandbox survive restart.)
-- **Only quit / bust / win** resumes the sandbox tick (payout applied first).
+  tournament *and* the frozen gameplay survive restart.)
+- **Only quit / bust / win** resumes gameplay (payout applied first).
 
-Mechanism: a sandbox with an `active`-entered tournament is **skipped by the world
-ticker** until that tournament resolves — that gate, plus the clock-driver switch
-(world tick ⇄ the human's hands), is the whole integration. No new machinery.
+**Split the tick — pause gameplay, NOT maintenance (codex fix).** "Skip the whole
+sandbox by the ticker" was too blunt: GC/reaper, holdings & prestige snapshots,
+stuck-session cleanup, casino teardown, reconciliation, and queued events all
+piggyback on the world tick, and freezing them for days lets the world *rot*. So the
+ticker has two halves:
+
+- **Simulation tick** (hands advance, AI economy moves) — **paused** while you're in a
+  tournament. This is the cinematic "nothing happens while I'm in the Main Event."
+- **Maintenance tick** (GC, reconcile, snapshots, monitors) — **keeps running.** It
+  must not settle or zero anything (I2 still holds), but it keeps the world healthy.
+
+**Mandatory deadlock recovery.** "Resume only on termination" creates a permanent-stuck
+class — a wedged `active`-entered row, a payout stuck `in_progress`, a missing/corrupt
+session, or a player who never returns would freeze gameplay forever. Required: an
+explicit recovery path on the `active_entered_tournament_id` — a safe quit (forfeit /
+settle to the player at the current escrow split), deterministic resume/rebuild from the
+serialized session, and an admin repair. The maintenance tick owns a watchdog that
+surfaces (never silently settles) a tournament wedged past a threshold.
+
+Mechanism: the simulation tick checks `active_entered_tournament_id` and skips gameplay
+for that sandbox; the maintenance tick runs unconditionally; plus the clock-driver
+switch (world tick ⇄ the human's hands). Deliberately a *stronger* product rule than
+D4 (which freezes only your table) — so it carries the recovery guarantees above.
 
 ## 5. Worked player journey
 
@@ -225,19 +245,24 @@ ticker** until that tournament resolves — that gate, plus the clock-driver swi
 | Discovery | cash lobby `/api/cash/lobby` + `Lobby.tsx` | add a Main Event card to the payload + UI |
 | Drama | world ticker (`ticker_service.py`, `lobby:{owner_id}`, `cash_mode/activity.py`) | add tournament lifecycle event types |
 | Buy-in/payout | unified ledger + `tournament:<id>` escrow (economy note) | the confirm-modal flow + affordability gate |
-| Advance the field | world ticker (out) / `TournamentSession` player-gated (in) | switch driver on enter/exit; pause the sandbox's ticks while in |
-| Freeze on entry | cash state model freeze (D4) — cash tables freeze when the sandbox pauses | route "enter tournament" through the pause-ticks path |
+| Advance the field | world ticker (out) / `TournamentSession` player-gated (in) | switch driver on enter/exit; pause the **simulation** tick (keep maintenance) while in |
+| Freeze on entry | cash state model freeze (D4) — cash tables freeze when sim is paused | route "enter tournament" through the pause-sim path |
+| Deadlock recovery | (new) | safe-quit / resume-rebuild / admin repair + a maintenance-tick watchdog on a wedged `active_entered_tournament_id` |
 | Live event UI | `/tournament` lobby/standings + shipped toasts | reached from the lobby card instead of the standalone menu |
 | Identity/social carry | career bankroll (global) + relationship context | read-only carry-in for v1 |
 
 ## 7. Open questions / sign-offs
 
 - **RESOLVED (2026-05-31) — time model.** The tournament rides the world tick when
-  the human is out (Q2); entering pauses the sandbox's ticks and it becomes
+  the human is out (Q2); entering pauses the **simulation** tick and it becomes
   player-gated (Q5). No separate clock; no presence-minutes / cash-hands distinction.
 - **RESOLVED (2026-05-31) — compute cost.** Advancing a background tournament is
   negligible next to running the live world with ~14 tables active; it rides the
   existing world-tick budget, no special batching needed.
+- **REQUIRED (codex, 2026-05-31) — split sim/maintenance tick + recovery (Q5).**
+  Pausing gameplay must NOT pause GC/reconcile/snapshots; and a wedged entered
+  tournament needs a real recovery path (safe-quit/resume-rebuild/admin) so the world
+  can't deadlock. Not optional — it's the cost of the stronger-than-D4 freeze rule.
 - **Event slate (minor)** — one event-tier at a time vs a cheap "daily" + an
   occasional bigger "Main Event". Recommend start with one, tier later.
 - **Social carry-out (prestige/relationship deltas from results)** — P4; out of scope
