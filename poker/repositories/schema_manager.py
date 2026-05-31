@@ -258,7 +258,7 @@ _test_schema_template_path = None
 #       EXISTS, non-destructive, idempotent. See
 #       `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6) and
 #       `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`.
-SCHEMA_VERSION = 128
+SCHEMA_VERSION = 129
 
 
 class SchemaManager:
@@ -2076,6 +2076,10 @@ class SchemaManager:
             128: (
                 self._migrate_v128_create_entity_presence,
                 "Create entity_presence — single authoritative presence row per (entity_id, sandbox_id) for the Presence state machine (Cut 3); compound PK + partial unique seat index make seated_and_idle / double_seat unrepresentable. Additive and dormant.",
+            ),
+            129: (
+                self._migrate_v129_create_cash_idle_metadata,
+                "Create cash_idle_metadata — satellite for the idle-pool routing payload (reason/target_stake/left_at) that entity_presence's pure machine deliberately doesn't carry. At the Presence authority flip, entity_presence owns the IDLE state and this table carries the movement metadata. Additive; cash_idle_pool stays a written cache (view-conversion deferred).",
             ),
         }
 
@@ -6800,3 +6804,38 @@ class SchemaManager:
                 ON entity_presence(sandbox_id, state)
         """)
         logger.info("Migration v128 complete: entity_presence table created")
+
+    def _migrate_v129_create_cash_idle_metadata(self, conn: sqlite3.Connection) -> None:
+        """Migration v129: create `cash_idle_metadata` (Presence cutover Phase 3).
+
+        The Presence state machine (`entity_presence`) records WHERE an actor is
+        as a single state value. For the IDLE state, the cash-mode mover also
+        needs two pieces of routing payload that are meaningless for every other
+        state: `reason` (why the AI left — take_break / forced_leave /
+        stake_up_queued / bored_move) and `target_stake` (which stake it wants to
+        re-sit at). Those drive the idle-candidate filter (`cash_mode/movement.py`).
+
+        Putting them on `entity_presence` would pollute the pure machine with
+        nullable, IDLE-only columns (the dataclass `__post_init__` already forbids
+        non-seated rows from carrying seat fields — the same philosophy rejects
+        idle-only payload on non-IDLE states). So they live here, in a satellite
+        keyed the same way the old `cash_idle_pool` was: `(personality_id,
+        sandbox_id)`. At the authority flip, `entity_presence` owns the IDLE
+        *state* and this table carries the *metadata*; `cash_idle_pool` keeps
+        being written as a derived cache (its hard view-conversion is a separate,
+        later step — see `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md` D2).
+
+        Additive and dormant: nothing writes this until the flip wiring lands
+        behind `economy_flags.PRESENCE_AUTHORITY_ENABLED` (default off). Idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_idle_metadata (
+                personality_id TEXT NOT NULL,
+                sandbox_id     TEXT NOT NULL,
+                reason         TEXT,
+                target_stake   TEXT,
+                left_at        TEXT,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        logger.info("Migration v129 complete: cash_idle_metadata table created")
