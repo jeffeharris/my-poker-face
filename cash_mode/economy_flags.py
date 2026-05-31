@@ -175,6 +175,20 @@ DOSSIER_SCOUTING_GATE_ENABLED: bool = True
 # `entity_presence` authoritative.
 PRESENCE_SHADOW_WRITE_ENABLED: bool = _env_flag("PRESENCE_SHADOW_WRITE_ENABLED", False)
 
+# Phase 3 — the AUTHORITY flip. When True, `entity_presence` becomes the
+# authoritative record of actor location: the seat-write chokepoint
+# (`CashTableRepository.save_table`) drives presence transitions inside its own
+# transaction (presence + seats commit together), and the old stores
+# (`cash_tables` seat map / `cash_idle_pool` / `ai_*_state`) become projections.
+# Default **False** — every authoritative presence path is a no-op until the
+# operator opts in. This is SEPARATE from the shadow flag above: with authority
+# OFF and shadow ON, presence is mirrored best-effort (validation); with
+# authority ON, presence is the source of truth. Flipping this to True (in
+# `cash_mode/economy_flags.py` or via env) is the single irreversible cut —
+# everything else in the cutover is reversible. See
+# `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md`.
+PRESENCE_AUTHORITY_ENABLED: bool = _env_flag("PRESENCE_AUTHORITY_ENABLED", False)
+
 
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
