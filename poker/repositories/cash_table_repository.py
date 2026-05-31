@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from cash_mode.tables import (
     CashTableState,
@@ -125,6 +125,7 @@ class CashTableRepository(BaseRepository):
         *,
         sandbox_id: Optional[str] = None,
         now: Optional[datetime] = None,
+        idle_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Upsert a cash table row.
 
@@ -346,6 +347,25 @@ class CashTableRepository(BaseRepository):
                             """,
                             tuple(seated_pids),
                         )
+
+            # Presence cutover (Phase 3): drive `entity_presence` from this seat
+            # write, INSIDE this same transaction so presence + the cash_tables
+            # seat map commit together (no cross-connection desync). No-op unless
+            # a cutover flag is set — best-effort in shadow mode; authoritative
+            # (a double-seat IntegrityError propagates and rolls back this whole
+            # save_table, rejecting the bad write) when authority is on. This is
+            # the single chokepoint that replaces the per-call-site shadow
+            # reconciles. See cash_mode/presence_transitions.py.
+            from cash_mode.presence_transitions import emit_presence_transitions_for_save
+
+            emit_presence_transitions_for_save(
+                conn,
+                sandbox_id,
+                existing["seats_json"] if existing else None,
+                state,
+                now.isoformat(),
+                idle_metadata=idle_metadata,
+            )
 
     def load_table(
         self,
