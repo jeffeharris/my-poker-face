@@ -143,6 +143,24 @@ LIVE_FILL_HUMAN_HEADROOM: int = 1
 DOSSIER_SCOUTING_GATE_ENABLED: bool = True
 
 
+# --- Presence machine cutover (dual-write shadow phase) -------------------
+
+# Kill switch for the Presence state-machine SHADOW writes. When True, the
+# cash-mode seat / idle / hustle / vice writers ALSO record the corresponding
+# transition into `entity_presence` (the dormant Cut-3 table) *alongside* the
+# existing authoritative stores — a dual-write used to prove the machine tracks
+# reality on live traffic before authority is flipped to it (design Phase 3,
+# CASH_MODE_PRESENCE_MIGRATION.md §Sequencing step 1). Default **False**: every
+# shadow write is a guarded no-op, so the cutover code is inert until an
+# operator opts in. The shadow path is additionally wrapped in try/except
+# (`cash_mode/presence_shadow.py`) so even when enabled it can never break the
+# real seat write — a shadow failure is logged and swallowed. The authoritative
+# stores (`cash_tables`, `cash_idle_pool`, `ai_*_state`) remain the source of
+# truth throughout this phase; only the eventual flip (a separate change) makes
+# `entity_presence` authoritative.
+PRESENCE_SHADOW_WRITE_ENABLED: bool = False
+
+
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
 

@@ -82,6 +82,7 @@ def create_repos(db_path: str) -> dict:
         'user_avatar_repo': UserAvatarRepository(db_path),
         'holdings_snapshots_repo': HoldingsSnapshotsRepository(db_path),
         'prestige_snapshots_repo': PrestigeSnapshotsRepository(db_path),
+        'entity_presence_repo': EntityPresenceRepository(db_path),
         'db_path': db_path,
     }
 
