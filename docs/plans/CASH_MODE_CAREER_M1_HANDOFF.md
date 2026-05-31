@@ -1,163 +1,135 @@
 ---
-purpose: Continuation/handoff for the Career Progression M1 work on branch circuit-progression — what's built, how it works, what's verified, and what to do next
+purpose: Continuation/handoff for the Career "Circuit" Scene-0 work on branch circuit-progression — what's built, how it works, what's verified, and what to do next
 type: guide
 created: 2026-05-31
 last_updated: 2026-05-31
 ---
 
-# Career Progression M1 — handoff (branch `circuit-progression`)
+# Career "The Circuit" — handoff (branch `circuit-progression`)
 
-Pick-up doc for a fresh context. Everything here is **uncommitted** on
-`circuit-progression`. Design canon lives in
-`docs/plans/CASH_MODE_CAREER_PROGRESSION.md` (the "The Circuit" section);
+Pick-up doc for a fresh context. Design canon lives in
+`docs/plans/CASH_MODE_CAREER_PROGRESSION.md` (the "The Circuit" section); the
+real-hands content library in `docs/plans/CASH_MODE_FAMOUS_HANDS_LIBRARY.md`;
 narrative log in `docs/captains-log/circuit-progression/`.
 
 ## TL;DR — where we are
 
-We built **Act-1 "The Circuit"**: a new player wanders into the **Lucky Stack**
-diner, gets a comped stake + an alliterative tourist **fish-name**, sits at a
+**Act-1 "The Circuit" is built, working, and committed** (`1144fc2c` on
+`circuit-progression`, **not pushed**). A new player wanders into the **Lucky
+Stack** diner, gets a comped stake + an alliterative **fish-name**, sits at a
 pinned **Scene-0** table with mentor **Sal Monroe** + the fish **Loose Larry**,
-plays a **rigged 10-hand tutorial** (deck pre-stacked so the lessons always
-appear), and on completion **Sal vouches them into a home-court cardroom** (the
-keyring opens one door). Sal narrates via a **floating portrait**.
+plays a **rigged ~10-hand tutorial** (deck pre-stacked so the lessons always
+appear), and on completion **Sal vouches them into a home-court cardroom**.
 
-All unit/integration tests green. **The one thing NOT yet confirmed end-to-end
-is the rigged deck actually dealing the scripted cards during real live play**
-(see Known Risks #1) — every manual test so far hit a *stale pre-rig game* and
-got the un-rigged random cards. That's the first thing to verify.
+The two big gating risks from the first cut are **both resolved**: the live rig
+now deals the scripted cards reliably (the seat-rotation bug is fixed), and the
+scene **survives cold-load** (restart / eviction / >2h idle resumes mid-scene
+instead of restarting at hand 0). The rig machinery is now a **reusable
+table-scene system**, not Scene-0-specific.
 
 ## What's built (with file pointers)
 
 ### The keyring (M1 core)
 - **schema v124 `career_progress`** (`poker/repositories/schema_manager.py`,
-  migration `_migrate_v124_create_career_progress`) — per-(sandbox, owner) JSON
-  blob. Repo: `poker/repositories/career_progress_repository.py`
-  (`CareerProgress` dataclass + `CareerProgressRepository`). Wired in
-  `poker/repositories/__init__.py` + `flask_app/extensions.py` (`career_progress_repo`).
-  Fields: `career_active` (master switch, **default False = full lobby**, so it
-  can never blank a legacy player), `revealed_table_ids`, `scene0_*`,
-  `tutorial_complete`, `home_court_table_id`, `vouched_by`, `intake_complete`,
-  `player_name`, `fish_name`, `chat_intensity`, `chat_style`.
-- **Lobby filter** — `flask_app/routes/cash_routes.py` `get_lobby`: detects
-  new-vs-legacy (`career_progression.classify_new_player`), seeds Scene 0 for a
-  brand-new sandbox, and filters tables to `career_progression.visible_tables`
-  (scripted + revealed only when `career_active`).
+  `_migrate_v124_create_career_progress`) — per-(sandbox, owner) JSON blob. Repo:
+  `poker/repositories/career_progress_repository.py`. Wired in
+  `poker/repositories/__init__.py` + `flask_app/extensions.py`
+  (`career_progress_repo`). `career_active` defaults **False = full lobby** (can
+  never blank a legacy player). Now also holds **`scene_progress`** (generic
+  `{scene_id: {idx, passed, complete}}`) for cold-load durability.
+- **Lobby filter** — `flask_app/routes/cash_routes.py` `get_lobby`: new-vs-legacy
+  detection, Scene-0 seed for a brand-new sandbox, table filter to revealed.
 
 ### `cash_mode/career_progression.py` (logic + intake)
-- `ensure_scene0_seeded` — pins the `table_type='scripted'` Scene-0 table (Sal +
-  Larry, conservation-safe bankroll-debit seating).
-- `classify_new_player` / `visible_tables` — new-vs-legacy + the keyring filter.
-- `make_fish_name` — **deterministic alliterative** name: a per-letter adjective
-  bank (`FISH_NAME_ADJECTIVES`, ~70 words a–z) + the player's own first name
-  ("Jeff" → "Juke-Joint Jeff"). The LLM is NOT used for the name (it kept
-  dropping it → "Lost Little Larry").
-- `generate_intake_persona` — fish-name (rule-based) + a funny one-line **bio**
-  (LLM, fast tier, with a canned fallback). `intake_avatar_prompt` — avatar
-  generation seam (not fired).
-- `fire_first_vouch` — reveals a random `$2` home court, records `EVENT_VOUCH`.
+- `ensure_scene0_seeded`, `classify_new_player`, `visible_tables`,
+  `make_fish_name` (deterministic alliterative — keeps the player's name),
+  `generate_intake_persona` (LLM bio + canned fallback), `fire_first_vouch`.
 - Constants: `SAL_ID="sal_moretti"`, `SAL_NAME="Sal Monroe"`,
   `SCENE0_FISH_ID="loose_larry"`, `SCENE0_TABLE_ID="cash-scene0-001"`.
 
-### `cash_mode/career_scene.py` (Scene 0 played at the table)
-- `SCENE0_SCRIPT` — 10 hands: hand 0 normal, then VALUE / BLUFF-CATCH /
-  DISCIPLINE teaching hands among quiet rigged fillers. Each `Scene0Hand` has
-  pinned `holes` (per role) + `board` + `fish_plan`/`mentor_plan` (per-phase
-  scripted intents) + `sal_setup`/`sal_pass`/`sal_fail` + `pass_when`.
-- `build_hand_deck` — orders a pre-stacked 52-card deck from the live seating.
-- `resolve_scripted_action` — turns a scripted intent (`bluff`/`bet`/`passive`/
-  `limp`/`fold`) into a legal action with bet sizing (`SIZE_FRAC`) capped at
-  `MAX_SCRIPTED_BET_STACK_FRAC=0.5` so the cast never busts.
-- Sal's lines coach **Larry's public behavior + principles, never the hero's
-  hole cards** (he can't see your hand). `SAL_GRADUATION` send-off.
+### `cash_mode/career_scene.py` (the Scene-0 script)
+- `SCENE0_SCRIPT` — hand 0 normal, then **3 teaching hands sourced from real
+  famous hands** (no invented spots): **value** = slow-played set of sevens;
+  **bluff-catch** = Moneymaker vs Farha (`Q♠9♥` top pair vs the fish barrelling
+  `K♠7♥` air — you make the call Farha folded); **discipline** = Chan vs Seidel
+  (`Q♣7♣` top pair vs the fish's flopped nut straight `J♥9♠` — you lay down the
+  hand Seidel couldn't) — among quiet fillers. Larry has fishy `*blub*` chatter
+  (`fish_setup`/`fish_react`); Sal narrates **principle only, never the hero's
+  hole cards**, and pass/fail lines respect showdown visibility. Graduation =
+  `SAL_GRADUATION_SEQUENCE` (the reveal + fish-name shed + vouch).
+- `resolve_scripted_action` turns scripted intents into legal moves, stack-capped
+  so the cast never busts.
 
-### The deck-rigging seam (engine)
-- `poker/poker_state_machine.py` — one-shot `provide_hand_deck(deck)` (mirrors
-  the existing seed override). A provided deck replaces the shuffle for exactly
-  one hand, then clears. Honored in `initialize_hand_transition` (hand 0) and
-  `hand_over_transition` (hands 2+). **Hand 1 is a normal random deal** (sidesteps
-  the only forced `create_deck`); teaching hands are 2+.
+### `cash_mode/table_scenes.py` (the reusable scene system) — NEW
+- `TableScene` descriptor (`scene_id`, `table_id`, `cast` role→persona_id,
+  `script`, `mentor_name`, `on_complete`, `graduation_lines`) + a registry keyed
+  by table_id. **Scene 0 is the first registered consumer.** A new scripted table
+  scene = register a `TableScene`; the rig, cast, narration, cold-load, and
+  completion are all generic.
 
-### The game-handler hooks (`flask_app/handlers/game_handler.py`)
-- Scripted tables are PINNED: skipped in `refresh_unseated_tables`
-  (`cash_mode/lobby.py`) AND the human-table hook `_refresh_lobby_table_for_session`.
-- `_init_scene0` / `_advance_scene0` / `_scene0_scripted_action` /
-  `_graduate_scene0` / `_sal_say` — at the Scene-0 table: init roles + opening
-  line on first AI turn; per-hand-boundary judge (did the hero fold? keyed to
-  `pass_when`) + Sal narration + pre-stack the next hand's deck; graduate (vouch)
-  when the script ends. Scripted actions for Larry/Sal injected in
-  `handle_ai_action` before the bot decision.
+### The deck-rigging seam (engine) — `poker/poker_state_machine.py`
+- **`provide_hand_holes(holes_by_name, board)`** — one-shot scripted holes keyed
+  by **player name**, resolved into a concrete deck at deal time against the
+  **post-button-rotation** seating (`_deck_from_scripted_holes`). This fixed the
+  rig bug: `reset_game_state_for_new_hand` rotates the players tuple each hand, so
+  the old seat-indexed deck dealt the hero's monster to whoever sat in seat 0.
+- The older `provide_hand_deck(deck)` (seat-indexed) is retained for completeness;
+  scenes use the name-keyed seam.
 
-### Intake + characters (frontend)
-- `POST /api/cash/intake {name,intensity,style}` (`cash_routes.py`) → persona;
-  lobby returns `intake_needed` + `fish_name`. `_resolve_player_name` returns the
-  **fish-name during Scene 0**, shed to the chosen name after graduation.
-- `react/.../cash/LuckyStackIntake.tsx` (+ `.css`) — the cold open: waitress
-  portrait + name + **3 plain vibes** (Friendly/Cocky/Ruthless → quick-chat
-  tones + intensity) → reveal (fish-name + bio + Sal nodding) → **"Take the seat"
-  drops straight into the Scene-0 game** (not the lobby). Sets
-  `localStorage.quickchat_intensity`.
-- `react/.../cash/Lobby.tsx` — sticky `showIntake` gate (so the reveal doesn't
-  flash-unmount when the poll flips `intake_needed`); `handleIntakeTakeSeat` sits
-  at the scripted table.
-- `react/.../mobile/SalFloater.tsx` (+ `.css`) — Sal's lines pop as a floating
-  transparent portrait + speech bubble; `FloatingChat` gated to skip Sal.
-- Assets: `react/react/public/waitress.png`, `sal.png` (transparent cutouts via
-  Runware imageInference→imageBackgroundRemoval; regen with `scripts/gen_waitress.py`).
+### The game-handler driver (`flask_app/handlers/game_handler.py`)
+- Scene-generic: `_scene_for_game` / `_init_scene` / `_advance_scene` /
+  `_scene_scripted_action` / `_complete_scene` operate on a resolved `TableScene`.
+  `_init_scene` **restores** persisted position on cold-load (else fresh start);
+  `_advance_scene` judges → narrates → rigs the next hand by name → persists →
+  completes (Scene 0 → `_fire_career_first_vouch`).
+- `generate_ai_commentary` **suppresses the cast's regular post-hand commentary**
+  during a scene (scripted lines are the single voice).
 
-### Tests (all green)
-`tests/test_cash_mode/test_career_progression.py`, `test_career_scene.py`,
-`test_scene0_intable.py`, `tests/test_scripted_deck_seam.py`,
-`tests/test_cash_career_lobby_route.py`. TS + eslint clean. Full `test_cash_mode`
-bucket exit 0 as of the keyring landing.
+### Frontend
+- `LuckyStackIntake.tsx` (cold open), `Lobby.tsx` keyring wiring.
+- `SalFloater.tsx` — Sal's floating portrait; now plays a **queue** (every line
+  surfaces, incl. the 3-line graduation reveal), on the HUD layer with the action
+  bar raised above it. `chatText.tsx` formats inline `*action*` in both bubbles.
+
+### Tests
+`tests/test_scripted_deck_seam.py`, `tests/test_cash_mode/test_career_scene.py`,
+`test_scene0_intable.py` (incl. the **rotation regression** + **cold-load
+restore/persist** tests), `test_career_progression.py`,
+`tests/test_cash_career_lobby_route.py`. Cash bucket green; TS + eslint clean.
 
 ## Status
-- **Branch:** `circuit-progression`. **Nothing committed** — all the above is
-  working-tree changes (see `git status`). Schema is at **v124**.
-- The live dev DB (`guest_jeff`) has been migrated + seeded; reset to a fresh
-  career via `scripts/reset_career.py` (see below).
+- **Branch:** `circuit-progression`. **Committed `1144fc2c`, not pushed.** Schema
+  v124. Live dev DB (`guest_jeff`) migrated + seeded.
 
 ## Known risks / gotchas (READ before continuing)
-1. **Live rig unverified.** The deck-provision works in tests + the data-level
-   hook chain, but a fully fresh *live* run (intake → sit → hands 2+ deal the
-   scripted cards across real hand boundaries) has NOT been observed yet — every
-   manual attempt hit a stale game. **Verify first:** reset, play through, check
-   the VALUE hand deals AK vs K5 etc. If cards are random, trace whether the
-   `provide_hand_deck` flag survives the between-hands auto-save (it's
-   state-machine-internal, lost on cold-load; should survive in-memory continuous
-   play).
-2. **Renaming a persona while a game is live spawns a zombie.** Renaming
-   `sal_moretti` mid-session made a cold-load auto-generate `sal_moretti_v2`
-   ("Sal Moretti", `ai_generated`). Lesson: clear active games BEFORE renaming a
-   persona. (The [[zombie-persona auto-create]] class.)
-3. **Orphan `cash_sessions` resurrects deleted games.** Deleting only the `games`
-   row leaves an `active` `cash_sessions` row → `_find_active_cash_game_id`
-   returns it → 409 "session already active" → frontend routes to the 404'd game
-   ("game no longer existed" loop). Always clear `cash_sessions` +
-   `cash_session_events` + `games` together, then **restart backend** (evict the
-   in-memory game). `scripts/reset_career.py` does the DB part.
-4. **Scripted narration is coupled to the rig.** Sal's pass/fail lines assume the
-   rigged cards dealt. If the rig misfires, the lines lie ("worse king" when you
-   were beaten). Future hardening: narrate off the *actual* cards/outcome.
-5. **Sal narrates pre-hand (anticipatory) + post-hand (judged) only** — no
-   mid-hand/board-synced narration. Lines are written to never reference the
-   hero's hole cards.
+1. **Narrow deal-window race (residual).** Cold-load resumes by persisted scene
+   index, and the in-progress hand keeps its already-dealt rigged cards. The only
+   gap: a cold-load landing in the sub-second between rigging a hand and dealing
+   it would deal *that one hand* random (Sal's line could mismatch) — it
+   self-heals next hand. Not worth the "was this dealt yet?" detection for now.
+2. **The floater is still Sal-specific.** `SalFloater` keys on the sender name
+   `"Sal Monroe"`, so a *future* scene with a different mentor narrates in plain
+   chat until the floater is generalized (small frontend follow-up; the backend
+   scene system is fully reusable).
+3. **Renaming a live persona spawns a zombie.** Clear active games BEFORE renaming
+   `sal_moretti` (the [[zombie-persona auto-create]] class).
+4. **Orphan `cash_sessions` resurrects deleted games.** Always clear
+   `cash_sessions` + `cash_session_events` + `games` together, then restart
+   backend. `scripts/reset_career.py` does the DB part.
 
 ## Next steps (suggested order)
-1. **Verify the live rig end-to-end** (Risk #1) — the gating unknown.
-2. **"Sal stacks Larry" Scene-0 finale** (designed, not built): a final scripted
-   hand where Sal busts Larry ("pay that man his money"), then graduates — closes
-   the session with a bang instead of quiet fillers.
-3. **Post-hand-1 "intro the lobby" beat** (Jeff wanted): after the first hand,
-   surface the world/lobby with Sal + Larry.
-4. **Commit** the M1 work (it's all uncommitted).
-5. **M2** — real relationship-driven `vouch_ready` (respect-gated,
-   likability-driven, one-per-AI) over the graph, layered on the `vouched_by`
-   ledger.
-6. **M3** — training lounge / scripted drills. NOTE the `training/` reconstruction
-   engine was ported then deleted (superseded by `career_scene`); re-port from the
-   `training-room` branch when hand-replay is built.
-7. **Wire avatar generation** (seam: `intake_avatar_prompt` + `avatar_prompt` in
-   the intake response).
+1. **Push** `circuit-progression` (deliberately left local).
+2. **M2 — real `vouch_ready`** (respect-gated, likability-driven, played-with,
+   one-per-AI) over the relationship graph; evaluate on the world ticker. FIRST
+   step is the regard-edge **instrumentation/logging** M1 was meant to leave so
+   the thresholds (~0.70 like / respect floor) are tuned from real data — verify
+   that logging exists before tuning. See `CASH_MODE_CAREER_PROGRESSION.md` § M2.
+3. **Generalize the floater** to any scene mentor (risk #2) when a second scene
+   needs it.
+4. **M3** — training lounge / scripted drills (re-port the `from_saved_state`
+   reconstruction engine from `training-room` when hand-replay is built; the
+   `table_scenes` system is the natural host).
+5. **Wire avatar generation** (seam: `intake_avatar_prompt`).
 
 ## Resetting a player's career (dev)
 ```bash
@@ -167,13 +139,10 @@ docker compose restart backend   # REQUIRED — evicts the in-memory game
 Then navigate to **`/cash`** (the lobby), not any old `/game/...` URL.
 
 ## Key decisions (from the design riff)
-- **Sal Monroe** (display name; id stays `sal_moretti`) — "Salmon Roe," a fish pun
-  that quietly feeds the "is Sal a fish?" ambiguity. Don't rename the id.
-- Fish are literally fish; main cast aren't; **never confirm if Sal is** (no Sal
-  fish-flash). Larry can flash as a fish once (`/sal.png`/asset pipeline exists).
-- Intake is **snappy**: name + 3 plain vibes (no jargon, no chill/spicy toggle).
-- After intake, **drop into the game**, then intro the lobby after hand 1.
-- Fish-name is **deterministic + alliterative + keeps the player's name**; LLM
-  only writes the bio.
-- Teaching is **invisible**; the comped 200 chips is the "house stakes the fish"
-  meta; the economy is a closed, unexplained cycle.
+- **Sal Monroe** (display name; id stays `sal_moretti` — "Salmon Roe", a quiet
+  fish pun). Don't rename the id.
+- Fish are literally fish; main cast aren't; **never confirm if Sal is**.
+- Teaching is **invisible**; the comped 200 chips is "the house stakes the fish".
+- Teaching hands are **real famous hands**, filtered for **skill not luck**, and
+  cast so the **hero does what the legend got wrong** (Farha's fold, Seidel's
+  call). Library + the skill/lore split: `CASH_MODE_FAMOUS_HANDS_LIBRARY.md`.

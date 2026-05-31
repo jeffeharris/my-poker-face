@@ -2,7 +2,7 @@
 purpose: A progressive, scene-based career narrative where the player earns their way into a growing world of cardrooms through vouches (likability-driven, respect-gated) rather than being dropped into the full lobby
 type: design
 created: 2026-05-26
-last_updated: 2026-05-30
+last_updated: 2026-05-31
 ---
 
 > **M1 shipped (2026-05-30, branch `circuit-progression`).** The thinnest
@@ -169,10 +169,19 @@ Larry + you) and plays a **rigged ~10-hand session** on the real felt:
   fish → Sal vouches you → a home-court room opens (the keyring reveal) and the
   fish-name is shed.
 
-**Implementation:** the ported `from_saved_state` engine sets up the actual cash
-hands at the live Scene-0 table (the integration M1 deferred); Sal's lines fire
-from a script keyed to spot + action; the `Scene0Lesson` modal is removed. The
-intake beat + fish-name generator + (optional) flash-fish are new surface.
+**Implementation (BUILT — committed `1144fc2c`, branch `circuit-progression`):**
+the deck is rigged per-hand on the live felt via the state machine's name-keyed
+`provide_hand_holes` seam (resolved against the post-button-rotation seating);
+the script + cast lines live in `cash_mode/career_scene.py`; the driver is a
+**reusable scene system** (`cash_mode/table_scenes.py` `TableScene` + registry,
+driven by scene-generic hooks in `flask_app/handlers/game_handler.py`) with
+cold-load durability (`career_progress.scene_progress`). The three teaching hands
+are **real famous hands** (skill not luck), cast so the hero does what the legend
+got wrong — catalogue + sourcing in `CASH_MODE_FAMOUS_HANDS_LIBRARY.md`. Sal
+narrates principle only (never the hero's hole cards). The intake beat + fish-name
+generator are new surface; flash-fish is still deferred. (The earlier
+`from_saved_state` reconstruction plan was NOT used — the in-table rig replaced
+it; re-port that engine from `training-room` if M3 hand-replay needs it.)
 
 *Still open:* venues scattered vs one building; the waitress as recurring intake /
 cash-out character and possible hidden hand behind the float; how much the player
