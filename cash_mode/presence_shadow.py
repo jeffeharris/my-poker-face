@@ -53,11 +53,23 @@ logger = logging.getLogger(__name__)
 
 
 def is_enabled() -> bool:
-    """Whether shadow writes are active. Read live so a runtime flip (or a
-    test monkeypatch of the flag) takes effect without re-import."""
+    """Whether presence writes (off-grid + the legacy call-site seat reconciles)
+    are active. True when EITHER cutover flag is set — read live so a runtime
+    flip (or a test monkeypatch) takes effect without re-import.
+
+    The authority flag is included so the off-grid (side-hustle / vice)
+    transitions keep mirroring after the seat machine flips to authoritative.
+    The seat machine itself is driven authoritatively by
+    `presence_transitions.emit_presence_transitions_for_save` at the `save_table`
+    chokepoint; the call-site `_shadow_reconcile_table` reconciles that also gate
+    on this flag become harmless redundant no-ops once the chokepoint has already
+    written presence (they read the now-correct state and skip)."""
     from cash_mode import economy_flags
 
-    return bool(getattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False))
+    return bool(
+        getattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False)
+        or getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False)
+    )
 
 
 def shadow_transition(

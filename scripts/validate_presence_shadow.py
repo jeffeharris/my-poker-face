@@ -213,7 +213,7 @@ _BASE_START = datetime(2026, 1, 1, 0, 0, 0)
 
 def run(db_path: str, ticks: int, rng_seed: int, out_path: str,
         hand_sim_prob: Optional[float], live_fill_prob: Optional[float],
-        checkpoints: int) -> dict:
+        checkpoints: int, authority: bool = False) -> dict:
     # Hard guard: never run against the live DBs.
     forbidden = {"/app/data/poker_games.db",
                  str(Path(_project_root) / "data" / "poker_games.db")}
@@ -232,12 +232,20 @@ def run(db_path: str, ticks: int, rng_seed: int, out_path: str,
 
     repos = create_repos(db_path)
 
-    # Turn the shadow ON and wire the repo the sim writers resolve via
+    # Turn the cutover ON and wire the repo the off-grid writers resolve via
     # flask_app.extensions (None outside the Flask app -> would silently no-op).
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
+    # In AUTHORITY mode the seat machine is driven inside save_table's txn (no
+    # extensions repo needed for seats); off-grid still uses the extensions repo.
+    if authority:
+        economy_flags.PRESENCE_AUTHORITY_ENABLED = True
+        economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = False
+    else:
+        economy_flags.PRESENCE_AUTHORITY_ENABLED = False
+        economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
     extensions.entity_presence_repo = repos["entity_presence_repo"]
     assert presence_shadow.is_enabled(), "flag flip did not take"
-    logger.info("Shadow ENABLED; entity_presence_repo wired -> %s", db_path)
+    logger.info("%s ENABLED; entity_presence_repo wired -> %s",
+                "AUTHORITY" if authority else "SHADOW", db_path)
 
     tick_seconds = 8
     checkpoints = max(1, checkpoints)
@@ -317,9 +325,15 @@ def main() -> int:
                     help="Audit after each of N equal sim segments (captures "
                          "transient off-grid/idle states, not just end-state)")
     ap.add_argument("--out", default="/tmp/presence_audit.json")
+    ap.add_argument("--authority", action="store_true",
+                    help="Drive the sim with PRESENCE_AUTHORITY_ENABLED (the flip "
+                         "mechanism) instead of the best-effort shadow. Audits that "
+                         "the legacy stores stay consistent with the authoritative "
+                         "entity_presence written at the save_table chokepoint.")
     args = ap.parse_args()
     report = run(args.db_path, args.ticks, args.rng_seed, args.out,
-                 args.hand_sim_prob, args.live_fill_prob, args.checkpoints)
+                 args.hand_sim_prob, args.live_fill_prob, args.checkpoints,
+                 authority=args.authority)
     return 0 if report["n_unexpected_total"] == 0 else 1
 
 
