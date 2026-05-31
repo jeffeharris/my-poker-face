@@ -2,7 +2,7 @@
 purpose: The precise reroute spec for wiring the dormant Presence state machine (Cut 3) into every existing cash-mode seat / idle-pool / hustle / vice writer
 type: spec
 created: 2026-05-30
-last_updated: 2026-05-30
+last_updated: 2026-05-31
 ---
 
 # Cash Mode — Presence Machine Migration Spec
@@ -53,127 +53,150 @@ half-migrated state (two seat writers — old `seat_map` + new `entity_presence`
 is itself the bug, so the seat-map demotion (design Phase 3) must land atomically,
 not callsite-by-callsite.
 
-## Correction to the design doc (verified against `development`, 2026-05-30)
+## CORRECTED inventory — verified against code (2026-05-31, HEAD `11e1f3fb`)
 
-The design doc (§7 Phase 3, §8) states ~30 `save_table` callsites across **four**
-modules including `flask_app/routes/cash_routes.py` and
-`flask_app/handlers/game_handler.py`. A source audit on `development` (HEAD
-`adc9f2c1`, schema v127) found:
+**The original inventory below the line was WRONG.** It was written from the
+design doc's imagined architecture, not the real tree. A four-agent shadow-wiring
+pass + an independent grep audit found that **none** of the function names it cited
+exist, in any section. What follows is the inventory re-derived from the actual
+code (every line/function/path here was grep-verified). The dual-write shadow
+agents wired the REAL sites listed here; their branches are the reference
+implementation.
 
-- `save_table` is defined once (`cash_mode/tables.py:54`) and called **only** in
-  **two** modules: `cash_mode/lobby.py` (20 callsites) and
-  `cash_mode/casino_provisioning.py` (5 callsites) — **25 callsites**, not ~30.
-- `flask_app/routes/cash_routes.py` and `flask_app/handlers/game_handler.py`
-  contain **zero** direct `save_table` calls. They mutate seats *indirectly*
-  through registry methods and by reading/writing `seat_map` (cash_routes:
-  ~11 `seat_map` refs, ~16 `table_registry.*` refs; game_handler: ~7 `seat_map`,
-  ~6 registry refs). Those are real seat-write paths that Phase 3 must still
-  route through Presence, but they are not `save_table` callers — the design
-  doc's attribution was imprecise.
+### The architecture the original doc missed
 
-Net: the reroute surface is the same *shape* (sit / leave / reseat / provisioning
-/ hand-boundary), but the `save_table` count is 25 and the route/handler seat
-writes go through the registry, not `save_table` directly.
+The original assumed per-entity imperative ops (`seat()` / `vacate()`, one
+`SIT`/`LEAVE` per call). **The real cash mode persists a whole immutable
+`CashTableState` per `save_table`** (`cash_table_repo.save_table(new_table,
+sandbox_id=, now=)`). There is no per-entity seat op. This changes the cutover
+shape fundamentally:
 
----
+- The shadow/cutover writer must **diff** the saved `CashTableState` seat map
+  against current presence and emit the **minimal legal transitions** (`SIT` for a
+  newly-seated entity; `LEAVE`+`SIT` for a move, since the machine forbids
+  `SEATED --sit--> SEATED`; no-op if already correctly seated). The lobby shadow
+  agent built exactly this: `_shadow_reconcile_table(table, sandbox_id)` +
+  `_shadow_seat_state` (seat map → entity_ids) in `cash_mode/lobby.py` on branch
+  `worktree-agent-a48caf5b117541b2d`.
+- So **Phase 3 "table as projection" (design §6/D1) is a `CashTableState`-
+  derivation problem, NOT a "reroute 25 imperative writers" problem.** The unit of
+  work is "make `save_table` derive the seat map from `entity_presence`," done once
+  at the `CashTableRepository.save_table` chokepoint, not 25 call-site rewrites.
+  Likely *less* total work than the architect's 25-callsite estimate implied, but a
+  different shape.
 
-## Inventory — every writer to reroute
+### A. `cash_mode/lobby.py` — 5 real `save_table` callsites (not ~20)
 
-### A. `save_table` callsites (seat-map writers) — the §6/Phase 3 demotion
+`save_table` is `cash_table_repo.save_table(CashTableState, sandbox_id=, now=)`.
+None of the original doc's named functions (`seat_player_at_table`,
+`handle_player_leave`, `reseat_player`, `_rebalance_or_seed`, `_consolidate_tables`,
+`_fill_empty_seats`, `_reap_empty_tables`, `_release_idle_to_pool`,
+`_coerce_fish_to_table`, `handle_hand_boundary`, `_seed_initial_tables`,
+`_persist_reseat_recovery`, `_persist_table_state`) exist. The real sites:
 
-`save_table(table_id, seat_map, sandbox_id, stake_level)` (`cash_mode/tables.py:54`)
-writes the occupancy half of `cash_tables`. Under table-as-projection (design D1)
-the seat map becomes a *read model* of Presence ∩ Chip-custody; each of these
-writers must instead drive `entity_presence` transitions, and the seat map must be
-derived, never written independently.
-
-#### `cash_mode/lobby.py` (20 callsites)
-
-| Line | Enclosing fn | What it does | Presence event(s) |
+| Line | Enclosing fn | What it does | Shadow action (branch `…a48caf5b`) |
 |---|---|---|---|
-| 185  | `_seed_initial_tables`     | seed sandbox's first tables w/ AIs | `SEED`→`SIT` per AI |
-| 574  | `_persist_reseat_recovery` | persist idle→seat recovery (reconciler) | `RESEAT` |
-| 606  | `reseat_player`            | idle pool → seat re-entry | `RESEAT` |
-| 733  | `handle_player_leave`      | player/AI leaves a seat | `LEAVE` (or `RETURN_TO_POOL` for pool AI) |
-| 902  | `_fill_empty_seats`        | fill open seats from eligible pool | `SIT`/`RESEAT` |
-| 917  | `_fill_empty_seats`        | (second write in same fn) | `SIT`/`RESEAT` |
-| 1015 | `seat_player_at_table`     | primary sit path | `SIT` |
-| 1058 | `seat_player_at_table`     | (second write in same fn) | `SIT` |
-| 1124 | `_rebalance_or_seed`       | rebalance field across tables | `LEAVE`+`SIT` (move) |
-| 1126 | `_rebalance_or_seed`       | (second write) | `LEAVE`+`SIT` |
-| 1158 | `_consolidate_tables`      | merge short tables | `LEAVE`+`SIT` (move) |
-| 1162 | `_consolidate_tables`      | (second write) | `LEAVE`+`SIT` |
-| 1194 | `_release_idle_to_pool`    | seat → idle pool | `LEAVE` |
-| 1207 | `_reap_empty_tables`       | tear down empty table | (none — table teardown is static config) |
-| 1212 | `_reap_empty_tables`       | (second write) | (none) |
-| 1217 | `_reap_empty_tables`       | (third write) | (none) |
-| 1262 | `_persist_table_state`     | generic seat-map persist helper | derive from Presence |
-| 1769 | `_coerce_fish_to_table`    | force a fish into a seat | `SIT` (pool AI) |
-| 2090 | `handle_hand_boundary`     | per-hand seat reconcile | derive from Presence |
-| 2117 | `handle_hand_boundary`     | (second write) | derive from Presence |
+| 458  | `ensure_lobby_seeded`           | seed lobby tables with AIs | **WIRED** — `SEED`→`SIT` per seeded AI (via reconcile-diff) |
+| 839  | `_process_global_greedy_fills`  | global greedy seat fill | **WIRED** — `SIT`/move for filled AIs |
+| 951  | `refresh_unseated_tables`       | free expired sponsorship holds | **SKIPPED** — re-persists vacated seats; no entity gains a seat |
+| 1713 | `refresh_unseated_tables`       | post-burst per-table persist | **WIRED** — `SIT`/move for post-burst occupants |
+| 4003 | `kill_all_cash_sessions`        | reconciler: reset orphan human seats | **SKIPPED** — vacates only; reconciler, out of scope (§F) |
 
-#### `cash_mode/casino_provisioning.py` (5 callsites)
+Net: 3 wired, 2 deliberately skipped. The shadow uses a seat-map *diff*, not
+per-entity events.
 
-| Line | Enclosing fn | What it does | Presence event(s) |
+### B. `cash_mode/casino_provisioning.py` — 6 real `save_table` callsites
+
+Original doc named 3 functions that don't exist (`_provision_casino_table`,
+`_seed_themed_casino`, `_seed_opponent_picker_table`) and missed 2 real writers.
+Real sites (branch `worktree-agent-a845e97c4a9b47da7`, commit `027b46e8`):
+
+| Line | Enclosing fn | Event | Shadow action |
 |---|---|---|---|
-| 371  | `_reclaim_zombie_casino_seats` | reconciler: free zombie AI seats | `RETURN_TO_POOL` / delete |
-| 697  | `_drain_fish_bankroll_to_pool` | fish chips→pool on removal | `GO_OFFLINE`/`RETURN_TO_POOL` |
-| 739  | `_provision_casino_table`      | build a casino table + seat AIs | `SEED`→`SIT` per AI |
-| 967  | `_seed_themed_casino`          | seed a themed roster | `SEED`→`SIT` per AI |
-| 1029 | `_seed_opponent_picker_table`  | seed the picker table | `SEED`→`SIT` per AI |
+| 488  | `_reclaim_zombie_casino_seats` | `RETURN_TO_POOL` per reclaimed seat | WIRED |
+| 743  | `_drain_fish_bankroll_to_pool` | `RETURN_TO_POOL` (POOL-funded fish) | WIRED |
+| 893  | `_refill_one_fish`             | `SEED`→`SIT(table,seat)` | WIRED (undocumented before) |
+| 989  | `_shed_excess_fish`           | `RETURN_TO_POOL` per shed seat | WIRED (undocumented before) |
+| 1419 | `resolve_casino_provisioning` (spawn) | `SEED`→`SIT` per seeded fish | WIRED (the doc's intended "provision") |
+| 1717/1804 | (additional `save_table` in same module) | per behaviour | covered by reclaim/shed/refill mapping |
 
-### B. Route / handler seat writers (indirect — through the registry / seat_map)
+All casino seats are AI / POOL-funded (`ai_entity_id`). `_drain_fish_bankroll_to_pool`
+is multi-origin (teardown / reap / refill-unwind / spawn-abort / drain-sweep) — at
+the flip an entity may already be POOL/OFFLINE, so its transition is sometimes a
+swallowed no-op; that's expected, not a bug.
 
-These do not call `save_table` directly but read-modify-write `seat_map` and/or
-call `table_registry.*`; Phase 3 must route them through Presence too.
+### C. Idle-pool writers — `CashTableRepository`, NOT `seat_registry.py`
 
-| File | Surface | Notes |
-|---|---|---|
-| `flask_app/routes/cash_routes.py` | ~11 `seat_map` refs, ~16 `table_registry.*` refs | sit / leave / reseat / solo-reseat endpoints; `_free_ghost_human_seats` reconciler at `:411` |
-| `flask_app/handlers/game_handler.py` | ~7 `seat_map` refs, ~6 registry refs | hand-boundary cash sync; `_restore_cash_table_binding` cold-load reconciler at `:1235` |
-
-### C. Idle-pool writers — `cash_idle_pool` becomes a Presence projection
-
-`cash_idle_pool` (PK `(personality_id, sandbox_id)`) is today an independent
-authority that can disagree with the seat map (the source of `seated_and_idle`).
-Under the machine, IDLE is a presence *state*; the pool is a read-model.
+Original doc cited `cash_mode/seat_registry.py:130/195/213`
+(`add_to_idle_pool`/`upsert_idle_pool`/`remove_from_idle_pool`) — **none exist;
+`seat_registry.py` is the in-memory `SeatOccupancyRegistry`, no `cash_idle_pool`
+SQL.** The real `cash_idle_pool` writers:
 
 | Writer | Path | Maps to |
 |---|---|---|
-| `add_to_idle_pool`      | `cash_mode/seat_registry.py:130` (INSERT `cash_idle_pool`) | `→ IDLE` |
-| `upsert_idle_pool`      | `cash_mode/seat_registry.py:195` (INSERT/UPSERT)           | IDLE field update (energy/buy_in) — keep as projection detail, not a state change |
-| `remove_from_idle_pool` | `cash_mode/seat_registry.py:213` (DELETE)                  | leaving IDLE (`SIT`/`RESEAT`/`START_*`/`GO_OFFLINE`) |
-| `reseat_readiness`      | `cash_mode/movement.py:264`                                | read of IDLE recovery — becomes a read of Presence + projection fields |
+| `save_idle(entry, *, sandbox_id)`   | `poker/repositories/cash_table_repository.py:535` (`INSERT OR REPLACE`) | `→ IDLE` (add) / field refresh (no state change) |
+| `delete_idle(personality_id, *, sandbox_id)` | `poker/repositories/cash_table_repository.py:644` (`DELETE`) | leaving IDLE — destination decided by caller, so NOT shadowed on bare delete |
 
-### D. Side-hustle writers — `ai_side_hustle_state` becomes a projection
+Driven by change-sets from `refresh_table_roster` (`cash_mode/movement.py`) applied
+in `lobby.py`. **Idle was NOT independently shadow-wired** (the agent correctly
+refused — a repo-layer shadow would violate the "shadow after the authoritative
+write, outside the lock" contract). **Decision: the seat→IDLE `LEAVE` is emitted by
+the lobby reconcile-diff (§A), which already sees seats becoming empty. Do not also
+shadow it at the repo layer — that would double-drive.** (Idempotent if it happened
+— a 2nd `LEAVE` from `IDLE` is illegal → swallowed — but pick one authority.)
 
-| Writer | Path | Maps to |
-|---|---|---|
-| `start_side_hustle` | `cash_mode/ai_side_hustle.py:98`  | `IDLE → SIDE_HUSTLE` |
-| `end_side_hustle`   | `cash_mode/ai_side_hustle.py:124` | `SIDE_HUSTLE → IDLE` (timer-driven `END_OFFGRID`) |
+### D/E. Off-grid: side-hustle + vice — real insert/delete sites
 
-### E. Vice writers — `ai_vice_state` becomes a projection
+Original doc named `start_side_hustle`@98 / `end_side_hustle`@124 /
+`start_vice`@75 / `end_vice`@112 — none exist. Real writers (branch
+`shadow-offgrid-dualwrite`, commit `16ddf5c2`):
 
-| Writer | Path | Maps to |
-|---|---|---|
-| `start_vice` | `cash_mode/ai_vice_spending.py:75`  | `IDLE → VICE` |
-| `end_vice`   | `cash_mode/ai_vice_spending.py:112` | `VICE → IDLE` (timer-driven `END_OFFGRID`) |
+| Real fn | Path | Authoritative write | Event |
+|---|---|---|---|
+| `_commit_hustle_start`        | `cash_mode/ai_side_hustle.py:451` | `side_hustle_repo.insert_side_hustle_state` (467) | `START_HUSTLE` |
+| `tick_side_hustle_expirations`| `cash_mode/ai_side_hustle.py:334` | `side_hustle_repo.delete` (392) | `END_OFFGRID` |
+| `_commit_vice_start`          | `cash_mode/ai_vice_spending.py:936` | `vice_repo.insert_vice_state` (1065) | `START_VICE` |
+| `tick_vice_expirations`       | `cash_mode/ai_vice_spending.py:577` | `vice_repo.delete` (622) | `END_OFFGRID` |
 
-### F. Reconcilers retired by this migration
+All AI-only (`ai_entity_id`), no seat args. **Expected divergence:** `START_*` is
+only legal from IDLE; a broke AI going off-grid straight from unseated has no IDLE
+shadow row, so the start is a swallowed no-op. That's correct for the shadow phase
+(the audit surfaces it); do NOT force intermediate transitions.
 
-Each becomes unnecessary (or degrades to a trivial read) once the above are
-rerouted and the contradiction it repairs is unrepresentable. (Cross-referenced
-with `CASH_MODE_STATE_MODEL.md` §8.) **Do not edit the reaper
-(`_boot_sweep_stale_cash_rows`) under this track** — a separate track owns it.
+### F. Concurrency — `get_sandbox_lock` is held by CALLERS, not these modules
+
+Verified counts: `cash_mode/lobby.py` = **0** `get_sandbox_lock`;
+`flask_app/routes/cash_routes.py` = 9; `flask_app/services/ticker_service.py` = 2.
+So seat/off-grid writers run under the lock **only via the route/ticker paths**.
+`ensure_lobby_seeded` (boot) and sim paths run **unlocked**. Acceptable for the
+best-effort shadow phase, but **the Phase-3 authority flip MUST add explicit
+`get_sandbox_lock` at the `lobby.py` / repo entry points** — they don't inherit it.
+
+### F2. Reconcilers retired by this migration (paths re-verified)
 
 | Reconciler | Path | Repairs | Retired when |
 |---|---|---|---|
-| `_free_ghost_human_seats`        | `flask_app/routes/cash_routes.py:411`   | ghost human seats | B rerouted |
-| `_reclaim_zombie_casino_seats`   | `cash_mode/casino_provisioning.py:371`  | zombie AI seats | A.casino rerouted |
-| `_restore_cash_table_binding`    | `flask_app/handlers/game_handler.py:1235` | lost cash_table_id on cold-load | B rerouted |
-| `_persist_reseat_recovery`       | `cash_mode/lobby.py:574`                | idle→seat re-entry | A.lobby rerouted |
-| `reseat_readiness`               | `cash_mode/movement.py:264`             | idle→seat readiness | C rerouted |
-| `whereabouts.py` (whole module)  | `cash_mode/whereabouts.py`              | detects all presence contradictions | A–E done → degrades to a trivial read of `entity_presence` |
+| `_free_ghost_human_seats`        | `flask_app/routes/cash_routes.py:411`     | ghost human seats | lobby/route reroute done |
+| `_reclaim_zombie_casino_seats`   | `cash_mode/casino_provisioning.py:371`    | zombie AI seats | casino reroute done |
+| `_restore_cash_table_binding`    | `flask_app/handlers/game_handler.py:1235` | lost cash_table_id on cold-load | route reroute done |
+| `whereabouts.py` (whole module)  | `cash_mode/whereabouts.py`                | detects all presence contradictions | A–E done → trivial read of `entity_presence` |
+
+> **NOTE:** `_persist_reseat_recovery` / `reseat_player` / `reseat_readiness` as
+> named in the original doc were not found in `lobby.py`/`movement.py` at this HEAD;
+> reconcile against code before relying on them.
+
+---
+
+## ⚠️ ORIGINAL INVENTORY BELOW IS OBSOLETE / INACCURATE — kept only for history
+
+The section below predates the code audit and names functions that do not exist.
+Use the CORRECTED inventory above. (Retained so the scale of the doc-vs-code drift
+is on the record.)
+
+### A-old. `save_table` callsites (per original doc — UNVERIFIED, mostly wrong)
+
+(Original claimed ~20 lobby + 5 casino callsites in functions that don't exist;
+real counts are 5 lobby + 6 casino, different functions — see CORRECTED §A/§B.)
 
 ## Sequencing (within the human-reviewed phase)
 
