@@ -57,6 +57,9 @@ const TrainingMenu = lazy(() =>
 const PreflopLeaks = lazy(() =>
   import('./components/training/PreflopLeaks').then((m) => ({ default: m.PreflopLeaks }))
 );
+const PreflopDrill = lazy(() =>
+  import('./components/training/PreflopDrill').then((m) => ({ default: m.PreflopDrill }))
+);
 const PrivacyPolicy = lazy(() =>
   import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
 );
@@ -524,7 +527,25 @@ function App() {
               path="/menu/training/leaks"
               element={
                 <ProtectedRoute>
-                  <PreflopLeaks onBack={() => navigate('/menu/training')} />
+                  <PreflopLeaks
+                    onBack={() => navigate('/menu/training')}
+                    onDrill={(scenario, position) =>
+                      navigate(
+                        scenario && position
+                          ? `/menu/training/drill?scenario=${scenario}&position=${position}`
+                          : '/menu/training/drill'
+                      )
+                    }
+                  />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/drill"
+              element={
+                <ProtectedRoute>
+                  <PreflopDrill onBack={() => navigate('/menu/training/leaks')} />
                 </ProtectedRoute>
               }
             />

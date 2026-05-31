@@ -357,6 +357,71 @@ def coach_preflop_leaks_feedback():
     return jsonify({'feedback': feedback})
 
 
+@coach_bp.route('/api/coach/drill', methods=['GET'])
+@limiter.limit("30/minute")
+@_coach_required
+def coach_drill():
+    """Build a preflop drill from the player's leak (the practice half of the loop).
+
+    Drills an explicit ?scenario=&position= when given, else the player's top
+    CONFIRMED chart leak. Returns {leak, spots} or {enough_data: false} when
+    there's nothing confirmed to practice yet.
+    """
+    from ..services.coach_chart_data import get_owner_chart_leak_set
+    from ..services.coach_drill import sample_drill_spots
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    scenario = (request.args.get('scenario') or '').strip()
+    position = (request.args.get('position') or '').strip()
+    kind = None
+    try:
+        if not (scenario and position):
+            from ..services.coach_drill import pick_drill_leak
+
+            leak = pick_drill_leak(
+                get_owner_chart_leak_set(extensions.persistence_db_path, owner_id)
+            )
+            if not leak:
+                return jsonify({'enough_data': False})
+            scenario, position, kind = leak['scenario'], leak['position'], leak['kind']
+        spots = sample_drill_spots(scenario, position, n=10)
+    except Exception as e:
+        logger.error(f"drill build failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not build drill'}), 500
+
+    if not spots:
+        return jsonify({'enough_data': False})
+    return jsonify(
+        {
+            'enough_data': True,
+            'leak': {'scenario': scenario, 'position': position, 'kind': kind},
+            'spots': spots,
+        }
+    )
+
+
+@coach_bp.route('/api/coach/drill/answer', methods=['POST'])
+@limiter.limit("120/minute")
+@_coach_required
+def coach_drill_answer():
+    """Grade one drill answer against the solver chart (recomputed server-side)."""
+    from ..services.coach_drill import grade_drill_answer
+
+    body = request.get_json(silent=True) or {}
+    result = grade_drill_answer(
+        body.get('scenario', ''),
+        body.get('position', ''),
+        body.get('hand', ''),
+        body.get('action', ''),
+    )
+    if result is None:
+        return jsonify({'error': 'Not a gradeable spot'}), 400
+    return jsonify(result)
+
+
 @coach_bp.route('/api/coach/<game_id>/config', methods=['GET'])
 @limiter.limit("30/minute")
 @_coach_required

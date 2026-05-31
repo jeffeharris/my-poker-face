@@ -86,9 +86,10 @@ function computeScaleMax(rows: PositionRow[]): number {
 
 interface PreflopLeaksProps {
   onBack: () => void;
+  onDrill: (scenario: string, position: string) => void;
 }
 
-export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
+export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
   const [data, setData] = useState<LeaksResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -224,6 +225,13 @@ export function PreflopLeaks({ onBack }: PreflopLeaksProps) {
                       <span className={`pfl-leak-badge${confirmed ? '' : ' watch'}`}>
                         {confirmed ? 'leak' : 'watching'}
                       </span>
+                      <button
+                        type="button"
+                        className="pfl-leak-drill"
+                        onClick={() => onDrill(lk.scenario, lk.position)}
+                      >
+                        Drill
+                      </button>
                     </li>
                   );
                 })}

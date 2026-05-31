@@ -175,6 +175,23 @@
   background: rgba(234, 179, 8, 0.18);
   color: #fcd34d;
 }
+.pfl-leak-drill {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  border-radius: 8px;
+  background: rgba(52, 211, 153, 0.12);
+  color: #6ee7b7;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.pfl-leak-drill:hover {
+  filter: brightness(1.12);
+}
+
 .pfl-note--tier {
   margin-top: 0.5rem;
 }
