@@ -203,6 +203,38 @@
   color: var(--color-text-muted, #9ca3af);
 }
 
+.pfl-effect {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pfl-effect-head {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-emerald, #34d399);
+  margin-bottom: 0.35rem;
+}
+.pfl-effect-lead {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--color-text, #e5e7eb);
+}
+.pfl-effect-kinds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
 .pfl-ask {
   display: inline-flex;
   align-items: center;

@@ -357,6 +357,25 @@ def coach_preflop_leaks_feedback():
     return jsonify({'feedback': feedback})
 
 
+@coach_bp.route('/api/coach/tip-effectiveness', methods=['GET'])
+@limiter.limit("30/minute")
+@_coach_required
+def coach_tip_effectiveness():
+    """How often the CURRENT player took the solver line after a leak nudge.
+
+    Self-scoped follow-through on the review panel — "is the coach helping me?".
+    Empty until the coach has nudged this player in a few graded spots.
+    """
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+    try:
+        return jsonify(extensions.coach_repo.get_tip_effectiveness(owner_id))
+    except Exception as e:
+        logger.error(f"tip-effectiveness failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load tip effectiveness'}), 500
+
+
 @coach_bp.route('/api/coach/drill', methods=['GET'])
 @limiter.limit("30/minute")
 @_coach_required
@@ -697,3 +716,21 @@ def coach_metrics_advancement():
     except Exception as e:
         logger.error(f"Coach metrics advancement failed: {e}", exc_info=True)
         return jsonify({'error': 'Could not load advancement metrics'}), 500
+
+
+@coach_bp.route('/api/coach/metrics/tip-effectiveness')
+@limiter.limit("30/minute")
+@_admin_required
+def coach_metrics_tip_effectiveness():
+    """After a leak nudge fired, did the player's next decision follow the solver?
+
+    Aggregates across all players (global). ``?owner=<id>`` scopes to one. Reads
+    only the instrumentation tables (coach_tips ⋈ player_decision_analysis) —
+    measures whether the live coach is helping vs. noise.
+    """
+    try:
+        owner = request.args.get('owner') or None
+        return jsonify(extensions.coach_repo.get_tip_effectiveness(owner))
+    except Exception as e:
+        logger.error(f"Coach tip effectiveness failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load tip effectiveness'}), 500

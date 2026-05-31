@@ -106,3 +106,13 @@ class TestTipEffectiveness:
         coach_repo.record_tip(_tip(owner_id='someone_else'))
         _decision(da_repo, game_id='g1', hand_number=1, action='raise')
         assert coach_repo.get_tip_effectiveness('guest_jeff')['overall']['nudges'] == 0
+
+    def test_global_aggregates_across_owners(self, coach_repo, da_repo):
+        # Two different owners, one nudge each → global view counts both.
+        coach_repo.record_tip(_tip(owner_id='a', game_id='g1', hand_number=1))
+        _decision(da_repo, game_id='g1', hand_number=1, action='raise')
+        coach_repo.record_tip(_tip(owner_id='b', game_id='g2', hand_number=1))
+        _decision(da_repo, game_id='g2', hand_number=1, action='call')
+        glob = coach_repo.get_tip_effectiveness()  # owner_id=None → global
+        assert glob['overall']['nudges'] == 2
+        assert glob['overall']['followed'] == 1

@@ -346,7 +346,7 @@ class CoachRepository(BaseRepository):
             )
             return cursor.lastrowid
 
-    def get_tip_effectiveness(self, owner_id: str) -> Dict:
+    def get_tip_effectiveness(self, owner_id: Optional[str] = None) -> Dict:
         """Did leak nudges move the player's next decision toward the solver line?
 
         Joins ``coach_tips`` (leak nudges that fired) to the decision that
@@ -357,14 +357,20 @@ class CoachRepository(BaseRepository):
           - over_fold        → did NOT fold (continued)
           - too_passive      → raised (not just called)
 
+        ``owner_id=None`` aggregates across all players (the admin view).
+
         Returns ``{by_kind: {kind: {nudges, followed, follow_rate}}, overall:
         {nudges, followed, follow_rate}}``. A baseline (non-nudged spots) is left
         to a later cut — this first answers "after a nudge, did they comply?".
         """
-        rows = []
+        where = "t.leak_fired = 1 AND t.phase = 'PRE_FLOP'"
+        args: tuple = ()
+        if owner_id is not None:
+            where += " AND t.owner_id = ?"
+            args = (owner_id,)
         with self._get_connection() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT t.leak_kind AS kind, pda.action_taken AS action
                 FROM coach_tips t
                 JOIN player_decision_analysis pda
@@ -372,11 +378,9 @@ class CoachRepository(BaseRepository):
                  AND pda.hand_number = t.hand_number
                  AND pda.player_name = t.player_name
                  AND pda.phase = 'PRE_FLOP'
-                WHERE t.owner_id = ?
-                  AND t.leak_fired = 1
-                  AND t.phase = 'PRE_FLOP'
+                WHERE {where}
                 """,
-                (owner_id,),
+                args,
             ).fetchall()
 
         def followed(kind: str, action: Optional[str]) -> bool:

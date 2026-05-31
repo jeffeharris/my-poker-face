@@ -45,6 +45,22 @@ const SCENARIO_PHRASE: Record<string, string> = {
   vs_3bet: 'facing a 3-bet in',
 };
 
+interface KindEffect {
+  nudges: number;
+  followed: number;
+  follow_rate: number | null;
+}
+interface Effectiveness {
+  by_kind: Record<string, KindEffect>;
+  overall: KindEffect;
+}
+const KIND_LABEL: Record<string, string> = {
+  limp: 'limping',
+  too_loose: 'playing too loose',
+  over_fold: 'over-folding',
+  too_passive: 'playing too passively',
+};
+
 const pct = (x: number) => Math.round(x * 100);
 
 // Plain-language description of one chart leak — mirrors the backend's
@@ -95,6 +111,7 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [effect, setEffect] = useState<Effectiveness | null>(null);
 
   const askCoach = async () => {
     if (feedbackLoading) return;
@@ -130,6 +147,26 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
         if (!cancelled) setError('Could not load your preflop review.');
       } finally {
         if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // How often you've taken the solver line after a coach nudge (best-effort).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(`${config.API_URL}/api/coach/tip-effectiveness`, {
+          credentials: 'include',
+        });
+        if (!resp.ok) return;
+        const json = await resp.json();
+        if (!cancelled) setEffect(json);
+      } catch {
+        /* non-fatal — the block just stays hidden */
       }
     })();
     return () => {
@@ -251,6 +288,27 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
               This is the GTO baseline; deliberate adjustments against weak players will show
               up here as deviations.
             </p>
+
+            {effect && effect.overall.nudges > 0 && (
+              <div className="pfl-effect">
+                <div className="pfl-effect-head">Coaching follow-through</div>
+                <p className="pfl-effect-lead">
+                  In spots the coach flagged, you took the solver line{' '}
+                  <strong>
+                    {effect.overall.followed}/{effect.overall.nudges}
+                  </strong>{' '}
+                  ({Math.round((effect.overall.follow_rate ?? 0) * 100)}%).
+                </p>
+                <ul className="pfl-effect-kinds">
+                  {Object.entries(effect.by_kind).map(([kind, e]) => (
+                    <li key={kind}>
+                      {KIND_LABEL[kind] ?? kind}: {e.followed}/{e.nudges} (
+                      {Math.round((e.follow_rate ?? 0) * 100)}%)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <button
               type="button"
