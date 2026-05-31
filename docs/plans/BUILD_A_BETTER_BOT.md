@@ -25,9 +25,12 @@ opponent aggression (→ calls down → catches bluffers). Both errors are +EV v
 leaky field. Every "fix" that corrected them pulled the bot toward *balance*, and
 balance under-exploits fish.
 
-So **"better" is ambiguous and you must pick which one you mean (see §1) before
-building anything** — because "beats our fish pool harder" and "is good poker /
-robust vs a competent human" are *opposite* directions in this codebase.
+**TARGET (Jeff decided): (B) robust — a bot a competent human can't run over —
+achieved via (C) adaptation** (fish-hunt the fish, switch to a disciplined profile
+when a competent opponent is detected). A single static "robust" strategy would
+under-extract from the fish that fill the game, and we can't build GTO — so
+robustness has to come from the *switch*. The keystone (§2) is still the
+gate: you can't prove robustness without a competent opponent to fail against.
 
 ## What we have (the map)
 
@@ -82,19 +85,28 @@ robust vs a competent human" are *opposite* directions in this codebase.
 Common thread: **#1–#3 add accuracy/discipline → balance → under-exploit. #4–#5
 assume the opponent is strong (maniac bets = strength) → wrong vs a leaky field.**
 
-## §1 — DECIDE what "better" means (ask Jeff, gate everything on this)
+## §1 — TARGET (DECIDED by Jeff): B, achieved via C
 
-Three different targets, *opposite* directions:
-- **(A) Harder fish-extraction** — beat our casino pool by more. CaseBotV2 already
-  near-maxes this; gains are marginal and risk overfitting to caricatures.
-- **(B) Robust / not-exploitable-by-a-human** — survives a competent human who
-  3-bets it and stops paying its overbets. CaseBotV2 FAILS this (95% VPIP). This is
-  "good poker," and it requires *tightening*, which costs (A).
-- **(C) Adaptive** — plays (A) vs fish and (B) vs competent, switching on a read.
+The goal is **(B) robust — not exploitable by a competent human** (CaseBotV2
+fails this: its 95% VPIP gets run over by anyone who 3-bets it and stops paying
+its overbets). **And (C) adaptive is REQUIRED to get there.** The logic:
+- A *single static* "robust" strategy (a balanced TAG-pro) is robust but extracts
+  far less from the fish that make up the actual game — it leaves money on the
+  table, and we can't build true GTO anyway.
+- So the practical route to "can't be run over by a human" is **detect the
+  competent opponent and switch to a disciplined profile**, while keeping the
+  fish-hunter profile for the fish. Robustness comes from the *switch*, not from
+  playing one balanced strategy everywhere.
 
-**Recommend (C), but it is blocked on the keystone below.** Whatever the target,
-the eval can't currently tell (A) from (B) because **we have no competent opponent
-in the pool** — that's the real gap.
+Reference targets for the build:
+- **(A) Harder fish-extraction** — NOT the goal (CaseBotV2 near-maxes it; marginal).
+- **(B) Robust vs a competent human** — THE GOAL.
+- **(C) Adaptive (fish-hunt fish, discipline vs competent)** — THE MECHANISM for B.
+
+This is still blocked on the keystone (§2): you cannot *prove* robustness (B)
+without a competent opponent to fail against, and (C)'s classifier must detect
+exactly that opponent to switch. So §2 produces both the yardstick AND the
+profile the adaptive bot switches to.
 
 ## §2 — KEYSTONE: build a competent/balanced opponent (do this FIRST)
 
@@ -122,24 +134,40 @@ Options, cheapest first:
 **Success test for the keystone:** a field/opponent that beats CaseBotV2 (or holds
 it to ~0). Until something does, every "better bot" claim is measuring fish-hunting.
 
-## §3 — THEN build the better bot (gated on §1 + §2)
+## §3 — THEN build the B-via-C bot (gated on §1 + §2)
 
-If (C) adaptive: keep CaseBotV2's naive value/call-down as the *default* (it wins
-vs fish) and add **type-aware switches that are INVERTED from the range model**:
-- detect **bluffer/maniac** (high AF + high VPIP, ~8-hand read) → call down EVEN
-  wider, never fold to barrels, don't bluff. (NOT "respect the aggression" — the
-  range model's fatal error.)
-- detect **value-bettor/reg** (low VPIP, folds to aggression, doesn't over-bluff)
-  → tighten preflop, stop the face-up overbets, fold to their bets, balance more.
-  This is the (B) profile, only switched on vs a competent read.
-- The classifier exists in spirit (`_is_maniac_read`); the missing piece is real
-  opponent stats in the harness (the sim disables them — see §4). The profiles are
-  the unit; the read just selects one. This is Jeff's original "hybrid playstyles /
-  detection invokes a different archetype" idea — it's correct, the prototypes just
-  switched to the *wrong* profiles (tight-defense vs maniac instead of call-down).
+The bot is a **profile-switcher with two profiles + a classifier:**
 
-If (B) robust: a competent TAG-pro that you accept extracts LESS from fish but
-can't be run over by a human. (This is just §2's `Reg+` deployed.)
+1. **Fish-hunter profile = CaseBotV2** (exists). Default. Naive value/call-down
+   that crushes fish.
+2. **Competent profile = §2's `Reg+`** (the keystone). This is the SAME bot you
+   build as the yardstick — it does double duty: it's both the opponent that
+   *proves* robustness AND the profile the adaptive bot *becomes* vs a competent
+   read. Disciplined: tight raise-or-fold, fold to overbets (no pay-off), value-bet
+   thin, don't spew. This profile is what makes the bot un-runnable-over.
+3. **Classifier — and use OUTCOME-based detection, not the range model** (which
+   reads aggression as strength and fails, dead end #3). The cleanest, most direct
+   signal of "am I facing a competent player" is **how my own bets resolve**:
+   - my overbets keep getting **called** + opponent pays off river value → FISH →
+     stay in fish-hunter mode (overbet, value-town, call down).
+   - my overbets get **folded to** / opponent 3-bets me / opponent doesn't pay off
+     → COMPETENT → switch to `Reg+` mode (tighten, stop the face-up overbets, fold
+     correctly). This needs ~10-20 hands of outcome history per opponent, not a
+     range model.
+   - Also keep the **maniac sub-case** (high AF + high VPIP read) → call down EVEN
+     wider, never fold to barrels — INVERTED from the range model.
+
+This is Jeff's original "hybrid playstyles / detection invokes a different
+archetype" instinct — correct; the prototypes just (a) switched to the *wrong*
+profile vs maniacs (tight-defense, dead end #4 — should be call-down), and (b)
+tried a *range model* for the read (dead end #3 — should be outcome-based). The
+profiles are the unit; the read selects one.
+
+**Robustness acceptance test (the definition of done):** vs §2's `Reg+`, the
+adaptive bot (in competent mode) is NOT exploited — `Reg+` can't beat it the way
+it beats vanilla CaseBotV2. AND vs the fish/clones it still extracts (fish-hunter
+mode). Both must hold. If `Reg+` still crushes the adaptive bot, the competent
+profile isn't disciplined enough — iterate the profile, not the classifier.
 
 ## §4 — Measurement methodology (don't relearn these the hard way)
 
