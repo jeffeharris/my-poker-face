@@ -1371,6 +1371,7 @@ def api_new_game():
         'lean',
         'sharp',
         'casebot',
+        'regplus',
         'gto_lite',
         'baseline_solver',
     }
@@ -1515,12 +1516,13 @@ def api_new_game():
                     decision_analysis_repo=decision_analysis_repo,
                     baseline=True,
                 )
-            elif bot_type in ('casebot', 'gto_lite'):
+            elif bot_type in ('casebot', 'regplus', 'gto_lite'):
                 # Rule-based bots exposed in Custom Game for training/practice
                 from poker.rule_bot_controller import RuleBotController
 
                 strategy_for_type = {
                     'casebot': 'case_based_v2',  # promoted: value-extraction beats v1 4-12x vs clones
+                    'regplus': 'reg_plus',  # disciplined value-extractor; beats casebot, robust vs bots
                     'gto_lite': 'pot_odds_robot',
                 }[bot_type]
                 new_controller = RuleBotController(

@@ -416,10 +416,11 @@ def restore_ai_controllers(
                         baseline=True,
                     )
                     logger.info(f"[RESTORE] Created BaselineSolverBot for {player.name}")
-                elif strategy in ('casebot', 'gto_lite'):
+                elif strategy in ('casebot', 'regplus', 'gto_lite'):
                     # Rule bots exposed in Custom Game for training/practice
                     strategy_for_type = {
                         'casebot': 'case_based_v2',  # promoted: value-extraction beats v1 4-12x vs clones
+                        'regplus': 'reg_plus',  # disciplined value-extractor; beats casebot, robust vs bots
                         'gto_lite': 'pot_odds_robot',
                     }[strategy]
                     controller = RuleBotController(
