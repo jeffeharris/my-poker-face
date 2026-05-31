@@ -2,8 +2,8 @@
 purpose: Design for how multi-table tournaments surface inside circuit (cash/career) mode — discovery, cadence, the career-bankroll buy-in bridge, and the world-ticker integration — without breaking the player-gated, single-player, isolated-chip model
 type: design
 created: 2026-05-30
-last_updated: 2026-05-30
-status: DRAFT — open questions flagged for sign-off; no code written. Depends on P2 economy + the cash state model.
+last_updated: 2026-05-31
+status: DRAFT — time model resolved (2026-05-31); minor open items remain. No code written. Depends on P2 economy + the cash state model.
 ---
 
 # Tournament Circuit Surfacing
@@ -34,19 +34,22 @@ Three already-locked facts collide and have to be reconciled before any UX:
 - **Cash mode is single-player per sandbox** (state model D6). There is no shared
   wall clock to synchronize a "daily 8pm tournament" against — there's one human.
 
-So "daily circuit tournament" **cannot mean a synchronized real-world clock.** It
-must mean a *player-relative availability rhythm*. The unlock that makes this work
-is already in the P2 economy design: **a tournament is autonomous — the AI field
-runs with or without the human.** That reframes the whole surface:
+The resolution (decided 2026-05-31) is that there **is no separate tournament
+clock** — the tournament rides the existing **world tick**:
 
-> **The circuit periodically spawns an autonomous Main Event (the economy's
-> redistribution heartbeat). Its surfacing is a registration *window*: the player
-> can buy in from their career bankroll, or ignore it and it runs AI-only and
-> redistributes chips anyway. The "event you plan around" is the registration
-> window, not a wall clock.**
+> **When the human is NOT in the tournament, it advances at the same tick pace as
+> the rest of the world — it's just another active element in the sandbox. When the
+> human IS in it, the sandbox's ticks pause and the tournament becomes player-gated
+> by the human's hands.** The AI field runs with or without the human (P2 autonomy);
+> the only thing that changes on entry is *what drives the clock* (world tick →
+> the human's hands).
 
-This single move unifies surfacing + economy + autonomy + the single-player model.
-Everything below follows from it.
+That dissolves the "no shared clock" problem (there's nothing to synchronize) and
+unifies surfacing + economy + autonomy + the single-player model. The circuit
+periodically spawns an autonomous Main Event (the economy's redistribution
+heartbeat); its surfacing is a **registration window** measured in world ticks —
+buy in from your career bankroll, or ignore it and it runs AI-only and
+redistributes chips anyway. Everything below follows from it.
 
 ## 3. Decisions (recommendations — flagged for sign-off)
 
@@ -66,21 +69,20 @@ additive to (not replacing) the standalone menu.**
 calls cash mode "The Circuit"; a sibling card fragments the surface). The tournament
 belongs *inside* the circuit, announced by it.
 
-### Q2 — Cadence / who spawns it
-**Recommendation: an availability *rhythm*, not a clock — a cooldown-gated
-autonomous spawn, framed as "Today's Main Event."**
+### Q2 — Cadence / time model
+**Decided (2026-05-31): the tournament runs on the world tick.** When the human is
+not in it, it advances at the same tick pace as everything else in the sandbox.
+When the human enters, the sandbox's ticks pause and it becomes player-gated (§Q5).
 
-Because there's no shared clock, "daily" is a cooldown: after a Main Event
-resolves, the next becomes available some interval later (a real-time cooldown,
-e.g. ~hours, and/or after the player has grinded N cash hands — TBD, sim-tunable).
-A scheduler (the P3 wrapper over `create_tournament`) spawns it; a **registration
-window** (a countdown in hands or minutes-while-present) precedes the AI field
-firing. The player buys in during the window or it runs without them.
+There is no separate tournament clock to synchronize. So:
 
-- **Open (sign-off):** is the registration window measured in *minutes-of-presence*
-  (uses the presence beacon) or in *cash hands played* (more player-gated-consistent)?
-  Recommend **hands-or-timeout** (whichever first) so an idle lobby still resolves.
-- **Open:** one event-tier at a time, or a small slate (a $2-equivalent "daily" + an
+- **Spawn cadence** and the **registration window** are measured in **world ticks**
+  — a cooldown of T ticks after one resolves, then a window of W ticks before the AI
+  field fires. A scheduler (the P3 wrapper over `create_tournament`) owns the rhythm.
+- During the window (and after, while the human stays out), the field advances on
+  world ticks; the player buys in during the window or it runs without them.
+
+- **Open (minor):** one event-tier at a time, or a small slate (a cheap "daily" + an
   occasional bigger "Main Event")? Recommend **start with one**, tier later.
 
 ### Q3 — The career-bankroll buy-in bridge
@@ -120,16 +122,24 @@ Discipline (carried from the plan): the ticker shows **only top-drama** tourname
 beats (breaks / bubble / final table / winner), never every hand — the same
 "structural only" filter the toasts already use.
 
-### Q5 — Presence / time when you enter (the freeze)
-**Recommendation: entering the Main Event freezes your cash table; you return to it
-on exit. Reuses the state model's freeze-forever (D4) exactly.**
+### Q5 — Time when you enter (pause the sandbox's ticks)
+**Decided (2026-05-31): entering the Main Event pauses the sandbox's world ticks;
+the tournament is player-gated by the human while they're in it. Exit resumes ticks.**
 
-Entering a tournament = leaving the cash felt. Your cash table **freezes** mid-state
-(seat held, chips `AT_TABLE` in the ledger, durable), the ambient cash world pauses
-(you're not present), and tournament time becomes player-gated. On bust/finish you
-return to the circuit, payout applied, and resume the frozen cash table where you
-left it. No new mechanism — it's the freeze model the cash state work is already
-building.
+Entering flips the tournament's clock from world-tick (Q2) to **player-gated** —
+nothing in that sandbox ticks except via the human's own hands. Concretely:
+
+- The **cash tables freeze** (state model D4: seat held, chips `AT_TABLE` in the
+  ledger, durable) — they don't tick because the sandbox is paused.
+- The **other tournament tables** advance only when the human plays a hand at theirs
+  (the existing `TournamentSession` player-gated path), so the field stays in step
+  with the human instead of sprinting on ticks.
+- On bust/finish the human returns to the circuit (payout applied) and the sandbox's
+  ticks resume where they left off.
+
+No new mechanism — it's "pause the sandbox tick" + the player-gated session path that
+already exist. The only integration point is the switch: *human enters ⇒ stop ticking
+this sandbox and drive the tournament off the human's hands; human exits ⇒ resume.*
 
 ## 4. Worked player journey
 
@@ -154,24 +164,27 @@ building.
 | Discovery | cash lobby `/api/cash/lobby` + `Lobby.tsx` | add a Main Event card to the payload + UI |
 | Drama | world ticker (`ticker_service.py`, `lobby:{owner_id}`, `cash_mode/activity.py`) | add tournament lifecycle event types |
 | Buy-in/payout | unified ledger + `tournament:<id>` escrow (economy note) | the confirm-modal flow + affordability gate |
-| Freeze on entry | cash state model freeze (D4) | route "enter tournament" through the same leave/freeze path |
+| Advance the field | world ticker (out) / `TournamentSession` player-gated (in) | switch driver on enter/exit; pause the sandbox's ticks while in |
+| Freeze on entry | cash state model freeze (D4) — cash tables freeze when the sandbox pauses | route "enter tournament" through the pause-ticks path |
 | Live event UI | `/tournament` lobby/standings + shipped toasts | reached from the lobby card instead of the standalone menu |
 | Identity/social carry | career bankroll (global) + relationship context | read-only carry-in for v1 |
 
 ## 6. Open questions / sign-offs
 
-- **Q2 cadence units** — registration window in minutes-of-presence vs cash-hands
-  (recommend hands-or-timeout). And one event vs a tiered slate (recommend one first).
-- **Autonomous-event visibility cost** — narrating a background tournament means the
-  AI-only field must *advance* while the player grinds cash. That is real compute on
-  the (already busy) ticker thread; needs a pacing/batch budget (cf. the hands-off
-  sim finding in EXP_006 — AI hands are ~100% of tick cost). **May need the
-  autonomous field to advance in coarse batches, not hand-by-hand**, off the hot path.
+- **RESOLVED (2026-05-31) — time model.** The tournament rides the world tick when
+  the human is out (Q2); entering pauses the sandbox's ticks and it becomes
+  player-gated (Q5). No separate clock; no presence-minutes / cash-hands distinction.
+- **RESOLVED (2026-05-31) — compute cost.** Advancing a background tournament is
+  negligible next to running the live world with ~14 tables active; it rides the
+  existing world-tick budget, no special batching needed.
+- **Event slate (minor)** — one event-tier at a time vs a cheap "daily" + an
+  occasional bigger "Main Event". Recommend start with one, tier later.
 - **Social carry-out (prestige/relationship deltas from results)** — P4; out of scope
   here, but the winner-beat is the natural hook.
-- **Does the Main Event consume the player's cash sandbox or spin its own?** Recommend
-  its **own ephemeral tournament sandbox** (isolated chips), bridged to the global
-  career bankroll only at buy-in/payout — keeps the cash sandbox's conservation clean.
+- **Sandbox (confirm).** The Main Event spins its **own ephemeral tournament sandbox**
+  (isolated chips), bridged to the global career bankroll only at buy-in/payout — so
+  "pause the sandbox's ticks" on entry (Q5) cleanly freezes the tournament without
+  touching the player's cash sandbox, and conservation stays clean.
 
 ## 7. Sequencing / dependencies
 
