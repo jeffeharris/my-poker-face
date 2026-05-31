@@ -855,6 +855,71 @@ def _strategy_reg_adaptive(context: Dict) -> Dict:
     return _reg_decision(context, anti_maniac=False)
 
 
+def _strategy_polar_value(context: Dict) -> Dict:
+    """PolarValueBot — the maximally FACE-UP value bettor (sizing-aware §B probe).
+
+    Bets BIG (1.2x pot) ONLY with strong+ (its big bet is *always* the nuts),
+    checks everything else, and NEVER bluffs. Facing a bet it continues only with
+    strong+ (never pays off, never bluff-catches). It is trivially exploitable by
+    a sizing-reader: fold to its big bets (always value) and stab when it checks
+    (always weak). So a competent, sizing-aware opponent should CRUSH it, while a
+    pay-off-happy bot (calls down its big bets) barely beats or loses to it.
+
+    Used to MEASURE the defense leak before building Phase B: bracket the tiered
+    bot between RegPlus (folds to overbets → crushes this) and CaseBotV2 (calls
+    down → pays off its value). If the tiered bot crushes it like RegPlus, its
+    base chart already reads sizing and B adds nothing; if it lags toward
+    CaseBotV2, the bot pays off readable value and B is worth building. Eval-only.
+    """
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    hand = _equity_category(context['equity'])
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    if phase == 'PRE_FLOP':
+        facing_raise = cost > 0 and highest_bet > bb
+        if hand in ('premium', 'strong'):
+            return do_raise(int(3.0 * highest_bet) if facing_raise else int(3.0 * bb))
+        if hand == 'medium' and not facing_raise:
+            return do_raise(int(2.5 * bb))  # open some mediums first-in
+        return check_or_fold()
+
+    # Facing a bet: continue only with strong+ — never pay off, never bluff-catch.
+    if cost > 0:
+        if hand == 'premium':
+            return bet(1.0)  # raise for value
+        if hand == 'strong':
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # Checked to: BIG value bet with strong+, otherwise check. NEVER bluff → the
+    # big bet is a perfect face-up tell.
+    if hand in ('premium', 'strong'):
+        return bet(1.2)
+    return check_or_fold()
+
+
 def _strategy_reg_plus(context: Dict) -> Dict:
     """Reg+ — the COMPETENT YARDSTICK (keystone, docs/plans/BUILD_A_BETTER_BOT.md §2).
 
@@ -1450,6 +1515,7 @@ BUILT_IN_STRATEGIES = {
     'case_based_v2': _strategy_case_based_v2,
     'reg': _strategy_reg,
     'reg_plus': _strategy_reg_plus,
+    'polar_value': _strategy_polar_value,
     'tricky_reg': _strategy_tricky_reg,
     'tricky_aggro': _strategy_tricky_aggro,
     'exploiter': _strategy_exploiter,

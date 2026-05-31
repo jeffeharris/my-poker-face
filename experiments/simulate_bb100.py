@@ -297,6 +297,11 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'reg_plus',
     },
+    # PolarValueBot — maximally face-up value bettor (sizing-aware §B leak probe).
+    'PolarValue': {
+        'kind': 'rule_bot',
+        'strategy': 'polar_value',
+    },
     # TrickyReg — eval instrument that overbet-BLUFFS to punish RegPlus's residual
     # over-fold-to-overbets leak (the §3 yardstick). Not a production bot.
     'TrickyReg': {
