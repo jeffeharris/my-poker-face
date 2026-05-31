@@ -213,7 +213,7 @@ _test_schema_template_path = None
 #       Read-only scoreboard — never injected into core AI thresholds. See
 #       `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
 #       Renumbered from v121 on the prestige→prep-for-main merge (collision).
-SCHEMA_VERSION = 123
+SCHEMA_VERSION = 124
 
 
 class SchemaManager:
@@ -2012,6 +2012,10 @@ class SchemaManager:
             123: (
                 self._migrate_v123_add_preflop_node_key,
                 "Add preflop_node_key to player_decision_analysis — exact solver-chart node (scenario|position|opener|hand) captured at decision time for chart-graded coach leaks",
+            ),
+            124: (
+                self._migrate_v124_create_coach_tips,
+                "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
             ),
         }
 
@@ -6425,3 +6429,46 @@ class SchemaManager:
             )
             logger.info("Added preflop_node_key column to player_decision_analysis")
         logger.info("Migration v123 complete: preflop_node_key added")
+
+    def _migrate_v124_create_coach_tips(self, conn: sqlite3.Connection) -> None:
+        """Migration v124: create `coach_tips` — proactive in-decision tip log.
+
+        One row per proactive coach tip actually served to the player. Records
+        the spot (game/hand/phase/position) and, when a recurring chart leak was
+        recalled in that moment, which leak nudge fired (scenario/position/kind/
+        status/granularity). Joins to `player_decision_analysis` on
+        (game_id, hand_number, player_name, PRE_FLOP) so we can measure whether a
+        leak nudge actually moved the player's next decision toward the solver
+        line — the measurement prerequisite for "is the coach helping?".
+
+        Pure instrumentation: nothing here feeds AI decisions. Non-destructive,
+        idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS coach_tips (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id               TEXT,
+                owner_id              TEXT,
+                player_name           TEXT,
+                hand_number           INTEGER,
+                phase                 TEXT,
+                tip_text              TEXT,
+                leak_fired            INTEGER NOT NULL DEFAULT 0,
+                leak_scenario         TEXT,
+                leak_position         TEXT,
+                leak_kind             TEXT,
+                leak_status           TEXT,
+                leak_granularity      TEXT,
+                player_hand_canonical TEXT,
+                player_position       TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_coach_tips_join
+                ON coach_tips(game_id, hand_number, player_name)
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
+        )
+        logger.info("Migration v124 complete: coach_tips table created")

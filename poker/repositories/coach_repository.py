@@ -308,6 +308,109 @@ class CoachRepository(BaseRepository):
             ).fetchone()
             return row[0] if row else None
 
+    # --- Proactive tip log (measurement) ---
+
+    def record_tip(self, tip: Dict) -> int:
+        """Log one proactive in-decision coach tip that was served to the player.
+
+        ``tip`` keys (all optional except game_id): game_id, owner_id,
+        player_name, hand_number, phase, tip_text, leak_fired (bool),
+        leak_scenario, leak_position, leak_kind, leak_status, leak_granularity,
+        player_hand_canonical, player_position. Returns the new row id.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO coach_tips (
+                    game_id, owner_id, player_name, hand_number, phase, tip_text,
+                    leak_fired, leak_scenario, leak_position, leak_kind,
+                    leak_status, leak_granularity, player_hand_canonical, player_position
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tip.get('game_id'),
+                    tip.get('owner_id'),
+                    tip.get('player_name'),
+                    tip.get('hand_number'),
+                    tip.get('phase'),
+                    tip.get('tip_text'),
+                    1 if tip.get('leak_fired') else 0,
+                    tip.get('leak_scenario'),
+                    tip.get('leak_position'),
+                    tip.get('leak_kind'),
+                    tip.get('leak_status'),
+                    tip.get('leak_granularity'),
+                    tip.get('player_hand_canonical'),
+                    tip.get('player_position'),
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_tip_effectiveness(self, owner_id: str) -> Dict:
+        """Did leak nudges move the player's next decision toward the solver line?
+
+        Joins ``coach_tips`` (leak nudges that fired) to the decision that
+        followed in ``player_decision_analysis`` on
+        (game_id, hand_number, player_name, PRE_FLOP). For each leak kind the
+        "followed solver" test is the action the chart wants:
+          - limp / too_loose → raise OR fold (anything but a flat call)
+          - over_fold        → did NOT fold (continued)
+          - too_passive      → raised (not just called)
+
+        Returns ``{by_kind: {kind: {nudges, followed, follow_rate}}, overall:
+        {nudges, followed, follow_rate}}``. A baseline (non-nudged spots) is left
+        to a later cut — this first answers "after a nudge, did they comply?".
+        """
+        rows = []
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.leak_kind AS kind, pda.action_taken AS action
+                FROM coach_tips t
+                JOIN player_decision_analysis pda
+                  ON pda.game_id = t.game_id
+                 AND pda.hand_number = t.hand_number
+                 AND pda.player_name = t.player_name
+                 AND pda.phase = 'PRE_FLOP'
+                WHERE t.owner_id = ?
+                  AND t.leak_fired = 1
+                  AND t.phase = 'PRE_FLOP'
+                """,
+                (owner_id,),
+            ).fetchall()
+
+        def followed(kind: str, action: Optional[str]) -> bool:
+            a = (action or '').strip().lower()
+            if kind in ('limp', 'too_loose'):
+                return a in ('raise', 'bet', 'fold', 'jam', 'all_in', 'all-in')
+            if kind == 'over_fold':
+                return a not in ('fold',)
+            if kind == 'too_passive':
+                return a in ('raise', 'bet', 'jam', 'all_in', 'all-in')
+            return False
+
+        by_kind: Dict[str, Dict] = {}
+        total = followed_total = 0
+        for r in rows:
+            kind = r['kind'] if isinstance(r, dict) or hasattr(r, 'keys') else r[0]
+            action = r['action'] if hasattr(r, 'keys') else r[1]
+            bucket = by_kind.setdefault(kind, {'nudges': 0, 'followed': 0})
+            bucket['nudges'] += 1
+            total += 1
+            if followed(kind, action):
+                bucket['followed'] += 1
+                followed_total += 1
+        for b in by_kind.values():
+            b['follow_rate'] = round(b['followed'] / b['nudges'], 3) if b['nudges'] else None
+        return {
+            'by_kind': by_kind,
+            'overall': {
+                'nudges': total,
+                'followed': followed_total,
+                'follow_rate': round(followed_total / total, 3) if total else None,
+            },
+        }
+
     # --- Metrics queries (admin) ---
 
     def get_profile_stats(self) -> Dict:

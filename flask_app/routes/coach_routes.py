@@ -113,6 +113,38 @@ def coach_stats(game_id: str):
     return jsonify(data)
 
 
+def _record_proactive_tip(game_id: str, game_data: dict, player_name: str, payload: dict) -> None:
+    """Best-effort log of a proactive tip that was served, for measuring the
+    coach's effect on play (joins to player_decision_analysis later). Never raises."""
+    try:
+        if not getattr(extensions, 'coach_repo', None):
+            return
+        stats = payload.get('stats') or {}
+        leak = stats.get('known_preflop_leak') or {}
+        mm = game_data.get('memory_manager')
+        rng = stats.get('player_range_analysis') or {}
+        extensions.coach_repo.record_tip(
+            {
+                'game_id': game_id,
+                'owner_id': game_data.get('owner_id'),
+                'player_name': player_name,
+                'hand_number': getattr(mm, 'hand_count', None) if mm else None,
+                'phase': stats.get('phase'),
+                'tip_text': payload.get('answer'),
+                'leak_fired': bool(leak),
+                'leak_scenario': leak.get('scenario'),
+                'leak_position': leak.get('position'),
+                'leak_kind': leak.get('kind'),
+                'leak_status': leak.get('status'),
+                'leak_granularity': leak.get('granularity'),
+                'player_hand_canonical': rng.get('canonical_hand'),
+                'player_position': stats.get('position'),
+            }
+        )
+    except Exception as e:
+        logger.debug(f"coach tip capture skipped: {e}")
+
+
 @coach_bp.route('/api/coach/<game_id>/ask', methods=['POST'])
 @limiter.limit("10/minute")
 @_coach_required
@@ -146,6 +178,7 @@ def coach_ask(game_id: str):
 
         cached = take_cached_tip(game_data)
         if cached is not None:
+            _record_proactive_tip(game_id, game_data, player_name, cached)
             return jsonify(cached)
 
     # Compute current stats with progression context
@@ -199,14 +232,15 @@ def coach_ask(game_id: str):
         stats['recommendation'] = coach_action
         stats['raise_to'] = coach_raise_to
 
-    return jsonify(
-        {
-            'answer': answer,
-            'coach_action': coach_action,
-            'coach_raise_to': coach_raise_to,
-            'stats': stats,
-        }
-    )
+    payload = {
+        'answer': answer,
+        'coach_action': coach_action,
+        'coach_raise_to': coach_raise_to,
+        'stats': stats,
+    }
+    if request_type == 'proactive_tip':
+        _record_proactive_tip(game_id, game_data, player_name, payload)
+    return jsonify(payload)
 
 
 @coach_bp.route('/api/coach/preflop-leaks', methods=['GET'])
