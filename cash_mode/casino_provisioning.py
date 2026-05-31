@@ -32,6 +32,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple  # noqa: F401 — Tuple used in return type hint
 
+from cash_mode import presence_shadow
+from cash_mode.presence import PresenceEvent, ai_entity_id
+
 from cash_mode.bankroll import (
     AIBankrollState,
     debit_bankroll_for_seat,
@@ -414,6 +417,7 @@ def _reclaim_zombie_casino_seats(
             continue
         new_seats = list(table.seats)
         changed = False
+        reclaimed_pids: List[str] = []
         for idx, slot in enumerate(table.seats):
             if slot.get('kind') != 'ai':
                 continue
@@ -465,6 +469,8 @@ def _reclaim_zombie_casino_seats(
             new_seats[idx] = open_slot()
             changed = True
             reclaimed += 1
+            if pid:
+                reclaimed_pids.append(pid)
             logger.info(
                 "[CASH][CASINO] reclaimed stale seat %s/%s (%s, %d chips -> pool)",
                 table.table_id,
@@ -492,6 +498,16 @@ def _reclaim_zombie_casino_seats(
                     table.table_id,
                     exc,
                 )
+            else:
+                # SHADOW (Presence cutover Phase 1): each reclaimed casino AI
+                # seat returns its pool-funded identity to POOL. Emitted only
+                # after the authoritative seat write above succeeded.
+                for rpid in reclaimed_pids:
+                    presence_shadow.shadow_transition(
+                        entity_id=ai_entity_id(rpid),
+                        sandbox_id=sandbox_id,
+                        event=PresenceEvent.RETURN_TO_POOL,
+                    )
     return reclaimed
 
 
@@ -744,6 +760,18 @@ def _drain_fish_bankroll_to_pool(
         AIBankrollState(personality_id=personality_id, chips=0, last_regen_tick=now),
         sandbox_id=sandbox_id,
     )
+    # SHADOW (Presence cutover Phase 1): a fish's bankroll draining to the pool
+    # marks its exit. Casino fish are POOL-funded, so the POOL-origin event is
+    # RETURN_TO_POOL (not GO_OFFLINE). Emitted only after the authoritative
+    # bankroll write succeeded. This site is reached from several exits
+    # (teardown / reap / refill-unwind / spawn-abort); the SEATED→leaving seat
+    # write is shadowed by the caller (reclaim/shed/teardown) — this records the
+    # off-grid (POOL) half so a fish that left via movement still lands in POOL.
+    presence_shadow.shadow_transition(
+        entity_id=ai_entity_id(personality_id),
+        sandbox_id=sandbox_id,
+        event=PresenceEvent.RETURN_TO_POOL,
+    )
     return chips, 0
 
 
@@ -890,6 +918,24 @@ def _refill_one_fish(
             reason_detail='refill_save_failed',
         )
         return None
+    # SHADOW (Presence cutover Phase 1): a refilled casino fish is a POOL-funded
+    # AI seeded into the sandbox (SEED → POOL) then seated (SIT → SEATED with
+    # table_id+seat_index). Reached only after the authoritative seat write
+    # above succeeded. The shadow helper is best-effort; SEED is replayed each
+    # refill to (idempotently) anchor the POOL origin before the SIT even if a
+    # prior cycle was missed.
+    presence_shadow.shadow_transition(
+        entity_id=ai_entity_id(pid),
+        sandbox_id=sandbox_id,
+        event=PresenceEvent.SEED,
+    )
+    presence_shadow.shadow_transition(
+        entity_id=ai_entity_id(pid),
+        sandbox_id=sandbox_id,
+        event=PresenceEvent.SIT,
+        table_id=table.table_id,
+        seat_index=seat_idx,
+    )
     already_seated.add(pid)
     return CasinoRefill(
         table_id=table.table_id,
@@ -940,6 +986,7 @@ def _shed_excess_fish(
             continue
         new_seats = list(table.seats)
         changed = False
+        shed_pids: List[str] = []
         # Shed the trailing `excess` fish — deterministic, order-stable.
         for idx in fish_idx[-excess:]:
             slot = table.seats[idx]
@@ -973,6 +1020,8 @@ def _shed_excess_fish(
             new_seats[idx] = open_slot()
             changed = True
             shed += 1
+            if pid:
+                shed_pids.append(pid)
         if changed:
             updated = CashTableState(
                 table_id=table.table_id,
@@ -993,6 +1042,18 @@ def _shed_excess_fish(
                     table.table_id,
                     exc,
                 )
+            else:
+                # SHADOW (Presence cutover Phase 1): each shed casino fish
+                # returns its POOL-funded identity to POOL (the seat is opened;
+                # its residual bankroll drains via the drain-on-exit sweep, which
+                # is shadowed in _drain_fish_bankroll_to_pool). Emitted only after
+                # the authoritative seat write succeeded.
+                for spid in shed_pids:
+                    presence_shadow.shadow_transition(
+                        entity_id=ai_entity_id(spid),
+                        sandbox_id=sandbox_id,
+                        event=PresenceEvent.RETURN_TO_POOL,
+                    )
     return shed
 
 
@@ -1373,6 +1434,7 @@ def resolve_casino_provisioning(
         # (in memory). Bail out of the lineup if the pool runs dry mid-fill.
         seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
         seeded: List[str] = []
+        seeded_seats: List[Tuple[str, int]] = []
         total_drawn = 0
         for pid, seat_idx in zip(chosen, seat_positions, strict=False):
             if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < fish_buy_in:
@@ -1390,6 +1452,7 @@ def resolve_casino_provisioning(
                 continue
             seats[seat_idx] = ai_slot_fish(pid, fish_buy_in)
             seeded.append(pid)
+            seeded_seats.append((pid, seat_idx))
             total_drawn += drawn
 
         if len(seeded) < CASINO_FISH_MIN:
@@ -1429,6 +1492,24 @@ def resolve_casino_provisioning(
                     reason_detail='spawn_save_failed',
                 )
             continue
+
+        # SHADOW (Presence cutover Phase 1): each fish seated into the newly
+        # spawned casino is a POOL-funded AI seeded into the sandbox
+        # (SEED → POOL) then seated (SIT → SEATED with table_id+seat_index).
+        # Reached only after the authoritative table write above succeeded.
+        for pid, seat_idx in seeded_seats:
+            presence_shadow.shadow_transition(
+                entity_id=ai_entity_id(pid),
+                sandbox_id=sandbox_id,
+                event=PresenceEvent.SEED,
+            )
+            presence_shadow.shadow_transition(
+                entity_id=ai_entity_id(pid),
+                sandbox_id=sandbox_id,
+                event=PresenceEvent.SIT,
+                table_id=table_id,
+                seat_index=seat_idx,
+            )
 
         # Seats are persisted with their buy-in chips; debit each fish's
         # buy-in from its (prefunded) bankroll so bankroll + seat == prefund.
