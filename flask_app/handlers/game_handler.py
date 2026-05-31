@@ -1522,6 +1522,17 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
 
     # 2. Refresh movement + live-fill for this table.
     now = datetime.utcnow()
+
+    # Scene-0 / scripted tutorial tables are PINNED: keep the persisted chip
+    # counts synced to the live stacks (step 1, above) but do NOT run AI
+    # movement or live-fill — the authored cast (Sal + the fish) must stay put
+    # so the scripted graduation beat is reliable. Persist the chip-synced row
+    # and stop; the vouch trigger runs separately at the cash hand-completion
+    # caller. See `cash_mode/career_progression.py`.
+    if synced_table.table_type == 'scripted':
+        cash_table_repo.save_table(synced_table, sandbox_id=sandbox_id, now=now)
+        return
+
     big_blind, table_min_buy_in, table_max_buy_in = table_buy_in_window(synced_table.stake_label)
     try:
         stake_idx = STAKES_ORDER.index(synced_table.stake_label)
@@ -1746,6 +1757,315 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
                 e,
                 exc_info=True,
             )
+
+
+# --- Scripted table scenes (Scene 0 + the reusable machinery) ---------------
+# A pinned table can be a *scripted scene*: the deck is rigged hand-by-hand (the
+# state machine's name-keyed `provide_hand_holes`, immune to button rotation), an
+# AI cast plays scripted lines so the lesson is reliable, a mentor narrates, and
+# finishing the script fires a completion effect. Scene 0 (the Lucky Stack
+# tutorial) is the first consumer; the descriptor + registry live in
+# `cash_mode/table_scenes.py` so other scenes drop in by registering a TableScene.
+# Scene position is persisted to `career_progress.scene_progress[scene_id]`, so a
+# backend restart / TTL eviction / cold-load RESUMES mid-scene instead of
+# restarting at hand 0 (which would lose the rig). See CASH_MODE_CAREER_PROGRESSION.md.
+
+
+def _scene_for_game(game_id: str, game_data: dict):
+    """The TableScene pinned to this game's table, or None for an ordinary table."""
+    from cash_mode import table_scenes
+
+    table_id = game_data.get('cash_table_id') or _restore_cash_table_binding(game_id, game_data)
+    return table_scenes.scene_for_table(table_id)
+
+
+def _is_scene0_game(game_id: str, game_data: dict) -> bool:
+    """True if this game is a scripted-scene table (Scene 0 and any future ones)."""
+    return _scene_for_game(game_id, game_data) is not None
+
+
+def _scene_roles(game_data: dict, state_machine, scene) -> tuple:
+    """Map scene roles to live (name, seat): human → hero, cast persona_ids → roles.
+
+    Returns ({role: name}, {role: seat_index}). Resolved from the live seating
+    every time — names are stable across the per-hand button rotation, so this is
+    safe to recompute (and to re-derive cheaply after a cold-load)."""
+    name_to_pid = game_data.get('cash_personality_ids', {}) or {}
+    pid_to_role = {pid: role for role, pid in (scene.cast or {}).items()}
+    roles: dict = {}
+    seats: dict = {}
+    for i, p in enumerate(state_machine.game_state.players):
+        if p.is_human:
+            roles['hero'], seats['hero'] = p.name, i
+            continue
+        role = pid_to_role.get(name_to_pid.get(p.name))
+        if role:
+            roles[role], seats[role] = p.name, i
+    return roles, seats
+
+
+def _mentor_say(game_id: str, scene, line: str) -> None:
+    """The scene's mentor narrates in table chat. No-op for an empty line.
+
+    Sent under the scene's mentor display name (Scene 0 = "Sal Monroe", which the
+    frontend SalFloater portrait-treats)."""
+    if not line:
+        return
+    try:
+        send_message(game_id, scene.mentor_name, line, "ai")
+    except Exception:
+        logger.warning("[SCENE] mentor narration failed", exc_info=True)
+
+
+def _fish_say(game_id: str, game_data: dict, line: str) -> None:
+    """The fish talks: clueless, cheerful *blub* chatter under the fish's live name.
+
+    This is the comedy that sells the patrons as literal fish — the fish never
+    clocks that it's the mark."""
+    if not line:
+        return
+    name = (game_data.get('scene_roles') or {}).get('fish')
+    if not name:
+        return
+    try:
+        send_message(game_id, name, line, "ai")
+    except Exception:
+        logger.warning("[SCENE] fish narration failed", exc_info=True)
+
+
+def _load_scene_progress(game_id: str, game_data: dict, scene) -> Optional[dict]:
+    """Persisted `{idx, passed, complete}` for this scene, or None. Best-effort."""
+    try:
+        from flask_app.extensions import career_progress_repo
+        from flask_app.services import game_state_service
+
+        if career_progress_repo is None:
+            return None
+        sandbox_id = _sandbox_id_for(game_data)
+        owner_id, _ = game_state_service.get_game_owner_info(game_id)
+        if not owner_id or not sandbox_id:
+            return None
+        progress = career_progress_repo.load(sandbox_id, owner_id)
+        return (progress.scene_progress or {}).get(scene.scene_id)
+    except Exception:
+        logger.warning("[SCENE] load progress failed", exc_info=True)
+        return None
+
+
+def _persist_scene_progress(
+    game_id: str, game_data: dict, scene, *, complete: bool = False
+) -> None:
+    """Persist the live scene position so it survives cold-load. Best-effort."""
+    try:
+        from flask_app.extensions import career_progress_repo
+        from flask_app.services import game_state_service
+
+        if career_progress_repo is None:
+            return
+        sandbox_id = _sandbox_id_for(game_data)
+        owner_id, _ = game_state_service.get_game_owner_info(game_id)
+        if not owner_id or not sandbox_id:
+            return
+        progress = career_progress_repo.load(sandbox_id, owner_id)
+        sp = dict(progress.scene_progress or {})
+        sp[scene.scene_id] = {
+            'idx': int(game_data.get('scene_idx', 0)),
+            'passed': int(game_data.get('scene_passed', 0)),
+            'complete': bool(complete or game_data.get('scene_completed')),
+        }
+        progress.scene_progress = sp
+        career_progress_repo.save(progress)
+    except Exception:
+        logger.warning("[SCENE] persist progress failed", exc_info=True)
+
+
+def _init_scene(game_id: str, game_data: dict, state_machine, scene) -> None:
+    """First-touch / cold-load restore for a scene: roles + script position.
+
+    Roles are always re-derived from the live seating (names are stable across the
+    button rotation). The position is RESTORED from career_progress on a cold-load
+    — so a restart/eviction resumes mid-scene rather than replaying from hand 0 and
+    losing the rig — while a genuinely fresh game starts at hand 0 and greets the
+    table. The cold-load resume is silent (no replaying old narration).
+    """
+    roles, seats = _scene_roles(game_data, state_machine, scene)
+    game_data['scene_id'] = scene.scene_id
+    game_data['scene_roles'] = roles
+    game_data['scene_seats'] = seats
+
+    saved = _load_scene_progress(game_id, game_data, scene)
+    if saved and not saved.get('complete'):
+        game_data['scene_idx'] = int(saved.get('idx', 0))
+        game_data['scene_passed'] = int(saved.get('passed', 0))
+        return
+
+    game_data['scene_idx'] = 0  # hand 1 is in progress (index 0, just poker)
+    game_data['scene_passed'] = 0
+    hand0 = scene.hand_for_index(0)
+    if hand0 is not None:
+        _mentor_say(game_id, scene, hand0.sal_setup)
+        _fish_say(game_id, game_data, hand0.fish_setup)
+    _persist_scene_progress(game_id, game_data, scene)
+
+
+def _scene_scripted_action(
+    game_data: dict, state_machine, current_player, scene=None
+) -> Optional[dict]:
+    """Scripted action for the fish/mentor on the current rigged hand, or None.
+
+    None means "let the bot decide" (non-rigged hand, no plan for this phase, or
+    the player isn't part of the cast)."""
+    from cash_mode import career_scene, table_scenes
+
+    if scene is None:
+        scene = table_scenes.scene_for_table(game_data.get('cash_table_id'))
+    if scene is None:
+        return None
+    hand = scene.hand_for_index(game_data.get('scene_idx', -1))
+    if hand is None or not hand.rigged:
+        return None
+    roles = game_data.get('scene_roles') or {}
+    name = current_player.name
+    if name == roles.get('fish'):
+        plan = hand.fish_plan
+    elif name == roles.get('mentor'):
+        plan = hand.mentor_plan
+    else:
+        return None
+    phase = getattr(state_machine.current_phase, 'name', '')
+    entry = plan.get(phase)
+    if not entry:
+        return None
+    # A plan entry is either a bare intent string or an (intent, size_tag) tuple.
+    if isinstance(entry, (tuple, list)):
+        intent, size_tag = entry[0], (entry[1] if len(entry) > 1 else None)
+    else:
+        intent, size_tag = entry, None
+    size_frac = career_scene.SIZE_FRAC.get(size_tag, 0.7)
+    gs = state_machine.game_state
+    return career_scene.resolve_scripted_action(
+        intent=intent,
+        valid_actions=gs.current_player_options,
+        cost_to_call=gs.highest_bet - current_player.bet,
+        pot_total=int((gs.pot or {}).get('total', 0)),
+        stack=current_player.stack,
+        big_blind=gs.current_ante,
+        size_frac=size_frac,
+    )
+
+
+def _complete_scene(game_id: str, game_data: dict, scene) -> None:
+    """Scene finished → the mentor's closing sequence + the scene's completion effect.
+
+    Completion effects are dispatched by `scene.on_complete` (a string key kept on
+    the pure descriptor) so new scenes can plug in their own payoff."""
+    # The graduation beat: the reveal (you heard him; the fish never did), the
+    # fish-name shed, then the payoff — a short sequence of mentor lines.
+    for line in scene.graduation_lines:
+        _mentor_say(game_id, scene, line)
+    if scene.on_complete == 'career_first_vouch':
+        _fire_career_first_vouch(game_id, game_data)
+
+
+def _fire_career_first_vouch(game_id: str, game_data: dict) -> None:
+    """Scene-0 completion effect: the first vouch (reveals a random home court)."""
+    from cash_mode.career_progression import fire_first_vouch
+    from flask_app.extensions import career_progress_repo
+    from flask_app.services import game_state_service
+
+    if career_progress_repo is None:
+        return
+    sandbox_id = _sandbox_id_for(game_data)
+    owner_id, _ = game_state_service.get_game_owner_info(game_id)
+    if not owner_id or not sandbox_id:
+        return
+    _, event = fire_first_vouch(
+        career_progress_repo=career_progress_repo, sandbox_id=sandbox_id, owner_id=owner_id
+    )
+    if event is None:
+        return
+    try:
+        from cash_mode.activity import serialize_event
+        from flask_app.services import presence
+
+        socketio.emit(
+            'world_event', serialize_event(event), to=presence.lobby_room_name(owner_id)
+        )
+    except Exception:
+        logger.warning("[CAREER] scene completion emit failed", exc_info=True)
+
+
+def _advance_scene(game_id: str, game_data: dict, state_machine) -> None:
+    """Hand-boundary driver for a scripted scene: judge the finished hand, set up next.
+
+    Judges the just-played teaching hand (did the hero fold? = failed the lesson),
+    narrates the mentor's verdict, then advances the script index and — for a
+    rigged upcoming hand — pre-stacks its deck and previews the table. When the
+    script is exhausted, completes the scene (Scene 0 → the first vouch). The
+    position is persisted each step so a cold-load resumes here. Best-effort; the
+    caller swallows exceptions so a hiccup never blocks the hand flow.
+    """
+    scene = _scene_for_game(game_id, game_data)
+    if scene is None:
+        return
+
+    if 'scene_idx' not in game_data:
+        _init_scene(game_id, game_data, state_machine, scene)
+
+    roles = game_data.get('scene_roles', {})
+
+    # 1. Judge the hand that just finished (only teaching hands carry a lesson).
+    cur = scene.hand_for_index(game_data.get('scene_idx', -1))
+    if cur is not None and cur.lesson:
+        hero_name = roles.get('hero')
+        hero = next(
+            (p for p in state_machine.game_state.players if p.name == hero_name), None
+        )
+        folded = hero is None or hero.is_folded
+        # 'folded' lessons (discipline) pass when the hero laid it down; the
+        # rest (value / bluff-catch) pass when the hero stayed in.
+        passed = folded if cur.pass_when == "folded" else (not folded)
+        _mentor_say(game_id, scene, cur.sal_pass if passed else cur.sal_fail)
+        if passed:
+            game_data['scene_passed'] = game_data.get('scene_passed', 0) + 1
+    # The fish reacts to the hand that just played (clueless + cheerful), teaching
+    # or filler alike.
+    if cur is not None:
+        _fish_say(game_id, game_data, cur.fish_react)
+
+    # 2. Advance to the next scripted hand.
+    idx = game_data.get('scene_idx', 0) + 1
+    game_data['scene_idx'] = idx
+    nxt = scene.hand_for_index(idx)
+    if nxt is None:
+        if not game_data.get('scene_completed'):
+            game_data['scene_completed'] = True
+            _persist_scene_progress(game_id, game_data, scene, complete=True)
+            _complete_scene(game_id, game_data, scene)
+        return
+
+    # 3. Pre-stack the upcoming hand's deck (rigged hands only) + preview the
+    #    table. The deck is provided as scripted HOLES KEYED BY PLAYER NAME and
+    #    resolved at deal time against the live (post-button-rotation) seating —
+    #    so the right cards reach the right player even though the players tuple
+    #    rotates each hand. (A seat-indexed deck went stale the moment the button
+    #    moved, dealing the hero's monster to whoever now sat in seat 0.)
+    if nxt.rigged:
+        try:
+            from core.card import Card
+
+            holes_by_name: dict = {}
+            for role, shorts in nxt.holes.items():
+                name = roles.get(role)
+                if name:
+                    holes_by_name[name] = tuple(Card.from_short(s) for s in shorts)
+            board = tuple(Card.from_short(s) for s in nxt.board)
+            state_machine.provide_hand_holes(holes_by_name, board)
+        except Exception:
+            logger.exception("[SCENE] deck rig failed for hand idx %d", idx)
+    _mentor_say(game_id, scene, nxt.sal_setup)
+    _fish_say(game_id, game_data, nxt.fish_setup)
+    _persist_scene_progress(game_id, game_data, scene)
 
 
 def _apply_rebuys(
@@ -2658,6 +2978,20 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
 
     memory_manager = game_data['memory_manager']
     ai_controllers = game_data.get('ai_controllers', {})
+
+    # Scripted scenes carry their OWN narration (the mentor + fish scripted lines),
+    # so suppress the regular post-hand LLM commentary for the scene's cast —
+    # otherwise the table gets both a scripted line and an off-script comment for
+    # the same character. Only the cast is muted; a non-cast AI (none today at a
+    # pinned scene table, but future-proof) still comments.
+    scene = _scene_for_game(game_id, game_data)
+    if scene is not None:
+        name_to_pid = game_data.get('cash_personality_ids', {}) or {}
+        cast_pids = set((scene.cast or {}).values())
+        cast_names = {n for n, pid in name_to_pid.items() if pid in cast_pids}
+        ai_controllers = {n: c for n, c in ai_controllers.items() if n not in cast_names}
+        if not ai_controllers:
+            return
     state_machine = game_data.get('state_machine')
     tournament_tracker = game_data.get('tournament_tracker')
 
@@ -3403,6 +3737,17 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
                 f"[CASH] Lobby refresh failed for {game_id}: {e}",
                 exc_info=True,
             )
+        # Scripted scene (e.g. Scene 0): at a pinned scene table, judge the
+        # teaching hand that just finished, narrate the mentor's verdict, and
+        # pre-stack the next scripted hand's deck (completing the scene when the
+        # script runs out). Best-effort — never blocks the hand flow.
+        try:
+            _advance_scene(game_id, game_data, state_machine)
+        except Exception as e:
+            logger.error(
+                f"[CASH] Scene-0 advance failed for {game_id}: {e}",
+                exc_info=True,
+            )
 
         # Heads-up + busted human (or any cash table that's lost all but
         # one chip-holder) can't deal another hand. The state machine
@@ -4132,6 +4477,16 @@ def handle_ai_action(game_id: str) -> None:
     current_player = state_machine.game_state.current_player
     logger.debug(f"[AI_ACTION] Current AI player: {current_player.name}")
 
+    # Scripted scene: the first AI turn at a pinned scene table initialises (or
+    # cold-load restores) the scene state — roles + script position + opening
+    # line. Cheap idempotent guard.
+    _scene = _scene_for_game(game_id, current_game_data)
+    if _scene is not None and 'scene_idx' not in current_game_data:
+        try:
+            _init_scene(game_id, current_game_data, state_machine, _scene)
+        except Exception:
+            logger.warning("[SCENE] init failed", exc_info=True)
+
     # Fast-forward dispatch: swap to a tiered controller (solver + personality,
     # no LLM expression) so the turn resolves quickly. Engaged by the one-orbit
     # `fast_forward` flag (manual FF button / after-fold trigger) OR permanently
@@ -4160,8 +4515,19 @@ def handle_ai_action(game_id: str) -> None:
     controller.human_reputation_tone = _resolve_human_reputation_tone(current_game_data)
 
     response_addressing = []  # Default for fallback / exception paths
+    # Scripted scene: on a rigged hand, the fish/mentor take scripted actions so
+    # the lesson is reliable (the bot decision is bypassed for them).
+    scene0_scripted = None
     try:
-        if config.AI_DECISION_MODE != 'llm':
+        scene0_scripted = _scene_scripted_action(current_game_data, state_machine, current_player, _scene)
+    except Exception:
+        logger.warning("[SCENE] scripted-action resolve failed", exc_info=True)
+    try:
+        if scene0_scripted is not None:
+            action = scene0_scripted['action']
+            amount = int(scene0_scripted.get('amount', 0) or 0)
+            full_message = ''
+        elif config.AI_DECISION_MODE != 'llm':
             # Fallback mode: use random valid action (no LLM call)
             valid_actions = state_machine.game_state.current_player_options
             call_amount = state_machine.game_state.highest_bet - current_player.bet

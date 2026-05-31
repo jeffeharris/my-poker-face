@@ -1370,6 +1370,14 @@ def refresh_unseated_tables(
             # Active session table; the hand-boundary hook handles it.
             continue
 
+        if table.table_type == 'scripted':
+            # Scene-0 / scripted tutorial tables are PINNED: the authored cast
+            # (e.g. Sal + the fish) must stay put so the scripted graduation
+            # beat is reliable. Skip movement, live-fill, and the global greedy
+            # fill entirely — never add them to fill_ctx. See
+            # `cash_mode/career_progression.py` and CASH_MODE_CAREER_PROGRESSION.md.
+            continue
+
         big_blind, table_min_buy_in, table_max_buy_in = table_buy_in_window(table.stake_label)
         try:
             stake_idx = STAKES_ORDER.index(table.stake_label)

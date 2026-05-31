@@ -107,6 +107,24 @@ export async function leaveTable(): Promise<LeaveResponse> {
   return postJson('/leave');
 }
 
+/** The Lucky Stack intake (cold open) result — the LLM-christened persona. */
+export interface IntakeResult {
+  player_name: string;
+  fish_name: string;
+  bio: string;
+  intensity: 'chill' | 'spicy';
+  /** Seam for generating an avatar from the persona (not fired automatically). */
+  avatar_prompt: string;
+}
+
+export async function submitIntake(
+  name: string,
+  intensity: 'chill' | 'spicy',
+  style: string
+): Promise<IntakeResult> {
+  return postJson('/intake', { name, intensity, style });
+}
+
 export async function getState(): Promise<CashStateResponse> {
   return getJson('/state');
 }

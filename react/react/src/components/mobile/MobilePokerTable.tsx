@@ -7,6 +7,7 @@ import type { Player } from '../../types/player';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
+import { SalFloater } from './SalFloater';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
@@ -74,6 +75,10 @@ export function MobilePokerTable({
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [showCashSheet, setShowCashSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
+  // Sal's lines play through a QUEUE (see SalFloater) — he fires several in a row
+  // (the graduation reveal is three) and a single "latest message" slot would
+  // drop all but the last. Non-Sal AI chatter still uses the single slot above.
+  const [salQueue, setSalQueue] = useState<ChatMessage[]>([]);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -82,13 +87,23 @@ export function MobilePokerTable({
   // Incrementing this state forces a re-render after the ref is mutated on fade completion
   const [, setFadeKey] = useState(0);
 
-  // Callbacks for handling AI messages (for floating bubbles)
+  // Callbacks for handling AI messages (for floating bubbles). Sal is special-
+  // cased into a queue so every one of his lines surfaces; everyone else uses the
+  // single "most recent" slot that FloatingChat renders.
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
-    setRecentAiMessage(message);
+    if (message.sender === 'Sal Monroe') {
+      setSalQueue((q) => (q.some((m) => m.id === message.id) ? q : [...q, message]));
+    } else {
+      setRecentAiMessage(message);
+    }
   }, []);
 
   const dismissRecentAiMessage = useCallback(() => {
     setRecentAiMessage(null);
+  }, []);
+
+  const dismissSalMessage = useCallback((id: string) => {
+    setSalQueue((q) => q.filter((m) => m.id !== id));
   }, []);
 
   // Coach state
@@ -873,12 +888,15 @@ export function MobilePokerTable({
             </div>
           </div>
 
-          {/* Floating AI Message */}
+          {/* Floating AI Message. Sal "The Clock" gets special treatment — his
+              lines are routed to the SalFloater queue (handleNewAiMessage) and
+              never reach recentAiMessage, so FloatingChat only shows everyone else. */}
           <FloatingChat
             message={recentAiMessage}
             onDismiss={dismissRecentAiMessage}
             playerAvatars={playerAvatars}
           />
+          <SalFloater queue={salQueue} onShown={dismissSalMessage} />
 
           {/* Hero Section - Your Cards */}
           <div

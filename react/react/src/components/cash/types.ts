@@ -228,7 +228,11 @@ export interface LobbyEvent {
     | 'ai_requests_forgiveness'
     // v121 — the human's reputation quadrant changed (read-only scoreboard
     // beat; `reason` carries the new quadrant label).
-    | 'reputation_shift';
+    | 'reputation_shift'
+    // v124 — an AI vouched the player into a new cardroom (Act-1 career spine).
+    // A door opens: the revealed room is `table_id`/`stake_label`, the voucher
+    // is `personality_id`/`name`, `message` is the pre-formatted line.
+    | 'vouch';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -374,6 +378,11 @@ export interface LobbyResponse {
    *  Null until the world ticker's first prestige capture; the panel renders
    *  nothing while absent. Read-only — no AI behaviour reads it (yet). */
   reputation?: ReputationData | null;
+  /** v124 — true for a brand-new career player who hasn't been through the
+   *  Lucky Stack intake (cold open) yet; the frontend shows the intake beat
+   *  before the lobby. `fish_name` is the tourist handle once christened. */
+  intake_needed?: boolean;
+  fish_name?: string | null;
 }
 
 /** How fast the background world ticks for unseated tables. */

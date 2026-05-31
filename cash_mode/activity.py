@@ -184,6 +184,17 @@ does not change any AI behaviour. See
 `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`."""
 
 
+EVENT_VOUCH = "vouch"
+"""An AI vouched the human into a new cardroom (v124, Act-1 career spine). The
+beat reveals a room on the player's keyring — *"Sal Monroe leans over: 'Come by
+The Back Room — tell 'em I sent you.'"* `personality_id`/`name` are the voucher;
+`table_id`/`stake_label` point at the revealed cardroom; `message` is the
+pre-formatted line. Emitted from the cash hand-completion hook when the scripted
+(M1) or relationship-driven (M2) vouch fires. The frontend lobby listens for
+this on the existing `world_event` channel and surfaces the new door. See
+`cash_mode/career_progression.py` and `docs/plans/CASH_MODE_CAREER_PROGRESSION.md`."""
+
+
 @dataclass(frozen=True)
 class LobbyEvent:
     """One movement event surfaced to the lobby UI.
@@ -317,6 +328,13 @@ def format_leave_message(
 def format_join_message(name: str, stake_label: str, table_name: Optional[str] = None) -> str:
     """Human-readable phrasing for a join event."""
     return f"{name} sat down at {format_table_location(table_name, stake_label)}"
+
+
+def format_vouch_message(
+    name: str, stake_label: str, table_name: Optional[str] = None
+) -> str:
+    """Human-readable phrasing for a vouch event — a new door opening."""
+    return f"{name} vouched you into {format_table_location(table_name, stake_label)}"
 
 
 def format_big_win_message(

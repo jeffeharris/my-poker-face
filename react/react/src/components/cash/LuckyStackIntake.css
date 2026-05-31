@@ -1,0 +1,225 @@
+/* The Lucky Stack intake — a 50s-diner cold open. Portaled to body. */
+
+.lucky__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: radial-gradient(120% 120% at 50% 0%, #21130c 0%, #0c0805 70%);
+}
+
+.lucky__card {
+  width: min(460px, 100%);
+  background: #17120e;
+  border: 1px solid #4a3522;
+  border-radius: 14px;
+  padding: 1.5rem 1.4rem 1.6rem;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.6);
+  color: #efe6da;
+  text-align: center;
+}
+
+.lucky__sign {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffd98a;
+  text-shadow: 0 0 14px rgba(255, 180, 90, 0.45);
+}
+.lucky__sub {
+  font-size: 0.7rem;
+  letter-spacing: 0.3em;
+  color: #b07a45;
+  margin-bottom: 1.1rem;
+}
+
+.lucky__waitress {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.lucky__waitress-img {
+  flex: 0 0 auto;
+  width: 132px;
+  height: auto;
+  object-fit: contain;
+  object-position: top center;
+  /* Fade the bottom edge so the cutout's hard crop softens into the card. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+}
+.lucky__waitress .lucky__line {
+  margin: 0;
+  flex: 1;
+  align-self: center;
+}
+
+.lucky__line {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #d9ccbb;
+  text-align: left;
+  margin: 0 0 1.1rem;
+}
+.lucky__line em {
+  color: #a9967f;
+  font-style: italic;
+}
+.lucky__who {
+  font-weight: 700;
+  color: #e9b06a;
+}
+
+.lucky__label {
+  display: block;
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9a7e5e;
+  margin: 0 0 0.3rem;
+}
+.lucky__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.7rem;
+  margin-bottom: 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #4a3522;
+  background: #0f0b08;
+  color: #f4ece0;
+  font-size: 0.95rem;
+}
+.lucky__input:focus {
+  outline: none;
+  border-color: #c79552;
+}
+
+.lucky__vibe {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.1rem 0 0.7rem;
+}
+.lucky__vibe-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #4a3522;
+  background: #0f0b08;
+  color: #cbb89c;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lucky__vibe-btn.is-active {
+  border-color: #e9b06a;
+  background: #2a1d10;
+  color: #ffe6bf;
+}
+
+.lucky__deals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 0.1rem 0 0.5rem;
+}
+
+.lucky__hint {
+  font-size: 0.74rem;
+  color: #8c7559;
+  text-align: center;
+  margin: 0 0 0.9rem;
+}
+
+.lucky__avatar {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 0.6rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  background: #0f2018;
+  border: 2px dashed #3c5a48;
+}
+
+.lucky__bio {
+  font-size: 0.95rem;
+  font-style: italic;
+  color: #d9ccbb;
+  margin: 0 0 1rem;
+}
+.lucky__deal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.7rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid #4a3522;
+  background: #0f0b08;
+  color: #d4c5b1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.lucky__deal:hover {
+  border-color: #8a6334;
+}
+.lucky__deal.is-selected {
+  border-color: #e9b06a;
+  background: #2a1d10;
+  color: #ffe6bf;
+}
+
+.lucky__btn {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.75rem 1rem;
+  border-radius: 9px;
+  border: none;
+  background: #c0832f;
+  color: #1a120a;
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.lucky__btn:hover:not(:disabled) {
+  background: #d6953a;
+}
+.lucky__btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.lucky__reveal {
+  animation: lucky-fade 0.4s ease;
+}
+.lucky__fishname {
+  font-family: 'Georgia', serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ffd98a;
+  margin: 0.4rem 0 1rem;
+}
+.lucky__welcome {
+  text-align: center;
+  color: #c9bba8;
+}
+
+@keyframes lucky-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}

@@ -808,13 +808,23 @@ class PersonalityRepository(BaseRepository):
                 updated += 1
             else:
                 # The curated celebrity corpus IS the live pool, so seed it
-                # circulating=1 explicitly. Without this a fresh-install DB
+                # circulating=1 by default. Without this a fresh-install DB
                 # would land every celebrity at the new circulating=0 default
                 # and start with an empty opponent pool. (Re-seeds of an
                 # existing row go through update_personality_config above,
                 # which leaves circulating untouched = preserved.)
+                #
+                # A JSON entry may opt OUT with `"circulating": false` — used
+                # by authored scene personas (e.g. Sal Moretti, the Scene-0
+                # fish) that must exist as real, pickable personalities but
+                # must NOT auto-seed into every sandbox's world. The career
+                # scene system places them explicitly. The field is stripped
+                # before persisting the config blob (it's a seeding directive,
+                # not a personality trait).
+                circulating = bool(config.get('circulating', True))
+                config_to_save = {k: v for k, v in config.items() if k != 'circulating'}
                 self.save_personality(
-                    name, config, source='personalities.json', circulating=True
+                    name, config_to_save, source='personalities.json', circulating=circulating
                 )
                 added += 1
 

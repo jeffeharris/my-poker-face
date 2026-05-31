@@ -218,7 +218,13 @@ _test_schema_template_path = None
 #       The cash-mode seat-filler now only auto-seats circulating=1 personas;
 #       new ownerless auto-creations default to 0. Closes the "test/zombie
 #       persona silently pollutes everyone's circuit" class structurally.
-SCHEMA_VERSION = 123
+# v124: Create `career_progress` — per-(sandbox, owner) narrative state for the
+#       Act-1 career-progression spine (`CASH_MODE_CAREER_PROGRESSION.md`). A
+#       small JSON blob holds the keyring (`revealed_table_ids`), the Scene-0
+#       tutorial flags (seeded / fish id / graduated), the chosen home court,
+#       and the per-AI one-vouch ledger (`vouched_by`). The lobby renders only
+#       revealed cardrooms; the world doesn't grow, the player's view does.
+SCHEMA_VERSION = 124
 
 
 class SchemaManager:
@@ -2016,6 +2022,10 @@ class SchemaManager:
             123: (
                 self._migrate_v123_add_personality_circulating,
                 "Add circulating flag to personalities — decouple visibility (who can see/pick) from auto-seeding into the opponent pool; backfill preserves current behavior (all public rows circulate)",
+            ),
+            124: (
+                self._migrate_v124_create_career_progress,
+                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger",
             ),
         }
 
@@ -6459,3 +6469,37 @@ class SchemaManager:
             f"Migration v123 complete: added circulating column, "
             f"marked {updated} public personas circulating"
         )
+
+    def _migrate_v124_create_career_progress(self, conn: sqlite3.Connection) -> None:
+        """Migration v124: create `career_progress` for the Act-1 spine.
+
+        One row per (sandbox, owner). Holds the narrative keyring and tutorial
+        state for `CASH_MODE_CAREER_PROGRESSION.md` as a single JSON blob so the
+        shape can evolve without a migration per field:
+
+          - `revealed_table_ids` — the keyring: which cardrooms the player has
+            been vouched into and may therefore SEE in the lobby. New players
+            start empty (only the Scene-0 table shows); each vouch appends one.
+          - `scene0_seeded` / `scene0_table_id` / `scene0_fish_id` — the pinned
+            intimate tutorial table (Sal + one fish + you), so the seeder is
+            idempotent and the vouch trigger knows which fish to measure.
+          - `tutorial_complete` — Scene-0 graduated (the first vouch fired).
+          - `home_court_table_id` — the random cardroom the first vouch revealed.
+          - `vouched_by` — append-only list of personality_ids that have already
+            spent their one vouch (v1: one per AI).
+
+        The world economy still runs across ALL tables (the lobby just filters
+        what it renders), so nothing here gates the sim — it's a read-side
+        visibility layer plus the scripted-graduation bookkeeping. Sandbox-keyed
+        so a fresh save starts the keyring over. Non-destructive, idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS career_progress (
+                sandbox_id    TEXT NOT NULL,
+                owner_id      TEXT NOT NULL,
+                progress_json TEXT NOT NULL DEFAULT '{}',
+                updated_at    TIMESTAMP NOT NULL,
+                PRIMARY KEY (sandbox_id, owner_id)
+            )
+        """)
+        logger.info("Migration v124 complete: career_progress table created")

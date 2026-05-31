@@ -30,6 +30,7 @@ import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
 import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
+import { LuckyStackIntake } from './LuckyStackIntake';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
 import { feedEventKey, renderEventIcon } from './tickerEvents';
@@ -216,6 +217,12 @@ export function Lobby() {
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
   const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
+  // Lucky Stack intake (cold open) — gates the lobby for a brand-new career
+  // player. Sticky: set true once, only cleared by completing intake (which
+  // sits us down). NOT re-derived from every lobby poll — otherwise the poll
+  // that lands right after `submitIntake` flips it false and unmounts the
+  // reveal mid-beat (the "flash").
+  const [showIntake, setShowIntake] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -315,6 +322,7 @@ export function Lobby() {
         setBankrollHistory(lobby.bankroll_history ?? []);
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setReputation(lobby.reputation ?? null);
+        if (lobby.intake_needed) setShowIntake(true); // sticky — never auto-cleared here
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
@@ -391,6 +399,11 @@ export function Lobby() {
       // server truth. Shared merge de-dupes on the natural key so a
       // tick-refetch landing right after doesn't double-show.
       setEvents((prev) => mergeEvents(prev, [event]));
+      // v124 — a vouch opens a new door: refetch now so the revealed cardroom
+      // appears immediately rather than on the next debounced tick.
+      if (event.type === 'vouch') {
+        void reloadLobbyRef.current();
+      }
       // Future: curated "signal" toasts (whale arrived / on a heater /
       // on tilt) hang off this same channel — see CASH_MODE_REALTIME_TICKER.md.
     };
@@ -480,6 +493,23 @@ export function Lobby() {
     },
     [busy, navigate]
   );
+
+  /** Intake "Take the seat" → drop straight into the Scene-0 game (not the
+   *  lobby). Sits at the pinned scripted table's first open seat; handleSeatTap
+   *  navigates to /game/:id on success. Falls back to the lobby if the table
+   *  isn't there for some reason. */
+  const handleIntakeTakeSeat = useCallback(() => {
+    setShowIntake(false);
+    const scene0 =
+      tables.find((t) => t.table_type === 'scripted') ??
+      tables.find((t) => t.table_id === 'cash-scene0-001');
+    const seatIndex = scene0 ? scene0.seats.findIndex((s) => s.kind === 'open') : -1;
+    if (scene0 && seatIndex >= 0) {
+      void handleSeatTap(scene0, seatIndex);
+    } else {
+      void reloadLobbyRef.current();
+    }
+  }, [tables, handleSeatTap]);
 
   /** Dismiss the SponsorModal, releasing the seat-hold the /sit 402
    *  placed so an AI can't be cut out of taking it (and so the player
@@ -850,6 +880,7 @@ export function Lobby() {
           onClose={() => setWhereaboutsOpen(false)}
           refreshTick={stakablePanelTick}
         />
+        {showIntake && <LuckyStackIntake onDone={handleIntakeTakeSeat} />}
         <StakeOfferModal
           target={stakeTarget}
           bankroll={bankroll ?? 0}

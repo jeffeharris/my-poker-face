@@ -124,10 +124,29 @@ def _resolve_sandbox_id(owner_id: str) -> str:
 
 
 def _resolve_player_name() -> str:
-    """Display name for the human player at the cash table."""
-    from flask_app.extensions import auth_manager
+    """Display name for the human player at the cash table.
+
+    In the Act-1 career flow the room knows you by your **fish-name** ("Juke
+    Joint Jeff") until you're vouched out of Scene 0 — then it's shed for the
+    name you chose at intake ("Jeff"). Outside the flow it's the account name.
+    """
+    from flask_app.extensions import auth_manager, career_progress_repo
 
     user = auth_manager.get_current_user() if auth_manager else None
+    owner_id = user.get("id") if user else None
+
+    if owner_id and career_progress_repo is not None:
+        try:
+            sandbox_id = _resolve_sandbox_id(owner_id)
+            prog = career_progress_repo.load(sandbox_id, owner_id)
+            if prog.career_active:
+                if not prog.tutorial_complete and prog.fish_name:
+                    return prog.fish_name  # still a fish — wear the handle
+                if prog.player_name:
+                    return prog.player_name  # graduated — just your name
+        except Exception as exc:
+            logger.debug("[CAREER] player-name resolve failed: %s", exc)
+
     if user and user.get("name"):
         return user["name"]
     return "You"
@@ -5231,6 +5250,37 @@ def get_lobby():
         user_id=owner_id,
         chip_ledger_repo=_chip_ledger_repo,
     )
+
+    # Career progression (v124): decide new-vs-legacy BEFORE ensure_lobby_seeded
+    # creates the cardrooms. A truly brand-new sandbox (no cash_tables rows yet)
+    # enters the Act-1 keyring flow — Scene 0 is seeded below and the lobby
+    # filters to revealed rooms. An existing sandbox is grandfathered to the
+    # full lobby (keyring stays off; `career_active` False). The safe default of
+    # a missing/legacy row is "show everything", so this can never blank an
+    # existing playtester's lobby. See `cash_mode/career_progression.py`.
+    from cash_mode import career_progression
+    from flask_app.extensions import career_progress_repo
+
+    career_progress = None
+    seed_scene0 = False
+    if career_progress_repo is not None:
+        try:
+            career_progress = career_progress_repo.load(sandbox_id, owner_id)
+            # Read the pre-seed table set so "no tables yet" can flag a brand-new
+            # sandbox; classify only does work when the sandbox is undecided.
+            pre_seed_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+            decision = career_progression.classify_new_player(career_progress, pre_seed_tables)
+            if decision == "seed":
+                seed_scene0 = True  # brand-new sandbox → run the tutorial below
+            elif decision == "grandfather":
+                # Existing playtester: keep the full lobby (keyring stays off) and
+                # mark so we don't re-check every load.
+                career_progress.tutorial_complete = True
+                career_progress_repo.save(career_progress)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] career progress load failed: %s", exc)
+            career_progress = None
+
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
         personality_repo=personality_repo,
@@ -5239,6 +5289,19 @@ def get_lobby():
         sandbox_id=sandbox_id,
         chip_ledger_repo=_chip_ledger_repo,
     )
+
+    if seed_scene0 and career_progress_repo is not None:
+        try:
+            career_progress = career_progression.ensure_scene0_seeded(
+                career_progress_repo=career_progress_repo,
+                cash_table_repo=cash_table_repo,
+                bankroll_repo=bankroll_repo,
+                sandbox_id=sandbox_id,
+                owner_id=owner_id,
+                chip_ledger_repo=_chip_ledger_repo,
+            )
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] scene0 seed failed: %s", exc)
 
     # Mark this sandbox active so the realtime world ticker advances it.
     # `touch` also keeps the world alive for an HTTP-only client whose
@@ -5360,6 +5423,17 @@ def get_lobby():
             seated_stake_label = persisted_session.stake_label
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+
+    # Career keyring (v124): a player in the Act-1 flow sees only their scripted
+    # Scene-0 table + cardrooms they've been vouched into. Off (the default for
+    # legacy/grandfathered sandboxes) this is a no-op and the full lobby shows.
+    # The world economy still ran across ALL tables above (refresh/seed) — this
+    # only filters what's RENDERED.
+    if career_progress is not None:
+        try:
+            tables = career_progression.visible_tables(tables, career_progress)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] keyring filter failed: %s", exc)
 
     # Resolve emotions for AIs at unseated tables from the persisted
     # emotional_state_json column (schema v97). Without this, every
@@ -5835,6 +5909,79 @@ def get_lobby():
             "bankroll_history": bankroll_history,
             "last_session_delta": last_session_delta,
             "reputation": reputation_payload,
+            # Lucky Stack intake (the cold open): true for a brand-new career
+            # player who hasn't been christened yet → the frontend shows the
+            # intake beat before the lobby. `fish_name` is their tourist handle
+            # once set (shown until they're vouched out of Scene 0).
+            "intake_needed": bool(
+                career_progress is not None
+                and career_progress.career_active
+                and not career_progress.intake_complete
+            ),
+            "fish_name": (career_progress.fish_name if career_progress is not None else None),
+        }
+    )
+
+
+@cash_bp.route("/api/cash/intake", methods=["POST"])
+def cash_intake_route():
+    """POST /api/cash/intake — the Lucky Stack cold open.
+
+    Body: `{"name": str, "bio"?: str}`. Christens the player a fish-name from the
+    name they give, records it (+ the chosen name) on `career_progress`, stores
+    the tidbit as their AI-visible bio, and marks intake complete. Returns the
+    fish-name so the frontend can play the reveal. Idempotent — a second call
+    just re-reads the existing handle.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from cash_mode.career_progression import generate_intake_persona, intake_avatar_prompt
+    from flask_app.extensions import career_progress_repo, user_prefs_repo
+
+    if career_progress_repo is None:
+        return jsonify({"error": "career progression unavailable"}), 503
+
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()[:40] or "Stranger"
+    intensity = body.get("intensity") if body.get("intensity") in ("chill", "spicy") else "chill"
+    style = (body.get("style") or "").strip()[:24]
+
+    progress = career_progress_repo.load(sandbox_id, owner_id)
+    if not progress.intake_complete:
+        # LLM-christen a fish-name + a short funny bio from the player's picks
+        # (name + vibe). Robust fallback inside — never blocks on the model.
+        persona = generate_intake_persona(
+            name, intensity=intensity, style=style, owner_id=owner_id
+        )
+        progress.player_name = name
+        progress.fish_name = persona["fish_name"]
+        progress.chat_intensity = intensity
+        progress.chat_style = style
+        progress.intake_complete = True
+        career_progress_repo.save(progress)
+        # The generated one-liner becomes the AI-visible bio (Sal/Larry rib it).
+        if persona.get("bio") and user_prefs_repo is not None:
+            try:
+                user_prefs_repo.set_bio(owner_id, persona["bio"])
+            except Exception as exc:
+                logger.warning("[CAREER] intake bio set failed: %s", exc)
+        bio = persona.get("bio", "")
+    else:
+        bio = user_prefs_repo.get_bio(owner_id) if user_prefs_repo else ""
+
+    return jsonify(
+        {
+            "player_name": progress.player_name,
+            "fish_name": progress.fish_name,
+            "bio": bio,
+            "intensity": progress.chat_intensity,
+            # Avatar generation seam — the prompt is ready; the client can fire
+            # image gen on demand (it's slow, so intake doesn't block on it).
+            "avatar_prompt": intake_avatar_prompt(progress.fish_name or "", bio),
         }
     )
 

@@ -2,6 +2,7 @@ import { memo, useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
 import type { ChatMessage } from '../../types';
+import { renderInlineActions } from '../../utils/chatText';
 import {
   TYPING_SPEED_MS,
   READING_BUFFER_MS,
@@ -131,7 +132,9 @@ function SpeechBeat({ text, delay }: { text: string; delay: number }) {
 
   return (
     <div className="beat speech">
-      {displayedText}
+      {/* Inline *action* segments render italic even mid-line (e.g. a fish's
+          "*blub*"); whole-line actions are still handled as ActionBeats above. */}
+      {renderInlineActions(displayedText)}
       {displayedText.length < text.length && <span className="typing-cursor">|</span>}
     </div>
   );

@@ -230,10 +230,13 @@ export function usePokerGame({
           setMessages((prev) => [...prev, ...newMessages].slice(-MAX_MESSAGES));
 
           if (onNewAiMessage) {
-            const aiMessages = newMessages.filter((msg: ChatMessage) => msg.type === 'ai');
-            if (aiMessages.length > 0) {
-              onNewAiMessage(aiMessages[aiMessages.length - 1]);
-            }
+            // Forward EVERY new AI message in order (not just the last of the
+            // batch) so the consumer can queue rapid-fire lines — e.g. Sal's
+            // multi-line graduation. The non-Sal floater slot still keeps "last
+            // wins" because each call overwrites it.
+            newMessages
+              .filter((msg: ChatMessage) => msg.type === 'ai')
+              .forEach((msg: ChatMessage) => onNewAiMessage(msg));
           }
         }
       }
@@ -484,10 +487,11 @@ export function usePokerGame({
           );
 
           if (onNewAiMessage) {
-            const aiMessages = newMessages.filter((msg) => msg.message_type === 'ai');
-            if (aiMessages.length > 0) {
-              onNewAiMessage(aiMessages[aiMessages.length - 1] as unknown as ChatMessage);
-            }
+            // Forward every new AI message in order (see note above) so Sal's
+            // back-to-back lines all reach the queue.
+            newMessages
+              .filter((msg) => msg.message_type === 'ai')
+              .forEach((msg) => onNewAiMessage(msg as unknown as ChatMessage));
           }
         }
       });
