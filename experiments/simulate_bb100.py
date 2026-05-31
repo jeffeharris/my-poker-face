@@ -297,6 +297,18 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'reg_plus',
     },
+    # TrickyReg — eval instrument that overbet-BLUFFS to punish RegPlus's residual
+    # over-fold-to-overbets leak (the §3 yardstick). Not a production bot.
+    'TrickyReg': {
+        'kind': 'rule_bot',
+        'strategy': 'tricky_reg',
+    },
+    # TrickyAggro — sharper attacker: seizes initiative (wide 3-bets) + overbet-
+    # barrels polarized, to stress-test RegPlus's fold-to-overbet rule. Eval-only.
+    'TrickyAggro': {
+        'kind': 'rule_bot',
+        'strategy': 'tricky_aggro',
+    },
     'RegVsManiac': {
         'kind': 'rule_bot',
         'strategy': 'reg_vs_maniac',

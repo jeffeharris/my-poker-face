@@ -188,7 +188,25 @@ Options, cheapest first:
 **Success test for the keystone:** a field/opponent that beats CaseBotV2 (or holds
 it to ~0). Until something does, every "better bot" claim is measuring fish-hunting.
 
-## §3 — THEN build the B-via-C bot (gated on §1 + §2)
+## §3 — B-via-C bot — ⛔ PARKED 2026-05-31 (refuted by RegPlus; no exploit to defend)
+
+> **Update.** Before building this, I built the opponents that *should* exploit
+> RegPlus's residual over-fold leak (`TrickyReg`, `TrickyAggro` — overbet-bluffers,
+> one initiative-seizing). **Both got crushed** (RegPlus +160 / +290 fair; the
+> attacker −340 vs a RegPlus table). No static bot can exploit the leak, because
+> RegPlus calls down with strong+ and a polarized bettor's air just runs into the
+> snap-offs. The only exploit is a *range-reading* (opponent-modeling) attacker
+> that overbets only into a capped line — human-only, unmeasurable in our eval.
+>
+> So the §1 thesis "(B) needs (C)" is **refuted**: RegPlus is a single static
+> strategy that is BOTH robust (un-exploited by everything we can build) AND a
+> fish-extractor. The adaptive layer has no measurable exploit to defend → building
+> it now is building blind. **Fork (see captain's log `keystone-regplus.md`):**
+> (a) promote RegPlus to a production bot type and call B met; or (b) build a
+> range-reading attacker first (a real research lift) and only then build §3. The
+> original outcome-based-classifier design below is kept for the record.
+
+
 
 The bot is a **profile-switcher with two profiles + a classifier:**
 
@@ -225,6 +243,12 @@ profile isn't disciplined enough — iterate the profile, not the classifier.
 
 ## §4 — Measurement methodology (don't relearn these the hard way)
 
+- **Subtract the self-play baseline.** `measure_passivity` absolute bb/100 carries
+  a strategy-specific hero-seat artifact: `X vs 5×X` is NOT ~0 (CaseBotV2 +39, Reg
+  −6, TrickyReg −39, RegPlus −77 over 3000h). Always run the `hero vs 5×hero`
+  control and report `measured − H(hero)` as the fair edge — otherwise a bot with a
+  negative self-play baseline (like RegPlus) looks worse than it is. The deltas in
+  the result table at the top of this doc are baseline-adjusted ("fair").
 - **Measure candidate-vs-incumbent at a full table** + vs the **clones**. NOT
   absolute bb/100 vs caricatures (CaseBot near-maxes those; a sounder bot extracts
   LESS and looks worse).

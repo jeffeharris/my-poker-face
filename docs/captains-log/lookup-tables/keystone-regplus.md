@@ -104,10 +104,55 @@ static better-bot today AND the competent profile the adaptive bot becomes — b
 "un-runnable-over by a human" still needs the read, and the read needs the
 opponent-model harness (§4), which `measure_passivity` does not provide.
 
-## Next
+## I tried to break RegPlus — and couldn't. (The §3 thesis is refuted.)
 
-§3 — the adaptive B-via-C bot, on the opponent-model harness (`exploit_bb100` /
-`full_sim`). Likely default = RegPlus, with a maniac/over-aggression read that
-*widens* call-downs to patch the over-fold-to-bluffs leak. That inverts the plan's
-original "default CaseBotV2, switch to Reg+" because the data says RegPlus
-dominates CaseBotV2 everywhere.
+Before building the §3 adaptive layer, I did the honest thing: built the opponent
+that *should* exploit RegPlus's residual leak, the same way RegPlus was built to
+exploit CaseBotV2. Two attackers (`_strategy_tricky_reg`, `_strategy_tricky_aggro`),
+both designed to overbet-bluff the spot where RegPlus folds all-but-strong to a
+polarized big bet (`bet_over_pot ≥ 0.8`):
+
+1. **TrickyReg** — disciplined reg that polarizes big (overbet nuts + air) when
+   checked to in position. Result: RegPlus +83 (6max) / +160 fair. No exploit —
+   RegPlus holds the initiative (iso-raises), so TrickyReg rarely gets to overbet
+   *into* it.
+2. **TrickyAggro** — seizes the initiative (wide 3-bets) then overbet-barrels
+   polarized on every street. Result: **RegPlus +213 (6max) / +290 fair**;
+   TrickyAggro vs a RegPlus table = **−340**. A bloodbath for the attacker.
+
+**Why no static bot can exploit the leak:** RegPlus *calls down* with strong+
+(those don't fold to overbets — strong calls, premium raises). A polarized bettor's
+air half runs straight into those snap-offs; RegPlus folds only its junk, which is
+correctly behind the value half. So an opponent that overbets air *unconditionally*
+just spews. The ONLY thing that beats the fold rule is overbetting air *exactly
+when RegPlus's line has capped its range to medium/weak* — i.e., a **range-reading
+opponent** (opponent modeling). No static rule-bot does that, and our eval cannot
+produce it. **The leak is human-only and currently unmeasurable.**
+
+### What this means for the plan
+
+The plan's §1 thesis — "(B) robust requires (C) adaptive, because a single static
+strategy under-extracts from fish" — is **refuted by RegPlus**:
+- RegPlus is a *single static* strategy that is **both** robust (un-exploited by
+  every opponent we can build: stations, maniacs, regs, overbet-bluffers,
+  initiative-barrelers — all positive fair) **and** a fish-extractor (+115…+269
+  fair vs the leaky fields). Discipline ≠ balance.
+- The adaptive (C) mechanism was meant to defend the over-fold leak. There is **no
+  measurable exploit to defend** — building the §3 classifier now would be building
+  blind, the exact trap this whole effort keeps warning against ("the gate AND the
+  opponent must match reality").
+
+### Recommendation / fork
+
+RegPlus is the better bot. The disciplined next steps are EITHER:
+- **(a) Ship it** — promote RegPlus to a production bot type (currently only an eval
+  archetype) and call target B met within our tooling; OR
+- **(b) Build a range-reading attacker** (opponent-modeling, overbets only into a
+  capped line) — the genuinely competent opponent that *could* exploit RegPlus —
+  and only then build §3 to defend it. This is a real research lift (the opponent
+  must model RegPlus's range from its line), not a quick classifier.
+
+§3 as originally scoped (an outcome-based maniac/aggression read) is **not
+justified by current evidence** and is parked. The honest headline: we set out to
+build a competent opponent so we could build a robust bot, and the competent
+opponent we built (RegPlus) turned out to already *be* the robust bot.

@@ -949,6 +949,142 @@ def _strategy_reg_plus(context: Dict) -> Dict:
     return check_or_fold()  # weak/air: give up, do NOT bluff a caller
 
 
+def _strategy_tricky_reg(context: Dict) -> Dict:
+    """TrickyReg — the OPPONENT that punishes RegPlus's residual leak (the §3 yardstick).
+
+    RegPlus folds everything but strong+ to a polarized big bet (`bet_over_pot ≥
+    0.8`) because nothing in the eval overbet-BLUFFS. TrickyReg is built to attack
+    exactly that: it plays a disciplined reg, but on the turn/river in position it
+    POLARIZES — overbets (1.2 pot) its nuts AND its air, and gives up everything in
+    between. Against RegPlus's over-fold, the air overbets print; RegPlus only
+    snaps off the value overbets with its (rarer) strong+ holdings.
+
+    This is the analogue of the keystone: just as RegPlus was needed to stop the
+    eval rewarding pure fish-hunting, TrickyReg is needed to stop the eval
+    rewarding pure over-folding. The adaptive bot's aggression-read (§3) is
+    validated by whether it neutralizes TrickyReg the way RegPlus neutralizes
+    CaseBotV2. NOT a production bot — an eval instrument.
+    """
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    pos = _position_category(context.get('position', '') or '')
+    equity = context['equity']
+    hand = _equity_category(equity)
+    in_position = pos in ('late', 'blind')
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    # Preflop: borrow RegPlus's disciplined entry (iso limpers, tighten vs raise).
+    if phase == 'PRE_FLOP':
+        return _strategy_reg_plus(context)
+
+    # Facing a bet: competent — value-raise nuts, call strong/medium by price, fold air.
+    if cost > 0:
+        pot_odds = cost / (pot + cost) if (pot + cost) > 0 else 1.0
+        if hand == 'premium':
+            return bet(0.9)
+        if hand in ('strong', 'medium') and equity >= pot_odds:
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # Checked to us — POLARIZE big on turn/river in position: overbet nuts AND air.
+    polar_street = phase in ('TURN', 'RIVER') and in_position
+    if hand == 'premium':
+        return bet(1.2)  # overbet the nuts
+    if polar_street and hand == 'air':
+        return bet(1.2)  # overbet-BLUFF the air — the lever RegPlus over-folds to
+    if hand == 'strong':
+        return bet(0.6)  # merge thinly, but never the big polar size with medium-strength
+    return check_or_fold()  # medium/weak/non-polar air: give up
+
+
+def _strategy_tricky_aggro(context: Dict) -> Dict:
+    """TrickyAggro — the SHARPER attacker: seizes the initiative, then overbet-barrels.
+
+    TrickyReg couldn't punish RegPlus's over-fold because RegPlus holds the betting
+    lead (it iso-raises), so TrickyReg rarely got to overbet *into* it. TrickyAggro
+    fixes that: it 3-bets/raises WIDE preflop to take the initiative away, then
+    overbet-barrels (1.2 pot) polarized — its nuts AND its air — on every postflop
+    street it's checked to. The question it answers: once a competent opponent has
+    the lead and barrels big, does RegPlus's "fold all-but-strong to a polarized
+    bet" rule bleed? If TrickyAggro beats RegPlus, the §3 aggression-read is
+    justified (and TrickyAggro is its yardstick). If not, RegPlus is robust within
+    our tooling and the leak is a human-only concern. Eval instrument, not prod.
+    """
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    pos = _position_category(context.get('position', '') or '')
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    equity = context['equity']
+    hand = _equity_category(equity)
+    in_position = pos in ('late', 'blind')
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    # PREFLOP: seize the initiative — raise/3-bet WIDE so we are the aggressor.
+    if phase == 'PRE_FLOP':
+        facing_raise = cost > 0 and highest_bet > bb
+        if not facing_raise:
+            if hand in ('premium', 'strong', 'medium') or in_position:
+                return do_raise(int(3.0 * bb))  # open very wide
+            return check_or_fold()
+        # facing a raise — 3-bet light to wrest the lead (fold only pure air OOP)
+        if hand in ('premium', 'strong', 'medium'):
+            return do_raise(int(3.0 * highest_bet))
+        if in_position:
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # POSTFLOP facing a bet: continue with anything real, fold pure air.
+    if cost > 0:
+        pot_odds = cost / (pot + cost) if (pot + cost) > 0 else 1.0
+        if hand == 'premium':
+            return bet(1.1)  # raise/overbet for value
+        if hand in ('strong', 'medium') and equity >= pot_odds * 0.85:
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # POSTFLOP checked to us: OVERBET-BARREL polarized on every street — nuts + air.
+    if hand == 'premium':
+        return bet(1.2)
+    if hand == 'air':
+        return bet(1.2)  # relentless overbet-bluff — attack the over-fold
+    if hand == 'strong':
+        return bet(0.7)
+    return check_or_fold()  # medium/weak: pot-control
+
+
 def _fish_bet(context: Dict, fraction: float) -> Optional[Dict]:
     """Build a pot-fraction bet/raise for a fish, clamped to legal sizing.
 
@@ -1189,6 +1325,8 @@ BUILT_IN_STRATEGIES = {
     'case_based_v2': _strategy_case_based_v2,
     'reg': _strategy_reg,
     'reg_plus': _strategy_reg_plus,
+    'tricky_reg': _strategy_tricky_reg,
+    'tricky_aggro': _strategy_tricky_aggro,
     'reg_vs_maniac': _strategy_reg_vs_maniac,
     'reg_adaptive': _strategy_reg_adaptive,
     'fish': _strategy_fish,
