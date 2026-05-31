@@ -323,6 +323,21 @@ def analyze_player_decision(
                     player_name=player_name,
                 )
 
+        # Capture the EXACT solver-chart node (scenario|position|opener|hand) from
+        # the pre-action state, so chart-graded coach leaks can grade against the
+        # precise spot (exact opener, vs_3bet) instead of backfill reconstruction.
+        # PRE_FLOP only; best-effort — old rows / failures fall back to reconstruction.
+        phase_name = state_machine.current_phase.name if state_machine.current_phase else None
+        if phase_name == 'PRE_FLOP' and analysis.player_hand_canonical:
+            try:
+                from poker.strategy.preflop_classifier import build_preflop_node
+
+                player_idx = game_state.players.index(player)
+                node = build_preflop_node(game_state, player_idx, analysis.player_hand_canonical)
+                analysis.preflop_node_key = node.key
+            except Exception:
+                logger.debug("preflop node capture skipped", exc_info=True)
+
         extensions.decision_analysis_repo.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(

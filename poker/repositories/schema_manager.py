@@ -213,7 +213,7 @@ _test_schema_template_path = None
 #       Read-only scoreboard — never injected into core AI thresholds. See
 #       `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
 #       Renumbered from v121 on the prestige→prep-for-main merge (collision).
-SCHEMA_VERSION = 122
+SCHEMA_VERSION = 123
 
 
 class SchemaManager:
@@ -1198,6 +1198,7 @@ class SchemaManager:
                     menu_num_options INTEGER,
                     intervention_trace_json TEXT,
                     strategy_pipeline_snapshot_json TEXT,
+                    preflop_node_key TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -2007,6 +2008,10 @@ class SchemaManager:
             122: (
                 self._migrate_v122_create_prestige_snapshots,
                 "Create prestige_snapshots table — sandbox-scoped human-player reputation (renown ratchets, regard swings) captured by the ticker with component breakdown; add idx_relationship_states_opponent for the inbound-edge aggregate",
+            ),
+            123: (
+                self._migrate_v123_add_preflop_node_key,
+                "Add preflop_node_key to player_decision_analysis — exact solver-chart node (scenario|position|opener|hand) captured at decision time for chart-graded coach leaks",
             ),
         }
 
@@ -6401,3 +6406,22 @@ class SchemaManager:
                 ON relationship_states(opponent_id)
         """)
         logger.info("Migration v122 complete: prestige_snapshots table created")
+
+    def _migrate_v123_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
+        """Migration v123: add `preflop_node_key` to player_decision_analysis.
+
+        The exact solver-chart node — ``scenario|position|opener|hand`` — captured
+        at decision time (via the tiered bot's `build_preflop_node`) so the
+        chart-graded coach leak finder can grade against the precise spot,
+        including the exact opener and `vs_3bet` scenarios that backfill
+        reconstruction can only approximate. Nullable; old rows fall back to
+        reconstruction. Non-destructive, idempotent.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'preflop_node_key' not in columns:
+            conn.execute(
+                "ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT"
+            )
+            logger.info("Added preflop_node_key column to player_decision_analysis")
+        logger.info("Migration v123 complete: preflop_node_key added")
