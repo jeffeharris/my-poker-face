@@ -89,10 +89,10 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
   return createPortal(
     <div className="lucky__overlay" role="dialog" aria-modal="true" aria-label="The Lucky Stack">
       <div className="lucky__card">
-        {/* The waitress leans into the booth, layered OVER her speech as she talks. */}
-        <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
         <div className="lucky__sign">The Lucky Stack</div>
         <div className="lucky__sub">good hands served daily</div>
+        {/* Centered above her speech — a clean vertical stack, not hovering aside. */}
+        <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
 
         {result === null ? (
           <>

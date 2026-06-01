@@ -16,7 +16,6 @@
 .lucky__card {
   position: relative;
   z-index: 1;
-  overflow: hidden; /* keep the waitress contained inside the booth */
   width: min(460px, 100%);
   background: #17120e;
   border: 1px solid #4a3522;
@@ -27,22 +26,18 @@
   text-align: center;
 }
 
-/* The waitress leans into the booth from the top-right, LAYERED over her speech
-   bubble (z-index above it) — the bubble reserves a right column so her body
-   overlaps the empty side, not the words. Bottom mask fades her into the card. */
+/* A centered portrait block between the sign and her speech — clean vertical
+   stack. Bottom mask fades her cutout's hard crop into the card. */
 .lucky__waitress-img {
-  position: absolute;
-  top: 2.4rem;
-  right: -0.7rem;
-  width: 188px;
+  display: block;
+  width: 200px;
   height: auto;
-  z-index: 4;
-  pointer-events: none;
+  margin: 0.5rem auto 0.7rem;
   object-fit: contain;
   object-position: bottom center;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
-  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45));
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
   animation: lucky-floater-in 0.45s cubic-bezier(0.18, 0.9, 0.32, 1.2);
 }
 
@@ -58,8 +53,7 @@
 }
 
 /* The waitress's speech bubble — print-style beats (filler fades, speech types).
-   `padding-right` reserves the column her body overlaps so the typed text stays
-   readable to her left. */
+   Full width, below her portrait. */
 .lucky__speech {
   position: relative;
   z-index: 2;
@@ -71,7 +65,6 @@
   border: 1px solid #3c2c1c;
   border-radius: 10px;
   padding: 0.7rem 0.85rem;
-  padding-right: 5.5rem;
   margin: 0 0 1.1rem;
   min-height: 4.4rem;
 }
