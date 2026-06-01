@@ -306,8 +306,32 @@ correctly returns N/A** on a scalp-less log (the performance proxy is gutted
 without scalps — which itself confirms scalps are load-bearing for the
 anti-treadmill property). The real Q2 verdict needs the `--from-sim` capture
 (Docker), where scalps are populated:
-`docker compose exec backend python3 scripts/renown_v3_capture.py --from-sim --hands 400 -o /app/data/renown_log_sim.json`
-then `python3 scripts/renown_v3_sweep.py /app/data/renown_log_sim.json`.
+`docker compose run --rm --no-deps -v $PWD/scripts:/app/scripts backend python3 scripts/renown_v3_capture.py --from-sim --hands 350 -o /app/data/renown_log_sim.json`
+then `python3 scripts/renown_v3_sweep.py data/renown_log_sim.json`.
+
+**Sim capture RAN (2026-06-01, Docker) — harness end-to-end-validated, but the
+synthetic field is too homogeneous for a real treadmill verdict.** The
+`--from-sim` path works: it runs the rule-based engine with **zero LLM calls**
+(seeded from real `personalities.json` names so the engine resolves existing
+configs instead of LLM-generating them — the `bot_NN` synthetic path triggered
+a paid DeepSeek call per id, fixed), no DB writes, and derives scalps via the
+helper (207 scalps over ~2,800 hands). Q1 rank stability is strong (mean
+rankρ=0.998). **But Q2 is DEGENERATE and the harness now says so** rather than
+printing the trivial PASS: every bot played exactly 350 hands (rebuy-in-place →
+**zero variance on the volume axis**, so renown can only track performance by
+construction), and the fish/shark archetype split produced **no skill gradient**
+(fish 3.71 scalps/3.71 busts ≈ sharks 4.92/4.92 — the fake-`bankroll_repo`
+`'fish'` archetype isn't meaningfully weaker than the default TieredBot in
+self-play). A flat field also yields **0 "figures"** (nobody reaches 3×median).
+
+So the definitive treadmill verdict needs a **heterogeneous** field — real
+personas with their **real archetypes/rule-strategies** (genuine skill spread)
+and **varied hand counts** (real fish rebuy more). That means running the sim
+with the real `bankroll_repo` against the populated DB (the main-worktree
+container, `/app/data/poker_games.db`), not the DB-free synthetic roster. The
+harness, the scalp helper, and the metrics are all proven; only the *field*
+needs to be real. (A `hand_count` CV<0.05 guard in the sweep now blocks any
+future degenerate PASS.)
 
 ## Renown as a live competition — world speed & keeping pace
 

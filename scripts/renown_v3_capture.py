@@ -40,8 +40,60 @@ from renown_v2_scorer import RenownInputs  # noqa: E402
 # Sim knobs (only used by --from-sim).
 SIM_SEED = 1729
 SIM_BIG_BLIND = 50
-SIM_STARTING_STACK = 5_000
+SIM_STARTING_STACK = 2_500  # ~50bb — short enough that busts (scalps) accrue
 SIM_TABLE_SIZE = 6
+SIM_SYNTH_FIELD = 48        # entities when no DB is available (DB-free run)
+SIM_FISH_FRACTION = 0.5     # half the field are weak fish → a skill gradient
+
+
+def _real_persona_roster(n):
+    """Up to n REAL persona display names from personalities.json. Using real
+    names means the engine resolves an existing config instead of LLM-GENERATING
+    one (the synthetic `bot_NN` path triggers a paid API call per unknown id)."""
+    import json
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "poker", "personalities.json")
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        names = list(data.get("personalities", {}).keys())
+        return names[:n]
+    except Exception:
+        return []
+
+
+class _FakeBankrollRepo:
+    """Minimal stand-in so the sim builds VARIED controllers without a DB.
+
+    The treadmill test needs a skill spread (some entities bust others), but
+    with ``bankroll_repo=None`` every controller builds identically and scalps
+    would be noise. This fake hands out an archetype per pid — ``'fish'`` for a
+    designated weak subset (TieredBot calling_station), ``None`` otherwise
+    (default TieredBot) — so the sharks scalp the fish. All I/O is stubbed to
+    no-ops; it deliberately omits ``_db_path`` so the sim's memory-manager
+    wiring (hasattr-guarded) is skipped and no DB is touched.
+    """
+
+    def __init__(self, fish_ids):
+        self._fish = set(fish_ids)
+
+    def load_archetype(self, pid):
+        return "fish" if pid in self._fish else None
+
+    def load_rule_strategy(self, pid):
+        return None
+
+    def load_fish_leak(self, pid):
+        return None
+
+    def load_emotional_state_json(self, pid):
+        return None
+
+    def save_emotional_state_json(self, *a, **k):
+        pass
+
+    def push_recent_events(self, *a, **k):
+        pass
 
 
 def _dump(field, meta, out_path):
@@ -73,17 +125,31 @@ def capture_from_sim(sandbox, hands, out_path):
     the play-derived drivers onto the DB field. Docker only (imports engine)."""
     import random
 
-    from renown_v2_rung2 import DEFAULT_SANDBOX, HUMAN_ID, connect, load_field
     from cash_mode.controller_cache import LruControllerCache
     from cash_mode.full_sim import play_one_hand
     from cash_mode.scalps import eliminations_from_sim
     from cash_mode.tables import ai_slot, open_slot
 
-    sb = sandbox or DEFAULT_SANDBOX
-    con = connect()
-    field = load_field(con, sb)
-    con.close()
-    ai_ids = [e for e in field if e != HUMAN_ID]
+    # DB is optional: use the real field (for backing/regard overlay) if
+    # reachable, else a synthetic roster (this worktree's data/ is empty).
+    field = {}
+    ai_ids = []
+    db_source = "synthetic"
+    try:
+        from renown_v2_rung2 import DEFAULT_SANDBOX, HUMAN_ID, connect, load_field
+        sb = sandbox or DEFAULT_SANDBOX
+        con = connect()
+        field = load_field(con, sb)
+        con.close()
+        ai_ids = [e for e in field if e != HUMAN_ID]
+        db_source = "db"
+    except Exception as exc:  # no DB in container → synthetic field
+        print(f"[capture] no DB ({type(exc).__name__}); synthetic roster")
+    if not ai_ids:
+        ai_ids = _real_persona_roster(SIM_SYNTH_FIELD) or \
+            [f"bot_{i:02d}" for i in range(SIM_SYNTH_FIELD)]
+        field = {pid: RenownInputs(label=pid) for pid in ai_ids}
+        db_source = "synthetic-personas" if ai_ids and ai_ids[0][0].isupper() else "synthetic"
 
     scalps = defaultdict(lambda: defaultdict(int))
     sim_hands = defaultdict(int)
@@ -92,9 +158,13 @@ def capture_from_sim(sandbox, hands, out_path):
     peak = defaultdict(float)
 
     rng = random.Random(SIM_SEED)
-    cache = LruControllerCache(max_size=64)
+    cache = LruControllerCache(max_size=128)
     pool = list(ai_ids)
     rng.shuffle(pool)
+    # Designate a weak fish subset → skill gradient (sharks scalp fish).
+    n_fish = int(len(pool) * SIM_FISH_FRACTION)
+    fish_ids = set(pool[:n_fish])
+    fake_repo = _FakeBankrollRepo(fish_ids)
 
     def name_for(pid):  # identity — controllers fall back to pid; no DB needed
         return pid
@@ -109,7 +179,7 @@ def capture_from_sim(sandbox, hands, out_path):
             r = play_one_hand(
                 seats, big_blind=SIM_BIG_BLIND, rng=rng, sandbox_id="renown_v3_sim",
                 name_for=name_for, controller_cache=cache,
-                bankroll_repo=None, chip_ledger_repo=None,
+                bankroll_repo=fake_repo, chip_ledger_repo=None,
             )
             for elim, vic in eliminations_from_sim(r):
                 scalps[elim][vic] += 1
@@ -148,10 +218,12 @@ def capture_from_sim(sandbox, hands, out_path):
         inp.peak_net_worth = max(inp.peak_net_worth, peak.get(pid, 0.0))
 
     total_scalps = sum(sum(v.values()) for v in scalps.values())
-    _dump(field, {"sandbox": sb, "source": "sim", "human_id": HUMAN_ID,
+    _dump(field, {"source": "sim", "field_source": db_source,
                   "hands_per_table": hands, "ai_entities": len(ai_ids),
-                  "total_scalps": total_scalps,
-                  "note": "play-derived drivers from sim; backing/regard from DB"},
+                  "total_scalps": total_scalps, "fish_ids": sorted(fish_ids),
+                  "note": ("play-derived drivers from sim (scalps/volume/breadth/"
+                           "top1/peak); fish subset designated for a skill gradient; "
+                           "backing/regard from DB only if field_source==db")},
           out_path)
 
 

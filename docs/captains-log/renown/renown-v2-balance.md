@@ -229,3 +229,39 @@ chip_ledger_repo=None, no save_table; rule-based, no LLM) with rebuy-in-place so
 hands keep flowing, but it's UNTESTED on the host — flagging that honestly. Next
 real step is a Docker capture run to get the first scalp-populated frozen log
 and the actual treadmill verdict.
+
+## 2026-06-01 — ran the sim in Docker; harness works, synthetic field doesn't
+
+Built this worktree's backend image (COPY . . bakes my code) and ran the
+--from-sim capture via `docker compose run --rm --no-deps` with scripts/
+volume-mounted so I could iterate without rebuilds. It works end to end:
+capture in the container → frozen JSON → sweep on the host.
+
+Two bugs caught by actually running it (not guessing):
+1. Synthetic `bot_NN` ids don't exist, so the engine LLM-GENERATED a persona
+   per id — a real paid DeepSeek call each. Fixed by seeding from real
+   `personalities.json` display names (engine resolves the existing config, no
+   generation). Verified zero LLM calls after.
+2. 100bb stacks barely bust in 30 hands (5 scalps). Shortened to ~50bb + more
+   hands → 207 scalps over ~2,800 hands.
+
+But the real lesson is about the FIELD, and it's a verify-the-premise moment: I
+nearly banked a green "TREADMILL PASS ✅". It was bogus. The synthetic field is
+homogeneous — rebuy-in-place means every bot plays exactly 350 hands, so the
+volume axis has ZERO variance (CV=0.000) and renown can only track performance
+by construction (perf corr=1.000, hands corr=0.000 — suspiciously perfect). And
+the fish/shark split via the fake bankroll_repo produced no skill gradient (fish
+3.71 scalps/busts ≈ sharks 4.92 — the 'fish' archetype isn't weaker than default
+TieredBot in self-play). A flat field also yields 0 "figures". So the PASS was
+trivial, not earned. I added a hand_count-CV guard so the sweep now reports
+DEGENERATE instead of a misleading PASS — exactly the silent-green the project
+keeps warning about.
+
+Honest conclusion: harness + scalp helper + metrics are all PROVEN; the
+synthetic DB-free roster is just the wrong field for the treadmill question. A
+real verdict needs heterogeneity — real personas with real archetypes (skill
+spread) and varied hand counts (fish rebuy more) — i.e. the real bankroll_repo
+against the populated DB (main-worktree container). Stopped short of that
+DB-wrangling step rather than chase a result; flagged it as the definitive next
+move. What Rung 3 DID lock: the harness is trustworthy (incl. its own degeneracy
+guard) and rank-stability is robust (ρ=0.998).

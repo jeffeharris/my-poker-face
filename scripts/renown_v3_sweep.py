@@ -181,15 +181,49 @@ def main():
     print(f"Spearman(renown, hand_count)        = {rho_hands:+.3f}   <- the treadmill axis")
     print(f"Spearman(renown, performance_drivers) = {rho_perf:+.3f}   <- scalps/top1/backing/apex/…")
     print(f"Spearman(renown, volume_drivers)    = {rho_vol:+.3f}   <- tenure/breadth/stakes")
+    # Degeneracy guard: the treadmill test is meaningless unless the VOLUME
+    # axis actually varies across entities. A homogeneous field (e.g. every bot
+    # plays the same number of hands) makes hand_count constant → renown can
+    # only track performance by construction, and PASS is trivial, not earned.
+    def _spread(xs):
+        m = sum(xs) / len(xs) if xs else 0.0
+        return (sum((x - m) ** 2 for x in xs) / len(xs)) ** 0.5
+    hand_cv = _spread(hand_count) / (sum(hand_count) / len(hand_count)) if sum(hand_count) else 0.0
+
     if total_scalps == 0:
         print("\nTREADMILL VERDICT: N/A — this log has NO scalps (the main "
               "performance signal), so the perf proxy is gutted and the verdict "
               "is meaningless. Run a --from-sim log (populates scalps) for the "
               "real answer.")
+    elif hand_cv < 0.05:
+        print(f"\nTREADMILL VERDICT: DEGENERATE — hand_count is ~constant "
+              f"(CV={hand_cv:.3f}) across the field, so the volume axis has no "
+              f"variance and a PASS is trivial (renown can only track "
+              f"performance). Need a HETEROGENEOUS field (varied hand counts + a "
+              f"real skill gradient) — i.e. the real-DB personas with their real "
+              f"archetypes, not the homogeneous synthetic roster.")
     else:
         verdict = "PASS ✅ (renown tracks performance ≥ raw volume)" if rho_perf >= rho_hands \
             else "FAIL ❌ (renown is volume-led — treadmill)"
         print(f"\nTREADMILL VERDICT ({total_scalps} scalps): {verdict}")
+
+    # Skill sanity: if the sim designated a weak-fish subset, sharks should
+    # outrank fish on renown (and fish, who rebuy → high volume, must NOT).
+    fish = set(meta.get("fish_ids") or [])
+    if fish:
+        ranks = {e: i for i, e in enumerate(sorted(ids, key=lambda e: -renown_by_cfg["baseline"][e]), 1)}
+        f_ranks = [ranks[e] for e in ids if e in fish]
+        s_ranks = [ranks[e] for e in ids if e not in fish]
+        f_hands = [field[e].total_hands for e in ids if e in fish]
+        s_hands = [field[e].total_hands for e in ids if e not in fish]
+        if f_ranks and s_ranks:
+            print(f"\nSKILL SANITY (designated {len(fish)} fish / {len(s_ranks)} sharks):")
+            print(f"  mean renown rank — sharks {sum(s_ranks)/len(s_ranks):.1f} "
+                  f"vs fish {sum(f_ranks)/len(f_ranks):.1f}  (lower=better; "
+                  f"sharks should rank higher)")
+            print(f"  mean hand_count — sharks {sum(s_hands)/len(s_hands):.0f} "
+                  f"vs fish {sum(f_hands)/len(f_hands):.0f}  (if fish play MORE but "
+                  f"rank LOWER → anti-treadmill confirmed)")
 
     # Leaderboard at baseline for the eyeball check.
     print(f"\n{'-'*78}\nBASELINE TOP 12\n{'-'*78}")
