@@ -337,6 +337,36 @@ Reconstructed `fold_to_big_bet` (verbatim `_record_fold_to_big_bet` logic,
    regulars (1000s of samples); a one-off human stays cold-start (value-only) until
    ~8 big bets faced. **No code change indicated — 0.6 is the right threshold.**
 
+## 5g. Live benefit measured with an ADAPTIVE best-responder (2026-06-01)
+
+Built the "missing instrument" (BETTER_BOT_HANDOFF §2/§7): `AdaptiveReaderState` +
+`build_adaptive_reader_strategy` (`poker/human_clone.py`) — a competent reg that
+OBSERVES the hero's revealed overbet hands (perfect observation = strongest
+realistic reader), estimates the hero's overbet bluff freq, and best-responds its
+fold frequency (over-fold a face-up bot, call a balanced one). Unlike the fixed
+oracle (folds unconditionally → only shows bluff-through), it can in principle show
+"value gets paid when balanced". Wired into `measure_passivity` (`ADAPTIVE_READER=1`,
+feeds the hero's river-overbet classes each hand).
+
+**Result (HU, 4000h × 3 seeds, vs the adaptive reader):**
+
+| arm | reader learned bluff_freq | bb/100 mean |
+|---|---|---|
+| A: face-up overbet (river_bluff=0) | 0.02 | +17.4 |
+| B: balanced overbet (river_bluff=1.0, gate fires) | 0.14 | +19.6 |
+
+**Live benefit = +2.2 bb/100, identical every seed (+2.3/+2.3/+2.2).** Proves: (1)
+the reader genuinely learns + discriminates (0.02 vs 0.14) — it adapts, not a
+hard-coded fold; (2) balancing helps even vs a thinking, adapting opponent.
+**Nuance:** the observed bluff freq in B (0.14, bluff/all-overbets) is still below
+the reader's call-threshold (~0.375 for 1.5×), so it correctly keeps over-folding →
+the +2.2 is bluffs-through, NOT value-getting-paid. Forcing the latter needs ~37.5%
+balance, blocked by the structural supply cap (§5e). So the adaptive reader
+independently re-derives the same ceiling the tell map + oracle found, via a
+different mechanism. **Caveat:** still a rule-class best-responder (perfect
+observation), not a real human — confirms the mechanism + a positive live benefit
+vs a strong reader; a creative human could attack other dimensions.
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*

@@ -544,3 +544,90 @@ def register_clone_strategy(
         profile, oracle_punish_overbets=oracle_punish_overbets
     )
     return name
+
+
+# ── Adaptive sizing-reader best-responder (eval-only) ───────────────────────
+# The "missing instrument" (BETTER_BOT_HANDOFF.md §2/§7, SIZING_AWARE D2): unlike
+# the fixed `oracle_punish_overbets` (which folds to a big bet UNCONDITIONALLY and
+# so can only show the bluff-gets-through gain), this opponent OBSERVES the hero's
+# revealed overbet hands across hands, estimates the hero's overbet bluff freq, and
+# BEST-RESPONDS its fold frequency:
+#   - hero under-bluffs (face-up)  → over-fold bluff-catchers (exploit the tell)
+#   - hero balances (bluff freq ≥ the size's call-threshold) → CALL bluff-catchers
+#     (so the hero's VALUE overbets finally get paid — the half the oracle can't show)
+# It's a perfect-observation reader (the harness feeds every overbet's class, even on
+# folds) = the STRONGEST realistic reader, an upper bound on a thinking human. Used to
+# measure the LIVE benefit of the river-bluff balancing (OVERBET_BALANCING.md §5g).
+
+OVERBET_DETECT_RATIO_BR = 1.2  # bet / pot-before >= this = an overbet (same as the oracle)
+_BR_VALUE_EQUITY = 0.85  # equity-vs-random at/above which the BR's hand beats the value range → call
+_BR_TRASH_EQUITY = 0.40  # below this the BR's hand can't even catch bluffs → fold
+_BR_MIN_OBS = 10  # overbets observed before trusting the empirical bluff freq (else assume face-up)
+
+
+class AdaptiveReaderState:
+    """Cross-hand memory for the adaptive sizing-reader. Mutable; the harness
+    resets it per matchup and feeds it the hero's revealed overbet class via
+    `observe()`. `bluff_freq()` is the running estimate the strategy reads.
+    """
+
+    def __init__(self, min_obs: int = _BR_MIN_OBS):
+        self.value_obs = 0
+        self.bluff_obs = 0
+        self.min_obs = min_obs
+
+    def observe(self, is_bluff: bool) -> None:
+        if is_bluff:
+            self.bluff_obs += 1
+        else:
+            self.value_obs += 1
+
+    def bluff_freq(self) -> float:
+        """Estimated P(bluff | hero overbets). Before `min_obs` observations,
+        assume face-up (0.0) — the pessimistic prior that makes the BR start as
+        the oracle and only relax toward calling as it sees the hero bluff."""
+        n = self.value_obs + self.bluff_obs
+        if n < self.min_obs:
+            return 0.0
+        return self.bluff_obs / n
+
+
+def build_adaptive_reader_strategy(profile: CloneProfile, state: AdaptiveReaderState):
+    """A competent reg (base = the profile) that, facing a RIVER overbet,
+    best-responds to `state`'s learned overbet bluff freq instead of using the
+    base pot-odds rule. Everything else defers to the base clone."""
+    base = build_clone_strategy(profile)
+
+    def strategy(context: Dict) -> Dict:
+        phase = context.get('phase', '')
+        cost_to_call = context.get('cost_to_call', 0) or 0
+        pot = context.get('pot_total', 0) or 0
+        equity = context.get('equity', 0.5) or 0.5
+        valid = context.get('valid_actions', [])
+
+        if phase == 'RIVER' and cost_to_call > 0 and 'call' in valid and 'fold' in valid:
+            pot_before = pot - cost_to_call
+            if pot_before > 0 and cost_to_call / pot_before >= OVERBET_DETECT_RATIO_BR:
+                if equity >= _BR_VALUE_EQUITY:
+                    return {'action': 'call', 'raise_to': 0}  # beats value → never fold
+                if equity < _BR_TRASH_EQUITY:
+                    return {'action': 'fold', 'raise_to': 0}  # can't catch → fold
+                # Bluff-catcher: call iff the learned bluff freq clears the
+                # pot-odds call-threshold for this size (EV(call) >= 0).
+                call_threshold = cost_to_call / (pot + cost_to_call)
+                if state.bluff_freq() >= call_threshold:
+                    return {'action': 'call', 'raise_to': 0}
+                return {'action': 'fold', 'raise_to': 0}
+        return base(context)
+
+    return strategy
+
+
+def register_adaptive_reader(name: str, profile: CloneProfile) -> AdaptiveReaderState:
+    """Install an adaptive sizing-reader under `name`; return its mutable state
+    so the harness can `observe()` the hero's overbets across hands."""
+    from .rule_strategies import BUILT_IN_STRATEGIES
+
+    state = AdaptiveReaderState()
+    BUILT_IN_STRATEGIES[name] = build_adaptive_reader_strategy(profile, state)
+    return state

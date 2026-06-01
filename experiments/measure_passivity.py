@@ -352,7 +352,9 @@ def _apply_mode(controller, mode: str):
     controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
 
 
-def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, hero_trace=None):
+def run_passivity_hand(
+    sm, controllers, hero_name: str, stats: PassivityStats, hero_trace=None, hero_overbet_obs=None
+):
     """Drive one hand; instrument the hero's postflop decisions.
 
     Mirrors simulate_bb100.run_hand's action driving (run_until, run_it_out,
@@ -515,6 +517,15 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                         key = (phase_name, ctx_tag, bucket)
                         stats.size_strength[key][hand_strength] += 1
                         stats.size_frac_sum[key] += frac
+                        # Feed the adaptive sizing-reader: record the hero's
+                        # RIVER overbet (>=1.2x) class so the BR (perfect
+                        # observation) learns the hero's overbet bluff freq.
+                        if (
+                            hero_overbet_obs is not None
+                            and phase_name == 'RIVER'
+                            and frac >= 1.2
+                        ):
+                            hero_overbet_obs.append(hand_strength)
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
                 state['hero_reached_river'] = True
@@ -633,6 +644,22 @@ def run_passivity_matchup(
     config_arch = ARCHETYPES[hero_archetype]
     opp_configs = [ARCHETYPES[o] for o in opponents]
 
+    # Adaptive sizing-reader best-responder (OVERBET_BALANCING.md §5g): the
+    # "missing instrument" — an opponent that OBSERVES the hero's overbet hands
+    # and best-responds its fold freq (over-folds a face-up bot, calls a balanced
+    # one). Override every opponent seat with it; feed it the hero's river overbet
+    # classes after each hand. Per-process state (each seed learns within its run).
+    adaptive_reader_state = None
+    if os.environ.get('ADAPTIVE_READER'):
+        from poker.human_clone import load_profile_from_file, register_adaptive_reader
+
+        profile = load_profile_from_file(PUNISHER_CLONE_PROFILE)  # competent-reg base
+        register_adaptive_reader('clone_adaptive_reader', profile)
+        # Re-bind state via a fresh registration so each matchup starts cold.
+        adaptive_reader_state = register_adaptive_reader('clone_adaptive_reader', profile)
+        ARCHETYPES['AdaptiveReader'] = {'kind': 'rule_bot', 'strategy': 'clone_adaptive_reader'}
+        opp_configs = [ARCHETYPES['AdaptiveReader']] * len(opponent_seats)
+
     stats = PassivityStats()
     deltas: List[float] = []
 
@@ -711,16 +738,28 @@ def run_passivity_matchup(
                 )
             )
 
+        hero_overbet_obs = [] if adaptive_reader_state is not None else None
         final_stacks, callcall_river = run_passivity_hand(
             sm,
             controllers,
             hero_name,
             stats,
+            hero_overbet_obs=hero_overbet_obs,
         )
+        if adaptive_reader_state is not None and hero_overbet_obs:
+            for hs in hero_overbet_obs:
+                adaptive_reader_state.observe(hs in _BLUFF_CLASSES)
         delta = final_stacks.get(hero_name, starting_stack) - starting_stack
         deltas.append(delta)
         if callcall_river and delta < 0:
             stats.payoff_loss += 1
+
+    if adaptive_reader_state is not None:
+        s = adaptive_reader_state
+        print(
+            f"[ADAPTIVE_READER seed={base_seed}] learned overbet bluff_freq="
+            f"{s.bluff_freq():.2f} (value={s.value_obs} bluff={s.bluff_obs})"
+        )
 
     return deltas, stats
 
