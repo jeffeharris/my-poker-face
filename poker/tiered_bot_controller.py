@@ -394,6 +394,13 @@ class TieredBotController(AIPlayerController):
         # vs a reader). _override forces the read in eval/tests (no model mgr).
         self.river_bluff_min_ftbb: float = 0.6
         self.river_bluff_ftbb_override: Optional[float] = None
+        # River-air SUPPLY build (OVERBET_BALANCING.md §5e): T2's bluff supply is
+        # capped at ~31% because little air survives to the river. This barrels a
+        # fraction of TURN air (air_no_draw) so more reaches the checked-to river
+        # for T2 to convert. Gated on the SAME reader read + HU + turn-only via
+        # multistreet_context. OFF by default (measure-first: it costs EV vs
+        # callers and only helps if barreled air actually reaches the river).
+        self.air_barrel_target: float = 0.0
         # Adaptive overbet (PERSONALITY_PRICING_AND_VARIETY.md "Attacker side"):
         # when True, scale the overbet's fraction by the live value-vs-station
         # detection intensity (× sample confidence, already baked into the
@@ -1164,6 +1171,7 @@ class TieredBotController(AIPlayerController):
             node=node,
             hand_strength=hand_strength,
             active_count=active_count,
+            game_state=game_state,
             induce_override_trace=induce_override_trace,
             value_override_trace=value_override_trace,
             bluff_catch_trace=bluff_catch_trace,
@@ -1362,6 +1370,7 @@ class TieredBotController(AIPlayerController):
         node,
         hand_strength,
         active_count,
+        game_state,
         induce_override_trace,
         value_override_trace,
         bluff_catch_trace,
@@ -1399,6 +1408,13 @@ class TieredBotController(AIPlayerController):
                 h1_classes=getattr(self, 'multistreet_h1_classes', None),
                 h1_streets=getattr(self, 'multistreet_h1_streets', None),
                 street=node.street,
+                air_barrel_target=getattr(self, 'air_barrel_target', 0.0),
+                air_barrel_fold_to_big_bet=(
+                    self._resolve_river_bluff_ftbb(game_state)
+                    if getattr(self, 'air_barrel_target', 0.0) > 0.0
+                    else None
+                ),
+                air_barrel_min_ftbb=getattr(self, 'river_bluff_min_ftbb', 0.6),
                 prior_layer_fired=ms_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )

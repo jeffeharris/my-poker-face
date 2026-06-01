@@ -690,6 +690,11 @@ def run_passivity_matchup(
             _ftbb = os.environ.get('RIVER_BLUFF_FTBB')
             if _ftbb:
                 controllers[0].river_bluff_ftbb_override = float(_ftbb)
+            # River-air SUPPLY build: barrel turn air so more reaches the river.
+            # Fires inside multistreet_context → needs --mode on/h1 to be active.
+            _abt = os.environ.get('AIR_BARREL_TARGET')
+            if _abt:
+                controllers[0].air_barrel_target = float(_abt)
         # Range-aware prototype: turn on equity-vs-range for the hero and feed it
         # perfect-read field stats (uniform-field assumption: all opponents share
         # the first opponent archetype's stats). Concept-test ceiling.

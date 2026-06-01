@@ -274,11 +274,37 @@ Resolver `_resolve_river_bluff_ftbb` unit-verified end-to-end (reader fires, cal
 immature/multiway/cold-start → value-only, override wins). 148 overbet/tiered +
 full strategy suites green.
 
-**Residual −7 needs MORE river air** (barrel more air to turn/river so more reaches
-a checked-to river) — a bigger supply build, not a higher fraction. Other caveats
+**Residual −7:** see §5e — the obvious "barrel more air to the river" supply build
+was built + measured and is a NO-OP (the residual is structural). Other caveats
 unchanged: the live read's real-world accuracy is untested (false-positive cost vs a
 misclassified caller grows with fraction — ~−7 bb/100 at 0.5 in the sweep); dial
 `river_bluff_fraction` down if the read proves noisy in production.
+
+## 5e. River-air SUPPLY build — TRIED + REJECTED (no-op, 2026-06-01)
+
+Hypothesis: T2's ~31% bluff-share cap is because the bot gives up air on the turn,
+so little reaches the river. Fix: barrel turn air (gated turn `air_no_draw` barrel
+in `multistreet_context`, same reader gate + HU + turn-only) so more air survives to
+the checked-to river for T2. Built OFF-by-default (`air_barrel_target`), measured.
+
+**Result (HU vs jeff, mode on, river_bluff=1.0, reader):**
+
+| air-barrel | river overbet bluff% | promote count | bb/100 |
+|---|---|---|---|
+| OFF | 25% | 205 | +94.0 |
+| ON (0.5) | 25% | 199 | +94.9 |
+
+**NO-OP** (barrel confirmed firing — turn air-bet share shifted, e.g. xs 50%→73%).
+**Why the premise was wrong:** give-up air ALREADY reaches a checked-to river — air
+dies from *folding to a bet*, not from *checking* the turn. So barreling turn air a
+street earlier adds zero river bluff candidates (and air raised off the turn slightly
+*reduces* supply: 205→199). The ~31% cap is **structural** — set by the natural
+air:value ratio in the river range — not a turn-give-up problem. The only levers that
+move it are unattractive (float air to the river → faces a bet → not an unopened node
+→ T2 can't fire; or relabel less value to the overbet → dilutes the +EV value bet,
+moves the tell to smaller sizes). **Verdict: accept ~31% (river_bluff_fraction=1.0)
+as the achievable balance; the residual −7 is structural.** Mechanism kept dormant
+(`air_barrel_target=0.0`) as a documented measured-negative.
 
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
