@@ -296,3 +296,30 @@ down-weighting breadth/tenure vs standing. Rank stability stays strong
 (ρ≈0.997). Net: the whole Docker/sim detour taught me the sim was the wrong
 instrument for THIS field; the read-side projection on real data was the answer
 all along — exactly the property that made this feature cheap to validate.
+
+## 2026-06-01 — the wall-clock fix WAS testable offline (presence proxy)
+
+Jeff asked the sharp question: "how long do I need to play live?" — re the
+wall-clock denomination I'd been calling untestable on static data. Checked,
+and the answer is ZERO. holdings_snapshots per-entity distinct-tick counts vary
+(271–637, spread 0.61) — a presence/lifespan proxy for wall-clock that's
+independent of hand-count. Wired wall_clock_hours from it and re-ran with the
+baseline's volume_denominator='wallclock'. The lean flipped to a clean PASS:
+  renown ↔ hand_count  0.66 → 0.38   (volume pressure drops)
+  renown ↔ net_worth   0.59 → 0.72   (performance tracking rises)
+  → PASS ✅ — performance (0.72) well above volume (0.38).
+
+So the CORE anti-treadmill lever is validated on real data, not just asserted.
+The confound was clean (hand_count↔net_worth=+0.05 → genuinely separable, the
+lean was a formula artifact). A blunt down-weight (~0.75× breadth/tenure) also
+flips it (renown_v3_rebalance.py), but wall-clock denomination is the principled
+fix and it works.
+
+Honest caveat: the proxy is ticks-tracked-in-sandbox (presence/lifespan), not
+active-table minutes — direction solid, magnitude indicative. And I kept
+over-calling things "untestable on static data" (first the treadmill verdict,
+then the wall-clock fix) — both turned out testable with the right
+formula-independent signal from data the game already records. Lesson: before
+declaring something needs live data, ask what proxy the read-side already has.
+The only genuinely-untestable-here piece remains the scalp/villain route (needs
+a skill-tiered field).

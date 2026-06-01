@@ -62,9 +62,13 @@ def load_field(con, sandbox: str):
         roster_net[obs] += (pnl or 0)
     entities = set(pair) | {HUMAN_ID}
 
-    # --- holdings: peak net worth + time-at-#1 (per-tick net-worth rank) ---
+    # --- holdings: peak net worth + time-at-#1 (per-tick net-worth rank) +
+    # presence (distinct tick count = a WALL-CLOCK proxy, independent of how
+    # many hands an entity crammed into those ticks — the anti-treadmill
+    # denominator). ---
     peak = defaultdict(float)
     tick_best = {}  # captured_at -> (best_net, entity)
+    presence = defaultdict(set)  # entity -> set of distinct captured_at ticks
     for ts, raw_eid, nw in c.execute(
         "SELECT captured_at, entity_id, net_worth FROM holdings_snapshots "
         "WHERE sandbox_id=?", (sandbox,)
@@ -75,6 +79,7 @@ def load_field(con, sandbox: str):
         nw = nw or 0
         if nw > peak[eid]:
             peak[eid] = nw
+        presence[eid].add(ts)
         cur = tick_best.get(ts)
         if cur is None or nw > cur[0]:
             tick_best[ts] = (nw, eid)
@@ -124,7 +129,10 @@ def load_field(con, sandbox: str):
             label=(eid[:22]),
             breadth_opponents=dict(opps),
             total_hands=total_hands,
-            wall_clock_hours=float(total_hands),  # proxy; volume denom = hands
+            # holdings-tick presence = wall-clock proxy (distinct from hands);
+            # lets volume_denominator='wallclock' test the DESIGNED anti-treadmill
+            # fix offline. Falls back to hands if an entity has no holdings rows.
+            wall_clock_hours=float(len(presence.get(eid)) or total_hands),
             roster_net=float(roster_net.get(eid, 0)),
             peak_net_worth=peak.get(eid, 0.0),
             ticks_at_number_one=ticks_at_one.get(eid, 0),

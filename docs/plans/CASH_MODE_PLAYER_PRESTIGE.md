@@ -346,10 +346,35 @@ the first honest, non-degenerate verdict:
 So v2's current weights reward **out-grinding over out-performing**: breadth +
 tenure + backing dominate, and actually *winning* barely registers. Rank
 stability is otherwise strong (mean rankρ=0.997). The designed fix —
-**wall-clock denomination** of the volume drivers — can't be exercised on a
-static snapshot, but the lean confirms it's load-bearing; the lever testable
-now is **down-weighting breadth/tenure relative to standing/scalps**. (A
-`hand_count` CV<0.05 guard blocks degenerate PASSes; the verdict uses
+**wall-clock denomination** of the volume drivers — turned out to be testable
+offline after all: `holdings_snapshots` per-entity **distinct-tick counts**
+vary (271–637, spread 0.61), giving a *presence/lifespan* proxy for wall-clock
+that's independent of how many hands an entity crammed into those ticks. The
+`--from-db` loader now sets `wall_clock_hours` from that proxy, and with
+`volume_denominator='wallclock'` the lean **flips to a clean PASS**:
+
+| metric | hands-denominated | wall-clock (presence) proxy |
+|---|---|---|
+| renown ↔ hand_count (volume) | +0.66 | **+0.38** |
+| renown ↔ net_worth (performance) | +0.59 | **+0.72** |
+| verdict | VOLUME-LEAN ⚠️ | **PASS ✅** |
+
+So the core anti-treadmill lever is **validated on real data**: wall-clock
+denomination makes renown track wealth-standing (0.72) well above raw volume
+(0.38). Caveat: the proxy is *ticks-tracked-in-sandbox* (presence/lifespan),
+not active-table minutes — directionally right, magnitude indicative.
+(Confound was clean: `hand_count ↔ net_worth = +0.05`, so the axes are
+genuinely separable — the lean was a formula artifact, not collinear data.) The
+blunt alternative — down-weighting breadth/tenure ~0.75× — also flips it
+(`renown_v3_rebalance.py`), but wall-clock denomination is the principled fix.
+
+**Live-play needed to settle the balance: zero.** The presence proxy let the
+last untestable-looking lever (wall-clock denomination) be validated offline.
+What still needs a live/authored run is only the *shipped feature*'s end-to-end
+behaviour and the **scalp/villain route** (which needs a skill-tiered field —
+absent here, 2 of 80 personas tiered).
+
+(A `hand_count` CV<0.05 guard blocks degenerate PASSes; the verdict uses
 formula-independent ground-truth signals, not renown's own driver split.)
 
 ## Renown as a live competition — world speed & keeping pace
