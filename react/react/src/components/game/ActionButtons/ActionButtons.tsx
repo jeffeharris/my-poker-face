@@ -18,6 +18,10 @@ interface ActionButtonsProps {
   onAction: (action: string, amount?: number) => void;
   inline?: boolean; // When true, disables fixed positioning for embedded use
   bettingContext?: BettingContext; // Optional - use if provided by backend
+  /** Coach-recommended action to highlight (e.g. 'fold', 'check', 'call', 'raise'). */
+  recommendedAction?: string | null;
+  /** Coach-suggested raise amount to pre-fill the raise slider. */
+  raiseToAmount?: number | null;
 }
 
 export function ActionButtons({
@@ -31,6 +35,8 @@ export function ActionButtons({
   onAction,
   inline = false,
   bettingContext: providedContext,
+  recommendedAction,
+  raiseToAmount,
 }: ActionButtonsProps) {
   const [showBetInterface, setShowBetInterface] = useState(false);
   const [isEditingAmount, setIsEditingAmount] = useState(false);
@@ -54,8 +60,15 @@ export function ActionButtons({
   const [raiseAmount, setRaiseAmount] = useState(calc.getDefaultRaise());
 
   const handleBetRaise = () => {
+    // Pre-fill with coach's suggested amount if valid, otherwise use default raise
+    const suggestedAmount =
+      raiseToAmount &&
+      raiseToAmount >= calc.safeMinRaiseTo &&
+      raiseToAmount <= calc.safeMaxRaiseTo
+        ? raiseToAmount
+        : calc.getDefaultRaise();
     setShowBetInterface(true);
-    setRaiseAmount(calc.getDefaultRaise());
+    setRaiseAmount(suggestedAmount);
   };
 
   const submitBet = () => {
@@ -262,31 +275,46 @@ export function ActionButtons({
     <div className={`action-panel ${inline ? 'inline' : ''}`}>
       <div className="action-buttons">
         {playerOptions.includes('fold') && (
-          <button className="action-button fold" onClick={() => onAction('fold')}>
+          <button
+            className={`action-button fold${recommendedAction === 'fold' ? ' coach-recommended' : ''}`}
+            onClick={() => onAction('fold')}
+          >
             Fold
           </button>
         )}
 
         {playerOptions.includes('check') && (
-          <button className="action-button check" onClick={() => onAction('check')}>
+          <button
+            className={`action-button check${recommendedAction === 'check' ? ' coach-recommended' : ''}`}
+            onClick={() => onAction('check')}
+          >
             Check
           </button>
         )}
 
         {playerOptions.includes('call') && (
-          <button className="action-button call" onClick={() => onAction('call')}>
+          <button
+            className={`action-button call${recommendedAction === 'call' ? ' coach-recommended' : ''}`}
+            onClick={() => onAction('call')}
+          >
             Call ${calc.callAmount}
           </button>
         )}
 
         {playerOptions.includes('bet') && (
-          <button className="action-button bet" onClick={handleBetRaise}>
+          <button
+            className={`action-button bet${recommendedAction === 'raise' ? ' coach-recommended' : ''}`}
+            onClick={handleBetRaise}
+          >
             Bet
           </button>
         )}
 
         {playerOptions.includes('raise') && (
-          <button className="action-button raise" onClick={handleBetRaise}>
+          <button
+            className={`action-button raise${recommendedAction === 'raise' ? ' coach-recommended' : ''}`}
+            onClick={handleBetRaise}
+          >
             Raise
           </button>
         )}

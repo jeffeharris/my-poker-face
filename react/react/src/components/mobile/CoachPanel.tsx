@@ -1,7 +1,6 @@
 // TODO: CoachPanel, BottomSheet, and MobileChatSheet share a drag-to-dismiss
 // sheet pattern. Consider extracting a shared Sheet component.
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send } from 'lucide-react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import type {
   CoachStats,
   CoachMessage,
@@ -9,10 +8,7 @@ import type {
   CoachProgression,
   ProgressionState,
 } from '../../types/coach';
-import { StatsBar } from './StatsBar';
-import { ProgressionStrip } from './ProgressionStrip';
-import { ProgressionDetail } from './ProgressionDetail';
-import { safeGetItem, safeSetItem } from '../../utils/storage';
+import { CoachPanelBody } from '../game/CoachDock/CoachPanelBody';
 import './CoachPanel.css';
 
 const CLOSE_ANIMATION_MS = 250;
@@ -46,18 +42,8 @@ export function CoachPanel({
   onFetchProgression,
   onSkipAhead,
 }: CoachPanelProps) {
-  const [inputValue, setInputValue] = useState('');
   const [isClosing, setIsClosing] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
-  const [onboardingDismissed, setOnboardingDismissed] = useState(
-    () => safeGetItem('coach_onboarding_dismissed') === 'true'
-  );
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const wasOpenRef = useRef(false);
-  const hasFetchedProgressionRef = useRef(false);
-
-  const handleToggleDetail = useCallback(() => setShowDetail((d) => !d), []);
 
   // Drag-to-dismiss
   const dragStartY = useRef(0);
@@ -72,33 +58,6 @@ export function CoachPanel({
       clearTimeout(snapTimeoutRef.current);
     };
   }, []);
-
-  // Fetch full progression on first panel open
-  useEffect(() => {
-    if (isOpen && !hasFetchedProgressionRef.current && onFetchProgression) {
-      hasFetchedProgressionRef.current = true;
-      onFetchProgression();
-    }
-  }, [isOpen, onFetchProgression]);
-
-  // Scroll to bottom: instant on open, smooth for new messages
-  useEffect(() => {
-    if (isOpen && messagesEndRef.current) {
-      const justOpened = !wasOpenRef.current;
-      wasOpenRef.current = true;
-      setTimeout(
-        () => {
-          messagesEndRef.current?.scrollIntoView({
-            behavior: justOpened ? 'instant' : 'smooth',
-          });
-        },
-        justOpened ? 0 : 100
-      );
-    }
-    if (!isOpen) {
-      wasOpenRef.current = false;
-    }
-  }, [isOpen, messages.length]);
 
   const handleDragStart = useCallback((e: React.TouchEvent) => {
     isDragging.current = true;
@@ -142,33 +101,13 @@ export function CoachPanel({
     }
   }, [onClose]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     setTimeout(() => {
       setIsClosing(false);
       onClose();
     }, CLOSE_ANIMATION_MS);
-  };
-
-  const handleSend = async () => {
-    const trimmed = inputValue.trim();
-    if (!trimmed || isThinking) return;
-    setInputValue('');
-    await onSendQuestion(trimmed);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const cycleMode = () => {
-    // Only toggle between active modes — "off" is controlled via
-    // the UserDropdown toggle, not the in-panel button.
-    onModeChange(mode === 'proactive' ? 'reactive' : 'proactive');
-  };
+  }, [onClose]);
 
   if (!isOpen) return null;
 
@@ -178,154 +117,25 @@ export function CoachPanel({
         ref={sheetRef}
         className={`coach-sheet ${isClosing ? 'coach-sheet-closing' : ''}`}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleDragStart}
+        onTouchMove={handleDragMove}
+        onTouchEnd={handleDragEnd}
       >
-        <div
-          className="coach-header"
-          onTouchStart={handleDragStart}
-          onTouchMove={handleDragMove}
-          onTouchEnd={handleDragEnd}
-        >
-          <div className="coach-drag-handle" />
-          <div className="coach-header-row">
-            <h3 className="coach-title">Poker Coach</h3>
-            <div className="coach-header-actions">
-              <button
-                className={`coach-mode-btn mode-${mode}`}
-                onClick={cycleMode}
-                aria-label={`Coach mode: ${mode}`}
-              >
-                {mode === 'proactive' ? 'Auto' : mode === 'reactive' ? 'Ask' : 'Off'}
-              </button>
-              <button className="coach-close-btn" onClick={handleClose} aria-label="Close coach">
-                <X size={20} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <StatsBar stats={stats} />
-
-        {progression && (
-          <ProgressionStrip
-            progression={progression}
-            isExpanded={showDetail}
-            onToggle={handleToggleDetail}
-          />
-        )}
-
-        {/* Onboarding prompt for beginners who haven't completed onboarding.
-            Check both localStorage (for immediate dismissal) and the database field
-            (for persistence across browser sessions). */}
-        {!onboardingDismissed &&
-          progressionFull &&
-          progressionFull.profile?.self_reported_level === 'beginner' &&
-          !progressionFull.profile?.onboarding_completed_at && (
-            <div className="coach-onboarding">
-              <p className="coach-onboarding__text">How much poker do you know?</p>
-              <div className="coach-onboarding__actions">
-                <button
-                  className="coach-onboarding__btn coach-onboarding__btn--dismiss"
-                  onClick={() => {
-                    // Also call API so onboarding_completed_at is set in the database
-                    onSkipAhead?.('beginner');
-                    setOnboardingDismissed(true);
-                    safeSetItem('coach_onboarding_dismissed', 'true');
-                  }}
-                >
-                  New to poker
-                </button>
-                <button
-                  className="coach-onboarding__btn coach-onboarding__btn--skip"
-                  onClick={() => {
-                    onSkipAhead?.('intermediate');
-                    setOnboardingDismissed(true);
-                    safeSetItem('coach_onboarding_dismissed', 'true');
-                  }}
-                >
-                  I know the basics
-                </button>
-                <button
-                  className="coach-onboarding__btn coach-onboarding__btn--skip"
-                  onClick={() => {
-                    onSkipAhead?.('experienced');
-                    setOnboardingDismissed(true);
-                    safeSetItem('coach_onboarding_dismissed', 'true');
-                  }}
-                >
-                  Experienced
-                </button>
-              </div>
-            </div>
-          )}
-
-        {showDetail ? (
-          <ProgressionDetail
-            progressionFull={progressionFull ?? null}
-            progressionLite={progression ?? null}
-          />
-        ) : (
-          <div className="coach-messages">
-            {messages.length === 0 ? (
-              <div className="coach-empty">
-                <span className="coach-empty-text">
-                  Ask me anything about your hand, odds, or strategy!
-                </span>
-              </div>
-            ) : (
-              messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`coach-msg coach-msg-${msg.role} ${msg.type ? `coach-msg-${msg.type}` : ''}`}
-                >
-                  <span className="coach-msg-sender">
-                    {msg.type === 'review'
-                      ? 'Hand Review'
-                      : msg.type === 'tip'
-                        ? 'Tip'
-                        : msg.role === 'user'
-                          ? 'You'
-                          : 'Coach'}
-                  </span>
-                  <span className="coach-msg-text">{msg.content}</span>
-                </div>
-              ))
-            )}
-            {isThinking && (
-              <div className="coach-msg coach-msg-coach">
-                <span className="coach-msg-sender">Coach</span>
-                <span className="coach-msg-text coach-thinking">Thinking...</span>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-
-        <form
-          className="coach-input-area"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-        >
-          <input
-            type="text"
-            className="coach-text-input"
-            placeholder="Ask your coach..."
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            maxLength={300}
-            disabled={isThinking}
-          />
-          <button
-            type="submit"
-            className={`coach-send-btn ${inputValue.trim() ? 'coach-send-active' : ''}`}
-            disabled={!inputValue.trim() || isThinking}
-            aria-label="Send question"
-          >
-            <Send size={22} aria-hidden="true" />
-          </button>
-        </form>
+        <CoachPanelBody
+          isOpen={isOpen}
+          onClose={handleClose}
+          stats={stats}
+          messages={messages}
+          onSendQuestion={onSendQuestion}
+          isThinking={isThinking}
+          mode={mode}
+          onModeChange={onModeChange}
+          progression={progression}
+          progressionFull={progressionFull}
+          onFetchProgression={onFetchProgression}
+          onSkipAhead={onSkipAhead}
+          showDragHandle={true}
+        />
       </div>
     </div>
   );
