@@ -46,6 +46,7 @@ const SCENARIO_LABEL: Record<string, string> = {
   rfi: 'Opening from',
   vs_open: 'Facing a raise in',
   vs_3bet: 'Facing a 3-bet in',
+  vs_4bet: 'Facing a 4-bet in',
 };
 const ACTIONS: Array<'fold' | 'call' | 'raise'> = ['fold', 'call', 'raise'];
 const pct = (x: number) => Math.round(x * 100);
@@ -55,6 +56,7 @@ const PICK_SCENARIOS: Array<[string, string]> = [
   ['rfi', 'Opening (folded to you)'],
   ['vs_open', 'Facing a raise'],
   ['vs_3bet', 'Facing a 3-bet'],
+  ['vs_4bet', 'Facing a 4-bet'],
 ];
 const ALL_POS = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 // The BB never opens, so there's no rfi chart for it.
