@@ -323,3 +323,31 @@ formula-independent signal from data the game already records. Lesson: before
 declaring something needs live data, ask what proxy the read-side already has.
 The only genuinely-untestable-here piece remains the scalp/villain route (needs
 a skill-tiered field).
+
+## 2026-06-01 — workstream A: the scalp tracker (steps 1 + 3a built)
+
+Moved from validation to building. The scalp tracker is the shippable
+prerequisite for the villain route. Step 2 (pure helper) was already done.
+
+Step 1 (durable counter): schema v132 `cash_scalps` (per eliminator→victim
+pair, so renown-weighting reads the victim's standing) + `CashScalpsRepository`
++ registrations. 7 repo tests + schema-chain tests green. Mirrored the v122/
+v131 migration idiom exactly (new tables go via migration, not _init_db —
+fresh DBs run the whole chain).
+
+Step 3a (world-sim path): wired into `refresh_unseated_tables` — each sim
+hand's eliminations recorded best-effort via a lazily-resolved cash_scalps_repo
+(reused the file's own entity-presence getter pattern, so no param-threading
+through 4 callers + 8 tests, and the lobby stays import-light). Only real busts
+write. 42 lobby conservation/invariant tests green; clean import.
+
+Step 3b (human's own table) deferred with the integration point pinned:
+`_refill_cash_seats` has busted_indices but not the hand winner — attribution
+needs the headline winner threaded from the award step. Lower value (one human
+entity's renown vs the constant world tick) + higher risk (live human flow), so
+a clean follow-up rather than a forced fragile wire.
+
+Net: the durable counter is live and accruing from the world sim. The renown
+driver that READS it is step 4 (lands with the broader v2 build). Validated each
+step in Docker (poker/cash_mode/flask_app mounted live; tests/ mounted per-run)
+— no rebuilds needed after the first image.
