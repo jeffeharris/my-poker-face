@@ -240,6 +240,48 @@ def ai_seat(sandbox_id: str, personality_id: str) -> str:
     return f"seat:ai:{sandbox_id}:{personality_id}"
 
 
+# --- D2: ledger-derived bankroll (the int becomes a cache of these) ---------
+#
+# `balance_of` (on the repo) is the substrate; these name the two entity
+# scopes so call sites read intention-first. The storage asymmetry is
+# resolved here, in ONE place: AI bankroll is per-sandbox, player bankroll
+# is global (summed across sandboxes). See CASH_MODE_CHIP_CUSTODY_SCOPE.md.
+
+
+def derive_ai_balance(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    sandbox_id: str,
+) -> Optional[int]:
+    """Ledger-derived AI bankroll for one (pid, sandbox), or None if no repo.
+
+    The chips an AI holds in ONE save-file: `balance_of(ai(pid))` scoped to the
+    sandbox. After chip-custody Phase 1 this equals the stored
+    `ai_bankroll_state.chips` (at-table chips live in the seat account, not
+    here) — so it is the authoritative value the int caches.
+    """
+    if repo is None:
+        return None
+    return repo.balance_of(ai(personality_id), sandbox_id=sandbox_id)
+
+
+def derive_player_balance(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+) -> Optional[int]:
+    """Ledger-derived player bankroll, summed ACROSS sandboxes, or None.
+
+    `player_bankroll_state` is GLOBAL (no sandbox_id) — a human's bankroll
+    roams with them across save-files (D6: one human per sandbox). So the
+    derivation sums `player:<id>` rows over every sandbox (`sandbox_id=None`).
+    """
+    if repo is None:
+        return None
+    return repo.balance_of(player(owner_id), sandbox_id=None)
+
+
 def record(
     repo: ChipLedgerRepository,
     *,

@@ -208,6 +208,18 @@ PRESENCE_AUTHORITY_ENABLED: bool = _env_flag("PRESENCE_AUTHORITY_ENABLED", False
 # `docs/plans/CASH_MODE_CHIP_CUSTODY_HANDOFF.md`.
 CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
 
+# D2 — ledger-derived bankroll reads. When True, `BankrollRepository.load_*`
+# return the LEDGER-DERIVED chip count (Σ over `chip_ledger_entries`) as the
+# authoritative value, treating the stored int as a cache and logging any
+# divergence. Requires CHIP_CUSTODY_ENABLED (the ledger must be complete) and a
+# backfilled DB, else derived reads return wrong values. Default **False**: the
+# stored int is the read (transaction-consistent within a chokepoint's single
+# save; the ledger row is written immediately after, so a derived read in that
+# sub-millisecond window would be momentarily stale — the int avoids that). Flip
+# on to make the ledger authoritative for reads after validating int==derived
+# via scripts/audit_ledger_completeness.py. See CASH_MODE_CHIP_CUSTODY_SCOPE.md (D2).
+CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
+
 
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.

@@ -83,12 +83,15 @@ def reset_presence_cutover_flags():
     prior_shadow = ef.PRESENCE_SHADOW_WRITE_ENABLED
     prior_authority = ef.PRESENCE_AUTHORITY_ENABLED
     prior_custody = ef.CHIP_CUSTODY_ENABLED
+    prior_derive = ef.CHIP_CUSTODY_DERIVE_READS
     ef.PRESENCE_SHADOW_WRITE_ENABLED = False
     ef.PRESENCE_AUTHORITY_ENABLED = False
     ef.CHIP_CUSTODY_ENABLED = False
+    ef.CHIP_CUSTODY_DERIVE_READS = False
     try:
         yield
     finally:
         ef.PRESENCE_SHADOW_WRITE_ENABLED = prior_shadow
         ef.PRESENCE_AUTHORITY_ENABLED = prior_authority
         ef.CHIP_CUSTODY_ENABLED = prior_custody
+        ef.CHIP_CUSTODY_DERIVE_READS = prior_derive

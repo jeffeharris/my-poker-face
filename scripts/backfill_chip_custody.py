@@ -156,6 +156,61 @@ def _plan_for_sandbox(conn: sqlite3.Connection, sid: str) -> Tuple[List[dict], d
     return rows, counts
 
 
+def _player_already_backfilled(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM chip_ledger_entries "
+        "WHERE context_json LIKE ? LIMIT 1",
+        (f'%"site": "{BACKFILL_SITE}_player"%',),
+    ).fetchone()
+    return row is not None
+
+
+def _reconcile_players(conn, repo, dry_run: bool) -> dict:
+    """Reconcile GLOBAL player bankrolls to the ledger (mirror of the AI pass).
+
+    `player_bankroll_state` is global (no sandbox_id), so a player's derived
+    balance sums `player:<id>` rows across ALL sandboxes. The common gap is an
+    unledgered first-time `player_seed` grant (predates Cut 2). Inject one
+    `pre_ledger_universe` row (sandbox_id=NULL, counted in the global sum) to
+    close stored − derived. Human at-table chips are already ledgered via Cut
+    2's `player_buy_in`, so no seat seeding is needed here.
+    """
+    from core.economy import ledger as L
+
+    counts = {"players": 0, "reconcile_pos": 0, "reconcile_neg": 0, "noop": 0, "rows": 0}
+    # global derived balance per player:<id>
+    derived: Dict[str, int] = defaultdict(int)
+    for source, sink, amount in conn.execute(
+        "SELECT source, sink, amount FROM chip_ledger_entries"
+    ):
+        a = int(amount)
+        if sink.startswith("player:"):
+            derived[sink] += a
+        if source.startswith("player:"):
+            derived[source] -= a
+    for pid, chips in conn.execute("SELECT player_id, chips FROM player_bankroll_state"):
+        counts["players"] += 1
+        amount = int(chips) - derived.get(f"player:{pid}", 0)
+        ctx = {"site": f"{BACKFILL_SITE}_player", "player_id": pid}
+        if amount > 0:
+            counts["reconcile_pos"] += 1
+            if not dry_run:
+                if L.record(repo, source="central_bank", sink=f"player:{pid}",
+                            amount=amount, reason="pre_ledger_universe",
+                            context=ctx, sandbox_id=None) is not None:
+                    counts["rows"] += 1
+        elif amount < 0:
+            counts["reconcile_neg"] += 1
+            if not dry_run:
+                if L.record(repo, source=f"player:{pid}", sink="central_bank",
+                            amount=-amount, reason="pre_ledger_universe",
+                            context=ctx, sandbox_id=None) is not None:
+                    counts["rows"] += 1
+        else:
+            counts["noop"] += 1
+    return counts
+
+
 def run(db_path: str, dry_run: bool, only_sandbox: Optional[str]) -> dict:
     from poker.repositories.chip_ledger_repository import ChipLedgerRepository
     from core.economy import ledger as L
@@ -203,6 +258,18 @@ def run(db_path: str, dry_run: bool, only_sandbox: Optional[str]) -> dict:
         logger.info("  %s: %s rows (%s seat-seeds, +%s/-%s reconcile)",
                     sid[:12], written, counts["seat_seeds"],
                     counts["reconcile_pos"], counts["reconcile_neg"])
+
+    # Player pass — GLOBAL (not per-sandbox). Skip when scoped to one sandbox or
+    # already backfilled (players are global; re-running would double-reconcile).
+    player_counts = {"skipped": "scoped/already"}
+    if only_sandbox is None and not _player_already_backfilled(conn):
+        player_counts = _reconcile_players(conn, repo, dry_run)
+        totals["rows_written"] += player_counts["rows"]
+        logger.info("  players: %s rows (+%s/-%s reconcile, %s noop)",
+                    player_counts["rows"], player_counts["reconcile_pos"],
+                    player_counts["reconcile_neg"], player_counts["noop"])
+    totals["player_pass"] = player_counts
+
     conn.close()
     if repo is not None:
         repo.close()
