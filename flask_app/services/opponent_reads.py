@@ -87,6 +87,12 @@ def reconstruct_tendencies_from_lifetime(counts: Optional[dict]):
     t._big_bet_faced_count = counts.get('big_bet_faced_count', 0)
     t._equity_betting_big_sum = counts.get('equity_betting_big_sum', 0.0)
     t._equity_betting_small_sum = counts.get('equity_betting_small_sum', 0.0)
+    # v134 postflop aggression-axis counters. Derive directly in
+    # _recalculate_postflop_stats (no pre-recalc mean to seed), so just set them.
+    t._facing_bet_opportunities = counts.get('facing_bet_opportunities', 0)
+    t._all_ins_facing_bet = counts.get('all_ins_facing_bet', 0)
+    t._postflop_open_opportunities = counts.get('postflop_open_opportunities', 0)
+    t._postflop_jam_opens = counts.get('postflop_jam_opens', 0)
 
     def _eq(total, n):
         return total / n if n else 0.5
@@ -174,6 +180,16 @@ def deep_reads_from_tendencies(t) -> Optional[Dict[str, Any]]:
         'fold_to_big_bet': (
             round(t.fold_to_big_bet, 2)
             if t._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED else None
+        ),
+        # Postflop aggression axes (v134). None until an opportunity is seen;
+        # 0.0 (had chances, never jammed) is a legitimate read once observed.
+        'all_in_per_facing_bet': (
+            round(t.all_in_per_facing_bet, 2)
+            if t._facing_bet_opportunities else None
+        ),
+        'postflop_jam_open_rate': (
+            round(t.postflop_jam_open_rate, 2)
+            if t._postflop_open_opportunities else None
         ),
         # Polarization: mean equity the opponent held at each action type.
         'equity_when_betting': _mean(t._equity_betting_sum, t._equity_betting_count),

@@ -934,6 +934,12 @@ class GameRepository(BaseRepository):
         '_equity_betting_small_count': 'equity_betting_small_count',
         '_fold_to_big_bet_count': 'fold_to_big_bet_count',
         '_big_bet_faced_count': 'big_bet_faced_count',
+        # v134 postflop aggression-axis counts — feed all_in_per_facing_bet
+        # (response aggression) and postflop_jam_open_rate (open aggression).
+        '_facing_bet_opportunities': 'facing_bet_opportunities',
+        '_all_ins_facing_bet': 'all_ins_facing_bet',
+        '_postflop_open_opportunities': 'postflop_open_opportunities',
+        '_postflop_jam_opens': 'postflop_jam_opens',
     }
 
     # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
@@ -1116,6 +1122,8 @@ class GameRepository(BaseRepository):
         # v133 sizing-read gate sample denominators.
         'big_bet_faced_count', 'equity_betting_big_count',
         'equity_betting_small_count',
+        # v134 postflop-axis gate sample denominators.
+        'facing_bet_opportunities', 'postflop_open_opportunities',
     )
 
     def list_observation_lifetime_for_observer(

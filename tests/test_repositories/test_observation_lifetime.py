@@ -375,6 +375,36 @@ def test_fold_stores_sizing_counts_and_derives_reads(repo, db_path):
     assert deep['fold_to_big_bet'] == pytest.approx(0.6)   # 6 / 10
 
 
+def test_fold_stores_postflop_axes_and_derives_reads(repo, db_path):
+    """v134: the postflop aggression-axis counters fold cross-game and the
+    reconstructed tendency derives all_in_per_facing_bet + postflop_jam_open_rate."""
+    _insert_model(
+        db_path, "g1", "obs1", "opp1",
+        _counts(hands_observed=50, hands_dealt=50,
+                _facing_bet_opportunities=6, _all_ins_facing_bet=2,
+                _postflop_open_opportunities=4, _postflop_jam_opens=1),
+    )
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 1
+    _insert_model(
+        db_path, "g2", "obs1", "opp1",
+        _counts(hands_observed=50, hands_dealt=50,
+                _facing_bet_opportunities=4, _all_ins_facing_bet=1,
+                _postflop_open_opportunities=6, _postflop_jam_opens=1),
+    )
+    assert repo.fold_observations_into_lifetime("g2", "sb1") == 1
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['facing_bet_opportunities'] == 10        # 6 + 4
+    assert life['all_ins_facing_bet'] == 3               # 2 + 1
+    assert life['postflop_open_opportunities'] == 10     # 4 + 6
+    assert life['postflop_jam_opens'] == 2               # 1 + 1
+
+    from flask_app.routes.character_routes import _deeper_reads_from_lifetime
+    deep = _deeper_reads_from_lifetime(life)
+    assert deep['all_in_per_facing_bet'] == pytest.approx(0.3)    # 3 / 10
+    assert deep['postflop_jam_open_rate'] == pytest.approx(0.2)   # 2 / 10
+
+
 def test_deeper_reads_from_lifetime_empty_is_none():
     from flask_app.routes.character_routes import _deeper_reads_from_lifetime
 
@@ -504,6 +534,9 @@ def test_deep_reads_from_tendencies_gates_unobserved_reads():
     # No sizing samples → sizing reads gate to None too.
     assert reads['sizing_polarization_score'] is None
     assert reads['fold_to_big_bet'] is None
+    # No postflop-axis samples → those reads gate to None too.
+    assert reads['all_in_per_facing_bet'] is None
+    assert reads['postflop_jam_open_rate'] is None
 
 
 # --- Informant unlock store (Phase 3) ---------------------------------------

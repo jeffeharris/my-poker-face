@@ -103,6 +103,13 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     ScoutingTier('sizing_polarization', 'Sizing tell', 260,
                  ('equity_betting_big_count', 'equity_betting_small_count'),
                  8, 'sized showdown reads'),
+    # Postflop aggression axes (v134). Facing a bet is common so response
+    # aggression samples fast; open-jams are rarer, so a higher opportunity
+    # floor before the rate means anything.
+    ScoutingTier('jam_response', 'Jam-into-bet rate', 180,
+                 ('facing_bet_opportunities',), 15, 'bets faced'),
+    ScoutingTier('jam_open', 'Open-jam rate', 200,
+                 ('postflop_open_opportunities',), 20, 'postflop open spots'),
     # B2 "the read" — exploit advice + archetype badge, derived from the
     # tiered-bot exploitation detectors. Hand-only tiers: the per-pattern
     # detectors enforce their own sample minimums, so an unlocked-but-thin
@@ -136,6 +143,8 @@ _DEEPER_FIELDS: Dict[str, Tuple[str, ...]] = {
     'showdown_win_rate': ('showdown_win_rate',),
     'fold_to_big_bet': ('fold_to_big_bet',),
     'sizing_polarization': ('sizing_polarization_score',),
+    'jam_response': ('all_in_per_facing_bet',),
+    'jam_open': ('postflop_jam_open_rate',),
 }
 
 # Every gateable field in the deeper_reads block (used to collapse a fully
@@ -178,6 +187,7 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
             'all_in_freq', 'barrel', 'polarization',
             'limp_rate', 'showdown_win_rate',
             'fold_to_big_bet', 'sizing_polarization',
+            'jam_response', 'jam_open',
         ],
     },
     'tactical_read': {

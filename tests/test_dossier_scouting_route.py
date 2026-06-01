@@ -72,6 +72,12 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
         '_equity_betting_small_count': max(1, hands // 6),
         '_equity_betting_big_sum': max(1, hands // 6) * 0.8,
         '_equity_betting_small_sum': max(1, hands // 6) * 0.3,
+        # Postflop aggression-axis counts (v134), scaled so the axis tiers
+        # clear at high hand counts.
+        '_facing_bet_opportunities': max(1, hands // 3),
+        '_all_ins_facing_bet': max(1, hands // 12),
+        '_postflop_open_opportunities': max(1, hands // 3),
+        '_postflop_jam_opens': max(1, hands // 15),
     }
     conn = sqlite3.connect(db_path)
     try:
@@ -308,6 +314,7 @@ class TestDossierScoutingRoute(unittest.TestCase):
             'preflop_open_opportunities', 'showdowns_seen',
             'big_bet_faced_count', 'equity_betting_big_count',
             'equity_betting_small_count',
+            'facing_bet_opportunities', 'postflop_open_opportunities',
         )
         col_sql = ", ".join(sample_cols)
         ph = ", ".join("?" for _ in sample_cols)

@@ -278,7 +278,15 @@ _test_schema_template_path = None
 #       with stronger hands) and `fold_to_big_bet` (over-folds to overbets) —
 #       accumulate cross-game and derive on read, same store-counts-derive-rates
 #       principle as v126. 4 INTEGER + 2 REAL columns. Guarded ALTER, idempotent.
-SCHEMA_VERSION = 133
+# v134: Add the postflop aggression-axis counters to
+#       `opponent_observation_lifetime` (facing_bet_opportunities,
+#       all_ins_facing_bet, postflop_open_opportunities, postflop_jam_opens) so
+#       the response-aggression (`all_in_per_facing_bet`) and open-aggression
+#       (`postflop_jam_open_rate`) tells accumulate cross-game and surface in the
+#       dossier + coach. Player/coach-facing read only — the live AI clamp reads
+#       per-game models, not this store (v124 separation), so AI behavior is
+#       unchanged. 4 INTEGER columns. Guarded ALTER, idempotent.
+SCHEMA_VERSION = 134
 
 
 class SchemaManager:
@@ -2117,6 +2125,10 @@ class SchemaManager:
             133: (
                 self._migrate_v133_add_sizing_aware_lifetime_counts,
                 "Add sizing-aware count/sum columns to opponent_observation_lifetime (equity_betting_big/small sums+counts, fold_to_big_bet/big_bet_faced counts) so sizing_polarization_score + fold_to_big_bet accumulate cross-game; rates derive on read",
+            ),
+            134: (
+                self._migrate_v134_add_postflop_axis_lifetime_counts,
+                "Add postflop aggression-axis counters to opponent_observation_lifetime (facing_bet_opportunities, all_ins_facing_bet, postflop_open_opportunities, postflop_jam_opens) so all_in_per_facing_bet + postflop_jam_open_rate accumulate cross-game; rates derive on read",
             ),
         }
 
@@ -7053,6 +7065,51 @@ class SchemaManager:
 
         logger.info(
             "Migration v133 complete: %d sizing-aware column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v134_add_postflop_axis_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v134: persist the postflop aggression-axis counters.
+
+        These four counters were tracked live on `OpponentTendencies` but never
+        folded, so the two derived reads reset every game. Persisting the raw
+        counts lets them accumulate cross-game and the rates come back on read
+        through the canonical `OpponentTendencies._recalculate_postflop_stats`:
+
+          - `all_in_per_facing_bet` = all_ins_facing_bet / facing_bet_opportunities
+            (response aggression — jams into a bet).
+          - `postflop_jam_open_rate` = postflop_jam_opens / postflop_open_opportunities
+            (open aggression — donk-jams a no-bet pot).
+
+        Player/coach-facing read only: the live exploitation clamp reads the
+        per-game model, not this store, so AI behavior is unchanged. Same
+        store-counts-derive-rates principle as v126. Guarded ALTER, additive,
+        idempotent.
+        """
+        new_columns = [
+            'facing_bet_opportunities',
+            'all_ins_facing_bet',
+            'postflop_open_opportunities',
+            'postflop_jam_opens',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v134 complete: %d postflop-axis column(s) added to "
             "opponent_observation_lifetime",
             len(new_columns),
         )
