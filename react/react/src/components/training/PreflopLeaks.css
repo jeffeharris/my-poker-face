@@ -133,6 +133,7 @@
 }
 .pfl-leak {
   display: flex;
+  flex-wrap: wrap; /* lets the tapped explanation drop to a full-width line */
   align-items: center;
   gap: 0.75rem;
   min-height: 3.5rem; /* uniform card height across rows */
@@ -140,6 +141,15 @@
   border-radius: 8px;
   background: rgba(248, 113, 113, 0.08);
   border: 1px solid rgba(248, 113, 113, 0.18);
+}
+/* Tap-to-reveal explanation under a row (mobile-friendly; hover/title can't be
+   reached on touch). flex-basis 100% forces it onto its own line. */
+.pfl-leak-explain {
+  flex-basis: 100%;
+  margin: 0.15rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--color-text-muted, #cbd5e1);
 }
 /* Watch-items read softer than confirmed leaks (amber, not red). */
 .pfl-leak--watch {
@@ -171,16 +181,20 @@
   justify-content: center;
   gap: 0.2rem;
 }
-/* Recent-vs-all-time trend chip — sits inline next to the leak badge. */
+/* Recent-vs-all-time trend chip — a tappable button (tap reveals the inline
+   explanation; hover shows it as a title on desktop). */
 .pfl-trend {
   flex: 0 0 auto;
   align-self: center;
   padding: 0.12rem 0.5rem;
+  border: none;
   border-radius: 999px;
+  font-family: inherit;
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.03em;
   white-space: nowrap;
+  cursor: pointer;
 }
 .pfl-trend--shrinking {
   background: rgba(52, 211, 153, 0.18);

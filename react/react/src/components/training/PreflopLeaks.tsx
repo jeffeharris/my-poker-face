@@ -139,12 +139,31 @@ function leakText(lk: Leak): string {
 
 // Small inline chip summarising how the recent window compares to all-time.
 // Falls back to the muted "too few" treatment when the rollup is missing.
-function TrendChip({ recent }: { recent?: RecentLeak }) {
+// Tappable so the explanation is reachable on touch (where hover/title fails):
+// tap toggles an inline explanation under the row; desktop still gets the
+// title tooltip on hover.
+function TrendChip({
+  recent,
+  expanded,
+  onToggle,
+}: {
+  recent?: RecentLeak;
+  expanded?: boolean;
+  onToggle?: () => void;
+}) {
   const trend = recent?.trend ?? 'insufficient';
+  const explain = TREND_TOOLTIP[trend](recent?.n ?? 0);
   return (
-    <span className={`pfl-trend pfl-trend--${trend}`} title={TREND_TOOLTIP[trend](recent?.n ?? 0)}>
+    <button
+      type="button"
+      className={`pfl-trend pfl-trend--${trend}`}
+      title={explain}
+      aria-label={explain}
+      aria-expanded={expanded}
+      onClick={onToggle}
+    >
       {TREND_LABEL[trend]}
-    </span>
+    </button>
   );
 }
 
@@ -163,8 +182,16 @@ function LeakSpark({ lk }: { lk: Leak }) {
   const t = lk.recent?.trend;
   const tone: 'up' | 'down' | 'flat' =
     t === 'shrinking' || t === 'cleared' ? 'up' : t === 'worsening' ? 'down' : 'flat';
+  const direction = tone === 'up' ? 'improving' : tone === 'down' ? 'worsening' : 'steady';
 
-  return <Sparkline points={points} tone={tone} className="pfl-leak-spark" />;
+  return (
+    <Sparkline
+      points={points}
+      tone={tone}
+      className="pfl-leak-spark"
+      label={`Recent trend for this spot: ${direction}`}
+    />
+  );
 }
 
 const POSITION_LABEL: Record<string, string> = {
@@ -195,6 +222,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [effect, setEffect] = useState<Effectiveness | null>(null);
   const [depth, setDepth] = useState<DepthBand>('all');
+  // Which leak's trend explanation is expanded (tap-to-reveal; hover-tooltips
+  // don't work on touch). Keyed by the row's key string; one open at a time.
+  const [openExplain, setOpenExplain] = useState<string | null>(null);
 
   const askCoach = async () => {
     if (feedbackLoading) return;
@@ -371,17 +401,21 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
               <ul className="pfl-leaks">
                 {data.leaks.map((lk) => {
                   const confirmed = lk.status === 'confirmed';
+                  const key = `${lk.scenario}-${lk.position}-${lk.hand}-${lk.kind}`;
+                  const trend = lk.recent?.trend ?? 'insufficient';
+                  const open = openExplain === key;
                   return (
-                    <li
-                      key={`${lk.scenario}-${lk.position}-${lk.hand}-${lk.kind}`}
-                      className={`pfl-leak${confirmed ? '' : ' pfl-leak--watch'}`}
-                    >
+                    <li key={key} className={`pfl-leak${confirmed ? '' : ' pfl-leak--watch'}`}>
                       <span className="pfl-leak-detail">
                         {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
                       </span>
                       <span className="pfl-leak-trend">
                         <LeakSpark lk={lk} />
-                        <TrendChip recent={lk.recent} />
+                        <TrendChip
+                          recent={lk.recent}
+                          expanded={open}
+                          onToggle={() => setOpenExplain(open ? null : key)}
+                        />
                       </span>
                       <button
                         type="button"
@@ -390,6 +424,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                       >
                         Drill
                       </button>
+                      {open && (
+                        <p className="pfl-leak-explain">{TREND_TOOLTIP[trend](lk.recent?.n ?? 0)}</p>
+                      )}
                     </li>
                   );
                 })}
@@ -400,31 +437,39 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
               <div className="pfl-emerging">
                 <h4 className="pfl-emerging-head">Showing up recently</h4>
                 <ul className="pfl-leaks">
-                  {data.emerging.map((lk) => (
-                    <li
-                      key={`emerging-${lk.scenario}-${lk.position}-${lk.hand}-${lk.kind}`}
-                      className="pfl-leak pfl-leak--emerging"
-                    >
-                      <span className="pfl-leak-detail">
-                        {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
-                      </span>
-                      <span className="pfl-leak-trend">
-                        <span
-                          className="pfl-trend pfl-trend--emerging"
-                          title="New: showing up in your recent hands but not (yet) in your all-time profile."
-                        >
-                          ↑ new
+                  {data.emerging.map((lk) => {
+                    const key = `emerging-${lk.scenario}-${lk.position}-${lk.hand}-${lk.kind}`;
+                    const open = openExplain === key;
+                    const explain =
+                      'New: showing up in your recent hands but not (yet) in your all-time profile.';
+                    return (
+                      <li key={key} className="pfl-leak pfl-leak--emerging">
+                        <span className="pfl-leak-detail">
+                          {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
                         </span>
-                      </span>
-                      <button
-                        type="button"
-                        className="pfl-leak-drill"
-                        onClick={() => onDrill(lk.scenario, lk.position)}
-                      >
-                        Drill
-                      </button>
-                    </li>
-                  ))}
+                        <span className="pfl-leak-trend">
+                          <button
+                            type="button"
+                            className="pfl-trend pfl-trend--emerging"
+                            title={explain}
+                            aria-label={explain}
+                            aria-expanded={open}
+                            onClick={() => setOpenExplain(open ? null : key)}
+                          >
+                            ↑ new
+                          </button>
+                        </span>
+                        <button
+                          type="button"
+                          className="pfl-leak-drill"
+                          onClick={() => onDrill(lk.scenario, lk.position)}
+                        >
+                          Drill
+                        </button>
+                        {open && <p className="pfl-leak-explain">{explain}</p>}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
