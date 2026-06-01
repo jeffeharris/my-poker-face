@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
@@ -224,13 +223,9 @@ def coach_ask(game_id: str):
     coach_action = result.get('action')
     coach_raise_to = result.get('raise_to')
 
-    # Check environment variable for highlight source
-    highlight_source = os.getenv('COACH_HIGHLIGHT_SOURCE', 'coach')
-
-    # When source is 'coach' and coach provided an action, use it for highlighting
-    if highlight_source == 'coach' and coach_action and stats:
-        stats['recommendation'] = coach_action
-        stats['raise_to'] = coach_raise_to
+    # Point the recommendation highlight at the coach's pick (env-gated).
+    from flask_app.services.coach_assistant import apply_coach_highlight
+    apply_coach_highlight(stats, coach_action, coach_raise_to)
 
     payload = {
         'answer': answer,

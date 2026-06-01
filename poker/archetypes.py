@@ -63,3 +63,23 @@ VPIP_VERY_SELECTIVE = 0.20  # VPIP below this = very selective (nit territory)
 AF_PASSIVE = 0.50  # AF below this = passive player
 AF_AGGRESSIVE = 1.50  # AF above this = aggressive player
 AF_VERY_AGGRESSIVE = 2.00  # AF above this = very aggressive (maniac territory)
+
+
+def play_style_label(vpip: float, aggression_factor: float) -> str:
+    """Two-axis tight/loose × aggressive/passive style label from VPIP + AF.
+
+    The single source of truth for the four-quadrant mapping. Callers own the
+    sample-size gate (return 'unknown' below MIN_HANDS_FOR_STYLE_LABEL) — this
+    is the pure label, so it works for both a live `OpponentTendencies` and a
+    raw cross-session rate dict.
+    """
+    is_tight = vpip < VPIP_TIGHT
+    is_aggressive = aggression_factor > AF_AGGRESSIVE
+    if is_tight and is_aggressive:
+        return 'tight-aggressive'
+    elif not is_tight and is_aggressive:
+        return 'loose-aggressive'
+    elif is_tight and not is_aggressive:
+        return 'tight-passive'
+    else:
+        return 'loose-passive'

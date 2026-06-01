@@ -48,6 +48,13 @@ def _full_response():
             'third_barrel_frequency': 0.3,
             'all_in_frequency': 0.05,
             'aggression_factor_postflop': 2.5,
+            'limp_rate': 0.25,
+            'showdown_win_rate': 0.52,
+            'sizing_polarization_score': 0.3,
+            'fold_to_big_bet': 0.65,
+            'all_in_per_facing_bet': 0.2,
+            'postflop_jam_open_rate': 0.1,
+            'flop_check_then_barrel_rate': 0.45,
             'equity_when_betting': 0.65,
             'equity_when_raising': 0.72,
             'equity_when_calling': 0.55,
@@ -86,6 +93,11 @@ def _maxed(hands=10_000):
         'postflop_bet_raise_count': 100, 'postflop_call_count': 100,
         'barrel_opportunity_count': 100, 'equity_betting_count': 100,
         'equity_raising_count': 100, 'equity_calling_count': 100,
+        'preflop_open_opportunities': 100, 'showdowns_seen': 100,
+        'big_bet_faced_count': 100, 'equity_betting_big_count': 100,
+        'equity_betting_small_count': 100,
+        'facing_bet_opportunities': 100, 'postflop_open_opportunities': 100,
+        'flop_check_barrel_opportunity_count': 100,
     }
 
 
@@ -236,6 +248,13 @@ def test_deep_reads_full_unlock_keeps_everything():
     assert dr['barrel_frequency'] == 0.4
     assert dr['third_barrel_frequency'] == 0.3
     assert dr['aggression_factor_postflop'] == 2.5
+    assert dr['limp_rate'] == 0.25
+    assert dr['showdown_win_rate'] == 0.52
+    assert dr['sizing_polarization_score'] == 0.3
+    assert dr['fold_to_big_bet'] == 0.65
+    assert dr['all_in_per_facing_bet'] == 0.2
+    assert dr['postflop_jam_open_rate'] == 0.1
+    assert dr['flop_check_then_barrel_rate'] == 0.45
     assert dr['equity_when_betting'] == 0.65
 
 
