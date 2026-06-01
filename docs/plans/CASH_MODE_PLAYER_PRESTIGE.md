@@ -377,6 +377,51 @@ absent here, 2 of 80 personas tiered).
 (A `hand_count` CV<0.05 guard blocks degenerate PASSes; the verdict uses
 formula-independent ground-truth signals, not renown's own driver split.)
 
+### v2 implemented (read-side, additive) — 2026-06-01
+
+The validated offline scorer (`scripts/renown_v2_scorer.py`) is **ported into
+production** as a NEW, additive, field-aware layer in `cash_mode/prestige.py`,
+running **alongside** the unchanged v1 `compute_prestige` (still the live human
+path). The math is a faithful, oracle-tested port (the new
+`tests/test_cash_mode/test_prestige_v2.py` imports the scorer and asserts
+**bit-for-bit parity** — max renown diff 0.0 — on the Rung-1 archetype field,
+including the verdicts: 4 routes ≥ cut, control below, volume bogey not high
+under wall-clock, bogey tops the board under `'hands'`).
+
+Landed NOW (safe / pure / no schema / no ticker surgery):
+- `RenownInputsV2` / `WeightsV2` / `FieldContextV2` / `FieldRenown` dataclasses;
+  concave helpers `_v2_sqrt` / `_v2_log1p` / `_v2_relative`; `compute_components_v2`;
+  the isolated `renown_scalp_points` driver (scalp quality = `base + quality ·
+  victim_field_percentile`, `log1p(count)` per victim).
+- `score_renown_field(entities, weights)` — the **pure, field-wide, AI-symmetric**
+  entry point (two-pass victim-percentile; field medians + the relative
+  `high_renown_cut = max(top-20%, 3×median)` computed once over the whole field).
+- `quadrant_label_relative(renown, regard, high_cut)` — returns the **same 4
+  `QUADRANT_*` strings** v1 does, so the 4 world hooks keep working unchanged
+  (they switch on the quadrant string, never the numeric threshold). v1's
+  absolute `quadrant_label` (0.40) is kept byte-for-byte for v1 callers.
+- `build_renown_inputs_from_repos(...)` — repo-injected, **degrade-to-zero**
+  builder over the same sources rung2 used (cash_pair_stats, sessions, inbound
+  edges, the already-live `cash_scalps` counter; holdings/stake surfaces are
+  tolerant of an absent repo/method — those are part of the deferred stage).
+- `ReputationScore` gains **optional v2 fields with defaults** (`renown_v2`, the
+  6 v2 components, `high_renown_cut`, `formula_version`) appended AFTER every v1
+  field, so the frozen dataclass and the positional `repo.record()` are
+  unaffected (covered by a must-stay-green construction test).
+- `economy_flags.RENOWN_V2_ENABLED = False` — the kill switch / seam the
+  deferred stage flips; gates nothing live now.
+
+**DEFERRED** (risky / irreversible — NOT in this slice, intentionally):
+(A) the `prestige_snapshots` schema change to persist AI renown (v122 table,
+`load_renown_peak` MAX ratchet — must be sim-validated); (B) ticker surgery to
+compute the whole field every cycle and persist the human's v2 columns
+(`CYCLE_BUDGET_MS=250ms`, O(N) DB-read-heavy with 50+ AIs — must be docker-exec
+stress-validated); (C) flipping `RENOWN_V2_ENABLED` so the hooks read
+`quadrant_label_relative`; (D) the frontend `ReputationPanel` branch on
+`formula_version` for the uncapped gauge. **Legibility guardrail preserved**: no
+v2 renown value ever enters `generate_bounded_options` / `OptionProfile` / any
+controller decision path — v2 is side-channel-only, exactly like v1.
+
 ## Renown as a live competition — world speed & keeping pace
 
 Renown is competitive: the field (every AI) is on the same leaderboard, and the

@@ -221,6 +221,22 @@ CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
 CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 
 
+# --- Player-prestige Renown-v2 (read-side field scorer) -------------------
+
+# Kill switch for the Renown-v2 field-relative scoreboard. Default **False** —
+# the v2 layer (cash_mode/prestige.py: score_renown_field +
+# quadrant_label_relative + build_renown_inputs_from_repos) is computed-but-
+# UNCONSUMED until this flips. v1's compute_prestige + absolute quadrant_label
+# stay the live human path; the 4 reputation hooks keep reading v1's quadrant
+# string. This flag is the seam the DEFERRED stage flips: once field-wide
+# persistence + ticker surgery land (schema/ticker changes that must be
+# sim-stress-validated), the hooks switch from quadrant_label (absolute 0.40)
+# to quadrant_label_relative(renown, regard, high_cut) with a zero-residual
+# kill switch. NOW it gates nothing live. See
+# docs/plans/CASH_MODE_PLAYER_PRESTIGE.md ("v2 implemented" note).
+RENOWN_V2_ENABLED: bool = False
+
+
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
 
