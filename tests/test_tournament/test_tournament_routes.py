@@ -156,6 +156,38 @@ def test_sit_builds_a_live_game(client):
     assert again.get_json()['game_id'] == game_id
 
 
+@pytest.fixture
+def fixed_sandbox(monkeypatch):
+    """Pin the sandbox so register() never creates a sandbox row in the live DB.
+    The economy signal then reads an empty (cold) sandbox → NEUTRAL → no chip
+    writes for a freeroll, so these route tests stay non-polluting."""
+    monkeypatch.setattr(
+        'flask_app.routes.tournament_routes._resolve_sandbox_id',
+        lambda owner_id: 'test-sandbox-routes',
+    )
+
+
+def test_register_rejects_out_of_range_buy_in(client, fixed_sandbox):
+    assert _register(client, buy_in=-1).status_code == 400
+    assert _register(client, buy_in=10_000_000).status_code == 400
+
+
+def test_register_non_integer_buy_in_is_400(client, fixed_sandbox):
+    resp = _register(client, buy_in='lots')
+    assert resp.status_code == 400
+
+
+def test_freeroll_register_returns_skipped_economy(client, fixed_sandbox):
+    """buy_in=0 in a cold sandbox → NEUTRAL, no overlay/rake, economy block present."""
+    resp = _register(client, buy_in=0)
+    assert resp.status_code == 201
+    econ = resp.get_json()['economy']
+    assert econ['buy_in'] == 0
+    assert econ['bank_overlay'] == 0
+    assert econ['rake'] == 0
+    assert econ['prize_pool'] == 0
+
+
 def test_unauthenticated_is_rejected(app):
     mock_auth = MagicMock()
     mock_auth.get_current_user.return_value = None

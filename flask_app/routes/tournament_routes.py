@@ -33,6 +33,16 @@ tournament_bp = Blueprint('tournament', __name__)
 
 MAX_FIELD_SIZE = 200
 MAX_TABLE_SIZE = 10
+MAX_BUY_IN = 1_000_000  # sanity ceiling on a per-seat buy-in
+
+
+def _resolve_sandbox_id(owner_id: str) -> str:
+    """The owner's default sandbox — the real-chip economy is sandbox-scoped
+    (same resolver cash mode uses)."""
+    from flask_app.extensions import sandbox_repo
+    from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+    return resolve_default_sandbox_for(owner_id, sandbox_repo=sandbox_repo)
 
 
 def _resolve_owner_id() -> str:
@@ -155,8 +165,9 @@ def register_tournament():
         table_size = int(body.get('table_size', 6))
         starting_stack = int(body.get('starting_stack', 10_000))
         seed = int(body.get('seed', 0))
+        buy_in = int(body.get('buy_in', 0))
     except (TypeError, ValueError):
-        return jsonify({'error': 'field_size/table_size/starting_stack/seed must be integers'}), 400
+        return jsonify({'error': 'field_size/table_size/starting_stack/seed/buy_in must be integers'}), 400
 
     if not 2 <= field_size <= MAX_FIELD_SIZE:
         return jsonify({'error': f'field_size must be between 2 and {MAX_FIELD_SIZE}'}), 400
@@ -164,6 +175,8 @@ def register_tournament():
         return jsonify({'error': f'table_size must be between 2 and {MAX_TABLE_SIZE}'}), 400
     if starting_stack < 1:
         return jsonify({'error': 'starting_stack must be >= 1'}), 400
+    if not 0 <= buy_in <= MAX_BUY_IN:
+        return jsonify({'error': f'buy_in must be between 0 and {MAX_BUY_IN}'}), 400
 
     resolver_kind = body.get('resolver', 'fake')
     if resolver_kind not in ('fake', 'engine'):
@@ -184,20 +197,84 @@ def register_tournament():
     except (ValueError, KeyError) as exc:
         return jsonify({'error': str(exc)}), 400
 
-    tournament_id = registry.new_tournament_id()
-    registry.put(
-        tournament_id,
+    # --- Real-chip economy (escrow-in) ---------------------------------------
+    # Read the economy signal, decide the funding plan, gate affordability, then
+    # debit + earmark at the escrow — all under the sandbox lock so the snapshot
+    # the plan was computed from is still current when the transfers apply.
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo, tournament_session_repo
+    from flask_app.services import game_state_service
+    from flask_app.services import tournament_economy_service as econ
+
+    sandbox_id = _resolve_sandbox_id(owner_id)
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        plan = econ.plan_funding(
+            ledger_repo=chip_ledger_repo,
+            sandbox_id=sandbox_id,
+            field_size=field_size,
+            buy_in=buy_in,
+            human_in=True,  # registering through this route IS opting in
+        )
+        # Affordability gate BEFORE creating the tournament (no rollback needed).
+        if plan.human_buy_in > 0:
+            from flask_app.routes.cash_routes import _load_or_seed_player_bankroll
+
+            bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
+            if bankroll.chips < plan.human_buy_in:
+                return jsonify(
+                    {
+                        'error': 'insufficient_funds',
+                        'required': plan.human_buy_in,
+                        'available': bankroll.chips,
+                    }
+                ), 402
+
+        tournament_id = registry.new_tournament_id()
+        registry.put(
+            tournament_id,
+            {
+                'session': session,
+                'owner_id': owner_id,
+                'created_at': datetime.utcnow().isoformat(),
+                'resolver': resolver,
+                'resolver_kind': resolver_kind,
+                'game_id': None,
+            },
+        )
+        registry.persist(tournament_id)  # durable from the moment it's registered
+
+        try:
+            econ.apply_buy_in(
+                tournament_id=tournament_id,
+                owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                plan=plan,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=chip_ledger_repo,
+                session_repo=tournament_session_repo,
+            )
+        except econ.InsufficientFundsError as exc:
+            registry.delete(tournament_id)
+            return jsonify(
+                {'error': 'insufficient_funds', 'required': exc.required, 'available': exc.available}
+            ), 402
+        except Exception:  # noqa: BLE001 — undo registration on a hard chip failure
+            logger.exception("tournament buy-in failed for %s; rolling back", tournament_id)
+            registry.delete(tournament_id)
+            return jsonify({'error': 'buy_in_failed'}), 500
+
+    return jsonify(
         {
-            'session': session,
-            'owner_id': owner_id,
-            'created_at': datetime.utcnow().isoformat(),
-            'resolver': resolver,
-            'resolver_kind': resolver_kind,
-            'game_id': None,
-        },
-    )
-    registry.persist(tournament_id)  # durable from the moment it's registered
-    return jsonify({'tournament_id': tournament_id, 'standings': session.standings_view()}), 201
+            'tournament_id': tournament_id,
+            'standings': session.standings_view(),
+            'economy': {
+                'buy_in': plan.human_buy_in,
+                'bank_overlay': plan.bank_overlay,
+                'rake': plan.rake,
+                'prize_pool': plan.prize_pool,
+                'regime': plan.regime,
+            },
+        }
+    ), 201
 
 
 @tournament_bp.route('/api/tournament/<tournament_id>/standings', methods=['GET'])
