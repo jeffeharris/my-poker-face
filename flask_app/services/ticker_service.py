@@ -209,6 +209,7 @@ def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> 
         cash_session_repo=cash_session_repo,
         stake_repo=getattr(extensions, "stake_repo", None),
         chip_ledger_repo=getattr(extensions, "chip_ledger_repo", None),
+        bankroll_repo=getattr(extensions, "bankroll_repo", None),
         stale_ttl_seconds=int(STALE_SESSION_TTL_SECONDS),
         now=datetime.utcnow(),
         skip_game_ids=in_memory_cash_ids,

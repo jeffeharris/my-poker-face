@@ -24,6 +24,7 @@ from cash_mode.bankroll import (
     credit_ai_cash_out,
     debit_bankroll_for_seat,
 )
+from core.economy import ledger as L
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.schema_manager import SchemaManager
@@ -262,3 +263,92 @@ class TestRoundTripConservation:
         # Seat holds the 3k the AI bought in and never cashed out — the absent
         # cash_out paired with the buy_in IS the bust record.
         assert _seat_balance(db_path, PID, SB) == 3_000
+
+
+class _StubGameRepo:
+    def __init__(self, rows):
+        self._rows = rows
+        self.deleted = []
+
+    def list_games(self, owner_id=None, limit=10000, offset=0):
+        return list(self._rows)
+
+    def delete_game(self, game_id):
+        self.deleted.append(game_id)
+
+
+class TestSettleBeforeDelete:
+    """Phase 3 structural reaper: a non-empty human seat balance is settled back
+    to the bankroll before the row is deleted — never zeroed (forfeiture)."""
+
+    def test_orphan_seat_settled_to_bankroll(
+        self, bankroll_repo, ledger_repo, db_path, custody_on
+    ):
+        from datetime import datetime, timedelta
+        from cash_mode.lobby import _boot_sweep_stale_cash_rows
+        from cash_mode.bankroll import PlayerBankrollState
+
+        now = datetime(2026, 6, 1, 12, 0, 0)
+        gid = "cash-orphan-1"
+        OID = "guest_settle"
+        # Owner has a bankroll; a sit committed a 2_000 buy-in to the seat
+        # (player_buy_in) but the session row never landed — an orphan. The seat
+        # account holds 2_000 with no cash-out.
+        bankroll_repo.save_player_bankroll(PlayerBankrollState(OID, 5_000, 10_000))
+        L.record_player_buy_in(
+            ledger_repo, owner_id=OID, game_id=gid, amount=2_000, sandbox_id=SB
+        )
+        assert ledger_repo.balance_of(L.seat(gid), sandbox_id=None) == 2_000
+
+        game_repo = _StubGameRepo([
+            type("Row", (), {"game_id": gid, "owner_id": OID,
+                             "updated_at": now - timedelta(hours=2)})()
+        ])
+
+        class _Sessions:  # sessionless orphan → load returns None
+            def load(self, _gid):
+                return None
+
+        swept = _boot_sweep_stale_cash_rows(
+            game_repo=game_repo,
+            cash_session_repo=_Sessions(),
+            chip_ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            stale_ttl_seconds=1800,
+            now=now,
+        )
+
+        assert swept == 1
+        assert gid in game_repo.deleted
+        # The 2_000 was SETTLED back to the bankroll, not forfeited.
+        assert bankroll_repo.load_player_bankroll(OID).chips == 7_000
+        # And the seat balance is now zero (a cash-out transfer, not a zeroing).
+        assert ledger_repo.balance_of(L.seat(gid), sandbox_id=None) == 0
+
+    def test_no_settle_when_seat_empty(
+        self, bankroll_repo, ledger_repo, db_path, custody_on
+    ):
+        from datetime import datetime, timedelta
+        from cash_mode.lobby import _boot_sweep_stale_cash_rows
+        from cash_mode.bankroll import PlayerBankrollState
+
+        now = datetime(2026, 6, 1, 12, 0, 0)
+        gid = "cash-empty-1"
+        OID = "guest_empty"
+        bankroll_repo.save_player_bankroll(PlayerBankrollState(OID, 5_000, 10_000))
+        game_repo = _StubGameRepo([
+            type("Row", (), {"game_id": gid, "owner_id": OID,
+                             "updated_at": now - timedelta(hours=2)})()
+        ])
+
+        class _Sessions:
+            def load(self, _gid):
+                return None
+
+        _boot_sweep_stale_cash_rows(
+            game_repo=game_repo, cash_session_repo=_Sessions(),
+            chip_ledger_repo=ledger_repo, bankroll_repo=bankroll_repo,
+            stale_ttl_seconds=1800, now=now,
+        )
+        assert gid in game_repo.deleted
+        assert bankroll_repo.load_player_bankroll(OID).chips == 5_000  # untouched

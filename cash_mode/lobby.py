@@ -3868,12 +3868,89 @@ def _emit_session_event(cash_session_repo, session_id, event, **kwargs) -> None:
 DEFAULT_STALE_TTL_SECONDS = 14400
 
 
+def _settle_orphan_seat_to_bankroll(
+    *,
+    game_id: str,
+    owner_id: Optional[str],
+    sandbox_id: Optional[str],
+    bankroll_repo,
+    chip_ledger_repo,
+    now: datetime,
+) -> int:
+    """Settle a non-empty human seat balance back to the owner's bankroll
+    BEFORE its games row is deleted — the structural chip-custody guarantee
+    (CASH_MODE_CHIP_CUSTODY, Phase 3 / D2).
+
+    A reaped row is normally a closed/busted/orphan session whose seat is empty
+    (the cash-out already returned the chips). But a sit that committed a buy-in
+    (`player_buy_in`: player→seat) and then errored before its session row
+    landed leaves chips recorded in `seat:<game_id>` with no cash-out. Deleting
+    that row would strand those chips — the silent-forfeiture bug class. So we
+    settle the seat balance back to the bankroll (a `player_cash_out` transfer +
+    a bankroll credit) instead of zeroing it. A seat balance can leave ONLY via
+    a settlement transfer; nothing may zero a non-empty seat.
+
+    Returns the chips recovered (0 when custody is off, the seat is empty, or
+    there's no bankroll row to settle into — in the last case the balance is
+    LEFT in the ledger, never forfeited, and flagged for an operator).
+    """
+    from cash_mode import economy_flags
+
+    if (
+        not economy_flags.CHIP_CUSTODY_ENABLED
+        or chip_ledger_repo is None
+        or bankroll_repo is None
+        or not owner_id
+    ):
+        return 0
+    from core.economy import ledger as chip_ledger
+
+    # game_id is globally unique, so the seat account's rows are all one
+    # sandbox — sum across (None) is safe and avoids a sandbox mismatch.
+    bal = chip_ledger_repo.balance_of(chip_ledger.seat(game_id), sandbox_id=None)
+    if bal <= 0:
+        return 0
+    state = bankroll_repo.load_player_bankroll(owner_id)
+    if state is None:
+        logger.warning(
+            "[CASH LIFECYCLE] settle-before-delete: seat %r holds %d chips but "
+            "owner %r has no bankroll row — LEAVING the balance in the ledger "
+            "(not forfeiting); needs operator attention",
+            game_id, bal, owner_id,
+        )
+        return 0
+    from cash_mode.bankroll import PlayerBankrollState
+
+    bankroll_repo.save_player_bankroll(
+        PlayerBankrollState(
+            player_id=state.player_id,
+            chips=state.chips + bal,
+            starting_bankroll=state.starting_bankroll,
+        )
+    )
+    chip_ledger.record_player_cash_out(
+        chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=bal,
+        context={'site': 'boot_sweep_settle', 'game_id': game_id},
+        sandbox_id=sandbox_id,
+    )
+    logger.info(
+        "[CASH][LOBBY] settle-before-delete recovered %d chips for owner %r "
+        "from seat %r (chip forfeiture prevented)",
+        bal, owner_id, game_id,
+    )
+    return bal
+
+
 def _boot_sweep_stale_cash_rows(
     *,
     game_repo,
     cash_session_repo,
     stake_repo=None,
     chip_ledger_repo=None,
+    bankroll_repo=None,
     stale_ttl_seconds: int,
     now: datetime,
     skip_game_ids: Optional[Set[str]] = None,
@@ -4004,14 +4081,29 @@ def _boot_sweep_stale_cash_rows(
                             sandbox_id=session.sandbox_id if session else None,
                             now=now,
                         )
+                # 1b. STRUCTURAL settle-before-delete (chip-custody Phase 3):
+                # if the human seat account still holds chips (an orphan sit
+                # that committed a buy-in but never cashed out), settle them
+                # back to the bankroll rather than zeroing them on delete.
+                recovered = _settle_orphan_seat_to_bankroll(
+                    game_id=row.game_id,
+                    owner_id=row.owner_id,
+                    sandbox_id=session.sandbox_id if session else None,
+                    bankroll_repo=bankroll_repo,
+                    chip_ledger_repo=chip_ledger_repo,
+                    now=now,
+                )
                 # 2. Mark the session closed (idempotent via ended_at guard).
+                # `player_take_home`/`final_chips_at_table` reflect any chips the
+                # settle just returned — the record is no longer a flat zero when
+                # chips were actually recovered.
                 if session is not None and session.ended_at is None:
                     cash_session_repo.finalise(
                         session.session_id,
                         ended_at=now,
-                        final_chips_at_table=0,
+                        final_chips_at_table=recovered,
                         sponsor_repaid=0,
-                        player_take_home=0,
+                        player_take_home=recovered,
                         hands_played=session.hands_played or 0,
                         hands_won=session.hands_won or 0,
                         biggest_pot_won=session.biggest_pot_won or 0,
@@ -4149,6 +4241,7 @@ def kill_all_cash_sessions(
             cash_session_repo=cash_session_repo,
             stake_repo=stake_repo,
             chip_ledger_repo=chip_ledger_repo,
+            bankroll_repo=bankroll_repo,
             stale_ttl_seconds=stale_ttl_seconds,
             now=now,
             # Lock + re-check guard against the resurrection race (Codex #2).
