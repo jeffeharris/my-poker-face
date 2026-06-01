@@ -1490,6 +1490,7 @@ def api_new_game():
         'lean',
         'sharp',
         'casebot',
+        'regplus',
         'gto_lite',
         'baseline_solver',
     }

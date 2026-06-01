@@ -83,7 +83,7 @@ interface LLMConfig {
   ai_chat?: boolean;
 }
 
-type BotType = 'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'gto_lite' | 'baseline_solver';
+type BotType = 'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'regplus' | 'gto_lite' | 'baseline_solver';
 
 interface CustomGameConfigProps {
   onStartGame: (
@@ -1221,6 +1221,7 @@ export function CustomGameConfig({
                       <optgroup label="More">
                         <option value="lean">Guided · Lean — cheaper bounded LLM</option>
                         <option value="casebot">CaseBot — rule-based</option>
+                        <option value="regplus">Reg+ — disciplined value-bot</option>
                         <option value="gto_lite">GTO-Lite — pot-odds math</option>
                         <option value="baseline_solver">Solver · no personality</option>
                       </optgroup>

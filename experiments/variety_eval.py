@@ -38,6 +38,7 @@ logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
 from experiments.measure_passivity import (  # noqa: E402
     DEFAULT_CLONE_PROFILE,
+    PUNISHER_CLONE_PROFILE,
     _run_seed_worker,
 )
 from experiments.simulate_bb100 import compute_stats  # noqa: E402
@@ -57,14 +58,21 @@ TAG_GRINDER_FIELD = ['TAG'] * 5  # disciplined regs — the drain-vs-depth field
 # cost. Kept only as a hero, not a field.
 JEFF_FIELD = ['Jeff_clone'] * 5  # realistic calls-down human
 NEVERFOLD_FIELD = ['CallStation'] * 5  # always_call rule bot — punishes bluffs hardest
+# The competent field: a disciplined aggressive reg that folds CORRECTLY
+# (punishes over-calling) AND barrels air (punishes over-folding). This is the
+# only field that prices the true cost of OVER-BLUFFING (B's callers are donors,
+# not punishers; B's foldy Baseline over-folds). See measure_passivity ROSTERS.
+PUNISHER_FIELD = ['Punisher_clone'] * 5
 
 
 def _infer_clone_profile(roster):
     """If the roster references a *_clone opponent, return the frozen profile
-    path so the worker registers it (mirrors measure_passivity). Jeff is the
-    only clone field used here."""
-    if any(o.endswith('_clone') for o in roster):
-        return DEFAULT_CLONE_PROFILE
+    path so the worker registers it (mirrors measure_passivity). Resolves the
+    profile from the clone's source name so Punisher_clone → punisher.json and
+    Jeff_clone → jeff.json (not all clones default to jeff)."""
+    for o in roster:
+        if o.endswith('_clone'):
+            return PUNISHER_CLONE_PROFILE if o.startswith('Punisher') else DEFAULT_CLONE_PROFILE
     return None
 
 
@@ -247,9 +255,51 @@ def sweep_B(hands, seeds):
     return res
 
 
+# ── Sweep P: over-bluff / aggression priced vs the PUNISHER (competent) field ─
+# StationOverBluff isolates over_bluff; StationPBlind isolates position_blind;
+# Calling Station is the no-leak baseline. Maniac/LAG are the aggressive ends.
+P_ARCHETYPES = ['Calling Station', 'StationOverBluff', 'StationPBlind', 'WeakFish', 'LAG', 'Maniac']
+P_DEPTHS = [40, 100]
+
+
+def sweep_P(hands, seeds):
+    cells = []
+    for h in P_ARCHETYPES:
+        for d in P_DEPTHS:
+            cells.append((h, PUNISHER_FIELD, 'punisher', d))
+            cells.append((h, FOLDY_FIELD, 'foldy', d))  # contrast (over-folder)
+    res = run_grid(cells, hands, seeds)
+    print("\n" + "=" * 72)
+    print(f"# SWEEP P — priced vs the PUNISHER (competent folder+barreler), "
+          f"{hands}h × {len(seeds)} seeds")
+    print("=" * 72)
+    print("\nbb/100. PUNISHER=Punisher_clone×5 (folds correctly AND barrels air — "
+          "the only field that prices over-bluffing honestly). FOLDY=Baseline×5 "
+          "(over-folder) for contrast.")
+    print("\n| hero | depth | vs PUNISHER | vs FOLDY | punisher−foldy |")
+    print("|---|---|---|---|---|")
+    for h in P_ARCHETYPES:
+        for d in P_DEPTHS:
+            sp = res[_cell_key(h, 'punisher', d)]
+            sf = res[_cell_key(h, 'foldy', d)]
+            warn = "⚠" if sp['sign_disagree'] else ""
+            print(f"| {h} | {d}bb | {sp['bb100']:+.1f}{warn} | {sf['bb100']:+.1f} | "
+                  f"{sp['bb100']-sf['bb100']:+.1f} |")
+    # Lever isolations vs the punisher (marginal cost of each leak).
+    print("\n**Lever isolation vs PUNISHER** (hero − Calling Station baseline):")
+    print("\n| lever | depth | Δ bb/100 vs punisher |")
+    print("|---|---|---|")
+    for lever, h in [('over_bluff', 'StationOverBluff'), ('position_blind', 'StationPBlind')]:
+        for d in P_DEPTHS:
+            base = res[_cell_key('Calling Station', 'punisher', d)]['bb100']
+            val = res[_cell_key(h, 'punisher', d)]['bb100']
+            print(f"| {lever} | {d}bb | {val-base:+.1f} |")
+    return res
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('sweep', choices=['A', 'B', 'D', 'all'])
+    p.add_argument('sweep', choices=['A', 'B', 'D', 'P', 'all'])
     p.add_argument('--hands', type=int, default=1500)
     p.add_argument('--seeds', default='42,3042,6042')
     args = p.parse_args()
@@ -260,6 +310,8 @@ def main():
         sweep_D(args.hands, seeds)
     if args.sweep in ('B', 'all'):
         sweep_B(args.hands, seeds)
+    if args.sweep in ('P', 'all'):
+        sweep_P(args.hands, seeds)
 
 
 if __name__ == '__main__':

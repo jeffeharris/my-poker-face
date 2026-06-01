@@ -48,6 +48,21 @@ def _load_window_size() -> int:
         return 50
 
 
+# ── Sizing-aware modeling Phase A thresholds ──────────────────────────
+# A bet is "big" when the bettor's increment is >= this fraction of the
+# pot-before-their-action. 0.75 ≈ the boundary between a standard 1/2–2/3
+# pot bet and a polar overbet-ish bet (matches the bet_size_classification
+# `large` bucket intent). Two bins only — four are sample-starved.
+SIZING_BIG_BET_POT_RATIO = 0.75
+# The polarization score (big−small equity gap) stays at its neutral 0.0
+# prior until BOTH size bins have at least this many showdown observations
+# — guards against a 1-sample bin swinging the read.
+SIZING_MIN_BIN_SAMPLE = 4
+# fold_to_big_bet (live, all-hands) is the offensive trigger; it needs a
+# smaller floor than the showdown-gated polarization score.
+SIZING_MIN_BIG_BET_FACED = 6
+
+
 @dataclass
 class OpponentTendencies:
     """Statistical model of an opponent's play style."""
@@ -214,6 +229,32 @@ class OpponentTendencies:
     _equity_betting_count: int = 0
     _equity_raising_count: int = 0
     _equity_calling_count: int = 0
+
+    # ── Sizing-aware modeling Phase A (docs/plans/SIZING_AWARE_OPPONENT_MODELING.md) ──
+    # Does this opponent's BET SIZE telegraph hand strength? Two signals:
+    #
+    # (1) sizing_polarization_score = equity_when_betting_big − equity_when_betting_small.
+    #     Positive ⇒ bets bigger with stronger hands ⇒ FACE-UP/polar (a human read
+    #     we can defend against: fold marginals to their big bets, call their small
+    #     ones). Showdown-gated (needs revealed cards) so it matures slowly — two
+    #     size bins (big = bettor's increment ≥ SIZING_BIG_BET_POT_RATIO of the pot-
+    #     before, small = below). Stays at the neutral 0.0 prior until both bins
+    #     clear SIZING_MIN_BIN_SAMPLE.
+    equity_when_betting_big: float = 0.5
+    equity_when_betting_small: float = 0.5
+    sizing_polarization_score: float = 0.0
+    _equity_betting_big_sum: float = 0.0
+    _equity_betting_small_sum: float = 0.0
+    _equity_betting_big_count: int = 0
+    _equity_betting_small_count: int = 0
+    # (2) fold_to_big_bet — live-updated on ALL hands (not showdown-gated), like
+    #     fold_to_cbet: when this opponent faces a large/jam-sized bet, did they
+    #     fold? High ⇒ an over-folder we can ATTACK (overbet wider). Far better
+    #     sample coverage than the polarization score → the primary offensive
+    #     trigger (Phase C). Neutral 0.5 prior until _big_bet_faced_count matures.
+    fold_to_big_bet: float = 0.5
+    _fold_to_big_bet_count: int = 0
+    _big_bet_faced_count: int = 0
 
     # Per-hand opportunity flags (reset on new hand, mirror _vpip_this_hand /
     # _pfr_this_hand).
@@ -597,6 +638,48 @@ class OpponentTendencies:
             )
         # action types outside {bet, raise, call} intentionally ignored
 
+    def update_equity_at_bet_size(self, equity: float, bet_fraction: float) -> None:
+        """Sizing-aware Phase A: record the equity this opponent had when they
+        bet/raised, BINNED by how big the bet was relative to the pot.
+
+        Called from the showdown-correlation machine for each revealed
+        bet/raise action (where we both know the strength via equity AND the
+        size via the ordered-replay bet_fraction). `bet_fraction` is the
+        bettor's increment over the pot-before-their-action. Feeds
+        `sizing_polarization_score` = big-bet equity − small-bet equity: a
+        positive gap means they size up with strength (face-up/polar). No-op on
+        out-of-range inputs so the caller can pass through without guarding.
+        """
+        if not (0.0 <= equity <= 1.0) or bet_fraction is None or bet_fraction < 0:
+            return
+        if bet_fraction >= SIZING_BIG_BET_POT_RATIO:
+            self._equity_betting_big_sum += equity
+            self._equity_betting_big_count += 1
+            self.equity_when_betting_big = (
+                self._equity_betting_big_sum / self._equity_betting_big_count
+            )
+        else:
+            self._equity_betting_small_sum += equity
+            self._equity_betting_small_count += 1
+            self.equity_when_betting_small = (
+                self._equity_betting_small_sum / self._equity_betting_small_count
+            )
+
+    def update_fold_to_big_bet(self, folded: bool) -> None:
+        """Sizing-aware Phase A: live (all-hands) record of how this opponent
+        responds when FACING a large/jam-sized bet — did they fold?
+
+        Mirrors `update_fold_to_cbet`: the caller increments this whenever the
+        opponent faces a bet bucketed `large`/`jam` and either folds (folded=
+        True) or continues (call/raise → folded=False). High fold rate ⇒ an
+        over-folder to attack (Phase C overbets wider). Not showdown-gated, so
+        it matures far faster than the polarization score.
+        """
+        self._big_bet_faced_count += 1
+        if folded:
+            self._fold_to_big_bet_count += 1
+        self.fold_to_big_bet = self._fold_to_big_bet_count / self._big_bet_faced_count
+
     def _recalculate_stats(self):
         """Recalculate derived statistics.
 
@@ -661,6 +744,20 @@ class OpponentTendencies:
 
         if self._showdowns > 0:
             self.showdown_win_rate = self._showdowns_won / self._showdowns
+
+        # Sizing-aware Phase A: polarization score = how much MORE equity this
+        # opponent shows on big bets vs small bets. Only meaningful once BOTH
+        # bins have a real sample; otherwise hold the neutral 0.0 prior so a
+        # lone observation can't flag a balanced player as face-up.
+        if (
+            self._equity_betting_big_count >= SIZING_MIN_BIN_SAMPLE
+            and self._equity_betting_small_count >= SIZING_MIN_BIN_SAMPLE
+        ):
+            self.sizing_polarization_score = (
+                self.equity_when_betting_big - self.equity_when_betting_small
+            )
+        else:
+            self.sizing_polarization_score = 0.0
 
         # Opportunity-normalized preflop stats. Stay at neutral prior
         # 0.5 until at least one opportunity is observed (mirrors
@@ -780,6 +877,16 @@ class OpponentTendencies:
         elif self.fold_to_cbet < 0.3:
             parts.append("calls often")
 
+        # Sizing-aware Phase A reads (only surface once the sample matured —
+        # the score self-gates to 0.0 below SIZING_MIN_BIN_SAMPLE).
+        if self.sizing_polarization_score > 0.15:
+            parts.append("face-up sizing")  # bets big with strength → exploitable
+        if (
+            self._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED
+            and self.fold_to_big_bet > 0.6
+        ):
+            parts.append("over-folds to big bets")
+
         return ", ".join(parts)
 
     # Canonical (de)serialization registry: one (attr_name, default)
@@ -852,6 +959,17 @@ class OpponentTendencies:
         ('_equity_betting_count', 0),
         ('_equity_raising_count', 0),
         ('_equity_calling_count', 0),
+        # Sizing-aware Phase A: size-binned equity + fold-to-big-bet
+        ('equity_when_betting_big', 0.5),
+        ('equity_when_betting_small', 0.5),
+        ('sizing_polarization_score', 0.0),
+        ('fold_to_big_bet', 0.5),
+        ('_equity_betting_big_sum', 0.0),
+        ('_equity_betting_small_sum', 0.0),
+        ('_equity_betting_big_count', 0),
+        ('_equity_betting_small_count', 0),
+        ('_fold_to_big_bet_count', 0),
+        ('_big_bet_faced_count', 0),
     )
 
     def to_dict(self) -> Dict[str, Any]:

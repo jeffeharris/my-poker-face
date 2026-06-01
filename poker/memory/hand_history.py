@@ -214,6 +214,38 @@ class RecordedHand:
 
         return contributions
 
+    def bet_fraction_by_action(self) -> Dict[int, float]:
+        """Map each aggressive action to how big it was relative to the pot
+        BEFORE it — `increment / pot_before` — keyed by ``id(action)``.
+
+        This is the "bettor sized big" signal for sizing-aware modeling
+        (SIZING_AWARE_OPPONENT_MODELING.md Phase A). It reuses the same
+        amount-semantics replay as ``get_player_contributions`` (raise = new
+        bet level so the increment is the delta; call/all_in = the increment),
+        then derives ``pot_before = pot_after - increment``. Only ``bet`` /
+        ``raise`` actions are emitted (the polarization tell is about the
+        bettor's chosen size); calls/checks/folds are omitted. Actions whose
+        ``pot_before`` is non-positive (e.g. the first blind) are skipped.
+
+        Keyed by ``id(action)`` because ``RecordedAction`` is a value object
+        (equal actions would collide as dict keys); the showdown machine holds
+        the very same instances, so identity lookup is exact.
+        """
+        fractions: Dict[int, float] = {}
+        committed_in_phase: Dict[tuple, int] = {}
+        for action in self.actions:
+            key = (action.player_name, action.phase)
+            prior = committed_in_phase.get(key, 0)
+            if action.action in ('raise', 'bet'):
+                increment = max(0, action.amount - prior)
+                committed_in_phase[key] = action.amount
+                pot_before = action.pot_after - increment
+                if increment > 0 and pot_before > 0:
+                    fractions[id(action)] = increment / pot_before
+            elif action.action in ('call', 'post_blind', 'all_in'):
+                committed_in_phase[key] = prior + max(0, action.amount)
+        return fractions
+
     def get_summary(self) -> str:
         """Generate a brief summary of the hand."""
         winner_names = [w.name for w in self.winners]
