@@ -223,8 +223,33 @@ RIVER (same direction + street as the bet leak, much lower frequency). So **the
 river BET fix (T2) is the dominant lever**; a river check-raise-bluff is an
 analogous minor secondary lever, not a priority. Raise samples are thin (the bot
 seldom raises, esp. vs a station) → moderate confidence, but consistent across
-station + reg. Preflop 3-bet-bluff readability still unaudited (the tell map is
-postflop-only).
+station + reg.
+
+**Preflop 3-bet audit DONE (2026-06-01).** Added a preflop-3-bet-readability block
+(`pf_tier_action`, hand tier via `hand_ranges._classify_hand_tier`): per scenario,
+the raise range's tier composition. 6-max vs jeff (real sample):
+
+| raise | n | value% (prem+strong) | non-prem% |
+|---|---|---|---|
+| open (RFI) | 1430 | 19% | 81% |
+| 3-bet (vs_open) | 232 | 18% | 82% (57% trash-tier) |
+| 4-bet (vs_3bet) | 49 | 43% | 57% |
+| fold-to-3bet | 419 | — | 80% fold / 9% call / 12% 4bet |
+
+**Preflop raising is NOT face-up — the OPPOSITE of the river.** The 3-bet range is
+wide and heavily non-premium (lots of light 3-bets) → no "reader folds to every
+3-bet" leak; for the vs-human goal a bluff-mixed 3-bet range is good. Caveats:
+(1) `_classify_hand_tier` is absolute full-ring → A5s/suited-gappers (the standard
+3-bet bluff candidates) score as "trash", so "82% non-premium" overstates bluffiness
+— a position-relative tiering is needed to tell "well-polarized" from "over-bluffing"
+(if anything the bot may OVER-3-bet-bluff, an EV-vs-fish question, not a readability
+one). (2) fold-to-3bet 80% looks high but is a wide open shedding its bottom; the
+prior steal-defense isolation already found vs_3bet defense ~neutral (not a leak).
+
+**COMPLETE readability map (all dimensions audited):** preflop wide/mixed (not
+face-up) · flop over-bluffed (merge artifact) · turn balanced (bets+raises) · RIVER
+face-up (bets; raises thinly). **The whole aggressive game has exactly ONE
+readability leak: the river bet — which T2+gate addresses.** No new fix indicated.
 
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +

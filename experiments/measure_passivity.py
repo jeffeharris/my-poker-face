@@ -69,6 +69,7 @@ from experiments.simulate_bb100 import (
 # controller looks up, so an attribution bucket maps directly to a chart entry.
 from poker.card_utils import card_to_string
 from poker.controllers import _get_canonical_hand
+from poker.hand_ranges import _classify_hand_tier
 from poker.poker_state_machine import PokerStateMachine
 from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET, derive_signals
 from poker.strategy.preflop_classifier import build_preflop_node
@@ -152,6 +153,14 @@ _SIZE_BUCKETS = [
 ]
 _VALUE_CLASSES = {'nuts', 'strong_made'}
 _BLUFF_CLASSES = {'air', 'air_no_draw', 'air_strong_draw'}
+
+# Preflop 3-bet readability: a 3-bet (or 4-bet) range is face-up when it's all
+# value (premium/strong — hands happy to stack off / call a 4-bet), so a reader
+# folds to every 3-bet and 4-bet-bluffs the capped raiser. A balanced range mixes
+# in light/bluff 3-bets (playable/marginal/trash — hands that 3-bet to fold to a
+# 4-bet). Tiers from hand_ranges._classify_hand_tier.
+_PF_VALUE_TIERS = {'premium', 'strong'}
+_PF_BLUFF_TIERS = {'playable', 'marginal', 'trash'}
 
 
 def _size_bucket(frac: float) -> str:
@@ -244,6 +253,11 @@ class PassivityStats:
     pf_scenario_action: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
     pf_raise_to_bb_sum: float = 0.0  # sum of resolved raise-to (in BB) for raises (excl all_in)
     pf_raise_n: int = 0  # count of raises (excl all_in) — for avg open size
+    # Preflop 3-bet readability: (scenario, action) -> Counter(hand_tier). The
+    # vs_open+raise cell is the 3-bet range's tier composition (value vs bluff).
+    pf_tier_action: Dict[Tuple[str, str], Counter] = field(
+        default_factory=lambda: defaultdict(Counter)
+    )
 
     def record_decision(
         self, node_key: str, action: str, opp_bet_flop: bool, opp_bet_prev: bool, street: str
@@ -317,6 +331,8 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
     into.pf_action.update(src.pf_action)
     for sc, c in src.pf_scenario_action.items():
         into.pf_scenario_action[sc].update(c)
+    for k, c in src.pf_tier_action.items():
+        into.pf_tier_action[k].update(c)
     into.pf_raise_to_bb_sum += src.pf_raise_to_bb_sum
     into.pf_raise_n += src.pf_raise_n
 
@@ -413,6 +429,18 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
             if action == 'raise':
                 stats.pf_raise_to_bb_sum += raise_to / 100.0  # big_blind=100 in sim
                 stats.pf_raise_n += 1
+            # 3-bet readability: bucket the decision's hand by tier, keyed by
+            # (scenario, action). vs_open+raise = the 3-bet range composition.
+            hole = (
+                [card_to_string(c) for c in current_player.hand]
+                if current_player.hand
+                else []
+            )
+            if len(hole) == 2:
+                canon = _get_canonical_hand(hole)
+                if canon:
+                    tier = _classify_hand_tier(canon, None)
+                    stats.pf_tier_action[(scenario, action)][tier] += 1
 
         # ── Instrument the hero's postflop decision ─────────────────────────
         if is_hero and phase_name in _POSTFLOP_STREETS:
@@ -841,6 +869,47 @@ def print_tell_map(stats: PassivityStats, min_n: int = 15):
         print("\n  overbet_context outcomes (diagnostic):")
         for tag, n in stats.overbet_outcomes.most_common(12):
             print(f"    {tag:<44} {n}")
+
+    # ── Preflop 3-bet readability ────────────────────────────────────────────
+    # vs_open+raise = the 3-bet range. value=premium+strong, bluff=light
+    # (playable/marginal/trash). A face-up 3-bet range is ~all value (a reader
+    # folds to every 3-bet + 4-bet-bluffs the capped raiser); a balanced range
+    # mixes in light 3-bets.
+    pf = stats.pf_tier_action
+    if pf:
+        print("\n── PREFLOP 3-BET READABILITY (raise range tier composition) ──")
+        print(
+            f"  {'scenario':<9} {'n':>5}  {'prem':>5} {'strg':>5} {'play':>5} "
+            f"{'marg':>5} {'trsh':>5} | {'value%':>6} {'bluff%':>6}  read"
+        )
+        for scenario in ('rfi', 'vs_open', 'vs_3bet'):
+            counter = pf.get((scenario, 'raise'))
+            n = sum(counter.values()) if counter else 0
+            if not n:
+                continue
+
+            def _p(tier):
+                return 100.0 * counter[tier] / n
+
+            value = sum(counter[t] for t in _PF_VALUE_TIERS)
+            bluff = sum(counter[t] for t in _PF_BLUFF_TIERS)
+            label = {'rfi': 'open', 'vs_open': '3bet', 'vs_3bet': '4bet'}[scenario]
+            read = ''
+            if scenario in ('vs_open', 'vs_3bet') and 100.0 * bluff / n < 8:
+                read = 'FACE-UP (value-only)'
+            print(
+                f"  {label:<9} {n:>5}  {_p('premium'):>5.0f} {_p('strong'):>5.0f} "
+                f"{_p('playable'):>5.0f} {_p('marginal'):>5.0f} {_p('trash'):>5.0f} | "
+                f"{100.0*value/n:>5.0f}% {100.0*bluff/n:>5.0f}%  {read}"
+            )
+        # Fold-to-3bet (over-fold leak, secondary): how vs_3bet decisions split.
+        v3 = {a: sum(pf.get(('vs_3bet', a), Counter()).values()) for a in ('fold', 'call', 'raise')}
+        v3n = sum(v3.values())
+        if v3n:
+            print(
+                f"  vs_3bet response: fold {100*v3['fold']/v3n:.0f}%  "
+                f"call {100*v3['call']/v3n:.0f}%  4bet {100*v3['raise']/v3n:.0f}%  (n={v3n})"
+            )
 
 
 def print_report(
