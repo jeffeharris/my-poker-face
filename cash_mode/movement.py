@@ -1237,17 +1237,17 @@ def refresh_table_roster(
         if s.get("kind") == "ai" and s.get("personality_id")
     ]
 
-    # Movement trace (debug): when a human is at this table, record why each
-    # AI leaves / who arrives so the "AIs scatter after I sit down" pattern is
-    # observable from logs. Scoped to human tables so the autonomous world
-    # (no human seat) never spams. Kill switch: env MOVEMENT_TRACE=0.
+    # Movement trace (debug, OPT-IN): when enabled, record why each AI
+    # leaves / who arrives so the "AIs scatter after I sit down" pattern is
+    # observable from logs. OFF by default — set MOVEMENT_TRACE=1 to turn it
+    # on; the full machinery stays in place either way.
     human_present = any(s.get("kind") == "human" for s in new_seats)
-    # Default: only the player's seated table (no world-tick spam). Set
-    # MOVEMENT_TRACE_ALL=1 to ALSO trace the autonomous world refresh
-    # (`refresh_unseated_tables` / lobby-load reshuffle) — needed to see the
+    # With MOVEMENT_TRACE=1, traces only the player's seated table (no
+    # world-tick spam). Add MOVEMENT_TRACE_ALL=1 to ALSO trace the autonomous
+    # world refresh (`refresh_unseated_tables` / lobby-load reshuffle) — the
     # "tables empty when I open the lobby" path, where no human is seated.
     trace_all = os.getenv("MOVEMENT_TRACE_ALL", "0") != "0"
-    trace_enabled = (human_present or trace_all) and os.getenv("MOVEMENT_TRACE", "1") != "0"
+    trace_enabled = (human_present or trace_all) and os.getenv("MOVEMENT_TRACE", "0") != "0"
     trace_inputs: Dict[str, Dict[str, Any]] = {}
 
     # Fish-ness by persona identity, robust to a missing per-seat stamp
