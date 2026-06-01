@@ -353,22 +353,30 @@ def load_owner_preflop_decisions(db_path: str, owner_id: str) -> list[dict]:
     try:
         conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
         conn.row_factory = sqlite3.Row
-        # owner_name identifies the human seat; join games for owner scoping.
+        # Scope by owner_id (idx_games_owner) and join on game_id (its index),
+        # then keep the human seat (player_name == that game's owner_name) in
+        # Python. NB: do NOT put `pda.player_name = g.owner_name` in the WHERE —
+        # it makes SQLite nested-loop games × name-matched rows (O(games×rows)).
         cur = conn.execute(
             """
             SELECT pda.player_hand_canonical AS canon,
                    pda.player_position       AS position,
-                   pda.action_taken          AS action
+                   pda.action_taken          AS action,
+                   pda.player_name           AS player_name,
+                   g.owner_name              AS owner_name
             FROM player_decision_analysis pda
             JOIN games g ON g.game_id = pda.game_id
-            WHERE pda.phase = 'PRE_FLOP'
-              AND g.owner_id = ?
-              AND pda.player_name = g.owner_name
+            WHERE g.owner_id = ?
+              AND pda.phase = 'PRE_FLOP'
               AND pda.player_hand_canonical IS NOT NULL
             """,
             (owner_id,),
         )
-        rows = [dict(r) for r in cur.fetchall()]
+        rows = [
+            {'canon': r['canon'], 'position': r['position'], 'action': r['action']}
+            for r in cur.fetchall()
+            if r['player_name'] == r['owner_name']
+        ]
         conn.close()
     except Exception as e:
         logger.warning("load_owner_preflop_decisions failed for %s: %s", owner_id, e)

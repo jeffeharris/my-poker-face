@@ -141,6 +141,10 @@ def load_owner_chart_decisions(db_path: str, owner_id: str) -> list[dict]:
             for r in conn.execute("PRAGMA table_info(player_decision_analysis)")
         )
         node_col = 'pda.preflop_node_key AS preflop_node_key,' if has_node_key else ''
+        # Scope by owner_id + join on game_id (both indexed); keep the human seat
+        # (player_name == that game's owner_name) in Python. The `player_name =
+        # g.owner_name` clause must stay OUT of the WHERE — it triggers an
+        # O(games × name-matched-rows) nested loop (see load_owner_preflop_decisions).
         cur = conn.execute(
             f"""
             SELECT pda.player_hand_canonical AS canon,
@@ -149,18 +153,19 @@ def load_owner_chart_decisions(db_path: str, owner_id: str) -> list[dict]:
                    pda.cost_to_call          AS cost_to_call,
                    pda.player_stack          AS player_stack,
                    pda.num_opponents         AS num_opponents,
+                   pda.player_name           AS player_name,
+                   g.owner_name              AS owner_name,
                    {node_col}
                    CAST(json_extract(g.game_state_json, '$.current_ante') AS REAL) AS bb
             FROM player_decision_analysis pda
             JOIN games g ON g.game_id = pda.game_id
-            WHERE pda.phase = 'PRE_FLOP'
-              AND g.owner_id = ?
-              AND pda.player_name = g.owner_name
+            WHERE g.owner_id = ?
+              AND pda.phase = 'PRE_FLOP'
               AND pda.player_hand_canonical IS NOT NULL
             """,
             (owner_id,),
         )
-        rows = [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall() if r['player_name'] == r['owner_name']]
         conn.close()
     except Exception as e:
         logger.warning("load_owner_chart_decisions failed for %s: %s", owner_id, e)
