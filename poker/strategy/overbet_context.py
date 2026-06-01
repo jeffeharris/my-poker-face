@@ -77,6 +77,36 @@ DEFAULT_FRACTION = 1.0  # 1.0 = relabel all bet mass (matches the measured probe
 # leaves the parameter exposed for tuning when a sizing-aware opponent exists)
 
 
+def _promote_check_to_bet(
+    strategy: StrategyProfile, *, bet_key: str, fraction: float
+) -> StrategyProfile:
+    """Move ``fraction`` of the ``check`` mass to ``bet_key`` — *creating* bet
+    mass where there was none.
+
+    This is the river-bluff (T2) mechanism and is structurally different from
+    ``_shift_bet_mass`` (T1), which only redistributes *existing* ``bet_*`` mass.
+    The tell map (measure_passivity --tell-map) shows the bot gives up its river
+    air into ``check`` (river big bets are ~95-100% value → a sizing-reader folds
+    to them for free). T1 can't fix that — there is no air bet-mass to relabel —
+    so the only way to de-face-up the river is to convert give-up-air checks into
+    bets at the value size, balancing the betting range. Returns the input
+    unchanged when there is no check mass to promote.
+    """
+    probs = dict(strategy.action_probabilities)
+    check_mass = probs.get('check', 0.0)
+    if check_mass <= 0.0 or fraction <= 0.0:
+        return strategy
+    move = check_mass * fraction
+    new = dict(probs)
+    remaining = check_mass - move
+    if remaining > 1e-9:
+        new['check'] = remaining
+    else:
+        new.pop('check', None)
+    new[bet_key] = new.get(bet_key, 0.0) + move
+    return StrategyProfile(action_probabilities=new)
+
+
 def _shift_bet_mass(
     strategy: StrategyProfile, *, overbet_key: str, fraction: float
 ) -> StrategyProfile:
@@ -120,6 +150,11 @@ def apply_overbet_context(
     overbet_max_active: Optional[int] = None,
     overbet_bluff_fraction: float = 0.0,
     overbet_bluff_classes: Optional[FrozenSet[str]] = None,
+    river_bluff_fraction: float = 0.0,
+    river_bluff_classes: Optional[FrozenSet[str]] = None,
+    river_bluff_size: Optional[int] = None,
+    river_bluff_fold_to_big_bet: Optional[float] = None,
+    river_bluff_min_ftbb: float = 0.6,
     prior_layer_fired: bool = False,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
@@ -162,6 +197,84 @@ def apply_overbet_context(
         overbet_bluff_classes if overbet_bluff_classes is not None else DEFAULT_BLUFF_CLASSES
     )
     streets = overbet_streets if overbet_streets is not None else DEFAULT_STREETS
+
+    # ── River-bluff (T2): CREATE bluff supply from give-up-air checks ────────
+    # The tell map shows the bot's river big bets are ~95-100% value (face-up).
+    # T1 (_shift_bet_mass) can't fix it — there's no river air bet-mass to
+    # relabel — so this path promotes give-up-air CHECK mass to a bet at the
+    # value/overbet size, making the river betting range polar (value + bluff)
+    # so a sizing-reader can't profitably fold to it. Takes precedence over the
+    # T1 bluff path on the river (which would no-op for lack of bet mass).
+    # Default OFF (river_bluff_fraction=0.0) → byte-identical.
+    river_classes = (
+        river_bluff_classes if river_bluff_classes is not None else DEFAULT_BLUFF_CLASSES
+    )
+    # Regime gate: fire ONLY vs a detected sizing-reader / over-folder
+    # (fold_to_big_bet >= threshold). Cold-start / no read / a caller (read None
+    # or below threshold) → value-only, so the river bluff never bleeds into the
+    # fish that fill the game (measured cost −7.18 bb/100 vs a caller; gain only
+    # +1.90 vs a reader). This is what makes balancing the river a vs-human win
+    # at ~zero fish cost — its first consumer of the Phase A fold_to_big_bet read.
+    reader_detected = (
+        river_bluff_fold_to_big_bet is not None
+        and river_bluff_fold_to_big_bet >= river_bluff_min_ftbb
+    )
+    is_river_bluff = (
+        action_context == 'unopened'
+        and (street or '').upper() == 'RIVER'
+        and river_bluff_fraction > 0.0
+        and reader_detected
+        and hand_class in river_classes
+        and (overbet_max_active is None or active_count <= overbet_max_active)
+    )
+    if is_river_bluff and not prior_layer_fired:
+        if is_rule_disabled(disable_rules, LAYER, 'overbet'):
+            return strategy, make_disabled_trace(LAYER, 'overbet', order)
+        river_key = f'bet_{river_bluff_size if river_bluff_size is not None else overbet_size}'
+        new = _promote_check_to_bet(
+            strategy, bet_key=river_key, fraction=river_bluff_fraction
+        )
+        if new is strategy:
+            return strategy, make_no_op_trace(
+                LAYER, 'overbet', order, reason_code='no_check_mass',
+            )
+        return new, InterventionTrace(
+            layer=LAYER,
+            rule_id='overbet',
+            layer_order=order,
+            fired=True,
+            operation=InterventionOperation.OVERRIDE.value,
+            effect='promote_check_to_river_bluff',
+            effect_size=l1_distance(
+                strategy.action_probabilities, new.action_probabilities,
+            ),
+            action_changed=(
+                primary_action(strategy.action_probabilities)
+                != primary_action(new.action_probabilities)
+            ),
+            primary_action_before=primary_action(strategy.action_probabilities),
+            primary_action_after=primary_action(new.action_probabilities),
+            replaced_prior_action=True,
+            reason_code=f'river_bluff_{hand_class}',
+            rationale=(
+                f'river bluff (create): hand_class={hand_class} '
+                f'size={river_key} fraction={river_bluff_fraction:.2f} '
+                f'active={active_count}'
+            ),
+            inputs={
+                'hand_class': hand_class,
+                'action_context': action_context,
+                'street': street,
+                'active_count': active_count,
+                'river_bluff_size': river_bluff_size
+                if river_bluff_size is not None
+                else overbet_size,
+                'river_bluff_fraction': round(river_bluff_fraction, 4),
+                'side': 'river_bluff',
+            },
+            input_strategy_summary=summarize_strategy(strategy.action_probabilities),
+            output_strategy_summary=summarize_strategy(new.action_probabilities),
+        )
 
     street_ok = (
         action_context == 'unopened'

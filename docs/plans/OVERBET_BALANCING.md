@@ -142,6 +142,77 @@ requires *creating* bluff supply — T2 (river bluffs from give-up air) + barrel
 more air to turn/river (the bigger change). The T1 mechanism is the infrastructure
 that bigger build will drive; kept dormant (OFF) in production.
 
+## 5c. READABILITY AUDIT + T2 + the regime gate (2026-06-01, fresh-context session)
+
+**New instrument — the size→strength "tell map"** (`measure_passivity --tell-map`):
+for each (street, bet-size bucket) it reports the hand-class composition of the
+hero's own betting range + the bluff share vs the GTO target `s/(1+2s)`. It's a
+*readability* audit (no human/oracle needed) and reusable on a human's hand history
+to find *their* tells (training branch). Additive; default-off byte-identical.
+
+**Finding — the leak is the RIVER, not the turn** (TAG, HU + 6-max, station + reg,
+all reproduce):
+
+| street | big-bet composition | verdict |
+|---|---|---|
+| TURN | ~target bluff ratios at every size | **balanced — NOT the leak** |
+| RIVER | pot+ bets **90–100% value, ~0% bluff** (gap −25 to −44) | **FACE-UP** |
+| FLOP | over-bluffed (+33/+42) | low-confidence (merge-confounded) |
+
+This **reframes the prior session's turn-overbet focus** — the turn was already
+balanced (which is *why* T1's reroute-turn-air recovered only ~15%). The face-up
+river lives in the **base strategy** (overbet_context is dormant in this harness),
+and the bot gives up its air into `check` by the river → big river bets are pure
+value → a reader folds to them free and stabs the capped river checks.
+
+**T2 mechanism built** (`_promote_check_to_bet` in `overbet_context.py`):
+promotes a fraction of give-up-air river CHECK mass to a bet at the overbet size —
+*creates* supply T1 can't (no river air bet-mass to relabel). Params
+`river_bluff_fraction` / `river_bluff_classes` / `river_bluff_size`; default OFF
+byte-identical. Wired into the controller + both eval harnesses
+(`measure_passivity` env-knob, `ab_node_attribution --river-bluff-a/-b`).
+
+**T2 measured (fraction 0.5, paired CRN, 24000h HU):**
+
+| | bb/100 | 95% CI |
+|---|---|---|
+| vs **oracle** (sizing-reader) | **+1.90** | [+0.57, +3.23] |
+| vs **normal jeff** (caller) | **−7.18** | [−8.83, −5.54] |
+
+Same shape as T1: helps vs a reader, hurts vs a caller; supply thin (1.4% of
+hands diverge — all river). The oracle **understates** the gain (it only *folds*
+to overbets, never "pays off value because forced to defend") → +1.90 is a lower
+bound. **Ungated, net-negative in a caller-heavy pool → the gate is mandatory.**
+
+**The regime gate (the completing build).** River bluff fires ONLY vs a detected
+over-folder/reader (`fold_to_big_bet >= river_bluff_min_ftbb`, default 0.6 — the
+existing over-folder threshold). Cold-start / no read / a caller → value-only.
+First consumer of the Phase A `fold_to_big_bet` read. Resolver
+`_resolve_river_bluff_ftbb` (HU only for MVP; requires a matured read
+`_big_bet_faced_count >= 8`). Eval override `river_bluff_ftbb_override` /
+`--river-bluff-ftbb` simulates the read (no model manager in sim).
+
+**Gate VALIDATED (paired CRN, 24000h HU):**
+
+| gated arm | bb/100 | CI |
+|---|---|---|
+| vs **reader** (ftbb 0.8) | **+1.90** | [+0.57, +3.23] — gain kept (= ungated) |
+| vs **caller** (ftbb 0.2) | **+0.00** | [0, 0], 100% no-divergence — cost killed |
+
+So the fix is a vs-human win at **zero fish cost**: it fires *specifically* against
+the opponents who punish the face-up river, and stays value-only vs everyone else.
+**Honest caveats:** (1) the gated benefit can't be fully measured in sim (no reader
+population + the oracle only folds, never pays off → +1.90 is a lower bound); ships
+on theory + the tell-map confirmation that the range balances vs a reader. (2) the
+read's real-world maturity/accuracy (does `fold_to_big_bet` converge fast enough,
+correctly classify a human) is itself unmeasured here — the gate is only as good as
+the read feeding it.
+
+**Open / next:** raise-as-bluff readability is UNAUDITED (the tell map folds raises
+into size buckets) — a distinct face-up dimension (does the bot ever 3-bet /
+check-raise as a bluff, or are raises pure value?). Split the tell map by
+bet-vs-raise context to find it.
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*
