@@ -13,6 +13,7 @@ import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
+import { safeGetItem, safeSetItem } from '../../utils/storage';
 import { ChatTargetSelector } from './ChatTargetSelector';
 import './QuickChatSuggestions.css';
 
@@ -78,10 +79,26 @@ const TONE_OPTIONS: ToneOption[] = [
 // cold-starts at 'chill'.
 const REGISTER_PREFS_KEY = 'quickchat_register_by_tone';
 const DEFAULT_REGISTER: ChatIntensity = 'chill';
+// Recognized delivery registers. Stored prefs are validated against this so a
+// corrupted / hand-edited / stale-schema value falls back to the default
+// rather than flowing through to the API as an unknown register. Extend this
+// when a new register (e.g. 'sarcastic') ships.
+const VALID_REGISTERS: readonly ChatIntensity[] = ['chill', 'spicy'];
 
 function readRegisterPrefs(): Partial<Record<ChatTone, ChatIntensity>> {
+  const raw = safeGetItem(REGISTER_PREFS_KEY);
+  if (!raw) return {};
   try {
-    return JSON.parse(localStorage.getItem(REGISTER_PREFS_KEY) || '{}');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    // Keep only recognized register values; drop anything unknown.
+    const clean: Partial<Record<ChatTone, ChatIntensity>> = {};
+    for (const [tone, register] of Object.entries(parsed)) {
+      if (VALID_REGISTERS.includes(register as ChatIntensity)) {
+        clean[tone as ChatTone] = register as ChatIntensity;
+      }
+    }
+    return clean;
   } catch {
     return {};
   }
@@ -90,7 +107,7 @@ function readRegisterPrefs(): Partial<Record<ChatTone, ChatIntensity>> {
 function writeRegisterPref(tone: ChatTone, register: ChatIntensity): void {
   const prefs = readRegisterPrefs();
   prefs[tone] = register;
-  localStorage.setItem(REGISTER_PREFS_KEY, JSON.stringify(prefs));
+  safeSetItem(REGISTER_PREFS_KEY, JSON.stringify(prefs));
 }
 
 export function QuickChatSuggestions({
