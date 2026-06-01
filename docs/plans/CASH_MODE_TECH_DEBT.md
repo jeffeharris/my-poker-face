@@ -56,7 +56,20 @@ authorities. This is debt reduction so the system is clean to build on.
 Make the seat-occupancy + idle READS derive from `entity_presence` (not
 `cash_tables.seats` / `cash_idle_pool`), and add deletion-time presence cleanup so
 the orphan-repair reconcilers become unnecessary. **This step has a full, vetted
-sub-plan: `CASH_MODE_PRESENCE_READSIDE_COMPLETION.md` (the R1–R5 sequence).** That
+sub-plan: `CASH_MODE_PRESENCE_READSIDE_COMPLETION.md` (the R1–R5 sequence).**
+
+> **LANDED 2026-06-01 — the D1 read-side occupancy projection.**
+> `CashTableRepository.load_table`/`list_all_tables` now project occupancy from
+> presence under `PRESENCE_AUTHORITY_ENABLED` (committed default): an `ai`/`human`
+> slot presence doesn't confirm SEATED reads as `open` (payload from cache,
+> occupancy from the authority). Writes are unaffected (they diff raw stored
+> seats — self-healing). This makes ghost/zombie seats **structurally invisible**
+> under the default, so the two reconcilers below are now dead-weight no-ops there
+> (kept only for the authority-OFF path). Live-safe: 0/629 dev seats affected.
+> **What remains to literally DELETE the reconcilers: migrate the test suite to
+> the authority-ON baseline** (~28 tests measured — shadow-phase + raw-seat
+> occupancy tests). Mechanical, but a dedicated careful pass; flipping the autouse
+> baseline globally broke 28 tests at once, so it's per-test opt-in work. That
 doc is authoritative for the *how*; the mapping:
 
 | R-step | What | Risk | Note |
@@ -115,8 +128,8 @@ real split-brain windows while the caches are still written.
 
 | Reconciler | File | Repairs | Retirement gate |
 |---|---|---|---|
-| `_free_ghost_human_seats` | cash_routes.py | human seat survives a deleted game row | **NOT a pure reconciler — load-bearing.** Also the seat-vacate for memory-miss / sponsor-NULL leave (cash_routes 4556/4613/5003), works regardless of authority. R3a covers the reaper orphan + an alertable monitor flags HUMAN ghost clears. **Real deletion gate: PRESENCE_AUTHORITY_ENABLED as the committed PROD default** (then `save_table` drives all seat state) AND the memory-miss leave re-expressed via presence. Until then it's the prod seat-manager. |
-| `_reclaim_zombie_casino_seats` | casino_provisioning.py | seat holds a deleted/un-stamped persona | **NOT a pure reconciler — load-bearing.** Ungated casino self-heal + seat-chip return; on prod (authority off) it's the only handler. R3b covers deleted-persona under authority (chips included) + a monitor flags DELETED-PERSONA reclaims; un-stamped fish is historical (one-time). **Real deletion gate: same Presence prod authority flip.** |
+| `_free_ghost_human_seats` | cash_routes.py | human seat survives a deleted game row | **DEAD-WEIGHT under the default now** — the D1 read-side occupancy projection (`_project_table_occupancy` in `cash_table_repository`) renders an unconfirmed cache slot `open`, so under `PRESENCE_AUTHORITY_ENABLED` (the committed default) this scan finds no ghost. Verified live-safe (0/629 dev seats projected away). Kept only for the authority-OFF path. **Literal deletion gate: migrate the test suite to the authority-ON baseline** (measured 2026-06-01: ~28 tests — shadow-phase + raw-seat-setup occupancy tests — each needs an explicit authority-OFF opt-in or a presence-row setup). Mechanical but a dedicated pass. |
+| `_reclaim_zombie_casino_seats` | casino_provisioning.py | seat holds a deleted/un-stamped persona | **DEAD-WEIGHT under the default** — projection hides a deleted-persona seat (no presence row) on read. R3b also frees it + returns chips at the route. Kept for authority-OFF + the historical un-stamped-fish case (the fish-count still keys off the `archetype` stamp — change it to count by persona identity to fully retire). Same deletion gate: authority-ON test migration. |
 | `whereabouts.py` | cash_mode/whereabouts.py | unions 4 stores to name `seated_and_idle` etc. | **Step A / R2** → degrades to a trivial `entity_presence` read (keep off-grid STATUS from `ai_*_state` per the R2 caveat) |
 | `_shadow_reconcile_table` + call-site `shadow_transition` (seat sites) | lobby.py / routes | mirror seats → entity_presence when authority OFF | **dead once `PRESENCE_AUTHORITY_ENABLED` is the committed default** (currently early-return no-ops under authority; kept for the flag-off / prod path) |
 | `_boot_sweep_stale_cash_rows` | lobby.py | GC abandoned `cash-*` rows; now settles seat chips first (Phase 3) | **keep** — it's a legitimate GC/janitor (TTL eviction), not a store-disagreement repair. Not debt. |
