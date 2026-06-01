@@ -27,6 +27,7 @@ from ..config import (
     OPPONENT_SUMMARY_TOKENS,
 )
 from .relationship_events import (
+    AxisShift,
     RelationshipEvent,
     actor_shift,
     mirror_shift,
@@ -1903,6 +1904,7 @@ class OpponentModelManager:
         narrative: str = "",
         hand_summary: str = "",
         hand_id: Optional[int] = None,
+        mirror_shift_override: Optional[AxisShift] = None,
         now: Optional[datetime] = None,
     ) -> None:
         """Single entry point for all RelationshipState axis mutations.
@@ -1937,6 +1939,16 @@ class OpponentModelManager:
              relationship axis update still persists; the memorable
              hand entry is skipped silently. The relationship state is
              the load-bearing surface here.
+
+        `mirror_shift_override`, when provided, replaces the mirror
+        (target's-POV) shift only — the actor side always uses the
+        neutral `actor_shift(event)`. It is the seam for recipient
+        temperament: the chat dispatch resolves the target's social
+        disposition and passes a reshaped needle reception (see
+        `temperament_adjusted_mirror_shift`). It is still scaled by
+        `context_multiplier` like the neutral shift, so intensity
+        composes on top. Hand-outcome / staking callers leave it None
+        and get the unchanged mirror table.
 
         Does NOT mutate anything outside RelationshipState and (best-
         effort) MemorableHand. Decay reads, cash-session state,
@@ -1973,7 +1985,7 @@ class OpponentModelManager:
         self._apply_one_side(
             observer_id=target_id,
             other_id=actor_id,
-            shift=mirror_shift(event),
+            shift=mirror_shift_override if mirror_shift_override is not None else mirror_shift(event),
             context_multiplier=context_multiplier,
             now=now,
         )

@@ -270,6 +270,7 @@ def register_blueprints(app: Flask) -> None:
         replay_experiment_bp,
         stats_bp,
         tournament_bp,
+        training_bp,
         user_bp,
     )
 
@@ -292,6 +293,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(chip_ledger_bp)
     app.register_blueprint(character_bp)
     app.register_blueprint(tournament_bp)
+    app.register_blueprint(training_bp)
 
     # Test helper endpoints — only available when ENABLE_TEST_ROUTES=true
     if os.environ.get('ENABLE_TEST_ROUTES', 'false').lower() == 'true':

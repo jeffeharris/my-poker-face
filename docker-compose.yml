@@ -38,7 +38,7 @@ services:
       # entity_presence is written authoritatively at the save_table chokepoint
       # (fail-loud on a double-seat/illegal write). Reversible on dev (cash_tables
       # is still written as a cache). Prod uses docker-compose.prod.yml.
-      - PRESENCE_AUTHORITY_ENABLED=${PRESENCE_AUTHORITY_ENABLED:-0}
+      - PRESENCE_AUTHORITY_ENABLED=${PRESENCE_AUTHORITY_ENABLED:-1}
       # Chip-custody (the Presence twin): record ai<->seat ledger transfers so AI
       # bankroll is ledger-derivable (default OFF). Conservation-neutral — only
       # adds ledger rows. Enable on dev after running scripts/backfill_chip_custody.py
@@ -120,3 +120,9 @@ volumes:
 networks:
   poker-network:
     driver: bridge
+    # Pin a dedicated subnet so this worktree's network doesn't collide with the
+    # other my-poker-face worktrees (desktop .45 / main .46 / circuit .47) when
+    # Docker's default address pool is exhausted. See the desktop-parity fix.
+    ipam:
+      config:
+        - subnet: 10.123.48.0/24

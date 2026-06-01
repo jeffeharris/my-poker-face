@@ -1,0 +1,119 @@
+/* Coach follow-through — admin tile for tip effectiveness. */
+
+.cep {
+  max-width: 60rem;
+  margin: 0 auto;
+}
+.cep--embedded {
+  margin: 0;
+}
+
+.cep-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.cep-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-text, #e5e7eb);
+}
+.cep-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--color-text-muted, #9ca3af);
+  max-width: 42rem;
+}
+.cep-refresh {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted, #9ca3af);
+  cursor: pointer;
+}
+.cep-refresh:hover:not(:disabled) {
+  color: #fff;
+}
+.cep-refresh:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.cep-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 2rem auto;
+  max-width: 28rem;
+  text-align: center;
+  color: var(--color-text-muted, #9ca3af);
+  line-height: 1.5;
+}
+.cep-error {
+  color: #f87171;
+}
+
+.cep-overall {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  border-radius: 12px;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+.cep-rate {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--color-emerald, #34d399);
+  line-height: 1;
+}
+.cep-overall-detail {
+  font-size: 0.95rem;
+  color: var(--color-text, #e5e7eb);
+}
+
+.cep-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.cep-table th,
+.cep-table td {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cep-table th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #9ca3af);
+}
+.cep-table td {
+  color: var(--color-text, #e5e7eb);
+}
+.cep-target {
+  color: var(--color-text-muted, #9ca3af);
+  font-size: 0.82rem;
+}
+
+.cep-note {
+  margin-top: 1rem;
+  font-size: 0.76rem;
+  color: var(--color-text-muted, #9ca3af);
+}

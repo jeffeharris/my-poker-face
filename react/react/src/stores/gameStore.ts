@@ -292,7 +292,7 @@ export const useGameStore = create<GameStore>((set) => ({
               stack: newStack,
               bet: newBet,
               is_all_in: p.is_all_in || newStack === 0,
-              last_action: action,
+              last_action: action as Player['last_action'],
             }
           : p
       );

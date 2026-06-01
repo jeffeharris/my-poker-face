@@ -28,6 +28,20 @@ Per-seat chips are persisted: an AI who wins big keeps those chips for
 the next player who sits down (or, per movement rules, may stake-up
 and take the chips with them).
 
+AUTHORITY NOTE (chip-custody + presence cutovers, 2026-06-01):
+`seats` is a CACHE/working store, not authoritative truth.
+  - **Occupancy** (who is seated / idle) is owned by `entity_presence`
+    (`PRESENCE_AUTHORITY_ENABLED`). The `seats` occupancy half is a
+    projection still written until the read-side demotion.
+  - **Committed chips** (bankroll / at-seat custody) are owned by the
+    ledger (`chip_ledger_entries`, `balance_of`); `seats[].chips` is the
+    LIVE in-hand stack — the one fact that legitimately lives here (the
+    ledger doesn't track per-hand P&L).
+Do NOT treat `seats` occupancy or a bankroll int as authoritative, and
+do NOT add a new reconciler to repair `seats` vs another store — finish
+the matching demotion instead. Full register + retirement gates:
+`docs/plans/CASH_MODE_TECH_DEBT.md`.
+
 Spec: `docs/plans/CASH_MODE_LOBBY_HANDOFF.md` §"Persistent table state".
 """
 

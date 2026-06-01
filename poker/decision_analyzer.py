@@ -149,6 +149,9 @@ class DecisionAnalysis:
     board_texture_json: Optional[str] = None  # Board texture dict from analyze_board_texture()
     player_hand_canonical: Optional[str] = None  # "AKo", "Q7o", etc.
     player_hand_in_range: Optional[bool] = None  # Is hand in standard range for position?
+    # Exact solver-chart node "scenario|position|opener|hand" captured at decision
+    # time (PRE_FLOP only) for chart-graded coach leaks. None when not preflop.
+    preflop_node_key: Optional[str] = None
     player_hand_tier: Optional[str] = None  # "premium", "strong", ..., "trash"
     standard_range_pct: Optional[float] = None  # Expected range % for position (e.g., 15)
 

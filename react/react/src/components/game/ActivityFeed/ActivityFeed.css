@@ -205,3 +205,75 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Expanded input area — wraps quick-chat, target selector, and the text row */
+.activity-feed__input-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Quick-chat container: constrain / compact it for the narrow sidebar */
+.activity-feed__quick-chat {
+  /* Shrink the generous mobile padding down to sidebar scale */
+}
+
+.activity-feed__quick-chat .quick-chat-suggestions {
+  padding: 4px 0 8px;
+  gap: 8px;
+}
+
+/* Target buttons: smaller footprint in the sidebar */
+.activity-feed__quick-chat .target-btn,
+.activity-feed__target-selector .target-btn {
+  min-width: 2.75rem;
+  padding: 0.375rem;
+  font-size: 0.6875rem;
+}
+
+.activity-feed__quick-chat .target-btn.has-bg-image,
+.activity-feed__target-selector .target-btn.has-bg-image {
+  min-height: 3rem;
+}
+
+.activity-feed__quick-chat .target-btn-table,
+.activity-feed__target-selector .target-btn-table {
+  min-height: 3rem;
+}
+
+/* Tone buttons: slightly tighter in the sidebar */
+.activity-feed__quick-chat .tone-btn {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.6875rem;
+}
+
+/* Suggestion pills: stack vertically (sidebar is narrow) */
+.activity-feed__quick-chat .suggestions-container {
+  flex-direction: column;
+}
+
+.activity-feed__quick-chat .suggestion-pill {
+  padding: 0.625rem 0.875rem;
+  font-size: 0.8125rem;
+}
+
+/* Target selector above the free-text input */
+.activity-feed__target-selector {
+  /* Slight visual separator from the quick-chat block above */
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--color-border-default);
+}
+
+.activity-feed__target-selector .selector-label {
+  text-align: left;
+}
+
+.activity-feed__target-selector .target-options {
+  justify-content: flex-start;
+}
+
+/* Quick-chat toggle: full width, matches expand-btn aesthetic */
+.activity-feed__quick-chat .quick-chat-toggle {
+  padding: 0.5rem 0.75rem;
+  font-size: var(--font-size-sm);
+}

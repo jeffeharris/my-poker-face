@@ -19,3 +19,14 @@ export const TOURNAMENT_GAME_ID_PREFIX = 'tourney-';
 export function isTournamentGameId(gameId: string | null | undefined): boolean {
   return gameId?.startsWith(TOURNAMENT_GAME_ID_PREFIX) ?? false;
 }
+
+/** Training-mode game IDs are prefixed `train-` by the backend
+ *  (`/api/training/start`). Training games are non-counting practice
+ *  sessions; the frontend keys back-navigation off the same prefix,
+ *  mirroring cash. */
+export const TRAINING_GAME_ID_PREFIX = 'train-';
+
+/** True when `gameId` belongs to a training/practice session. */
+export function isTrainingGameId(gameId: string | null | undefined): boolean {
+  return gameId?.startsWith(TRAINING_GAME_ID_PREFIX) ?? false;
+}

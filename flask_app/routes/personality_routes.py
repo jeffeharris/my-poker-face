@@ -386,15 +386,28 @@ def delete_personality(name):
                 {'success': False, 'error': 'Only admins can delete system personalities'}
             ), 403
 
-        # Chip-custody deletion integrity (Phase 5): before dropping the persona,
-        # return any bankroll chips it holds (every sandbox) to the bank pool so
-        # the chips recycle instead of vanishing (the zombie-persona drift class).
-        # No-op unless CHIP_CUSTODY_ENABLED. Best-effort — never block the delete.
+        # Deletion integrity: before dropping the persona, settle what it holds so
+        # nothing is stranded. Two composed, best-effort, gated halves (never block
+        # the delete):
+        #   - CHIPS (Phase 5): return its bankroll (every sandbox) to the bank pool
+        #     so the chips recycle (the zombie-persona drift class).
+        #   - PRESENCE (R3b): open any casino seat it occupies (drives
+        #     RETURN_TO_POOL/GO_OFFLINE) so the seat can't outlive the persona —
+        #     what let the (now-retired) _reclaim_zombie_casino_seats reconciler go.
         try:
             pid = extensions.personality_repo.resolve_name_to_personality_id(name)
             if pid:
                 from cash_mode.bankroll import settle_ai_bankroll_to_pool_on_delete
+                from cash_mode.presence_sweep import sweep_presence_on_persona_delete
 
+                sweep_presence_on_persona_delete(
+                    personality_id=pid,
+                    repos={
+                        'entity_presence_repo': getattr(extensions, 'entity_presence_repo', None),
+                        'cash_table_repo': getattr(extensions, 'cash_table_repo', None),
+                        'chip_ledger_repo': getattr(extensions, 'chip_ledger_repo', None),
+                    },
+                )
                 returned = settle_ai_bankroll_to_pool_on_delete(
                     pid,
                     bankroll_repo=getattr(extensions, 'bankroll_repo', None),
@@ -406,7 +419,7 @@ def delete_personality(name):
                         name, pid, returned,
                     )
         except Exception as e:
-            logger.warning("[CASH] persona-delete chip settle failed for %r: %s", name, e)
+            logger.warning("[CASH] persona-delete settle failed for %r: %s", name, e)
 
         # Delete associated avatar images
         extensions.personality_repo.delete_avatar_images(name)

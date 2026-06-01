@@ -103,12 +103,17 @@ class TestWrapperToAudit:
         )
         assert data['by_reason']['ai_regen'] == 500
 
-    def test_cap_clamp_helper_shows_up_in_audit_as_destruction(self, env):
+    def test_cap_clamp_historical_reason_shows_up_in_audit_as_destruction(self, env):
+        # `record_cap_clamp` was removed (dead code), but the `'cap_clamp'`
+        # reason stays valid so the audit still categorizes historical entries.
+        # Write one straight through `record()` to prove that.
         db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo = env
-        chip_ledger.record_cap_clamp(
+        chip_ledger.record(
             ledger_repo,
-            personality_id='zeus',
-            overflow=300,
+            source=chip_ledger.ai('zeus'),
+            sink=chip_ledger.bank(),
+            amount=300,
+            reason='cap_clamp',
         )
         data = _audit(
             db_path,

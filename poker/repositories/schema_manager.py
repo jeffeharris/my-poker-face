@@ -258,22 +258,30 @@ _test_schema_template_path = None
 #       EXISTS, non-destructive, idempotent. See
 #       `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6) and
 #       `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`.
-# v130: Create `tournaments` — durable multi-table tournament (MTT) meta-state
+# v130: Add `preflop_node_key` to player_decision_analysis — the exact
+#       solver-chart node (scenario|position|opener|hand) captured at decision
+#       time so the chart-graded coach leak finder grades the precise spot.
+#       Nullable; old rows fall back to reconstruction. Renumbered from v123 on
+#       the training-room→development merge (circulating took v123).
+# v131: Create `coach_tips` — proactive in-decision coach tip log (and which
+#       leak nudge fired) so the coach's effect on play can be measured by
+#       joining to player_decision_analysis. Pure instrumentation. Renumbered
+#       from v124 on the training-room→development merge.
+# v132: Create `tournaments` — durable multi-table tournament (MTT) meta-state
 #       (serialized TournamentSession + live game_id + status + resolver_kind),
 #       re-enterable across navigation / TTL eviction / restart. Renumbered from
-#       v123 on the development→tournaments merge (circulating took v123). See
-#       `docs/plans/TOURNAMENT_PERSISTENCE_HANDOFF.md`.
-# v131: Drop legacy `tournament_tracker` — TournamentTracker retired by the
+#       v130 on the development→tournaments economy merge (dev took v130/v131 for
+#       the coach work). See `docs/plans/TOURNAMENT_PERSISTENCE_HANDOFF.md`.
+# v133: Drop legacy `tournament_tracker` — TournamentTracker retired by the
 #       tournament unification (every game is a TournamentSession; a single game
-#       is a 1-table session). Brute-force cut. Renumbered from v124 (opponent-
-#       observation-lifetime took v124 on development).
-# v132: Add the tournament real-chip economy columns (buy_in, rake, bank_overlay,
+#       is a 1-table session). Brute-force cut. Renumbered from v131.
+# v134: Add the tournament real-chip economy columns (buy_in, rake, bank_overlay,
 #       prize_pool, payout_status) to `tournaments`. The funny-money field stays
 #       in session_json; this is the real-chip layer (escrow → overlay → payout)
 #       on top. Existing rows default to payout_status='skipped' so the payout
-#       idempotency guard never fires on pre-economy tournaments. See
-#       `docs/plans/TOURNAMENT_ECONOMY_ON_STATE_MODEL.md` + `P2_BUILD_HANDOFF.md`.
-SCHEMA_VERSION = 132
+#       idempotency guard never fires on pre-economy tournaments. Renumbered from
+#       v132. See `docs/plans/TOURNAMENT_ECONOMY_ON_STATE_MODEL.md`.
+SCHEMA_VERSION = 134
 
 
 class SchemaManager:
@@ -1258,6 +1266,7 @@ class SchemaManager:
                     menu_num_options INTEGER,
                     intervention_trace_json TEXT,
                     strategy_pipeline_snapshot_json TEXT,
+                    preflop_node_key TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -2121,20 +2130,84 @@ class SchemaManager:
                 "Create cash_idle_metadata — satellite for the idle-pool routing payload (reason/target_stake/left_at) that entity_presence's pure machine deliberately doesn't carry. At the Presence authority flip, entity_presence owns the IDLE state and this table carries the movement metadata. Additive; cash_idle_pool stays a written cache (view-conversion deferred).",
             ),
             130: (
-                self._migrate_v130_create_tournaments,
-                "Create tournaments table — durable multi-table tournament meta-state (serialized TournamentSession + live game_id + status + resolver_kind) so a tournament survives navigation / TTL eviction / restart. Renumbered from v123 on the development→tournaments merge.",
+                self._migrate_v130_add_preflop_node_key,
+                "Add preflop_node_key to player_decision_analysis — exact solver-chart node (scenario|position|opener|hand) captured at decision time for chart-graded coach leaks",
             ),
             131: (
-                self._migrate_v131_drop_tournament_tracker,
-                "Drop legacy tournament_tracker table — TournamentTracker retired by the unification (every game is a TournamentSession); brute-force cut drops any games that still depended on it (pre-release, no real user data). Renumbered from v124.",
+                self._migrate_v131_create_coach_tips,
+                "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
             ),
             132: (
-                self._migrate_v132_add_tournament_economy,
-                "Add the tournament real-chip economy columns (buy_in, rake, bank_overlay, prize_pool, payout_status) to `tournaments`. Additive ALTER TABLE; existing rows default to payout_status='skipped' so the payout idempotency guard never fires on pre-economy tournaments.",
+                self._migrate_v132_create_tournaments,
+                "Create tournaments table — durable multi-table tournament meta-state (serialized TournamentSession + live game_id + status + resolver_kind) so a tournament survives navigation / TTL eviction / restart. Renumbered from v130 on the development→tournaments economy merge.",
+            ),
+            133: (
+                self._migrate_v133_drop_tournament_tracker,
+                "Drop legacy tournament_tracker table — TournamentTracker retired by the unification (every game is a TournamentSession); brute-force cut drops any games that still depended on it (pre-release, no real user data). Renumbered from v131.",
+            ),
+            134: (
+                self._migrate_v134_add_tournament_economy,
+                "Add the tournament real-chip economy columns (buy_in, rake, bank_overlay, prize_pool, payout_status) to `tournaments`. Additive ALTER TABLE; existing rows default to payout_status='skipped' so the payout idempotency guard never fires on pre-economy tournaments. Renumbered from v132.",
             ),
         }
 
         with self._get_connection() as conn:
+            # Renumber-collision self-heal. A DB migrated on the `training-room`
+            # branch recorded v123/v124 as the coach migrations (renumbered to
+            # v130/v131 on the development merge), so its version counter skipped
+            # development's real v123 (`circulating`) and v124
+            # (`opponent_observation_lifetime`). Re-assert those two effects
+            # idempotently before the forward loop — otherwise the v126/v127
+            # ALTERs against `opponent_observation_lifetime` crash on the missing
+            # table. No-op on clean DBs (both methods are existence-guarded) and
+            # only reachable while migrations are still pending.
+            collision = (
+                current_version >= 124
+                and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='opponent_observation_lifetime'"
+                ).fetchone()
+                is None
+            )
+            if collision:
+                logger.warning(
+                    "Detected training-room renumber collision (version %d but "
+                    "opponent_observation_lifetime missing) — re-asserting the "
+                    "skipped v123/v124 development migrations idempotently",
+                    current_version,
+                )
+                self._migrate_v123_add_personality_circulating(conn)
+                self._migrate_v124_create_opponent_observation_lifetime(conn)
+                conn.commit()
+
+            # Tournament-economy renumber self-heal. A DB migrated on the
+            # `tournaments` branch BEFORE the development→tournaments economy
+            # merge recorded v130/v131(/v132) as the tournament create / tracker-
+            # drop / economy migrations. The merge re-assigned v130/v131 to
+            # development's coach work (preflop_node_key + coach_tips) and bumped
+            # the tournament migrations to v132–134, so such a DB's version
+            # counter skipped the coach migrations. Re-assert them idempotently
+            # (both existence-guarded) so the coach tables exist. No-op on clean
+            # DBs and only reachable while migrations are still pending.
+            coach_collision = (
+                current_version >= 131
+                and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='coach_tips'"
+                ).fetchone()
+                is None
+            )
+            if coach_collision:
+                logger.warning(
+                    "Detected tournament-economy renumber collision (version %d "
+                    "but coach_tips missing) — re-asserting the skipped v130/v131 "
+                    "coach migrations idempotently",
+                    current_version,
+                )
+                self._migrate_v130_add_preflop_node_key(conn)
+                self._migrate_v131_create_coach_tips(conn)
+                conn.commit()
+
             for version in range(current_version + 1, SCHEMA_VERSION + 1):
                 if version in migrations:
                     migrate_func, description = migrations[version]
@@ -6891,8 +6964,8 @@ class SchemaManager:
         """)
         logger.info("Migration v129 complete: cash_idle_metadata table created")
 
-    def _migrate_v130_create_tournaments(self, conn: sqlite3.Connection) -> None:
-        """Migration v130: create `tournaments` — durable multi-table tournament
+    def _migrate_v132_create_tournaments(self, conn: sqlite3.Connection) -> None:
+        """Migration v132: create `tournaments` — durable multi-table tournament
         (MTT) meta-state.
 
         One row per tournament holding the serialized `TournamentSession`
@@ -6905,7 +6978,7 @@ class SchemaManager:
         still lives in the `games` row.
 
         Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). Renumbered from
-        v123 on the development→tournaments merge. See
+        v130 on the development→tournaments economy merge. See
         `docs/plans/TOURNAMENT_PERSISTENCE_HANDOFF.md`.
         """
         conn.execute("""
@@ -6926,10 +6999,10 @@ class SchemaManager:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)"
         )
-        logger.info("Migration v130 complete: tournaments table created")
+        logger.info("Migration v132 complete: tournaments table created")
 
-    def _migrate_v131_drop_tournament_tracker(self, conn: sqlite3.Connection) -> None:
-        """Migration v131: drop the legacy `tournament_tracker` table.
+    def _migrate_v133_drop_tournament_tracker(self, conn: sqlite3.Connection) -> None:
+        """Migration v133: drop the legacy `tournament_tracker` table.
 
         `TournamentTracker` was retired by the tournament-unification work (every
         game is now a `TournamentSession`; a single game is a 1-table session).
@@ -6951,10 +7024,10 @@ class SchemaManager:
             pass  # table already absent on this DB — nothing to clean
         conn.execute("DROP INDEX IF EXISTS idx_tournament_tracker_game")
         conn.execute("DROP TABLE IF EXISTS tournament_tracker")
-        logger.info("Migration v131 complete: tournament_tracker dropped (legacy tracker retired)")
+        logger.info("Migration v133 complete: tournament_tracker dropped (legacy tracker retired)")
 
-    def _migrate_v132_add_tournament_economy(self, conn: sqlite3.Connection) -> None:
-        """Migration v132: add the real-chip economy columns to `tournaments`.
+    def _migrate_v134_add_tournament_economy(self, conn: sqlite3.Connection) -> None:
+        """Migration v134: add the real-chip economy columns to `tournaments`.
 
         The funny-money field stays serialized in `session_json`; these columns
         are the real-chip layer (escrow → overlay → payout) on top:
@@ -6984,4 +7057,72 @@ class SchemaManager:
         for name, decl in additions:
             if name not in existing:
                 conn.execute(f"ALTER TABLE tournaments ADD COLUMN {name} {decl}")
-        logger.info("Migration v132 complete: tournament economy columns added")
+        logger.info("Migration v134 complete: tournament economy columns added")
+
+    def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
+        """Migration v130: add `preflop_node_key` to player_decision_analysis.
+
+        The exact solver-chart node — ``scenario|position|opener|hand`` — captured
+        at decision time (via the tiered bot's `build_preflop_node`) so the
+        chart-graded coach leak finder can grade against the precise spot,
+        including the exact opener and `vs_3bet` scenarios that backfill
+        reconstruction can only approximate. Nullable; old rows fall back to
+        reconstruction. Non-destructive, idempotent.
+
+        Renumbered from v123 on the training-room→development merge (collision:
+        circulating took v123 on development).
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'preflop_node_key' not in columns:
+            conn.execute(
+                "ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT"
+            )
+            logger.info("Added preflop_node_key column to player_decision_analysis")
+        logger.info("Migration v130 complete: preflop_node_key added")
+
+    def _migrate_v131_create_coach_tips(self, conn: sqlite3.Connection) -> None:
+        """Migration v131: create `coach_tips` — proactive in-decision tip log.
+
+        One row per proactive coach tip actually served to the player. Records
+        the spot (game/hand/phase/position) and, when a recurring chart leak was
+        recalled in that moment, which leak nudge fired (scenario/position/kind/
+        status/granularity). Joins to `player_decision_analysis` on
+        (game_id, hand_number, player_name, PRE_FLOP) so we can measure whether a
+        leak nudge actually moved the player's next decision toward the solver
+        line — the measurement prerequisite for "is the coach helping?".
+
+        Pure instrumentation: nothing here feeds AI decisions. Non-destructive,
+        idempotent.
+
+        Renumbered from v124 on the training-room→development merge (collision:
+        opponent_observation_lifetime took v124 on development).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS coach_tips (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id               TEXT,
+                owner_id              TEXT,
+                player_name           TEXT,
+                hand_number           INTEGER,
+                phase                 TEXT,
+                tip_text              TEXT,
+                leak_fired            INTEGER NOT NULL DEFAULT 0,
+                leak_scenario         TEXT,
+                leak_position         TEXT,
+                leak_kind             TEXT,
+                leak_status           TEXT,
+                leak_granularity      TEXT,
+                player_hand_canonical TEXT,
+                player_position       TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_coach_tips_join
+                ON coach_tips(game_id, hand_number, player_name)
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
+        )
+        logger.info("Migration v131 complete: coach_tips table created")

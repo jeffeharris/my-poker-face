@@ -308,3 +308,66 @@ def mirror_shift(event: RelationshipEvent) -> AxisShift:
     UNKNOWN events return a zero shift (the quarantine path).
     """
     return MIRROR_AXIS_SHIFTS.get(event, AxisShift())
+
+
+# Temperament: how the RECIPIENT of a needle takes it, by social
+# disposition. Only the *mirror* side of needling chat events deviates —
+# the actor (sender) feels the same about what they did regardless of who
+# they aimed at, so `actor_shift` is never temperament-adjusted, and only
+# TRASH_TALK / TAUNT_POST_WIN have entries here.
+#
+# Dispositions come from `PlayerPsychology._classify_social_disposition`
+# (derived from the static anchors ego/poise/expressiveness/aggression —
+# no personalities.json field). The three values:
+#   - 'energized' : a banter-lover / competitive wit. Good trash talk is
+#     rivalry-as-bonding — heat is suppressed to zero and the needle
+#     instead *builds* likability (and a little respect: "ok, that was a
+#     good one"). This INVERTS the neutral table's likability penalty.
+#   - 'stung' : a proud hothead or thin-skinned earnest type. The needle
+#     bites harder than neutral — heat and the likability hit are both
+#     amplified (~2x heat, ~1.5x likability) over the global default.
+#   - 'stoic' (and any unmapped disposition) : the neutral global
+#     `mirror_shift` applies unchanged.
+#
+# Magnitudes are calibrated against the neutral mirror table
+# (TRASH_TALK heat +0.05 / likability -0.10; TAUNT_POST_WIN heat +0.15
+# / likability -0.10) and stay within the table's per-event conventions.
+_TEMPERAMENT_MIRROR_OVERRIDES: Dict[RelationshipEvent, Dict[str, AxisShift]] = {
+    RelationshipEvent.TRASH_TALK: {
+        'energized': AxisShift(heat=0.00, respect=+0.02, likability=+0.05),
+        'stung': AxisShift(heat=+0.10, respect=0.00, likability=-0.15),
+        # 'stoic' absent → falls through to mirror_shift(TRASH_TALK)
+    },
+    RelationshipEvent.TAUNT_POST_WIN: {
+        'energized': AxisShift(heat=0.00, respect=+0.05, likability=+0.04),
+        # heat capped at +0.20 — the hottest existing mirror reaction
+        # (STAKE_DEFAULTED) — so a gloat at a thin-skinned target is the
+        # sharpest social needle without exceeding the table's max.
+        'stung': AxisShift(heat=+0.20, respect=0.00, likability=-0.15),
+        # 'stoic' absent → falls through to mirror_shift(TAUNT_POST_WIN)
+    },
+}
+
+
+def temperament_adjusted_mirror_shift(
+    event: RelationshipEvent,
+    recipient_disposition: str,
+) -> AxisShift:
+    """Return the mirror-side shift adjusted for the recipient's temperament.
+
+    For needling events (TRASH_TALK, TAUNT_POST_WIN) the recipient's
+    social disposition reshapes how the jab lands: an 'energized'
+    banter-lover bonds over it (likability up, heat suppressed), a
+    'stung' character takes it harder (heat/likability amplified). Every
+    other event — and the 'stoic' disposition, and any unrecognized
+    disposition string — returns `mirror_shift(event)` unchanged.
+
+    Pure function of the dispatch tables; no side effects. The
+    `context_multiplier` is applied downstream by the caller exactly as
+    it is for the neutral shift, so intensity scaling composes on top of
+    the temperament reshape.
+    """
+    override = _TEMPERAMENT_MIRROR_OVERRIDES.get(event, {}).get(recipient_disposition)
+    if override is not None:
+        return override
+    return mirror_shift(event)

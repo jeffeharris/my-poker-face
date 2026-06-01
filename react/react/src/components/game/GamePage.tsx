@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ResponsiveGameLayout } from '../shared';
-import { isCashGameId, isTournamentGameId } from '../../utils/gameId';
+import { isCashGameId, isTournamentGameId, isTrainingGameId } from '../../utils/gameId';
 
 interface GamePageProps {
   playerName: string;
@@ -22,11 +22,15 @@ export function GamePage({ playerName }: GamePageProps) {
   // different stake — use the "Leave table" button in the cash HUD/sheet,
   // which hits /api/cash/leave.
   const handleBack = () => {
+    if (isTrainingGameId(gameId)) {
+      navigate('/menu/training');
+      return;
+    }
     if (isTournamentGameId(gameId)) {
       navigate('/tournament'); // multi-table event → standings hub
-    } else {
-      navigate(isCashGameId(gameId) ? '/cash' : '/menu/tournament');
+      return;
     }
+    navigate(isCashGameId(gameId) ? '/cash' : '/menu/tournament');
   };
 
   const handleGameCreated = (newGameId: string) => {
@@ -39,10 +43,17 @@ export function GamePage({ playerName }: GamePageProps) {
   // Tournament games can also 404 if the in-memory entry was evicted
   // and persistence couldn't rehydrate.
   const handleGameLoadFailed = useCallback(() => {
+    if (isTrainingGameId(gameId)) {
+      toast.error('Your training session ended — back to practice setup.');
+      navigate('/menu/training', { replace: true });
+      return;
+    }
     if (isTournamentGameId(gameId)) {
       toast.error('Your tournament table ended — back to standings.');
       navigate('/tournament', { replace: true });
-    } else if (isCashGameId(gameId)) {
+      return;
+    }
+    if (isCashGameId(gameId)) {
       toast.error('Your cash session ended — back to the cash menu.');
       navigate('/cash', { replace: true });
     } else {

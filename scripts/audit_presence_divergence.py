@@ -68,10 +68,19 @@ def run(db_path: str, out_path: str) -> dict:
     classes_seen = set()
     sandboxes_with_presence = 0
 
+    from cash_mode.presence_consistency import check_presence_seat_consistency
+
+    total_consistency_violations = 0
     for sid in sandboxes:
         snap = _audit_once(repos, sid, now)
         if snap["n_presence_rows"] > 0:
             sandboxes_with_presence += 1
+        # R1: the presence ⇔ seat-map invariant (the read-side "projection"
+        # deliverable). Read-only; uses its own connection.
+        with sqlite3.connect(db_path) as _conn:
+            violations = check_presence_seat_consistency(_conn, sid)
+        snap["seat_consistency_violations"] = violations
+        total_consistency_violations += len(violations)
         snap["sandbox_id"] = sid
         per_sandbox.append(snap)
         for k, v in snap["classification_counts"].items():
@@ -89,6 +98,12 @@ def run(db_path: str, out_path: str) -> dict:
         "classes_ever_seen": sorted(classes_seen),
         "unexpected_classes_seen": unexpected_classes,
         "n_unexpected_total": total_unexpected,
+        # R1 presence ⇔ seat-map invariant (double-read to filter ticker races).
+        "n_seat_consistency_violations": total_consistency_violations,
+        "sandboxes_with_seat_inconsistency": [
+            {"sandbox_id": s["sandbox_id"], "violations": s["seat_consistency_violations"]}
+            for s in per_sandbox if s.get("seat_consistency_violations")
+        ],
         # only sandboxes that actually diverged unexpectedly, for triage
         "sandboxes_with_unexpected": [
             s for s in per_sandbox if s["n_unexpected"] > 0
