@@ -188,6 +188,35 @@ def test_freeroll_register_returns_skipped_economy(client, fixed_sandbox):
     assert econ['prize_pool'] == 0
 
 
+def test_get_invite_returns_null_when_none(client, fixed_sandbox):
+    """A pinned (empty) sandbox is NEUTRAL → the chairman offers nothing, so the
+    lobby card payload is {invite: null} and nothing is written."""
+    resp = client.get('/api/tournament/invite')
+    assert resp.status_code == 200
+    assert resp.get_json()['invite'] is None
+
+
+def test_accept_with_no_invite_is_404(client, fixed_sandbox):
+    resp = client.post('/api/tournament/invite/accept')
+    assert resp.status_code == 404
+    assert resp.get_json()['error'] == 'no_open_invite'
+
+
+def test_decline_with_no_invite_is_404(client, fixed_sandbox):
+    resp = client.post('/api/tournament/invite/decline')
+    assert resp.status_code == 404
+
+
+def test_invite_routes_require_auth(app):
+    mock_auth = MagicMock()
+    mock_auth.get_current_user.return_value = None
+    with patch('flask_app.extensions.auth_manager', mock_auth):
+        with app.test_client() as c:
+            assert c.get('/api/tournament/invite').status_code == 401
+            assert c.post('/api/tournament/invite/accept').status_code == 401
+            assert c.post('/api/tournament/invite/decline').status_code == 401
+
+
 def test_unauthenticated_is_rejected(app):
     mock_auth = MagicMock()
     mock_auth.get_current_user.return_value = None

@@ -358,6 +358,137 @@ def sit_tournament(tournament_id):
     return jsonify({'game_id': game_id}), 201
 
 
+def _economy_repos():
+    """The repos the invite lifecycle + economy need, pulled from extensions."""
+    from flask_app import extensions
+
+    return dict(
+        invite_repo=extensions.tournament_invite_repo,
+        session_repo=extensions.tournament_session_repo,
+        ledger_repo=extensions.chip_ledger_repo,
+        bankroll_repo=extensions.bankroll_repo,
+        personality_repo=extensions.personality_repo,
+    )
+
+
+def _invite_view(invite: dict | None) -> dict | None:
+    """Trim the invite row to the lobby-card payload."""
+    if invite is None:
+        return None
+    return {
+        'invite_id': invite['invite_id'],
+        'status': invite['status'],
+        'buy_in': invite['buy_in'],
+        'field_size': invite['field_size'],
+        'table_size': invite['table_size'],
+        'starting_stack': invite['starting_stack'],
+        'expires_at': invite['expires_at'],
+    }
+
+
+@tournament_bp.route('/api/tournament/invite', methods=['GET'])
+def get_invite():
+    """The owner's open Main Event invite (the lobby card). Opportunistically
+    lets the chairman offer one (FLUSH + cooldown) and sweeps expired invites to
+    autonomous play, so the offer surfaces/expires on lobby load without a
+    background scheduler."""
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError:
+        return jsonify({'error': 'unauthorized'}), 401
+    from flask_app.services import game_state_service
+    from flask_app.services import tournament_invites as invites
+
+    repos = _economy_repos()
+    sandbox_id = _resolve_sandbox_id(owner_id)
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        try:
+            invites.expire_due(
+                invite_repo=repos['invite_repo'],
+                personality_repo=repos['personality_repo'],
+                bankroll_repo=repos['bankroll_repo'],
+                ledger_repo=repos['ledger_repo'],
+                session_repo=repos['session_repo'],
+            )
+            invites.maybe_offer_main_event(
+                invite_repo=repos['invite_repo'],
+                session_repo=repos['session_repo'],
+                ledger_repo=repos['ledger_repo'],
+                owner_id=owner_id,
+                sandbox_id=sandbox_id,
+            )
+        except Exception:  # noqa: BLE001 — surfacing is best-effort; never 500 the lobby
+            logger.exception("invite offer/expire sweep failed for %s", owner_id)
+        invite = invites.active_invite(repos['invite_repo'], owner_id)
+    return jsonify({'invite': _invite_view(invite)})
+
+
+@tournament_bp.route('/api/tournament/invite/accept', methods=['POST'])
+def accept_invite():
+    """Accept the open invite → build the tournament the human plays IN. Returns
+    the tournament_id (client then POSTs /sit for the live table)."""
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError:
+        return jsonify({'error': 'unauthorized'}), 401
+    from flask_app.services import game_state_service
+    from flask_app.services import tournament_economy_service as econ
+    from flask_app.services import tournament_invites as invites
+
+    repos = _economy_repos()
+    sandbox_id = _resolve_sandbox_id(owner_id)
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        try:
+            result = invites.accept(
+                invite_repo=repos['invite_repo'],
+                personality_repo=repos['personality_repo'],
+                bankroll_repo=repos['bankroll_repo'],
+                ledger_repo=repos['ledger_repo'],
+                session_repo=repos['session_repo'],
+                owner_id=owner_id,
+            )
+        except econ.InsufficientFundsError as exc:
+            return jsonify(
+                {'error': 'insufficient_funds', 'required': exc.required, 'available': exc.available}
+            ), 402
+    if result is None:
+        return jsonify({'error': 'no_open_invite'}), 404
+    return jsonify(
+        {
+            'tournament_id': result['tournament_id'],
+            'standings': registry.get(result['tournament_id'])['session'].standings_view()
+            if registry.get(result['tournament_id'])
+            else None,
+        }
+    ), 201
+
+
+@tournament_bp.route('/api/tournament/invite/decline', methods=['POST'])
+def decline_invite():
+    """Decline the open invite → it starts autonomously (AI-only)."""
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError:
+        return jsonify({'error': 'unauthorized'}), 401
+    from flask_app.services import game_state_service
+    from flask_app.services import tournament_invites as invites
+
+    repos = _economy_repos()
+    sandbox_id = _resolve_sandbox_id(owner_id)
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        result = invites.decline(
+            invite_repo=repos['invite_repo'],
+            personality_repo=repos['personality_repo'],
+            bankroll_repo=repos['bankroll_repo'],
+            ledger_repo=repos['ledger_repo'],
+            session_repo=repos['session_repo'],
+            owner_id=owner_id,
+        )
+    if result is None:
+        return jsonify({'error': 'no_open_invite'}), 404
+    return jsonify({'ok': True, 'tournament_id': result['tournament_id']})
+
+
 @tournament_bp.route('/api/tournament/<tournament_id>/advance', methods=['POST'])
 def advance(tournament_id):
     """Advance one round. Until the live-game bridge (Phase 2c), the human's hand
