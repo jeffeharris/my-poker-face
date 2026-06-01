@@ -15,6 +15,7 @@ import pytest
 from core.economy.ledger import ai, tournament
 from flask_app.services import tournament_economy_service as econ
 from flask_app.services.tournament_spawn import (
+    advance_autonomous_tournament,
     settle_autonomous_tournament,
     spawn_autonomous_tournament,
 )
@@ -105,6 +106,91 @@ def test_autonomous_overlay_redistributes_to_personas(repos):
     winner = session.winner()
     assert ledger_repo.balance_of(ai(winner), sandbox_id=SB) == \
         bankroll_repo.load_ai_bankroll(winner, sandbox_id=SB).chips
+
+
+def test_incremental_advance_at_world_pace_then_settles(repos):
+    """Advancing round-by-round (the world-tick step) reaches the same end as a
+    one-shot play_out: a winner, a settled pool in real bankrolls, escrow 0."""
+    ledger_repo, bankroll_repo, session_repo = repos
+    _make_flush(ledger_repo)
+    persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
+    spawned = spawn_autonomous_tournament(
+        owner_id=OWNER, sandbox_id=SB,
+        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo, session_repo=session_repo,
+        field_size=6, table_size=3, starting_stack=10_000, seed=11, rng_seed=11,
+    )
+    tid, session, entries, plan = (
+        spawned['tournament_id'], spawned['session'], spawned['entries'], spawned['plan']
+    )
+
+    # Tick it like the world ticker would — one round at a time — until settled.
+    ticks = 0
+    settled_seen = False
+    total_reports = 0
+    while True:
+        result = advance_autonomous_tournament(
+            tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
+            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            rounds_per_tick=1,
+        )
+        total_reports += result['rounds']
+        ticks += 1
+        if result['settled']:
+            settled_seen = True
+        if result['complete']:
+            break
+        assert ticks < 10_000, "autonomous tournament failed to converge"
+
+    assert session.is_complete()
+    assert settled_seen
+    assert total_reports >= 1  # it took at least one round to resolve
+    # Same end-state guarantees as the one-shot path.
+    assert econ.verify_tournament_conservation(tid, ledger_repo, sandbox_id=SB)['balanced']
+    assert session_repo.load(tid)['payout_status'] == 'complete'
+    credited = sum(
+        bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB).chips
+        for pid in entries
+        if bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB) is not None
+    )
+    assert credited == plan.bank_overlay
+
+
+def test_advance_after_complete_is_idempotent(repos):
+    """Extra ticks after completion don't re-pay (the settle guard holds)."""
+    ledger_repo, bankroll_repo, session_repo = repos
+    _make_flush(ledger_repo)
+    persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
+    spawned = spawn_autonomous_tournament(
+        owner_id=OWNER, sandbox_id=SB,
+        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo, session_repo=session_repo,
+        field_size=4, table_size=2, seed=5, rng_seed=5,
+    )
+    tid, session, entries = spawned['tournament_id'], spawned['session'], spawned['entries']
+    session.play_out()  # complete it in one shot
+    first = advance_autonomous_tournament(
+        tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
+        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+    )
+    assert first['rounds'] == 0  # already complete → no rounds advanced
+    credited_after_first = sum(
+        bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB).chips
+        for pid in entries
+        if bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB) is not None
+    )
+    # Another tick must not pay again.
+    advance_autonomous_tournament(
+        tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
+        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+    )
+    credited_after_second = sum(
+        bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB).chips
+        for pid in entries
+        if bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB) is not None
+    )
+    assert credited_after_first == credited_after_second
+    assert econ.verify_tournament_conservation(tid, ledger_repo, sandbox_id=SB)['balanced']
 
 
 def test_too_few_personas_skips(repos):

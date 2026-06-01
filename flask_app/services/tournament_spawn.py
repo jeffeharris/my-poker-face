@@ -139,6 +139,56 @@ def spawn_autonomous_tournament(
     }
 
 
+def advance_autonomous_tournament(
+    *,
+    tournament_id: str,
+    session,
+    entries: dict,
+    sandbox_id: str,
+    bankroll_repo,
+    ledger_repo,
+    session_repo,
+    rounds_per_tick: int = 1,
+) -> dict:
+    """Advance an autonomous tournament a bounded number of rounds (one world
+    tick's worth) and settle it the moment it completes.
+
+    This is the per-tick step the world ticker calls so a declined / un-accepted
+    Main Event plays out at world pace, like the cash tables, rather than
+    resolving in one burst. Returns `{rounds, complete, settled, reports}` —
+    `reports` are the `RoundReport`s for this tick (the caller turns them into
+    ticker beats; persistence of the session is the caller's job, via the
+    registry). Idempotent at the tail: once complete, further calls just ensure
+    the settle ran (the payout_status guard makes that a no-op).
+
+    Caller holds `get_sandbox_lock(sandbox_id)`."""
+    reports = []
+    for _ in range(max(1, rounds_per_tick)):
+        report = session.advance_round()
+        if report is None:
+            break
+        reports.append(report)
+
+    settled = False
+    if session.is_complete():
+        settled = settle_autonomous_tournament(
+            tournament_id=tournament_id,
+            session=session,
+            entries=entries,
+            sandbox_id=sandbox_id,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+        )
+
+    return {
+        'rounds': len(reports),
+        'complete': session.is_complete(),
+        'settled': settled,
+        'reports': reports,
+    }
+
+
 def settle_autonomous_tournament(
     *,
     tournament_id: str,

@@ -296,6 +296,22 @@ class TournamentSession:
             reports.append(self._round())
         return reports
 
+    def advance_round(self) -> RoundReport | None:
+        """Advance the field exactly ONE round, AI-only (no human seam).
+
+        For an autonomous tournament (no live human driving it): the world ticker
+        calls this once per tick so a Main Event plays out *at world pace*,
+        incrementally, instead of resolving in a single `play_out()` burst — the
+        same way the cash tables advance a step per tick. Returns the round's
+        report, or None if the field is already complete (or hit `max_rounds`).
+
+        Identical to one iteration of `play_out`'s loop; `_round()` with no human
+        args advances every table (including the nominal human seat) via the AI
+        resolver, so it's correct for a field with no real human participant."""
+        if self.is_complete() or self.rounds >= self.config.max_rounds:
+            return None
+        return self._round()
+
     def apply_live_round(self, human_result: dict[str, int]) -> RoundReport:
         """Fold a hand played LIVE at the human's table into the field, then pace
         the AI tables and settle.
