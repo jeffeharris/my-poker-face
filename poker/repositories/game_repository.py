@@ -1100,6 +1100,8 @@ class GameRepository(BaseRepository):
         'postflop_bet_raise_count', 'postflop_call_count',
         'barrel_opportunity_count', 'equity_betting_count',
         'equity_raising_count', 'equity_calling_count',
+        # v132 limp_rate gate + showdown_win_rate gate sample denominators.
+        'preflop_open_opportunities', 'showdowns_seen',
     )
 
     def list_observation_lifetime_for_observer(

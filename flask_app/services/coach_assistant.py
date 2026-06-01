@@ -479,6 +479,27 @@ def _format_stats_for_prompt(data: Dict) -> str:
                 parts.append(f"{hands} hands")
             lines.append(f"  - {', '.join(parts)}")
 
+            # Tier-2 tells — only reads we actually have a sample for (a None
+            # rate means the spot hasn't been observed, so it's omitted rather
+            # than shown as a misleading default). These give the coach
+            # exploit-grade detail beyond the VPIP/PFR/AF triple.
+            dr = opp.get('deep_reads') or {}
+            tell_parts = []
+            if dr.get('fold_to_cbet') is not None:
+                tell_parts.append(f"folds to c-bet {dr['fold_to_cbet']:.0%}")
+            if dr.get('cbet_attempt_rate') is not None:
+                tell_parts.append(f"c-bets flop {dr['cbet_attempt_rate']:.0%}")
+            if dr.get('barrel_frequency') is not None:
+                tell_parts.append(f"barrels turn {dr['barrel_frequency']:.0%}")
+            if dr.get('aggression_factor_postflop') is not None:
+                tell_parts.append(f"postflop AF {dr['aggression_factor_postflop']:.1f}")
+            if dr.get('limp_rate') is not None:
+                tell_parts.append(f"limps {dr['limp_rate']:.0%} of open spots")
+            if dr.get('showdown_win_rate') is not None:
+                tell_parts.append(f"wins {dr['showdown_win_rate']:.0%} at showdown")
+            if tell_parts:
+                lines.append(f"      tells: {', '.join(tell_parts)}")
+
             # Cross-session history — surface only when present so the
             # line stays compact in fresh games. Notes are the player's
             # own observations from prior sessions, useful continuity.

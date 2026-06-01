@@ -85,6 +85,15 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     ScoutingTier('polarization', 'Polarization', 260,
                  ('equity_betting_count', 'equity_raising_count',
                   'equity_calling_count'), 25, 'showdown-equity reads'),
+    # Limp rate (preflop, v132): how often they limp instead of opening.
+    # Opportunity-gated on open spots, which are frequent, so it unlocks
+    # earlier than the postflop reads — it's a preflop refinement of VPIP/PFR.
+    ScoutingTier('limp_rate', 'Limping', 100,
+                 ('preflop_open_opportunities',), 20, 'open spots'),
+    # Showdown win rate: showdowns are sparse, so a higher hand floor plus a
+    # real showdown sample before the number means anything.
+    ScoutingTier('showdown_win_rate', 'Showdown win rate', 200,
+                 ('showdowns_seen',), 15, 'showdowns'),
     # B2 "the read" — exploit advice + archetype badge, derived from the
     # tiered-bot exploitation detectors. Hand-only tiers: the per-pattern
     # detectors enforce their own sample minimums, so an unlocked-but-thin
@@ -114,6 +123,8 @@ _DEEPER_FIELDS: Dict[str, Tuple[str, ...]] = {
         'equity_when_raising',
         'equity_when_calling',
     ),
+    'limp_rate': ('limp_rate',),
+    'showdown_win_rate': ('showdown_win_rate',),
 }
 
 # Every gateable field in the deeper_reads block (used to collapse a fully
@@ -154,6 +165,7 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
         'items': [
             'fold_to_cbet', 'cbet_pct', 'postflop_aggression',
             'all_in_freq', 'barrel', 'polarization',
+            'limp_rate', 'showdown_win_rate',
         ],
     },
     'tactical_read': {

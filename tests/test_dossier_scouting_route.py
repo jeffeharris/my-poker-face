@@ -56,6 +56,14 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
         '_equity_betting_count': max(1, hands // 4),
         '_equity_raising_count': max(1, hands // 6),
         '_equity_calling_count': max(1, hands // 5),
+        # Preflop opportunity counts (limp_rate gate's denominator) + the
+        # limp numerator, scaled to hands so the limp_rate tier clears at
+        # high hand counts.
+        '_preflop_voluntary_action_count': max(1, hands // 3),
+        '_preflop_voluntary_opportunities': max(1, hands // 2),
+        '_preflop_open_raise_count': max(1, hands // 5),
+        '_preflop_open_opportunities': max(1, hands // 2),
+        '_limp_count': max(1, hands // 6),
     }
     conn = sqlite3.connect(db_path)
     try:
@@ -289,6 +297,7 @@ class TestDossierScoutingRoute(unittest.TestCase):
             'postflop_bet_raise_count', 'postflop_call_count',
             'barrel_opportunity_count', 'equity_betting_count',
             'equity_raising_count', 'equity_calling_count',
+            'preflop_open_opportunities', 'showdowns_seen',
         )
         col_sql = ", ".join(sample_cols)
         ph = ", ".join("?" for _ in sample_cols)

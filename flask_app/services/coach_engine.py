@@ -408,6 +408,36 @@ def _classify_opp_archetype(tendencies) -> Optional[str]:
         return None
 
 
+def _opponent_deep_reads(tendencies, model, memory_manager, user_id):
+    """Tier-2 postflop deep reads for one opponent, for the coaching prompt.
+
+    Defaults to the live per-game tendency (always populated, and the only
+    source in training mode, which runs without a sandbox). When this IS a
+    sandbox game and a durable lifetime row has accumulated at least as many
+    hands, prefer the cross-game reconstruction — more samples, same canonical
+    rate definitions the dossier uses. Best-effort: any failure falls back to
+    the per-game read.
+    """
+    from flask_app.services.opponent_reads import (
+        deep_reads_from_tendencies,
+        reconstruct_tendencies_from_lifetime,
+    )
+
+    read_tendencies = tendencies
+    sandbox_id = getattr(memory_manager, 'sandbox_id', None)
+    opponent_id = getattr(model, 'opponent_id', None)
+    if sandbox_id and opponent_id and user_id:
+        try:
+            life = game_repo.load_observation_lifetime(sandbox_id, user_id, opponent_id)
+            life_t = reconstruct_tendencies_from_lifetime(life)
+            if life_t and life_t.hands_observed >= tendencies.hands_observed:
+                read_tendencies = life_t
+        except Exception as e:
+            logger.debug(f"_opponent_deep_reads: lifetime load failed: {e}")
+
+    return deep_reads_from_tendencies(read_tendencies)
+
+
 def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
     """Extract opponent stats from memory manager, including stack and all-in status.
 
@@ -497,6 +527,14 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
                             # station") is far more actionable for the coach
                             # than raw VPIP/PFR/AF. None below the sample gate.
                             'archetype': _classify_opp_archetype(tendencies),
+                            # Tier-2 postflop tells (fold-to-cbet, barreling,
+                            # polarization, limp rate, …) — the same deep reads
+                            # the dossier surfaces, so the coach can give
+                            # exploit advice ("he folds to c-bets 70% — barrel
+                            # him"). Each rate is None until its spot is seen.
+                            'deep_reads': _opponent_deep_reads(
+                                tendencies, model, memory_manager, user_id
+                            ),
                         }
                     )
                 except (AttributeError, KeyError) as e:

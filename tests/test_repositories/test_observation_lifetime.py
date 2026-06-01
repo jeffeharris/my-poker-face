@@ -321,6 +321,21 @@ def test_deeper_reads_from_lifetime_derives_rates():
     # No opportunities observed → None (not the model's neutral 0.5 prior).
     assert deep['third_barrel_frequency'] is None
     assert deep['equity_when_raising'] is None
+    # limp_rate / showdown_win_rate gate on their own samples — none here.
+    assert deep['limp_rate'] is None
+    assert deep['showdown_win_rate'] is None
+
+
+def test_deeper_reads_from_lifetime_derives_limp_and_showdown():
+    from flask_app.routes.character_routes import _deeper_reads_from_lifetime
+
+    deep = _deeper_reads_from_lifetime({
+        'hands_observed': 40, 'hands_dealt': 40,
+        'limp_count': 3, 'preflop_open_opportunities': 12,
+        'showdowns_seen': 10, 'showdowns_won': 4,
+    })
+    assert deep['limp_rate'] == pytest.approx(0.25)          # 3 / 12
+    assert deep['showdown_win_rate'] == pytest.approx(0.4)   # 4 / 10
 
 
 def test_deeper_reads_from_lifetime_empty_is_none():
@@ -428,6 +443,27 @@ def test_fold_stores_limp_count_and_derives_rate(repo, db_path):
     from flask_app.routes.character_routes import _tendencies_from_lifetime
     t = _tendencies_from_lifetime(life)
     assert t.limp_rate == pytest.approx(0.3)             # 6 / 20
+
+
+def test_deep_reads_from_tendencies_gates_unobserved_reads():
+    """The shared coach/dossier helper surfaces a read only once its own spot
+    is observed; unobserved reads are None, not the model's neutral prior."""
+    from poker.memory.opponent_model import OpponentTendencies
+    from flask_app.services.opponent_reads import deep_reads_from_tendencies
+
+    assert deep_reads_from_tendencies(None) is None
+
+    t = OpponentTendencies()
+    # Observe a couple of limps (open-spot calls) and nothing postflop.
+    t.update_from_action('call', 'PRE_FLOP', is_voluntary=True, was_facing_bet=False)
+    t.update_from_action('call', 'PRE_FLOP', is_voluntary=True, was_facing_bet=False)
+
+    reads = deep_reads_from_tendencies(t)
+    assert reads['limp_rate'] == pytest.approx(1.0)   # 2 limps / 2 open spots
+    # No postflop or showdown samples yet → those reads gate to None.
+    assert reads['fold_to_cbet'] is None
+    assert reads['barrel_frequency'] is None
+    assert reads['showdown_win_rate'] is None
 
 
 # --- Informant unlock store (Phase 3) ---------------------------------------
