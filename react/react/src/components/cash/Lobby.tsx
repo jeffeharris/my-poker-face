@@ -303,6 +303,18 @@ export function Lobby() {
   );
   const tablesByStake = useMemo(() => groupTablesByStake(cardroomTables), [cardroomTables]);
 
+  // Tutorial state: the keyring filters a brand-new player down to the single
+  // pinned Scene-0 (scripted) table and no casino floor yet. Hide the venue tabs
+  // then, so they land on ONE inviting table rather than a "Casino (0)" tab that
+  // undercuts the "there's just the one room" feel.
+  const inTutorial = useMemo(
+    () =>
+      casinoTables.length === 0 &&
+      cardroomTables.length === 1 &&
+      cardroomTables[0]?.table_type === 'scripted',
+    [casinoTables, cardroomTables]
+  );
+
   // One-shot once tables first load: auto-expand the highest tier the
   // player can self-afford (their "current" tier) rather than just the
   // cheapest. Mobile only — desktop renders all tiers expanded.
@@ -573,22 +585,14 @@ export function Lobby() {
     [busy, navigate, mentorStake]
   );
 
-  /** Intake "Take the seat" → drop straight into the Scene-0 game (not the
-   *  lobby). Sits at the pinned scripted table's first open seat; handleSeatTap
-   *  navigates to /game/:id on success. Falls back to the lobby if the table
-   *  isn't there for some reason. */
-  const handleIntakeTakeSeat = useCallback(() => {
+  /** Intake done → drop the player into the LOBBY rather than straight into the
+   *  game. The keyring filters a brand-new player's lobby down to the single
+   *  pinned Scene-0 table, already populated with Sal + the fish, so they land on
+   *  one inviting table and tap the open seat themselves to sit. */
+  const handleIntakeDone = useCallback(() => {
     setShowIntake(false);
-    const scene0 =
-      tables.find((t) => t.table_type === 'scripted') ??
-      tables.find((t) => t.table_id === 'cash-scene0-001');
-    const seatIndex = scene0 ? scene0.seats.findIndex((s) => s.kind === 'open') : -1;
-    if (scene0 && seatIndex >= 0) {
-      void handleSeatTap(scene0, seatIndex);
-    } else {
-      void reloadLobbyRef.current();
-    }
-  }, [tables, handleSeatTap]);
+    void reloadLobbyRef.current();
+  }, []);
 
   /** Dismiss the SponsorModal, releasing the seat-hold the /sit 402
    *  placed so an AI can't be cut out of taking it (and so the player
@@ -770,6 +774,7 @@ export function Lobby() {
           )}
 
           <div className="cash-entry__venues">
+            {!inTutorial && (
             <div className="cash-entry__tabs" role="tablist" aria-label="Table venues">
               <button
                 type="button"
@@ -801,6 +806,7 @@ export function Lobby() {
                 )}
               </button>
             </div>
+            )}
 
             {activeVenue === 'cardroom' ? (
               <section className="cash-entry__stakes">
@@ -973,7 +979,7 @@ export function Lobby() {
             });
           }}
         />
-        {showIntake && <LuckyStackIntake onDone={handleIntakeTakeSeat} />}
+        {showIntake && <LuckyStackIntake onDone={handleIntakeDone} />}
         {/* Sal's post-graduation handoff: his portrait + bubble walk the player
             to the spotlighted home court. Same floater used at the table. */}
         <SalFloater queue={mentorIntroQueue} onShown={dismissMentorIntro} />

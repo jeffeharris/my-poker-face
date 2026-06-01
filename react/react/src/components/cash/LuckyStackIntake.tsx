@@ -141,7 +141,7 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
               <DramaticReserve key="welcome" text={WAITRESS_WELCOME} />
             </div>
             <button className="lucky__btn" onClick={onDone}>
-              Take the seat
+              Head to the back
             </button>
           </div>
         )}
