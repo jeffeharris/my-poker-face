@@ -200,3 +200,32 @@ drift-guard test pinning it equal to full_sim's (runs in CI/Docker, skipped by
 `--quick`). Purity restored: the 11 logic tests need no engine. Validated all
 11 by direct execution on the host (bare pytest is unsupported here and engine
 deps aren't installed locally; the real pytest run is a Docker job).
+
+## 2026-06-01 — Rung 3 sweep harness (two-part: capture → sweep)
+
+Built the Rung-3 instrument as two scripts, matching the "frozen log → paired
+re-scoring" design (re-scoring one frozen log under many weights is a perfectly
+paired A/B — no RNG desync, the whole reason renown's read-side nature is a
+gift). `renown_v3_capture.py` dumps a frozen-log JSON: `--from-db` (host,
+read-only) for the real field; `--from-sim` (Docker) runs the rule-based cash
+sim over the sandbox's AI ids, derives scalps with the new helper, and overlays
+the play-derived drivers onto the DB economy/social state. `renown_v3_sweep.py`
+(pure) re-scores under a 23-config grid and reports rank stability + the
+treadmill correlation, with hand-rolled Spearman/Jaccard (no scipy).
+
+Validated the machinery on a --from-db log (host): Q1 rank stability is strong
+(mean rankρ=0.997 — the ranking barely moves as weights perturb; only the gate
+knobs move the figure *set*, which is the point of those knobs). Q2 (treadmill)
+correctly self-reports **N/A** because a db log has no scalps — so the
+performance proxy is gutted and the verdict would be meaningless. I made the
+sweep detect zero-scalp logs and say so rather than print a misleading FAIL.
+That N/A is itself a finding: scalps are load-bearing for the anti-treadmill
+property, which is exactly why the sim capture (the scalps helper's payoff) is
+required for the real verdict.
+
+Couldn't run --from-sim here (needs Docker + the engine). Wrote it carefully
+against the verified play_one_hand signature (read-only: bankroll_repo=None,
+chip_ledger_repo=None, no save_table; rule-based, no LLM) with rebuy-in-place so
+hands keep flowing, but it's UNTESTED on the host — flagging that honestly. Next
+real step is a Docker capture run to get the first scalp-populated frozen log
+and the actual treadmill verdict.

@@ -283,6 +283,32 @@ makes backing selective, so backing renown becomes a meaningful patron signal
 rather than noise. Whether near-universal staking is a bug or intended
 chip-cycling flavour is a product call — flagged with evidence, not assumed.
 
+**Rung 3 harness built (2026-06-01) — machinery validated, real verdict pends a
+sim capture.** Two-part, matching the "frozen log → paired re-scoring" design:
+- `scripts/renown_v3_capture.py` produces a frozen-log JSON of every entity's
+  renown inputs. `--from-db` (host, read-only) snapshots the real field;
+  `--from-sim` (Docker) runs the rule-based cash sim (`full_sim.play_one_hand`,
+  no LLM, no DB writes) over the sandbox's AI field, derives **scalps** via
+  `cash_mode/scalps.eliminations_from_sim`, and overlays the play-derived
+  drivers (scalps, volume, breadth, time-at-#1, peak stack) onto the DB field's
+  economy/social drivers — the first log where the villain/scalp route is
+  populated.
+- `scripts/renown_v3_sweep.py` (pure) re-scores the frozen log under a 23-config
+  weight grid and reports **(Q1) rank stability** — mean pairwise Spearman of
+  the ranking + Jaccard of the figure set — and **(Q2) the treadmill
+  correlation** — Spearman(renown, hand_count) vs Spearman(renown,
+  performance_drivers).
+
+Validated on a `--from-db` log: **Q1 strong** (mean rankρ=0.997 across all
+perturbations — the ranking is robust to weights; only the gate knobs
+`cut_median`/`w_breadth`/`w_backing` move the figure *set*, as designed). **Q2
+correctly returns N/A** on a scalp-less log (the performance proxy is gutted
+without scalps — which itself confirms scalps are load-bearing for the
+anti-treadmill property). The real Q2 verdict needs the `--from-sim` capture
+(Docker), where scalps are populated:
+`docker compose exec backend python3 scripts/renown_v3_capture.py --from-sim --hands 400 -o /app/data/renown_log_sim.json`
+then `python3 scripts/renown_v3_sweep.py /app/data/renown_log_sim.json`.
+
 ## Renown as a live competition — world speed & keeping pace
 
 Renown is competitive: the field (every AI) is on the same leaderboard, and the
