@@ -179,6 +179,27 @@ def test_no_fish_tell_on_a_street_without_a_scripted_line(monkeypatch):
     assert said == []  # the discipline hand scripts no TURN line
 
 
+def test_scene_busted_seat_is_not_refilled_with_a_stranger():
+    """Regression: a busted AI at a scripted scene table must NOT be swapped for a
+    random eligible persona — that's how 'Loose Larry' became 'a guy who tells too
+    many dad jokes' after the finale busted him. The scene owns its cast, so
+    `_refill_cash_seats` is a no-op for scene games (the scripted top-up rebuys the
+    fish instead)."""
+    game_data, sm = _scene0_game()
+    # Bust Loose Larry (stack 0) — the state a generic refill would "fix".
+    gs = sm.game_state
+    gs = gs.update(
+        players=tuple(p.update(stack=0) if p.name == "Loose Larry" else p for p in gs.players)
+    )
+    sm = sm.with_game_state(gs)
+    game_data["state_machine"] = sm
+
+    before = [(p.name, p.stack) for p in sm.game_state.players]
+    gh._refill_cash_seats(SCENE0_TABLE_ID, game_data, sm)
+    after = [(p.name, p.stack) for p in game_data["state_machine"].game_state.players]
+    assert after == before  # nobody swapped in; Larry keeps his (busted) seat
+
+
 def test_scripted_holes_follow_player_name_through_button_rotation():
     """Regression for the rig bug: cards are keyed by NAME, so the per-hand button
     rotation (reset_game_state_for_new_hand reorders the players tuple each hand)

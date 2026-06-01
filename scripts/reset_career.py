@@ -42,52 +42,73 @@ def main() -> int:
         "OR (name='Sal Moretti' AND personality_id!='sal_moretti')"
     ).rowcount
 
-    # 2. Re-open the Scene-0 human seat (credit any table chips back) + normalise the cast.
+    # Loose Larry is the scene-only fish — never auto-circulated. If a personality
+    # sync ever flips his global flag to circulating, the world's eligible pool can
+    # pull him (and busted-seat refills can seat strangers in his place). Pin it.
+    con.execute("UPDATE personalities SET circulating=0 WHERE personality_id='loose_larry'")
+
+    # 2. REBUILD the Scene-0 cast in place: re-open the human seat and re-seat
+    #    Sal + Loose Larry in their pinned seats. A prior finale-bust refill could
+    #    leave a stranger in the fish seat ("where'd Larry go, who's this dad-jokes
+    #    guy?"); rebuilding from scratch is the clean fix. Conservation-safe — every
+    #    current occupant's chips go back to their owner before we re-seat.
+    import json
+
+    from cash_mode.career_progression import (
+        SAL_ID,
+        SCENE0_FISH_ID,
+        SCENE0_FISH_SEAT,
+        SCENE0_SAL_SEAT,
+        SCENE0_STAKE,
+    )
+    from cash_mode.stakes_ladder import table_buy_in_window
+    from cash_mode.tables import ai_slot, ai_slot_fish
+
     row = con.execute(
         "SELECT seats_json FROM cash_tables WHERE table_id=? AND sandbox_id=?", (SCENE0, SB)
     ).fetchone()
     credited = 0
     if row:
-        import json
-
         seats = json.loads(row["seats_json"])
-        sal_idx = None
-        larry_chips = 0
-        for i, st in enumerate(seats):
+        # Return every occupant's chips to their owner.
+        for st in seats:
+            chips = int(st.get("chips", 0) or 0)
+            if chips <= 0:
+                continue
             if st.get("kind") == "human":
-                credited = int(st.get("chips", 0))
-                seats[i] = open_slot()
-            elif st.get("kind") == "ai":
-                pid = st.get("personality_id", "")
-                if pid.startswith("sal_moretti"):
-                    st["personality_id"] = "sal_moretti"
-                    sal_idx = i
-                elif pid == "loose_larry":
-                    larry_chips = int(st.get("chips", 0))
-        # The fresh seeder gives Sal 3x the fish buy-in so he can STACK Larry in
-        # the finale. This dev reset reuses the existing table, so top Sal's seat
-        # up to 3x Larry's stack and debit the difference from his (sandbox-scoped)
-        # bankroll — a clean transfer, no minting.
-        sal_bumped = 0
-        if sal_idx is not None and larry_chips:
-            target = larry_chips * 3
-            cur = int(seats[sal_idx].get("chips", 0))
-            if target > cur:
-                sal_bumped = target - cur
-                seats[sal_idx]["chips"] = target
+                credited += chips
                 con.execute(
-                    "UPDATE ai_bankroll_state SET chips = chips - ? "
-                    "WHERE personality_id='sal_moretti' AND sandbox_id=?",
-                    (sal_bumped, SB),
+                    "UPDATE player_bankroll_state SET chips=chips+? WHERE player_id=?",
+                    (chips, OWNER),
                 )
+            elif st.get("kind") == "ai" and st.get("personality_id"):
+                con.execute(
+                    "UPDATE ai_bankroll_state SET chips=chips+? "
+                    "WHERE personality_id=? AND sandbox_id=?",
+                    (chips, st["personality_id"], SB),
+                )
+
+        # Fresh seats: all open, then Larry (fish) + Sal (deep, 3x to stack Larry
+        # in the finale), each debited from its own (sandbox-scoped) bankroll.
+        _, min_buy_in, _ = table_buy_in_window(SCENE0_STAKE)
+        larry_buy = min_buy_in
+        sal_buy = larry_buy * 3
+        seats = [open_slot() for _ in range(len(seats))]
+        con.execute(
+            "UPDATE ai_bankroll_state SET chips=chips-? WHERE personality_id=? AND sandbox_id=?",
+            (larry_buy, SCENE0_FISH_ID, SB),
+        )
+        seats[SCENE0_FISH_SEAT] = ai_slot_fish(SCENE0_FISH_ID, larry_buy)
+        con.execute(
+            "UPDATE ai_bankroll_state SET chips=chips-? WHERE personality_id=? AND sandbox_id=?",
+            (sal_buy, SAL_ID, SB),
+        )
+        seats[SCENE0_SAL_SEAT] = ai_slot(SAL_ID, sal_buy)
+
         con.execute(
             "UPDATE cash_tables SET seats_json=? WHERE table_id=? AND sandbox_id=?",
             (json.dumps(seats), SCENE0, SB),
         )
-        if credited:
-            con.execute(
-                "UPDATE player_bankroll_state SET chips=chips+? WHERE player_id=?", (credited, OWNER)
-            )
     con.commit()
 
     # 3. Fresh-but-active career + clear bio.

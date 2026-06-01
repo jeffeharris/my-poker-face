@@ -995,6 +995,14 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     from poker.hybrid_ai_controller import HybridAIController
     from poker.poker_game import Player
 
+    # Scripted scene tables manage their OWN cast: the scripted top-up
+    # (`_scene_top_up_cast`) rebuys the fish from its own bankroll, and the finale
+    # intentionally busts the fish to 0. A generic random refill here would seat a
+    # stranger in the scripted fish seat — the "where'd Larry go, who's this
+    # dad-jokes guy?" bug. Never refill a scene table.
+    if _scene_for_game(game_id, game_data) is not None:
+        return
+
     game_state = state_machine.game_state
     busted_indices = [
         i for i, p in enumerate(game_state.players) if not p.is_human and p.stack == 0
