@@ -138,3 +138,29 @@ on the same seam. If we do want a cheap down-payment sooner, the highest-value
 slice is the **reaper settle-before-delete** structural guard (turns Cut 1's
 behavioural guard into a structural one) — small, and it's the exact bug that
 started all this.
+
+## Foundation measurement (2026-06-01) — is the ledger complete enough to be the authority?
+
+`scripts/audit_ledger_completeness.py` derives each entity's balance from the
+ledger (Σ sink − Σ source) and compares to the stored bankroll. Result on the dev
+DB (62,604 ledger entries):
+
+- **Humans: 3/4 reconciled (gap==0).** The ledger can already derive human
+  bankroll — Cut 2's `player↔seat` transfers made the human side ~complete. Only
+  `guest_jeff` shows a small 1,643 gap (one unledgered human movement, worth
+  chasing but minor).
+- **AI: 339/1239 reconciled; 900 unledgered; ~32.6M total abs gap.** Derived AI
+  balances are frequently NEGATIVE (only central-bank flows — seed/rake/vice — are
+  ledgered; AI buy-ins, cash-outs, and table P&L are not). **AI bankroll is NOT
+  derivable from the ledger today.**
+
+**Conclusion — the first foundation phase is AI ledger parity.** Wire AI sit/leave/
+bust through `bankroll↔seat:<game_id>` transfers exactly as Cut 2 did for humans
+(`record_player_buy_in`/`record_player_cash_out` → AI equivalents). Per-hand P&L
+does NOT need individual entries — it nets inside the seat balance and settles at
+leave (buy-in = `ai→seat`, final settle = `seat→ai` net of winnings), so the table
+conserves internally and the ledger stays a buy-in/settle pair per session. Once
+AI parity lands and this audit shows full reconciliation, the ledger becomes the
+chip authority and D2 (ledger-derived bankroll) + seats-as-view become possible.
+The ~32.6M gap is the measure of how much AI chip movement is currently invisible
+to the ledger — it must go to ~0 before the ledger can be authoritative.
