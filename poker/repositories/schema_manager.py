@@ -267,7 +267,12 @@ _test_schema_template_path = None
 #       leak nudge fired) so the coach's effect on play can be measured by
 #       joining to player_decision_analysis. Pure instrumentation. Renumbered
 #       from v124 on the training-room→development merge.
-SCHEMA_VERSION = 131
+# v132: Create `cash_scalps` — durable, sandbox-scoped, attributed "who busted
+#       whom" counter (per eliminator→victim pair, so renown-weighting can read
+#       the victim's standing). Forward-only; AI-symmetric. The shared
+#       prerequisite for the Renown-v2 scalp driver (villain route) and the
+#       bounty/double_knockout achievements. See CASH_MODE_SCALP_TRACKER.md.
+SCHEMA_VERSION = 132
 
 
 class SchemaManager:
@@ -2098,6 +2103,10 @@ class SchemaManager:
             131: (
                 self._migrate_v131_create_coach_tips,
                 "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
+            ),
+            132: (
+                self._migrate_v132_create_cash_scalps,
+                "Create cash_scalps table — durable sandbox-scoped attributed 'who busted whom' counter (per eliminator→victim pair), the shared prerequisite for the Renown-v2 scalp driver and bounty achievements. Forward-only, AI-symmetric.",
             ),
         }
 
@@ -6953,3 +6962,38 @@ class SchemaManager:
             "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
         )
         logger.info("Migration v131 complete: coach_tips table created")
+
+    def _migrate_v132_create_cash_scalps(self, conn: sqlite3.Connection) -> None:
+        """Migration v132: create `cash_scalps` — durable attributed bust counter.
+
+        A sandbox-scoped cumulative count of eliminations, keyed per
+        (eliminator, victim) pair so renown-weighting can read the *victim's*
+        standing (busting a legend ≫ a nobody) rather than just a flat count.
+
+        Ids are raw (no `player:`/`ai:` prefix), mirroring `cash_pair_stats`:
+        `owner_id` for the human, `personality_id` for AIs. AI-symmetric (the
+        eliminator may be an AI) and forward-only (counts start at 0; nothing
+        backfilled). Populated by `cash_mode/scalps.py` attribution off the
+        world-sim and the human's hand. Non-destructive, idempotent.
+
+        See docs/plans/CASH_MODE_SCALP_TRACKER.md.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_scalps (
+                sandbox_id     TEXT NOT NULL,
+                eliminator_id  TEXT NOT NULL,
+                victim_id      TEXT NOT NULL,
+                count          INTEGER NOT NULL DEFAULT 0,
+                last_at        TIMESTAMP,
+                PRIMARY KEY (sandbox_id, eliminator_id, victim_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_scalps_eliminator
+                ON cash_scalps(sandbox_id, eliminator_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_scalps_victim
+                ON cash_scalps(sandbox_id, victim_id)
+        """)
+        logger.info("Migration v132 complete: cash_scalps table created")
