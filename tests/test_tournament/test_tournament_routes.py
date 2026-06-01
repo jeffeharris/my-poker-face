@@ -207,6 +207,44 @@ def test_decline_with_no_invite_is_404(client, fixed_sandbox):
     assert resp.status_code == 404
 
 
+def test_accept_stands_human_up_then_builds(client, fixed_sandbox, monkeypatch):
+    """Accepting an invite leaves the human's cash seat FIRST (the human side of
+    the double-presence guard), then builds the tournament."""
+    calls = []
+    monkeypatch.setattr(
+        'flask_app.routes.tournament_routes._leave_cash_if_seated',
+        lambda owner_id: calls.append(owner_id) or True,
+    )
+    monkeypatch.setattr(
+        'flask_app.services.tournament_invites.active_invite',
+        lambda repo, owner_id: {'invite_id': 'i1', 'status': 'offered', 'owner_id': owner_id},
+    )
+    monkeypatch.setattr(
+        'flask_app.services.tournament_invites.accept',
+        lambda **kw: {'tournament_id': 't1', 'human_id': 'human:x', 'entries': {}, 'plan': None},
+    )
+    resp = client.post('/api/tournament/invite/accept')
+    assert resp.status_code == 201
+    assert resp.get_json()['tournament_id'] == 't1'
+    assert calls == [OWNER['id']]  # human was stood up from cash
+
+
+def test_accept_no_invite_does_not_stand_human_up(client, fixed_sandbox, monkeypatch):
+    """The leave is gated on an open invite — a no-op accept never cashes the
+    player out for nothing."""
+    calls = []
+    monkeypatch.setattr(
+        'flask_app.routes.tournament_routes._leave_cash_if_seated',
+        lambda owner_id: calls.append(owner_id) or True,
+    )
+    monkeypatch.setattr(
+        'flask_app.services.tournament_invites.active_invite', lambda repo, owner_id: None
+    )
+    resp = client.post('/api/tournament/invite/accept')
+    assert resp.status_code == 404
+    assert calls == []  # gated — did NOT stand them up
+
+
 def test_invite_routes_require_auth(app):
     mock_auth = MagicMock()
     mock_auth.get_current_user.return_value = None

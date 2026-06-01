@@ -425,10 +425,36 @@ def get_invite():
     return jsonify({'invite': _invite_view(invite)})
 
 
+def _leave_cash_if_seated(owner_id: str) -> bool:
+    """Stand the human up from any active cash game before they enter a
+    tournament — they can't be at a cash table AND in the Main Event at once
+    (the human side of the double-presence guard). Cashes out (chips → bankroll,
+    via the stake-aware leave path) and frees the seat. Returns True if a leave
+    ran. Best-effort; mirrors POST /api/cash/leave's game-lock pattern."""
+    from flask_app.routes.cash_routes import _find_active_cash_game_id, _leave_table_locked
+    from flask_app.services import game_state_service
+
+    game_id = _find_active_cash_game_id(owner_id)
+    if not game_id:
+        return False
+    pending = game_state_service.get_game(game_id)
+    if pending is not None:
+        pending['leave_requested'] = True  # cooperative-cancel an in-flight orbit
+    with game_state_service.get_game_lock(game_id):
+        try:
+            _leave_table_locked(owner_id, game_id)  # returns a Response; side effects matter
+        except Exception:  # noqa: BLE001 — never block tournament entry on a leave hiccup
+            logger.exception("cash leave before tournament accept failed for %s", owner_id)
+    return True
+
+
 @tournament_bp.route('/api/tournament/invite/accept', methods=['POST'])
 def accept_invite():
     """Accept the open invite → build the tournament the human plays IN. Returns
-    the tournament_id (client then POSTs /sit for the live table)."""
+    the tournament_id (client then POSTs /sit for the live table). The human is
+    first stood up from any cash table (you can't be at cash AND in the Main
+    Event) — but only once we've confirmed there's an invite to accept, so a
+    misfire never cashes them out for nothing."""
     try:
         owner_id = _resolve_owner_id()
     except ValueError:
@@ -438,6 +464,16 @@ def accept_invite():
     from flask_app.services import tournament_invites as invites
 
     repos = _economy_repos()
+    # Gate on an open invite BEFORE leaving cash, so a no-op accept doesn't
+    # stand the player up for nothing.
+    if invites.active_invite(repos['invite_repo'], owner_id) is None:
+        return jsonify({'error': 'no_open_invite'}), 404
+
+    # Human side of the double-presence guard: leave the cash seat first, so the
+    # cashed-out chips are in bankroll (available toward any buy-in) and the
+    # player is in exactly one place.
+    _leave_cash_if_seated(owner_id)
+
     sandbox_id = _resolve_sandbox_id(owner_id)
     with game_state_service.get_sandbox_lock(sandbox_id):
         try:
