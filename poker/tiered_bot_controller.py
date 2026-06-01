@@ -377,9 +377,15 @@ class TieredBotController(AIPlayerController):
         # River-bluff side (OVERBET_BALANCING.md T2): CREATES river bluff supply by
         # promoting give-up-air CHECK mass to a bet at the value size — the only
         # path that fixes the face-up river (tell map: river big bets ~95-100%
-        # value). T1 can't (no river air bet-mass to relabel). 0.0 = OFF
-        # (byte-identical). river_bluff_size None = match overbet_size.
-        self.river_bluff_fraction: float = 0.0
+        # value). T1 can't (no river air bet-mass to relabel). river_bluff_size
+        # None = match overbet_size. ON at 1.0 (calibrated): give-up-air supply
+        # caps the river overbet's bluff share at ~31% even at full injection
+        # (< the ~37% GTO target → no over-bluff risk; takes the overbet from
+        # face-up gap −28 to −7). FIRES only behind the regime gate below (a
+        # detected over-folder), so it's value-only vs the fish / cold-start.
+        # Set 0.0 to disable. (Eval harnesses bypass __init__ → unaffected unless
+        # they set it explicitly; this default only turns it on in real games.)
+        self.river_bluff_fraction: float = 1.0
         self.river_bluff_classes: Optional[frozenset] = None  # None = default {air_strong_draw, air_no_draw}
         self.river_bluff_size: Optional[int] = None  # None = match overbet_size
         # Regime gate: river bluffs fire ONLY vs a detected over-folder/sizing-

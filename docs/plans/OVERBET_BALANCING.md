@@ -251,6 +251,35 @@ face-up) · flop over-bluffed (merge artifact) · turn balanced (bets+raises) ·
 face-up (bets; raises thinly). **The whole aggressive game has exactly ONE
 readability leak: the river bet — which T2+gate addresses.** No new fix indicated.
 
+## 5d. CALIBRATED + TURNED ON (2026-06-01)
+
+Calibration sweep (tell map under production config: `overbet_fraction=1.0` value
+relabel ON + gate firing as a reader), river overbet (1.5x, GTO target ~37%):
+
+| river_bluff_fraction | overbet bluff share | gap |
+|---|---|---|
+| 0.0 (baseline) | ~5% | −32 (FACE-UP) |
+| 0.25 | 9% | −28 |
+| 0.5 | 19% | −19 |
+| 0.75 | 25% | −13 |
+| **1.0** | **31%** | **−7** |
+
+**Supply caps the bluff share at ~31% even at full injection** (the thin-supply wall,
+quantified) → no over-bluff risk, so the calibrated value is **`river_bluff_fraction
+= 1.0`** (max), taking the river overbet from face-up (−28) to near-balanced (−7).
+Set as the production `__init__` default (was 0.0). FIRES only behind the regime
+gate (mature `fold_to_big_bet >= 0.6`), so value-only vs fish/cold-start. Eval
+harnesses bypass `__init__` → unaffected; this turns it on in REAL games only.
+Resolver `_resolve_river_bluff_ftbb` unit-verified end-to-end (reader fires, caller/
+immature/multiway/cold-start → value-only, override wins). 148 overbet/tiered +
+full strategy suites green.
+
+**Residual −7 needs MORE river air** (barrel more air to turn/river so more reaches
+a checked-to river) — a bigger supply build, not a higher fraction. Other caveats
+unchanged: the live read's real-world accuracy is untested (false-positive cost vs a
+misclassified caller grows with fraction — ~−7 bb/100 at 0.5 in the sweep); dial
+`river_bluff_fraction` down if the read proves noisy in production.
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*

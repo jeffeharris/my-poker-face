@@ -675,7 +675,11 @@ def run_passivity_matchup(
             # value side a no-op so the only change vs baseline is the new river
             # bluffs (give-up-air checks → bet at river_bluff_size).
             controllers[0].enable_overbet_context = True
-            controllers[0].overbet_fraction = 0.0
+            # overbet_fraction default 0.0 ISOLATES the bluff effect; set
+            # OVERBET_FRACTION=1.0 to calibrate under the production config (value
+            # relabel ON, so value + bluff both sit at the overbet size → the
+            # tell-map xl bucket shows the BALANCED ratio to tune toward ~37.5%).
+            controllers[0].overbet_fraction = float(os.environ.get('OVERBET_FRACTION', '0.0'))
             controllers[0].river_bluff_fraction = float(_rbf)
             _rbs = os.environ.get('RIVER_BLUFF_SIZE')
             if _rbs:
