@@ -407,8 +407,16 @@ class TieredBotController(AIPlayerController):
         # (no model manager). The §B leverage is concentrated vs a loose human who
         # value-bets big OFTEN (modest in the AI pool — see the LooseFaceUp probe).
         self.sizing_defense_enabled: bool = False
-        self.sizing_defense_min_polar: float = 0.15  # face-up: big − small bet eq
-        self.sizing_defense_call_multiplier: float = 0.55  # retain ~55% of calls
+        self.sizing_defense_min_polar: float = 0.15  # face-up gate: big − small bet eq
+        # PROPORTIONAL dampener: the call-retention multiplier scales with HOW
+        # face-up the read is — 1.0 (no change) at the min_polar threshold, ramping
+        # down to `call_multiplier` (the most-aggressive floor) at `full_polar`.
+        # A barely-face-up read barely folds; a blatantly face-up one folds hard.
+        # This bounds the misfire cost on weak/false-positive reads (a tiny sample
+        # rarely scores high) and shrinks the surface an adapting adversary can
+        # exploit. Set call_multiplier=full_polar-equal to recover flat behavior.
+        self.sizing_defense_call_multiplier: float = 0.55  # retain at FULL face-up
+        self.sizing_defense_full_polar: float = 0.40  # score at which the floor applies
         self.sizing_defense_min_bet_ratio: float = 0.75  # only vs a "big bet"
         self.sizing_defense_polar_override: Optional[float] = None
         # River-air SUPPLY build (OVERBET_BALANCING.md §5e): T2's bluff supply is
@@ -448,6 +456,14 @@ class TieredBotController(AIPlayerController):
         _pcfg = getattr(getattr(self, 'psychology', None), 'personality_config', None)
         if isinstance(_pcfg, dict) and 'adaptive_overbet' in _pcfg:
             self.adaptive_overbet = bool(_pcfg['adaptive_overbet'])
+        # Per-personality opt-in for Phase B sizing defense (the "skill" of folding
+        # to a face-up bettor's big bets). A character carries `"sizing_defense":
+        # true` in personalities.json to enable it. Default OFF — measured ~+4.27
+        # bb/100 [−8.20, +16.74] vs a maximally face-up bot (real but marginal, CI
+        # spans 0), so it ships opt-in per persona, not as a global default. Same
+        # bypassed-__init__ caveat as adaptive_overbet: only affects the live path.
+        if isinstance(_pcfg, dict) and 'sizing_defense' in _pcfg:
+            self.sizing_defense_enabled = bool(_pcfg['sizing_defense'])
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -2687,8 +2703,10 @@ class TieredBotController(AIPlayerController):
 
         override, trace = compute_sizing_defense_strategy(
             strategy,
-            call_multiplier=getattr(self, 'sizing_defense_call_multiplier', 0.55),
             polar_score=polar,
+            min_polar=getattr(self, 'sizing_defense_min_polar', 0.15),
+            full_polar=getattr(self, 'sizing_defense_full_polar', 0.40),
+            call_multiplier_floor=getattr(self, 'sizing_defense_call_multiplier', 0.55),
             bet_ratio=bet_ratio,
             hand_strength=hand_strength,
             max_total_shift=DEFAULT_MAX_TOTAL_SHIFT,

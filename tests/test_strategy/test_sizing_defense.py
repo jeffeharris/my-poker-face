@@ -16,12 +16,51 @@ from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.value_override import (
     DEFAULT_SIZING_DEFENSE_CALL_MULTIPLIER,
     compute_sizing_defense_strategy,
+    proportional_call_multiplier,
 )
 
 
+class TestProportionalDampener:
+    """The retention multiplier scales with how face-up the read is."""
+
+    def _m(self, polar, floor=0.55):
+        return proportional_call_multiplier(
+            polar, min_polar=0.15, full_polar=0.40, floor=floor
+        )
+
+    def test_no_effect_at_threshold(self):
+        # At the gate, a barely-face-up read keeps the full call range (mult 1.0).
+        assert self._m(0.15) == pytest.approx(1.0)
+
+    def test_floor_at_full_face_up(self):
+        # At/above full_polar, saturates to the configured floor.
+        assert self._m(0.40) == pytest.approx(0.55)
+        assert self._m(0.80) == pytest.approx(0.55)  # clamped, never below floor
+
+    def test_monotonic_ramp(self):
+        # Strictly decreasing between threshold and full.
+        a, b, c = self._m(0.20), self._m(0.28), self._m(0.36)
+        assert 1.0 > a > b > c > 0.55
+
+    def test_midpoint(self):
+        # polar 0.275 = halfway → mult halfway between 1.0 and 0.55 = 0.775.
+        assert self._m(0.275) == pytest.approx(0.775, abs=1e-6)
+
+    def test_degenerate_span_returns_floor(self):
+        # full_polar <= min_polar → flat floor (no ramp).
+        assert proportional_call_multiplier(
+            0.5, min_polar=0.4, full_polar=0.4, floor=0.55
+        ) == pytest.approx(0.55)
+
+
 def _call(strategy, **kw):
-    kw.setdefault('call_multiplier', DEFAULT_SIZING_DEFENSE_CALL_MULTIPLIER)
-    kw.setdefault('polar_score', 0.3)
+    # Default polar_score = full_polar (0.40) → proportional multiplier saturates
+    # to the floor, so these "transform" tests exercise the max-effect behavior;
+    # the ramp itself is covered in TestProportionalDampener.
+    kw.setdefault('call_multiplier_floor', DEFAULT_SIZING_DEFENSE_CALL_MULTIPLIER)
+    kw.setdefault('polar_score', 0.40)
+    kw.setdefault('min_polar', 0.15)
+    kw.setdefault('full_polar', 0.40)
     kw.setdefault('bet_ratio', 1.2)
     kw.setdefault('hand_strength', 'medium_made')
     kw.setdefault('max_total_shift', 0.4)
@@ -53,7 +92,7 @@ class TestTransform:
         # A full damp (×0.0) wants to move 1.0 of mass; the DEFAULT envelope
         # (max_total_shift=0.4) caps the L1 shift, so call only drops by 0.2.
         s = StrategyProfile(action_probabilities={'call': 1.0})
-        out, _ = _call(s, call_multiplier=0.0)
+        out, _ = _call(s, call_multiplier_floor=0.0)
         probs = out.action_probabilities
         # L1 distance = |Δcall| + |Δfold| = 0.2 + 0.2 = 0.4 = the cap.
         assert probs['call'] == pytest.approx(0.8, abs=1e-6)
@@ -109,6 +148,7 @@ class TestControllerGating:
         bot.opponent_model_manager = None
         bot.sizing_defense_enabled = True
         bot.sizing_defense_min_polar = 0.15
+        bot.sizing_defense_full_polar = 0.40
         bot.sizing_defense_call_multiplier = 0.55
         bot.sizing_defense_min_bet_ratio = 0.75
         bot.sizing_defense_polar_override = None
