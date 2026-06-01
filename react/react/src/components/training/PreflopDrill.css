@@ -31,11 +31,19 @@
 }
 
 .pfd-hand {
+  /* Fixed-size card so the box doesn't jump between hands of different string
+     length (2-char pairs like "AA" vs 3-char hands like "AKs"). Flex-centered
+     content keeps every hand identically framed. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 11rem;
+  height: 6rem;
   font-size: 3.25rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   color: #fff;
-  padding: 0.75rem 1.5rem;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
