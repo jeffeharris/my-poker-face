@@ -31,22 +31,72 @@
 }
 
 .pfd-hand {
-  /* Fixed-size card so the box doesn't jump between hands of different string
-     length (2-char pairs like "AA" vs 3-char hands like "AKs"). Flex-centered
-     content keeps every hand identically framed. */
+  /* Fixed-size frame so the box doesn't jump between hands (cards are uniform;
+     the shorthand label below them varies in length but the box doesn't). */
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   box-sizing: border-box;
-  width: 11rem;
-  height: 6rem;
-  font-size: 3.25rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: #fff;
+  width: 12rem;
+  height: 9rem;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pfd-cards {
+  display: flex;
+  gap: 0.35rem;
+}
+.pfd-hand-label {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+/* Spot picker — drill any spot, not just confirmed leaks. */
+.pfd-pick-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.pfd-pick-toggle {
+  border: none;
+  background: none;
+  color: var(--color-emerald, #34d399);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pfd-pick-toggle:hover {
+  filter: brightness(1.12);
+}
+.pfd-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 0.25rem 0 0.5rem;
+}
+.pfd-picker-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+.pfd-picker-field select {
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text, #e5e7eb);
+  font-size: 0.85rem;
 }
 
 .pfd-actions {

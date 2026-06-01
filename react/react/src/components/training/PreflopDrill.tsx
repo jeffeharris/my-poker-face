@@ -2,9 +2,25 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Target } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
+import { Card } from '../cards';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import './PreflopDrill.css';
+
+// A 169-hand shorthand → two concrete cards for display. Suited = same suit;
+// offsuit / pair = two different suits (black + red reads clearest). 'T' → '10'
+// (the Card component's rank notation).
+function handToCards(hand: string): [{ rank: string; suit: string }, { rank: string; suit: string }] {
+  const isPair = hand.length === 2;
+  const norm = (r: string) => (r === 'T' ? '10' : r);
+  const r1 = norm(hand[0]);
+  const r2 = norm(isPair ? hand[0] : hand[1]);
+  const suited = !isPair && hand[2] === 's';
+  return [
+    { rank: r1, suit: 'Spades' },
+    { rank: r2, suit: suited ? 'Spades' : 'Hearts' },
+  ];
+}
 
 interface Spot {
   scenario: string;
@@ -34,14 +50,66 @@ const SCENARIO_LABEL: Record<string, string> = {
 const ACTIONS: Array<'fold' | 'call' | 'raise'> = ['fold', 'call', 'raise'];
 const pct = (x: number) => Math.round(x * 100);
 
+// Spot picker — drill ANY spot, not just your confirmed leaks.
+const PICK_SCENARIOS: Array<[string, string]> = [
+  ['rfi', 'Opening (folded to you)'],
+  ['vs_open', 'Facing a raise'],
+  ['vs_3bet', 'Facing a 3-bet'],
+];
+const ALL_POS = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
+// The BB never opens, so there's no rfi chart for it.
+const posOptions = (s: string) => (s === 'rfi' ? ALL_POS.filter((p) => p !== 'BB') : ALL_POS);
+
+function SpotPicker({ onPick }: { onPick: (scenario: string, position: string) => void }) {
+  const [s, setS] = useState('rfi');
+  const [p, setP] = useState('BTN');
+  const onScenario = (v: string) => {
+    setS(v);
+    if (!posOptions(v).includes(p)) setP(posOptions(v)[0]);
+  };
+  return (
+    <div className="pfd-picker">
+      <label className="pfd-picker-field">
+        Spot
+        <select value={s} onChange={(e) => onScenario(e.target.value)}>
+          {PICK_SCENARIOS.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="pfd-picker-field">
+        Position
+        <select value={p} onChange={(e) => setP(e.target.value)}>
+          {posOptions(s).map((pos) => (
+            <option key={pos} value={pos}>
+              {pos}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className="pfd-next" onClick={() => onPick(s, p)}>
+        Start drill
+      </button>
+    </div>
+  );
+}
+
 interface PreflopDrillProps {
   onBack: () => void;
 }
 
 export function PreflopDrill({ onBack }: PreflopDrillProps) {
-  const [params] = useSearchParams();
+  const [params, setSearchParams] = useSearchParams();
   const scenario = params.get('scenario') || '';
   const position = params.get('position') || '';
+  const [showPicker, setShowPicker] = useState(false);
+
+  const pickSpot = (s: string, p: string) => {
+    setSearchParams({ scenario: s, position: p }); // re-fetches via load's deps
+    setShowPicker(false);
+  };
 
   const [data, setData] = useState<DrillResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,20 +194,41 @@ export function PreflopDrill({ onBack }: PreflopDrillProps) {
         <BackButton onClick={onBack} />
         <PageHeader title="Preflop Drill" subtitle="Practice the spot you leak" titleVariant="primary" />
 
+        {/* Always offer picking any spot (not just your confirmed leaks). */}
+        <div className="pfd-pick-bar">
+          <button
+            type="button"
+            className="pfd-pick-toggle"
+            onClick={() => setShowPicker((v) => !v)}
+            aria-expanded={showPicker}
+          >
+            {showPicker ? 'Hide spot picker' : 'Practice a specific spot ▾'}
+          </button>
+          {showPicker && <SpotPicker onPick={pickSpot} />}
+        </div>
+
         {loading && <div className="pfd-state">Building your drill…</div>}
         {error && <div className="pfd-state pfd-error">{error}</div>}
 
         {data && !data.enough_data && (
           <div className="pfd-state">
             <Target size={28} />
-            <p>No confirmed leak to drill yet. Play a bit more, then come back.</p>
+            <p>No confirmed leak to drill yet — pick any spot to practice:</p>
+            <SpotPicker onPick={pickSpot} />
           </div>
         )}
 
         {data?.enough_data && !done && spot && (
           <div className="pfd-body">
             <p className="pfd-spotline">{spotLabel(spot)}</p>
-            <div className="pfd-hand">{spot.hand}</div>
+            <div className="pfd-hand">
+              <div className="pfd-cards">
+                {handToCards(spot.hand).map((c, i) => (
+                  <Card key={i} card={c} faceDown={false} size="small" />
+                ))}
+              </div>
+              <div className="pfd-hand-label">{spot.hand}</div>
+            </div>
 
             {!grade ? (
               <div className="pfd-actions">
