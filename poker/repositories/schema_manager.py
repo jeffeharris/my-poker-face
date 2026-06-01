@@ -294,7 +294,7 @@ _test_schema_template_path = None
 #       OpponentTendencies._SERIAL_FIELDS first so they serialize per-game.
 #       Player/coach-facing read only. 2 INTEGER columns. Guarded ALTER,
 #       idempotent.
-SCHEMA_VERSION = 135
+SCHEMA_VERSION = 136
 
 
 class SchemaManager:
@@ -843,30 +843,9 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_hand_commentary_player_recent ON hand_commentary(game_id, player_name, hand_number DESC)"
             )
 
-            # 12. Emotional state (v3)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS emotional_state (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    game_id TEXT NOT NULL,
-                    player_name TEXT NOT NULL,
-                    valence REAL DEFAULT 0.0,
-                    arousal REAL DEFAULT 0.5,
-                    control REAL DEFAULT 0.5,
-                    focus REAL DEFAULT 0.5,
-                    narrative TEXT,
-                    inner_voice TEXT,
-                    generated_at_hand INTEGER DEFAULT 0,
-                    source_events TEXT,
-                    metadata_json TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id),
-                    UNIQUE(game_id, player_name)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_emotional_state_game ON emotional_state(game_id, player_name)"
-            )
+            # 12. Emotional state table removed in v136 — the deprecated 4D
+            #     model (valence/arousal/control/focus) is gone; emotion is the
+            #     quadrant model and narrative/inner_voice ride on controller_state.
 
             # 13. Controller state (v3, v40 added prompt_config_json,
             #     v83 added psychology_json for v2.1 unified PlayerPsychology)
@@ -1238,10 +1217,6 @@ class SchemaManager:
                     opponent_positions TEXT,
                     tilt_level REAL,
                     tilt_source TEXT,
-                    valence REAL,
-                    arousal REAL,
-                    control REAL,
-                    focus REAL,
                     display_emotion TEXT,
                     elastic_aggression REAL,
                     elastic_bluff_tendency REAL,
@@ -2141,6 +2116,10 @@ class SchemaManager:
             135: (
                 self._migrate_v135_add_flop_check_barrel_lifetime_counts,
                 "Add flop-check-then-barrel counters to opponent_observation_lifetime (flop_check_barrel_count, flop_check_barrel_opportunity_count) so flop_check_then_barrel_rate accumulates cross-game; rate derives on read",
+            ),
+            136: (
+                self._migrate_v136_drop_4d_emotion,
+                "Retire the deprecated 4D emotion model: DROP the emotional_state table (consolidated into controller_state.psychology_json) and the valence/arousal/control/focus columns on player_decision_analysis. Emotion is now the quadrant model (trait-aware family x quadrant). NOTE: numbered 136 (not 130) because this branch (polish, schema v129) diverged before development reached v135; 130-135 belong to development and are skipped here if absent.",
             ),
         }
 
@@ -6613,9 +6592,7 @@ class SchemaManager:
             f"marked {updated} public personas circulating"
         )
 
-    def _migrate_v124_create_opponent_observation_lifetime(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v124_create_opponent_observation_lifetime(self, conn: sqlite3.Connection) -> None:
         """Migration v124: create `opponent_observation_lifetime` + add the
         `opponent_models.lifetime_applied_json` high-water mark.
 
@@ -6670,23 +6647,16 @@ class SchemaManager:
         # migration is safe whether or not the column already exists (fresh
         # installs create opponent_models in _init_db without it; a
         # partially-applied DB may already have it).
-        cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(opponent_models)").fetchall()
-        }
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(opponent_models)").fetchall()}
         if "lifetime_applied_json" not in cols:
-            conn.execute(
-                "ALTER TABLE opponent_models ADD COLUMN lifetime_applied_json TEXT"
-            )
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN lifetime_applied_json TEXT")
 
         logger.info(
             "Migration v124 complete: opponent_observation_lifetime created + "
             "opponent_models.lifetime_applied_json added"
         )
 
-    def _migrate_v125_create_dossier_informant_unlocks(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v125_create_dossier_informant_unlocks(self, conn: sqlite3.Connection) -> None:
         """Migration v125: create `dossier_informant_unlocks` (Phase 3).
 
         Records sections the player has paid the informant to reveal on an
@@ -6715,13 +6685,9 @@ class SchemaManager:
             CREATE INDEX IF NOT EXISTS idx_informant_unlocks_pair
                 ON dossier_informant_unlocks(sandbox_id, observer_id, opponent_id)
         """)
-        logger.info(
-            "Migration v125 complete: dossier_informant_unlocks table created"
-        )
+        logger.info("Migration v125 complete: dossier_informant_unlocks table created")
 
-    def _migrate_v126_add_deep_postflop_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v126_add_deep_postflop_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v126: extend `opponent_observation_lifetime` with the deep
         postflop count/sum columns (Tier-2 dossier reads).
 
@@ -6765,9 +6731,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col, sql_type in new_columns:
             if col not in existing:
@@ -6810,9 +6774,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -6928,6 +6890,37 @@ class SchemaManager:
             )
         """)
         logger.info("Migration v129 complete: cash_idle_metadata table created")
+
+    def _migrate_v136_drop_4d_emotion(self, conn: sqlite3.Connection) -> None:
+        """Migration v136: retire the deprecated 4D emotion model.
+
+        The dimensional model (valence/arousal/control/focus) was superseded by
+        the quadrant model (confidence x composure -> EmotionalQuadrant, then a
+        trait-aware family x quadrant matrix picks the display emotion). The 4D
+        scalars had no live readers — they were write-only analytics plus a dead
+        table — so this removal is destructive but behaviourally inert.
+
+        Two parts:
+          1. DROP the `emotional_state` table (never read or written in the
+             current codebase).
+          2. DROP valence/arousal/control/focus from `player_decision_analysis`.
+
+        SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`; each DROP is
+        PRAGMA-guarded so re-running (or hitting a fresh DB that already landed
+        on the post-v136 shape via `_init_db`) is a no-op. Mirrors the v99
+        `active_loan_*` drop.
+        """
+        conn.execute("DROP TABLE IF EXISTS emotional_state")
+
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        cols = {row[1] for row in cursor}
+        for col in ("valence", "arousal", "control", "focus"):
+            if col in cols:
+                conn.execute(f"ALTER TABLE player_decision_analysis DROP COLUMN {col}")
+        logger.info(
+            "Migration v136 complete: dropped emotional_state table and 4D "
+            "(valence/arousal/control/focus) columns from player_decision_analysis"
+        )
 
     def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
         """Migration v130: add `preflop_node_key` to player_decision_analysis.

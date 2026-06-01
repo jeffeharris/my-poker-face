@@ -2,7 +2,7 @@
 purpose: Single reference for the psychology system architecture, axes, zones, and effects
 type: architecture
 created: 2025-10-15
-last_updated: 2026-05-15
+last_updated: 2026-06-01
 ---
 
 # Poker AI Psychology System Overview
@@ -105,6 +105,31 @@ Both are clamped to stay outside penalty zone thresholds.
 ```
 
 Energy is the 3rd axis. It affects **how** a zone manifests (flavor), not **which** zone. Exception: Poker Face is a 3D ellipsoid where energy extremes break the mask.
+
+### Emotion Families (trait-aware expression)
+
+The quadrant fixes the **internal feeling**; the persona's **emotion family** —
+derived from static anchors — chooses the **surface emotion** that opponents see.
+This is why two players in the same OVERHEATED quadrant read differently: a high-ego
+competitor looks `angry` while a low-ego fun-lover looks `giddy`/`gleeful`.
+
+`get_emotion_family(anchors)` (`poker/psychology_model.py`) — precedence order:
+
+| Family | Rule | Vocabulary |
+|--------|------|-----------|
+| `STOIC` | `expressiveness < 0.40` | muted; compresses toward `thinking`/`poker_face` |
+| `FUN_LOVER` | `ego < 0.40` | playful; `elated`/`happy`/`giddy`/`gleeful`/`sheepish` |
+| `COMPETITOR` | `ego > 0.55` | sharp; `smug`/`angry`/`frustrated`/`shocked` |
+| `ANXIOUS` | otherwise | nervy; `confident`/`frustrated`/`nervous` |
+
+`PlayerPsychology._get_true_emotion()` indexes a **family × quadrant × energy** matrix
+(energy > 0.6 picks the louder label). The 4D dimensional model that previously drove
+emotion labels (valence/arousal/control/focus) was retired in schema **v136**; emotion
+is now purely quadrant + family, and `emotional_state.py` only carries the LLM
+narrative/inner_voice text (persisted via `controller_state.psychology_json`).
+
+> Three avatar emotions — `gleeful`, `giddy`, `sheepish` — back the fun-lover palette.
+> They degrade gracefully (`poker_face`/`confident` fallback) until art is generated.
 
 ---
 

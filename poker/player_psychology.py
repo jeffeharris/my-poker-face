@@ -57,6 +57,7 @@ from .psychology_model import (  # noqa: F401
     ComposureState,
     EmotionalAxes,
     EmotionalQuadrant,
+    EmotionFamily,
     PersonalityAnchors,
     PokerFaceZone,
     _clamp,
@@ -64,6 +65,7 @@ from .psychology_model import (  # noqa: F401
     compute_baseline_confidence,
     compute_modifiers,
     create_poker_face_zone,
+    get_emotion_family,
     get_quadrant,
 )
 from .zone_config import (  # noqa: F401
@@ -1196,7 +1198,28 @@ class PlayerPsychology:
         """
         if self.is_severely_tilted or not self.emotional:
             return ""
-        return self.emotional.to_prompt_section()
+
+        # Quadrant-derived emotional block (replaces the deprecated 4D
+        # scalar section). The displayed feeling, composure category, and
+        # energy band come straight from the psychology axes; the narrative
+        # and inner_voice are the LLM's per-hand narration.
+        feeling = self.get_display_emotion(use_expression_filter=False).replace('_', ' ')
+        energy = self.axes.energy
+        energy_word = 'high' if energy >= 0.66 else 'moderate' if energy >= 0.33 else 'low'
+
+        lines = ["[YOUR EMOTIONAL STATE]"]
+        if self.emotional.narrative:
+            lines.append(self.emotional.narrative)
+            lines.append("")
+        lines.append(f"How you're feeling right now: {feeling}")
+        lines.append(f"  - Composure: {self.composure_category}")
+        lines.append(f"  - Energy: {energy_word}")
+        if self.emotional.inner_voice:
+            lines.append("")
+            lines.append(f'What\'s echoing in your head: "{self.emotional.inner_voice}"')
+        lines.append("")
+        lines.append("Let this influence your thinking and behavior - but you decide how much.")
+        return "\n".join(lines)
 
     def apply_zone_effects(self, prompt: str) -> str:
         """
@@ -1439,23 +1462,57 @@ class PlayerPsychology:
 
     # === AVATAR DISPLAY ===
 
+    # Family x quadrant x energy emotion vocabulary.
+    # The quadrant fixes the internal feeling; the temperament family (from
+    # anchors) chooses the surface emotion. Each cell is (high_energy,
+    # low_energy); energy > _TRUE_EMOTION_ENERGY_SPLIT picks the louder label.
+    # FUN_LOVER/STOIC are the new palettes; COMPETITOR/ANXIOUS preserve the
+    # historical behavior for the rest of the roster.
+    _EMOTION_MATRIX = {
+        EmotionFamily.COMPETITOR: {
+            EmotionalQuadrant.COMMANDING: ('smug', 'confident'),
+            EmotionalQuadrant.OVERHEATED: ('angry', 'frustrated'),
+            EmotionalQuadrant.GUARDED: ('nervous', 'thinking'),
+            EmotionalQuadrant.SHAKEN: ('shocked', 'nervous'),
+        },
+        EmotionFamily.FUN_LOVER: {
+            EmotionalQuadrant.COMMANDING: ('elated', 'happy'),
+            EmotionalQuadrant.OVERHEATED: ('giddy', 'gleeful'),
+            EmotionalQuadrant.GUARDED: ('happy', 'happy'),
+            EmotionalQuadrant.SHAKEN: ('sheepish', 'sheepish'),
+        },
+        EmotionFamily.STOIC: {
+            EmotionalQuadrant.COMMANDING: ('confident', 'poker_face'),
+            EmotionalQuadrant.OVERHEATED: ('frustrated', 'thinking'),
+            EmotionalQuadrant.GUARDED: ('thinking', 'poker_face'),
+            EmotionalQuadrant.SHAKEN: ('nervous', 'poker_face'),
+        },
+        EmotionFamily.ANXIOUS: {
+            EmotionalQuadrant.COMMANDING: ('confident', 'thinking'),
+            EmotionalQuadrant.OVERHEATED: ('frustrated', 'nervous'),
+            EmotionalQuadrant.GUARDED: ('nervous', 'thinking'),
+            EmotionalQuadrant.SHAKEN: ('nervous', 'nervous'),
+        },
+    }
+    _TRUE_EMOTION_ENERGY_SPLIT = 0.6
+
     def _get_true_emotion(self) -> str:
-        """Get the player's true emotional state (before expression filtering)."""
+        """Get the player's true emotional state (before expression filtering).
+
+        The quadrant (confidence x composure) determines the internal feeling;
+        the persona's emotion family (from anchors) determines which surface
+        emotion that feeling reads as. Energy picks the louder vs softer label
+        within the family/quadrant cell.
+        """
         quadrant = self.quadrant
         energy = self.axes.energy
-        aggression = self.effective_aggression
+        family = get_emotion_family(self.anchors)
 
-        if quadrant == EmotionalQuadrant.OVERHEATED and aggression > 0.6 and energy > 0.5:
-            return "angry"
-
-        emotion_map = {
-            EmotionalQuadrant.COMMANDING: 'smug' if energy > 0.6 else 'confident',
-            EmotionalQuadrant.OVERHEATED: 'frustrated' if energy < 0.6 else 'angry',
-            EmotionalQuadrant.GUARDED: 'thinking' if energy < 0.5 else 'nervous',
-            EmotionalQuadrant.SHAKEN: 'nervous' if energy < 0.6 else 'shocked',
-        }
-
-        return emotion_map.get(quadrant, "poker_face")
+        cell = self._EMOTION_MATRIX.get(family, {}).get(quadrant)
+        if cell is None:
+            return "poker_face"
+        high_energy, low_energy = cell
+        return high_energy if energy > self._TRUE_EMOTION_ENERGY_SPLIT else low_energy
 
     def get_display_emotion(self, use_expression_filter: bool = True) -> str:
         """Get emotion for avatar display, with optional expression filtering."""

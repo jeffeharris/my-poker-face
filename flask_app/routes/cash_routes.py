@@ -1353,9 +1353,11 @@ def sit_at_table():
         # sit — preventing a double-book the cache alone would allow. Gated:
         # authority-off keeps the pure cash_tables check unchanged.
         from cash_mode import economy_flags as _ef
+
         if _ef.PRESENCE_AUTHORITY_ENABLED:
-            from flask_app.extensions import entity_presence_repo as _epr
             from cash_mode.presence import player_entity_id as _peid
+            from flask_app.extensions import entity_presence_repo as _epr
+
             if _epr is not None:
                 _me = _peid(owner_id)
 
@@ -1365,8 +1367,11 @@ def sit_at_table():
 
                 if not _presence_free(seat_index):
                     alt = next(
-                        (i for i, s in enumerate(table.seats)
-                         if s.get("kind") == "open" and _presence_free(i)),
+                        (
+                            i
+                            for i, s in enumerate(table.seats)
+                            if s.get("kind") == "open" and _presence_free(i)
+                        ),
                         None,
                     )
                     if alt is None:
@@ -1384,6 +1389,7 @@ def sit_at_table():
         # collide in the partial-unique index. Inside the sandbox lock per the
         # §6.1 atomicity contract.
         from cash_mode.lobby import _shadow_reconcile_table
+
         _shadow_reconcile_table(claimed_table, sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
@@ -2090,8 +2096,7 @@ def sponsor_and_sit():
         # below converts that hold back to "open" before we claim it.
         pre_kind = table.seats[seat_index]["kind"]
         held_by_me = (
-            pre_kind == "reserved"
-            and table.seats[seat_index].get("personality_id") == owner_id
+            pre_kind == "reserved" and table.seats[seat_index].get("personality_id") == owner_id
         )
         if pre_kind != "open" and not held_by_me:
             # The reservation lapsed (TTL) and the seat filled, or the
@@ -2143,6 +2148,7 @@ def sponsor_and_sit():
             # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
             # sponsored human SIT, same rationale as the self-funded sit path.
             from cash_mode.lobby import _shadow_reconcile_table
+
             _shadow_reconcile_table(claimed_table, sandbox_id)
         preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
             claimed_table=claimed_table,
@@ -4057,9 +4063,7 @@ def offer_stake_to_ai():
                     "FAILED for %r; chip-ledger audit is the backstop",
                     target_pid,
                 )
-            return jsonify(
-                {"error": "Failed to record the stake — your chips were refunded."}
-            ), 500
+            return jsonify({"error": "Failed to record the stake — your chips were refunded."}), 500
 
     # STAKE_OFFERED event: actor=player, target=AI. Mirrors the
     # personality-staker path's event firing. Player extends trust;
@@ -4912,6 +4916,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
             # is illegal and swallowed — fine, the human is already gone.
             from cash_mode import presence_shadow
             from cash_mode.presence import PresenceEvent, player_entity_id
+
             presence_shadow.shadow_transition(
                 entity_id=player_entity_id(owner_id),
                 sandbox_id=sandbox_id,
@@ -5383,10 +5388,10 @@ def get_lobby():
             seated_table_id = active_game.get("cash_table_id")
             seated_stake_label = active_game.get("cash_stake_label")
             for name, controller in (active_game.get("ai_controllers") or {}).items():
-                emotional_state = getattr(controller, "emotional_state", None)
-                if emotional_state:
+                psych = getattr(controller, "psychology", None)
+                if psych is not None:
                     try:
-                        active_emotions[name] = emotional_state.get_display_emotion()
+                        active_emotions[name] = psych.get_display_emotion()
                     except Exception:
                         active_emotions[name] = "confident"
                 else:

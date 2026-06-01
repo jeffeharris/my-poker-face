@@ -1208,8 +1208,10 @@ class TestExpressionFiltering:
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
 
-        # Set low energy (visibility = 0.7*0.2 + 0.3*0.2 = 0.20)
-        psych.axes = psych.axes.update(energy=0.2)
+        # Force OVERHEATED + low energy. A stoic (low-expressiveness) persona
+        # reads 'thinking' here — a real emotion to dampen — while visibility
+        # = 0.7*0.2 + 0.3*0.2 = 0.20 stays in low-visibility territory.
+        psych.axes = psych.axes.update(confidence=0.7, composure=0.3, energy=0.2)
 
         # Without filtering, would show true emotion based on quadrant
         true_emotion = psych.get_display_emotion(use_expression_filter=False)
@@ -1721,15 +1723,16 @@ class TestPokerFaceZoneIntegration:
 
     def test_display_emotion_bypasses_quadrant_in_zone(self):
         """Test that players in zone show poker_face regardless of quadrant."""
-        # Create player who would normally show 'confident' (COMMANDING quadrant)
-        # but is inside the poker face zone
+        # Create player who would normally show a real emotion (fun-lover in
+        # the COMMANDING quadrant reads 'happy') but is inside the poker face
+        # zone, so the filtered display must collapse to poker_face.
         config = {
             'anchors': {
                 'baseline_aggression': 0.6,
                 'baseline_looseness': 0.5,
-                'ego': 0.3,  # Low ego = large zone
+                'ego': 0.3,  # Low ego -> fun-lover family (and large zone)
                 'poise': 0.85,  # High poise = large zone
-                'expressiveness': 0.3,  # Low expressiveness = large zone
+                'expressiveness': 0.4,  # Expressive enough to surface a true emotion
                 'risk_identity': 0.5,
                 'adaptation_bias': 0.5,
                 'baseline_energy': 0.4,  # Near zone center

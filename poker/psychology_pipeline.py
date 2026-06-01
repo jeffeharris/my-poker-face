@@ -527,20 +527,15 @@ class PsychologyPipeline:
                     if hasattr(controller, 'prompt_config') and controller.prompt_config
                     else None
                 )
+                # psychology_dict already carries the narrated emotional state
+                # (narrative/inner_voice) under its 'emotional' key — the
+                # dedicated emotional_state table was retired in v136.
                 self.game_repo.save_controller_state(
                     ctx.game_id,
                     player_name,
                     psychology=psychology_dict,
                     prompt_config=prompt_config_dict,
                 )
-
-                # Save emotional state
-                if controller.psychology.emotional:
-                    self.game_repo.save_emotional_state(
-                        ctx.game_id,
-                        player_name,
-                        controller.psychology.emotional,
-                    )
             except Exception as e:
                 logger.error(
                     f"Failed to save psychology state for {player_name}: {e}",

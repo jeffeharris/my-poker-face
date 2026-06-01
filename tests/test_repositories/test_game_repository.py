@@ -321,50 +321,6 @@ def test_save_personality_snapshot_idempotent(repo):
 # --- Emotional State ---
 
 
-def test_emotional_state_save_load(repo):
-    state = {
-        'valence': 0.5,
-        'arousal': 0.7,
-        'control': 0.6,
-        'focus': 0.8,
-        'narrative': 'Feeling confident',
-        'inner_voice': 'I got this',
-        'generated_at_hand': 3,
-        'source_events': ['won_big_pot'],
-        'created_at': '2024-01-01T00:00:00',
-        'used_fallback': False,
-    }
-
-    repo.save_emotional_state("game1", "Alice", state)
-    loaded = repo.load_emotional_state("game1", "Alice")
-
-    assert loaded is not None
-    assert loaded['valence'] == 0.5
-    assert loaded['arousal'] == 0.7
-    assert loaded['narrative'] == 'Feeling confident'
-    assert loaded['source_events'] == ['won_big_pot']
-
-
-def test_emotional_state_not_found(repo):
-    assert repo.load_emotional_state("game1", "Nobody") is None
-
-
-def test_load_all_emotional_states(repo):
-    repo.save_emotional_state("game1", "Alice", {'valence': 0.5, 'narrative': 'ok'})
-    repo.save_emotional_state("game1", "Bob", {'valence': -0.3, 'narrative': 'bad'})
-
-    states = repo.load_all_emotional_states("game1")
-    assert len(states) == 2
-    assert "Alice" in states
-    assert "Bob" in states
-
-
-def test_delete_emotional_state(repo):
-    repo.save_emotional_state("game1", "Alice", {'valence': 0.5})
-    repo.delete_emotional_state_for_game("game1")
-    assert repo.load_all_emotional_states("game1") == {}
-
-
 # --- Controller State ---
 
 # v83 PlayerPsychology snapshot shape — anchors + axes + composure_state
