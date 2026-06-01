@@ -126,9 +126,10 @@
 }
 
 .lucky__deals {
+  /* Stacked full-width reply chips (quick-chat style) — each holds a sentence. */
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
   margin: 0.1rem 0 0.5rem;
 }
 
@@ -161,17 +162,15 @@
 .lucky__deal {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-  padding: 0.7rem 0.4rem;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.6rem 0.7rem;
   border-radius: 8px;
   border: 1px solid #4a3522;
   background: #0f0b08;
   color: #d4c5b1;
-  font-size: 0.82rem;
-  font-weight: 600;
   cursor: pointer;
+  text-align: left;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 .lucky__deal:hover {
@@ -181,6 +180,21 @@
   border-color: #e9b06a;
   background: #2a1d10;
   color: #ffe6bf;
+}
+.lucky__deal-tone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d8b24a;
+}
+.lucky__deal-reply {
+  font-size: 0.9rem;
+  font-style: italic;
+  line-height: 1.3;
 }
 
 .lucky__btn {

@@ -121,9 +121,27 @@ def make_fish_name(name: str, rng: Optional[random.Random] = None) -> str:
 
 # Canned fallback one-liners by vibe, used when the LLM is unavailable (intake
 # must never block on the model). Keyed by intensity.
+# What the newcomer "says" when the waitress asks them to tell her something
+# about themselves — keyed by the quick-chat style the player picked. This is
+# their answer, in their chosen voice; it feeds the bio so the room's read of
+# them reflects what they actually said. Kept in sync with the VIBES in
+# react/.../cash/LuckyStackIntake.tsx.
+_INTAKE_ANSWERS = {
+    "befriend": "Aw, I'm just here for a good time and a decent cup of coffee.",
+    "needle": "Honestly? You're lookin' at a natural. I pick things up quick.",
+    "goad": "Came to take everybody's money. Nothin' personal, friend.",
+}
+
+
+def _intake_answer(style: str) -> str:
+    return _INTAKE_ANSWERS.get(style, _INTAKE_ANSWERS["befriend"])
+
+
+# Canned bios if the model is unavailable — warm, never "sucker/mark", and keyed
+# to the vibe rather than the name (a constant can't riff on the name).
 _FALLBACK_BIOS = {
-    "spicy": "Talks a big game on the way in — we'll see if the cards agree.",
-    "chill": "Seems harmless. Probably just here for the free coffee.",
+    "spicy": "Strolled in talkin' big — the regulars are already grinnin'.",
+    "chill": "Wandered in for the coffee, stayed for the company.",
 }
 
 
@@ -148,6 +166,7 @@ def generate_intake_persona(
     """
     name = (name or "").strip() or "Stranger"
     fish_name = make_fish_name(name, rng)  # deterministic, always alliterative
+    answer = _intake_answer(style)  # what they told the waitress, in their voice
     bio = _fallback_bio(intensity)
     try:
         import json as _json
@@ -155,24 +174,34 @@ def generate_intake_persona(
         from core.llm import CallType, LLMClient
         from flask_app import config as flask_config
 
+        # Assistant tier (the stronger model) — this one-liner is the player's
+        # first impression on the room and shows up forever as their bio, so it's
+        # worth the better model over the cheap fast tier.
         client = LLMClient(
-            model=flask_config.get_fast_model(), provider=flask_config.get_fast_provider()
+            model=flask_config.get_assistant_model(),
+            provider=flask_config.get_assistant_provider(),
         )
         system = (
-            "You write a single funny one-liner about a brand-new tourist who just "
-            "wandered into an underground poker room and got mistaken for an easy "
-            "mark. Warm, playful, PG-13 — never mean. Output strict JSON only."
+            "You're the wry house narrator of an underground poker room, The Lucky "
+            "Stack. A newcomer just wandered in off the street — NOT a sucker or a "
+            "mark, just a curious wrong-turn — and the waitress asked them to say "
+            "something about themselves. Write ONE short, warm, funny third-person "
+            "line introducing them to the table. Lean on their NICKNAME and what "
+            "they actually said. PG-13, affectionate, playful — never mean, and "
+            "never call them a fish/mark/sucker. Output strict JSON only."
         )
         user = (
-            f"The newcomer is '{fish_name}'. Their table-talk vibe is '{intensity}' "
-            f"with a '{style or 'friendly'}' style. Return JSON with one field, "
-            f'"bio": ONE funny third-person sentence (max 90 characters) the other '
-            f"players can rib them about. Match the '{intensity}' vibe."
+            f'The room is calling the newcomer "{fish_name}" (real name "{name}"). '
+            f'When the waitress asked them to tell her something about themselves, '
+            f'they said: "{answer}". Return JSON with one field, "bio": ONE '
+            f"third-person sentence (max 90 characters) that plays on the nickname "
+            f'"{fish_name}" AND what they said — something the regulars will fondly '
+            f"rib them about."
         )
         resp = client.complete(
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             json_format=True,
-            call_type=CallType.CHAT_SUGGESTION,
+            call_type=CallType.PERSONALITY_GENERATION,
             owner_id=owner_id,
             prompt_template="career_intake_persona",
         )

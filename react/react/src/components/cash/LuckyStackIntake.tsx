@@ -3,13 +3,15 @@
  *
  * You stopped at a 50s diner, The Lucky Stack ("good hands served daily"), for
  * coffee; the waitress waves you toward "the back," assumes you're here for the
- * game, and comps you a stack. One snappy screen: give a name + a table-talk
- * vibe (chill/spicy + a style — this is where we introduce the quick-chat
- * mechanic), and the room LLM-christens you a tourist fish-name + a funny
- * one-liner. Shown only to a brand-new career player (`intake_needed`).
+ * game, and comps you a stack. One snappy screen: give a name, then answer her
+ * "tell me something about yourself" by picking one of three quick-chat replies
+ * (this is where we introduce the quick-chat mechanic). The room LLM-christens
+ * you a tourist fish-name + a one-liner built off your reply. Shown only to a
+ * brand-new career player (`intake_needed`).
  *
- * The chosen vibe also seeds your quick-chat default (`quickchat_intensity`),
- * so your in-game table-talk suggestions match the personality you picked.
+ * The reply you pick also seeds your quick-chat default (`quickchat_intensity`)
+ * and tone, so your in-game table-talk suggestions match how you introduced
+ * yourself.
  *
  * Portaled to body (overlay must escape the page header's stacking context).
  */
@@ -25,14 +27,39 @@ interface LuckyStackIntakeProps {
   onDone: () => void;
 }
 
-// Three plain table-talk vibes a newcomer instantly gets — they span friendly →
-// brutal. Each maps under the hood to a quick-chat tone (`id`) that flavors the
-// LLM persona + seeds the in-game quick-chat, and an `intensity` (chill/spicy)
-// for the quick-chat default.
-const VIBES: { id: string; label: string; intensity: 'chill' | 'spicy'; icon: LucideIcon }[] = [
-  { id: 'befriend', label: 'Friendly', intensity: 'chill', icon: Handshake },
-  { id: 'needle', label: 'Cocky', intensity: 'spicy', icon: Zap },
-  { id: 'goad', label: 'Ruthless', intensity: 'spicy', icon: Flame },
+// Three quick-chat replies to the waitress's "tell me something about yourself"
+// — friendly → brutal. The `reply` is what you "say" (it feeds the room's bio of
+// you, kept in sync with _INTAKE_ANSWERS in cash_mode/career_progression.py); the
+// `id` is the quick-chat tone it seeds, `intensity` (chill/spicy) the quick-chat
+// default, and `tone` labels the vibe.
+const VIBES: {
+  id: string;
+  tone: string;
+  reply: string;
+  intensity: 'chill' | 'spicy';
+  icon: LucideIcon;
+}[] = [
+  {
+    id: 'befriend',
+    tone: 'Friendly',
+    reply: "Aw, I'm just here for a good time and a decent cup of coffee.",
+    intensity: 'chill',
+    icon: Handshake,
+  },
+  {
+    id: 'needle',
+    tone: 'Cocky',
+    reply: "Honestly? You're lookin' at a natural. I pick things up quick.",
+    intensity: 'spicy',
+    icon: Zap,
+  },
+  {
+    id: 'goad',
+    tone: 'Ruthless',
+    reply: "Came to take everybody's money. Nothin' personal, friend.",
+    intensity: 'spicy',
+    icon: Flame,
+  },
 ];
 
 export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
@@ -88,7 +115,9 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
               autoFocus
             />
 
-            <span className="lucky__label">How do you play it at the table?</span>
+            <span className="lucky__label">
+              “And tell me somethin' about yourself, hon.” <em>What do you say?</em>
+            </span>
             <div className="lucky__deals">
               {VIBES.map((opt) => {
                 const Icon = opt.icon;
@@ -99,13 +128,18 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
                     className={`lucky__deal${vibeId === opt.id ? ' is-selected' : ''}`}
                     onClick={() => setVibeId(opt.id)}
                   >
-                    <Icon size={20} />
-                    <span>{opt.label}</span>
+                    <span className="lucky__deal-tone">
+                      <Icon size={16} />
+                      {opt.tone}
+                    </span>
+                    <span className="lucky__deal-reply">“{opt.reply}”</span>
                   </button>
                 );
               })}
             </div>
-            <p className="lucky__hint">Sets your table talk — you can switch it up any hand.</p>
+            <p className="lucky__hint">
+              Your answer sets your table-talk vibe too — switch it up any hand.
+            </p>
 
             <button className="lucky__btn" onClick={sitDown} disabled={busy || !vibeId}>
               {busy ? 'Signing you in…' : 'Sit down'}
