@@ -13,11 +13,9 @@ if TYPE_CHECKING:
     from ..strategy.exploitation import AggregatedOpponentStats
 
 from ..archetypes import (
-    AF_AGGRESSIVE as AGGRESSION_FACTOR_HIGH,
     AF_PASSIVE as AGGRESSION_FACTOR_LOW,
     AF_VERY_AGGRESSIVE as AGGRESSION_FACTOR_VERY_HIGH,
     VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
-    VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
     VPIP_VERY_SELECTIVE,
 )
 from ..config import (
@@ -132,6 +130,15 @@ class OpponentTendencies:
     pfr_per_open_opportunity: float = 0.5
     vpip_per_voluntary_opportunity: float = 0.5
 
+    # Limp rate: of the spots where this opponent could open (no live raise
+    # above the blind in front of them), how often they just limp-called
+    # instead of raising or folding. Numerator is _limp_count; denominator
+    # reuses _preflop_open_opportunities (the same open-spot denominator that
+    # feeds pfr_per_open_opportunity). Unlike a 0.5 prior, limps are the
+    # exception not the coin-flip, so this stays at 0.0 ("no evidence of
+    # limping") until an open opportunity is observed.
+    limp_rate: float = 0.0
+
     # Trend tracking
     recent_trend: str = 'stable'  # 'tightening', 'loosening', 'stable'
 
@@ -208,6 +215,12 @@ class OpponentTendencies:
     _preflop_open_opportunities: int = 0
     _preflop_open_raise_count: int = 0
     _preflop_voluntary_action_count: int = 0
+    # Numerator for limp_rate: hands where the opponent limped — voluntarily
+    # CALLED preflop in an open spot (no live raise above the blind). Counted
+    # once per hand, gated against _preflop_open_opportunities like the open-
+    # raise numerator. A call while facing a raise is a cold-call, NOT a limp,
+    # so it does not tick this counter.
+    _limp_count: int = 0
 
     # Polarization Phase A: equity-at-action tracking. Populated at
     # showdown when hole cards are revealed; the showdown caller walks
@@ -271,6 +284,7 @@ class OpponentTendencies:
     _preflop_open_opp_this_hand: bool = False
     _preflop_open_raised_this_hand: bool = False
     _preflop_vol_action_this_hand: bool = False
+    _limped_this_hand: bool = False
 
     # Phase 7.5 Item 2b: sliding window of recent postflop events for
     # tier decay. Each entry is (action, was_facing_bet). Push on each
@@ -305,6 +319,7 @@ class OpponentTendencies:
         self._preflop_open_opp_this_hand = False
         self._preflop_open_raised_this_hand = False
         self._preflop_vol_action_this_hand = False
+        self._limped_this_hand = False
         self._recalculate_stats()
 
     def update_from_action(
@@ -342,6 +357,7 @@ class OpponentTendencies:
             self._preflop_open_opp_this_hand = False
             self._preflop_open_raised_this_hand = False
             self._preflop_vol_action_this_hand = False
+            self._limped_this_hand = False
 
         # Track VPIP (voluntary pot entry) - only count ONCE per hand.
         # all_in is voluntary chip commitment and counts as VPIP.
@@ -434,6 +450,11 @@ class OpponentTendencies:
         ):
             self._preflop_open_raise_count += 1
             self._preflop_open_raised_this_hand = True
+        # A limp is a CALL in an open spot (no live raise to face). Counted
+        # against the same open-opportunity denominator as the open raise.
+        if action == 'call' and not was_facing_bet and not self._limped_this_hand:
+            self._limp_count += 1
+            self._limped_this_hand = True
 
     def _apply_postflop_counters(self, action: str, was_facing_bet: bool) -> None:
         """Update Phase 7.5 postflop-only counters from an action.
@@ -796,6 +817,11 @@ class OpponentTendencies:
                 self._preflop_voluntary_action_count / self._preflop_voluntary_opportunities
             )
 
+        # Limp rate over open opportunities. Stays at the 0.0 prior until an
+        # open spot is observed (limping is the exception, not a coin-flip).
+        if self._preflop_open_opportunities > 0:
+            self.limp_rate = self._limp_count / self._preflop_open_opportunities
+
         # Phase 7.5 Step 0: postflop opportunity-normalized stats.
         # Has the AF raw-count cap from day one — this field is new, no
         # legacy consumer to protect, so the cap lands here in Step 0.
@@ -856,17 +882,8 @@ class OpponentTendencies:
         if sample < MIN_HANDS_FOR_STYLE_LABEL:
             return 'unknown'
 
-        is_tight = self.vpip < VPIP_TIGHT_THRESHOLD
-        is_aggressive = self.aggression_factor > AGGRESSION_FACTOR_HIGH
-
-        if is_tight and is_aggressive:
-            return 'tight-aggressive'
-        elif not is_tight and is_aggressive:
-            return 'loose-aggressive'
-        elif is_tight and not is_aggressive:
-            return 'tight-passive'
-        else:
-            return 'loose-passive'
+        from ..archetypes import play_style_label
+        return play_style_label(self.vpip, self.aggression_factor)
 
     def get_summary(self) -> str:
         """Generate human-readable summary for AI prompts."""
@@ -928,6 +945,7 @@ class OpponentTendencies:
         ('cbet_attempt_rate', 0.5),
         ('barrel_frequency', 0.5),
         ('third_barrel_frequency', 0.5),
+        ('flop_check_then_barrel_rate', 0.5),
         ('bluff_frequency', 0.3),
         ('showdown_win_rate', 0.5),
         ('all_in_frequency', 0.0),
@@ -938,6 +956,7 @@ class OpponentTendencies:
         # Opportunity-normalized preflop stats (neutral prior 0.5)
         ('pfr_per_open_opportunity', 0.5),
         ('vpip_per_voluntary_opportunity', 0.5),
+        ('limp_rate', 0.0),
         ('recent_trend', 'stable'),
         ('_vpip_count', 0),
         ('_pfr_count', 0),
@@ -954,6 +973,8 @@ class OpponentTendencies:
         ('_barrel_opportunity_count', 0),
         ('_third_barrel_count', 0),
         ('_third_barrel_opportunity_count', 0),
+        ('_flop_check_barrel_count', 0),
+        ('_flop_check_barrel_opportunity_count', 0),
         ('_showdowns', 0),
         ('_showdowns_won', 0),
         # Phase 7.5 counters
@@ -968,6 +989,7 @@ class OpponentTendencies:
         ('_preflop_open_opportunities', 0),
         ('_preflop_open_raise_count', 0),
         ('_preflop_voluntary_action_count', 0),
+        ('_limp_count', 0),
         # Polarization Phase A: equity-at-action fields
         ('equity_when_betting_postflop', 0.5),
         ('equity_when_raising_postflop', 0.5),

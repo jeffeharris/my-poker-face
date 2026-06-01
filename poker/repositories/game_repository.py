@@ -923,6 +923,27 @@ class GameRepository(BaseRepository):
         '_preflop_voluntary_opportunities': 'preflop_voluntary_opportunities',
         '_preflop_open_raise_count': 'preflop_open_raise_count',
         '_preflop_open_opportunities': 'preflop_open_opportunities',
+        # v132 limp counter — numerator for limp_rate; the denominator
+        # (preflop_open_opportunities) is already folded above, so this is a
+        # single new column. Rate derives on read via OpponentTendencies.
+        '_limp_count': 'limp_count',
+        # v133 sizing-aware counts — feed sizing_polarization_score (big/small
+        # equity bins) and fold_to_big_bet; the equity SUMS are folded in
+        # _LIFETIME_SUM_FIELDS. Rates derive on read.
+        '_equity_betting_big_count': 'equity_betting_big_count',
+        '_equity_betting_small_count': 'equity_betting_small_count',
+        '_fold_to_big_bet_count': 'fold_to_big_bet_count',
+        '_big_bet_faced_count': 'big_bet_faced_count',
+        # v134 postflop aggression-axis counts — feed all_in_per_facing_bet
+        # (response aggression) and postflop_jam_open_rate (open aggression).
+        '_facing_bet_opportunities': 'facing_bet_opportunities',
+        '_all_ins_facing_bet': 'all_ins_facing_bet',
+        '_postflop_open_opportunities': 'postflop_open_opportunities',
+        '_postflop_jam_opens': 'postflop_jam_opens',
+        # v135 flop-check-then-barrel counts — feed flop_check_then_barrel_rate
+        # (the trap read).
+        '_flop_check_barrel_count': 'flop_check_barrel_count',
+        '_flop_check_barrel_opportunity_count': 'flop_check_barrel_opportunity_count',
     }
 
     # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
@@ -932,6 +953,10 @@ class GameRepository(BaseRepository):
         '_equity_betting_sum': 'equity_betting_sum',
         '_equity_raising_sum': 'equity_raising_sum',
         '_equity_calling_sum': 'equity_calling_sum',
+        # v133 sizing-aware equity sums (big/small bet bins); the polarization
+        # means derive on read as sum / count.
+        '_equity_betting_big_sum': 'equity_betting_big_sum',
+        '_equity_betting_small_sum': 'equity_betting_small_sum',
     }
 
     def fold_observations_into_lifetime(
@@ -1096,6 +1121,15 @@ class GameRepository(BaseRepository):
         'postflop_bet_raise_count', 'postflop_call_count',
         'barrel_opportunity_count', 'equity_betting_count',
         'equity_raising_count', 'equity_calling_count',
+        # v132 limp_rate gate + showdown_win_rate gate sample denominators.
+        'preflop_open_opportunities', 'showdowns_seen',
+        # v133 sizing-read gate sample denominators.
+        'big_bet_faced_count', 'equity_betting_big_count',
+        'equity_betting_small_count',
+        # v134 postflop-axis gate sample denominators.
+        'facing_bet_opportunities', 'postflop_open_opportunities',
+        # v135 flop-check-barrel gate sample denominator.
+        'flop_check_barrel_opportunity_count',
     )
 
     def list_observation_lifetime_for_observer(

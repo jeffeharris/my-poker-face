@@ -56,6 +56,31 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
         '_equity_betting_count': max(1, hands // 4),
         '_equity_raising_count': max(1, hands // 6),
         '_equity_calling_count': max(1, hands // 5),
+        # Preflop opportunity counts (limp_rate gate's denominator) + the
+        # limp numerator, scaled to hands so the limp_rate tier clears at
+        # high hand counts.
+        '_preflop_voluntary_action_count': max(1, hands // 3),
+        '_preflop_voluntary_opportunities': max(1, hands // 2),
+        '_preflop_open_raise_count': max(1, hands // 5),
+        '_preflop_open_opportunities': max(1, hands // 2),
+        '_limp_count': max(1, hands // 6),
+        # Sizing-aware counts/sums (v133), scaled so the sizing tiers clear at
+        # high hand counts (big bets faced + both equity bins).
+        '_big_bet_faced_count': max(1, hands // 5),
+        '_fold_to_big_bet_count': max(1, hands // 8),
+        '_equity_betting_big_count': max(1, hands // 6),
+        '_equity_betting_small_count': max(1, hands // 6),
+        '_equity_betting_big_sum': max(1, hands // 6) * 0.8,
+        '_equity_betting_small_sum': max(1, hands // 6) * 0.3,
+        # Postflop aggression-axis counts (v134), scaled so the axis tiers
+        # clear at high hand counts.
+        '_facing_bet_opportunities': max(1, hands // 3),
+        '_all_ins_facing_bet': max(1, hands // 12),
+        '_postflop_open_opportunities': max(1, hands // 3),
+        '_postflop_jam_opens': max(1, hands // 15),
+        # Flop-check-barrel counts (v135).
+        '_flop_check_barrel_count': max(1, hands // 10),
+        '_flop_check_barrel_opportunity_count': max(1, hands // 6),
     }
     conn = sqlite3.connect(db_path)
     try:
@@ -289,6 +314,11 @@ class TestDossierScoutingRoute(unittest.TestCase):
             'postflop_bet_raise_count', 'postflop_call_count',
             'barrel_opportunity_count', 'equity_betting_count',
             'equity_raising_count', 'equity_calling_count',
+            'preflop_open_opportunities', 'showdowns_seen',
+            'big_bet_faced_count', 'equity_betting_big_count',
+            'equity_betting_small_count',
+            'facing_bet_opportunities', 'postflop_open_opportunities',
+            'flop_check_barrel_opportunity_count',
         )
         col_sql = ", ".join(sample_cols)
         ph = ", ".join("?" for _ in sample_cols)

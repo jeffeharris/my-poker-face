@@ -85,6 +85,35 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     ScoutingTier('polarization', 'Polarization', 260,
                  ('equity_betting_count', 'equity_raising_count',
                   'equity_calling_count'), 25, 'showdown-equity reads'),
+    # Limp rate (preflop, v132): how often they limp instead of opening.
+    # Opportunity-gated on open spots, which are frequent, so it unlocks
+    # earlier than the postflop reads — it's a preflop refinement of VPIP/PFR.
+    ScoutingTier('limp_rate', 'Limping', 100,
+                 ('preflop_open_opportunities',), 20, 'open spots'),
+    # Showdown win rate: showdowns are sparse, so a higher hand floor plus a
+    # real showdown sample before the number means anything.
+    ScoutingTier('showdown_win_rate', 'Showdown win rate', 200,
+                 ('showdowns_seen',), 15, 'showdowns'),
+    # Sizing tells (v133). fold_to_big_bet matures fast (every faced big bet
+    # is a sample, not showdown-gated) — moderate floor. sizing_polarization
+    # is showdown-gated (needs revealed cards in both size bins) so it matures
+    # slowly — high floor, like the equity polarization read.
+    ScoutingTier('fold_to_big_bet', 'Fold to big bets', 180,
+                 ('big_bet_faced_count',), 6, 'big bets faced'),
+    ScoutingTier('sizing_polarization', 'Sizing tell', 260,
+                 ('equity_betting_big_count', 'equity_betting_small_count'),
+                 8, 'sized showdown reads'),
+    # Postflop aggression axes (v134). Facing a bet is common so response
+    # aggression samples fast; open-jams are rarer, so a higher opportunity
+    # floor before the rate means anything.
+    ScoutingTier('jam_response', 'Jam-into-bet rate', 180,
+                 ('facing_bet_opportunities',), 15, 'bets faced'),
+    ScoutingTier('jam_open', 'Open-jam rate', 200,
+                 ('postflop_open_opportunities',), 20, 'postflop open spots'),
+    # Trap read (v135): check-flop-then-barrel-turn. Opportunity-rare (needs the
+    # flop to check through), so a real sample before the rate means anything.
+    ScoutingTier('flop_check_barrel', 'Trap line', 220,
+                 ('flop_check_barrel_opportunity_count',), 12, 'check-flop spots'),
     # B2 "the read" — exploit advice + archetype badge, derived from the
     # tiered-bot exploitation detectors. Hand-only tiers: the per-pattern
     # detectors enforce their own sample minimums, so an unlocked-but-thin
@@ -114,6 +143,13 @@ _DEEPER_FIELDS: Dict[str, Tuple[str, ...]] = {
         'equity_when_raising',
         'equity_when_calling',
     ),
+    'limp_rate': ('limp_rate',),
+    'showdown_win_rate': ('showdown_win_rate',),
+    'fold_to_big_bet': ('fold_to_big_bet',),
+    'sizing_polarization': ('sizing_polarization_score',),
+    'jam_response': ('all_in_per_facing_bet',),
+    'jam_open': ('postflop_jam_open_rate',),
+    'flop_check_barrel': ('flop_check_then_barrel_rate',),
 }
 
 # Every gateable field in the deeper_reads block (used to collapse a fully
@@ -154,6 +190,9 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
         'items': [
             'fold_to_cbet', 'cbet_pct', 'postflop_aggression',
             'all_in_freq', 'barrel', 'polarization',
+            'limp_rate', 'showdown_win_rate',
+            'fold_to_big_bet', 'sizing_polarization',
+            'jam_response', 'jam_open', 'flop_check_barrel',
         ],
     },
     'tactical_read': {

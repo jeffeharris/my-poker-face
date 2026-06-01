@@ -25,7 +25,9 @@ Spec: `docs/plans/CASH_MODE_LOBBY_HANDOFF.md` §"Lobby maintenance".
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import random
 import threading
 from dataclasses import dataclass, field
@@ -348,16 +350,16 @@ def _coerce_fish_movement(
       for real. Net effect: the entire pool-funded stake is lost at the
       table rather than recycled back to the pool on a cash-out.
 
-    - **Upset fish** (intensity at/above the threshold): table manners
-      failed. A fish already busting just goes; otherwise it may storm off
-      *with its remaining chips*, the chance rising with how tilted it is.
-      Keep the fish content and this branch never fires.
+    - **Tilt no longer empties the seat**: a fish that got upset used to
+      storm off *with its remaining chips* (`take_break`) once its
+      `emotional_intensity` crossed `FISH_TILT_LEAVE_THRESHOLD`. That emptied
+      open casino seats a player had just sat down to feed on — the donor
+      walking away from the table mid-session. Tilt now changes how the fish
+      *plays*, not whether it keeps its seat: an upset fish follows the same
+      content path below, so the ONLY way a fish leaves an open casino is a
+      genuine bust (bankroll can't fund a reload). Casino close is handled
+      separately by the lifecycle, not here.
     """
-    if ctx.emotional_intensity >= FISH_TILT_LEAVE_THRESHOLD:
-        if decision == "forced_leave":
-            return "forced_leave"
-        return "take_break" if rng.random() < ctx.emotional_intensity else "stay"
-
     if decision in ("stake_up", "bored_move"):
         return "stay"
     if decision in ("take_break", "forced_leave"):
@@ -926,6 +928,84 @@ def _movement_decision_to_idle_reason(decision: MovementDecision) -> str:
     return decision
 
 
+def _emit_movement_trace(
+    *,
+    table: CashTableState,
+    pre_ai_pids: List[str],
+    decisions: Dict[str, str],
+    leave_signals: Dict[str, str],
+    freshly_seated: List[str],
+    trace_inputs: Dict[str, Dict[str, Any]],
+    now: datetime,
+) -> None:
+    """Best-effort observability for the player's seated table (MOVEMENT_TRACE).
+
+    Emits one record per hand-boundary refresh capturing which AIs *left*
+    (with the dominant pressure signal + the full weighted breakdown that
+    drove the decision) and which *arrived* via live-fill — so the "everyone
+    scatters within a few hands of me sitting down" pattern is traceable from
+    `docker logs`. Scoped by the caller to tables with a human seat, so the
+    autonomous world never spams. Never raises: instrumentation must not be
+    able to break a hand from advancing. Kill switch: env `MOVEMENT_TRACE=0`.
+    """
+    try:
+        left: List[Dict[str, Any]] = []
+        stayed: List[str] = []
+        for pid in pre_ai_pids:
+            decision = decisions.get(pid, "stay")
+            if decision == "stay":
+                stayed.append(pid)
+                continue
+            left.append(
+                {
+                    "pid": pid,
+                    "decision": decision,
+                    "dominant": leave_signals.get(pid),
+                    **trace_inputs.get(pid, {}),
+                }
+            )
+        # Quiet when nothing moved — only record actual churn.
+        if not left and not freshly_seated:
+            return
+        summary = (
+            ", ".join(
+                f"{row['pid']}→{row['decision']}"
+                f"[{row.get('dominant')}] P={row.get('pressures')}"
+                for row in left
+            )
+            or "—"
+        )
+        logger.info(
+            "[MOVE_TRACE] %s [%s %s] seated_before=%d | LEFT(%d): %s | ARRIVED: %s | stayed=%d",
+            table.table_id,
+            table.table_type,
+            table.stake_label,
+            len(pre_ai_pids),
+            len(left),
+            summary,
+            list(freshly_seated) or "—",
+            len(stayed),
+        )
+        record = {
+            "ts": now.isoformat(),
+            "table_id": table.table_id,
+            "table_type": table.table_type,
+            "stake": table.stake_label,
+            "seated_before": pre_ai_pids,
+            "left": left,
+            "arrived": list(freshly_seated),
+            "stayed": stayed,
+        }
+        path = os.getenv("MOVEMENT_TRACE_FILE", "data/movement_trace.jsonl")
+        try:
+            with open(path, "a") as fh:
+                fh.write(json.dumps(record) + "\n")
+        except OSError:
+            pass  # log line already emitted; file is a best-effort bonus
+    except Exception as exc:  # pragma: no cover - never break the refresh
+        logger.debug("movement trace emit failed: %s", exc)
+
+
 def refresh_table_roster(
     table: CashTableState,
     *,
@@ -990,6 +1070,15 @@ def refresh_table_roster(
     # decision becomes `go_vice` and the AI goes straight off-grid instead
     # of into the idle pool. Omit → no vice interception (prior behavior).
     vice_prob_lookup: Optional[Callable[[str], float]] = None,
+    # Fish identity by PERSONA, not by the per-seat `archetype='fish'` stamp.
+    # The stamp is fragile — several seat-builders (live-fill, take_stake,
+    # lobby fills) create fish seats via plain `ai_slot`, dropping it — so a
+    # fish can momentarily read as a grinder, spuriously triggering the
+    # casino `dead` push and losing its rebuy-instead-of-bust protection.
+    # Passing the curated fish-persona set lets us decide fish-ness by
+    # identity (mirrors `casino_provisioning._count_seated_fish`), which is
+    # robust to a missing stamp. Omit → fall back to the seat stamp alone.
+    fish_ids: Optional[Set[str]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -1065,17 +1154,40 @@ def refresh_table_roster(
         if s.get("kind") == "ai" and s.get("personality_id")
     ]
 
+    # Movement trace (debug): when a human is at this table, record why each
+    # AI leaves / who arrives so the "AIs scatter after I sit down" pattern is
+    # observable from logs. Scoped to human tables so the autonomous world
+    # (no human seat) never spams. Kill switch: env MOVEMENT_TRACE=0.
+    human_present = any(s.get("kind") == "human" for s in new_seats)
+    # Default: only the player's seated table (no world-tick spam). Set
+    # MOVEMENT_TRACE_ALL=1 to ALSO trace the autonomous world refresh
+    # (`refresh_unseated_tables` / lobby-load reshuffle) — needed to see the
+    # "tables empty when I open the lobby" path, where no human is seated.
+    trace_all = os.getenv("MOVEMENT_TRACE_ALL", "0") != "0"
+    trace_enabled = (human_present or trace_all) and os.getenv("MOVEMENT_TRACE", "1") != "0"
+    trace_inputs: Dict[str, Dict[str, Any]] = {}
+
+    # Fish-ness by persona identity, robust to a missing per-seat stamp
+    # (see the `fish_ids` param). A seat is a fish if its `archetype='fish'`
+    # stamp is present OR its persona is in the curated fish set.
+    _fids = fish_ids or set()
+
+    def _seat_is_fish(slot: Dict[str, Any]) -> bool:
+        return slot.get("kind") == "ai" and (
+            slot.get("archetype") == "fish" or slot.get("personality_id") in _fids
+        )
+
     # Is there a fish to farm at this table? Drives predator retention:
     # grinders stay to feast instead of booking the win and leaving.
     # Fish are casino-only, so this is non-trivial only at casinos.
-    table_has_fish = any(s.get("kind") == "ai" and s.get("archetype") == "fish" for s in new_seats)
+    table_has_fish = any(_seat_is_fish(s) for s in new_seats)
 
     # Dead-table push (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): a casino that
     # has lost its fish pushes its stuck grinders to go find action. Computed
     # once per table from the current seats; fed to each seated AI's
     # MovementContext below (fish ignore it — their movement is coerced).
     _grinder_count = sum(
-        1 for s in new_seats if s.get("kind") == "ai" and s.get("archetype") != "fish"
+        1 for s in new_seats if s.get("kind") == "ai" and not _seat_is_fish(s)
     )
     _deadness = table_deadness(
         is_casino=(table.table_type == "casino"),
@@ -1093,7 +1205,7 @@ def refresh_table_roster(
         # run normal movement — short-stack → re-buy from that bankroll,
         # or go home when it's dry — but their tier-drift decisions are
         # suppressed below so they never wander to another stake or table.
-        is_fish = slot.get("archetype") == "fish"
+        is_fish = _seat_is_fish(slot)
         # buy_in_lookup gives this AI's table-specific buy-in (honors
         # per-personality buy-in multipliers). table_min_buy_in /
         # table_max_buy_in are absolute and feed pressure thresholds.
@@ -1112,6 +1224,24 @@ def refresh_table_roster(
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
             table_deadness=_deadness,
         )
+        if trace_enabled:
+            _pressures = compute_leave_pressure(ctx)
+            _total = sum(_pressures.values())
+            trace_inputs[pid] = {
+                "is_fish": is_fish,
+                "chips": ai_chips,
+                "bankroll": projected,
+                "max_buy_in": table_max_buy_in,
+                "min_buy_in": table_min_buy_in,
+                "energy": round(ctx.energy, 3),
+                "zone": ctx.zone,
+                "hands_detached": ctx.hands_in_detached_zone,
+                "deadness": round(ctx.table_deadness, 3),
+                "stack_over_tier": round(ai_chips / max(1, table_max_buy_in) - 1.0, 3),
+                "wealth_over_tier": round(projected / max(1, table_max_buy_in) - 1.0, 3),
+                "pressures": {k: round(v, 3) for k, v in _pressures.items()},
+                "leave_prob": round(_total / (_total + LEAVE_K), 3) if _total > 0 else 0.0,
+            }
         decision = evaluate_ai_movement(ctx, rng)
         # Fish are casino-bound chip donors: they reload from their
         # pool-funded bankroll and stay until the whole stake is gone,
@@ -1494,6 +1624,17 @@ def refresh_table_roster(
                     personality_id=pid,
                 )
             )
+
+    if trace_enabled:
+        _emit_movement_trace(
+            table=table,
+            pre_ai_pids=pre_movement_ai_pids,
+            decisions=decisions,
+            leave_signals=leave_signals,
+            freshly_seated=freshly_seated,
+            trace_inputs=trace_inputs,
+            now=now,
+        )
 
     new_table = CashTableState(
         table_id=table.table_id,

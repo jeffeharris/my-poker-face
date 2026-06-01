@@ -108,6 +108,72 @@ def _stamp_seated_at(seats: List[dict], prior_stamps: dict, now_iso: str) -> Lis
     return out
 
 
+def _seated_presence_map(conn, sandbox_id: Optional[str]):
+    """`{(table_id, seat_index): entity_id}` for SEATED `entity_presence` rows in
+    the sandbox — the occupancy authority used to project the cached seat map.
+
+    Returns None (→ no projection) when authority is off, no sandbox is given
+    (cross-sandbox admin reads stay raw), or the table is absent (legacy schema).
+    """
+    if not sandbox_id:
+        return None
+    from cash_mode import economy_flags
+
+    if not getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT entity_id, table_id, seat_index FROM entity_presence "
+            "WHERE sandbox_id = ? AND state = 'seated'",
+            (sandbox_id,),
+        ).fetchall()
+    except Exception:
+        return None
+    return {(r["table_id"], r["seat_index"]): r["entity_id"] for r in rows}
+
+
+def _project_table_occupancy(state: "CashTableState", presence_map):
+    """Render any `ai`/`human` slot NOT confirmed SEATED by presence as `open`
+    (occupancy-authority / payload-cache — the D1 read-side projection).
+
+    A stale cache slot (left by a deleted game row / persona, before the
+    cascade reaches it) becomes structurally invisible to every occupancy read,
+    which is what lets the ghost-seat / zombie-seat reconcilers retire. `open`
+    and `reserved` (a pre-sit hold, never a presence SEATED row) pass through.
+    Read-only: writes diff against the RAW stored seats, so a write that re-saves
+    a projected table simply persists the (correct) opened ghost — self-healing.
+    """
+    if presence_map is None:
+        return state
+    from dataclasses import replace
+
+    from cash_mode.presence import ai_entity_id, player_entity_id
+    from cash_mode.tables import open_slot
+
+    new_seats: List[dict] = []
+    changed = False
+    for idx, slot in enumerate(state.seats):
+        kind = slot.get("kind") if isinstance(slot, dict) else None
+        if kind == "ai":
+            pid = slot.get("personality_id")
+            eid = ai_entity_id(pid) if pid else None
+        elif kind == "human":
+            owner = (
+                slot.get("owner_id") or slot.get("player_id")
+                or slot.get("user_id") or slot.get("personality_id")
+            )
+            eid = player_entity_id(owner) if owner else None
+        else:
+            new_seats.append(slot)
+            continue
+        if eid is not None and presence_map.get((state.table_id, idx)) == eid:
+            new_seats.append(slot)  # presence-confirmed → keep payload
+        else:
+            new_seats.append(open_slot())
+            changed = True
+    return replace(state, seats=new_seats) if changed else state
+
+
 class CashTableRepository(BaseRepository):
     """CRUD for `cash_tables`.
 
@@ -397,7 +463,11 @@ class CashTableRepository(BaseRepository):
                 ).fetchone()
             if not row:
                 return None
-            return _row_to_state(row)
+            state = _row_to_state(row)
+            # D1 read-side projection: occupancy from presence, payload from cache.
+            return _project_table_occupancy(
+                state, _seated_presence_map(conn, sandbox_id)
+            )
 
     def set_closing_countdown(
         self,
@@ -540,13 +610,17 @@ class CashTableRepository(BaseRepository):
                     """,
                     (sandbox_id,),
                 ).fetchall()
+            # D1 read-side projection (one presence query for all tables).
+            presence_map = _seated_presence_map(conn, sandbox_id)
 
         # Python-side stable sort against STAKES_ORDER. SQL CASE would
         # hardcode the ladder a second time; this version stays in
         # lockstep with the canonical list.
         rank = {label: i for i, label in enumerate(STAKES_ORDER)}
         unknown = len(STAKES_ORDER)
-        states = [_row_to_state(r) for r in rows]
+        states = [
+            _project_table_occupancy(_row_to_state(r), presence_map) for r in rows
+        ]
         states.sort(key=lambda s: (rank.get(s.stake_label, unknown), s.table_id))
         return states
 
