@@ -8,9 +8,67 @@ from unittest.mock import patch
 
 from flask_app.services.coach_assistant import (
     CoachResponse,
+    _format_stats_for_prompt,
     _normalize_action,
     _parse_coach_response,
 )
+
+
+class TestKnownLeakSurfacing(unittest.TestCase):
+    """The live chart-leak flag must reach the coach prompt as a KNOWN LEAK line."""
+
+    def _leak(self, kind, status, **over):
+        base = {
+            'scenario': 'rfi',
+            'position': 'SB',
+            'hand': '',
+            'kind': kind,
+            'status': status,
+            'your_freq': {'fold': 0.5, 'call': 0.3, 'raise': 0.2},
+            'chart_freq': {'fold': 0.5, 'call': 0.0, 'raise': 0.5},
+            'granularity': 'spot',
+        }
+        base.update(over)
+        return base
+
+    def test_confirmed_spot_leak_surfaced(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'SB',
+             'known_preflop_leak': self._leak('limp', 'confirmed')}
+        )
+        self.assertIn('KNOWN LEAK', text)
+        self.assertIn('opening from SB', text)
+        self.assertIn('LIMP', text.upper())
+
+    def test_faced_raise_overfold_described(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'BB',
+             'known_preflop_leak': self._leak('over_fold', 'confirmed',
+                                              scenario='vs_open', position='BB')}
+        )
+        self.assertIn('facing a raise in BB', text)
+        self.assertIn('OVER-FOLD', text.upper())
+
+    def test_hand_specific_leak_names_the_hand(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'CO',
+             'known_preflop_leak': self._leak('too_loose', 'confirmed',
+                                              position='CO', hand='Q7o', granularity='hand')}
+        )
+        self.assertIn('Q7o', text)
+
+    def test_watching_leak_surfaced_softly(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'SB',
+             'known_preflop_leak': self._leak('limp', 'watching')}
+        )
+        self.assertIn('WATCHING', text)
+        self.assertNotIn('KNOWN LEAK', text)  # hedged, not asserted as a leak
+
+    def test_no_leak_no_line(self):
+        text = _format_stats_for_prompt({'phase': 'PRE_FLOP', 'position': 'Big Blind'})
+        self.assertNotIn('KNOWN LEAK', text)
+        self.assertNotIn('WATCHING', text)
 
 
 class TestNormalizeAction(unittest.TestCase):

@@ -6,6 +6,7 @@ and position guidance.
 """
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1107,6 +1108,110 @@ class TestBuildOpponentInfosHistoricFallback(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].postflop_aggression_this_hand, 'bet')
+
+
+class TestLiveLeakRecall:
+    """Exercise the in-game recall path end-to-end: a real preflop game state
+    drives build_preflop_node inside _annotate_known_preflop_leak, and a matching
+    chart-leak set surfaces a known_preflop_leak. This is the runtime path that
+    previously only ran against seeded data.
+
+    The chart leak-set DB load is stubbed (it has its own tests); the
+    game-state → node resolution is the real production code.
+    """
+
+    def _game_state(self, n=6, dealer_idx=0):
+        # Faithful preflop stub: the attributes build_preflop_node reads, with
+        # the same table_positions layout PokerGameState produces.
+        players = tuple(
+            SimpleNamespace(name=f'P{i}', bet=0, is_folded=False, stack=1000) for i in range(n)
+        )
+        base = ['button', 'small_blind_player', 'big_blind_player',
+                'under_the_gun', 'middle_position_1', 'cutoff']
+        positions = {pos: players[(dealer_idx + i) % n].name for i, pos in enumerate(base[:n])}
+        return SimpleNamespace(
+            players=players,
+            current_dealer_idx=dealer_idx,
+            current_player_idx=3,
+            raises_this_round=0,  # unopened → rfi
+            current_ante=50,
+            table_positions=positions,
+        )
+
+    def _leak(self, kind='limp', status='confirmed'):
+        return {
+            'kind': kind, 'status': status,
+            'your_freq': {'fold': 0.5, 'call': 0.4, 'raise': 0.1},
+            'chart_freq': {'fold': 0.5, 'call': 0.0, 'raise': 0.5},
+            'gap': 0.4,
+        }
+
+    def test_recall_fires_in_a_matching_spot(self):
+        from flask_app.services import coach_engine
+
+        gs = self._game_state()  # P3 = UTG, unopened → ('rfi', 'UTG')
+        result, game_data = {}, {'owner_id': 'guest_x'}
+        leak_set = {'by_hand': {}, 'by_spot': {('rfi', 'UTG'): self._leak()}}
+        with patch(
+            'flask_app.services.coach_chart_data.get_owner_chart_leak_set', return_value=leak_set
+        ):
+            coach_engine._annotate_known_preflop_leak(
+                result, game_data, gs, 3, {'canonical_hand': 'KQs'}
+            )
+        leak = result.get('known_preflop_leak')
+        assert leak is not None
+        assert leak['scenario'] == 'rfi'
+        assert leak['position'] == 'UTG'
+        assert leak['kind'] == 'limp'
+        assert leak['granularity'] == 'spot'
+
+    def test_no_leak_in_a_clean_spot(self):
+        from flask_app.services import coach_engine
+
+        gs = self._game_state()
+        result = {}
+        leak_set = {'by_hand': {}, 'by_spot': {('rfi', 'BTN'): self._leak()}}  # different spot
+        with patch(
+            'flask_app.services.coach_chart_data.get_owner_chart_leak_set', return_value=leak_set
+        ):
+            coach_engine._annotate_known_preflop_leak(
+                result, {'owner_id': 'g'}, gs, 3, {'canonical_hand': 'KQs'}
+            )
+        assert 'known_preflop_leak' not in result
+
+    def test_hand_specific_match_wins(self):
+        from flask_app.services import coach_engine
+
+        gs = self._game_state()
+        result = {}
+        leak_set = {
+            'by_hand': {('rfi', 'UTG', 'KQs'): self._leak(kind='too_loose')},
+            'by_spot': {('rfi', 'UTG'): self._leak(kind='limp')},
+        }
+        with patch(
+            'flask_app.services.coach_chart_data.get_owner_chart_leak_set', return_value=leak_set
+        ):
+            coach_engine._annotate_known_preflop_leak(
+                result, {'owner_id': 'g'}, gs, 3, {'canonical_hand': 'KQs'}
+            )
+        assert result['known_preflop_leak']['granularity'] == 'hand'
+        assert result['known_preflop_leak']['kind'] == 'too_loose'
+
+    def test_throttled_once_per_spot_per_session(self):
+        from flask_app.services import coach_engine
+
+        gs = self._game_state()
+        game_data = {'owner_id': 'g'}
+        leak_set = {'by_hand': {}, 'by_spot': {('rfi', 'UTG'): self._leak()}}
+        with patch(
+            'flask_app.services.coach_chart_data.get_owner_chart_leak_set', return_value=leak_set
+        ):
+            first = {}
+            coach_engine._annotate_known_preflop_leak(first, game_data, gs, 3, {'canonical_hand': 'KQs'})
+            second = {}
+            coach_engine._annotate_known_preflop_leak(second, game_data, gs, 3, {'canonical_hand': 'KQs'})
+        assert 'known_preflop_leak' in first
+        assert 'known_preflop_leak' not in second  # already nudged this session
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ import {
   Coins,
   Radar,
   Grid3x3,
+  GraduationCap,
 } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
@@ -93,5 +94,11 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Range Explorer',
     icon: <Grid3x3 size={24} />,
     description: 'VPIP starting-hand ranges by player, archetype, and bot',
+  },
+  {
+    id: 'coach-metrics',
+    label: 'Coach Metrics',
+    icon: <GraduationCap size={24} />,
+    description: 'Does the live coach help? Leak-nudge follow-through',
   },
 ];

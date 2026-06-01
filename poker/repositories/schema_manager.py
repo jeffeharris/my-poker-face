@@ -258,7 +258,16 @@ _test_schema_template_path = None
 #       EXISTS, non-destructive, idempotent. See
 #       `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6) and
 #       `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`.
-SCHEMA_VERSION = 129
+# v130: Add `preflop_node_key` to player_decision_analysis — the exact
+#       solver-chart node (scenario|position|opener|hand) captured at decision
+#       time so the chart-graded coach leak finder grades the precise spot.
+#       Nullable; old rows fall back to reconstruction. Renumbered from v123 on
+#       the training-room→development merge (circulating took v123).
+# v131: Create `coach_tips` — proactive in-decision coach tip log (and which
+#       leak nudge fired) so the coach's effect on play can be measured by
+#       joining to player_decision_analysis. Pure instrumentation. Renumbered
+#       from v124 on the training-room→development merge.
+SCHEMA_VERSION = 131
 
 
 class SchemaManager:
@@ -1243,6 +1252,7 @@ class SchemaManager:
                     menu_num_options INTEGER,
                     intervention_trace_json TEXT,
                     strategy_pipeline_snapshot_json TEXT,
+                    preflop_node_key TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -2081,9 +2091,45 @@ class SchemaManager:
                 self._migrate_v129_create_cash_idle_metadata,
                 "Create cash_idle_metadata — satellite for the idle-pool routing payload (reason/target_stake/left_at) that entity_presence's pure machine deliberately doesn't carry. At the Presence authority flip, entity_presence owns the IDLE state and this table carries the movement metadata. Additive; cash_idle_pool stays a written cache (view-conversion deferred).",
             ),
+            130: (
+                self._migrate_v130_add_preflop_node_key,
+                "Add preflop_node_key to player_decision_analysis — exact solver-chart node (scenario|position|opener|hand) captured at decision time for chart-graded coach leaks",
+            ),
+            131: (
+                self._migrate_v131_create_coach_tips,
+                "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
+            ),
         }
 
         with self._get_connection() as conn:
+            # Renumber-collision self-heal. A DB migrated on the `training-room`
+            # branch recorded v123/v124 as the coach migrations (renumbered to
+            # v130/v131 on the development merge), so its version counter skipped
+            # development's real v123 (`circulating`) and v124
+            # (`opponent_observation_lifetime`). Re-assert those two effects
+            # idempotently before the forward loop — otherwise the v126/v127
+            # ALTERs against `opponent_observation_lifetime` crash on the missing
+            # table. No-op on clean DBs (both methods are existence-guarded) and
+            # only reachable while migrations are still pending.
+            collision = (
+                current_version >= 124
+                and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='opponent_observation_lifetime'"
+                ).fetchone()
+                is None
+            )
+            if collision:
+                logger.warning(
+                    "Detected training-room renumber collision (version %d but "
+                    "opponent_observation_lifetime missing) — re-asserting the "
+                    "skipped v123/v124 development migrations idempotently",
+                    current_version,
+                )
+                self._migrate_v123_add_personality_circulating(conn)
+                self._migrate_v124_create_opponent_observation_lifetime(conn)
+                conn.commit()
+
             for version in range(current_version + 1, SCHEMA_VERSION + 1):
                 if version in migrations:
                     migrate_func, description = migrations[version]
@@ -6839,3 +6885,71 @@ class SchemaManager:
             )
         """)
         logger.info("Migration v129 complete: cash_idle_metadata table created")
+
+    def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
+        """Migration v130: add `preflop_node_key` to player_decision_analysis.
+
+        The exact solver-chart node — ``scenario|position|opener|hand`` — captured
+        at decision time (via the tiered bot's `build_preflop_node`) so the
+        chart-graded coach leak finder can grade against the precise spot,
+        including the exact opener and `vs_3bet` scenarios that backfill
+        reconstruction can only approximate. Nullable; old rows fall back to
+        reconstruction. Non-destructive, idempotent.
+
+        Renumbered from v123 on the training-room→development merge (collision:
+        circulating took v123 on development).
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'preflop_node_key' not in columns:
+            conn.execute(
+                "ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT"
+            )
+            logger.info("Added preflop_node_key column to player_decision_analysis")
+        logger.info("Migration v130 complete: preflop_node_key added")
+
+    def _migrate_v131_create_coach_tips(self, conn: sqlite3.Connection) -> None:
+        """Migration v131: create `coach_tips` — proactive in-decision tip log.
+
+        One row per proactive coach tip actually served to the player. Records
+        the spot (game/hand/phase/position) and, when a recurring chart leak was
+        recalled in that moment, which leak nudge fired (scenario/position/kind/
+        status/granularity). Joins to `player_decision_analysis` on
+        (game_id, hand_number, player_name, PRE_FLOP) so we can measure whether a
+        leak nudge actually moved the player's next decision toward the solver
+        line — the measurement prerequisite for "is the coach helping?".
+
+        Pure instrumentation: nothing here feeds AI decisions. Non-destructive,
+        idempotent.
+
+        Renumbered from v124 on the training-room→development merge (collision:
+        opponent_observation_lifetime took v124 on development).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS coach_tips (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id               TEXT,
+                owner_id              TEXT,
+                player_name           TEXT,
+                hand_number           INTEGER,
+                phase                 TEXT,
+                tip_text              TEXT,
+                leak_fired            INTEGER NOT NULL DEFAULT 0,
+                leak_scenario         TEXT,
+                leak_position         TEXT,
+                leak_kind             TEXT,
+                leak_status           TEXT,
+                leak_granularity      TEXT,
+                player_hand_canonical TEXT,
+                player_position       TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_coach_tips_join
+                ON coach_tips(game_id, hand_number, player_name)
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
+        )
+        logger.info("Migration v131 complete: coach_tips table created")
