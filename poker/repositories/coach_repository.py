@@ -383,15 +383,8 @@ class CoachRepository(BaseRepository):
                 args,
             ).fetchall()
 
-        def followed(kind: str, action: Optional[str]) -> bool:
-            a = (action or '').strip().lower()
-            if kind in ('limp', 'too_loose'):
-                return a in ('raise', 'bet', 'fold', 'jam', 'all_in', 'all-in')
-            if kind == 'over_fold':
-                return a not in ('fold',)
-            if kind == 'too_passive':
-                return a in ('raise', 'bet', 'jam', 'all_in', 'all-in')
-            return False
+        # Shared rule so nudged + baseline never diverge.
+        from flask_app.services.coach_chart_leaks import followed_solver_line as followed
 
         by_kind: Dict[str, Dict] = {}
         total = followed_total = 0

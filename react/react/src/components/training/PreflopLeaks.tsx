@@ -97,15 +97,25 @@ const SCENARIO_PHRASE: Record<string, string> = {
   vs_3bet: 'facing a 3-bet in',
 };
 
+interface RateCell {
+  n: number;
+  rate: number | null;
+}
 interface KindEffect {
-  nudges: number;
-  followed: number;
-  follow_rate: number | null;
+  nudged: RateCell; // followed-solver rate after a coach nudge
+  baseline: RateCell; // followed-solver rate in those spots overall (baseline)
+  lift: number | null; // nudged.rate − baseline.rate
 }
 interface Effectiveness {
   by_kind: Record<string, KindEffect>;
   overall: KindEffect;
 }
+const ratePct = (c: RateCell) => (c.rate == null ? '—' : `${Math.round(c.rate * 100)}%`);
+const liftText = (lift: number | null) => {
+  if (lift == null) return '';
+  const pts = Math.round(lift * 100);
+  return pts === 0 ? ' (about the same)' : pts > 0 ? ` (+${pts} pts)` : ` (${pts} pts)`;
+};
 const KIND_LABEL: Record<string, string> = {
   limp: 'limping',
   too_loose: 'playing too loose',
@@ -495,24 +505,28 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
               up here as deviations.
             </p>
 
-            {effect && effect.overall.nudges > 0 && (
+            {effect && effect.overall.nudged.n > 0 && (
               <div className="pfl-effect">
                 <div className="pfl-effect-head">Coaching follow-through</div>
                 <p className="pfl-effect-lead">
-                  In spots the coach flagged, you took the solver line{' '}
-                  <strong>
-                    {effect.overall.followed}/{effect.overall.nudges}
-                  </strong>{' '}
-                  ({Math.round((effect.overall.follow_rate ?? 0) * 100)}%).
+                  When the coach nudged you, you took the solver line{' '}
+                  <strong>{ratePct(effect.overall.nudged)}</strong> of the time — vs{' '}
+                  <strong>{ratePct(effect.overall.baseline)}</strong> in those spots normally
+                  {liftText(effect.overall.lift)}.
                 </p>
                 <ul className="pfl-effect-kinds">
-                  {Object.entries(effect.by_kind).map(([kind, e]) => (
-                    <li key={kind}>
-                      {KIND_LABEL[kind] ?? kind}: {e.followed}/{e.nudges} (
-                      {Math.round((e.follow_rate ?? 0) * 100)}%)
-                    </li>
-                  ))}
+                  {Object.entries(effect.by_kind)
+                    .filter(([, e]) => e.nudged.n > 0)
+                    .map(([kind, e]) => (
+                      <li key={kind}>
+                        {KIND_LABEL[kind] ?? kind}: {ratePct(e.nudged)} nudged vs{' '}
+                        {ratePct(e.baseline)} baseline{liftText(e.lift)}
+                      </li>
+                    ))}
                 </ul>
+                <p className="pfl-note">
+                  Baseline = how you usually play these spots — a correlation, not a controlled test.
+                </p>
               </div>
             )}
 

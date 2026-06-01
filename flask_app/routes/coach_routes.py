@@ -416,16 +416,27 @@ def coach_preflop_leaks_feedback():
 @limiter.limit("30/minute")
 @_coach_required
 def coach_tip_effectiveness():
-    """How often the CURRENT player took the solver line after a leak nudge.
+    """How often the CURRENT player took the solver line after a leak nudge,
+    vs their baseline rate in the same leak spots.
 
     Self-scoped follow-through on the review panel — "is the coach helping me?".
-    Empty until the coach has nudged this player in a few graded spots.
+    Nudged side is empty until the coach has nudged this player; the baseline is
+    their overall play in those leak spots (correlational, not a clean A/B).
     """
+    from ..services.coach_chart_data import get_owner_chart_leak_set, load_owner_chart_decisions
+    from ..services.coach_chart_leaks import compute_baseline_follow_rates, merge_effectiveness
+
     owner_id = _get_current_user_id()
     if not owner_id:
         return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+    db = extensions.persistence_db_path
     try:
-        return jsonify(extensions.coach_repo.get_tip_effectiveness(owner_id))
+        nudged = extensions.coach_repo.get_tip_effectiveness(owner_id)
+        baseline = compute_baseline_follow_rates(
+            load_owner_chart_decisions(db, owner_id),
+            get_owner_chart_leak_set(db, owner_id, recent_hands=None),  # all-time leak spots
+        )
+        return jsonify(merge_effectiveness(nudged, baseline))
     except Exception as e:
         logger.error(f"tip-effectiveness failed for {owner_id}: {e}", exc_info=True)
         return jsonify({'error': 'Could not load tip effectiveness'}), 500

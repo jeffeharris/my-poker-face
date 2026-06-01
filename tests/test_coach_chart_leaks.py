@@ -311,3 +311,47 @@ class TestPromptText:
         txt = format_chart_leaks_for_prompt(rep)
         assert 'Not enough repeated spots' in txt
         assert 'tracks the charts' not in txt
+
+
+class TestEffectivenessBaseline:
+    def test_followed_solver_line_rules(self):
+        from flask_app.services.coach_chart_leaks import followed_solver_line as f
+        assert f('limp', 'raise') and f('limp', 'fold') and not f('limp', 'call')
+        assert f('too_loose', 'fold') and not f('too_loose', 'call')
+        assert f('over_fold', 'call') and not f('over_fold', 'fold')
+        assert f('too_passive', 'raise') and not f('too_passive', 'call')
+
+    def test_baseline_only_counts_leak_spots(self):
+        from flask_app.services.coach_chart_leaks import compute_baseline_follow_rates
+        decs = (
+            [{'scenario': 'rfi', 'position': 'SB', 'action': 'call'} for _ in range(4)]
+            + [{'scenario': 'rfi', 'position': 'SB', 'action': 'raise'} for _ in range(6)]
+            + [{'scenario': 'rfi', 'position': 'BTN', 'action': 'call'} for _ in range(5)]  # not a leak spot
+        )
+        ls = {'by_spot': {('rfi', 'SB'): {'kind': 'limp'}}}
+        base = compute_baseline_follow_rates(decs, ls)
+        assert base['by_kind']['limp']['n'] == 10  # BTN excluded
+        assert base['by_kind']['limp']['followed'] == 6  # the 6 raises
+        assert base['overall']['rate'] == 0.6
+
+    def test_merge_computes_lift(self):
+        from flask_app.services.coach_chart_leaks import merge_effectiveness
+        nudged = {
+            'by_kind': {'limp': {'nudges': 5, 'followed': 4, 'follow_rate': 0.8}},
+            'overall': {'nudges': 5, 'followed': 4, 'follow_rate': 0.8},
+        }
+        baseline = {
+            'by_kind': {'limp': {'n': 10, 'followed': 6, 'rate': 0.6}},
+            'overall': {'n': 10, 'followed': 6, 'rate': 0.6},
+        }
+        m = merge_effectiveness(nudged, baseline)
+        assert m['by_kind']['limp']['nudged'] == {'n': 5, 'rate': 0.8}
+        assert m['by_kind']['limp']['baseline'] == {'n': 10, 'rate': 0.6}
+        assert m['by_kind']['limp']['lift'] == 0.2
+        assert m['overall']['lift'] == 0.2
+
+    def test_merge_lift_none_when_missing(self):
+        from flask_app.services.coach_chart_leaks import merge_effectiveness
+        nudged = {'by_kind': {}, 'overall': {'nudges': 0, 'follow_rate': None}}
+        baseline = {'by_kind': {}, 'overall': {'n': 0, 'rate': None}}
+        assert merge_effectiveness(nudged, baseline)['overall']['lift'] is None

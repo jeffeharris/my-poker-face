@@ -468,3 +468,91 @@ def format_chart_leaks_for_prompt(report: ChartLeakReport) -> str:
                 "patterns will surface."
             )
     return "\n".join(lines)
+
+
+# ── Effectiveness: did nudges move play vs the player's baseline? ─────────
+
+def followed_solver_line(kind: str, action: Optional[str]) -> bool:
+    """Did `action` move toward the solver line for a leak of `kind`?
+
+    The single shared rule (used by both the nudged measurement in
+    coach_repository and the baseline below), so the two never diverge:
+      - limp / too_loose → raise OR fold (anything but a flat call)
+      - over_fold        → did NOT fold (continued)
+      - too_passive      → raised (not just called)
+    """
+    a = (action or '').strip().lower()
+    if kind in ('limp', 'too_loose'):
+        return a in ('raise', 'bet', 'fold', 'jam', 'all_in', 'all-in')
+    if kind == 'over_fold':
+        return a != 'fold'
+    if kind == 'too_passive':
+        return a in ('raise', 'bet', 'jam', 'all_in', 'all-in')
+    return False
+
+
+def compute_baseline_follow_rates(decisions: List[dict], leak_set: dict) -> dict:
+    """The player's OVERALL follow-the-solver rate in their leak spots — the
+    baseline the nudged rate is compared against.
+
+    For every decision whose (scenario, position) is a confirmed leak spot
+    (from ``leak_set['by_spot']``), classify it with that spot's kind and tally
+    followed/total. Returns ``{by_kind: {kind: {n, followed, rate}}, overall:
+    {...}}``. This is correlational, not a clean A/B — it's the player's typical
+    play in those spots, nudge or not.
+    """
+    by_spot = leak_set.get('by_spot', {})
+    by_kind: Dict[str, dict] = {}
+    total = followed_total = 0
+    for d in decisions:
+        info = by_spot.get((d.get('scenario'), d.get('position')))
+        if not info:
+            continue
+        kind = info['kind']
+        b = by_kind.setdefault(kind, {'n': 0, 'followed': 0})
+        b['n'] += 1
+        total += 1
+        if followed_solver_line(kind, d.get('action')):
+            b['followed'] += 1
+            followed_total += 1
+    for b in by_kind.values():
+        b['rate'] = round(b['followed'] / b['n'], 3) if b['n'] else None
+    return {
+        'by_kind': by_kind,
+        'overall': {
+            'n': total,
+            'followed': followed_total,
+            'rate': round(followed_total / total, 3) if total else None,
+        },
+    }
+
+
+def merge_effectiveness(nudged: dict, baseline: dict) -> dict:
+    """Combine the nudged rates (from coach_repository.get_tip_effectiveness)
+    with the baseline rates into a per-kind + overall view with lift.
+
+    Returns ``{by_kind: {kind: {nudged:{n,rate}, baseline:{n,rate}, lift}},
+    overall: {nudged:{n,rate}, baseline:{n,rate}, lift}}``. lift = nudged.rate −
+    baseline.rate (None when either side lacks data).
+    """
+
+    def lift(nr, br):
+        return round(nr - br, 3) if (nr is not None and br is not None) else None
+
+    def row(n: dict, b: dict) -> dict:
+        nr, br = n.get('follow_rate'), b.get('rate')
+        return {
+            'nudged': {'n': n.get('nudges', 0), 'rate': nr},
+            'baseline': {'n': b.get('n', 0), 'rate': br},
+            'lift': lift(nr, br),
+        }
+
+    kinds = set(nudged.get('by_kind', {})) | set(baseline.get('by_kind', {}))
+    by_kind = {
+        k: row(nudged.get('by_kind', {}).get(k, {}), baseline.get('by_kind', {}).get(k, {}))
+        for k in kinds
+    }
+    return {
+        'by_kind': by_kind,
+        'overall': row(nudged.get('overall', {}), baseline.get('overall', {})),
+    }
