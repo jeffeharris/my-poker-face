@@ -255,6 +255,64 @@ def test_coldload_binding_prefers_presence_over_stale_cash_session(tmp_path, mon
     assert game_handler._restore_cash_table_binding("cash-jeff-1", gd2) == "cash-table-2-001"
 
 
+def test_list_idle_derives_from_presence_excludes_hustlers(tmp_path, monkeypatch):
+    """Read-side idle projection: under authority, list_idle returns the
+    genuinely-idle set from entity_presence (+ metadata), and an off-grid AI
+    (SIDE_HUSTLE) is correctly EXCLUDED even though it'd linger in the legacy
+    pool. Authority-off keeps reading the physical cash_idle_pool."""
+    from poker.repositories.cash_table_repository import CashTableRepository
+    from poker.repositories.entity_presence_repository import EntityPresenceRepository
+    db = str(tmp_path / "i.db")
+    SchemaManager(db).ensure_schema()
+    ctr = CashTableRepository(db)
+    epr = EntityPresenceRepository(db)
+    # alice → IDLE (sit then leave) with routing metadata
+    epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=0)
+    epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.LEAVE)
+    sqlite3.connect(db).execute(
+        "INSERT INTO cash_idle_metadata (personality_id,sandbox_id,reason,target_stake,left_at) "
+        "VALUES ('alice',?,'stake_up_queued','$5','2026-01-01T00:00:00')", (SANDBOX,)
+    ).connection.commit()
+    # bob → SIDE_HUSTLE (idle then start) — must NOT be offered as idle
+    epr.persist_transition(ai_entity_id("bob"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=1)
+    epr.persist_transition(ai_entity_id("bob"), SANDBOX, PresenceEvent.LEAVE)
+    epr.persist_transition(ai_entity_id("bob"), SANDBOX, PresenceEvent.START_HUSTLE)
+
+    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
+    out = ctr.list_idle(sandbox_id=SANDBOX)
+    pids = {e.personality_id for e in out}
+    assert "alice" in pids
+    assert "bob" not in pids, "an off-grid hustler must not be in the idle re-seat set"
+    alice = next(e for e in out if e.personality_id == "alice")
+    assert alice.reason == "stake_up_queued" and alice.target_stake == "$5"
+
+    # authority OFF → physical cash_idle_pool (empty here) — not presence
+    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False)
+    assert ctr.list_idle(sandbox_id=SANDBOX) == []
+
+
+def test_delete_idle_clears_stale_presence_but_not_seated(tmp_path, monkeypatch):
+    """Under authority, delete_idle clears a STALE presence IDLE row (reaped from
+    the pool without a re-seat → OFFLINE), but must NOT touch a SEATED row (a
+    re-seat already moved it via save_table)."""
+    from poker.repositories.cash_table_repository import CashTableRepository
+    from poker.repositories.entity_presence_repository import EntityPresenceRepository
+    db = str(tmp_path / "d.db")
+    SchemaManager(db).ensure_schema()
+    ctr = CashTableRepository(db)
+    epr = EntityPresenceRepository(db)
+    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
+
+    epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=0)
+    epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.LEAVE)  # IDLE
+    ctr.delete_idle("alice", sandbox_id=SANDBOX)
+    assert epr.load(ai_entity_id("alice"), SANDBOX).state is Presence.OFFLINE  # stale cleared
+
+    epr.persist_transition(ai_entity_id("carol"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=2)
+    ctr.delete_idle("carol", sandbox_id=SANDBOX)  # re-seat cleanup must not offline her
+    assert epr.load(ai_entity_id("carol"), SANDBOX).state is Presence.SEATED
+
+
 def test_reconcile_skipped_under_authority(tmp_path, monkeypatch):
     """Review finding 2: the legacy call-site _shadow_reconcile_table must NOT
     run under authority (save_table is the sole seat writer; the separate-conn

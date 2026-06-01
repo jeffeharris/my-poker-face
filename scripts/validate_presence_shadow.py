@@ -100,20 +100,36 @@ def _truth_states(repos: dict, sandbox_id: str, now: datetime) -> Dict[str, Dict
                 if owner:
                     seated[player_entity_id(owner)] = (table.table_id, idx)
 
-    idle = {ai_entity_id(e.personality_id) for e in cash_table_repo.list_idle(sandbox_id=sandbox_id)}
+    # Read the PHYSICAL cash_idle_pool directly — NOT via cash_table_repo.list_idle,
+    # which under authority now derives from entity_presence (that would make the
+    # audit compare presence to itself for idle). The audit must stay an
+    # independent check of presence vs the LEGACY stores.
+    import sqlite3 as _sqlite3
+    _conn = _sqlite3.connect(repos["db_path"])
+    try:
+        _idle_pids = [
+            r[0] for r in _conn.execute(
+                "SELECT personality_id FROM cash_idle_pool WHERE sandbox_id = ?",
+                (sandbox_id,),
+            )
+        ]
+    finally:
+        _conn.close()
+    idle = {ai_entity_id(p) for p in _idle_pids}
     hustle = {ai_entity_id(p) for p in side_hustle_repo.active_pids(sandbox_id=sandbox_id, now=now)}
     vice = {ai_entity_id(p) for p in vice_repo.active_pids(sandbox_id=sandbox_id, now=now)}
 
     out: Dict[str, Dict[str, Any]] = defaultdict(
         lambda: {"state": "absent", "table_id": None, "seat_index": None, "in_stores": []}
     )
-    # Precedence seated > idle > side_hustle > vice (matches whereabouts.py).
+    # Precedence seated > off-grid (side_hustle/vice) > idle — matching
+    # whereabouts.py ("a forced-leave hustler is BOTH idle and on a hustle, and
+    # 'off earning' is the useful read") AND the Presence machine's single-state
+    # model (an off-grid AI is SIDE_HUSTLE/VICE, not IDLE). An AI legitimately
+    # sits in cash_idle_pool *while* on a hustle; ranking idle above off-grid
+    # here was a bug that false-flagged that normal state as MISSING_IDLE.
     for eid, (tid, sidx) in seated.items():
         out[eid] = {"state": "seated", "table_id": tid, "seat_index": sidx, "in_stores": ["seated"]}
-    for eid in idle:
-        out[eid]["in_stores"].append("idle")
-        if out[eid]["state"] == "absent":
-            out[eid].update(state="idle", table_id=None, seat_index=None)
     for eid in hustle:
         out[eid]["in_stores"].append("side_hustle")
         if out[eid]["state"] == "absent":
@@ -122,6 +138,10 @@ def _truth_states(repos: dict, sandbox_id: str, now: datetime) -> Dict[str, Dict
         out[eid]["in_stores"].append("vice")
         if out[eid]["state"] == "absent":
             out[eid].update(state="vice")
+    for eid in idle:
+        out[eid]["in_stores"].append("idle")
+        if out[eid]["state"] == "absent":
+            out[eid].update(state="idle", table_id=None, seat_index=None)
     return dict(out)
 
 
