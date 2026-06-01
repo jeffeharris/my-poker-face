@@ -199,14 +199,12 @@ DO NOT TOUCH: `emit_presence_transitions_for_save`, `save_table` wiring, `econom
 ## Handoff — current state, gotchas, where to look
 
 - **Branch `development`**, pushed through `e0310262` (+ this doc). Tree clean.
-- **Dev flip is FRAGILE — and just bit us.** Authority is on the running dev
-  container ONLY via `PRESENCE_AUTHORITY_ENABLED=1 docker compose up -d backend` —
-  it is NOT in `.env` and the committed compose default is `0`. A plain
-  restart/recreate reverts authority to OFF. (During this work the backend went
-  down and came back OFF until re-flipped.) **To make the flip durable, set it in
-  `.env` or commit the default — but only with the backfill story understood
-  (authority self-heals from empty presence via the save_table reconcile, so it's
-  safe-ish, but a backfill avoids the transient).**
+- **Dev flip is now DURABLE (resolved 2026-06-01).** `PRESENCE_AUTHORITY_ENABLED=1`
+  is in `.env` (gitignored, dev-only) → restarts preserve authority. The committed
+  compose default is still `0` and nothing is committed, so **prod is unaffected**;
+  the real cutover is committing the default to `1` deliberately when there are
+  users. (Earlier it was inline-env-only and reverted on restart — a backend
+  restart came back OFF mid-work, which is why `.env` was set.)
 - **Hot-reload + bad files = crash.** The backend (`FLASK_DEBUG=1`) auto-reloads;
   a transient syntax/merge-conflict marker in ANY imported file crash-stops it
   (seen: a stale `<<<<<<< HEAD` in `poker/memory/opponent_model.py` that was NOT

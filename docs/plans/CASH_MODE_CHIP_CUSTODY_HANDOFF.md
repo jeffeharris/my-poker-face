@@ -116,12 +116,14 @@ backfill + audit read it.
   patterns (incl. the autouse flag-reset fixture — see gotchas).
 
 ## DEV STATE + GOTCHAS (the loaded-context stuff a fresh start would miss)
-- **The Presence flip is FRAGILE on dev.** `PRESENCE_AUTHORITY_ENABLED` is set
-  ONLY via env on the running container (`PRESENCE_AUTHORITY_ENABLED=1 docker
-  compose up -d backend`); the committed compose default is `0` and it's NOT in
-  `.env`. A plain restart/recreate **reverts authority to OFF** (it happened this
-  session). If you add `CHIP_CUSTODY_ENABLED`, expect the same fragility — set it
-  the same way, and consider committing defaults / a `.env` only deliberately.
+- **Presence flip durability (resolved on this dev box).** `PRESENCE_AUTHORITY_ENABLED=1`
+  is now in `.env` (gitignored, dev-only), so a plain `docker compose up -d
+  backend` preserves authority across restarts — no more reverting. The committed
+  compose default is still `0` and nothing is committed, so **prod is unaffected**
+  (the real cutover = committing the default to `1`, deliberately, when there are
+  users). If you add `CHIP_CUSTODY_ENABLED`, put it in `.env` the same way for
+  durable dev. (Earlier in the project it was inline-env-only and DID revert on
+  restart — that's why the `.env` step was taken.)
 - **Hot-reload crashes on any bad file.** `FLASK_DEBUG=1` auto-reloads; a transient
   syntax error / merge-conflict marker in ANY imported file crash-stops the
   backend (seen: a stale `<<<<<<< HEAD` in `opponent_model.py` that was NOT in the
