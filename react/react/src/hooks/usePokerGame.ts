@@ -97,6 +97,8 @@ export function usePokerGame({
   const updateStorePlayerOptions = useGameStore((state) => state.updatePlayerOptions);
   const pushWorldEvent = useGameStore((state) => state.pushWorldEvent);
   const setRunoutSchedule = useGameStore((state) => state.setRunoutSchedule);
+  const applyOptimisticAction = useGameStore((state) => state.applyOptimisticAction);
+  const rollbackOptimisticAction = useGameStore((state) => state.rollbackOptimisticAction);
   const gameState = useGameStore(useShallow(selectGameState));
 
   const [loading, setLoading] = useState(true);
@@ -918,6 +920,11 @@ export function usePokerGame({
       setQueuedAction(null);
       setAiThinking(true);
 
+      // Optimistic UI: move the chips to the pot immediately so the tap feels
+      // responsive instead of "submitting…". The authoritative game_state push
+      // reconciles (and clears the rollback snapshot); we revert only on reject.
+      applyOptimisticAction(action, amount);
+
       // Safety net: if no socket event clears aiThinking within 30s, auto-refresh state
       clearAiThinkingTimeout();
       aiThinkingTimeoutRef.current = setTimeout(async () => {
@@ -971,11 +978,14 @@ export function usePokerGame({
         }
       } catch (error) {
         logger.error('Failed to send action:', error);
+        // The server didn't accept the action — undo the optimistic chip move
+        // so the table doesn't show money in a pot it never reached.
+        rollbackOptimisticAction();
         setAiThinking(false);
         clearAiThinkingTimeout();
       }
     },
-    [gameId, clearAiThinkingTimeout, refreshGameState]
+    [gameId, clearAiThinkingTimeout, refreshGameState, applyOptimisticAction, rollbackOptimisticAction]
   );
 
   // Keep ref in sync for socket callback access (update synchronously)

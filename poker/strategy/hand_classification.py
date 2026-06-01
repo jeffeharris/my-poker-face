@@ -515,3 +515,42 @@ def simplify_hand_class(made_tier: str, draw_modifier: str) -> str:
     if made_tier == 'air' and draw_modifier == 'strong_draw':
         return 'air_strong_draw'
     return 'air_no_draw'
+
+
+# Deterministic equity proxy (made_tier, draw_modifier) -> [0,1].
+# Calibrated so each tier lands where the MC-vs-random equity put it AND keeps
+# weak/medium made hands above the bluff-catch threshold (the MC undervalue here
+# made CaseBotV2 fold to air-barrels — punisher edge dropped +457->+209).
+_MADE_TIER_BASE = {
+    'nuts': 0.87,
+    'strong_made': 0.72,
+    'medium_made': 0.58,
+    'weak_made': 0.46,
+    'air': 0.13,
+}
+_DRAW_BUMP = {'strong_draw': 0.20, 'weak_draw': 0.08, 'backdoor': 0.02, 'no_draw': 0.0}
+
+
+def equity_from_made_tier(made_tier: str, draw_modifier: str, num_opponents: int = 1) -> float:
+    """A deterministic stand-in for `calculate_quick_equity`'s postflop Monte
+    Carlo, mapping the made-hand classification to an equity in the same
+    `_equity_category` buckets. Zero MC → no per-decision cost.
+
+    NOT WIRED — kept only as a documented utility. Tried as a rule-bot MC
+    replacement (7x faster): it matched CaseBotV2's results vs the calling
+    opponents (jeff/punisher) but is NOT decision-equivalent overall — it made
+    CaseBotV2 LOSE to maniacs (−96 bb/100 across 6 seeds, where the MC had it
+    winning ~+150), because a categorical map can't reproduce the MC's per-board
+    equity nuance and the calibration that fixed the callers over-valued hands
+    into the maniac's fighting range. The rule bots stayed on the 64-sim MC.
+    Usable where coarse equity is genuinely sufficient and adversarial
+    value-betting isn't on the line.
+    """
+    base = _MADE_TIER_BASE.get(made_tier, 0.40)
+    bump = _DRAW_BUMP.get(draw_modifier, 0.0)
+    if made_tier in ('air', 'weak_made'):
+        base += bump  # draws matter most when you're otherwise behind
+    elif made_tier == 'medium_made':
+        base += 0.5 * bump
+    base -= 0.02 * max(0, (num_opponents or 1) - 1)
+    return max(0.02, min(0.97, base))

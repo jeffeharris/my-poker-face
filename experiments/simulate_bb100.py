@@ -34,14 +34,15 @@ except ImportError:
         return it
 
 
+from experiments._hand_loop import drive_hand
 from poker.memory.cbet_detector import CbetDetector
 from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_game import (
     Player,
     PokerGameState,
-    advance_to_next_active_player,
+    advance_to_next_active_player,  # noqa: F401 — re-exported for casebot_breakdown
     create_deck,
-    play_turn,
+    play_turn,  # noqa: F401 — re-exported for sibling sim scripts
 )
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.psychology_model import PersonalityAnchors
@@ -49,6 +50,7 @@ from poker.rule_based_controller import CHAOS_BOTS, RuleBasedController, RuleCon
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
 from poker.strategy.strategy_table import (
     StrategyTable,
+    load_archetype_preflop_tables,
     load_depth_strategy_tables,
     load_hu_strategy_table,
     load_strategy_table,
@@ -130,6 +132,108 @@ ARCHETYPES = {
             recovery_rate=0.1,
         ),
     },
+    # Validation twin of Maniac WITH over_bluff (maniac_overbluff profile), to
+    # confirm over_bluff fires + shifts EV on an aggressive base (the control for
+    # its inertness on the passive station base). Compare vs 'Maniac'.
+    'ManiacOverBluff': {
+        'profile': 'maniac_overbluff',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.9,
+            baseline_looseness=0.85,
+            ego=0.7,
+            poise=0.3,
+            expressiveness=0.8,
+            risk_identity=0.8,
+            adaptation_bias=0.3,
+            baseline_energy=0.8,
+            recovery_rate=0.1,
+        ),
+    },
+    # Weakest realistic fish (the $2-tier trickle): loose-passive anchors + the
+    # weak_fish profile (weak_station table + can't-fold + sticky/over_bluff).
+    'WeakFish': {
+        'profile': 'weak_fish',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.2,
+            baseline_looseness=0.9,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.3,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        ),
+    },
+    # Balanced defender: the apex anti-aggression reg (balanced_defender profile —
+    # calls down to catch bluffs + traps + 3-bets back, without over-folding).
+    # Disciplined anchors (high poise, high adaptation_bias). The control for
+    # "does competent defense neutralize the maniac, or is aggression structurally
+    # +EV in this engine?"
+    'Defender': {
+        'profile': 'balanced_defender',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.6,
+            baseline_looseness=0.35,
+            ego=0.5,
+            poise=0.85,
+            expressiveness=0.3,
+            risk_identity=0.45,
+            adaptation_bias=0.6,
+            baseline_energy=0.5,
+            recovery_rate=0.2,
+        ),
+    },
+    # Spewy aggressive fish: the loose-aggressive donator who bluffs off his
+    # stack (spewy_fish profile — loose table + over_bluff + sticky). Loose +
+    # tilty anchors (low poise, high ego/risk) so psychology amplifies the spew.
+    'SpewyFish': {
+        'profile': 'spewy_fish',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.85,
+            baseline_looseness=0.85,
+            ego=0.75,
+            poise=0.25,
+            expressiveness=0.7,
+            risk_identity=0.8,
+            adaptation_bias=0.2,
+            baseline_energy=0.7,
+            recovery_rate=0.1,
+        ),
+    },
+    # Isolation: calling_station + position_blind only (station table), to price
+    # position-blindness alone vs plain Calling Station + test depth-independence.
+    'StationPBlind': {
+        'profile': 'calling_station_pblind',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.3,
+            baseline_looseness=0.75,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.4,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        ),
+    },
+    # Isolation: calling_station + over_bluff only (station table), to price the
+    # over-bluff (spew) lever ALONE vs the punisher clone (the honest cost of
+    # bluffing into a competent folder-and-barreler). Mirrors StationPBlind.
+    'StationOverBluff': {
+        'profile': 'calling_station_overbluff',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.3,
+            baseline_looseness=0.75,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.4,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        ),
+    },
     'Nit': {
         'profile': 'nit',
         'anchors': PersonalityAnchors(
@@ -169,6 +273,58 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'case_based',
     },
+    'CaseBotV2': {
+        'kind': 'rule_bot',
+        'strategy': 'case_based_v2',
+    },
+    # Range-AWARE CaseBotV2 (adaptive prototype): same value strategy, but its
+    # postflop equity is computed vs the opponents' estimated RANGE instead of
+    # vs-random. `use_range_equity` is honored by the harness, which feeds
+    # perfect-read field stats (ARCHETYPE_STATS) so we can test the concept
+    # ceiling before building real opponent modeling.
+    'CaseBotRange': {
+        'kind': 'rule_bot',
+        'strategy': 'case_based_v2',
+        'use_range_equity': True,
+    },
+    'Reg': {
+        'kind': 'rule_bot',
+        'strategy': 'reg',
+    },
+    # Reg+ — the competent yardstick (keystone). Value-extracts like CaseBotV2 but
+    # FOLDS to polarized big bets instead of paying them off, and never bluffs a
+    # caller. Built to beat/neutralize CaseBotV2 so robustness becomes measurable.
+    'RegPlus': {
+        'kind': 'rule_bot',
+        'strategy': 'reg_plus',
+    },
+    # PolarValueBot — maximally face-up value bettor (sizing-aware §B leak probe).
+    'PolarValue': {
+        'kind': 'rule_bot',
+        'strategy': 'polar_value',
+    },
+    # TrickyReg — eval instrument that overbet-BLUFFS to punish RegPlus's residual
+    # over-fold-to-overbets leak (the §3 yardstick). Not a production bot.
+    'TrickyReg': {
+        'kind': 'rule_bot',
+        'strategy': 'tricky_reg',
+    },
+    # TrickyAggro — sharper attacker: seizes initiative (wide 3-bets) + overbet-
+    # barrels polarized, to stress-test RegPlus's fold-to-overbet rule. Eval-only.
+    'TrickyAggro': {
+        'kind': 'rule_bot',
+        'strategy': 'tricky_aggro',
+    },
+    # Exploiter — best-responder that punishes a face-up/never-bluff bot's tells.
+    # bb/100 of this vs a candidate = the candidate's human-exploitability proxy.
+    'Exploiter': {
+        'kind': 'rule_bot',
+        'strategy': 'exploiter',
+    },
+    'RegVsManiac': {
+        'kind': 'rule_bot',
+        'strategy': 'reg_vs_maniac',
+    },
     'CallStation': {
         'kind': 'rule_bot',
         'strategy': 'always_call',
@@ -200,6 +356,24 @@ ARCHETYPES = {
         'strategy': 'fish',
         'fish_leak': 'sticky_then_pops',
     },
+}
+
+# Perfect-read opponent stats per archetype (measured VPIP/PFR + estimated AF),
+# for the range-aware prototype (CaseBotRange). Lets the bot's range estimator
+# "know" the field's looseness without waiting for opponent modeling — the
+# concept-test ceiling. Production would feed real observed stats instead.
+ARCHETYPE_STATS = {
+    'Maniac': {'vpip': 0.56, 'pfr': 0.48, 'aggression_factor': 3.0, 'hands_observed': 100},
+    'LAG': {'vpip': 0.37, 'pfr': 0.30, 'aggression_factor': 2.2, 'hands_observed': 100},
+    'TAG': {'vpip': 0.24, 'pfr': 0.20, 'aggression_factor': 2.0, 'hands_observed': 100},
+    'Rock': {'vpip': 0.19, 'pfr': 0.12, 'aggression_factor': 1.5, 'hands_observed': 100},
+    'Nit': {'vpip': 0.15, 'pfr': 0.10, 'aggression_factor': 1.2, 'hands_observed': 100},
+    'Calling Station': {'vpip': 0.45, 'pfr': 0.15, 'aggression_factor': 0.3, 'hands_observed': 100},
+    'WeakFish': {'vpip': 0.50, 'pfr': 0.10, 'aggression_factor': 0.4, 'hands_observed': 100},
+    'Jeff_clone': {'vpip': 0.39, 'pfr': 0.15, 'aggression_factor': 0.6, 'hands_observed': 100},
+    'Punisher_clone': {'vpip': 0.25, 'pfr': 0.22, 'aggression_factor': 2.5, 'hands_observed': 100},
+    'CaseBot': {'vpip': 0.95, 'pfr': 0.05, 'aggression_factor': 0.8, 'hands_observed': 100},
+    'CaseBotV2': {'vpip': 0.95, 'pfr': 0.20, 'aggression_factor': 1.5, 'hands_observed': 100},
 }
 
 TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}
@@ -264,6 +438,21 @@ def _get_depth_tables() -> dict:
     if _DEPTH_TABLES_CACHE is None:
         _DEPTH_TABLES_CACHE = load_depth_strategy_tables()
     return _DEPTH_TABLES_CACHE
+
+
+_ARCHETYPE_TABLES_CACHE: Optional[dict] = None
+
+
+def _get_archetype_tables() -> dict:
+    """Lazy-load + cache the width-tier preflop charts keyed by archetype
+    ({'loose':.., 'station':.., 'nit':..}). Empty dict if files are missing
+    (→ every archetype uses the base table). Mirrors production
+    (tiered_factory.build_tiered_controller) so sims and live agree.
+    """
+    global _ARCHETYPE_TABLES_CACHE
+    if _ARCHETYPE_TABLES_CACHE is None:
+        _ARCHETYPE_TABLES_CACHE = load_archetype_preflop_tables()
+    return _ARCHETYPE_TABLES_CACHE
 
 
 def make_controller(
@@ -331,6 +520,11 @@ def make_controller(
     # Depth-aware shallow 6-max charts ({50:.., 25:..}); empty → no
     # depth adjustment. Cached module-wide like the HU table.
     controller.depth_strategy_tables = _get_depth_tables()
+    # Width-tier preflop charts keyed by archetype (loose/station/tight); empty
+    # → every archetype uses the base table. Mirrors production. The hero's
+    # explicit --preflop-chart (measure_passivity) clears this so the forced
+    # chart wins; Baseline classifies as 'baseline' (not in the map) regardless.
+    controller.archetype_preflop_tables = _get_archetype_tables()
     controller.debug_logging = False
     controller.rng = random.Random(rng_seed)
     controller.skip_personality_distortion = is_baseline
@@ -592,24 +786,11 @@ def run_hand(
     determinism.
     """
     controller_map = {c.player_name: c for c in controllers}
-    action_count = 0
 
-    # Phase 6.6/6.7a: reset sim-path aggressor state on hero's controller
-    # at hand start. Production paths get this via MemoryManager.on_hand_start;
-    # the sim bypasses MM, so we drive it directly here.
+    # Phase 6.6/6.7a: reset of sim-path aggressor state on hero's controller
+    # is handled by drive_hand (production paths get it via
+    # MemoryManager.on_hand_start; the sim bypasses MM).
     hero_controller = controller_map.get(hero_name) if hero_name else None
-    if hero_controller is not None:
-        hero_controller._sim_last_preflop_aggressor = None
-        hero_controller._sim_recent_aggressor = None
-        # Multi-street context layer (STRUCTURAL_PASSIVITY_PLAN.md): per-hand
-        # split of hero's own line vs opponents' line, by street. Drives the
-        # layer's sim-path signal derivation (production uses MemoryManager).
-        # Reset each hand alongside the existing _sim_* aggressor fields.
-        hero_controller._sim_hero_bet_by_street = {}
-        hero_controller._sim_opp_bet_by_street = {}
-    # Phase 6.7a: track current street so we can reset _sim_recent_aggressor
-    # on each street transition.
-    sim_current_street: Optional[str] = None
     # C-bet detector drives the production state machine. Without this
     # the sim never feeds fold_to_cbet observations into opponent
     # models, leaving the c-bet exploit silently inert.
@@ -621,41 +802,16 @@ def run_hand(
     # sees the same board the actor saw. See `_record_sim_equity_at_actions`.
     action_log: List[Tuple[str, str, str, Tuple[str, ...]]] = []
 
-    while sm.phase not in TERMINAL_PHASES:
-        sm.run_until(list(TERMINAL_PHASES))
-
-        if sm.phase in TERMINAL_PHASES:
-            break
-
-        gs = sm.game_state
-
-        # Handle all-in runout: advance past the betting round so the SM
-        # deals remaining community cards. Simply clearing the flags would
-        # cause run_betting_round_transition to re-set them (infinite loop).
-        if gs.run_it_out:
-            sm.game_state = gs.update(run_it_out=False, awaiting_action=False)
-            next_phase = {
-                PokerPhase.PRE_FLOP: PokerPhase.DEALING_CARDS,
-                PokerPhase.FLOP: PokerPhase.DEALING_CARDS,
-                PokerPhase.TURN: PokerPhase.DEALING_CARDS,
-                PokerPhase.RIVER: PokerPhase.EVALUATING_HAND,
-            }.get(sm.phase, PokerPhase.EVALUATING_HAND)
-            sm.phase = next_phase
-            continue
-
-        # Normal action required
-        current_player = gs.current_player
-        controller = controller_map[current_player.name]
-        controller.state_machine = sm
-
-        # Both TieredBotController and RuleBasedController expose decide_action()
-        # as their public interface — uniform call across controller types.
-        decision = controller.decide_action()
-
-        action = decision['action']
-        raise_to = decision.get('raise_to', 0) or 0
-        phase_name = sm.phase.name
-
+    def _on_decision(
+        current_player,
+        controller,
+        action,
+        raise_to,
+        phase_name,
+        gs,
+        sim_current_street,
+        decision,
+    ):
         # Phase 7.6 Step 7: persist hero's decision trace + snapshot when
         # the controller is configured for it. Tiered controllers only —
         # rule_bots don't produce traces. No-op when not configured.
@@ -694,8 +850,12 @@ def run_hand(
             action_log.append((current_player.name, action, phase_name, board_snapshot))
 
         # Snapshot active players BEFORE play_turn — CbetDetector needs
-        # the pre-fold view to seed its facing-set on flop c-bets.
-        active_players_snapshot = [p.name for p in gs.players if not getattr(p, 'is_folded', False)]
+        # the pre-fold view to seed its facing-set on flop c-bets. Stashed on
+        # the closure so the post_action hook (which drives the detector after
+        # play_turn) sees the same pre-fold view the original inline code did.
+        _on_decision.active_players_snapshot = [
+            p.name for p in gs.players if not getattr(p, 'is_folded', False)
+        ]
 
         # Compute was_facing_bet BEFORE cbet_detector updates (mirror
         # AIMemoryManager.on_action). Required for opportunity-normalized
@@ -741,9 +901,7 @@ def run_hand(
                 was_facing_bet=was_facing_bet_snapshot,
             )
 
-        # play_turn expects raise_to as absolute amount for 'raise' action
-        new_gs = play_turn(gs, action, raise_to)
-
+    def _post_action(current_player, action, raise_to, phase_name, gs, new_gs):
         # Drive the c-bet detector and apply any fold_to_cbet
         # observations to the hero's opponent model. Hero's own actions
         # still feed the state machine (e.g. hero's preflop raise sets
@@ -753,7 +911,7 @@ def run_hand(
                 player_name=current_player.name,
                 action=action,
                 phase=phase_name,
-                active_players=active_players_snapshot,
+                active_players=_on_decision.active_players_snapshot,
             )
             for opp_name, folded in cbet_responses:
                 if opp_name == hero_name:
@@ -761,37 +919,15 @@ def run_hand(
                 model = opponent_manager.get_model(hero_name, opp_name)
                 model.tendencies.update_fold_to_cbet(folded)
 
-        # Phase 6.6: track last accepted preflop aggressor on hero's
-        # controller. Set after play_turn() so we mirror MemoryManager
-        # .on_action's "accepted action" semantics — controller intent
-        # that the engine rejects should not change the c-bet aggressor.
-        if (
-            phase_name == 'PRE_FLOP'
-            and action in ('raise', 'all_in')
-            and hero_controller is not None
-        ):
-            hero_controller._sim_last_preflop_aggressor = current_player.name
-
-        # Phase 6.7a: per-street postflop live aggressor. Reset on street
-        # change; update on accepted postflop bet/raise/all_in.
-        if hero_controller is not None:
-            if sim_current_street != phase_name:
-                hero_controller._sim_recent_aggressor = None
-                sim_current_street = phase_name
-            if phase_name in ('FLOP', 'TURN', 'RIVER') and action in ('bet', 'raise', 'all_in'):
-                hero_controller._sim_recent_aggressor = current_player.name
-                # Multi-street layer: split hero's own line from opponents'.
-                if current_player.name == hero_name:
-                    hero_controller._sim_hero_bet_by_street[phase_name] = True
-                else:
-                    hero_controller._sim_opp_bet_by_street[phase_name] = True
-        advanced = advance_to_next_active_player(new_gs)
-        sm.game_state = advanced if advanced is not None else new_gs
-
-        action_count += 1
-        if action_count >= MAX_ACTIONS_PER_HAND:
-            logger.warning("Max actions reached — terminating hand")
-            break
+    drive_hand(
+        sm,
+        controllers,
+        hero_name=hero_name,
+        hero_controller=hero_controller,
+        on_decision=_on_decision,
+        post_action=_post_action,
+        on_max_actions=lambda: logger.warning("Max actions reached — terminating hand"),
+    )
 
     # Polarization Phase A: end-of-hand equity-at-action recording.
     # Walks the per-action log and credits equity into hero's models of

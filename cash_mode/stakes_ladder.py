@@ -44,6 +44,22 @@ insertion order. Used for tier-eligibility checks and lobby sort."""
 MIN_BUY_IN_BB = 40
 MAX_BUY_IN_BB = 100
 
+# Casino stakes that get the weakest realistic fish loadout (the `weak_fish`
+# deviation profile: weak_station table + can't-fold + sticky/over_bluff +
+# position_blind). The $2 bottom tier only — at its 40bb buy-in the position-blind
+# overplay bites (drains ~−40 bb/100), keeping a strong bottom trickle, while
+# $10/$50 stay the realistic calling_station. See FISH_AS_CALLING_STATION.md.
+WEAK_FISH_STAKES: frozenset = frozenset({"$2"})
+
+
+def stake_label_for_big_blind(big_blind) -> "str | None":
+    """Reverse-map a game's big_blind to its casino stake label ($2/$10/...),
+    or None if it isn't a ladder stake (custom / non-casino game)."""
+    for label, cfg in STAKES_LADDER.items():
+        if cfg.get("big_blind") == big_blind:
+            return label
+    return None
+
 
 def table_buy_in_window(stake_label: str) -> Tuple[int, int, int]:
     """Return `(big_blind, min_buy_in, max_buy_in)` for a stake.

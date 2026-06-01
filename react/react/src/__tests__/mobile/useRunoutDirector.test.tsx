@@ -32,6 +32,7 @@ interface DirectorProps {
   schedule: RunoutSchedule | null;
   runItOut: boolean | undefined;
   revealed: boolean;
+  heroFolded: boolean;
   communityCardCount: number;
   handNumber: number;
   fastForward: boolean;
@@ -49,6 +50,7 @@ function scenario(overrides: Partial<DirectorProps> = {}): ScenarioState {
     schedule: makeSchedule(),
     runItOut: true,
     revealed: false,
+    heroFolded: false,
     communityCardCount: 0,
     handNumber: 1,
     fastForward: false,
@@ -176,6 +178,18 @@ describe('useRunoutDirector', () => {
     s.rerenderWith({ runItOut: false });
     expect(s.heroCommitted()).toBe(false);
     expect(s.heroRetreating()).toBe(false);
+  });
+
+  it('does NOT present the hero cards when the human has folded (spectating)', () => {
+    const s = scenario({ heroFolded: true });
+    expect(s.heroCommitted()).toBe(false);
+    // The AIs' matchup reveals — a folded human has no hand to throw up, so the
+    // presentation animation must stay off even though the run-out is directing.
+    s.rerenderWith({ revealed: true });
+    expect(s.heroCommitted()).toBe(false);
+    // ...and the AI reactions still fire as normal.
+    act(() => vi.advanceTimersByTime(T.initialReactionDelayMs));
+    expect(s.applied).toEqual([['A', 'smug']]);
   });
 
   it('ignores cards already on the board when the run-out starts post-flop', () => {

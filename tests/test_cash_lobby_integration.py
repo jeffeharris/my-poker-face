@@ -74,6 +74,7 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                         'heat_ceiling': 1.0,  # never ceiling-ed out
                     },
                 },
+                circulating=True,
             )
             cls.bankroll_repo.save_ai_bankroll(
                 AIBankrollState(
@@ -243,6 +244,7 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
                     'heat_ceiling': 1.0,
                 },
             },
+            circulating=True,
         )
         self.bankroll_repo.save_ai_bankroll(
             AIBankrollState(

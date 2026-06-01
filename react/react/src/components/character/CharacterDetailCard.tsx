@@ -16,10 +16,12 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   fetchCharacterDossier,
+  buyInformantUnlock,
   saveCharacterNote,
   saveCharacterNicknameOverride,
   NICKNAME_OVERRIDE_MAX_LEN,
   type DossierResponse,
+  type DossierScouting,
 } from './api';
 import { useNicknameOverridesStore } from '../../stores/nicknameOverridesStore';
 import './CharacterDetailCard.css';
@@ -90,6 +92,21 @@ export interface CharacterDetailCardProps {
    * editable with debounced autosave).
    */
   identifier?: string;
+  /**
+   * Whether the dossier is being viewed from a Circuit (cash) context.
+   * The scouting unlock state shows everywhere (your Circuit-earned reads
+   * carry over), but the informant's pay-to-unlock buttons only appear in
+   * the Circuit — that's where the bankroll lives. Elsewhere (e.g. a
+   * tournament table) locked sections show an "unlock in the Circuit" hint
+   * instead of chip-cost buttons. Defaults to false.
+   */
+  circuitContext?: boolean;
+  /**
+   * Fired after a successful informant purchase, so a caller showing this
+   * dossier over another intel surface (e.g. the file cabinet) can refresh
+   * that surface to reflect the new unlock state.
+   */
+  onIntelChanged?: () => void;
   /**
    * Optional handler for the "Send chat" affordance. Receives the
    * dossier subject's name so the caller can open the chat sheet
@@ -169,6 +186,154 @@ function SectionRule({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * ScoutingStrip — the grind's progress, framed as the case file's clearance
+ * level. Below the floor the file reads CLASSIFIED with a hands-to-go count;
+ * past it, a progress bar toward the next unlock plus a list of reads still
+ * to earn. Hidden entirely when the dossier is ungated (no scouting block).
+ */
+function ScoutingStrip({
+  scouting,
+  onBuy,
+  buyingSection,
+  buyError,
+  bankroll,
+}: {
+  scouting: DossierScouting;
+  onBuy?: (sectionId: string) => void;
+  buyingSection?: string | null;
+  buyError?: string | null;
+  bankroll?: number | null;
+}) {
+  const { hands_observed, floor, floor_met, locked } = scouting;
+  const offers = scouting.informant_offers ?? [];
+  // Next HAND threshold to cross (floor when below it, else the nearest
+  // locked item's hand floor still ahead of us). Drives the progress bar.
+  // Sample-gated tiers whose hand floor is already met are excluded — their
+  // remaining requirement is opportunity count, shown per-row below, not on
+  // this hand bar — so once every hand floor is cleared the bar retires.
+  const nextAt = !floor_met
+    ? floor
+    : locked.reduce<number | null>(
+        (min, l) =>
+          l.unlocks_at > hands_observed && (min == null || l.unlocks_at < min)
+            ? l.unlocks_at
+            : min,
+        null
+      );
+  const pct = nextAt ? Math.min(100, Math.round((hands_observed / nextAt) * 100)) : 100;
+
+  return (
+    <section
+      className={
+        'dossier__scouting' + (floor_met ? '' : ' dossier__scouting--classified')
+      }
+    >
+      <div className="dossier__scouting-head">
+        <span className="dossier__scouting-stamp">
+          {floor_met ? 'CLEARANCE' : 'CLASSIFIED'}
+        </span>
+        <span className="dossier__scouting-count">
+          {hands_observed.toLocaleString()} {hands_observed === 1 ? 'hand' : 'hands'} observed
+        </span>
+      </div>
+
+      {!floor_met ? (
+        <p className="dossier__scouting-note">
+          Insufficient observation. Play <strong>{Math.max(0, floor - hands_observed)}</strong>{' '}
+          more {floor - hands_observed === 1 ? 'hand' : 'hands'} to open this file.
+        </p>
+      ) : locked.length > 0 ? (
+        <>
+          <p className="dossier__scouting-note">
+            Still to scout — keep playing them to declassify:
+          </p>
+          <ul className="dossier__scouting-locked">
+            {locked.map((l) => (
+              <li key={l.id} className="dossier__scouting-lock">
+                <span className="dossier__scouting-lock-icon" aria-hidden="true">
+                  🔒
+                </span>
+                <span className="dossier__scouting-lock-label">{l.label}</span>
+                <span className="dossier__scouting-lock-at">
+                  {/* Sample-gated reads (Tier-2) show progress toward the
+                      opportunity requirement — the binding, honest gate —
+                      rather than just a hand count. */}
+                  {l.sample_min
+                    ? `${l.samples_observed ?? 0}/${l.sample_min} ${l.sample_noun ?? 'seen'}`
+                    : `${l.unlocks_at} hands`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="dossier__scouting-note dossier__scouting-note--complete">
+          Full dossier declassified ✓
+        </p>
+      )}
+
+      {nextAt != null && (
+        <div className="dossier__scouting-bar" aria-hidden="true">
+          <span className="dossier__scouting-bar-fill" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+
+      {offers.length > 0 &&
+        (onBuy ? (
+          <div className="dossier__informant">
+            <div className="dossier__informant-head">
+              <p className="dossier__informant-pitch">
+                Or pay an informant to declassify a section:
+              </p>
+              {bankroll != null && (
+                <span className="dossier__informant-stack">
+                  Your stack {bankroll.toLocaleString()}
+                </span>
+              )}
+            </div>
+            <div className="dossier__informant-offers">
+              {offers.map((o) => {
+                const busy = buyingSection === o.id;
+                // Unknown bankroll → allow (the server still guards with 402).
+                const canAfford = bankroll == null || bankroll >= o.price;
+                const short = bankroll != null ? o.price - bankroll : 0;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className={
+                      'dossier__informant-buy' +
+                      (canAfford ? '' : ' dossier__informant-buy--cant')
+                    }
+                    disabled={busy || !!buyingSection || !canAfford}
+                    onClick={() => onBuy(o.id)}
+                    title={
+                      canAfford
+                        ? `Reveal ${o.label} for ${o.price.toLocaleString()} chips`
+                        : `Need ${short.toLocaleString()} more chips`
+                    }
+                  >
+                    <span className="dossier__informant-buy-label">{o.label}</span>
+                    <span className="dossier__informant-buy-price">
+                      {busy ? 'Paying…' : canAfford ? o.price.toLocaleString() : `−${short.toLocaleString()}`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {buyError && <p className="dossier__informant-error">{buyError}</p>}
+          </div>
+        ) : (
+          // Off in a tournament etc. — the informant only works the Circuit.
+          <p className="dossier__informant-elsewhere">
+            Visit the Circuit to pay an informant for the rest.
+          </p>
+        ))}
+    </section>
+  );
+}
+
 type NoteSaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export function CharacterDetailCard({
@@ -177,6 +342,8 @@ export function CharacterDetailCard({
   character,
   origin,
   identifier,
+  circuitContext = false,
+  onIntelChanged,
   onSendChat,
 }: CharacterDetailCardProps) {
   // ESC to close — felt-tabletop UX expects it.
@@ -194,6 +361,9 @@ export function CharacterDetailCard({
   // from this fall in below the prop-driven ones — the static prop
   // gives an instant render, the server fetch hydrates the rest.
   const [fetched, setFetched] = useState<DossierResponse | null>(null);
+  // Informant purchase (Phase 3): which section is in-flight + last error.
+  const [buyingSection, setBuyingSection] = useState<string | null>(null);
+  const [buyError, setBuyError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [noteState, setNoteState] = useState<NoteSaveState>('idle');
   const lastSavedNote = useRef<string>('');
@@ -252,6 +422,30 @@ export function CharacterDetailCard({
       cancelled = true;
     };
   }, [isOpen, identifier]);
+
+  // Pay the informant to reveal a locked section, then refetch the dossier
+  // so every newly-declassified read populates (the gate reveals data, the
+  // refetch pulls it in). Errors (e.g. insufficient bankroll) surface inline.
+  const handleBuyInformant = useCallback(
+    async (sectionId: string) => {
+      if (!identifier || buyingSection) return;
+      setBuyingSection(sectionId);
+      setBuyError(null);
+      try {
+        await buyInformantUnlock(identifier, sectionId);
+        const refreshed = await fetchCharacterDossier(identifier);
+        setFetched(refreshed);
+        // Let a host surface (the file cabinet behind this card) refresh so
+        // the opponent's unlock state updates without waiting for a poll.
+        onIntelChanged?.();
+      } catch (e) {
+        setBuyError(e instanceof Error ? e.message : 'Purchase failed');
+      } finally {
+        setBuyingSection(null);
+      }
+    },
+    [identifier, buyingSection, onIntelChanged]
+  );
 
   // Debounced autosave: 600ms after the last keystroke. Cancels any
   // pending save when a new keystroke comes in or the card closes.
@@ -446,7 +640,11 @@ export function CharacterDetailCard({
       emotion: fetched?.emotion ?? character.emotion,
       remark: character.remark ?? p?.signature_line ?? undefined,
       // Server-side observation wins; the static prop's `observed` is
-      // legacy and only fires for callers who pre-populate.
+      // legacy and only fires for callers who pre-populate. When the dossier
+      // was fetched in a gated (Circuit) context, the server's observation
+      // is authoritative — a null means "classified", so we must NOT fall
+      // back to the static prop (which carries live, ungated stats from the
+      // table/lobby click) or the scouting gate would leak.
       observed: obs
         ? {
             handsObserved: obs.hands_observed,
@@ -455,13 +653,15 @@ export function CharacterDetailCard({
             aggressionFactor: obs.aggression_factor,
             playStyleLabel: obs.play_style,
           }
-        : character.observed && {
-            handsObserved: character.observed.handsObserved,
-            vpip: character.observed.vpip,
-            pfr: character.observed.pfr,
-            aggressionFactor: character.observed.aggressionFactor,
-            playStyleLabel: undefined as string | undefined,
-          },
+        : fetched?.scouting
+          ? undefined
+          : character.observed && {
+              handsObserved: character.observed.handsObserved,
+              vpip: character.observed.vpip,
+              pfr: character.observed.pfr,
+              aggressionFactor: character.observed.aggressionFactor,
+              playStyleLabel: undefined as string | undefined,
+            },
     };
   }, [fetched, character]);
 
@@ -486,6 +686,33 @@ export function CharacterDetailCard({
   const anchors = fetched?.personality?.anchors ?? null;
   const hasAnchors = !!anchors && Object.values(anchors).some((v) => v != null);
   const hasObserved = !!merged.observed && (merged.observed.handsObserved ?? 0) > 0;
+  // Tier-2 deep postflop reads. The server nulls each field when its grind
+  // tier is still locked (or there's no data yet); we render only the rows
+  // that survived, and the whole section only when at least one did.
+  const deeperReads = fetched?.deeper_reads ?? null;
+  const hasDeeperReads =
+    !!deeperReads &&
+    (Object.keys(deeperReads) as (keyof typeof deeperReads)[]).some(
+      (k) => k !== 'lifetime' && deeperReads[k] != null
+    );
+  // B2 "the read": exploit advice + archetype badge.
+  const theRead = fetched?.the_read ?? [];
+  const archetype = fetched?.archetype ?? null;
+  const hasRead = theRead.length > 0 || !!archetype;
+  // B3 emotional read + B4 field standing.
+  const temperament = fetched?.temperament ?? null;
+  const hasTemperament =
+    !!temperament &&
+    (temperament.lines.length > 0 ||
+      temperament.tilt_label != null ||
+      temperament.poise != null ||
+      temperament.expressiveness != null);
+  const fieldPos = fetched?.field_position ?? null;
+  const hasFieldPos = !!fieldPos && (!!fieldPos.vpip_label || !!fieldPos.af_label);
+  // "The history" — rivalry read.
+  const history = fetched?.relationship_history ?? null;
+  const hasHistory =
+    !!history && (history.clash.length > 0 || history.banter.length > 0 || !!history.defining);
   const hasChips =
     !!character.chips &&
     (character.chips.atTable !== undefined || character.chips.bankroll !== undefined);
@@ -743,6 +970,19 @@ export function CharacterDetailCard({
               {merged.confidence && <DataRow label="Confidence" value={merged.confidence} />}
             </section>
 
+            {fetched?.scouting && (
+              <ScoutingStrip
+                scouting={fetched.scouting}
+                // Informant purchasing is a Circuit fixture (that's where the
+                // bankroll is). Elsewhere the unlock state still shows, but
+                // the buy buttons give way to an "unlock in the Circuit" hint.
+                onBuy={circuitContext && identifier ? handleBuyInformant : undefined}
+                buyingSection={buyingSection}
+                buyError={buyError}
+                bankroll={fetched.player_bankroll}
+              />
+            )}
+
             {hasAnchors && anchors && (
               <>
                 <SectionRule>BEHAVIORAL INDEX</SectionRule>
@@ -950,13 +1190,13 @@ export function CharacterDetailCard({
                       value={merged.observed.handsObserved.toLocaleString()}
                     />
                   )}
-                  {merged.observed?.vpip !== undefined && (
+                  {merged.observed?.vpip != null && (
                     <DataRow label="VPIP" value={`${Math.round(merged.observed.vpip * 100)}%`} />
                   )}
-                  {merged.observed?.pfr !== undefined && (
+                  {merged.observed?.pfr != null && (
                     <DataRow label="PFR" value={`${Math.round(merged.observed.pfr * 100)}%`} />
                   )}
-                  {merged.observed?.aggressionFactor !== undefined && (
+                  {merged.observed?.aggressionFactor != null && (
                     <DataRow
                       label="Aggression factor"
                       value={merged.observed.aggressionFactor.toFixed(1)}
@@ -964,6 +1204,205 @@ export function CharacterDetailCard({
                   )}
                   {merged.observed?.playStyleLabel && (
                     <DataRow label="Read" value={merged.observed.playStyleLabel} />
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasDeeperReads && deeperReads && (
+              <>
+                <SectionRule>DEEP READ</SectionRule>
+                <section className="dossier__posture">
+                  {deeperReads.fold_to_cbet != null && (
+                    <DataRow
+                      label="Fold to c-bet"
+                      value={`${Math.round(deeperReads.fold_to_cbet * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.cbet_attempt_rate != null && (
+                    <DataRow
+                      label="C-bet frequency"
+                      value={`${Math.round(deeperReads.cbet_attempt_rate * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.barrel_frequency != null && (
+                    <DataRow
+                      label="Barrel (turn)"
+                      value={`${Math.round(deeperReads.barrel_frequency * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.third_barrel_frequency != null && (
+                    <DataRow
+                      label="Barrel (river)"
+                      value={`${Math.round(deeperReads.third_barrel_frequency * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.aggression_factor_postflop != null && (
+                    <DataRow
+                      label="Postflop aggression"
+                      value={deeperReads.aggression_factor_postflop.toFixed(1)}
+                    />
+                  )}
+                  {deeperReads.all_in_frequency != null && (
+                    <DataRow
+                      label="All-in frequency"
+                      value={`${(deeperReads.all_in_frequency * 100).toFixed(1)}%`}
+                    />
+                  )}
+                  {deeperReads.equity_when_betting != null && (
+                    <DataRow
+                      label="Equity when betting"
+                      value={`${Math.round(deeperReads.equity_when_betting * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.equity_when_raising != null && (
+                    <DataRow
+                      label="Equity when raising"
+                      value={`${Math.round(deeperReads.equity_when_raising * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.equity_when_calling != null && (
+                    <DataRow
+                      label="Equity when calling"
+                      value={`${Math.round(deeperReads.equity_when_calling * 100)}%`}
+                    />
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasRead && (
+              <>
+                <SectionRule>THE READ</SectionRule>
+                <section className="dossier__read">
+                  {archetype && (
+                    <div className="dossier__read-badge">
+                      <span className="dossier__archetype">{archetype.label}</span>
+                    </div>
+                  )}
+                  {theRead.length > 0 ? (
+                    <ul className="dossier__read-tips">
+                      {theRead.map((tip) => (
+                        <li key={tip.pattern} className="dossier__read-tip">
+                          {tip.text}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="dossier__read-empty">
+                      No clear exploit yet — keep watching them play.
+                    </p>
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasTemperament && temperament && (
+              <>
+                <SectionRule>TEMPERAMENT</SectionRule>
+                <section className="dossier__posture">
+                  {temperament.tilt_label && (
+                    <DataRow
+                      label="Tilt"
+                      value={
+                        temperament.tilt_score != null
+                          ? `${temperament.tilt_label} (${Math.round(temperament.tilt_score * 100)}%)`
+                          : temperament.tilt_label
+                      }
+                    />
+                  )}
+                  {temperament.poise != null && (
+                    <DataRow
+                      label="Composure"
+                      value={`${Math.round(temperament.poise * 100)}%`}
+                    />
+                  )}
+                  {temperament.expressiveness != null && (
+                    <DataRow
+                      label="Readability"
+                      value={`${Math.round(temperament.expressiveness * 100)}%`}
+                    />
+                  )}
+                  {temperament.lines.length > 0 && (
+                    <ul className="dossier__read-tips">
+                      {temperament.lines.map((line, i) => (
+                        <li key={i} className="dossier__read-tip">
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasFieldPos && fieldPos && (
+              <>
+                <SectionRule>FIELD STANDING</SectionRule>
+                <section className="dossier__read">
+                  <ul className="dossier__read-tips">
+                    {fieldPos.vpip_label && (
+                      <li className="dossier__read-tip">{fieldPos.vpip_label}</li>
+                    )}
+                    {fieldPos.af_label && (
+                      <li className="dossier__read-tip">{fieldPos.af_label}</li>
+                    )}
+                  </ul>
+                </section>
+              </>
+            )}
+
+            {hasHistory && history && (
+              <>
+                <SectionRule>THE HISTORY</SectionRule>
+                <section className="dossier__history">
+                  <p className="dossier__history-line">{history.line}</p>
+                  {history.defining && (
+                    <div className="dossier__history-defining">
+                      <div className="dossier__history-defining-head">
+                        <span className="dossier__history-defining-tag">
+                          {history.defining.label}
+                        </span>
+                        <span
+                          className="dossier__history-defining-impact"
+                          title="impact score"
+                        >
+                          {Math.round(history.defining.impact_score * 100)}
+                        </span>
+                      </div>
+                      {history.defining.narrative && (
+                        <p className="dossier__history-defining-narrative">
+                          {history.defining.narrative}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {history.clash.length > 0 && (
+                    <div className="dossier__history-tallies">
+                      {history.clash.map((c) => (
+                        <span key={c.event} className="dossier__history-chip">
+                          {c.label}
+                          {c.count > 1 && (
+                            <span className="dossier__history-chip-count"> ×{c.count}</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {history.banter.length > 0 && (
+                    <div className="dossier__history-tallies dossier__history-tallies--banter">
+                      {history.banter.map((c) => (
+                        <span
+                          key={c.event}
+                          className="dossier__history-chip dossier__history-chip--banter"
+                        >
+                          {c.label}
+                          {c.count > 1 && (
+                            <span className="dossier__history-chip-count"> ×{c.count}</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </section>
               </>

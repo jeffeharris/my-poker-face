@@ -209,6 +209,7 @@ def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> 
         cash_session_repo=cash_session_repo,
         stake_repo=getattr(extensions, "stake_repo", None),
         chip_ledger_repo=getattr(extensions, "chip_ledger_repo", None),
+        bankroll_repo=getattr(extensions, "bankroll_repo", None),
         stale_ttl_seconds=int(STALE_SESSION_TTL_SECONDS),
         now=datetime.utcnow(),
         skip_game_ids=in_memory_cash_ids,
@@ -279,6 +280,7 @@ def _resolve_pace(owner_id: str) -> Tuple[float, int]:
 
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
+    from cash_mode import economy_flags
     from cash_mode.activity import recent_events, serialize_event
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
@@ -315,6 +317,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
             vice_repo=extensions.vice_state_repo,
             side_hustle_repo=extensions.side_hustle_state_repo,
             live_seated_pids=live_cash_seated_pids(sandbox_id),
+            human_headroom=economy_flags.LIVE_FILL_HUMAN_HEADROOM,
         )
 
     _maybe_record_holdings_snapshot(sandbox_id)

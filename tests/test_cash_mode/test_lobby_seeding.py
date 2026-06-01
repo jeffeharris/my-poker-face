@@ -53,8 +53,9 @@ def _insert_personality(
         config["bankroll_knobs"] = bankroll_knobs
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id, visibility) "
-            "VALUES (?, ?, ?, 'public')",
+            "INSERT INTO personalities "
+            "(name, config_json, personality_id, visibility, circulating) "
+            "VALUES (?, ?, ?, 'public', 1)",
             (name or f"Personality {personality_id}", json.dumps(config), personality_id),
         )
         conn.commit()
@@ -106,7 +107,16 @@ class TestTableIdSlug:
 
 
 def _seed_personalities(db_path: str, count: int = 30) -> None:
-    """Insert `count` cash-eligible personalities."""
+    """Insert `count` cash-eligible personalities, each with a funded
+    `ai_bankroll_state` row.
+
+    The bankroll row matters: `ensure_lobby_seeded` debits each AI's
+    bankroll before committing its seat (Window B atomicity, plan §3), so
+    an AI with no bankroll row has its debit refused (`debit_bankroll_for_seat`
+    returns None for a missing row) and is dropped from the seed rather than
+    seated unfunded. Production seeds bankroll rows (`ensure_ai_bankrolls_seeded`)
+    before the lobby, so this mirrors the real cold-start state.
+    """
     for i in range(count):
         _insert_personality(
             db_path,
@@ -119,6 +129,14 @@ def _seed_personalities(db_path: str, count: int = 30) -> None:
                 "stake_comfort_zone": "$10",
             },
         )
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO ai_bankroll_state "
+                "(personality_id, sandbox_id, chips, last_regen_tick) "
+                "VALUES (?, ?, ?, ?)",
+                (f"p{i}", "test-sandbox-1", 100_000, datetime.utcnow().isoformat()),
+            )
+            conn.commit()
 
 
 class TestEnsureLobbySeeded:
@@ -312,18 +330,31 @@ class TestEnsureLobbySeeded:
             ),
             sandbox_id="test-sandbox-1",
         )
-        # "rich" has no row — defaults to starting_bankroll (rich enough).
+        # "rich" gets a funded row. (Window B: the seed now debits each AI's
+        # bankroll before seating it, so an AI must have a fundable row to be
+        # seated — a missing row would be refused/dropped, not seated unfunded.)
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="rich",
+                chips=100_000,
+                last_regen_tick=datetime(2026, 5, 18),
+            ),
+            sandbox_id="test-sandbox-1",
+        )
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
             bankroll_repo=bankroll_repo,
             sandbox_id="test-sandbox-1",
         )
-        # Find broke in any table — must not appear.
+        # "broke" must not appear; "rich" should be seated.
+        seated = set()
         for t in cash_table_repo.list_all_tables():
             for slot in t.seats:
                 if slot["kind"] == "ai":
                     assert slot["personality_id"] != "broke"
+                    seated.add(slot["personality_id"])
+        assert "rich" in seated
 
 
 # ============================================================
@@ -575,7 +606,7 @@ class _FakeCashSessionRepo:
         return True
 
 
-def _session(session_id, ended_at=None):
+def _session(session_id, ended_at=None, session_state="active"):
     return SimpleNamespace(
         session_id=session_id,
         ended_at=ended_at,
@@ -583,6 +614,7 @@ def _session(session_id, ended_at=None):
         hands_played=0,
         hands_won=0,
         biggest_pot_won=0,
+        session_state=session_state,
     )
 
 
@@ -595,13 +627,22 @@ def _row_aged(game_id, age_seconds, *, now, owner_id="u1"):
 
 
 class TestKillAllCashSessionsBootSweep:
-    """T2.2: abandoned cash-* rows (untouched past the TTL) are swept;
-    fresh rows are preserved so resume-on-reboot keeps working."""
+    """T2.2 + freeze-forever (CASH_MODE_STATE_MODEL.md §5.4, §10 Cut 1):
+    the boot sweep GCs genuinely-dead cash-* rows (closed/broken/sessionless)
+    but NEVER a resumable (active/paused/abandoning) session — that's the
+    player's frozen table and zeroing it was the silent-forfeiture bug.
+    Fresh rows are also preserved so resume-on-reboot keeps working."""
 
-    def test_sweeps_stale_orphan_row(self):
+    def test_preserves_stale_active_session(self):
+        """Freeze-forever: even a long-cold ACTIVE session is the player's
+        resumable frozen table — never swept, finalised, or deleted. This is
+        the boot-path regression test for the silent-forfeiture bug.
+        """
         now = datetime(2026, 5, 28, 12, 0, 0)
-        repo = _FakeGameRepo([_row_aged("cash-stale-1", 7200, now=now)])  # 2h old
-        sessions = _FakeCashSessionRepo({"cash-stale-1": _session("cash-stale-1")})
+        repo = _FakeGameRepo([_row_aged("cash-frozen", 7200, now=now)])  # 2h old
+        sessions = _FakeCashSessionRepo(
+            {"cash-frozen": _session("cash-frozen", session_state="active")}
+        )
 
         kill_all_cash_sessions(
             game_state_service=_FakeGameStateService(),
@@ -611,8 +652,31 @@ class TestKillAllCashSessionsBootSweep:
             now=now,
         )
 
-        assert "cash-stale-1" in repo.deleted, "stale orphan games row not deleted"
-        assert ("cash-stale-1", "boot_swept") in sessions.finalised
+        assert repo.deleted == [], "swept a resumable frozen table — the forfeiture bug"
+        assert sessions.finalised == []
+
+    def test_sweeps_dead_closed_orphan_row(self):
+        """A genuinely-dead row (closed session, already finalised) lingering
+        past the TTL is GC'd — it carries no live chips. ended_at is set, so
+        no re-finalise; just the row delete.
+        """
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("cash-dead", 7200, now=now)])  # 2h old
+        sessions = _FakeCashSessionRepo(
+            {"cash-dead": _session("cash-dead", session_state="closed", ended_at=now)}
+        )
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=repo,
+            cash_session_repo=sessions,
+            stale_ttl_seconds=1800,
+            now=now,
+        )
+
+        assert "cash-dead" in repo.deleted, "dead closed orphan row not GC'd"
+        # Already finalised (ended_at set) → no second finalise.
+        assert sessions.finalised == []
 
     def test_preserves_fresh_orphan_row(self):
         now = datetime(2026, 5, 28, 12, 0, 0)
@@ -679,12 +743,16 @@ class TestKillAllCashSessionsBootSweep:
 
     def test_sweep_proceeds_when_not_in_memory_at_recheck(self):
         """Counterpart: with a game_state_service that reports the game
-        absent, the lock-recheck passes and the stale row is swept."""
+        absent AND a genuinely-dead (broken) session, the lock-recheck
+        passes and the dead row is swept. (An active session would be
+        preserved regardless — see test_preserves_stale_active_session.)"""
         from cash_mode.lobby import _boot_sweep_stale_cash_rows
 
         now = datetime(2026, 5, 28, 12, 0, 0)
         repo = _FakeGameRepo([_row_aged("cash-cold", 7200, now=now)])
-        sessions = _FakeCashSessionRepo({"cash-cold": _session("cash-cold")})
+        sessions = _FakeCashSessionRepo(
+            {"cash-cold": _session("cash-cold", session_state="broken")}
+        )
         gss = _FakeGameStateService({})  # not in memory
 
         swept = _boot_sweep_stale_cash_rows(
@@ -717,7 +785,9 @@ class TestKillAllCashSessionsBootSweep:
                 self.broken = []
 
             def load(self, sid):
-                return _session(sid)
+                # Non-blocking (broken) so the sweep proceeds past the
+                # freeze-forever guard and reaches the finalise that fails.
+                return _session(sid, session_state="broken")
 
             def finalise(self, *a, **k):
                 raise RuntimeError("simulated convergence failure")

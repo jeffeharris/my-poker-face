@@ -257,8 +257,8 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         with sqlite3.connect(db) as conn:
             conn.execute(
                 "INSERT INTO personalities "
-                "(name, personality_id, config_json, visibility) "
-                "VALUES (?, ?, ?, 'public')",
+                "(name, personality_id, config_json, visibility, circulating) "
+                "VALUES (?, ?, ?, 'public', 1)",
                 ("Proud", "proud_pid", json.dumps(config)),
             )
         repo = BankrollRepository(db)
@@ -288,8 +288,8 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         with sqlite3.connect(db) as conn:
             conn.execute(
                 "INSERT INTO personalities "
-                "(name, personality_id, config_json, visibility) "
-                "VALUES (?, ?, ?, 'public')",
+                "(name, personality_id, config_json, visibility, circulating) "
+                "VALUES (?, ?, ?, 'public', 1)",
                 ("Test", "test_pid", json.dumps(config)),
             )
         repo = BankrollRepository(db)
@@ -340,8 +340,8 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         with sqlite3.connect(db) as conn:
             conn.execute(
                 "INSERT INTO personalities "
-                "(name, personality_id, config_json, visibility) "
-                "VALUES (?, ?, ?, 'public')",
+                "(name, personality_id, config_json, visibility, circulating) "
+                "VALUES (?, ?, ?, 'public', 1)",
                 ("Test", "test_pid", json.dumps(config)),
             )
         repo = BankrollRepository(db)
@@ -388,8 +388,8 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         with sqlite3.connect(db) as conn:
             conn.execute(
                 "INSERT INTO personalities "
-                "(name, personality_id, config_json, visibility) "
-                "VALUES (?, ?, ?, 'public')",
+                "(name, personality_id, config_json, visibility, circulating) "
+                "VALUES (?, ?, ?, 'public', 1)",
                 ("Override", "override_pid", json.dumps(config)),
             )
         repo = BankrollRepository(db)
@@ -454,8 +454,9 @@ def _seed_personality(repos, pid, name, *, comfort, ego=0.5, starting=10_000):
 
     with sqlite3.connect(repos["db"]) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, personality_id, config_json, visibility) "
-            "VALUES (?, ?, ?, 'public')",
+            "INSERT INTO personalities "
+            "(name, personality_id, config_json, visibility, circulating) "
+            "VALUES (?, ?, ?, 'public', 1)",
             (name, pid, json.dumps(config)),
         )
     repos["bankroll"].save_ai_bankroll(

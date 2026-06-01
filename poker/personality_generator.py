@@ -421,6 +421,15 @@ Respond with ONLY a JSON object in this exact format:
         # one isn't supplied; capture the returned id so downstream
         # callers (relationships, bankrolls, opponent_models) can key on
         # it instead of the display name.
+        #
+        # circulating=False (v123): an auto-generated persona NEVER enters
+        # the live opponent pool implicitly. Owned ones are private anyway;
+        # ownerless ones (sim seats, unknown-name fills) become public-but-
+        # not-circulating — visible/pickable but never auto-seated. This is
+        # the structural fix for the "test/zombie persona pollutes everyone's
+        # circuit" class; promotion to the pool is an explicit, curated act
+        # (set_circulating). See the name-guard above for the prior, weaker
+        # defense.
         visibility = 'private' if owner_id else 'public'
         personality_id = self.personality_repo.save_personality(
             name,
@@ -428,6 +437,7 @@ Respond with ONLY a JSON object in this exact format:
             source='ai_generated',
             owner_id=owner_id,
             visibility=visibility,
+            circulating=False,
         )
         if personality_id:
             generated['id'] = personality_id

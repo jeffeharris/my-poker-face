@@ -72,8 +72,9 @@ def _seed_personality(db_path, pid, name, bankroll_chips, cap=10_000, rate=500):
     )
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, personality_id, config_json, visibility) "
-            "VALUES (?, ?, ?, 'public')",
+            "INSERT INTO personalities "
+            "(name, personality_id, config_json, visibility, circulating) "
+            "VALUES (?, ?, ?, 'public', 1)",
             (name, pid, config_json),
         )
         conn.execute(

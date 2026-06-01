@@ -2,7 +2,7 @@
 purpose: Implementation plan for a player-facing achievement system (21 unlockable achievements across cash + tournament play) with a declarative, easily-extended registry.
 type: spec
 created: 2026-05-27
-last_updated: 2026-05-28
+last_updated: 2026-05-29
 ---
 
 # Achievements System — Implementation Plan
@@ -537,3 +537,32 @@ authenticated owner's progress/unlock rows:
 
 All API calls that could fail (LLM, none here) are N/A; the only external surface is the DB
 and socket emit, both guarded so a failure never breaks the hand/stake path.
+
+## 13. Relationship to player prestige / renown
+
+The player-prestige system (`CASH_MODE_PLAYER_PRESTIGE.md`, "Renown v2") is
+**uncapping `renown` into a continuous, lifetime points ledger fed by the same
+fact surfaces this engine defines** — `HAND` (busts, pots, rare hands),
+`STAKE_SETTLE` (backing), `CASH_STANDING` (net-worth rank, met/beaten counts).
+Achievements are the **discrete milestone** view; renown is the **continuous
+score**. Several v21 achievements *are* renown sources — `richest_in_room`,
+`socialite`, `apex_predator`, `backer`, `loan_shark`, `creditor`, `bounty`,
+`double_knockout`, `royal_flush`, `monster_pot`, `hero`.
+
+**Share the pipeline, don't duplicate.** Recommended bridge (hybrid): renown
+accrues continuously over these facts (every hand moves the needle) **and**
+achievement unlocks mint one-off renown nuggets for *legendary* moments — smooth
+needle plus punctuated spikes.
+
+Two cross-cutting notes that live in the prestige doc but constrain this engine:
+
+- **AI-symmetry.** This engine is `owner_id`-keyed (human-only). Renown must also
+  compute for **AIs** (the occupant-prestige layer), so AI renown is computed
+  directly from the symmetric fact sources, *not* via this engine — the
+  achievement→renown bridge is a human-side bonus only.
+- **Shared dependency — the scalp/bust counter.** `bounty`/`double_knockout` use
+  a per-hand `opponents_busted`; renown-weighted scalps want a **durable,
+  attributed "who busted whom"** counter (the world runs the full sim, so real
+  busts already occur — they're just not persisted with eliminator attribution
+  in the cash path, and not at all for AI-vs-AI). Wiring it once serves both
+  systems. See `CASH_MODE_PLAYER_PRESTIGE.md` § "Known telemetry gaps".

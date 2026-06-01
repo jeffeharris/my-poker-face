@@ -148,6 +148,41 @@ def load_personality_from_json(name):
 
 
 # ---------------------------------------------------------------------------
+# Cutover-flag isolation (suite-wide)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_cutover_flags():
+    """Force the cash-mode cutover flags OFF for EVERY test.
+
+    These flags (`PRESENCE_*`, `CHIP_CUSTODY_*`) read the environment at import
+    so a dev/prod container can opt in. The suite runs INSIDE that container, so
+    when dev has e.g. `CHIP_CUSTODY_ENABLED=1` / `PRESENCE_AUTHORITY_ENABLED=1`
+    set, the env leaks into pytest and silently flips behaviour under tests that
+    assert the OFF baseline (top-level ledger / repository tests have no local
+    reset). Force all OFF before each test; a test that exercises a mode sets the
+    flag explicitly (runs after this fixture, wins). `test_cash_mode/conftest.py`
+    has its own copy for that package — harmless redundancy."""
+    import cash_mode.economy_flags as ef
+
+    names = (
+        "PRESENCE_SHADOW_WRITE_ENABLED",
+        "PRESENCE_AUTHORITY_ENABLED",
+        "CHIP_CUSTODY_ENABLED",
+        "CHIP_CUSTODY_DERIVE_READS",
+    )
+    prior = {n: getattr(ef, n) for n in names}
+    for n in names:
+        setattr(ef, n, False)
+    try:
+        yield
+    finally:
+        for n, v in prior.items():
+            setattr(ef, n, v)
+
+
+# ---------------------------------------------------------------------------
 # Temporary database + repositories
 # ---------------------------------------------------------------------------
 

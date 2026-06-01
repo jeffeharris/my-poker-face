@@ -11,16 +11,21 @@ Covers the in-memory representation of a persisted cash table:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
 from cash_mode.tables import (
     BASELINE_AI_SEATS,
     OPEN_SEATS,
+    SEAT_RESERVATION_TTL_SECONDS,
     TABLE_SEAT_COUNT,
     CashTableState,
     ai_slot,
     human_slot,
+    is_reservation_expired,
     open_slot,
+    reserved_slot,
     seats_from_json,
     seats_to_json,
 )
@@ -43,6 +48,56 @@ class TestSlotConstructors:
             "personality_id": "user-123",
             "chips": 500,
         }
+
+    def test_reserved_slot(self):
+        now = datetime(2026, 5, 29, 12, 0, 0)
+        slot = reserved_slot("user-123", now)
+        assert slot["kind"] == "reserved"
+        assert slot["personality_id"] == "user-123"
+        assert slot["reserved_at"] == now.isoformat()
+        expected_expiry = now + timedelta(seconds=SEAT_RESERVATION_TTL_SECONDS)
+        assert slot["expire_at"] == expected_expiry.isoformat()
+
+
+class TestReservationExpiry:
+    def test_fresh_hold_not_expired(self):
+        now = datetime(2026, 5, 29, 12, 0, 0)
+        slot = reserved_slot("u1", now)
+        # A second later: still well inside the TTL.
+        assert is_reservation_expired(slot, now + timedelta(seconds=1)) is False
+
+    def test_hold_expired_past_ttl(self):
+        now = datetime(2026, 5, 29, 12, 0, 0)
+        slot = reserved_slot("u1", now)
+        later = now + timedelta(seconds=SEAT_RESERVATION_TTL_SECONDS + 1)
+        assert is_reservation_expired(slot, later) is True
+
+    def test_non_reserved_slots_never_expire(self):
+        now = datetime(2026, 5, 29, 12, 0, 0)
+        assert is_reservation_expired(open_slot(), now) is False
+        assert is_reservation_expired(ai_slot("napoleon", 100), now) is False
+        assert is_reservation_expired(human_slot("u1", 100), now) is False
+
+    def test_malformed_expire_at_treated_as_expired(self):
+        # A garbled hold must never wedge a seat permanently — the sweep
+        # frees it on the next refresh.
+        now = datetime(2026, 5, 29, 12, 0, 0)
+        assert is_reservation_expired({"kind": "reserved"}, now) is True
+        assert is_reservation_expired({"kind": "reserved", "expire_at": "nonsense"}, now) is True
+
+    def test_reserved_seat_index_for(self):
+        now = datetime(2026, 5, 29, 12, 0, 0)
+        seats = [
+            ai_slot("napoleon", 400),
+            reserved_slot("me", now),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        t = CashTableState(table_id="t1", stake_label="$10", seats=seats)
+        assert t.reserved_seat_index_for("me") == 1
+        assert t.reserved_seat_index_for("someone-else") is None
 
 
 class TestSeatCounts:
@@ -113,6 +168,16 @@ class TestValidation:
         seats = [open_slot()] * 5 + ["not-a-dict"]
         with pytest.raises(ValueError, match="malformed"):
             CashTableState(table_id="t1", stake_label="$10", seats=seats)
+
+    def test_reserved_kind_accepted(self):
+        # A "reserved" hold must validate + survive a JSON roundtrip so it
+        # persists across the SponsorModal window.
+        seats = [reserved_slot("me", datetime(2026, 5, 29, 12, 0, 0))] + [open_slot()] * 5
+        t = CashTableState(table_id="t1", stake_label="$10", seats=seats)
+        assert t.seats[0]["kind"] == "reserved"
+        restored = seats_from_json(seats_to_json(t.seats))
+        assert restored[0]["kind"] == "reserved"
+        assert restored[0]["personality_id"] == "me"
 
 
 class TestWithSeat:

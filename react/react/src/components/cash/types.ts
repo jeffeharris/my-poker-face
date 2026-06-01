@@ -474,13 +474,19 @@ export interface SitResponse {
   seat_index: number;
 }
 
-/** 402 body when the player tapped a sponsor-required seat. */
+/** 402 body when the player tapped a sponsor-required seat. The
+ *  backend echoes the table_id + the seat it actually reserved — which
+ *  may differ from the tapped seat if live-fill took it and the server
+ *  fell back to another open seat — so the SponsorModal must target
+ *  these rather than the originally-tapped index. */
 export interface SitRequiresSponsor {
   requires_sponsor: true;
   stake_label: StakeLabel;
   bankroll: number;
   min_buy_in: number;
   max_buy_in: number;
+  table_id: string;
+  seat_index: number;
 }
 
 // --- Net Worth (Phase 3 Commit 1) ---
@@ -764,4 +770,30 @@ export interface ForgivenessResponse {
 export interface ForgivenessRateLimited {
   error: string;
   retry_after_seconds: number;
+}
+
+// --- File cabinet (dossier Phase 4) ---
+
+/** One opponent in the file-cabinet roster — everyone you've accumulated
+ *  scouting on, with the headline stats the UI sorts by. */
+export interface FileCabinetPerson {
+  personality_id: string;
+  name: string;
+  hands_observed: number;
+  net_pnl: number; // observer POV: positive = you're up
+  hands_played_cash: number;
+  heat: number;
+  respect: number;
+  likability: number;
+  last_seen: string | null;
+  reads_unlocked: number;
+  reads_total: number;
+  floor_met: boolean;
+  fully_unlocked: boolean;
+}
+
+export interface FileCabinetResponse {
+  people: FileCabinetPerson[];
+  people_met: number;
+  dossiers_unlocked: number;
 }

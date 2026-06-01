@@ -702,6 +702,26 @@ class GameRepository(BaseRepository):
             # migration window.
             opp_cols = {row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")}
             has_id_cols = 'observer_id' in opp_cols and 'opponent_id' in opp_cols
+            has_applied_col = 'lifetime_applied_json' in opp_cols
+
+            # Preserve the lifetime-fold high-water mark across the
+            # delete+reinsert below. INSERT OR REPLACE drops any column not
+            # listed (lifetime_applied_json isn't), which would reset the
+            # mark to NULL and make the post-save fold re-add the full count
+            # every save (double-counting). Snapshot it here, restore it
+            # after the reinserts. Keyed by (observer_name, opponent_name) —
+            # the stable identity within a game's models.
+            applied_marks = {}
+            if has_applied_col:
+                applied_marks = {
+                    (r['observer_name'], r['opponent_name']): r['lifetime_applied_json']
+                    for r in conn.execute(
+                        "SELECT observer_name, opponent_name, lifetime_applied_json "
+                        "FROM opponent_models WHERE game_id = ? "
+                        "AND lifetime_applied_json IS NOT NULL",
+                        (game_id,),
+                    )
+                }
 
             # Clear existing models for this game
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
@@ -805,7 +825,417 @@ class GameRepository(BaseRepository):
                             ),
                         )
 
+            # Restore the preserved lifetime-fold high-water marks onto the
+            # freshly-reinserted rows so the post-save fold computes a correct
+            # delta (current − already-applied) instead of re-adding the full
+            # count. Rows new this save have no mark and stay NULL (fold then
+            # treats the whole count as the first delta — correct).
+            for (obs_name, opp_name), applied_json in applied_marks.items():
+                conn.execute(
+                    "UPDATE opponent_models SET lifetime_applied_json = ? "
+                    "WHERE game_id = ? AND observer_name = ? AND opponent_name = ?",
+                    (applied_json, game_id, obs_name, opp_name),
+                )
+
             logger.debug(f"Saved opponent models for game {game_id}")
+
+    # Maps the count keys serialized in opponent_models.tendencies_json
+    # (OpponentTendencies.to_dict) → the cumulative columns on
+    # opponent_observation_lifetime. Counts only — rates derive on read.
+    # Integer accumulators: lifetime += delta each fold.
+    _LIFETIME_COUNT_FIELDS = {
+        'hands_dealt': 'hands_dealt',
+        'hands_observed': 'hands_observed',
+        '_vpip_count': 'vpip_count',
+        '_pfr_count': 'pfr_count',
+        '_bet_raise_count': 'bet_raise_count',
+        '_call_count': 'call_count',
+        '_showdowns': 'showdowns_seen',
+        '_showdowns_won': 'showdowns_won',
+        # v125 deep postflop counts — numerator/denominator pairs for the
+        # Tier-2 reads (rates derive on read via OpponentTendencies).
+        '_all_in_count': 'all_in_count',
+        '_fold_to_cbet_count': 'fold_to_cbet_count',
+        '_cbet_faced_count': 'cbet_faced_count',
+        '_cbet_attempt_count': 'cbet_attempt_count',
+        '_postflop_seen_as_pfr_count': 'postflop_seen_as_pfr_count',
+        '_barrel_count': 'barrel_count',
+        '_barrel_opportunity_count': 'barrel_opportunity_count',
+        '_third_barrel_count': 'third_barrel_count',
+        '_third_barrel_opportunity_count': 'third_barrel_opportunity_count',
+        '_postflop_bet_raise_count': 'postflop_bet_raise_count',
+        '_postflop_call_count': 'postflop_call_count',
+        '_equity_betting_count': 'equity_betting_count',
+        '_equity_raising_count': 'equity_raising_count',
+        '_equity_calling_count': 'equity_calling_count',
+        # v126 preflop opportunity counts — denominators for the player-count-
+        # stable vpip_per_voluntary_opportunity / pfr_per_open_opportunity the
+        # station/nit exploitation detectors gate on (dossier "the read").
+        '_preflop_voluntary_action_count': 'preflop_voluntary_action_count',
+        '_preflop_voluntary_opportunities': 'preflop_voluntary_opportunities',
+        '_preflop_open_raise_count': 'preflop_open_raise_count',
+        '_preflop_open_opportunities': 'preflop_open_opportunities',
+    }
+
+    # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
+    # the integer counts, but coerced as floats; the polarization means derive
+    # on read as sum / count.
+    _LIFETIME_SUM_FIELDS = {
+        '_equity_betting_sum': 'equity_betting_sum',
+        '_equity_raising_sum': 'equity_raising_sum',
+        '_equity_calling_sum': 'equity_calling_sum',
+    }
+
+    def fold_observations_into_lifetime(
+        self, game_id: str, sandbox_id: Optional[str]
+    ) -> int:
+        """Fold this game's per-opponent observation counts into the durable
+        per-sandbox `opponent_observation_lifetime` rows (Phase 1).
+
+        The Circuit's scouting memory. Called right after
+        `save_opponent_models` at each hand-boundary save, but ONLY for
+        sandbox-bound games (Circuit cash + Circuit tournaments) — a falsy
+        `sandbox_id` makes this a no-op, so other modes never contribute.
+
+        Continuous **delta-fold**: for each (observer_id, opponent_id) pair
+        with both ids present, `delta = current_counts − applied`, the
+        lifetime row is incremented by `delta`, and the per-game high-water
+        mark `opponent_models.lifetime_applied_json` is set to the current
+        counts. This is resume-safe (cold-load reuses game_id) and never
+        double-counts: re-folding an unchanged game writes nothing.
+
+        Reads what `save_opponent_models` just persisted (counts live in
+        `tendencies_json`); kept as a separate method + transaction so the
+        hot save path stays untouched. Returns the number of pairs folded.
+        """
+        if not sandbox_id:
+            return 0
+
+        folded = 0
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT observer_id, opponent_id, tendencies_json,
+                       lifetime_applied_json
+                FROM opponent_models
+                WHERE game_id = ?
+                """,
+                (game_id,),
+            ).fetchall()
+
+            for row in rows:
+                observer_id = row['observer_id']
+                opponent_id = row['opponent_id']
+                # Only id'd pairs accumulate lifetime intel; human/ad-hoc
+                # rows without stable ids are skipped (nothing reads them).
+                # Self-pairs (observer == opponent) are noise — you don't
+                # scout yourself — so they're skipped too.
+                if not observer_id or not opponent_id or observer_id == opponent_id:
+                    continue
+
+                try:
+                    current_raw = json.loads(row['tendencies_json'] or '{}')
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    applied = json.loads(row['lifetime_applied_json'] or '{}')
+                except (TypeError, ValueError):
+                    applied = {}
+
+                # Current counts (int) + sums (float), keyed by tendencies key.
+                current = {
+                    src: int(current_raw.get(src, 0) or 0)
+                    for src in self._LIFETIME_COUNT_FIELDS
+                }
+                current.update({
+                    src: float(current_raw.get(src, 0.0) or 0.0)
+                    for src in self._LIFETIME_SUM_FIELDS
+                })
+                # Per-column deltas vs the high-water mark. Column order is
+                # taken from the field maps so the INSERT below stays in sync
+                # automatically as new fields are added.
+                int_cols = list(self._LIFETIME_COUNT_FIELDS.values())
+                sum_cols = list(self._LIFETIME_SUM_FIELDS.values())
+                all_cols = int_cols + sum_cols
+                deltas = {
+                    col: current[src] - int(applied.get(src, 0) or 0)
+                    for src, col in self._LIFETIME_COUNT_FIELDS.items()
+                }
+                deltas.update({
+                    col: current[src] - float(applied.get(src, 0.0) or 0.0)
+                    for src, col in self._LIFETIME_SUM_FIELDS.items()
+                })
+                if not any(deltas.values()):
+                    continue  # nothing new since last fold
+
+                col_list = ", ".join(all_cols)
+                placeholders = ", ".join("?" for _ in all_cols)
+                update_set = ",\n                        ".join(
+                    f"{col} = {col} + excluded.{col}" for col in all_cols
+                )
+                conn.execute(
+                    f"""
+                    INSERT INTO opponent_observation_lifetime
+                        (sandbox_id, observer_id, opponent_id,
+                         {col_list}, first_seen, last_updated)
+                    VALUES (?, ?, ?, {placeholders},
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(sandbox_id, observer_id, opponent_id) DO UPDATE SET
+                        {update_set},
+                        last_updated    = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        sandbox_id, observer_id, opponent_id,
+                        *(deltas[col] for col in all_cols),
+                    ),
+                )
+                conn.execute(
+                    """
+                    UPDATE opponent_models SET lifetime_applied_json = ?
+                    WHERE game_id = ? AND observer_id = ? AND opponent_id = ?
+                    """,
+                    (json.dumps(current), game_id, observer_id, opponent_id),
+                )
+                folded += 1
+
+        if folded:
+            logger.debug(
+                "Folded %d opponent observation(s) into lifetime for game %s "
+                "(sandbox %s)", folded, game_id, sandbox_id
+            )
+        return folded
+
+    def load_observation_lifetime(
+        self, sandbox_id: str, observer_id: str, opponent_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Load the durable lifetime observation COUNTS for a pair in one
+        sandbox, or None when no lifetime row exists yet.
+
+        Returns raw cumulative counts only — rates (VPIP/PFR/AF/showdown) are
+        derived by the caller through the canonical `OpponentTendencies`
+        formula so this repository stays free of strategy-config coupling and
+        the rate definitions never drift from the live path.
+        """
+        # Count/sum columns are sourced from the fold field maps so the read
+        # stays in sync with what the fold writes (v125 deep reads included).
+        count_cols = list(self._LIFETIME_COUNT_FIELDS.values())
+        sum_cols = list(self._LIFETIME_SUM_FIELDS.values())
+        with self._get_connection() as conn:
+            row = conn.execute(
+                f"""
+                SELECT {", ".join(count_cols + sum_cols)}, first_seen, last_updated
+                FROM opponent_observation_lifetime
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
+                """,
+                (sandbox_id, observer_id, opponent_id),
+            ).fetchone()
+
+        if row is None:
+            return None
+        result: Dict[str, Any] = {col: row[col] or 0 for col in count_cols}
+        result.update({col: row[col] or 0.0 for col in sum_cols})
+        result['first_seen'] = row['first_seen']
+        result['last_updated'] = row['last_updated']
+        return result
+
+    # Opportunity denominators the dossier scouting gate's Tier-2 tiers read
+    # (kept in sync with `dossier_scouting.SCOUTING_SCHEDULE` sample_fields).
+    # Exposed on the roster so the file cabinet's unlock % matches the dossier
+    # (hand count alone can't decide a sample-gated tier). Named here rather
+    # than imported because this repo (poker/) must not depend on flask_app/.
+    _ROSTER_SAMPLE_COLUMNS = (
+        'cbet_faced_count', 'postflop_seen_as_pfr_count',
+        'postflop_bet_raise_count', 'postflop_call_count',
+        'barrel_opportunity_count', 'equity_betting_count',
+        'equity_raising_count', 'equity_calling_count',
+    )
+
+    def list_observation_lifetime_for_observer(
+        self, sandbox_id: str, observer_id: str
+    ) -> List[Dict[str, Any]]:
+        """Every opponent this observer has a lifetime observation row for, in
+        this sandbox — the roster spine for the file cabinet. Returns
+        opponent_id + hands_observed + hands_dealt + last_updated plus the
+        Tier-2 opportunity counts (`_ROSTER_SAMPLE_COLUMNS`) so the file
+        cabinet can compute the same sample-gated unlock state the dossier
+        does. PnL / relationship / names are joined separately. Ordered
+        most-observed first.
+        """
+        sample_cols = ", ".join(self._ROSTER_SAMPLE_COLUMNS)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT opponent_id, hands_observed, hands_dealt, {sample_cols},
+                       first_seen, last_updated
+                FROM opponent_observation_lifetime
+                WHERE sandbox_id = ? AND observer_id = ?
+                  AND opponent_id != observer_id
+                ORDER BY hands_observed DESC
+                """,
+                (sandbox_id, observer_id),
+            ).fetchall()
+        result = []
+        for r in rows:
+            entry = {
+                'opponent_id': r['opponent_id'],
+                'hands_observed': r['hands_observed'] or 0,
+                'hands_dealt': r['hands_dealt'] or 0,
+                'first_seen': r['first_seen'],
+                'last_updated': r['last_updated'],
+            }
+            entry.update({col: r[col] or 0 for col in self._ROSTER_SAMPLE_COLUMNS})
+            result.append(entry)
+        return result
+
+    def load_lifetime_memorable_hands(
+        self, owner_id: str, opponent_name: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Top memorable hands the human (game owner) has logged against
+        `opponent_name` across ALL of their games — the durable, cross-game
+        view for the dossier (the live builder only sees the active game).
+
+        Scoped by game owner (≈ sandbox under v1's 1:1 ownership). Filters to
+        the human-as-observer by matching observer_name to the game's
+        owner_name, so AI-observer memories don't leak in. `hand_summary` is
+        not persisted (game_repository known gap), so it comes back empty —
+        the narrative + impact carry the entry.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.hand_id, m.memory_type, m.impact_score, m.narrative,
+                       m.created_at
+                FROM memorable_hands m
+                JOIN games g ON m.game_id = g.game_id
+                WHERE g.owner_id = ?
+                  AND m.opponent_name = ?
+                  AND m.observer_name = g.owner_name
+                ORDER BY m.impact_score DESC
+                LIMIT ?
+                """,
+                (owner_id, opponent_name, limit),
+            ).fetchall()
+        return [
+            {
+                'hand_id': r['hand_id'],
+                'event': r['memory_type'],
+                'impact_score': r['impact_score'] or 0.0,
+                'narrative': r['narrative'] or '',
+                'hand_summary': '',  # not persisted (known gap)
+                'timestamp': r['created_at'],
+            }
+            for r in rows
+        ]
+
+    def load_relationship_history(
+        self, owner_id: str, opponent_name: str, clash_types=()
+    ) -> Dict[str, Any]:
+        """Aggregate the human's logged relationship events vs `opponent_name`
+        across all their games — the rivalry view for the dossier.
+
+        Owner-scoped, human-as-observer (same scoping as
+        `load_lifetime_memorable_hands`). Returns:
+          - `counts`: {memory_type: n} over every logged event (clash + chat).
+          - `defining`: the single highest-impact "clash" hand (a
+            rivalry-defining moment) as {event, impact_score, narrative,
+            timestamp}, or None. `clash_types` names which memory_types count
+            as clashes (the taxonomy lives in the service layer).
+        """
+        with self._get_connection() as conn:
+            count_rows = conn.execute(
+                """
+                SELECT m.memory_type AS memory_type, COUNT(*) AS n
+                FROM memorable_hands m
+                JOIN games g ON m.game_id = g.game_id
+                WHERE g.owner_id = ?
+                  AND m.opponent_name = ?
+                  AND m.observer_name = g.owner_name
+                GROUP BY m.memory_type
+                """,
+                (owner_id, opponent_name),
+            ).fetchall()
+            counts = {r['memory_type']: r['n'] for r in count_rows}
+
+            defining = None
+            clash_types = tuple(clash_types)
+            if clash_types:
+                placeholders = ",".join("?" for _ in clash_types)
+                row = conn.execute(
+                    f"""
+                    SELECT m.memory_type, m.impact_score, m.narrative,
+                           m.created_at
+                    FROM memorable_hands m
+                    JOIN games g ON m.game_id = g.game_id
+                    WHERE g.owner_id = ?
+                      AND m.opponent_name = ?
+                      AND m.observer_name = g.owner_name
+                      AND m.memory_type IN ({placeholders})
+                    ORDER BY m.impact_score DESC
+                    LIMIT 1
+                    """,
+                    (owner_id, opponent_name, *clash_types),
+                ).fetchone()
+                if row is not None:
+                    defining = {
+                        'event': row['memory_type'],
+                        'impact_score': row['impact_score'] or 0.0,
+                        'narrative': row['narrative'] or '',
+                        'timestamp': row['created_at'],
+                    }
+
+        return {'counts': counts, 'defining': defining}
+
+    def load_informant_unlocks(
+        self, sandbox_id: str, observer_id: str, opponent_id: str
+    ) -> set:
+        """Return the set of dossier section_ids the observer has bought from
+        the informant for this opponent in this sandbox (Phase 3)."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT section_id FROM dossier_informant_unlocks
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
+                """,
+                (sandbox_id, observer_id, opponent_id),
+            ).fetchall()
+        return {row['section_id'] for row in rows}
+
+    def load_all_informant_unlocks_for_observer(
+        self, sandbox_id: str, observer_id: str
+    ) -> Dict[str, set]:
+        """All informant section purchases for this observer in this sandbox,
+        keyed opponent_id → set(section_ids). One query for the file cabinet's
+        per-opponent unlock status (vs. N calls to load_informant_unlocks)."""
+        out: Dict[str, set] = {}
+        with self._get_connection() as conn:
+            for r in conn.execute(
+                """
+                SELECT opponent_id, section_id FROM dossier_informant_unlocks
+                WHERE sandbox_id = ? AND observer_id = ?
+                """,
+                (sandbox_id, observer_id),
+            ):
+                out.setdefault(r['opponent_id'], set()).add(r['section_id'])
+        return out
+
+    def record_informant_unlock(
+        self, sandbox_id: str, observer_id: str, opponent_id: str,
+        section_id: str, price_paid: int,
+    ) -> bool:
+        """Persist an informant section purchase. Idempotent: a section
+        already owned is left as-is (INSERT OR IGNORE) and returns False so
+        the caller can avoid charging twice; a new row returns True."""
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO dossier_informant_unlocks
+                    (sandbox_id, observer_id, opponent_id, section_id,
+                     price_paid, purchased_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (sandbox_id, observer_id, opponent_id, section_id, int(price_paid)),
+            )
+            return cur.rowcount > 0
 
     def load_opponent_models(self, game_id: str) -> Dict[str, Any]:
         """Load opponent models for a game.

@@ -20,6 +20,7 @@ import { pickQuote } from '../WinnerAnnouncement/quote-flavor';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { gameAPI } from '../../../utils/api';
+import { avatarUrlForEmotion } from '../../../utils/avatarUrl';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import { useTournamentEvents } from '../../../hooks/useTournamentEvents';
@@ -393,13 +394,9 @@ export function PokerTable({
 
                 // Compute avatar state: swap to "thinking" when AI is processing
                 const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;
-                const avatarUrl =
-                  isAiThinking && player.avatar_url
-                    ? player.avatar_url.replace(
-                        /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
-                        '/api/avatar/$1/thinking$2'
-                      )
-                    : player.avatar_url;
+                const avatarUrl = isAiThinking
+                  ? avatarUrlForEmotion(player.avatar_url, 'thinking')
+                  : player.avatar_url;
                 const avatarEmotion = isAiThinking ? 'thinking' : player.avatar_emotion || 'avatar';
                 const headsUpShowdownSlot = isHeadsUpShowdownLayout
                   ? showdownOpponents.findIndex((p: Player) => p.name === player.name)
@@ -511,6 +508,9 @@ export function PokerTable({
         character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
         origin={dossierOrigin}
         identifier={dossierPlayer?.name}
+        // Informant purchasing only in the Circuit (cash) — tournaments show
+        // the scouted reads but no chip-cost buttons.
+        circuitContext={!!gameState.cash_mode}
       />
     </>
   );

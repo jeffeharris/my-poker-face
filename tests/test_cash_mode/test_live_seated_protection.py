@@ -105,8 +105,9 @@ def _insert_personality(db_path: str, personality_id: str, *, name: str, bankrol
     config = {"bankroll_knobs": bankroll_knobs}
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id, visibility) "
-            "VALUES (?, ?, ?, 'public')",
+            "INSERT INTO personalities "
+            "(name, config_json, personality_id, visibility, circulating) "
+            "VALUES (?, ?, ?, 'public', 1)",
             (name, json.dumps(config), personality_id),
         )
         conn.commit()
@@ -322,6 +323,134 @@ class TestRestoreCashTableBinding:
         out = game_handler._restore_cash_table_binding("cash-coldstart", game_data)
         assert out is None
         assert "cash_table_id" not in game_data
+
+
+# ============================================================
+# _ensure_cash_mode — cold-load cash-metadata rehydration
+# ============================================================
+
+
+class _FakePlayer:
+    def __init__(self, name, is_human=False):
+        self.name = name
+        self.is_human = is_human
+
+
+class _FakeGameState:
+    def __init__(self, players, current_ante=2):
+        self.players = players
+        self.current_ante = current_ante
+
+
+class _FakeStateMachine:
+    def __init__(self, game_state):
+        self.game_state = game_state
+
+
+class _FakePersonalityRepo:
+    def __init__(self, mapping):
+        self._m = mapping
+
+    def resolve_name_to_personality_id(self, name):
+        return self._m.get(name)
+
+
+class _FakeMemoryManager:
+    def __init__(self):
+        self.cap = None
+
+    def set_table_max_buy_in(self, value):
+        self.cap = value
+
+
+class TestEnsureCashMode:
+    """Regression for the cold-load ghost-seat split-brain: the cash-mode
+    memory fields (`cash_mode`, `cash_table_id`, `cash_personality_ids`, …)
+    aren't in `game_state_json`, so a *background* hand advance that
+    cold-loads a game (world ticker / socket, bypassing the /api/game-state
+    restore block) comes back with `cash_mode` falsy. The hand-end cash flow
+    — refill, bust-detect, lobby refresh + the binding self-heal inside it —
+    is all gated on that flag, so it silently skips and the human seat
+    orphans. `_ensure_cash_mode` rebuilds the dropped fields from the durable
+    `cash_sessions` row + live players so the flow runs.
+    """
+
+    def _patch(self, monkeypatch, session, name_to_pid):
+        import flask_app.extensions as ext
+
+        monkeypatch.setattr(ext, "cash_session_repo", _FakeSessionRepo(session), raising=False)
+        monkeypatch.setattr(
+            ext, "personality_repo", _FakePersonalityRepo(name_to_pid), raising=False
+        )
+        saved: dict = {}
+        monkeypatch.setattr(
+            game_state_service,
+            "set_game",
+            lambda gid, data: saved.update({"gid": gid, "data": data}),
+        )
+        return saved
+
+    def test_warm_game_is_noop(self, monkeypatch):
+        saved = self._patch(monkeypatch, _FakeSession("cash-table-2-001", 1), {})
+        game_data = {"cash_mode": True}
+        assert game_handler._ensure_cash_mode("cash-x", game_data) is True
+        # Already hydrated — no rebuild, no write-back.
+        assert saved == {}
+
+    def test_non_cash_game_returns_false(self, monkeypatch):
+        saved = self._patch(monkeypatch, _FakeSession("cash-table-2-001", 1), {})
+        game_data = {}
+        assert game_handler._ensure_cash_mode("regular-game-id", game_data) is False
+        assert "cash_mode" not in game_data
+        assert saved == {}
+
+    def test_cold_loaded_cash_game_rehydrates(self, monkeypatch):
+        saved = self._patch(
+            monkeypatch,
+            _FakeSession("cash-casino-2-001", 1),
+            {"Sherlock Holmes": "sherlock_holmes", "Lizzo": "lizzo"},
+        )
+        players = [
+            _FakePlayer("Jeff", is_human=True),
+            _FakePlayer("Sherlock Holmes"),
+            _FakePlayer("Lizzo"),
+        ]
+        mm = _FakeMemoryManager()
+        game_data = {
+            "state_machine": _FakeStateMachine(_FakeGameState(players, current_ante=2)),
+            "memory_manager": mm,
+            "owner_id": "guest_jeff",
+        }
+
+        assert game_handler._ensure_cash_mode("cash-GNu7", game_data) is True
+
+        # Flag + binding recovered from the durable session row.
+        assert game_data["cash_mode"] is True
+        assert game_data["cash_table_id"] == "cash-casino-2-001"
+        assert game_data["cash_seat_index"] == 1
+        # Stake label + table cap resolved from the big blind ($2 → bb 2).
+        assert game_data["cash_stake_label"] == "$2"
+        assert mm.cap is not None and mm.cap > 0
+        # Personality ids rebuilt from the live opponents only (human excluded).
+        assert game_data["cash_personality_ids"] == {
+            "Sherlock Holmes": "sherlock_holmes",
+            "Lizzo": "lizzo",
+        }
+        # Persisted so the in-loop refresh + downstream cash steps see it.
+        assert saved["gid"] == "cash-GNu7"
+
+    def test_legacy_cash_game_without_binding_still_enables_flow(self, monkeypatch):
+        # /api/cash/start games never had a cash_sessions binding. We still
+        # want cash_mode on (so refill/bust-detect run); the lobby refresh
+        # self-heal will just early-return on the absent table id.
+        self._patch(monkeypatch, None, {})
+        players = [_FakePlayer("Jeff", is_human=True), _FakePlayer("Buddha")]
+        game_data = {
+            "state_machine": _FakeStateMachine(_FakeGameState(players, current_ante=10)),
+        }
+        assert game_handler._ensure_cash_mode("cash-legacy", game_data) is True
+        assert game_data["cash_mode"] is True
+        assert game_data.get("cash_table_id") is None
 
 
 if __name__ == "__main__":

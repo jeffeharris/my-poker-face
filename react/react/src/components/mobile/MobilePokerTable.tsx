@@ -41,6 +41,7 @@ import { isBettingPhase } from '../../constants/gamePhases';
 import { heroCardAnimation } from './heroCardAnimation';
 import { logger } from '../../utils/logger';
 import { gameAPI } from '../../utils/api';
+import { avatarUrlForEmotion } from '../../utils/avatarUrl';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
 import './MobilePokerTable.css';
@@ -57,15 +58,6 @@ interface MobilePokerTableProps {
 // How many world-ticker beats the interhand "meanwhile, elsewhere" strip
 // shows at once. A few of the biggest/rarest — not a full feed.
 const MAX_INTERHAND_TICKER = 3;
-
-// Repoint an avatar URL at a different per-emotion image. The backend serves
-// `/api/avatar/{name}/{emotion}` (with 404→fallback), so swapping the emotion
-// segment is enough to change the face — the same trick the "thinking" highlight
-// uses. Leaves a non-matching/empty URL untouched.
-function avatarUrlForEmotion(url: string | undefined, emotion: string): string | undefined {
-  if (!url) return url;
-  return url.replace(/\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/, `/api/avatar/$1/${emotion}$2`);
-}
 
 export function MobilePokerTable({
   gameId: providedGameId,
@@ -268,6 +260,7 @@ export function MobilePokerTable({
     schedule: runoutSchedule,
     runItOut,
     revealed: !!revealedCards,
+    heroFolded: !!humanPlayer?.is_folded,
     communityCardCount: communityCards?.length ?? 0,
     handNumber,
     fastForward,
@@ -709,13 +702,9 @@ export function MobilePokerTable({
                 // rewrite the same default avatar shows the whole hand
                 // even though the player object exposes avatar_emotion.
                 const isAiThinking = isCurrentPlayer && aiThinking && !opponent.is_human;
-                const avatarUrl =
-                  isAiThinking && opponent.avatar_url
-                    ? opponent.avatar_url.replace(
-                        /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
-                        '/api/avatar/$1/thinking$2'
-                      )
-                    : opponent.avatar_url;
+                const avatarUrl = isAiThinking
+                  ? avatarUrlForEmotion(opponent.avatar_url, 'thinking')
+                  : opponent.avatar_url;
                 const avatarEmotion = isAiThinking
                   ? 'thinking'
                   : opponent.avatar_emotion || 'avatar';
