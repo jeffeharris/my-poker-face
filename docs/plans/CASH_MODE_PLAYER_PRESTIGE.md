@@ -255,6 +255,34 @@ overfitting one sandbox):
   until workstream A ships — reinforcing that the scalp tracker is the
   shippable prerequisite.
 
+**Offline structural pass (2026-06-01) — both findings treated, and a deeper
+root cause exposed.** Rather than hand-tune weights (overfitting one sandbox),
+applied the Rung-1 rule — *uncapped → field-relative* — to the two heavy
+drivers: backing and breadth now contribute `w · log1p(raw / field_median)`
+instead of an absolute log. A median-relative log self-scales (median entity →
+0.69, 10× → 2.4), and the raw/median *ratio* is ~denominator-robust, so the
+hands-denominated offline read proxies the wall-clock design. Result: Rung 1
+still PASSES (4 routes, no >85% dominance, anti-treadmill intact), and on the
+real field the **human runaway halves** (84→54 renown; gap to #2 2.7×→1.26×)
+and the **backing monoculture breaks** (backing shares 80–94% → 42–65%; the
+field is now ~half breadth-led, half backing-led, with the one genuine outlier
+patron still correctly backing-led). Lives in `renown_v2_scorer.py`
+(`_relative` + `FieldContext`).
+
+But the relativisation only treats the *scoring* symptom. The DB shows the
+**backing economy itself is running hot**: top backers stake nearly the whole
+field (deadpool 107 of ~113 borrowers; tyler_durden 96; ace_ventura 94), and
+stakes are extended even at **default-neutral affinity**. Root cause is the
+sponsor tier floors in `cash_mode/sponsor_offers.py` (`TIER_FLOORS`):
+`premium = {lik 0.0, resp 0.0}` and `standard = {lik 0.4, resp 0.5}`, while a
+stranger defaults to `0.5/0.5` — so a stranger clears both tiers and *anyone
+backs anyone*. **Raising those affinity floors is a separate, sim-validated
+backing-economy change** (it alters real chip flows + AI behaviour, not just a
+read-side score), but it's the more fundamental fix: it slows the economy *and*
+makes backing selective, so backing renown becomes a meaningful patron signal
+rather than noise. Whether near-universal staking is a bug or intended
+chip-cycling flavour is a product call — flagged with evidence, not assumed.
+
 ## Renown as a live competition — world speed & keeping pace
 
 Renown is competitive: the field (every AI) is on the same leaderboard, and the

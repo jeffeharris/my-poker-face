@@ -108,7 +108,14 @@ class Weights:
 
     # volume-ish (denominated per `volume_denominator`)
     w_tenure: float = 0.5
-    w_breadth: float = 0.6
+    # Breadth & backing are FIELD-RELATIVE: contribution = w · log1p(raw/median).
+    # The Rung-1 rule ("uncapped → relative") generalised — a median-relative
+    # log self-scales (median entity → log1p(1)=0.69; 10× → 2.4), which both
+    # compresses a volume runaway AND restores discrimination when a driver is
+    # near-universal (e.g. every AI backs). Bonus: the raw/median RATIO is
+    # ~denominator-robust, so the hands-denominated offline read proxies the
+    # wall-clock design. Weights are larger because the log term is small.
+    w_breadth: float = 9.0
     breadth_per_opp_cap_hands: float = 200.0   # concavity knee per opponent
     w_stakes: float = 0.4
     w_apex: float = 0.4
@@ -144,21 +151,58 @@ def _log1p(x: float) -> float:
     return math.log1p(max(0.0, x))
 
 
+def _relative(raw: float, median: float, fallback_unit: float) -> float:
+    """Field-relative concave contribution: log1p(raw / median).
+
+    median entity → log1p(1)=0.69; 10× median → 2.4; 0.1× → 0.095. Self-scales
+    to the field, so it both compresses a runaway and restores discrimination
+    when the driver is near-universal. Falls back to an absolute unit only if
+    the field has no positive values (median == 0)."""
+    denom = median if median > 0 else fallback_unit
+    return _log1p(raw / denom)
+
+
+def _breadth_depth_sum(inp: "RenownInputs", w: "Weights") -> float:
+    """Raw breadth depth (Σ per-opponent depth) BEFORE field-relativisation.
+
+    Per-opponent depth is concave and denominated per `volume_denominator`, so
+    you can't farm one bot. The SUM is what gets median-relativised in
+    compute_components (diminishing returns on breadth itself)."""
+    total = 0.0
+    for hands_vs in inp.breadth_opponents.values():
+        if w.volume_denominator == "wallclock":
+            if inp.total_hands > 0:
+                opp_hours = inp.wall_clock_hours * (hands_vs / inp.total_hands)
+                total += _sqrt(opp_hours)
+        else:  # 'hands' — the naive treadmill counterfactual
+            total += _sqrt(min(hands_vs, w.breadth_per_opp_cap_hands))
+    return total
+
+
 # ---------------------------------------------------------------------------
 # Per-entity component computation
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class FieldContext:
+    """Field-level aggregates needed to make drivers field-relative."""
+    median_backing_volume: float = 0.0
+    median_breadth_depth: float = 0.0
 
 
 def compute_components(
     inp: RenownInputs,
     w: Weights,
     victim_percentile: Dict[str, float],
+    fctx: "FieldContext",
 ) -> Dict[str, float]:
     """Return {driver_name: points}. Sum = total renown (uncapped).
 
     ``victim_percentile`` maps entity_id -> its field renown percentile in
     [0,1] (from the previous pass) — used to weight scalp quality WITHOUT
     referencing raw uncapped renown (which would blow up super-linearly).
+    ``fctx`` carries field medians so backing/breadth are field-relative.
     """
     c: Dict[str, float] = {}
 
@@ -176,33 +220,25 @@ def compute_components(
     c["top1"] = w.w_top1 * _sqrt(inp.ticks_at_number_one)
     c["peak_worth"] = w.w_peak_worth * _log1p(inp.peak_net_worth / w.worth_unit)
 
-    # ★ Kingmaker / backing — volume floor + profit bonus (losses don't pay).
-    backing = _log1p(inp.backing_volume / w.backing_unit)
-    backing += 0.5 * _log1p(max(0.0, inp.backing_profit) / w.backing_unit)
+    # ★ Kingmaker / backing — FIELD-RELATIVE volume + profit bonus (losses
+    # don't pay). Relativising fixes the Rung-2 collapse where near-universal
+    # AI staking made every AI ~equally "high backing".
+    backing = _relative(inp.backing_volume, fctx.median_backing_volume, w.backing_unit)
+    backing += 0.5 * _relative(max(0.0, inp.backing_profit),
+                               fctx.median_backing_volume, w.backing_unit)
     c["backing"] = w.w_backing * backing
 
     # ★ Legendary nuggets (already a rare-event weighted sum; concave-light).
     c["legendary"] = w.w_legendary * _sqrt(inp.legendary_points)
 
-    # --- volume-ish drivers: pick the denominator ---
-    if w.volume_denominator == "wallclock":
-        tenure_input = inp.wall_clock_hours
-        # breadth depth per opp is throttled by presence: a fast bot that
-        # logged 10k hands vs one opp in 1 wall-clock hour gets little credit.
-        # Approximate per-opp wall-clock as hours * (hands_vs_opp / total_hands).
-        def opp_depth(hands_vs: int) -> float:
-            if inp.total_hands <= 0:
-                return 0.0
-            opp_hours = inp.wall_clock_hours * (hands_vs / inp.total_hands)
-            return _sqrt(opp_hours)
-    else:  # 'hands' — the naive treadmill counterfactual
-        tenure_input = inp.total_hands
-
-        def opp_depth(hands_vs: int) -> float:
-            return _sqrt(min(hands_vs, w.breadth_per_opp_cap_hands))
-
+    # --- volume-ish drivers ---
+    tenure_input = inp.wall_clock_hours if w.volume_denominator == "wallclock" else inp.total_hands
     c["tenure"] = w.w_tenure * _sqrt(tenure_input)
-    c["breadth"] = w.w_breadth * sum(opp_depth(h) for h in inp.breadth_opponents.values())
+    # Breadth: raw per-opponent depth sum, then FIELD-RELATIVE (diminishing
+    # returns on breadth itself) — fixes the Rung-2 human runaway where one
+    # high-volume entity's opponent count dwarfed the field.
+    raw_breadth = _breadth_depth_sum(inp, w)
+    c["breadth"] = w.w_breadth * _relative(raw_breadth, fctx.median_breadth_depth, 1.0)
 
     # Stakes mastery: depth at each tier, tiers weighted by their rank.
     stakes_pts = 0.0
@@ -252,15 +288,27 @@ def _percentile_map(renowns: Dict[str, float]) -> Dict[str, float]:
     return out
 
 
+def _field_context(entities: Dict[str, RenownInputs], w: Weights) -> FieldContext:
+    """Field medians for the relativised drivers (over POSITIVE values only —
+    a field where half don't back shouldn't drag the backing median to 0)."""
+    backing = [i.backing_volume for i in entities.values() if i.backing_volume > 0]
+    breadth = [d for d in (_breadth_depth_sum(i, w) for i in entities.values()) if d > 0]
+    return FieldContext(
+        median_backing_volume=_median(backing),
+        median_breadth_depth=_median(breadth),
+    )
+
+
 def score_field(
     entities: Dict[str, RenownInputs], w: Weights
 ) -> Dict[str, Dict[str, float]]:
     """Return {id: components}. Two-pass: scalps weight by last-pass victim
     field-percentile (the 'last-tick renown' proxy — NOT a fixed point)."""
+    fctx = _field_context(entities, w)  # raw-input medians; pass-invariant
     victim_percentile = {eid: 0.0 for eid in entities}
     for _ in range(2):  # one refinement pass is plenty
         scored = {
-            eid: compute_components(inp, w, victim_percentile)
+            eid: compute_components(inp, w, victim_percentile, fctx)
             for eid, inp in entities.items()
         }
         renowns = {eid: total_renown(c) for eid, c in scored.items()}
@@ -337,14 +385,17 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         regard_likability=0.30, regard_respect=0.35, regard_heat=0.02,
     )
 
-    # ROUTE 1 — Grinder: lots of wall-clock + breadth, low stakes, no flash.
+    # ROUTE 1 — Grinder: the dedicated regular everyone knows. Volume is the
+    # deliberately-WEAKEST route (anti-treadmill), so reaching figure status
+    # demands genuine commitment — lots of wall-clock, the broadest network,
+    # and a modest winning record — not a casual session count.
     grinder = RenownInputs(
         label="Grinder",
-        wall_clock_hours=180,
-        total_hands=45_000,
-        stakes_hands={"$2": 30_000, "$10": 15_000},
-        breadth_opponents={f"ai{i}": 250 for i in range(30)},
-        roster_net=40_000,
+        wall_clock_hours=340,
+        total_hands=70_000,
+        stakes_hands={"$2": 45_000, "$10": 25_000},
+        breadth_opponents={f"ai{i}": 300 for i in range(48)},
+        roster_net=90_000,
         regard_likability=0.10, regard_respect=0.15, regard_heat=0.0,
     )
 
@@ -359,6 +410,7 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         breadth_opponents={f"ai{i}": 200 for i in range(8)},
         roster_net=500_000,
         scalps={"ai_nobody1": 3, "ai_nobody2": 2},
+        backing_volume=40_000,  # whales dabble in backing, not their route
         regard_likability=0.05, regard_respect=0.20, regard_heat=0.05,
     )
 
@@ -389,6 +441,7 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         stakes_hands={"$200": 7_000, "$1000": 4_000},
         breadth_opponents={f"ai{i}": 220 for i in range(15)},
         roster_net=300_000,
+        backing_volume=25_000,  # villains stake a little too
         regard_likability=-0.30, regard_respect=0.25, regard_heat=0.55,
     )
 
@@ -441,6 +494,9 @@ def build_archetypes() -> Dict[str, RenownInputs]:
             breadth_opponents={f"ai{j}": int(40 + intensity * 200)
                                for j in range(2 + i % 5)},
             roster_net=intensity * 20_000 - 4_000,  # mostly break-even/small
+            # most AIs do SOME backing (Rung-2 showed it's near-universal) — so
+            # the field median is meaningful and the Patron reads as an outlier.
+            backing_volume=intensity * 30_000,
             regard_likability=0.02, regard_respect=0.01, regard_heat=0.0,
         )
     return field

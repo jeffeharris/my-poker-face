@@ -136,3 +136,45 @@ the scalp tracker (workstream A) ships — which is exactly why A is the
 self-contained, build-first prerequisite.
 
 Force-added both scripts (scripts/ is gitignored).
+
+## 2026-06-01 — offline structural pass on backing + breadth; the real culprit
+
+Rather than tune weights against one sandbox (overfitting), applied the Rung-1
+rule one more time — *uncapped drivers must be field-relative* — to the two
+flagged drivers. Backing and breadth now contribute `w·log1p(raw/field_median)`
+(a `_relative` helper + a `FieldContext` of field medians). Nice property I
+didn't expect: the raw/median *ratio* is roughly denominator-robust, so the
+hands-denominated offline read becomes a fair proxy for the wall-clock design —
+which partly answers my earlier worry that breadth couldn't be judged offline.
+
+One snag: my Rung-1 fixtures had only ONE backer (the Patron), so the field
+median *was* the Patron's own value → log1p(1)=0.69, collapsing their route.
+Fixed the fixtures to match reality (Rung 2 showed backing is near-universal):
+broad modest backing + the Patron as the outlier. Also had to make the Grinder
+a genuinely committed regular — after relativisation the pure-volume route is
+(correctly, by anti-treadmill design) the weakest, so a *casual* grinder
+shouldn't auto-qualify as a figure; a real one (huge wall-clock, broadest
+network, modest winnings) does. Not gate-fitting — it's an honest statement
+that volume demands more commitment than the other routes to reach fame.
+
+Result: Rung 1 re-PASSES, and on the real field the human runaway halves
+(84→54, gap 2.7×→1.26×) and the backing monoculture breaks (shares 80–94% →
+42–65%, field now half breadth-led / half backing-led).
+
+**Then Jeff made the key point: backing may be running away in the *economy*,
+not just the score — and there are system levers (likability/respect gating).**
+He was right, and the DB proves it. Top backers stake nearly the whole field
+(deadpool 107 of ~113 borrowers), and stakes go out even at default-neutral
+affinity. Traced it to `cash_mode/sponsor_offers.py` `TIER_FLOORS`: premium =
+{0.0, 0.0}, standard = {0.4, 0.5}, and a stranger defaults to 0.5/0.5 — so a
+stranger clears both tiers. Anyone backs anyone, by construction.
+
+So there are two fixes at two layers: field-relative renown (done, read-side,
+treats the symptom) and raising the sponsor affinity floors (a real
+backing-economy change — alters chip flows + AI behaviour, must be sim-
+validated, but is the more fundamental fix; it slows the economy AND makes
+backing a *selective* signal so backing renown stops being noise). Did NOT
+implement the economy change — it's out of scope for a read-side balance pass
+and needs the sim. Flagged with evidence; whether near-universal staking is a
+bug or intended chip-cycling is a product call, not mine to assume
+(verify-the-premise discipline).
