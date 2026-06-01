@@ -33,6 +33,36 @@ machines, and names the one new shared piece both economies need: the
 > integration surface remain valid* — only the ledger/idempotency/signal framing
 > changes.
 
+## Substrate status — the chip-custody machine LANDED on `development` (2026-06-01)
+
+The dependency this note was gated on is **built and cut over on dev** (Presence +
+chip-custody machines, schema v129). Verified in `core/economy/ledger.py` +
+`poker/repositories/chip_ledger_repository.py`:
+
+- **Accounts** `bank()`, `player(owner_id)`, `ai(pid)`, `seat(game_id)`; `record()`
+  (central-bank creations/destructions) + `record_transfer()` (entity↔entity,
+  `TRANSFER_REASONS`).
+- **Buy-in/cash-out as transfers — humans AND AI:** `record_player_buy_in/cash_out`
+  *and* `record_ai_buy_in/cash_out` (`player/ai → seat(game_id)` and back). AI parity —
+  the thing the foundation audit was gating on — landed.
+- **D2 ledger-derived bankroll:** `chip_ledger_repository.balance_of(account)` exists;
+  bankroll derives from the ledger (int kept as a cache). The chairman's
+  reserves/holdings are now genuinely *derived* (single authority, I4), not a bespoke
+  aggregate.
+- **Settle-before-delete reaper:** a non-empty `seat()` balance retires only via a
+  `seat→player/ai` settlement transfer; the reaper settles before deleting, never zeroes.
+- Gated by `CHIP_CUSTODY_ENABLED` (dev-on via `.env`, default off).
+
+**Crucial shape confirmation:** custody landed as a **LEDGER PROJECTION**
+(`CASH_MODE_CHIP_CUSTODY_SCOPE.md`), NOT a parallel parcel-state store — `AT_TABLE`
+amount = the `seat(game_id)` balance; `IN_BANKROLL` = the entity's net position outside
+any seat; `SETTLING` is the transient during the settle transfer. That's simpler than
+the §5.2 parcel machine **and exactly the shape our escrow/split contract assumed.** The
+tournament economy is the same pattern with **one net-new account: `tournament(id)`** +
+`record_tournament_buy_in/payout` mirroring `record_ai_buy_in/cash_out`. The
+settle-before-delete reaper is the template for escrow cleanup (distribute the escrow
+before deleting the tournament row; never zero a non-empty escrow).
+
 ## The mapping (P2 concepts → state-model concepts)
 
 | P2 concept | State-model concept | Consequence |
@@ -40,7 +70,7 @@ machines, and names the one new shared piece both economies need: the
 | `tournament_buy_in`, `tournament_payout` | **Transfers** (`record_transfer`, no `central_bank` side) between `player:<id>`/`ai:<id>` and a new `tournament:<id>` (or `entry:<id>`) escrow counterparty | Drift-invisible escrow earmarked by tournament; sibling of the shipped `seat:<game_id>` |
 | `tournament_overlay` | **Bank pool DRAW** (creation toward the field) | Stays a `central_bank` creation reason — counts in drift math (it really moves reserves) |
 | `rake` / wealth-tax | **Bank pool DEPOSIT** (`table_rake`/`rake_sink`) | Reuses the existing recyclable deposit reason; refills reserves |
-| A tournament entry's chips | A **chip-custody parcel** at a non-bankroll location | `IN_BANKROLL → COMMITTED (tournament escrow) → … → IN_BANKROLL (payout)` — a sibling of `AT_TABLE` |
+| A tournament entry's chips | The `tournament:<id>` escrow **account balance** (custody is a ledger *projection*, not a parcel state machine — confirmed by what landed on dev) | `balance_of(tournament:<id>)` IS the at-escrow amount; sibling of `seat(game_id)`; settle-before-delete applies (never zero a non-empty escrow) |
 | `payout_status: pending→in_progress→complete` | **I6 idempotent terminal transition** | Don't invent a bespoke guard — generalise the `ended_at IS NULL` pattern the session machine uses |
 | `compute_tournament_funding(...)` | A **policy over the ledger read-model** | Reads `bank_reserves`/`holdings` as *derived* values (single authority, I4), not bespoke aggregates |
 
@@ -159,11 +189,12 @@ are just which transfer reasons fire.
 
 ## Revised build order (replaces P2 §"Build order")
 
-Gate everything on the state model's **Phase 0 (unified ledger substrate)** landing
-on `development`. Then, on a tournaments branch rebased onto it:
+Phase 0 (the unified ledger substrate) is now **DONE on `development`** (custody
+machine cut over, v129). On a tournaments branch rebased onto it:
 
-0. **(state model, on `development`)** Unified human+AI ledger + owner taxonomy +
-   `record_transfer`. *Already partly shipped (Cut 2).* Tournament work consumes it.
+0. **(state model, on `development`) — DONE.** Unified human+AI ledger, accounts
+   (`player`/`ai`/`seat`/`bank`), `record_transfer`, `balance_of` (D2), AI parity,
+   settle-before-delete reaper. Tournament work consumes it directly — no longer a gate.
 1. **Economy-signal chairman** — `economy_signal.py` + `tournament_funding` +
    `cash_rake_schedule`, pure, over the ledger read-model. Unit-tested across
    flush/neutral/empty + the EXP_006 setpoint. (This is P2 Layer B's "brain",
@@ -192,13 +223,15 @@ on `development`. Then, on a tournaments branch rebased onto it:
 
 ## Open coordination items
 
-- **Schema divergence.** `development` is at v127 (dossier B1 = v125); the
-  `tournaments` branch is at v124 (the tracker-drop migration). On merge, renumber
-  the tournament migrations above `development`'s head — same collision class as the
-  circulating-flag v123 incident. P2's "v124" assumption is stale.
-- **Same file, two efforts** (`core/economy/ledger.py`). Land the chairman + the
-  `tournament:<id>` reasons *after* the state model's ledger substrate is on
-  `development`, not in parallel, to avoid a reconcile.
+- **Schema divergence.** `development` is now at **v129** (Presence + chip-custody
+  cutover); the `tournaments` branch is at v124 (the tracker-drop migration). Merge
+  `development` into `tournaments` first, then renumber the tracker-drop migration (and
+  any P2 migrations) above v129 — same collision class as the circulating-flag v123
+  incident.
+- **Same file, two efforts** (`core/economy/ledger.py`) — **resolved by sequencing.**
+  The state model's ledger substrate is now ON `development`, so the move is: merge dev
+  into tournaments, then add `tournament(id)` + `record_tournament_buy_in/payout` on top
+  of the landed `seat()`/`record_ai_buy_in/cash_out` pattern — not a parallel build.
 - **Sign-off carried over:** the state model's pivotal table-as-projection decision
   (its §6) is accepted (D1) but unbuilt; the tournament economy does not depend on
   it (tournaments have no `cash_tables` seat map), so P2 can proceed on Phase 0 +
