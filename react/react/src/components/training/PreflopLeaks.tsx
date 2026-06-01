@@ -72,8 +72,8 @@ const TREND_LABEL: Record<RecentLeak['trend'], string> = {
   shrinking: '↓ improving',
   persistent: 'no change',
   worsening: '↑ worse',
-  cleared: '✓ cleared recently',
-  insufficient: '— recent: too few',
+  cleared: '✓ cleared',
+  insufficient: '— too few',
 };
 
 const SCENARIO_PHRASE: Record<string, string> = {
@@ -368,11 +368,10 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                       <span className="pfl-leak-detail">
                         {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
                       </span>
-                      <span className={`pfl-leak-badge${confirmed ? '' : ' watch'}`}>
-                        {confirmed ? 'leak' : 'watching'}
+                      <span className="pfl-leak-trend">
+                        <LeakSpark lk={lk} />
+                        <TrendChip recent={lk.recent} />
                       </span>
-                      <TrendChip recent={lk.recent} />
-                      <LeakSpark lk={lk} />
                       <button
                         type="button"
                         className="pfl-leak-drill"
@@ -398,8 +397,10 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                       <span className="pfl-leak-detail">
                         {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
                       </span>
-                      <span className="pfl-trend pfl-trend--emerging" title="new in the recent window">
-                        ↑ new
+                      <span className="pfl-leak-trend">
+                        <span className="pfl-trend pfl-trend--emerging" title="new in the recent window">
+                          ↑ new
+                        </span>
                       </span>
                       <button
                         type="button"
