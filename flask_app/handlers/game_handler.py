@@ -2988,12 +2988,21 @@ def _apply_player_table_rake(
     # Resolve the ledger source string. For AI seats we use the
     # cash-mode personality map; for the human seat we use owner_id.
     cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
+    sandbox_id = _sandbox_id_for(game_data)
+    from cash_mode import economy_flags
+
+    custody = economy_flags.CHIP_CUSTODY_ENABLED
     if winner_player.is_human:
         owner_id = game_data.get('owner_id')
         if not owner_id:
             logger.warning(f"[Game {game_id}] rake skipped: human winner with no owner_id")
             return game_state
-        source = chip_ledger.player(owner_id)
+        # Rake comes off the winner's at-table STACK (deducted above), not the
+        # bankroll. Under chip custody those chips live in the seat account
+        # (`seat:<game_id>` for humans, `seat:ai:...` for AI — Cut 2 / Phase 1),
+        # so sourcing the rake there keeps the ledger-derived bankroll in step
+        # with the stored int. Reason stays `table_rake` (pool depth unchanged).
+        source = chip_ledger.seat(game_id) if custody else chip_ledger.player(owner_id)
     else:
         pid = cash_pids.get(headline_name)
         if not pid:
@@ -3001,9 +3010,11 @@ def _apply_player_table_rake(
                 f"[Game {game_id}] rake skipped: no personality_id for AI winner {headline_name!r}"
             )
             return game_state
-        source = chip_ledger.ai(pid)
-
-    sandbox_id = _sandbox_id_for(game_data)
+        source = (
+            chip_ledger.ai_seat(sandbox_id, pid)
+            if (custody and sandbox_id)
+            else chip_ledger.ai(pid)
+        )
     ctx = {
         'site': 'handle_evaluating_hand_phase',
         'game_id': game_id,

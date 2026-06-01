@@ -2971,7 +2971,25 @@ def payoff_stake(stake_id: str):
             'stake_id': stake_id,
             'site': 'voluntary_payoff',
         },
+        from_seat=False,
     )
+    # Chip-custody: the player→staker carry payoff is a bankroll transfer with
+    # no seat. The player debit (save above) and the staker credit are each
+    # unledgered; record ONE `stake_payoff` transfer so both stay derivable.
+    # `from_seat=False` above suppresses the seat `ai_cash_out` double-count.
+    from cash_mode import economy_flags as _economy_flags_payoff
+
+    if chip_ledger_repo is not None and _economy_flags_payoff.CHIP_CUSTODY_ENABLED:
+        from core.economy import ledger as _chip_ledger
+
+        _chip_ledger.record_stake_payoff(
+            chip_ledger_repo,
+            source=_chip_ledger.player(owner_id),
+            sink=_chip_ledger.ai(stake.staker_id),
+            amount=carry_amount,
+            context={'stake_id': stake_id, 'site': 'voluntary_payoff'},
+            sandbox_id=sandbox_id,
+        )
 
     stake_repo.update_carry_amount(stake_id, 0)
 

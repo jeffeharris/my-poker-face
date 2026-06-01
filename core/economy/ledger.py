@@ -105,6 +105,25 @@ LEDGER_REASONS = frozenset(
         # already counted by the audit).
         'player_cash_out',  # seat:<game_id> → player:<id>: chips returned to
         # bankroll at leave/cash-out (the take-home).
+        'ai_buy_in',  # ai:<pid> → seat:ai:<sandbox>:<pid>: the AI analog of
+        # player_buy_in — chips committed to a cash seat at
+        # sit-down. The custody-machine transfer that makes an
+        # AI's at-table chips a derivable ledger balance.
+        # Conservation-neutral (ai_bankroll_state drops, the
+        # live AI seat stack rises; both already audit-counted).
+        'ai_cash_out',  # seat:ai:<sandbox>:<pid> → ai:<pid>: the AI analog of
+        # player_cash_out — the AI's full table stack folded
+        # back into bankroll at leave/bust. Net of winnings:
+        # the per-hand P&L nets inside the seat balance and
+        # settles here, so the table conserves internally
+        # between seat accounts (winners' seats go negative,
+        # losers' positive; they sum to ~0 across a table).
+        'stake_payoff',  # <staker-funded source> → ai:<staker>: a stake/carry
+        # payoff routed through `credit_ai_cash_out`'s second
+        # (non-seat) use. Source is the borrower (ai:<borrower>)
+        # or the funding player (player:<owner>). A single
+        # transfer reconciles both the borrower debit and the
+        # staker credit; no seat is involved.
     }
 )
 
@@ -117,6 +136,9 @@ TRANSFER_REASONS = frozenset(
     {
         'player_buy_in',
         'player_cash_out',
+        'ai_buy_in',
+        'ai_cash_out',
+        'stake_payoff',
     }
 )
 
@@ -194,6 +216,28 @@ def seat(game_id: str) -> str:
     if not game_id:
         raise ValueError("seat() requires a non-empty game_id")
     return f"seat:{game_id}"
+
+
+def ai_seat(sandbox_id: str, personality_id: str) -> str:
+    """Format the canonical AI seat-account string.
+
+    The AI analog of `seat(game_id)`. Humans key their seat account by
+    `game_id` (one live game per human session); world/sim AIs churn
+    `cash_tables` with no per-AI live game_id, so the AI seat account is
+    keyed by `(sandbox_id, personality_id)` instead —
+    `seat:ai:<sandbox_id>:<personality_id>`. Because an AI is seated at most
+    one cash seat per sandbox (single-presence; cash mode is single-player),
+    this balance is exactly one AI's at-table chips, not a pooled table.
+
+    The buy-in/cash-out pair for one session uses this same account, so the
+    AI's at-table chips become a derivable ledger balance — the custody
+    substrate the seats-as-view phase (D1) and derived bankroll (D2) build on.
+    """
+    if not sandbox_id:
+        raise ValueError("ai_seat() requires a non-empty sandbox_id")
+    if not personality_id:
+        raise ValueError("ai_seat() requires a non-empty personality_id")
+    return f"seat:ai:{sandbox_id}:{personality_id}"
 
 
 def record(
@@ -439,6 +483,98 @@ def record_player_cash_out(
         sink=player(owner_id),
         amount=amount,
         reason='player_cash_out',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_ai_buy_in(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    sandbox_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """ai:<pid> → seat:ai:<sandbox>:<pid> — chips committed at AI sit-down.
+
+    The AI counterpart of `record_player_buy_in` (the chip-custody machine's
+    parity wiring). Conservation-neutral (ai_bankroll_state drops, the live
+    AI seat stack rises; both already counted by the audit). Makes the AI's
+    at-table chips a derivable ledger balance. No-op when `repo` is None or
+    `amount <= 0`. `sandbox_id` is required (it keys the seat account).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=ai(personality_id),
+        sink=ai_seat(sandbox_id, personality_id),
+        amount=amount,
+        reason='ai_buy_in',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_ai_cash_out(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    sandbox_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """seat:ai:<sandbox>:<pid> → ai:<pid> — the AI's table stack at leave/bust.
+
+    The AI counterpart of `record_player_cash_out`. `amount` is the AI's full
+    table stack folded back into bankroll (net of winnings — the per-hand P&L
+    nets inside the seat balance and settles here). Conservation-neutral. No-op
+    when `repo` is None or `amount <= 0` (a bust with 0 take-home writes no row
+    — the absent cash_out paired with a buy_in IS the bust record, same
+    convention as humans). `sandbox_id` is required (it keys the seat account).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=ai_seat(sandbox_id, personality_id),
+        sink=ai(personality_id),
+        amount=amount,
+        reason='ai_cash_out',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_stake_payoff(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """<borrower/funding source> → <staker sink> — a stake/carry payoff (non-seat).
+
+    `credit_ai_cash_out` is overloaded: besides real seat cash-outs it also
+    credits a STAKER's bankroll when a borrower pays off a carry. That credit
+    has no seat behind it — the chips come from the borrower (ai:<borrower>) or
+    a funding player (player:<owner>), and land on the staker (ai:<staker> or
+    player:<staker>). A single `source → sink` transfer reconciles both the
+    debit and the credit so neither side drifts from its stored bankroll.
+    Both `source` and `sink` are canonical entity strings the caller builds
+    (use `ai()` / `player()`). No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='stake_payoff',
         context=context,
         sandbox_id=sandbox_id,
     )

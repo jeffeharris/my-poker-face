@@ -161,6 +161,7 @@ def credit_ai_cash_out(
     now: Optional[datetime] = None,
     chip_ledger_repo=None,
     ledger_context: Optional[dict] = None,
+    from_seat: bool = True,
 ) -> Optional[AIBankrollState]:
     """Credit `player_stack` chips back to an AI's persistent bankroll.
 
@@ -195,6 +196,15 @@ def credit_ai_cash_out(
     fires an `ai_regen` entry. (The legacy `cap_clamp` destruction
     path was removed when `starting_bankroll` semantics shifted from
     ceiling to target — winnings are kept, not evaporated.)
+
+    `from_seat` (default True) is the chip-custody discriminator for this
+    overloaded helper. When True, the credit is a real seat cash-out and
+    (under `CHIP_CUSTODY_ENABLED`) records a `seat:ai → ai` transfer so the
+    AI's at-table chips settle back into bankroll via the ledger. When False,
+    the credit is a stake/carry payoff (no seat behind it) — the caller is
+    responsible for recording the `stake_payoff` transfer for the funding
+    source, so this helper records no seat transfer. Only matters when
+    `chip_ledger_repo` is provided and custody is enabled.
     """
     if now is None:
         now = datetime.utcnow()
@@ -252,6 +262,7 @@ def credit_ai_cash_out(
         bankroll_repo.save_ai_bankroll(new_state)
     if chip_ledger_repo is not None:
         from core.economy import ledger as chip_ledger
+        from cash_mode import economy_flags
 
         ctx = {'site': 'credit_ai_cash_out', 'sandbox_id': sandbox_id}
         if ledger_context:
@@ -264,6 +275,25 @@ def credit_ai_cash_out(
             context=ctx,
             sandbox_id=sandbox_id,
         )
+        # Chip-custody parity (AI side of Cut 2): settle the AI's table stack
+        # back into bankroll as a `seat → ai` transfer. Only for real seat
+        # cash-outs (`from_seat`); stake/carry payoffs record `stake_payoff` at
+        # their call site instead. Conservation-neutral — the bankroll int
+        # already rose by `effective_stack` above. No row on a bust
+        # (effective_stack == 0), matching the human convention.
+        if (
+            from_seat
+            and sandbox_id is not None
+            and economy_flags.CHIP_CUSTODY_ENABLED
+            and effective_stack > 0
+        ):
+            chip_ledger.record_ai_cash_out(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                sandbox_id=sandbox_id,
+                amount=effective_stack,
+                context=ctx,
+            )
     logger.info(
         "[CASH] AI cash-out %r: +%d (projected=%d) → %d",
         personality_id,
@@ -399,4 +429,27 @@ def debit_bankroll_for_seat(
         if "sandbox_id" not in str(e):
             raise
         bankroll_repo.save_ai_bankroll(new_state)
+
+    # Chip-custody parity (the AI side of Cut 2): record the buy-in as an
+    # `ai → seat` transfer so the AI's at-table chips become a derivable ledger
+    # balance, exactly as a human's are. Conservation-neutral — the bankroll int
+    # already dropped by `amount` above; this just records WHERE it went. Gated
+    # so the path is inert until the operator opts in, and needs the ledger repo
+    # + a sandbox to key the seat account.
+    from cash_mode import economy_flags
+
+    if (
+        chip_ledger_repo is not None
+        and sandbox_id is not None
+        and economy_flags.CHIP_CUSTODY_ENABLED
+    ):
+        from core.economy.ledger import record_ai_buy_in
+
+        record_ai_buy_in(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            sandbox_id=sandbox_id,
+            amount=amount,
+            context={'site': 'debit_bankroll_for_seat', 'sandbox_id': sandbox_id},
+        )
     return new_state

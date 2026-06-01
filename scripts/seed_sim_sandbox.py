@@ -89,6 +89,12 @@ def seed_sim_sandbox(
         bankroll_repo=repos['bankroll_repo'],
         sandbox_id=sandbox.sandbox_id,
         now=now,
+        # Pass the ledger repo so the boot seat-fill's bankroll→seat debits
+        # record `ai_buy_in` transfers under CHIP_CUSTODY_ENABLED (the live
+        # callers in cash_routes already do this; omitting it here made the
+        # sim's initial seating an unledgered buy-in — a harness artifact, not
+        # a production leak).
+        chip_ledger_repo=repos['chip_ledger_repo'],
     )
     logger.info("Seeded lobby tables: %d", len(tables))
 
