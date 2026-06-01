@@ -178,34 +178,42 @@ def main():
     rho_perf = spearman(base_ren, perf)
     rho_vol = spearman(base_ren, vol)
     total_scalps = sum(sum(field[e].scalps.values()) for e in ids)
-    print(f"Spearman(renown, hand_count)        = {rho_hands:+.3f}   <- the treadmill axis")
-    print(f"Spearman(renown, performance_drivers) = {rho_perf:+.3f}   <- scalps/top1/backing/apex/…")
-    print(f"Spearman(renown, volume_drivers)    = {rho_vol:+.3f}   <- tenure/breadth/stakes")
-    # Degeneracy guard: the treadmill test is meaningless unless the VOLUME
-    # axis actually varies across entities. A homogeneous field (e.g. every bot
-    # plays the same number of hands) makes hand_count constant → renown can
-    # only track performance by construction, and PASS is trivial, not earned.
+    # Ground-truth PERFORMANCE signals — real outcomes, NOT renown's own driver
+    # decomposition (the driver split is partly circular; chips-won / net-worth
+    # are independent of how the formula weights things).
+    roster_net = [field[e].roster_net for e in ids]
+    net_worth = [field[e].peak_net_worth for e in ids]
+    rho_money = spearman(base_ren, roster_net)
+    rho_worth = spearman(base_ren, net_worth)
+    print(f"Spearman(renown, hand_count)         = {rho_hands:+.3f}   <- VOLUME (treadmill axis)")
+    print(f"Spearman(renown, chips_won_vs_field) = {rho_money:+.3f}   <- PERFORMANCE (roster_net, ground truth)")
+    print(f"Spearman(renown, peak_net_worth)     = {rho_worth:+.3f}   <- PERFORMANCE (wealth standing)")
+    print(f"  [driver split (partly circular): perf {rho_perf:+.3f} / volume {rho_vol:+.3f}]")
+    if total_scalps == 0:
+        print("  note: scalps=0 → the villain/scalp ROUTE is untested here "
+              "(this field isn't skill-tiered); verdict uses money + wealth standing.")
+
+    # Degeneracy guard: the treadmill test is meaningless unless the VOLUME axis
+    # actually varies. A homogeneous field (every entity plays the same #hands)
+    # makes hand_count constant → a PASS is trivial, not earned.
     def _spread(xs):
         m = sum(xs) / len(xs) if xs else 0.0
         return (sum((x - m) ** 2 for x in xs) / len(xs)) ** 0.5
     hand_cv = _spread(hand_count) / (sum(hand_count) / len(hand_count)) if sum(hand_count) else 0.0
+    perf_signal = max(rho_money, rho_worth)  # best ground-truth performance corr
 
-    if total_scalps == 0:
-        print("\nTREADMILL VERDICT: N/A — this log has NO scalps (the main "
-              "performance signal), so the perf proxy is gutted and the verdict "
-              "is meaningless. Run a --from-sim log (populates scalps) for the "
-              "real answer.")
-    elif hand_cv < 0.05:
+    if hand_cv < 0.05:
         print(f"\nTREADMILL VERDICT: DEGENERATE — hand_count is ~constant "
-              f"(CV={hand_cv:.3f}) across the field, so the volume axis has no "
-              f"variance and a PASS is trivial (renown can only track "
-              f"performance). Need a HETEROGENEOUS field (varied hand counts + a "
-              f"real skill gradient) — i.e. the real-DB personas with their real "
-              f"archetypes, not the homogeneous synthetic roster.")
+              f"(CV={hand_cv:.3f}); volume axis has no variance so a PASS is "
+              f"trivial. Need a field with varied hand counts.")
+    elif perf_signal >= rho_hands:
+        print(f"\nTREADMILL VERDICT: PASS ✅ — renown tracks real performance "
+              f"({perf_signal:+.3f}) ≥ raw volume ({rho_hands:+.3f}).")
     else:
-        verdict = "PASS ✅ (renown tracks performance ≥ raw volume)" if rho_perf >= rho_hands \
-            else "FAIL ❌ (renown is volume-led — treadmill)"
-        print(f"\nTREADMILL VERDICT ({total_scalps} scalps): {verdict}")
+        print(f"\nTREADMILL VERDICT: VOLUME-LEAN ⚠️ — renown tracks raw volume "
+              f"({rho_hands:+.3f}) MORE than real performance ({perf_signal:+.3f}). "
+              f"The volume drivers (breadth/tenure) need more wall-clock "
+              f"denomination or down-weighting relative to standing/scalps.")
 
     # Skill sanity: if the sim designated a weak-fish subset, sharks should
     # outrank fish on renown (and fish, who rebuy → high volume, must NOT).

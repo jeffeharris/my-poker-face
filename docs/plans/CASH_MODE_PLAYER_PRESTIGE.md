@@ -324,14 +324,33 @@ construction), and the fish/shark archetype split produced **no skill gradient**
 `'fish'` archetype isn't meaningfully weaker than the default TieredBot in
 self-play). A flat field also yields **0 "figures"** (nobody reaches 3×median).
 
-So the definitive treadmill verdict needs a **heterogeneous** field — real
-personas with their **real archetypes/rule-strategies** (genuine skill spread)
-and **varied hand counts** (real fish rebuy more). That means running the sim
-with the real `bankroll_repo` against the populated DB (the main-worktree
-container, `/app/data/poker_games.db`), not the DB-free synthetic roster. The
-harness, the scalp helper, and the metrics are all proven; only the *field*
-needs to be real. (A `hand_count` CV<0.05 guard in the sweep now blocks any
-future degenerate PASS.)
+A scalp-driven verdict needs a **skill-tiered** field, and a premise check
+killed that path: the real sandbox's personas are **not** skill-tiered —
+`personalities.config_json` carries an `archetype`/`rule_strategy` for only
+**2 of 80** entities (the rest default TieredBot). So a self-play sim can't
+manufacture a skill→scalp gradient with the real `bankroll_repo` either; the
+scalp/villain route is genuinely untestable on this field without authoring
+tiered opponents. (Checking the data first avoided building a DB-extract
+pipeline that would have produced the same flat result.)
+
+**But the real DB field already has the heterogeneity the treadmill question
+needs** — real *volume* (`total_hands`) and real *performance* (chips won,
+net worth) from months of play. Running the sweep there (`--from-db` log) gives
+the first honest, non-degenerate verdict:
+
+- `Spearman(renown, hand_count)` = **+0.66** (volume)
+- `Spearman(renown, peak_net_worth)` = **+0.59** (wealth standing)
+- `Spearman(renown, chips_won_vs_field)` = **+0.02** (barely)
+- **VOLUME-LEAN ⚠️** — renown tracks raw volume *more* than real performance.
+
+So v2's current weights reward **out-grinding over out-performing**: breadth +
+tenure + backing dominate, and actually *winning* barely registers. Rank
+stability is otherwise strong (mean rankρ=0.997). The designed fix —
+**wall-clock denomination** of the volume drivers — can't be exercised on a
+static snapshot, but the lean confirms it's load-bearing; the lever testable
+now is **down-weighting breadth/tenure relative to standing/scalps**. (A
+`hand_count` CV<0.05 guard blocks degenerate PASSes; the verdict uses
+formula-independent ground-truth signals, not renown's own driver split.)
 
 ## Renown as a live competition — world speed & keeping pace
 

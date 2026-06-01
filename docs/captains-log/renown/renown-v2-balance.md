@@ -265,3 +265,34 @@ against the populated DB (main-worktree container). Stopped short of that
 DB-wrangling step rather than chase a result; flagged it as the definitive next
 move. What Rung 3 DID lock: the harness is trustworthy (incl. its own degeneracy
 guard) and rank-stability is robust (ρ=0.998).
+
+## 2026-06-01 — the premise check that pivoted Rung 3 (and the real verdict)
+
+Was about to build a DB-extract pipeline to run the sim with the real
+bankroll_repo (for a skill gradient). Checked the data first (verify-premise),
+and it killed the plan cleanly: `ai_bankroll_state` has no archetype column at
+all; `load_archetype/rule_strategy` actually read `personalities.config_json`,
+and across the 80-entity sandbox only **2 of 80** have any archetype/strategy
+(both 'fish') — the rest are default TieredBot. The field simply isn't
+skill-tiered, so NO sim (real repo or fake) can manufacture a skill→scalp
+gradient here. The scalp/villain route is untestable on this field without
+authoring tiered opponents. Glad I checked before building the extract.
+
+The pivot: the real DB field ALREADY has the heterogeneity the treadmill
+question needs — real volume (total_hands) and real performance (chips won, net
+worth) from months of play. Scalps were only ever needed for the villain route.
+Refined the sweep to judge against formula-INDEPENDENT ground truth (roster_net,
+net worth) rather than the partly-circular driver split, dropped the
+scalp-required N/A, and ran it on the --from-db log. First honest verdict:
+  renown ↔ hand_count    = +0.66  (volume)
+  renown ↔ net_worth     = +0.59  (wealth standing)
+  renown ↔ chips_won     = +0.02  (barely!)
+  → VOLUME-LEAN ⚠️ — renown rewards out-GRINDING over out-PERFORMING.
+
+That's a genuine, actionable Rung-3 finding (the synthetic sim never could have
+told me this). The fix is the wall-clock denomination already in the design
+(can't test on a static snapshot, but the lean confirms it matters) and/or
+down-weighting breadth/tenure vs standing. Rank stability stays strong
+(ρ≈0.997). Net: the whole Docker/sim detour taught me the sim was the wrong
+instrument for THIS field; the read-side projection on real data was the answer
+all along — exactly the property that made this feature cheap to validate.
