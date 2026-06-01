@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { Bot } from 'lucide-react';
 import { Card, CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
@@ -8,7 +9,7 @@ import { dossierFromPlayer } from '../../character/dossierFromPlayer';
 import { LLMDebugModal } from '../../mobile/LLMDebugModal';
 import { CoachButton } from '../../mobile/CoachButton';
 import { CoachBubble } from '../../mobile/CoachBubble';
-import { FloatingChat } from '../../mobile/FloatingChat';
+import { SeatSpeechBubble } from '../SeatSpeechBubble/SeatSpeechBubble';
 import { CoachDock } from '../CoachDock';
 import { HeadsUpOpponentPanel } from '../../mobile/HeadsUpOpponentPanel';
 import { PlayerThinking } from '../PlayerThinking';
@@ -136,18 +137,6 @@ export function PokerTable({
     onGameLoadFailed,
     onNewAiMessage: handleNewAiMessage,
   });
-
-  // Map of player name → avatar URL for the floating chat bubble. Accumulated
-  // across the session (never pruned) so a message from a player who later
-  // busts/leaves still has its avatar.
-  const avatarCacheRef = useRef<Map<string, string>>(new Map());
-  const playerAvatars = useMemo(() => {
-    const cache = avatarCacheRef.current;
-    for (const p of gameState?.players ?? []) {
-      if (p.avatar_url) cache.set(p.name, `${config.API_URL}${p.avatar_url}`);
-    }
-    return new Map(cache);
-  }, [gameState?.players]);
 
   // Community-card deal-in animation timing (flop cascade, turn/river single).
   const communityCardAnimations = useCommunityCardAnimation(
@@ -741,6 +730,10 @@ export function PokerTable({
                   ? showdownOpponents.findIndex((p: Player) => p.name === player.name)
                   : -1;
 
+                // This opponent is the most recent speaker — their chat bubble
+                // pops up beneath this seat (lifted above neighbours via z-index).
+                const isSpeaking = recentAiMessage?.sender === player.name;
+
                 return (
                   <div
                     key={player.name}
@@ -748,7 +741,7 @@ export function PokerTable({
                       isCurrentPlayer ? 'current-player' : ''
                     } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
                       isCurrentPlayer && aiThinking ? 'thinking' : ''
-                    }`}
+                    }${isSpeaking ? ' is-speaking' : ''}`}
                     style={getStadiumSeatStyle(
                       seatOffset,
                       totalPlayers,
@@ -844,6 +837,16 @@ export function PokerTable({
                     {isCurrentPlayer && aiThinking && (
                       <PlayerThinking playerName={player.name} position={seatOffset} />
                     )}
+
+                    {/* Chat bubble pops up beneath the seat of the speaker. */}
+                    <AnimatePresence>
+                      {isSpeaking && recentAiMessage && (
+                        <SeatSpeechBubble
+                          message={recentAiMessage}
+                          onDismiss={dismissRecentAiMessage}
+                        />
+                      )}
+                    </AnimatePresence>
                   </div>
                 );
               })}
@@ -890,13 +893,6 @@ export function PokerTable({
         // Informant purchasing only in the Circuit (cash) — tournaments show
         // the scouted reads but no chip-cost buttons.
         circuitContext={!!gameState.cash_mode}
-      />
-
-      {/* Floating AI chat bubble — pops the latest AI line over the felt. */}
-      <FloatingChat
-        message={recentAiMessage}
-        onDismiss={dismissRecentAiMessage}
-        playerAvatars={playerAvatars}
       />
 
       {/* LLM debug modal — opens from an opponent avatar when AI debug is on.

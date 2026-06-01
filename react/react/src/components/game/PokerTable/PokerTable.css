@@ -128,6 +128,12 @@
   overflow: visible; /* Allow position indicators to extend outside */
 }
 
+/* Lift the speaking seat (and its chat bubble) above neighbouring seats so
+   the bubble isn't clipped by a later-rendered sibling on the arc. */
+.player-seat.is-speaking {
+  z-index: 60;
+}
+
 /* Player States */
 .player-seat.current-player {
   border-color: #00ff00;
