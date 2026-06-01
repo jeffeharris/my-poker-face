@@ -1685,6 +1685,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         next_tier_min_buy_in=next_tier_min_buy_in,
         defer_freshly_vacated_live_fill=True,
         psych_lookup=_psych_lookup,
+        # Robust fish detection by persona identity (re-uses the set we
+        # built for the seat re-stamp above) so a missing `archetype='fish'`
+        # stamp can't spuriously fire the dead-push or drop a fish's rebuy.
+        fish_ids=fish_pids,
     )
 
     # Apply rebuy decisions: debit each AI's bankroll for the top-up

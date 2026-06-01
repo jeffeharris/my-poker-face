@@ -1070,6 +1070,15 @@ def refresh_table_roster(
     # decision becomes `go_vice` and the AI goes straight off-grid instead
     # of into the idle pool. Omit → no vice interception (prior behavior).
     vice_prob_lookup: Optional[Callable[[str], float]] = None,
+    # Fish identity by PERSONA, not by the per-seat `archetype='fish'` stamp.
+    # The stamp is fragile — several seat-builders (live-fill, take_stake,
+    # lobby fills) create fish seats via plain `ai_slot`, dropping it — so a
+    # fish can momentarily read as a grinder, spuriously triggering the
+    # casino `dead` push and losing its rebuy-instead-of-bust protection.
+    # Passing the curated fish-persona set lets us decide fish-ness by
+    # identity (mirrors `casino_provisioning._count_seated_fish`), which is
+    # robust to a missing stamp. Omit → fall back to the seat stamp alone.
+    fish_ids: Optional[Set[str]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -1158,17 +1167,27 @@ def refresh_table_roster(
     trace_enabled = (human_present or trace_all) and os.getenv("MOVEMENT_TRACE", "1") != "0"
     trace_inputs: Dict[str, Dict[str, Any]] = {}
 
+    # Fish-ness by persona identity, robust to a missing per-seat stamp
+    # (see the `fish_ids` param). A seat is a fish if its `archetype='fish'`
+    # stamp is present OR its persona is in the curated fish set.
+    _fids = fish_ids or set()
+
+    def _seat_is_fish(slot: Dict[str, Any]) -> bool:
+        return slot.get("kind") == "ai" and (
+            slot.get("archetype") == "fish" or slot.get("personality_id") in _fids
+        )
+
     # Is there a fish to farm at this table? Drives predator retention:
     # grinders stay to feast instead of booking the win and leaving.
     # Fish are casino-only, so this is non-trivial only at casinos.
-    table_has_fish = any(s.get("kind") == "ai" and s.get("archetype") == "fish" for s in new_seats)
+    table_has_fish = any(_seat_is_fish(s) for s in new_seats)
 
     # Dead-table push (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): a casino that
     # has lost its fish pushes its stuck grinders to go find action. Computed
     # once per table from the current seats; fed to each seated AI's
     # MovementContext below (fish ignore it — their movement is coerced).
     _grinder_count = sum(
-        1 for s in new_seats if s.get("kind") == "ai" and s.get("archetype") != "fish"
+        1 for s in new_seats if s.get("kind") == "ai" and not _seat_is_fish(s)
     )
     _deadness = table_deadness(
         is_casino=(table.table_type == "casino"),
@@ -1186,7 +1205,7 @@ def refresh_table_roster(
         # run normal movement — short-stack → re-buy from that bankroll,
         # or go home when it's dry — but their tier-drift decisions are
         # suppressed below so they never wander to another stake or table.
-        is_fish = slot.get("archetype") == "fish"
+        is_fish = _seat_is_fish(slot)
         # buy_in_lookup gives this AI's table-specific buy-in (honors
         # per-personality buy-in multipliers). table_min_buy_in /
         # table_max_buy_in are absolute and feed pressure thresholds.
