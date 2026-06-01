@@ -14,18 +14,34 @@
  * the text through `splitSentences` (in `utils/chatBeats`) first.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TYPING_SPEED_MS, ACTION_FADE_DURATION_MS, BEAT_DELAY_MS } from '../../config/timing';
 import { parseBeats } from '../../utils/chatBeats';
 import './DramaticText.css';
 
-/** Action beat — fades in (see each consumer's `.beat.action`/`.visible` CSS). */
-function ActionBeat({ text, delay }: { text: string; delay: number }) {
+/** Keep the latest `onDone` in a ref so a beat's animation effect (which must run
+ *  exactly once per mount) doesn't restart when the parent flips `onDone` on/off
+ *  as beats become/stop being the active one. */
+function useDoneRef(onDone?: () => void) {
+  const ref = useRef(onDone);
+  ref.current = onDone;
+  return ref;
+}
+
+/** Action beat — fades in, then signals `onDone` when the fade completes. */
+function ActionBeat({ text, onDone }: { text: string; onDone?: () => void }) {
   const [visible, setVisible] = useState(false);
+  const doneRef = useDoneRef(onDone);
   useEffect(() => {
-    const timer = setTimeout(() => setVisible(true), delay);
-    return () => clearTimeout(timer);
-  }, [delay]);
+    const show = setTimeout(() => setVisible(true), 20); // next frame → CSS transition
+    const done = setTimeout(() => doneRef.current?.(), ACTION_FADE_DURATION_MS);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(done);
+    };
+    // Runs once per mount — `text` identifies the beat; doneRef stays current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
   return (
     <div className={`beat action ${visible ? 'visible' : ''}`}>
       <em>{text}</em>
@@ -33,32 +49,23 @@ function ActionBeat({ text, delay }: { text: string; delay: number }) {
   );
 }
 
-/** Speech beat — types out character by character after its `delay`. */
-function SpeechBeat({ text, delay }: { text: string; delay: number }) {
+/** Speech beat — types out character by character, then signals `onDone`. */
+function SpeechBeat({ text, onDone }: { text: string; onDone?: () => void }) {
   const [displayedText, setDisplayedText] = useState('');
-  const [started, setStarted] = useState(false);
-
+  const doneRef = useDoneRef(onDone);
   useEffect(() => {
-    const startTimer = setTimeout(() => setStarted(true), delay);
-    return () => clearTimeout(startTimer);
-  }, [delay]);
-
-  useEffect(() => {
-    if (!started) return;
     let charIndex = 0;
     const interval = setInterval(() => {
-      if (charIndex < text.length) {
-        setDisplayedText(text.slice(0, charIndex + 1));
-        charIndex++;
-      } else {
+      charIndex++;
+      setDisplayedText(text.slice(0, charIndex));
+      if (charIndex >= text.length) {
         clearInterval(interval);
+        doneRef.current?.();
       }
     }, TYPING_SPEED_MS);
     return () => clearInterval(interval);
-  }, [started, text]);
-
-  if (!started) return null;
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
   return (
     <div className="beat speech">
       {displayedText}
@@ -67,31 +74,42 @@ function SpeechBeat({ text, delay }: { text: string; delay: number }) {
   );
 }
 
-/** Render a message as sequenced, animated beats. */
+/** Render a message as sequenced, animated beats. The next beat only STARTS once
+ *  the previous one has actually finished (event-driven, not pre-computed delays —
+ *  so typing-speed drift can't make beats overlap), with a short pause between. */
 export function DramaticMessage({ text }: { text: string }) {
   const beats = parseBeats(text);
-  if (beats.length === 0) return <>{text}</>;
+  const [revealed, setRevealed] = useState(0); // index of the currently-animating beat
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  let cumulativeDelay = 0;
-  const beatsWithDelay = beats.map((beat, i) => {
-    const delay = cumulativeDelay;
-    if (beat.type === 'action') {
-      cumulativeDelay += ACTION_FADE_DURATION_MS + BEAT_DELAY_MS;
-    } else {
-      cumulativeDelay += beat.text.length * TYPING_SPEED_MS + BEAT_DELAY_MS;
-    }
-    return { ...beat, delay, index: i };
-  });
+  // Restart from the top if the text changes (usually a key change remounts us,
+  // but this also covers an in-place text swap); always clear a pending advance.
+  useEffect(() => {
+    setRevealed(0);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [text]);
+
+  // A beat finished → pause, then mount the next one.
+  const advance = useCallback(() => {
+    timerRef.current = setTimeout(() => setRevealed((r) => r + 1), BEAT_DELAY_MS);
+  }, []);
+
+  if (beats.length === 0) return <>{text}</>;
 
   return (
     <>
-      {beatsWithDelay.map((beat) =>
-        beat.type === 'action' ? (
-          <ActionBeat key={beat.index} text={beat.text} delay={beat.delay} />
+      {beats.slice(0, revealed + 1).map((beat, i) => {
+        // Only the active (last-revealed) beat advances the sequence; earlier
+        // beats are settled and pass no onDone (so they never re-fire).
+        const onDone = i === revealed && i < beats.length - 1 ? advance : undefined;
+        return beat.type === 'action' ? (
+          <ActionBeat key={i} text={beat.text} onDone={onDone} />
         ) : (
-          <SpeechBeat key={beat.index} text={beat.text} delay={beat.delay} />
-        )
-      )}
+          <SpeechBeat key={i} text={beat.text} onDone={onDone} />
+        );
+      })}
     </>
   );
 }
