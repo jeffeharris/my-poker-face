@@ -139,6 +139,131 @@ def spawn_autonomous_tournament(
     }
 
 
+def human_seat_id(owner_id: str) -> str:
+    """Stable field-seat id for the human entrant (distinct from the synthetic
+    `P01` ids and from persona ids). The session's `human_id`; payout maps it
+    back to the real player bankroll."""
+    return f"human:{owner_id}"
+
+
+def create_human_tournament(
+    *,
+    owner_id: str,
+    sandbox_id: str,
+    personality_repo,
+    bankroll_repo,
+    ledger_repo,
+    session_repo,
+    buy_in: int,
+    field_size: int = 9,
+    table_size: int = 3,
+    starting_stack: int = 10_000,
+    seed: int = 0,
+    rng_seed: int = 0,
+    archetypes: tuple[str, ...] = DEFAULT_FIELD_ARCHETYPES,
+    register: bool = True,
+) -> Optional[dict]:
+    """Build a tournament the human plays IN — a real-persona field with the
+    human in seat 0 — and charge their buy-in to the escrow.
+
+    Returns `{tournament_id, session, entries, plan, human_id}` or None if the
+    sandbox can't field at least `MIN_FIELD` seats. Raises
+    `tournament_economy_service.InsufficientFundsError` if the human can't cover
+    the buy-in (no chips move first). Caller holds `get_sandbox_lock`.
+
+    The other tables run on the fake resolver (no LLM); the human's own table is
+    driven live once they `/sit`. Registers the in-memory record (so `/sit`
+    works) when `register` is True; the durable `tournaments` row is written via
+    the injected `session_repo` regardless.
+    """
+    human_id = human_seat_id(owner_id)
+    entries = select_persona_field(
+        personality_repo=personality_repo,
+        owner_id=owner_id,
+        field_size=field_size,
+        archetypes=archetypes,
+        rng_seed=rng_seed,
+        human_id=human_id,
+    )
+    if len(entries) < MIN_FIELD:
+        logger.info(
+            "[TOURNAMENT] human tournament skipped for owner=%s: only %d seats",
+            owner_id,
+            len(entries),
+        )
+        return None
+
+    from tournament.session import TournamentSession
+
+    config = TournamentConfig(
+        field_size=len(entries),
+        table_size=table_size,
+        starting_stack=starting_stack,
+        seed=seed,
+    )
+    resolver = FakeHandResolver()
+    session = TournamentSession(
+        config, ai_resolver=resolver, human_id=human_id, entries=entries
+    )
+
+    tournament_id = _new_id()
+    created_at = datetime.utcnow().isoformat()
+    if session_repo is not None:
+        session_repo.save(
+            tournament_id=tournament_id,
+            owner_id=owner_id,
+            status='active',
+            resolver_kind='fake',
+            session_json=json.dumps(session.to_dict()),
+            created_at=created_at,
+        )
+
+    # Fund: the human pays the buy-in; overlay added if the bank is flush.
+    # plan_funding + apply_buy_in share ONE economy snapshot under the lock.
+    plan = econ.plan_funding(
+        ledger_repo=ledger_repo,
+        sandbox_id=sandbox_id,
+        field_size=len(entries),
+        buy_in=buy_in,
+        human_in=True,
+    )
+    econ.apply_buy_in(  # raises InsufficientFundsError if the human can't cover it
+        tournament_id=tournament_id,
+        owner_id=owner_id,
+        sandbox_id=sandbox_id,
+        plan=plan,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+    )
+
+    if register:
+        try:
+            from flask_app.services import tournament_registry
+
+            tournament_registry.put(
+                tournament_id,
+                {
+                    'session': session,
+                    'owner_id': owner_id,
+                    'created_at': created_at,
+                    'resolver': resolver,
+                    'resolver_kind': 'fake',
+                    'game_id': None,
+                },
+            )
+        except Exception:  # noqa: BLE001 — durable row already written; registry is the hot cache
+            logger.exception("registry put failed for %s", tournament_id)
+
+    return {
+        'tournament_id': tournament_id,
+        'session': session,
+        'entries': entries,
+        'plan': plan,
+        'human_id': human_id,
+    }
+
+
 def advance_autonomous_tournament(
     *,
     tournament_id: str,

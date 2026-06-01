@@ -281,7 +281,11 @@ _test_schema_template_path = None
 #       on top. Existing rows default to payout_status='skipped' so the payout
 #       idempotency guard never fires on pre-economy tournaments. Renumbered from
 #       v132. See `docs/plans/TOURNAMENT_ECONOMY_ON_STATE_MODEL.md`.
-SCHEMA_VERSION = 134
+# v135: Create `tournament_invites` — the circuit Main Event offer (P3 surfacing):
+#       one open invite per owner that they accept (→ play it), decline, or let
+#       expire (→ runs autonomously). Durable so a scheduled window survives
+#       navigation / restart. See `docs/plans/TOURNAMENT_CIRCUIT_SURFACING.md`.
+SCHEMA_VERSION = 135
 
 
 class SchemaManager:
@@ -1333,6 +1337,32 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)"
             )
 
+            # 23c. Tournament invites (v135) — the circuit Main Event offer the
+            # player accepts (→ they play it) / declines / lets expire (→ it runs
+            # autonomously). One open invite per owner at a time; durable so a
+            # scheduled "open until 8pm" survives navigation / restart.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tournament_invites (
+                    invite_id     TEXT PRIMARY KEY,
+                    owner_id      TEXT NOT NULL,
+                    sandbox_id    TEXT NOT NULL,
+                    status        TEXT NOT NULL DEFAULT 'offered',
+                    buy_in        INTEGER NOT NULL DEFAULT 0,
+                    field_size    INTEGER NOT NULL,
+                    table_size    INTEGER NOT NULL,
+                    starting_stack INTEGER NOT NULL,
+                    seed          INTEGER NOT NULL DEFAULT 0,
+                    expires_at    TEXT,
+                    tournament_id TEXT,
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_invites_owner "
+                "ON tournament_invites(owner_id, status)"
+            )
+
             # 24. Experiments (v43) - experiment metadata and configuration
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS experiments (
@@ -2148,6 +2178,10 @@ class SchemaManager:
             134: (
                 self._migrate_v134_add_tournament_economy,
                 "Add the tournament real-chip economy columns (buy_in, rake, bank_overlay, prize_pool, payout_status) to `tournaments`. Additive ALTER TABLE; existing rows default to payout_status='skipped' so the payout idempotency guard never fires on pre-economy tournaments. Renumbered from v132.",
+            ),
+            135: (
+                self._migrate_v135_create_tournament_invites,
+                "Create tournament_invites table — the circuit Main Event offer (P3): one open invite per owner, accepted (→ play) / declined / expired (→ autonomous). Durable so a scheduled window survives navigation / restart.",
             ),
         }
 
@@ -7058,6 +7092,38 @@ class SchemaManager:
             if name not in existing:
                 conn.execute(f"ALTER TABLE tournaments ADD COLUMN {name} {decl}")
         logger.info("Migration v134 complete: tournament economy columns added")
+
+    def _migrate_v135_create_tournament_invites(self, conn: sqlite3.Connection) -> None:
+        """Migration v135: create `tournament_invites` — the circuit Main Event offer.
+
+        One open invite per owner that they accept (→ play it through the live
+        bridge), decline, or let expire (→ it runs autonomously). Durable so a
+        scheduled offer window survives navigation / TTL eviction / restart.
+        Non-destructive, idempotent (CREATE ... IF NOT EXISTS). See
+        `docs/plans/TOURNAMENT_CIRCUIT_SURFACING.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournament_invites (
+                invite_id     TEXT PRIMARY KEY,
+                owner_id      TEXT NOT NULL,
+                sandbox_id    TEXT NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'offered',
+                buy_in        INTEGER NOT NULL DEFAULT 0,
+                field_size    INTEGER NOT NULL,
+                table_size    INTEGER NOT NULL,
+                starting_stack INTEGER NOT NULL,
+                seed          INTEGER NOT NULL DEFAULT 0,
+                expires_at    TEXT,
+                tournament_id TEXT,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tournament_invites_owner "
+            "ON tournament_invites(owner_id, status)"
+        )
+        logger.info("Migration v135 complete: tournament_invites table created")
 
     def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
         """Migration v130: add `preflop_node_key` to player_decision_analysis.

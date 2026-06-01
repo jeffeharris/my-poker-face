@@ -76,6 +76,7 @@ guest_tracking_repo = None
 hand_history_repo = None
 tournament_repo = None
 tournament_session_repo = None  # durable backing for the MTT registry (v123)
+tournament_invite_repo = None  # circuit Main Event invites (v135)
 coach_repo = None
 relationship_repo = None
 bankroll_repo = None
@@ -221,6 +222,7 @@ def init_persistence() -> None:
         hand_history_repo, \
         tournament_repo, \
         tournament_session_repo, \
+        tournament_invite_repo, \
         coach_repo, \
         relationship_repo, \
         bankroll_repo, \
@@ -285,6 +287,12 @@ def init_persistence() -> None:
     )
 
     tournament_session_repo = TournamentSessionRepository(db_path)
+
+    from poker.repositories.tournament_invite_repository import (
+        TournamentInviteRepository,
+    )
+
+    tournament_invite_repo = TournamentInviteRepository(db_path)
 
     from poker.user_avatar_service import UserAvatarService
 
