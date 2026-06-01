@@ -64,6 +64,14 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
         '_preflop_open_raise_count': max(1, hands // 5),
         '_preflop_open_opportunities': max(1, hands // 2),
         '_limp_count': max(1, hands // 6),
+        # Sizing-aware counts/sums (v133), scaled so the sizing tiers clear at
+        # high hand counts (big bets faced + both equity bins).
+        '_big_bet_faced_count': max(1, hands // 5),
+        '_fold_to_big_bet_count': max(1, hands // 8),
+        '_equity_betting_big_count': max(1, hands // 6),
+        '_equity_betting_small_count': max(1, hands // 6),
+        '_equity_betting_big_sum': max(1, hands // 6) * 0.8,
+        '_equity_betting_small_sum': max(1, hands // 6) * 0.3,
     }
     conn = sqlite3.connect(db_path)
     try:
@@ -298,6 +306,8 @@ class TestDossierScoutingRoute(unittest.TestCase):
             'barrel_opportunity_count', 'equity_betting_count',
             'equity_raising_count', 'equity_calling_count',
             'preflop_open_opportunities', 'showdowns_seen',
+            'big_bet_faced_count', 'equity_betting_big_count',
+            'equity_betting_small_count',
         )
         col_sql = ", ".join(sample_cols)
         ph = ", ".join("?" for _ in sample_cols)

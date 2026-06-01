@@ -272,7 +272,13 @@ _test_schema_template_path = None
 #       in an open spot). Its denominator (`preflop_open_opportunities`) is
 #       already folded (v127-era), so this is a single additive column; the rate
 #       derives on read via OpponentTendencies. Guarded ALTER, idempotent.
-SCHEMA_VERSION = 132
+# v133: Add the sizing-aware count/sum columns to `opponent_observation_lifetime`
+#       (equity_betting_big/small sums+counts, fold_to_big_bet/big_bet_faced
+#       counts) so the sizing tells — `sizing_polarization_score` (bets bigger
+#       with stronger hands) and `fold_to_big_bet` (over-folds to overbets) —
+#       accumulate cross-game and derive on read, same store-counts-derive-rates
+#       principle as v126. 4 INTEGER + 2 REAL columns. Guarded ALTER, idempotent.
+SCHEMA_VERSION = 133
 
 
 class SchemaManager:
@@ -2107,6 +2113,10 @@ class SchemaManager:
             132: (
                 self._migrate_v132_add_limp_lifetime_count,
                 "Add limp_count to opponent_observation_lifetime — numerator for OpponentTendencies.limp_rate (limps preflop in an open spot); denominator preflop_open_opportunities already folded, rate derives on read",
+            ),
+            133: (
+                self._migrate_v133_add_sizing_aware_lifetime_counts,
+                "Add sizing-aware count/sum columns to opponent_observation_lifetime (equity_betting_big/small sums+counts, fold_to_big_bet/big_bet_faced counts) so sizing_polarization_score + fold_to_big_bet accumulate cross-game; rates derive on read",
             ),
         }
 
@@ -6995,6 +7005,54 @@ class SchemaManager:
 
         logger.info(
             "Migration v132 complete: %d column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v133_add_sizing_aware_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v133: persist the sizing-aware counters/sums.
+
+        The sizing tells were tracked live on `OpponentTendencies` but never
+        folded into the durable store, so they reset every game. This adds the
+        raw counts (and the big/small equity SUMS) so they accumulate
+        cross-game and the two derived reads come back on read through the
+        canonical `OpponentTendencies`:
+
+          - `sizing_polarization_score` = equity_when_betting_big −
+            equity_when_betting_small (bets bigger with stronger hands), from
+            the big/small equity sum+count bins.
+          - `fold_to_big_bet` = fold_to_big_bet_count / big_bet_faced_count
+            (over-folds to large/jam bets).
+
+        Same store-counts-derive-rates principle as v126. Guarded ALTER,
+        additive, idempotent.
+        """
+        # (column, sql_type) — integer counts, then the REAL equity sums.
+        new_columns = [
+            ('equity_betting_big_count', 'INTEGER'),
+            ('equity_betting_small_count', 'INTEGER'),
+            ('fold_to_big_bet_count', 'INTEGER'),
+            ('big_bet_faced_count', 'INTEGER'),
+            ('equity_betting_big_sum', 'REAL'),
+            ('equity_betting_small_sum', 'REAL'),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col, sql_type in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} {sql_type} NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v133 complete: %d sizing-aware column(s) added to "
             "opponent_observation_lifetime",
             len(new_columns),
         )

@@ -927,6 +927,13 @@ class GameRepository(BaseRepository):
         # (preflop_open_opportunities) is already folded above, so this is a
         # single new column. Rate derives on read via OpponentTendencies.
         '_limp_count': 'limp_count',
+        # v133 sizing-aware counts — feed sizing_polarization_score (big/small
+        # equity bins) and fold_to_big_bet; the equity SUMS are folded in
+        # _LIFETIME_SUM_FIELDS. Rates derive on read.
+        '_equity_betting_big_count': 'equity_betting_big_count',
+        '_equity_betting_small_count': 'equity_betting_small_count',
+        '_fold_to_big_bet_count': 'fold_to_big_bet_count',
+        '_big_bet_faced_count': 'big_bet_faced_count',
     }
 
     # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
@@ -936,6 +943,10 @@ class GameRepository(BaseRepository):
         '_equity_betting_sum': 'equity_betting_sum',
         '_equity_raising_sum': 'equity_raising_sum',
         '_equity_calling_sum': 'equity_calling_sum',
+        # v133 sizing-aware equity sums (big/small bet bins); the polarization
+        # means derive on read as sum / count.
+        '_equity_betting_big_sum': 'equity_betting_big_sum',
+        '_equity_betting_small_sum': 'equity_betting_small_sum',
     }
 
     def fold_observations_into_lifetime(
@@ -1102,6 +1113,9 @@ class GameRepository(BaseRepository):
         'equity_raising_count', 'equity_calling_count',
         # v132 limp_rate gate + showdown_win_rate gate sample denominators.
         'preflop_open_opportunities', 'showdowns_seen',
+        # v133 sizing-read gate sample denominators.
+        'big_bet_faced_count', 'equity_betting_big_count',
+        'equity_betting_small_count',
     )
 
     def list_observation_lifetime_for_observer(

@@ -94,6 +94,15 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     # real showdown sample before the number means anything.
     ScoutingTier('showdown_win_rate', 'Showdown win rate', 200,
                  ('showdowns_seen',), 15, 'showdowns'),
+    # Sizing tells (v133). fold_to_big_bet matures fast (every faced big bet
+    # is a sample, not showdown-gated) — moderate floor. sizing_polarization
+    # is showdown-gated (needs revealed cards in both size bins) so it matures
+    # slowly — high floor, like the equity polarization read.
+    ScoutingTier('fold_to_big_bet', 'Fold to big bets', 180,
+                 ('big_bet_faced_count',), 6, 'big bets faced'),
+    ScoutingTier('sizing_polarization', 'Sizing tell', 260,
+                 ('equity_betting_big_count', 'equity_betting_small_count'),
+                 8, 'sized showdown reads'),
     # B2 "the read" — exploit advice + archetype badge, derived from the
     # tiered-bot exploitation detectors. Hand-only tiers: the per-pattern
     # detectors enforce their own sample minimums, so an unlocked-but-thin
@@ -125,6 +134,8 @@ _DEEPER_FIELDS: Dict[str, Tuple[str, ...]] = {
     ),
     'limp_rate': ('limp_rate',),
     'showdown_win_rate': ('showdown_win_rate',),
+    'fold_to_big_bet': ('fold_to_big_bet',),
+    'sizing_polarization': ('sizing_polarization_score',),
 }
 
 # Every gateable field in the deeper_reads block (used to collapse a fully
@@ -166,6 +177,7 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
             'fold_to_cbet', 'cbet_pct', 'postflop_aggression',
             'all_in_freq', 'barrel', 'polarization',
             'limp_rate', 'showdown_win_rate',
+            'fold_to_big_bet', 'sizing_polarization',
         ],
     },
     'tactical_read': {

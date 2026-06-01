@@ -50,6 +50,8 @@ def _full_response():
             'aggression_factor_postflop': 2.5,
             'limp_rate': 0.25,
             'showdown_win_rate': 0.52,
+            'sizing_polarization_score': 0.3,
+            'fold_to_big_bet': 0.65,
             'equity_when_betting': 0.65,
             'equity_when_raising': 0.72,
             'equity_when_calling': 0.55,
@@ -89,6 +91,8 @@ def _maxed(hands=10_000):
         'barrel_opportunity_count': 100, 'equity_betting_count': 100,
         'equity_raising_count': 100, 'equity_calling_count': 100,
         'preflop_open_opportunities': 100, 'showdowns_seen': 100,
+        'big_bet_faced_count': 100, 'equity_betting_big_count': 100,
+        'equity_betting_small_count': 100,
     }
 
 
@@ -241,6 +245,8 @@ def test_deep_reads_full_unlock_keeps_everything():
     assert dr['aggression_factor_postflop'] == 2.5
     assert dr['limp_rate'] == 0.25
     assert dr['showdown_win_rate'] == 0.52
+    assert dr['sizing_polarization_score'] == 0.3
+    assert dr['fold_to_big_bet'] == 0.65
     assert dr['equity_when_betting'] == 0.65
 
 

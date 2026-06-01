@@ -80,14 +80,32 @@ def reconstruct_tendencies_from_lifetime(counts: Optional[dict]):
     t._preflop_open_opportunities = counts.get('preflop_open_opportunities', 0)
     # v132 limp counter — limp_rate derives off it + preflop_open_opportunities.
     t._limp_count = counts.get('limp_count', 0)
-    t._recalculate_stats()
+    # v133 sizing-aware counts + sums.
+    t._equity_betting_big_count = counts.get('equity_betting_big_count', 0)
+    t._equity_betting_small_count = counts.get('equity_betting_small_count', 0)
+    t._fold_to_big_bet_count = counts.get('fold_to_big_bet_count', 0)
+    t._big_bet_faced_count = counts.get('big_bet_faced_count', 0)
+    t._equity_betting_big_sum = counts.get('equity_betting_big_sum', 0.0)
+    t._equity_betting_small_sum = counts.get('equity_betting_small_sum', 0.0)
 
-    # Equity-at-action means (recalc doesn't touch these — see docstring).
     def _eq(total, n):
         return total / n if n else 0.5
+
+    # The big/small equity MEANS must be set BEFORE _recalculate_stats, because
+    # it derives sizing_polarization_score = big_mean − small_mean (gated on
+    # the bin counts). The other equity means below don't feed recalc.
+    t.equity_when_betting_big = _eq(t._equity_betting_big_sum, t._equity_betting_big_count)
+    t.equity_when_betting_small = _eq(t._equity_betting_small_sum, t._equity_betting_small_count)
+
+    t._recalculate_stats()
+
+    # Means recalc doesn't touch (live path updates them incrementally).
     t.equity_when_betting_postflop = _eq(t._equity_betting_sum, t._equity_betting_count)
     t.equity_when_raising_postflop = _eq(t._equity_raising_sum, t._equity_raising_count)
     t.equity_when_calling_postflop = _eq(t._equity_calling_sum, t._equity_calling_count)
+    # fold_to_big_bet is updated incrementally live (not by _recalculate_stats).
+    if t._big_bet_faced_count:
+        t.fold_to_big_bet = t._fold_to_big_bet_count / t._big_bet_faced_count
     return t
 
 
@@ -103,8 +121,21 @@ def deep_reads_from_tendencies(t) -> Optional[Dict[str, Any]]:
     if t is None:
         return None
 
+    from poker.memory.opponent_model import (
+        SIZING_MIN_BIG_BET_FACED,
+        SIZING_MIN_BIN_SAMPLE,
+    )
+
     def _mean(total, n):
         return round(total / n, 2) if n else None
+
+    # Sizing tells gate on their own bin samples. sizing_polarization needs
+    # BOTH equity bins matured (it's big_mean − small_mean); fold_to_big_bet
+    # needs enough big bets faced to mean something.
+    sizing_ready = (
+        t._equity_betting_big_count >= SIZING_MIN_BIN_SAMPLE
+        and t._equity_betting_small_count >= SIZING_MIN_BIN_SAMPLE
+    )
 
     return {
         'fold_to_cbet': (
@@ -134,6 +165,15 @@ def deep_reads_from_tendencies(t) -> Optional[Dict[str, Any]]:
         # Showdown win rate — already tracked/persisted; None until a showdown.
         'showdown_win_rate': (
             round(t.showdown_win_rate, 2) if t._showdowns else None
+        ),
+        # Sizing tells (v133). polarization > 0 ⇒ bets bigger with stronger
+        # hands (face-up); fold_to_big_bet high ⇒ over-folds to overbets.
+        'sizing_polarization_score': (
+            round(t.sizing_polarization_score, 2) if sizing_ready else None
+        ),
+        'fold_to_big_bet': (
+            round(t.fold_to_big_bet, 2)
+            if t._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED else None
         ),
         # Polarization: mean equity the opponent held at each action type.
         'equity_when_betting': _mean(t._equity_betting_sum, t._equity_betting_count),

@@ -90,6 +90,7 @@ class TestOpponentDeepReadsInPrompt(unittest.TestCase):
         text = _format_stats_for_prompt(self._opp({
             'fold_to_cbet': 0.7, 'barrel_frequency': 0.3,
             'limp_rate': 0.25, 'showdown_win_rate': 0.55,
+            'fold_to_big_bet': 0.68, 'sizing_polarization_score': 0.3,
             'cbet_attempt_rate': None, 'aggression_factor_postflop': None,
         }))
         self.assertIn('tells:', text)
@@ -97,6 +98,15 @@ class TestOpponentDeepReadsInPrompt(unittest.TestCase):
         self.assertIn('barrels turn 30%', text)
         self.assertIn('limps 25% of open spots', text)
         self.assertIn('wins 55% at showdown', text)
+        self.assertIn('folds to big bets 68%', text)
+        self.assertIn('bet size telegraphs strength', text)
+
+    def test_balanced_sizing_not_called_a_tell(self):
+        # A small/zero polarization score must NOT be reported as a sizing tell.
+        text = _format_stats_for_prompt(self._opp({
+            'fold_to_cbet': 0.5, 'sizing_polarization_score': 0.05,
+        }))
+        self.assertNotIn('bet size telegraphs', text)
 
     def test_none_reads_are_omitted(self):
         text = _format_stats_for_prompt(self._opp({

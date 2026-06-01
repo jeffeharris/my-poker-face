@@ -336,6 +336,43 @@ def test_deeper_reads_from_lifetime_derives_limp_and_showdown():
     })
     assert deep['limp_rate'] == pytest.approx(0.25)          # 3 / 12
     assert deep['showdown_win_rate'] == pytest.approx(0.4)   # 4 / 10
+    # No sizing samples here → both sizing reads gate to None.
+    assert deep['sizing_polarization_score'] is None
+    assert deep['fold_to_big_bet'] is None
+
+
+def test_fold_stores_sizing_counts_and_derives_reads(repo, db_path):
+    """v133: the sizing-aware counts + equity sums fold cross-game and the
+    reconstructed tendency derives sizing_polarization_score + fold_to_big_bet."""
+    _insert_model(
+        db_path, "g1", "obs1", "opp1",
+        _counts(hands_observed=60, hands_dealt=60,
+                _equity_betting_big_count=3, _equity_betting_big_sum=2.4,
+                _equity_betting_small_count=2, _equity_betting_small_sum=0.4,
+                _fold_to_big_bet_count=4, _big_bet_faced_count=6),
+    )
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 1
+    # Second game accumulates (lossless cross-game merge of counts AND sums).
+    _insert_model(
+        db_path, "g2", "obs1", "opp1",
+        _counts(hands_observed=40, hands_dealt=40,
+                _equity_betting_big_count=2, _equity_betting_big_sum=1.6,
+                _equity_betting_small_count=3, _equity_betting_small_sum=0.6,
+                _fold_to_big_bet_count=2, _big_bet_faced_count=4),
+    )
+    assert repo.fold_observations_into_lifetime("g2", "sb1") == 1
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['equity_betting_big_count'] == 5          # 3 + 2
+    assert life['equity_betting_big_sum'] == pytest.approx(4.0)   # 2.4 + 1.6
+    assert life['big_bet_faced_count'] == 10              # 6 + 4
+    assert life['fold_to_big_bet_count'] == 6             # 4 + 2
+
+    from flask_app.routes.character_routes import _deeper_reads_from_lifetime
+    deep = _deeper_reads_from_lifetime(life)
+    # big mean = 4.0/5 = 0.8, small mean = 1.0/5 = 0.2 → polarization 0.6
+    assert deep['sizing_polarization_score'] == pytest.approx(0.6)
+    assert deep['fold_to_big_bet'] == pytest.approx(0.6)   # 6 / 10
 
 
 def test_deeper_reads_from_lifetime_empty_is_none():
@@ -464,6 +501,9 @@ def test_deep_reads_from_tendencies_gates_unobserved_reads():
     assert reads['fold_to_cbet'] is None
     assert reads['barrel_frequency'] is None
     assert reads['showdown_win_rate'] is None
+    # No sizing samples → sizing reads gate to None too.
+    assert reads['sizing_polarization_score'] is None
+    assert reads['fold_to_big_bet'] is None
 
 
 # --- Informant unlock store (Phase 3) ---------------------------------------

@@ -497,6 +497,11 @@ def _format_stats_for_prompt(data: Dict) -> str:
                 tell_parts.append(f"limps {dr['limp_rate']:.0%} of open spots")
             if dr.get('showdown_win_rate') is not None:
                 tell_parts.append(f"wins {dr['showdown_win_rate']:.0%} at showdown")
+            if dr.get('fold_to_big_bet') is not None:
+                tell_parts.append(f"folds to big bets {dr['fold_to_big_bet']:.0%}")
+            sp = dr.get('sizing_polarization_score')
+            if sp is not None and sp > 0.15:
+                tell_parts.append("bet size telegraphs strength (big = strong)")
             if tell_parts:
                 lines.append(f"      tells: {', '.join(tell_parts)}")
 
