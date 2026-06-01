@@ -1190,13 +1190,13 @@ export function CharacterDetailCard({
                       value={merged.observed.handsObserved.toLocaleString()}
                     />
                   )}
-                  {merged.observed?.vpip !== undefined && (
+                  {merged.observed?.vpip != null && (
                     <DataRow label="VPIP" value={`${Math.round(merged.observed.vpip * 100)}%`} />
                   )}
-                  {merged.observed?.pfr !== undefined && (
+                  {merged.observed?.pfr != null && (
                     <DataRow label="PFR" value={`${Math.round(merged.observed.pfr * 100)}%`} />
                   )}
-                  {merged.observed?.aggressionFactor !== undefined && (
+                  {merged.observed?.aggressionFactor != null && (
                     <DataRow
                       label="Aggression factor"
                       value={merged.observed.aggressionFactor.toFixed(1)}
