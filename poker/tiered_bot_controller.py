@@ -368,6 +368,32 @@ class TieredBotController(AIPlayerController):
         self.overbet_max_active: Optional[int] = (
             None  # None = no multiway gate (matches measured 6-max +73)
         )
+        # Overbet BLUFF side (OVERBET_BALANCING.md T1): share of air bet-mass routed
+        # to the overbet size, polarizing it so a sizing-reader can't fold to it.
+        # 0.0 = OFF (value-only, byte-identical). Production gating (multiway veto /
+        # regime) lives in the caller; this is the raw lever the eval harness drives.
+        self.overbet_bluff_fraction: float = 0.0
+        self.overbet_bluff_classes: Optional[frozenset] = None  # None = default {air_strong_draw, air_no_draw}
+        # River-bluff side (OVERBET_BALANCING.md T2): CREATES river bluff supply by
+        # promoting give-up-air CHECK mass to a bet at the value size — the only
+        # path that fixes the face-up river (tell map: river big bets ~95-100%
+        # value). T1 can't (no river air bet-mass to relabel). river_bluff_size
+        # None = match overbet_size. ON at 1.0 (calibrated): give-up-air supply
+        # caps the river overbet's bluff share at ~31% even at full injection
+        # (< the ~37% GTO target → no over-bluff risk; takes the overbet from
+        # face-up gap −28 to −7). FIRES only behind the regime gate below (a
+        # detected over-folder), so it's value-only vs the fish / cold-start.
+        # Set 0.0 to disable. (Eval harnesses bypass __init__ → unaffected unless
+        # they set it explicitly; this default only turns it on in real games.)
+        self.river_bluff_fraction: float = 1.0
+        self.river_bluff_classes: Optional[frozenset] = None  # None = default {air_strong_draw, air_no_draw}
+        self.river_bluff_size: Optional[int] = None  # None = match overbet_size
+        # Regime gate: river bluffs fire ONLY vs a detected over-folder/sizing-
+        # reader (opponent fold_to_big_bet >= min). Cold-start / caller → value-
+        # only (the river bluff costs −7.18 bb/100 vs a caller, gains only +1.90
+        # vs a reader). _override forces the read in eval/tests (no model mgr).
+        self.river_bluff_min_ftbb: float = 0.6
+        self.river_bluff_ftbb_override: Optional[float] = None
         # Adaptive overbet (PERSONALITY_PRICING_AND_VARIETY.md "Attacker side"):
         # when True, scale the overbet's fraction by the live value-vs-station
         # detection intensity (× sample confidence, already baked into the
@@ -1157,6 +1183,7 @@ class TieredBotController(AIPlayerController):
             node=node,
             hand_strength=hand_strength,
             active_count=active_count,
+            game_state=game_state,
             induce_override_trace=induce_override_trace,
             value_override_trace=value_override_trace,
             bluff_catch_trace=bluff_catch_trace,
@@ -1388,6 +1415,7 @@ class TieredBotController(AIPlayerController):
         node,
         hand_strength,
         active_count,
+        game_state,
         induce_override_trace,
         value_override_trace,
         bluff_catch_trace,
@@ -1410,7 +1438,13 @@ class TieredBotController(AIPlayerController):
         # no-ops, so we don't bloat the pot vs balanced or sizing-reading
         # opponents. The static path (adaptive_overbet=False) is unchanged.
         _overbet_fraction = self._effective_overbet_fraction()
-        if getattr(self, 'enable_overbet_context', False) and _overbet_fraction > 0.0:
+        _overbet_bluff_fraction = getattr(self, 'overbet_bluff_fraction', 0.0)
+        _river_bluff_fraction = getattr(self, 'river_bluff_fraction', 0.0)
+        if getattr(self, 'enable_overbet_context', False) and (
+            _overbet_fraction > 0.0
+            or _overbet_bluff_fraction > 0.0
+            or _river_bluff_fraction > 0.0
+        ):
             from .strategy.overbet_context import apply_overbet_context
 
             overbet_prior_fired = (
@@ -1430,6 +1464,17 @@ class TieredBotController(AIPlayerController):
                 overbet_classes=getattr(self, 'overbet_classes', None),
                 overbet_streets=getattr(self, 'overbet_streets', None),
                 overbet_max_active=getattr(self, 'overbet_max_active', None),
+                overbet_bluff_fraction=_overbet_bluff_fraction,
+                overbet_bluff_classes=getattr(self, 'overbet_bluff_classes', None),
+                river_bluff_fraction=_river_bluff_fraction,
+                river_bluff_classes=getattr(self, 'river_bluff_classes', None),
+                river_bluff_size=getattr(self, 'river_bluff_size', None),
+                river_bluff_fold_to_big_bet=(
+                    self._resolve_river_bluff_ftbb(game_state)
+                    if _river_bluff_fraction > 0.0
+                    else None
+                ),
+                river_bluff_min_ftbb=getattr(self, 'river_bluff_min_ftbb', 0.6),
                 prior_layer_fired=overbet_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
@@ -2974,6 +3019,37 @@ class TieredBotController(AIPlayerController):
                 )
             )
         return spots
+
+    def _resolve_river_bluff_ftbb(self, game_state) -> Optional[float]:
+        """Resolve the opponent read that gates the river bluff (OVERBET_BALANCING
+        T2 regime gate). Returns the continuing opponent's `fold_to_big_bet` when
+        there is a single mature read, else None (→ value-only, the safe default).
+
+        - `river_bluff_ftbb_override` (eval/tests, no model manager) wins outright.
+        - Production: HU only for the MVP — multiway returns None (don't bluff into
+          a field we can't read). Requires a matured read (`_big_bet_faced_count`)
+          so a cold start stays value-only rather than bluffing on a neutral prior.
+        """
+        override = getattr(self, 'river_bluff_ftbb_override', None)
+        if override is not None:
+            return override
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return None
+        opps = [
+            p.name
+            for p in game_state.players
+            if p.name != self.player_name and not p.is_folded
+        ]
+        if len(opps) != 1:  # MVP: HU only; multiway → don't fire (safe)
+            return None
+        try:
+            tendencies = manager.get_model(self.player_name, opps[0]).tendencies
+        except Exception:  # noqa: BLE001 — no model yet → cold start
+            return None
+        if getattr(tendencies, '_big_bet_faced_count', 0) < 8:
+            return None  # immature read → value-only
+        return tendencies.fold_to_big_bet
 
     def _select_exploitation_stats(
         self,

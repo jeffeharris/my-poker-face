@@ -69,6 +69,7 @@ from experiments.simulate_bb100 import (
 # controller looks up, so an attribution bucket maps directly to a chart entry.
 from poker.card_utils import card_to_string
 from poker.controllers import _get_canonical_hand
+from poker.hand_ranges import _classify_hand_tier
 from poker.poker_state_machine import PokerStateMachine
 from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET, derive_signals
 from poker.strategy.preflop_classifier import build_preflop_node
@@ -136,6 +137,44 @@ _AGGRESSIVE = {'bet', 'raise', 'all_in'}
 _POSTFLOP_STREETS = ('FLOP', 'TURN', 'RIVER')
 _PREV_STREET = {'TURN': 'FLOP', 'RIVER': 'TURN'}
 
+# ── Size→strength "tell map" (readability audit) ────────────────────────────
+# For each hero bet/raise, bucket it by its size as a fraction of the pot BEFORE
+# the action, then record the hand class. A face-up bot's big sizes are ~all
+# value (bluff share → 0), so a sizing-reader folds to them for free; a balanced
+# range holds the GTO-unexploitable bluff share s/(1+2s) at every size. The map
+# shows WHERE the bot's sizing leaks strength and by how much vs that target.
+_SIZE_BUCKETS = [
+    ('xs', 0.0, 0.33),  # tiny / blocker bet
+    ('s', 0.33, 0.55),  # small
+    ('m', 0.55, 0.80),  # medium
+    ('l', 0.80, 1.10),  # ~pot
+    ('xl', 1.10, 1.60),  # overbet
+    ('xxl', 1.60, 1e9),  # big overbet / jam
+]
+_VALUE_CLASSES = {'nuts', 'strong_made'}
+_BLUFF_CLASSES = {'air', 'air_no_draw', 'air_strong_draw'}
+
+# Preflop 3-bet readability: a 3-bet (or 4-bet) range is face-up when it's all
+# value (premium/strong — hands happy to stack off / call a 4-bet), so a reader
+# folds to every 3-bet and 4-bet-bluffs the capped raiser. A balanced range mixes
+# in light/bluff 3-bets (playable/marginal/trash — hands that 3-bet to fold to a
+# 4-bet). Tiers from hand_ranges._classify_hand_tier.
+_PF_VALUE_TIERS = {'premium', 'strong'}
+_PF_BLUFF_TIERS = {'playable', 'marginal', 'trash'}
+
+
+def _size_bucket(frac: float) -> str:
+    for name, lo, hi in _SIZE_BUCKETS:
+        if lo <= frac < hi:
+            return name
+    return 'xxl'
+
+
+def _gto_bluff_target(frac: float) -> float:
+    """Unexploitable bluff share of a polar betting range for a bet of `frac`
+    pot-fractions: s/(1+2s). 0.5→0.25, pot→0.33, 1.5x→0.375, 2x→0.40."""
+    return frac / (1.0 + 2.0 * frac) if frac > 0 else 0.0
+
 
 @dataclass
 class PassivityStats:
@@ -191,6 +230,19 @@ class PassivityStats:
     sig_action: Dict[tuple, Counter] = field(default_factory=lambda: defaultdict(Counter))
     sig_chart_agg_sum: Dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
 
+    # Size→strength tell map: (street, size_bucket) -> Counter(hand_class), plus
+    # the running sum of bet-fraction per bucket (for the bucket's mean size, used
+    # to pick the GTO bluff target). Populated for every hero bet/raise/all_in.
+    size_strength: Dict[Tuple[str, str], Counter] = field(
+        default_factory=lambda: defaultdict(Counter)
+    )
+    size_frac_sum: Dict[Tuple[str, str], float] = field(
+        default_factory=lambda: defaultdict(float)
+    )
+
+    # Diagnostic: overbet_context trace outcomes (fired effect / no-op reason).
+    overbet_outcomes: Counter = field(default_factory=Counter)
+
     # Preflop instrumentation — the 100bb-ranges-at-short-stacks leak is likely
     # mostly preflop (ranges too loose, raises too small, missed jams), which
     # the postflop surface can't see. Captures the hero's preflop decisions by
@@ -201,6 +253,11 @@ class PassivityStats:
     pf_scenario_action: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
     pf_raise_to_bb_sum: float = 0.0  # sum of resolved raise-to (in BB) for raises (excl all_in)
     pf_raise_n: int = 0  # count of raises (excl all_in) — for avg open size
+    # Preflop 3-bet readability: (scenario, action) -> Counter(hand_tier). The
+    # vs_open+raise cell is the 3-bet range's tier composition (value vs bluff).
+    pf_tier_action: Dict[Tuple[str, str], Counter] = field(
+        default_factory=lambda: defaultdict(Counter)
+    )
 
     def record_decision(
         self, node_key: str, action: str, opp_bet_flop: bool, opp_bet_prev: bool, street: str
@@ -265,10 +322,17 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
         into.sig_action[sig].update(c)
     for sig, v in src.sig_chart_agg_sum.items():
         into.sig_chart_agg_sum[sig] += v
+    for k, c in src.size_strength.items():
+        into.size_strength[k].update(c)
+    for k, v in src.size_frac_sum.items():
+        into.size_frac_sum[k] += v
+    into.overbet_outcomes.update(src.overbet_outcomes)
     into.pf_decisions += src.pf_decisions
     into.pf_action.update(src.pf_action)
     for sc, c in src.pf_scenario_action.items():
         into.pf_scenario_action[sc].update(c)
+    for k, c in src.pf_tier_action.items():
+        into.pf_tier_action[k].update(c)
     into.pf_raise_to_bb_sum += src.pf_raise_to_bb_sum
     into.pf_raise_n += src.pf_raise_n
 
@@ -365,6 +429,18 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
             if action == 'raise':
                 stats.pf_raise_to_bb_sum += raise_to / 100.0  # big_blind=100 in sim
                 stats.pf_raise_n += 1
+            # 3-bet readability: bucket the decision's hand by tier, keyed by
+            # (scenario, action). vs_open+raise = the 3-bet range composition.
+            hole = (
+                [card_to_string(c) for c in current_player.hand]
+                if current_player.hand
+                else []
+            )
+            if len(hole) == 2:
+                canon = _get_canonical_hand(hole)
+                if canon:
+                    tier = _classify_hand_tier(canon, None)
+                    stats.pf_tier_action[(scenario, action)][tier] += 1
 
         # ── Instrument the hero's postflop decision ─────────────────────────
         if is_hero and phase_name in _POSTFLOP_STREETS:
@@ -416,6 +492,29 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                     for a, p in base.items()
                     if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_'))
                 )
+                # Size→strength tell map: bucket this bet/raise by size-vs-pot.
+                # pot['total'] already includes all increments committed so far
+                # this street, so it is the pot the hero is betting INTO; the
+                # hero's own increment is raise_to minus what it already put in
+                # this street (the doc's correct raise accounting). all_in with
+                # no explicit raise_to falls back to the pushed stack.
+                if action in _AGGRESSIVE:
+                    pot_before = gs.pot.get('total', 0) or 0
+                    committed = current_player.bet or 0
+                    inc = max(0, (raise_to or 0) - committed)
+                    if inc == 0 and action == 'all_in':
+                        inc = current_player.stack or 0
+                    if pot_before > 0 and inc > 0:
+                        frac = inc / pot_before
+                        bucket = _size_bucket(frac)
+                        # Split bet (unopened) from raise (facing a bet/raise) so
+                        # raise-as-bluff readability is visible separately — a
+                        # raise range that's pure value is as face-up as a bet one
+                        # (a reader never pays the raise).
+                        ctx_tag = 'bet' if action_context == 'unopened' else 'raise'
+                        key = (phase_name, ctx_tag, bucket)
+                        stats.size_strength[key][hand_strength] += 1
+                        stats.size_frac_sum[key] += frac
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
                 state['hero_reached_river'] = True
@@ -430,6 +529,15 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                         stats.layer_action_changed[tr.rule_id] += 1
                 else:
                     stats.layer_noop_reasons[tr.reason_code] += 1
+            # Diagnostic: overbet_context outcomes (why river-bluff did/didn't fire).
+            for tr in getattr(controller, '_last_intervention_trace', []):
+                if getattr(tr, 'layer', None) != 'overbet_context':
+                    continue
+                tag = (tr.effect if tr.fired else f'noop:{tr.reason_code}')
+                if phase_name == 'RIVER':
+                    stats.overbet_outcomes[f'RIVER/{tag}'] += 1
+                else:
+                    stats.overbet_outcomes[tag] += 1
 
     def _post_action(current_player, action, raise_to, phase_name, gs, new_gs):
         # Mirror into the per-hand line trackers (used for end-of-hand metrics).
@@ -555,6 +663,33 @@ def run_passivity_matchup(
         controllers[0].opponent_model_manager = None
         _apply_mode(controllers[0], mode)
         controllers[0].multistreet_h1_classes = h1_classes
+        # River-bluff (OVERBET_BALANCING T2) validation knob. Env-var so it
+        # crosses the ProcessPool boundary (children inherit env), mirroring the
+        # REGPLUS_* convention. OFF (unset) = byte-identical. Drives the tell-map
+        # check: does the river leak (blf%→target) close, and at what fish cost?
+        _rbf = os.environ.get('RIVER_BLUFF_FRACTION')
+        if _rbf:
+            # make_controller bypasses __init__, so enable_overbet_context is
+            # unset (the layer is dormant in this harness). Turn it on and
+            # ISOLATE the river-bluff effect: overbet_fraction=0.0 keeps the
+            # value side a no-op so the only change vs baseline is the new river
+            # bluffs (give-up-air checks → bet at river_bluff_size).
+            controllers[0].enable_overbet_context = True
+            # overbet_fraction default 0.0 ISOLATES the bluff effect; set
+            # OVERBET_FRACTION=1.0 to calibrate under the production config (value
+            # relabel ON, so value + bluff both sit at the overbet size → the
+            # tell-map xl bucket shows the BALANCED ratio to tune toward ~37.5%).
+            controllers[0].overbet_fraction = float(os.environ.get('OVERBET_FRACTION', '0.0'))
+            controllers[0].river_bluff_fraction = float(_rbf)
+            _rbs = os.environ.get('RIVER_BLUFF_SIZE')
+            if _rbs:
+                controllers[0].river_bluff_size = int(_rbs)
+            # Regime-gate read override (no model manager in this harness): set a
+            # synthetic fold_to_big_bet so the gate sees a "reader" (high) or
+            # "caller" (low). Unset → gate has no read → river bluff never fires.
+            _ftbb = os.environ.get('RIVER_BLUFF_FTBB')
+            if _ftbb:
+                controllers[0].river_bluff_ftbb_override = float(_ftbb)
         # Range-aware prototype: turn on equity-vs-range for the hero and feed it
         # perfect-read field stats (uniform-field assumption: all opponents share
         # the first opponent archetype's stats). Concept-test ceiling.
@@ -683,6 +818,104 @@ def print_leak_surface(stats: PassivityStats, min_n: int = 25, top: int = 20):
         )
 
 
+def print_tell_map(stats: PassivityStats, min_n: int = 15):
+    """Size→strength readability audit: for each (street, size bucket) the hero
+    bet/raised into, the hand-class composition of that betting range.
+
+    The readability tell is the bluff share at each size: a face-up bot collapses
+    to ~0% bluffs at its big sizes (value=nuts+strong, bluff=air*), so a competent
+    reader folds to those bets for free. A balanced range holds bluff ≈ the
+    GTO-unexploitable target s/(1+2s). `gap = bluff% − target%`: large-negative at
+    a frequently-used big size = a high-value readability leak. `read` flags it.
+    """
+    print("\n── SIZE→STRENGTH TELL MAP (the hero's own sizing readability) ──")
+    print(
+        "  value=nuts+strong  bluff=air*  merge=rest.  bluff%/polar = bluff/(bluff+value)."
+    )
+    print(
+        "  ctx=bet (first-in/checked-to) vs raise (facing a bet/raise — the raise range)."
+    )
+    print(
+        f"  {'street':<6} {'ctx':<5} {'size':<4} {'~x pot':>6} {'n':>5}  "
+        f"{'val%':>5} {'blf%':>5} {'mrg%':>5} | {'blf/pol':>7} {'gto':>5} {'gap':>5}  read"
+    )
+    for ctx_tag in ('bet', 'raise'):
+        for street in ('FLOP', 'TURN', 'RIVER'):
+            for name, lo, hi in _SIZE_BUCKETS:
+                key = (street, ctx_tag, name)
+                counter = stats.size_strength.get(key)
+                n = sum(counter.values()) if counter else 0
+                if n < min_n:
+                    continue
+                mean_frac = stats.size_frac_sum[key] / n
+                value = sum(counter[c] for c in _VALUE_CLASSES)
+                bluff = sum(counter[c] for c in _BLUFF_CLASSES)
+                merge = n - value - bluff
+                polar = value + bluff
+                bluff_polar = bluff / polar if polar else 0.0
+                target = _gto_bluff_target(mean_frac)
+                gap = bluff_polar - target
+                # Flag a readability leak: a big-ish size (>=~0.6 pot) that is
+                # value-heavy and bluffs well under the GTO target → fold-to-it.
+                read = ''
+                if mean_frac >= 0.6 and value >= 3 and bluff_polar < 0.5 * target:
+                    read = 'FACE-UP' if bluff_polar < 0.10 else 'thin'
+                print(
+                    f"  {street:<6} {ctx_tag:<5} {name:<4} {mean_frac:>6.2f} {n:>5}  "
+                    f"{100*value/n:>5.0f} {100*bluff/n:>5.0f} {100*merge/n:>5.0f} | "
+                    f"{100*bluff_polar:>6.0f}% {100*target:>4.0f}% {100*gap:>+4.0f}%  {read}"
+                )
+    print(
+        "  (read=FACE-UP: big size, ~0% bluffs → a reader folds to it for free;\n"
+        "   thin: under-bluffed but not pure-value. Rank fixes by gap × n.)"
+    )
+    if stats.overbet_outcomes:
+        print("\n  overbet_context outcomes (diagnostic):")
+        for tag, n in stats.overbet_outcomes.most_common(12):
+            print(f"    {tag:<44} {n}")
+
+    # ── Preflop 3-bet readability ────────────────────────────────────────────
+    # vs_open+raise = the 3-bet range. value=premium+strong, bluff=light
+    # (playable/marginal/trash). A face-up 3-bet range is ~all value (a reader
+    # folds to every 3-bet + 4-bet-bluffs the capped raiser); a balanced range
+    # mixes in light 3-bets.
+    pf = stats.pf_tier_action
+    if pf:
+        print("\n── PREFLOP 3-BET READABILITY (raise range tier composition) ──")
+        print(
+            f"  {'scenario':<9} {'n':>5}  {'prem':>5} {'strg':>5} {'play':>5} "
+            f"{'marg':>5} {'trsh':>5} | {'value%':>6} {'bluff%':>6}  read"
+        )
+        for scenario in ('rfi', 'vs_open', 'vs_3bet'):
+            counter = pf.get((scenario, 'raise'))
+            n = sum(counter.values()) if counter else 0
+            if not n:
+                continue
+
+            def _p(tier):
+                return 100.0 * counter[tier] / n
+
+            value = sum(counter[t] for t in _PF_VALUE_TIERS)
+            bluff = sum(counter[t] for t in _PF_BLUFF_TIERS)
+            label = {'rfi': 'open', 'vs_open': '3bet', 'vs_3bet': '4bet'}[scenario]
+            read = ''
+            if scenario in ('vs_open', 'vs_3bet') and 100.0 * bluff / n < 8:
+                read = 'FACE-UP (value-only)'
+            print(
+                f"  {label:<9} {n:>5}  {_p('premium'):>5.0f} {_p('strong'):>5.0f} "
+                f"{_p('playable'):>5.0f} {_p('marginal'):>5.0f} {_p('trash'):>5.0f} | "
+                f"{100.0*value/n:>5.0f}% {100.0*bluff/n:>5.0f}%  {read}"
+            )
+        # Fold-to-3bet (over-fold leak, secondary): how vs_3bet decisions split.
+        v3 = {a: sum(pf.get(('vs_3bet', a), Counter()).values()) for a in ('fold', 'call', 'raise')}
+        v3n = sum(v3.values())
+        if v3n:
+            print(
+                f"  vs_3bet response: fold {100*v3['fold']/v3n:.0f}%  "
+                f"call {100*v3['call']/v3n:.0f}%  4bet {100*v3['raise']/v3n:.0f}%  (n={v3n})"
+            )
+
+
 def print_report(
     hero: str,
     opponents: List[str],
@@ -693,6 +926,7 @@ def print_report(
     mode: str,
     entry: str = 'default',
     leak_report: bool = False,
+    tell_map: bool = False,
     stack_bb: int = 100,
 ):
     opp_desc = (
@@ -829,6 +1063,9 @@ def print_report(
     if leak_report:
         print_leak_surface(stats)
 
+    if tell_map:
+        print_tell_map(stats)
+
 
 def _run_seed_worker(
     args: Tuple[
@@ -921,6 +1158,12 @@ def main():
         action='store_true',
         help="print the per-signature leak surface (realized vs chart "
         "aggression by line-signature) — the leak finder",
+    )
+    p.add_argument(
+        '--tell-map',
+        action='store_true',
+        help="print the size→strength tell map: per (street, bet size) hand-class "
+        "composition + bluff share vs the GTO target — the readability audit",
     )
     p.add_argument(
         '--preflop-chart',
@@ -1040,6 +1283,7 @@ def main():
         args.mode,
         args.entry,
         leak_report=args.leak_report,
+        tell_map=args.tell_map,
         stack_bb=args.stack_bb,
     )
 
