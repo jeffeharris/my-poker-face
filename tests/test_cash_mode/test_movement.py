@@ -24,7 +24,6 @@ import pytest
 
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
-    FISH_TILT_LEAVE_THRESHOLD,
     FORCED_LEAVE_RATIO,
     LEAVE_K,
     MIN_COOLDOWN_SECONDS,
@@ -590,11 +589,13 @@ class TestCoercePredatorRetention:
 
 
 class TestCoerceFishMovement:
-    """Fish stay-and-reload until bust, with an emotional escape hatch.
+    """Fish stay-and-reload until they genuinely bust.
 
-    Content fish reload from the bankroll instead of leaving (so the whole
-    pool-funded stake feeds the table); upset fish are released and may
-    storm off with their chips — making table manners an economic lever.
+    A fish reloads from the bankroll instead of leaving (so the whole
+    pool-funded stake feeds the table). Tilt (`emotional_intensity`) changes
+    how the fish *plays*, not whether it keeps its seat (0402d88c removed the
+    storm-off path), so the only exit from an open casino is a real bust —
+    a bankroll too thin to fund a reload.
     """
 
     def _ctx(
@@ -642,34 +643,32 @@ class TestCoerceFishMovement:
         ctx = self._ctx(projected_bankroll=800)
         assert _coerce_fish_movement("stay", ctx, random.Random(0)) == "stay"
 
-    # --- upset fish: released, may storm off with chips ---
-    def test_upset_fish_busting_just_goes(self):
+    # --- tilt no longer empties the seat (0402d88c) ---
+    # emotional_intensity changes how a fish *plays*, not whether it keeps its
+    # seat: an upset fish follows the same content path as a calm one. The only
+    # way a fish leaves an open casino is a genuine bust (can't fund a reload).
+    def test_upset_fish_reloads_when_funded(self):
         ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
-        assert _coerce_fish_movement("forced_leave", ctx, random.Random(0)) == "forced_leave"
+        assert _coerce_fish_movement("take_break", ctx, _force_rng([0.0])) == "rebuy"
+        assert _coerce_fish_movement("forced_leave", ctx, _force_rng([0.0])) == "rebuy"
 
-    def test_upset_fish_storms_off_with_chips(self):
-        # Roll below intensity → leaves, even though the bankroll could reload.
+    def test_upset_fish_never_storms_off_from_stay(self):
+        # Tilt no longer converts a stay into a leave, at any roll.
         ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
-        assert _coerce_fish_movement("take_break", ctx, _force_rng([0.1])) == "take_break"
-
-    def test_upset_fish_rage_quits_even_from_stay(self):
-        ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
-        assert _coerce_fish_movement("stay", ctx, _force_rng([0.1])) == "take_break"
-
-    def test_upset_fish_may_hold_when_roll_high(self):
-        # Roll above intensity → doesn't storm off this hand.
-        ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
+        assert _coerce_fish_movement("stay", ctx, _force_rng([0.0])) == "stay"
         assert _coerce_fish_movement("stay", ctx, _force_rng([0.99])) == "stay"
 
-    def test_threshold_boundary(self):
-        # Exactly at threshold counts as upset.
-        at = self._ctx(projected_bankroll=800, emotional_intensity=FISH_TILT_LEAVE_THRESHOLD)
-        assert _coerce_fish_movement("take_break", at, _force_rng([0.0])) == "take_break"
-        # Just below → content → reloads.
-        below = self._ctx(
-            projected_bankroll=800, emotional_intensity=FISH_TILT_LEAVE_THRESHOLD - 0.01
-        )
-        assert _coerce_fish_movement("take_break", below, random.Random(0)) == "rebuy"
+    def test_upset_fish_leaves_only_on_genuine_bust(self):
+        # The single exit: bankroll can't fund a reload.
+        ctx = self._ctx(projected_bankroll=100, emotional_intensity=0.8)  # < min 400
+        assert _coerce_fish_movement("forced_leave", ctx, _force_rng([0.0])) == "forced_leave"
+
+    def test_tilt_does_not_change_movement(self):
+        # Identical decision + RNG across the whole tilt range → identical
+        # outcome. Regression guard for the FISH_TILT_LEAVE_THRESHOLD removal.
+        for intensity in (0.0, 0.49, 0.5, 0.8, 1.0):
+            ctx = self._ctx(projected_bankroll=800, emotional_intensity=intensity)
+            assert _coerce_fish_movement("take_break", ctx, _force_rng([0.0])) == "rebuy"
 
 
 class TestRefreshForcedLeave:
