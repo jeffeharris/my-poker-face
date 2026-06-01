@@ -432,6 +432,27 @@ class TieredBotController(AIPlayerController):
         if isinstance(_pcfg, dict) and 'adaptive_overbet' in _pcfg:
             self.adaptive_overbet = bool(_pcfg['adaptive_overbet'])
 
+        # Per-personality skill tier (PLAYER_SKILL_SPECTRUM.md): a character can
+        # carry `"skill": "reg"` (etc.) in its config to set its sharpness across
+        # the exploitation / river-bluff / stab-defense / overbet intensities.
+        # Mirrors the `adaptive_overbet` read above — native to every live build
+        # path. No key (or the default `shark` ceiling) is a no-op, so an
+        # un-tiered persona is byte-identical to today. Sims/tests bypass __init__
+        # and set the intensity fields directly, so this read only affects the
+        # live path. An explicit `skill=` at the factory runs after this and wins.
+        _skill = _pcfg.get('skill') if isinstance(_pcfg, dict) else None
+        if _skill:
+            from poker.strategy.skill_tiers import SKILL_TIERS, apply_skill_tier
+
+            if _skill in SKILL_TIERS:
+                apply_skill_tier(self, _skill)
+            else:
+                logger.warning(
+                    "Unknown skill tier %r for persona %r; using default ceiling.",
+                    _skill,
+                    player_name,
+                )
+
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
         # decision — dominant cost in long sim runs) but still

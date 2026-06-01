@@ -38,7 +38,31 @@ last_updated: 2026-06-01
     `anchors=None`, so the exploitation layer no-ops). Its endpoints (1.0 vs 0.0) are
     already validated by `exploit_bb100.py`; the tiers interpolate monotonically
     (1.0 ≥ 0.7 ≥ 0.4 ≥ 0.1) between them. An anchored-hero re-run is optional.
-- **Phase 4 (author roster):** not started.
+- **Phase 4 (author roster):** **DONE.** `skill` is now read per-persona in
+  `TieredBotController.__init__` (mirroring the `adaptive_overbet` read — native to
+  every live build path; the factory `skill=` kwarg still wins as an explicit
+  override, an unknown tier logs + falls back to the ceiling). The roster is authored
+  in `poker/personalities.json` keyed to each character's existing `adaptation_bias`
+  band (the signal already encoding "how sharp is this character"), composing with —
+  not overriding — their aggression/looseness charts:
+  - `adaptation_bias ≥ 0.65 → shark` (6): Socrates, Sherlock Holmes, Sun Tzu,
+    Machiavelli, Cleopatra, Queen Elizabeth I — the deductive/strategic readers.
+  - `0.45–0.64 → reg` (14): Churchill, Napoleon, Louis XIV, Franklin, Twain, Houdini,
+    Wilde, Marie Antoinette, Agatha Christie, Lady Macbeth, Robin Hood, Cheshire Cat,
+    Medusa, The Fortune Teller.
+  - `0.25–0.44 → weak_reg` (23): the broad mediocre middle — incl. the high-aggression
+    maniacs (Blackbeard, Zeus, Queen of Hearts, Honey Badger) who become *aggressive
+    but exploitable* (active chart + weak skill ≠ passive — and ≠ spewy chaos bot).
+  - `≤ 0.2 → rec` (7): Buddha, Bob Ross, Dr. Seuss, Jesus Christ, The Grandmother,
+    The Kindergarten Teacher, the dad-jokes guy — gentle/passive face-up over-folders.
+  - **Excluded (12):** the 9 `archetype=fish` tourist personas (the rule-bot floor
+    *below* the spectrum) + the 3 bot reference personas (CaseBot/GTO-Lite/BaselineSolver).
+  - **Effect is staged, not live:** the field only changes after the DB is re-seeded
+    from the JSON (`seed_personalities_from_json` → `config_json`, which round-trips
+    arbitrary keys). Until then, production is unchanged. Untagged personas default to
+    the no-op ceiling.
+  - Tests: `tests/test_strategy/test_skill_tier_persona_read.py` (5, integration; live
+    persona→tier wiring incl. the unknown-tier fallback).
 
 ### Phase-1 decisions (finalized)
 
@@ -173,9 +197,10 @@ that interpolates the bundle is a trivial later add if finer control is wanted.
    the `SKILL_TIER=` env hook on `measure_passivity` drives a tier per run;
    tune the tier values so the ladder is cleanly monotone and the weak tiers visibly
    leak to the reader/stabber.
-4. **Author the roster** — assign tiers to the celebrity personalities coherently
-   (a few sharks, a long tail of regs/weak-regs/recs), composing with their existing
-   charts/anchors.
+4. **Author the roster — DONE** — `skill` read per-persona in
+   `TieredBotController.__init__`; tiers assigned across the 50 non-fish/non-bot
+   celebrities keyed to their `adaptation_bias` band (6 shark / 14 reg / 23 weak_reg /
+   7 rec). Staged in `personalities.json` — takes effect on DB re-seed.
 5. **(Optional, downstream)** stake-scaled fields — low-stakes tables draw weaker
    skill tiers; a casino/career policy, not core.
 

@@ -1,6 +1,7 @@
 {
   "personalities": {
     "Abraham Lincoln": {
+      "skill": "weak_reg",
       "play_style": "strategically cautious with calculated risks",
       "default_confidence": "steady",
       "default_attitude": "thoughtful",
@@ -44,6 +45,7 @@
       }
     },
     "Winston Churchill": {
+      "skill": "reg",
       "play_style": "strategic and calculated, with occasional bursts of boldness",
       "default_confidence": "steady",
       "default_attitude": "intimidating",
@@ -84,6 +86,7 @@
       }
     },
     "Napoleon": {
+      "skill": "reg",
       "play_style": "strategically aggressive with calculated risks",
       "default_confidence": "overconfident",
       "default_attitude": "mysterious",
@@ -124,6 +127,7 @@
       }
     },
     "Louis XIV": {
+      "skill": "reg",
       "play_style": "strategically flamboyant, blending calculated risks with theatricality",
       "default_confidence": "overconfident",
       "default_attitude": "charismatic",
@@ -165,6 +169,7 @@
       }
     },
     "King Henry VIII": {
+      "skill": "weak_reg",
       "play_style": "strategic and imposing, often using calculated risks to assert dominance",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
@@ -207,6 +212,7 @@
       }
     },
     "Shakespeare": {
+      "skill": "weak_reg",
       "play_style": "strategic and dramatic, often using theatrics to enhance their gameplay",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
@@ -247,6 +253,7 @@
       }
     },
     "Socrates": {
+      "skill": "shark",
       "play_style": "philosophical and observational, playing the long game while patiently assessing opponents' tendencies",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
@@ -287,6 +294,7 @@
       }
     },
     "Sherlock Holmes": {
+      "skill": "shark",
       "adaptive_overbet": true,
       "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
       "default_confidence": "steady",
@@ -328,6 +336,7 @@
       }
     },
     "Jay Gatsby": {
+      "skill": "weak_reg",
       "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
@@ -368,6 +377,7 @@
       }
     },
     "A Mime": {
+      "skill": "weak_reg",
       "play_style": "mysterious and deceptive",
       "default_confidence": "enigmatic",
       "default_attitude": "playful",
@@ -410,6 +420,7 @@
       }
     },
     "A guy who tells too many dad jokes": {
+      "skill": "rec",
       "play_style": "light-hearted and unpredictable, often using humor to mask strategic plays",
       "default_confidence": "steady",
       "default_attitude": "friendly",
@@ -452,6 +463,7 @@
       }
     },
     "Someone who is very, very mean to people": {
+      "skill": "weak_reg",
       "play_style": "brutally aggressive and mercilessly unpredictable",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
@@ -495,6 +507,7 @@
       }
     },
     "Buddha": {
+      "skill": "rec",
       "play_style": "calm and strategic, often waiting for the perfect moment to strike",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
@@ -538,6 +551,7 @@
       }
     },
     "Bob Ross": {
+      "skill": "rec",
       "play_style": "calm and optimistic",
       "default_confidence": "serene",
       "default_attitude": "peaceful",
@@ -579,6 +593,7 @@
       }
     },
     "Dr. Seuss": {
+      "skill": "rec",
       "play_style": "whimsical and unpredictable, often using playful tactics to confuse opponents",
       "default_confidence": "overconfident",
       "default_attitude": "friendly",
@@ -620,6 +635,7 @@
       }
     },
     "Jesus Christ": {
+      "skill": "rec",
       "play_style": "calm and calculated, often relying on psychological insight to read opponents",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
@@ -660,6 +676,7 @@
       }
     },
     "Blackbeard": {
+      "skill": "weak_reg",
       "play_style": "aggressive and intimidating, uses psychological warfare to bully opponents out of pots",
       "default_confidence": "overconfident",
       "default_attitude": "menacing",
@@ -702,6 +719,7 @@
       }
     },
     "Sun Tzu": {
+      "skill": "shark",
       "play_style": "patient and strategic, wins through superior positioning and discipline rather than brute force",
       "default_confidence": "steady",
       "default_attitude": "calm and inscrutable",
@@ -744,6 +762,7 @@
       }
     },
     "Benjamin Franklin": {
+      "skill": "reg",
       "play_style": "pragmatic and witty, balances calculated risk with folksy charm to keep opponents off guard",
       "default_confidence": "steady",
       "default_attitude": "friendly and shrewd",
@@ -786,6 +805,7 @@
       }
     },
     "Mark Twain": {
+      "skill": "reg",
       "play_style": "sardonic and deceptively sharp, uses folksy storytelling to disguise ruthlessly calculated play",
       "default_confidence": "steady",
       "default_attitude": "wry and amused",
@@ -828,6 +848,7 @@
       }
     },
     "Nikola Tesla": {
+      "skill": "weak_reg",
       "play_style": "eccentric and pattern-obsessed, relies on mathematical analysis and unconventional strategies",
       "default_confidence": "steady",
       "default_attitude": "intense and distracted",
@@ -870,6 +891,7 @@
       }
     },
     "Houdini": {
+      "skill": "reg",
       "play_style": "elusive and theatrical, specializes in escaping impossible situations and dramatic reversals",
       "default_confidence": "overconfident",
       "default_attitude": "showman",
@@ -912,6 +934,7 @@
       }
     },
     "Oscar Wilde": {
+      "skill": "reg",
       "play_style": "elegant and cutting, uses devastating wit to unsettle opponents while making precisely calculated plays",
       "default_confidence": "overconfident",
       "default_attitude": "amused superiority",
@@ -954,6 +977,7 @@
       }
     },
     "Edgar Allan Poe": {
+      "skill": "weak_reg",
       "play_style": "dark and brooding, reads opponents like horror clues and builds dread with every bet",
       "default_confidence": "steady",
       "default_attitude": "haunted and intense",
@@ -996,6 +1020,7 @@
       }
     },
     "Machiavelli": {
+      "skill": "shark",
       "play_style": "cold and calculating, treats every hand as a political maneuver where the ends justify the means",
       "default_confidence": "steady",
       "default_attitude": "cunning and detached",
@@ -1038,6 +1063,7 @@
       }
     },
     "Zeus": {
+      "skill": "weak_reg",
       "play_style": "dominant and imperious, throws down massive bets like thunderbolts and expects tribute from lesser players",
       "default_confidence": "overconfident",
       "default_attitude": "regal and wrathful",
@@ -1080,6 +1106,7 @@
       }
     },
     "Cleopatra": {
+      "skill": "shark",
       "play_style": "seductive and strategic, uses charm and cunning to manipulate opponents into costly mistakes",
       "default_confidence": "steady",
       "default_attitude": "alluring and commanding",
@@ -1122,6 +1149,7 @@
       }
     },
     "Marie Antoinette": {
+      "skill": "reg",
       "play_style": "extravagant and reckless, goes big on every hand with lavish disregard for chip conservation",
       "default_confidence": "overconfident",
       "default_attitude": "haughty and fabulous",
@@ -1164,6 +1192,7 @@
       }
     },
     "Calamity Jane": {
+      "skill": "weak_reg",
       "play_style": "fearless and rowdy, charges into hands with frontier toughness and sharp instincts",
       "default_confidence": "overconfident",
       "default_attitude": "brash and spirited",
@@ -1206,6 +1235,7 @@
       }
     },
     "Queen Elizabeth I": {
+      "skill": "shark",
       "play_style": "regal and commanding, rules the table with strategic precision and steely resolve",
       "default_confidence": "steady",
       "default_attitude": "imperious and dignified",
@@ -1248,6 +1278,7 @@
       }
     },
     "Joan of Arc": {
+      "skill": "weak_reg",
       "play_style": "fearless and conviction-driven, plays with unwavering belief and charges into pots without hesitation",
       "default_confidence": "overconfident",
       "default_attitude": "fierce and righteous",
@@ -1290,6 +1321,7 @@
       }
     },
     "Frida Kahlo": {
+      "skill": "weak_reg",
       "play_style": "passionate and emotionally intense, plays from the heart with artistic flair and fierce determination",
       "default_confidence": "steady",
       "default_attitude": "fiery and expressive",
@@ -1332,6 +1364,7 @@
       }
     },
     "Lucille Ball": {
+      "skill": "weak_reg",
       "play_style": "comedic and chaotic, hatches elaborate schemes that often backfire spectacularly but somehow work out",
       "default_confidence": "overconfident",
       "default_attitude": "exuberant and scheming",
@@ -1377,6 +1410,7 @@
       }
     },
     "Annie Oakley": {
+      "skill": "weak_reg",
       "play_style": "precise and confident, takes careful aim at every pot with sharpshooter accuracy",
       "default_confidence": "steady",
       "default_attitude": "cool and composed",
@@ -1419,6 +1453,7 @@
       }
     },
     "Agatha Christie": {
+      "skill": "reg",
       "play_style": "observant and methodical, treats every hand as a mystery to solve, piecing together clues from opponents' behavior",
       "default_confidence": "steady",
       "default_attitude": "curious and perceptive",
@@ -1461,6 +1496,7 @@
       }
     },
     "Lady Macbeth": {
+      "skill": "reg",
       "play_style": "ruthlessly ambitious, manipulates table dynamics and pressures opponents into mistakes through sheer force of will",
       "default_confidence": "overconfident",
       "default_attitude": "commanding and ruthless",
@@ -1503,6 +1539,7 @@
       }
     },
     "Dracula": {
+      "skill": "weak_reg",
       "play_style": "patient and predatory, waits in the shadows before striking with devastating precision",
       "default_confidence": "steady",
       "default_attitude": "menacing elegance",
@@ -1545,6 +1582,7 @@
       }
     },
     "Ebenezer Scrooge": {
+      "skill": "weak_reg",
       "play_style": "miserly and tight, guards every chip like it's his last and only bets when absolutely certain",
       "default_confidence": "pessimistic",
       "default_attitude": "grumpy and suspicious",
@@ -1587,6 +1625,7 @@
       }
     },
     "Robin Hood": {
+      "skill": "reg",
       "play_style": "heroic and targeted, steals pots from chip leaders while going easy on short stacks",
       "default_confidence": "overconfident",
       "default_attitude": "roguish and charming",
@@ -1629,6 +1668,7 @@
       }
     },
     "Don Quixote": {
+      "skill": "weak_reg",
       "spot_tendencies": [["sticky", 0.7]],
       "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
       "default_confidence": "overconfident",
@@ -1672,6 +1712,7 @@
       }
     },
     "Alice": {
+      "skill": "weak_reg",
       "play_style": "curious and adaptable, navigates the chaos of the table with wide-eyed wonder and surprising logic",
       "default_confidence": "steady",
       "default_attitude": "curious and bemused",
@@ -1715,6 +1756,7 @@
       }
     },
     "Queen of Hearts": {
+      "skill": "weak_reg",
       "play_style": "tyrannical and volatile, demands obedience at the table and explodes when defied",
       "default_confidence": "overconfident",
       "default_attitude": "imperious and explosive",
@@ -1758,6 +1800,7 @@
       }
     },
     "Cheshire Cat": {
+      "skill": "reg",
       "play_style": "cryptic and mischievous, plays mind games with paradoxical logic and an ever-present grin",
       "default_confidence": "enigmatic",
       "default_attitude": "playful and unsettling",
@@ -1801,6 +1844,7 @@
       }
     },
     "Wicked Witch": {
+      "skill": "weak_reg",
       "play_style": "scheming and vindictive, targets specific opponents and cackles with glee when her plans come together",
       "default_confidence": "overconfident",
       "default_attitude": "menacing and theatrical",
@@ -1844,6 +1888,7 @@
       }
     },
     "Medusa": {
+      "skill": "reg",
       "play_style": "petrifying and intense, freezes opponents with an unbreakable stare that makes them second-guess every decision",
       "default_confidence": "steady",
       "default_attitude": "cold and hypnotic",
@@ -1886,6 +1931,7 @@
       }
     },
     "The Fortune Teller": {
+      "skill": "reg",
       "play_style": "mystical and theatrical, claims to see the future and uses psychic patter to unsettle rational opponents",
       "default_confidence": "overconfident",
       "default_attitude": "mystical and dramatic",
@@ -1929,6 +1975,7 @@
       }
     },
     "The Librarian": {
+      "skill": "weak_reg",
       "play_style": "quietly lethal, maintains perfect composure while methodically dismantling opponents' chip stacks",
       "default_confidence": "steady",
       "default_attitude": "prim and disapproving",
@@ -1972,6 +2019,7 @@
       }
     },
     "The Honey Badger": {
+      "skill": "weak_reg",
       "play_style": "absolutely fearless and relentless, calls everything, fears nothing, and simply does not care",
       "default_confidence": "overconfident",
       "default_attitude": "reckless and fearless",
@@ -2015,6 +2063,7 @@
       }
     },
     "The Grandmother": {
+      "skill": "rec",
       "spot_tendencies": [["slowplay", 0.8]],
       "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
       "default_confidence": "steady",
@@ -2059,6 +2108,7 @@
       }
     },
     "The Kindergarten Teacher": {
+      "skill": "rec",
       "play_style": "patronizingly supportive, treats opponents like small children while quietly dominating the table",
       "default_confidence": "steady",
       "default_attitude": "encouraging and condescending",
