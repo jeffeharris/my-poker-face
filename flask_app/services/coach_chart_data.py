@@ -183,7 +183,9 @@ def load_owner_chart_decisions(db_path: str, owner_id: str) -> list[dict]:
     return out
 
 
-def get_owner_chart_leak_set(db_path: str, owner_id: str, *, confirmed_only: bool = True) -> dict:
+def get_owner_chart_leak_set(
+    db_path: str, owner_id: str, *, confirmed_only: bool = True, recent_hands: int = 500
+) -> dict:
     """Build the live-recall lookup of an owner's chart leaks.
 
     Returns ``{'by_spot': {(scenario, position): info}, 'by_hand':
@@ -194,12 +196,19 @@ def get_owner_chart_leak_set(db_path: str, owner_id: str, *, confirmed_only: boo
 
     ``confirmed_only`` (default) keeps live nudges to leaks we're sure of;
     watching-tier items stay in the review surface.
+
+    ``recent_hands`` scopes the recall to the player's last N hands so the
+    in-game nudge tracks CURRENT form — a leak you've fixed stops nudging, and a
+    leak you've started making shows up — rather than an all-time aggregate that
+    never forgets. Pass ``recent_hands=None`` (or 0) for the all-time set.
     """
     from poker.strategy.preflop_reference import reference_strategy
 
-    from .coach_chart_leaks import compute_chart_leaks
+    from .coach_chart_leaks import compute_chart_leaks, recent_slice
 
     decisions = load_owner_chart_decisions(db_path, owner_id)
+    if recent_hands:
+        decisions = recent_slice(decisions, n_hands=recent_hands)
 
     def info(lk):
         return {

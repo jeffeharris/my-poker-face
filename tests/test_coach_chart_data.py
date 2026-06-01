@@ -151,3 +151,23 @@ class TestLiveLeakSet:
         # ...but present when watching is allowed.
         loose = get_owner_chart_leak_set('db', 'owner', confirmed_only=False)
         assert ('rfi', 'SB') in loose['by_spot']
+
+    def test_recall_scopes_to_recent_form(self, monkeypatch):
+        # Old hands limp KQs from the SB (a leak); recent hands raise it (fixed).
+        def dec(action, created, n):
+            return [
+                {
+                    'hand': 'KQs', 'position': 'SB', 'scenario': 'rfi', 'opener': None,
+                    'effective_stack_bb': 50, 'num_players': 6, 'action': action,
+                    'created_at': f'2026-{created} 00:00:00', 'hand_number': i,
+                }
+                for i in range(n)
+            ]
+
+        self._patch(monkeypatch, dec('call', '01-01', 8) + dec('raise', '06-01', 8))
+        # Recall reads the recent window (the 8 raises) → the limp no longer nudges.
+        recent = get_owner_chart_leak_set('db', 'owner', recent_hands=8)
+        assert ('rfi', 'SB') not in recent['by_spot']
+        # All-time still sees the old limps as a leak.
+        all_time = get_owner_chart_leak_set('db', 'owner', recent_hands=None)
+        assert ('rfi', 'SB') in all_time['by_spot']

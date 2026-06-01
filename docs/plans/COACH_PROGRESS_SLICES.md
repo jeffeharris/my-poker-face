@@ -131,6 +131,7 @@ Until then, the trend is a *view*, not stored state.
 - Default recent window: 30 days vs last-500-hands. (Lean last-N-hands —
   volume-stable; calendar dilutes for infrequent players.)
 - Trend block size (e.g. 150–250 hands) — tune against real volume.
-- Does "fixed" drop a leak from the live in-game recall too, or only the review
-  panel? (Recall should follow *recent* form, so: yes, recall reads the recent
-  slice — a leak you've fixed stops nudging.)
+- ~~Does "fixed" drop a leak from the live in-game recall too?~~ **Resolved &
+  shipped:** `get_owner_chart_leak_set` now scopes to the recent window
+  (default last 500 hands) — a leak you've fixed stops nudging; a leak you've
+  started making shows up. All-time remains available via `recent_hands=None`.
