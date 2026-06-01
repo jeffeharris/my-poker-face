@@ -64,6 +64,13 @@ from .strategy_profile import StrategyProfile
 LAYER = 'overbet_context'
 
 DEFAULT_CLASSES: FrozenSet[str] = frozenset({'nuts', 'strong_made'})
+# Bluff side (OVERBET_BALANCING.md T1): the air the bot already bets at runtime —
+# semibluff draws first (equity + fold equity), then pure air. weak_made is
+# excluded (it has showdown value; let it check and win rather than bluff it off).
+# Routing a fraction of THIS bet-mass to the overbet size polarizes the overbet
+# (value + bluff) so a sizing-reader can no longer profitably fold to it. Default
+# OFF (overbet_bluff_fraction=0.0) → byte-identical to value-only.
+DEFAULT_BLUFF_CLASSES: FrozenSet[str] = frozenset({'air_strong_draw', 'air_no_draw'})
 DEFAULT_STREETS: FrozenSet[str] = frozenset({'TURN', 'RIVER'})
 DEFAULT_SIZE = 150  # % of pot; bet_150 = 1.5x pot (smallest validated overbet)
 DEFAULT_FRACTION = 1.0  # 1.0 = relabel all bet mass (matches the measured probe;
@@ -111,6 +118,8 @@ def apply_overbet_context(
     overbet_classes: Optional[FrozenSet[str]] = None,
     overbet_streets: Optional[FrozenSet[str]] = None,
     overbet_max_active: Optional[int] = None,
+    overbet_bluff_fraction: float = 0.0,
+    overbet_bluff_classes: Optional[FrozenSet[str]] = None,
     prior_layer_fired: bool = False,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
@@ -148,16 +157,25 @@ def apply_overbet_context(
             LAYER, 'default', order, reason_code='prior_override_active',
         )
 
-    classes = overbet_classes if overbet_classes is not None else DEFAULT_CLASSES
+    value_classes = overbet_classes if overbet_classes is not None else DEFAULT_CLASSES
+    bluff_classes = (
+        overbet_bluff_classes if overbet_bluff_classes is not None else DEFAULT_BLUFF_CLASSES
+    )
     streets = overbet_streets if overbet_streets is not None else DEFAULT_STREETS
 
-    applies = (
+    street_ok = (
         action_context == 'unopened'
         and (street or '').upper() in streets
-        and hand_class in classes
         and (overbet_max_active is None or active_count <= overbet_max_active)
     )
-    if not applies:
+    # Value side (always-on) vs bluff side (gated on overbet_bluff_fraction > 0).
+    # Mutually exclusive per decision: a hand is either a value class or a bluff
+    # class. The bluff side is what de-face-up's the overbet (OVERBET_BALANCING.md).
+    is_value = street_ok and hand_class in value_classes
+    is_bluff = (
+        street_ok and overbet_bluff_fraction > 0.0 and hand_class in bluff_classes
+    )
+    if not (is_value or is_bluff):
         return strategy, make_no_op_trace(
             LAYER, 'default', order, reason_code='gates_not_met',
         )
@@ -165,8 +183,10 @@ def apply_overbet_context(
     if is_rule_disabled(disable_rules, LAYER, 'overbet'):
         return strategy, make_disabled_trace(LAYER, 'overbet', order)
 
+    side = 'value' if is_value else 'bluff'
+    fraction = overbet_fraction if is_value else overbet_bluff_fraction
     overbet_key = f'bet_{overbet_size}'
-    new = _shift_bet_mass(strategy, overbet_key=overbet_key, fraction=overbet_fraction)
+    new = _shift_bet_mass(strategy, overbet_key=overbet_key, fraction=fraction)
     if new is strategy:
         return strategy, make_no_op_trace(
             LAYER, 'overbet', order, reason_code='no_bet_action',
@@ -178,7 +198,7 @@ def apply_overbet_context(
         layer_order=order,
         fired=True,
         operation=InterventionOperation.OVERRIDE.value,
-        effect='shift_bet_mass_to_overbet',
+        effect=f'shift_bet_mass_to_overbet_{side}',
         effect_size=l1_distance(
             strategy.action_probabilities, new.action_probabilities,
         ),
@@ -189,10 +209,10 @@ def apply_overbet_context(
         primary_action_before=primary_action(strategy.action_probabilities),
         primary_action_after=primary_action(new.action_probabilities),
         replaced_prior_action=True,
-        reason_code=f'overbet_value_{hand_class}',
+        reason_code=f'overbet_{side}_{hand_class}',
         rationale=(
-            f'overbet sizing: hand_class={hand_class} street={street} '
-            f'size={overbet_size}% fraction={overbet_fraction:.2f} '
+            f'overbet sizing ({side}): hand_class={hand_class} street={street} '
+            f'size={overbet_size}% fraction={fraction:.2f} '
             f'active={active_count}'
         ),
         inputs={
@@ -201,7 +221,8 @@ def apply_overbet_context(
             'street': street,
             'active_count': active_count,
             'overbet_size': overbet_size,
-            'overbet_fraction': round(overbet_fraction, 4),
+            'overbet_fraction': round(fraction, 4),
+            'side': side,
         },
         input_strategy_summary=summarize_strategy(strategy.action_probabilities),
         output_strategy_summary=summarize_strategy(new.action_probabilities),

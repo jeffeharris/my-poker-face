@@ -361,6 +361,12 @@ class TieredBotController(AIPlayerController):
         self.overbet_classes: Optional[frozenset] = None  # None = default {nuts, strong_made}
         self.overbet_streets: Optional[frozenset] = None  # None = default {TURN, RIVER}
         self.overbet_max_active: Optional[int] = None  # None = no multiway gate (matches measured 6-max +73)
+        # Overbet BLUFF side (OVERBET_BALANCING.md T1): share of air bet-mass routed
+        # to the overbet size, polarizing it so a sizing-reader can't fold to it.
+        # 0.0 = OFF (value-only, byte-identical). Production gating (multiway veto /
+        # regime) lives in the caller; this is the raw lever the eval harness drives.
+        self.overbet_bluff_fraction: float = 0.0
+        self.overbet_bluff_classes: Optional[frozenset] = None  # None = default {air_strong_draw, air_no_draw}
         # Adaptive overbet (PERSONALITY_PRICING_AND_VARIETY.md "Attacker side"):
         # when True, scale the overbet's fraction by the live value-vs-station
         # detection intensity (× sample confidence, already baked into the
@@ -1202,7 +1208,10 @@ class TieredBotController(AIPlayerController):
         # no-ops, so we don't bloat the pot vs balanced or sizing-reading
         # opponents. The static path (adaptive_overbet=False) is unchanged.
         _overbet_fraction = self._effective_overbet_fraction()
-        if getattr(self, 'enable_overbet_context', False) and _overbet_fraction > 0.0:
+        _overbet_bluff_fraction = getattr(self, 'overbet_bluff_fraction', 0.0)
+        if getattr(self, 'enable_overbet_context', False) and (
+            _overbet_fraction > 0.0 or _overbet_bluff_fraction > 0.0
+        ):
             from .strategy.overbet_context import apply_overbet_context
 
             overbet_prior_fired = (
@@ -1222,6 +1231,8 @@ class TieredBotController(AIPlayerController):
                 overbet_classes=getattr(self, 'overbet_classes', None),
                 overbet_streets=getattr(self, 'overbet_streets', None),
                 overbet_max_active=getattr(self, 'overbet_max_active', None),
+                overbet_bluff_fraction=_overbet_bluff_fraction,
+                overbet_bluff_classes=getattr(self, 'overbet_bluff_classes', None),
                 prior_layer_fired=overbet_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )

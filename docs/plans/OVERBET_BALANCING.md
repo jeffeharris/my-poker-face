@@ -116,6 +116,32 @@ manager to the bluff-catch layer — reuse that path).
   to *balance* when not-clearly-a-fish; that's the safe-vs-human default and costs
   little vs fish (balanced overbets still get paid by callers, just sized at value).
 
+## 5b. T1 RESULT (2026-06-01) — mechanism works, supply too thin
+
+Built the bluff side in `apply_overbet_context` (`overbet_bluff_fraction`/
+`overbet_bluff_classes`, default OFF = byte-identical) + controller fields +
+`ab_node_attribution --overbet-bluff-a/-b`. Measured `+bluff vs value-only`
+(`overbet_bluff_fraction=1.0`, the ceiling), HU vs jeff, 30000 hands:
+
+| | bb/100 |
+|---|---|
+| vs **oracle** (sizing-reader) | **+3.37** [+0.98, +5.77] |
+| vs **normal jeff** (caller) | **−5.66** [−8.65, −2.67] |
+
+- **Direction confirmed** (CI-clear +3.37 vs the reader) but recovers only ~15% of
+  the −22 leak. The turn/river air supply at the overbet nodes is **thin** — most
+  air has checked/folded by then — so even routing 100% of it adds little bluff
+  mass; the overbet stays mostly value and the oracle keeps folding correctly.
+- **Cost vs callers (−5.66) > gain vs readers (+3.37)** → the gate is mandatory,
+  and with a weak reader-detector, T1-alone is net-negative-risk.
+- `fraction=1.0` is the MAX injection, so calibration only slides the −5.66↔+3.37
+  tradeoff — it can't raise the +3.37 **ceiling**, which is set by air supply.
+
+**Verdict: T1 (reroute existing air) is necessary but INSUFFICIENT.** Closing −22
+requires *creating* bluff supply — T2 (river bluffs from give-up air) + barreling
+more air to turn/river (the bigger change). The T1 mechanism is the infrastructure
+that bigger build will drive; kept dormant (OFF) in production.
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*

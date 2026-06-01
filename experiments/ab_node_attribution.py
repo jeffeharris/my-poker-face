@@ -247,7 +247,7 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False, disable_rules=None, hero_spot_tendencies=None, opp_spot_tendencies=None):
+def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False, disable_rules=None, hero_spot_tendencies=None, opp_spot_tendencies=None, overbet_bluff=0.0):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
     opponents and differ only in hero_table AND the multistreet `mode`
@@ -281,6 +281,8 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
     # False until validated). Set per-arm so the gate can A/B the LAYER on the
     # SAME chart — symmetric to the multistreet flag-flavor arm.
     controllers[0].enable_overbet_context = overbet
+    # Overbet BLUFF side (OVERBET_BALANCING.md T1): per-arm air→overbet fraction.
+    controllers[0].overbet_bluff_fraction = overbet_bluff
     for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
         opp = make_controller(seat, cfg, opp_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1))
         # Opponent-side leak (attacker eval): configure a spot tendency on each
@@ -313,7 +315,7 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp, a_hero, b_hero, a_disable, b_disable, hero_spot, opp_spot = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp, a_hero, b_hero, a_disable, b_disable, hero_spot, opp_spot, a_overbet_bluff, b_overbet_bluff = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         # `adaptive_opp` registers the perfect-overbet-punisher clone variant under
@@ -346,8 +348,8 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % (1 + len(opponents))
-        da, ta = _run_one_hand(hero_name, config_arch_a, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet, a_disable, hero_spot, opp_spot)
-        db, tb = _run_one_hand(hero_name, config_arch_b, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet, b_disable, hero_spot, opp_spot)
+        da, ta = _run_one_hand(hero_name, config_arch_a, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet, a_disable, hero_spot, opp_spot, a_overbet_bluff)
+        db, tb = _run_one_hand(hero_name, config_arch_b, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet, b_disable, hero_spot, opp_spot, b_overbet_bluff)
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -459,6 +461,12 @@ def main():
                    "`tag`) and A/B an attacker layer on the hero (e.g. --overbet-b) to measure "
                    "how much the attacker extracts from the leak. No-op on rule-bot/Baseline "
                    "opponents (no personality layer).")
+    p.add_argument('--overbet-bluff-a', type=float, default=0.0,
+                   help="arm A: fraction of AIR bet-mass routed to the overbet size "
+                   "(OVERBET_BALANCING.md T1 — polarizes the overbet so a sizing-reader "
+                   "can't fold to it). 0 = value-only. Pair with --overbet-a.")
+    p.add_argument('--overbet-bluff-b', type=float, default=0.0,
+                   help="arm B: air→overbet fraction (see --overbet-bluff-a).")
     p.add_argument('--adaptive-opp', action='store_true',
                    help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
                    "(D1, SIZING_AWARE_OPPONENT_MODELING.md): it max-folds all but near-nuts vs a "
@@ -476,7 +484,7 @@ def main():
     b_disable = _parse_disables(args.b_disable)
     hero_spot = _parse_hero_spot(args.hero_spot_tendency)
     opp_spot = _parse_hero_spot(args.opp_spot_tendency)
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp, args.a_hero, args.b_hero, a_disable, b_disable, hero_spot, opp_spot) for s in seeds]
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp, args.a_hero, args.b_hero, a_disable, b_disable, hero_spot, opp_spot, args.overbet_bluff_a, args.overbet_bluff_b) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
