@@ -27,7 +27,8 @@ from cash_mode.bankroll import PlayerBankrollState
 from core.economy import economy_signal
 from core.economy import ledger as chip_ledger
 from core.economy.economy_signal import FundingPlan
-from core.economy.ledger import player
+from core.economy.ledger import player, tournament
+from tournament.economy import compute_payout_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +141,147 @@ def apply_buy_in(
             context={'site': 'register_tournament'},
             sandbox_id=sandbox_id,
         )
+
+
+def _position_to_player(session) -> dict:
+    """Map every finishing position → player_id (1 = winner). Built from the
+    field's eliminations plus the live winner. Only meaningful once complete."""
+    mapping = {e.finishing_position: e.player_id for e in session.field.eliminations}
+    winner = session.winner()
+    if winner is not None:
+        mapping[1] = winner
+    return mapping
+
+
+def apply_payout_on_complete(
+    *,
+    tournament_id: str,
+    session,
+    human_owner_id: Optional[str],
+    sandbox_id: str,
+    bankroll_repo,
+    ledger_repo,
+    session_repo,
+    payout_curve=None,
+) -> bool:
+    """Distribute the escrow per the payout split — an I6 idempotent terminal
+    transition. Safe to call from every completion path (boundary, advance,
+    play-out): the `payout_status` guard makes a second call a no-op.
+
+    v1 (synthetic AI field): the human seat (`session.human_id`, only when
+    `human_owner_id` is set — i.e. a real human registered) is paid for real;
+    every other finisher is a synthetic field entrant with no persistent
+    bankroll, so its share is swept back to the bank pool (`tournament_return`),
+    keeping the escrow at 0 and restoring the overlay it cancels to reserves.
+    The configured rake is skimmed separately (`table_rake`). When real-persona
+    fields ship, the synthetic branch becomes a real `ai:<pid>` payout.
+
+    Returns True iff a distribution ran (i.e. status advanced pending→complete).
+    Caller holds `get_sandbox_lock(sandbox_id)`. Never raises — a mid-flight
+    failure logs and leaves status `in_progress` for a reconcile pass (the cash
+    double-settle lesson: status flag before any bankroll write).
+    """
+    if session_repo is None:
+        return False
+    try:
+        row = session_repo.load(tournament_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("payout: failed to load tournament %s", tournament_id)
+        return False
+    if row is None:
+        return False
+
+    status = row.get('payout_status')
+    if status != 'pending':
+        return False  # skipped | in_progress | complete → idempotent no-op
+    if not session.is_complete():
+        return False  # positions aren't all locked yet
+
+    prize_pool = int(row.get('prize_pool') or 0)
+    if prize_pool <= 0:
+        session_repo.set_payout_status(tournament_id, 'skipped')
+        return False
+
+    # Narrow the crash window: flag in_progress BEFORE any bankroll write.
+    session_repo.set_payout_status(tournament_id, 'in_progress')
+    try:
+        schedule = compute_payout_schedule(session.field.field_size, prize_pool, payout_curve)
+        pos_to_player = _position_to_player(session)
+        human_id = session.human_id
+
+        for entry in schedule:
+            amount = entry['amount']
+            if amount <= 0:
+                continue
+            pid = pos_to_player.get(entry['finishing_position'])
+            is_real_human = human_owner_id is not None and pid == human_id
+            if is_real_human:
+                bankroll = bankroll_repo.load_player_bankroll(human_owner_id)
+                chips = bankroll.chips if bankroll else 0
+                starting = bankroll.starting_bankroll if bankroll else chips
+                bankroll_repo.save_player_bankroll(
+                    PlayerBankrollState(
+                        player_id=human_owner_id,
+                        chips=chips + amount,
+                        starting_bankroll=starting,
+                    )
+                )
+                chip_ledger.record_tournament_payout(
+                    ledger_repo,
+                    sink=player(human_owner_id),
+                    tournament_id=tournament_id,
+                    amount=amount,
+                    context={'site': 'payout', 'finishing_position': entry['finishing_position']},
+                    sandbox_id=sandbox_id,
+                )
+            # else: synthetic AI finisher — left in escrow, swept below.
+
+        # Skim the configured rake (escrow → bank pool: the refill lever).
+        rake = int(row.get('rake') or 0)
+        if rake > 0:
+            chip_ledger.record_table_rake(
+                ledger_repo,
+                source=tournament(tournament_id),
+                amount=rake,
+                context={'site': 'tournament_rake', 'tournament_id': tournament_id},
+                sandbox_id=sandbox_id,
+            )
+
+        # Sweep whatever remains (synthetic-AI shares + rounding) back to the
+        # pool so the escrow nets to exactly 0.
+        remaining = ledger_repo.balance_of(tournament(tournament_id), sandbox_id=sandbox_id)
+        if remaining > 0:
+            chip_ledger.record_tournament_return(
+                ledger_repo,
+                tournament_id=tournament_id,
+                amount=remaining,
+                context={'site': 'payout_sweep'},
+                sandbox_id=sandbox_id,
+            )
+
+        final_balance = ledger_repo.balance_of(tournament(tournament_id), sandbox_id=sandbox_id)
+        if final_balance != 0:
+            logger.error(
+                "[TOURNAMENT] escrow %s did not net to 0 after payout (residual=%d)",
+                tournament_id,
+                final_balance,
+            )
+
+        session_repo.set_payout_status(tournament_id, 'complete')
+        return True
+    except Exception:  # noqa: BLE001 — never crash the game; leave in_progress
+        logger.exception(
+            "payout failed for %s; status left 'in_progress' for reconcile", tournament_id
+        )
+        return False
+
+
+def verify_tournament_conservation(
+    tournament_id: str, ledger_repo, *, sandbox_id: Optional[str] = None
+) -> dict:
+    """Post-event audit: the escrow must net to 0 once distribution completes.
+
+    Cheap (one `balance_of`), not a hot path. Surfaced to tests + the chip-
+    economy admin audit."""
+    balance = ledger_repo.balance_of(tournament(tournament_id), sandbox_id=sandbox_id)
+    return {'tournament_id': tournament_id, 'escrow_balance': balance, 'balanced': balance == 0}

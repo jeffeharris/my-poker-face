@@ -174,6 +174,11 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
 
     outcome = advance_tournament_after_hand(game_data, state_machine, make_controller=_make)
     _emit_tournament(game_data, outcome, RELOCATED=RELOCATED, HUMAN_OUT=HUMAN_OUT, COMPLETE=COMPLETE)
+    if outcome.kind == COMPLETE:
+        # Distribute the prize pool the moment the field locks every finishing
+        # position (the play-out route + advance carry the same idempotent call
+        # for completions that don't run through this live boundary).
+        _apply_tournament_payout(game_data)
     if outcome.kind in (COMPLETE, HUMAN_OUT):
         # Unified completion: persist the result row + the human's career stats,
         # the same way a single-table game does — at the human's terminal moment
@@ -188,6 +193,41 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
         finalize_tournament(game_id, game_data, emit=(outcome.kind == COMPLETE))
     _persist_boundary(game_id, game_data)
     return outcome.kind in (HUMAN_OUT, COMPLETE)
+
+
+def _apply_tournament_payout(game_data: dict) -> None:
+    """Distribute the prize pool at the live boundary on COMPLETE. Best-effort
+    and idempotent (the payout_status guard) — never break the game; a retry via
+    the play-out route is a safe no-op once paid."""
+    try:
+        from flask_app.extensions import (
+            bankroll_repo,
+            chip_ledger_repo,
+            sandbox_repo,
+            tournament_session_repo,
+        )
+        from flask_app.services import game_state_service
+        from flask_app.services import tournament_economy_service as econ
+        from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+        owner_id = game_data.get("owner_id")
+        tournament_id = game_data.get("tournament_id")
+        session = game_data.get("tournament_session")
+        if not (owner_id and tournament_id and session):
+            return
+        sandbox_id = resolve_default_sandbox_for(owner_id, sandbox_repo=sandbox_repo)
+        with game_state_service.get_sandbox_lock(sandbox_id):
+            econ.apply_payout_on_complete(
+                tournament_id=tournament_id,
+                session=session,
+                human_owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=chip_ledger_repo,
+                session_repo=tournament_session_repo,
+            )
+    except Exception:  # noqa: BLE001 — payout must never crash the live game
+        logger.exception("tournament boundary payout failed")
 
 
 def _persist_boundary(game_id: str, game_data: dict) -> None:

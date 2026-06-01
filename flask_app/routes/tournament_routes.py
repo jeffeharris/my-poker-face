@@ -113,6 +113,38 @@ def _beats_for(session, reports, remaining_before: int, level_before: int) -> li
     return beats
 
 
+def _maybe_payout(rec: dict, owner_id: str, tournament_id: str) -> None:
+    """If the field has just completed, distribute the prize pool. Idempotent
+    (the payout_status guard), so calling it from every completion path —
+    advance, play-out, and the live boundary — is safe. Best-effort: a payout
+    failure must never break the standings response."""
+    session = rec.get('session')
+    if session is None or not session.is_complete():
+        return
+    try:
+        from flask_app.extensions import (
+            bankroll_repo,
+            chip_ledger_repo,
+            tournament_session_repo,
+        )
+        from flask_app.services import game_state_service
+        from flask_app.services import tournament_economy_service as econ
+
+        sandbox_id = _resolve_sandbox_id(owner_id)
+        with game_state_service.get_sandbox_lock(sandbox_id):
+            econ.apply_payout_on_complete(
+                tournament_id=tournament_id,
+                session=session,
+                human_owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=chip_ledger_repo,
+                session_repo=tournament_session_repo,
+            )
+    except Exception:  # noqa: BLE001 — payout is best-effort observability here
+        logger.exception("tournament payout failed for %s", tournament_id)
+
+
 def _owned_record(tournament_id: str):
     """Return (record, owner_id) if the current user owns the tournament, else
     (None, owner_id). Raises ValueError if no user."""
@@ -350,6 +382,7 @@ def advance(tournament_id):
         standings = session.standings_view()
         beats = _beats_for(session, reports, remaining_before, level_before)
         registry.persist(tournament_id)
+        _maybe_payout(rec, owner_id, tournament_id)
     _emit_update(owner_id, tournament_id, standings, beats)
     return jsonify(standings)
 
@@ -373,6 +406,7 @@ def play_out(tournament_id):
         standings = session.standings_view()
         beats = _beats_for(session, reports, remaining_before, level_before)
         registry.persist(tournament_id)
+        _maybe_payout(rec, owner_id, tournament_id)
     _emit_update(owner_id, tournament_id, standings, beats)
     return jsonify(standings)
 

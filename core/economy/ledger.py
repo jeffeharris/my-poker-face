@@ -85,6 +85,14 @@ LEDGER_REASONS = frozenset(
         # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
         # this also feeds the bank pool — see
         # BANK_POOL_DEPOSIT_REASONS below.
+        'tournament_return',  # tournament:<id> → bank pool: escrow chips that
+        # found no real recipient at distribute time (a
+        # synthetic-AI finisher's share, or any undistributed
+        # overlay) returning to the recyclable pool. Keeps the
+        # escrow at exactly 0 and is the v1 counterpart to a
+        # real ai:<pid> payout (which lands when real-persona
+        # tournament fields ship). Recyclable (a deposit), so
+        # the overlay it cancels is restored to reserves.
         'casino_seat_return',  # ai → bank pool: residual seat chips returned
         # when a casino tears down (or a tourist leaves
         # mid-life). Mirror of `casino_seat_seed` —
@@ -186,6 +194,7 @@ BANK_POOL_DEPOSIT_REASONS = frozenset(
         'casino_seat_return',
         'table_rake',
         'informant_unlock',
+        'tournament_return',
     }
 )
 
@@ -760,6 +769,38 @@ def record_tournament_overlay(
         sink=tournament(tournament_id),
         amount=int(amount),
         reason='tournament_overlay',
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_tournament_return(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """tournament:<id> → central_bank — escrow chips with no real recipient.
+
+    At distribute, a synthetic-AI finisher's share (and any undistributed
+    overlay) is swept back to the recyclable bank pool so the escrow nets to 0.
+    `tournament_return` is a `BANK_POOL_DEPOSIT_REASON`, so the overlay draw it
+    cancels is restored to reserves. The swap point when real-persona fields
+    ship: credit `ai:<pid>` via `record_tournament_payout` instead of sweeping.
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record(
+        repo,
+        source=tournament(tournament_id),
+        sink=bank(),
+        amount=int(amount),
+        reason='tournament_return',
         context=ctx,
         sandbox_id=sandbox_id,
     )
