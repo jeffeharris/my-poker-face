@@ -19,7 +19,8 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { logger } from '../../utils/logger';
-import { DramaticMessage } from '../shared/DramaticText';
+import { useAuth } from '../../hooks/useAuth';
+import { DramaticReserve } from '../shared/DramaticText';
 import { submitIntake, type IntakeResult } from './api';
 import './LuckyStackIntake.css';
 
@@ -63,17 +64,21 @@ const REPLIES: { id: string; reply: string }[] = [
 ];
 
 export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
-  const [name, setName] = useState('');
+  const { user } = useAuth();
+  // Pre-fill with the player's account name so they can just hit the button —
+  // the box defaults to a real value, not a greyed-out placeholder. Editable.
+  const [name, setName] = useState(() => user?.name ?? '');
   const [replyId, setReplyId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<IntakeResult | null>(null);
 
-  const sitDown = async () => {
+  const tellHer = async () => {
     const choice = REPLIES.find((r) => r.id === replyId);
     if (busy || !choice) return;
     setBusy(true);
     try {
-      const res = await submitIntake(name.trim() || 'Stranger', choice.reply, choice.id);
+      // Empty name → the server falls back to the account name (never "Stranger").
+      const res = await submitIntake(name.trim(), choice.reply, choice.id);
       setResult(res);
     } catch (e) {
       logger.error('intake failed:', e instanceof Error ? e.message : e);
@@ -83,37 +88,30 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
 
   return createPortal(
     <div className="lucky__overlay" role="dialog" aria-modal="true" aria-label="The Lucky Stack">
-      {/* The waitress floats above the card, leaning in over the top edge as she
-          talks — her speech types out in the bubble below. */}
-      <img
-        className="lucky__floater"
-        src="/waitress.png"
-        alt="The Lucky Stack waitress"
-      />
       <div className="lucky__card">
+        {/* The waitress leans into the booth, layered OVER her speech as she talks. */}
+        <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
         <div className="lucky__sign">The Lucky Stack</div>
         <div className="lucky__sub">good hands served daily</div>
 
         {result === null ? (
           <>
             <div className="lucky__speech">
-              <DramaticMessage key="intro" text={WAITRESS_INTRO} />
+              <DramaticReserve key="intro" text={WAITRESS_INTRO} />
             </div>
 
-            <label className="lucky__label" htmlFor="lucky-name">Name</label>
+            <label className="lucky__label" htmlFor="lucky-name">Name for the book</label>
             <input
               id="lucky-name"
               className="lucky__input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Jeff"
+              placeholder="What should I call ya?"
               maxLength={40}
               autoFocus
             />
 
-            <span className="lucky__label">
-              “And tell me somethin' about yourself, hon.” <em>What do you say?</em>
-            </span>
+            <p className="lucky__prompt">“So — tell me somethin' about yourself, hon.”</p>
             <div className="lucky__deals">
               {REPLIES.map((opt) => (
                 <button
@@ -127,20 +125,20 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
               ))}
             </div>
 
-            <button className="lucky__btn" onClick={sitDown} disabled={busy || !replyId}>
-              {busy ? 'Signing you in…' : 'Sit down'}
+            <button className="lucky__btn" onClick={tellHer} disabled={busy || !replyId}>
+              {busy ? 'She writes it down…' : 'Tell her'}
             </button>
           </>
         ) : (
           <div className="lucky__reveal">
             <div className="lucky__speech">
-              <DramaticMessage key="scribble" text={WAITRESS_SCRIBBLE} />
+              <DramaticReserve key="scribble" text={WAITRESS_SCRIBBLE} />
             </div>
             <p className="lucky__fishname">“Fresh fish — {result.fish_name}!”</p>
             <div className="lucky__avatar" aria-hidden="true">🐟</div>
             {result.bio && <p className="lucky__bio">“{result.bio}”</p>}
             <div className="lucky__speech lucky__speech--welcome">
-              <DramaticMessage key="welcome" text={WAITRESS_WELCOME} />
+              <DramaticReserve key="welcome" text={WAITRESS_WELCOME} />
             </div>
             <button className="lucky__btn" onClick={onDone}>
               Take the seat

@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react';
 import { TYPING_SPEED_MS, ACTION_FADE_DURATION_MS, BEAT_DELAY_MS } from '../../config/timing';
 import { parseBeats } from '../../utils/chatBeats';
+import './DramaticText.css';
 
 /** Action beat — fades in (see each consumer's `.beat.action`/`.visible` CSS). */
 function ActionBeat({ text, delay }: { text: string; delay: number }) {
@@ -92,5 +93,28 @@ export function DramaticMessage({ text }: { text: string }) {
         )
       )}
     </>
+  );
+}
+
+/** DramaticMessage that RESERVES its final height up front so the container
+ *  doesn't grow/jitter as beats type in. Renders a hidden full-text ghost (which
+ *  sets the box height using the same `.beat` styles) with the live animation
+ *  absolutely positioned over it. Drop it wherever the typing would otherwise
+ *  reflow the layout. */
+export function DramaticReserve({ text }: { text: string }) {
+  const beats = parseBeats(text);
+  return (
+    <div className="dramatic-reserve">
+      <div className="dramatic-reserve__ghost" aria-hidden="true">
+        {beats.map((beat, i) => (
+          <div key={i} className={beat.type === 'action' ? 'beat action visible' : 'beat speech'}>
+            {beat.type === 'action' ? <em>{beat.text}</em> : beat.text}
+          </div>
+        ))}
+      </div>
+      <div className="dramatic-reserve__live">
+        <DramaticMessage text={text} />
+      </div>
+    </div>
   );
 }

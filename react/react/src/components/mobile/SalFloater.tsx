@@ -18,7 +18,7 @@
 
 import { useEffect, useMemo } from 'react';
 import type { ChatMessage } from '../../types';
-import { DramaticMessage } from '../shared/DramaticText';
+import { DramaticReserve } from '../shared/DramaticText';
 import { calculateDuration, splitSentences } from '../../utils/chatBeats';
 import './SalFloater.css';
 
@@ -77,7 +77,7 @@ export function SalFloater({ queue, onShown }: SalFloaterProps) {
       <img className="sal-floater__img" src="/sal.png" alt="Sal Monroe" />
       <div className="sal-floater__bubble">
         <span className="sal-floater__name">Sal</span>
-        <DramaticMessage text={beatText} />
+        <DramaticReserve text={beatText} />
       </div>
     </div>
   );

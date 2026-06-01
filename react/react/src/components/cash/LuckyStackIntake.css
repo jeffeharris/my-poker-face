@@ -13,26 +13,10 @@
   background: radial-gradient(120% 120% at 50% 0%, #21130c 0%, #0c0805 70%);
 }
 
-/* The waitress floats above the modal, leaning over its top edge as she speaks.
-   The bottom mask fades her cutout into the card so she "stands on" it. */
-.lucky__floater {
-  position: relative;
-  z-index: 2;
-  display: block;
-  width: 168px;
-  height: auto;
-  margin: 0 auto -22px;
-  object-fit: contain;
-  object-position: bottom center;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
-  -webkit-mask-image: linear-gradient(to bottom, #000 76%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 76%, transparent 100%);
-  animation: lucky-floater-in 0.45s cubic-bezier(0.18, 0.9, 0.32, 1.2);
-}
-
 .lucky__card {
   position: relative;
   z-index: 1;
+  overflow: hidden; /* keep the waitress contained inside the booth */
   width: min(460px, 100%);
   background: #17120e;
   border: 1px solid #4a3522;
@@ -41,6 +25,25 @@
   box-shadow: 0 18px 52px rgba(0, 0, 0, 0.6);
   color: #efe6da;
   text-align: center;
+}
+
+/* The waitress leans into the booth from the top-right, LAYERED over her speech
+   bubble (z-index above it) — the bubble reserves a right column so her body
+   overlaps the empty side, not the words. Bottom mask fades her into the card. */
+.lucky__waitress-img {
+  position: absolute;
+  top: 2.4rem;
+  right: -0.7rem;
+  width: 188px;
+  height: auto;
+  z-index: 4;
+  pointer-events: none;
+  object-fit: contain;
+  object-position: bottom center;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
+  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+  animation: lucky-floater-in 0.45s cubic-bezier(0.18, 0.9, 0.32, 1.2);
 }
 
 @keyframes lucky-floater-in {
@@ -54,9 +57,12 @@
   }
 }
 
-/* The waitress's speech bubble — print-style beats (filler fades, speech types). */
+/* The waitress's speech bubble — print-style beats (filler fades, speech types).
+   `padding-right` reserves the column her body overlaps so the typed text stays
+   readable to her left. */
 .lucky__speech {
   position: relative;
+  z-index: 2;
   text-align: left;
   font-size: 0.92rem;
   line-height: 1.5;
@@ -65,8 +71,9 @@
   border: 1px solid #3c2c1c;
   border-radius: 10px;
   padding: 0.7rem 0.85rem;
+  padding-right: 5.5rem;
   margin: 0 0 1.1rem;
-  min-height: 2.6rem;
+  min-height: 4.4rem;
 }
 .lucky__speech--welcome {
   margin-top: 1rem;
@@ -128,42 +135,15 @@
   margin-bottom: 1.1rem;
 }
 
-.lucky__waitress {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
-}
-.lucky__waitress-img {
-  flex: 0 0 auto;
-  width: 132px;
-  height: auto;
-  object-fit: contain;
-  object-position: top center;
-  /* Fade the bottom edge so the cutout's hard crop softens into the card. */
-  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
-}
-.lucky__waitress .lucky__line {
-  margin: 0;
-  flex: 1;
-  align-self: center;
-}
-
-.lucky__line {
-  font-size: 0.92rem;
-  line-height: 1.5;
-  color: #d9ccbb;
+/* The waitress's spoken question above the reply choices — her voice, not a
+   form label (so it doesn't read as an awkward uppercase field heading). */
+.lucky__prompt {
   text-align: left;
-  margin: 0 0 1.1rem;
-}
-.lucky__line em {
-  color: #a9967f;
+  font-size: 0.92rem;
   font-style: italic;
-}
-.lucky__who {
-  font-weight: 700;
-  color: #e9b06a;
+  line-height: 1.4;
+  color: #d9ccbb;
+  margin: 0.2rem 0 0.55rem;
 }
 
 .lucky__label {
@@ -189,31 +169,6 @@
 .lucky__input:focus {
   outline: none;
   border-color: #c79552;
-}
-
-.lucky__vibe {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0.1rem 0 0.7rem;
-}
-.lucky__vibe-btn {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0.5rem;
-  border-radius: 8px;
-  border: 1px solid #4a3522;
-  background: #0f0b08;
-  color: #cbb89c;
-  font-weight: 700;
-  cursor: pointer;
-}
-.lucky__vibe-btn.is-active {
-  border-color: #e9b06a;
-  background: #2a1d10;
-  color: #ffe6bf;
 }
 
 .lucky__deals {
@@ -302,11 +257,6 @@
   color: #ffd98a;
   margin: 0.4rem 0 1rem;
 }
-.lucky__welcome {
-  text-align: center;
-  color: #c9bba8;
-}
-
 @keyframes lucky-fade {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }

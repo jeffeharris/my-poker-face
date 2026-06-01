@@ -6363,7 +6363,9 @@ def cash_intake_route():
         return jsonify({"error": "career progression unavailable"}), 503
 
     body = request.get_json(silent=True) or {}
-    name = (body.get("name") or "").strip()[:40] or "Stranger"
+    # Empty name → fall back to the player's account name (what the box pre-fills
+    # with) rather than a jarring "Stranger", so a one-tap submit still works.
+    name = (body.get("name") or "").strip()[:40] or _resolve_player_name() or "Stranger"
     # The verbatim line the player picked when the waitress asked them to say
     # something about themselves (+ a stable id for later callbacks). Plain
     # character flavor — no quick-chat / setting mapping.
