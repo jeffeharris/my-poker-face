@@ -41,6 +41,37 @@ def _new_id() -> str:
     return tournament_registry.new_tournament_id()
 
 
+def _seated_cash_pids(cash_table_repo, sandbox_id: str) -> set:
+    """Personality ids currently in an AI cash seat in this sandbox."""
+    if cash_table_repo is None:
+        return set()
+    try:
+        return {
+            slot.get('personality_id')
+            for tbl in cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+            for slot in tbl.seats
+            if slot.get('kind') == 'ai' and slot.get('personality_id')
+        }
+    except Exception:  # noqa: BLE001 — exclusion is best-effort; never block a spawn
+        logger.exception("seated-pid scan failed for sandbox %s", sandbox_id)
+        return set()
+
+
+def draft_exclusions(*, cash_table_repo, session_repo, owner_id: str, sandbox_id: str) -> set:
+    """Personas we must NOT draft into a new tournament field: those currently
+    seated at a cash table, plus those already in an active tournament. Keeps a
+    persona in exactly one place — the double-presence / ghost-seat guard. (The
+    cash seat-filler separately excludes active participants for the run's
+    duration; this just prevents drafting a busy one in the first place.)"""
+    excl = _seated_cash_pids(cash_table_repo, sandbox_id)
+    if session_repo is not None:
+        try:
+            excl |= session_repo.active_participant_pids(owner_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("active-participant scan failed for owner %s", owner_id)
+    return excl
+
+
 def spawn_autonomous_tournament(
     *,
     owner_id: str,
@@ -49,6 +80,7 @@ def spawn_autonomous_tournament(
     bankroll_repo,
     ledger_repo,
     session_repo,
+    cash_table_repo=None,
     field_size: int = 9,
     table_size: int = 3,
     starting_stack: int = 10_000,
@@ -76,6 +108,10 @@ def spawn_autonomous_tournament(
         archetypes=archetypes,
         rng_seed=rng_seed,
         human_id=None,
+        exclude=draft_exclusions(
+            cash_table_repo=cash_table_repo, session_repo=session_repo,
+            owner_id=owner_id, sandbox_id=sandbox_id,
+        ),
     )
     if len(entries) < MIN_FIELD:
         logger.info(
@@ -154,6 +190,7 @@ def create_human_tournament(
     bankroll_repo,
     ledger_repo,
     session_repo,
+    cash_table_repo=None,
     buy_in: int,
     field_size: int = 9,
     table_size: int = 3,
@@ -184,6 +221,10 @@ def create_human_tournament(
         archetypes=archetypes,
         rng_seed=rng_seed,
         human_id=human_id,
+        exclude=draft_exclusions(
+            cash_table_repo=cash_table_repo, session_repo=session_repo,
+            owner_id=owner_id, sandbox_id=sandbox_id,
+        ),
     )
     if len(entries) < MIN_FIELD:
         logger.info(
@@ -329,8 +370,12 @@ def settle_autonomous_tournament(
     Thin wrapper over `apply_payout_on_complete` that supplies
     `human_owner_id=None` (no human) and `real_persona_ids = entries.keys()`, so
     every in-the-money finisher is credited to its real `ai:<pid>` bankroll.
-    Idempotent (the payout_status guard). Caller holds the sandbox lock."""
-    return econ.apply_payout_on_complete(
+    Idempotent (the payout_status guard). Caller holds the sandbox lock.
+
+    Also marks the tournament row 'complete' so its entrants drop out of
+    `active_participant_pids` and are released back to cash seating (the exit
+    half of the double-presence guard)."""
+    ran = econ.apply_payout_on_complete(
         tournament_id=tournament_id,
         session=session,
         human_owner_id=None,
@@ -340,3 +385,11 @@ def settle_autonomous_tournament(
         session_repo=session_repo,
         real_persona_ids=frozenset(entries.keys()),
     )
+    # Release the field: once complete, the participants are no longer "in a
+    # tournament" and may re-seat at cash. Safe to set every call (idempotent).
+    if session_repo is not None and session.is_complete():
+        try:
+            session_repo.set_status(tournament_id, 'complete')
+        except Exception:  # noqa: BLE001 — release is best-effort; never break settle
+            logger.exception("set_status complete failed for %s", tournament_id)
+    return ran

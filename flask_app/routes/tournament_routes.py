@@ -368,6 +368,7 @@ def _economy_repos():
         ledger_repo=extensions.chip_ledger_repo,
         bankroll_repo=extensions.bankroll_repo,
         personality_repo=extensions.personality_repo,
+        cash_table_repo=extensions.cash_table_repo,
     )
 
 
@@ -409,6 +410,7 @@ def get_invite():
                 bankroll_repo=repos['bankroll_repo'],
                 ledger_repo=repos['ledger_repo'],
                 session_repo=repos['session_repo'],
+                cash_table_repo=repos['cash_table_repo'],
             )
             invites.maybe_offer_main_event(
                 invite_repo=repos['invite_repo'],
@@ -445,6 +447,7 @@ def accept_invite():
                 bankroll_repo=repos['bankroll_repo'],
                 ledger_repo=repos['ledger_repo'],
                 session_repo=repos['session_repo'],
+                cash_table_repo=repos['cash_table_repo'],
                 owner_id=owner_id,
             )
         except econ.InsufficientFundsError as exc:
@@ -482,6 +485,7 @@ def decline_invite():
             bankroll_repo=repos['bankroll_repo'],
             ledger_repo=repos['ledger_repo'],
             session_repo=repos['session_repo'],
+            cash_table_repo=repos['cash_table_repo'],
             owner_id=owner_id,
         )
     if result is None:

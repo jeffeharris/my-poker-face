@@ -320,6 +320,8 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
             side_hustle_repo=extensions.side_hustle_state_repo,
             live_seated_pids=live_cash_seated_pids(sandbox_id),
             human_headroom=economy_flags.LIVE_FILL_HUMAN_HEADROOM,
+            # Keep personas who are in a tournament out of cash seats.
+            tournament_repo=extensions.tournament_session_repo,
         )
 
     _maybe_record_holdings_snapshot(sandbox_id)

@@ -1088,6 +1088,11 @@ def refresh_unseated_tables(
     # 0 (default) = full saturation, which is what sims/tests want; the
     # LIVE lobby + ticker pass `economy_flags.LIVE_FILL_HUMAN_HEADROOM`.
     human_headroom: int = 0,
+    # Tournament session repo. When provided, personas in an active tournament
+    # (`active_participant_pids`) are excluded from seating — the "away at the
+    # Main Event" half of the double-presence guard. None → no exclusion
+    # (sim/test callers without tournaments).
+    tournament_repo=None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -1243,7 +1248,17 @@ def refresh_unseated_tables(
     # cross-table pool) reads these variables, so a single filter at the
     # top covers all the seating / staking eligibility surfaces without
     # per-call-site changes.
-    off_grid = on_vice | on_hustle
+    # Personas currently in a tournament are "away at the Main Event" — the
+    # same treatment as off-grid vice/side-hustle, so the seat-filler never
+    # seats a tournament entrant at a cash table (the double-presence guard).
+    # Derived from the active tournaments' fields; released when they complete.
+    on_tournament: Set[str] = set()
+    if tournament_repo is not None and user_id:
+        try:
+            on_tournament = tournament_repo.active_participant_pids(user_id)
+        except Exception:  # noqa: BLE001 — best-effort exclusion; never break the fill
+            logger.exception("active-participant scan failed for owner %s", user_id)
+    off_grid = on_vice | on_hustle | on_tournament
     unavailable = off_grid | live_seated
     if unavailable:
         idle_pool = [entry for entry in idle_pool if entry.personality_id not in unavailable]

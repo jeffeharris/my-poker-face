@@ -119,6 +119,34 @@ class TournamentSessionRepository(BaseRepository):
             ).fetchone()
             return self._row_to_dict(row) if row else None
 
+    def active_participant_pids(self, owner_id: str) -> set:
+        """Every entrant id across the owner's currently-ACTIVE tournaments.
+
+        Derived from the serialized field (single source of truth — no separate
+        participant table to drift), so it's correct as long as a finished
+        tournament's row is moved to status='complete' on settle. Used by the
+        cash seat-filler to keep a persona who is in a tournament OUT of cash
+        seats (the same exclusion vice/side-hustle get) — closing the
+        double-presence / ghost-seat gap. Synthetic (`P01`) / human
+        (`human:<id>`) seat ids are included but inert (they're never cash
+        candidates)."""
+        import json
+
+        pids: set = set()
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT session_json FROM tournaments "
+                "WHERE owner_id = ? AND status = 'active'",
+                (owner_id,),
+            ).fetchall()
+        for row in rows:
+            try:
+                entries = (json.loads(row['session_json']) or {}).get('field', {}).get('entries', {})
+            except (TypeError, ValueError):
+                continue
+            pids.update(entries.keys())
+        return pids
+
     def find_by_game_id(self, game_id: str) -> Optional[dict]:
         with self._get_connection() as conn:
             row = conn.execute(

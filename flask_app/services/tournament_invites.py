@@ -153,6 +153,7 @@ def accept(
     bankroll_repo,
     ledger_repo,
     session_repo,
+    cash_table_repo=None,
     owner_id: str,
     invite_id: Optional[str] = None,
 ) -> Optional[dict]:
@@ -171,6 +172,7 @@ def accept(
         bankroll_repo=bankroll_repo,
         ledger_repo=ledger_repo,
         session_repo=session_repo,
+        cash_table_repo=cash_table_repo,
         buy_in=invite['buy_in'],
         field_size=invite['field_size'],
         table_size=invite['table_size'],
@@ -203,6 +205,7 @@ def _resolve_autonomously(invite: dict, *, status: str, repos: dict) -> Optional
         bankroll_repo=repos['bankroll_repo'],
         ledger_repo=repos['ledger_repo'],
         session_repo=repos['session_repo'],
+        cash_table_repo=repos.get('cash_table_repo'),
         field_size=invite['field_size'],
         table_size=invite['table_size'],
         starting_stack=invite['starting_stack'],
@@ -221,6 +224,7 @@ def decline(
     bankroll_repo,
     ledger_repo,
     session_repo,
+    cash_table_repo=None,
     owner_id: str,
     invite_id: Optional[str] = None,
 ) -> Optional[dict]:
@@ -238,6 +242,7 @@ def decline(
             'bankroll_repo': bankroll_repo,
             'ledger_repo': ledger_repo,
             'session_repo': session_repo,
+            'cash_table_repo': cash_table_repo,
         },
     )
 
@@ -249,6 +254,7 @@ def expire_due(
     bankroll_repo,
     ledger_repo,
     session_repo,
+    cash_table_repo=None,
     now_iso: Optional[str] = None,
 ) -> list[dict]:
     """Expire every open invite past its `expires_at` → each starts
@@ -268,6 +274,7 @@ def expire_due(
                 'bankroll_repo': bankroll_repo,
                 'ledger_repo': ledger_repo,
                 'session_repo': session_repo,
+                'cash_table_repo': cash_table_repo,
             },
         )
         if result:

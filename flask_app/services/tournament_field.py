@@ -51,13 +51,17 @@ def select_persona_field(
     archetypes: tuple[str, ...] = DEFAULT_FIELD_ARCHETYPES,
     rng_seed: int = 0,
     human_id: Optional[str] = None,
+    exclude: Optional[set] = None,
 ) -> dict[str, str]:
     """Build a real-persona `entries` map for a tournament of (up to) `field_size`.
 
     Draws from `personality_repo.list_eligible_for_cash_mode(user_id=owner_id)`
     — the same circulating, non-fish, cash-eligible pool the lobby seat-filler
-    uses — shuffles it deterministically by `rng_seed` (so successive Main
-    Events field a varied cast), and assigns archetypes by cycling `archetypes`.
+    uses — minus `exclude` (personas currently seated at a cash table / off-grid
+    / already in a tournament, so we never draft a busy persona into the field —
+    the double-presence guard), shuffles it deterministically by `rng_seed` (so
+    successive Main Events field a varied cast), and assigns archetypes by
+    cycling `archetypes`.
 
     When `human_id` is given the human takes one seat (prize-eligible, live-
     driven — its archetype is a placeholder the resolver never consults) and the
@@ -71,8 +75,11 @@ def select_persona_field(
     field or refuse.
     """
     pool = personality_repo.list_eligible_for_cash_mode(user_id=owner_id) if personality_repo else []
+    blocked = exclude or set()
     persona_ids = [
-        row['personality_id'] for row in pool if row.get('personality_id')
+        row['personality_id']
+        for row in pool
+        if row.get('personality_id') and row['personality_id'] not in blocked
     ]
     # Deterministic shuffle off a local RNG (no global-state mutation).
     rng = random.Random(rng_seed)
