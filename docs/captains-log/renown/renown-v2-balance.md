@@ -391,3 +391,35 @@ rather than executed blind. The offline scorer being pre-validated is what makes
 the implement phase safe: it's a faithful PORT of known-good math, not a fresh
 design. Workflow running in the background (wf_f79f48a0); will validate + land
 its output once it returns.
+
+## 2026-06-01 — step 4 landed (the workflow paid off)
+
+The workflow returned (10 agents, ~943k subagent tokens, ~19 min). Its design
+phase made the call I'd have wanted: **additive, behind a default-OFF flag**,
+zero live behavior change. The v2 math is ported verbatim into
+cash_mode/prestige.py (score_renown_field two-pass, field-relative
+backing/breadth, scalp-percentile weighting, wall-clock volume,
+quadrant_label_relative, high_renown_cut), the scalp driver reads the now-live
+cash_scalps counter read-only, and v1's compute_prestige + absolute quadrant +
+the 4 hooks + ReputationScore's v1 fields are all untouched. Genuinely risky
+bits (prestige_snapshots schema for AI renown; ticker field-wide compute under
+the 250ms budget; the flag flip; the frontend gauge) were correctly DEFERRED
+behind their own validation gates — not executed blind.
+
+The standout: the implement agent wrote 3 **oracle-parity** tests that assert
+the production v2 totals/ordering/cut byte-match the balance-validated offline
+scorer — so "is production the same math we validated?" is now a test, not a
+hope. Plus the Rung-1 balance properties + backward-compat as tests.
+
+Stayed in the loop as planned: agents didn't commit or run Docker; I ran the
+suite myself (50 green: 21 v2 incl. parity + balance + compat, v1 prestige,
+demeanor hook), confirmed the flag defaults OFF, then committed (d9dce6a1). The
+4 adversarial reviewers flagged nothing critical/high (two cosmetic lows about a
+victim_percentile docstring + the builder having no oracle counterpart — both
+non-issues). Why this was a good workflow fit and 3b wasn't: wide comprehension
+surface + an architectural decision + multi-angle review, with a PRE-VALIDATED
+spec making the implement phase a safe port rather than a fresh design.
+
+Step 4's safe slice is DONE; the renown feature now has validated math wired to
+the live scalp counter, dark behind RENOWN_V2_ENABLED. Remaining is the deferred
+persistence/ticker/flip stage — its own (sim-gated) project.
