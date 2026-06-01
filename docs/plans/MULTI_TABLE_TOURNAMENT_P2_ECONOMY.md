@@ -2,19 +2,41 @@
 purpose: Implementation blueprint for P2 of the multi-table tournament feature — the economy layer (buy-ins, bank-overlay prize pools, payouts, staking) designed as a self-regulating bank-reserve thermostat
 type: design
 created: 2026-05-30
-last_updated: 2026-05-30
+last_updated: 2026-06-01
+status: SUPERSEDED in part — read P2_BUILD_HANDOFF.md + TOURNAMENT_ECONOMY_ON_STATE_MODEL.md first
 ---
 
 # Multi-Table Tournament — P2 Economy Blueprint
 
-P1 (persistence) shipped in layers A/B/C on branch `tournaments`. This is the
-design + build plan for **P2: the economy**. It was produced from a three-front
-exploration pass (real-chip ledger, stakes system, bankroll/hook points) plus a
-code-architect blueprint, then reshaped by the product decisions below.
+> **⚠️ PARTIALLY SUPERSEDED (2026-06-01). Do NOT build straight from this doc.**
+> Start at **`P2_BUILD_HANDOFF.md`** (single entry point), then
+> **`TOURNAMENT_ECONOMY_ON_STATE_MODEL.md`** (the corrected ledger/idempotency/
+> signal framing). The cash-mode **chip-custody machine has since LANDED** on
+> `development` and merged into `tournaments` (schema **v131**), which changes the
+> substrate this doc was written against. Specifically, what is now WRONG here:
+> - **Schema "v124"** everywhere → the branch is at **v131**; the economy migration
+>   is **v132+** (`_migrate_v124_add_tournament_economy` / `migrations[124]` would
+>   collide).
+> - **"Two conservation statements" + a separate `verify_tournament_conservation`**
+>   → collapses into the state model's single **I1** over the unified ledger; the
+>   checksum becomes a query, not a subsystem.
+> - **Parcel-state framing** (`IN_BANKROLL → COMMITTED → …`) → custody landed as a
+>   **ledger projection**: `tournament:<id>` is a ledger account; its balance IS the
+>   escrow amount. Mirror the shipped `seat:<game_id>` + `record_ai_buy_in/cash_out`.
+>
+> **What is STILL VALID here** and worth mining: the funding regimes (flush overlay
+> / neutral / empty rake), the payout curve (top ~30%, front-loaded, all ITM
+> finishers), the autonomy decision, and the **file:line integration surface**
+> (§"Integration surface (verified)") — version-correct it, but the hooks are right.
 
-> Read `MULTI_TABLE_TOURNAMENT_PLAN.md` (§"tournament as a ledger actor") and
-> `TOURNAMENT_PERSISTENCE_HANDOFF.md` first. The exploration that grounds every
-> file:line here is summarized in §"Integration surface (verified)".
+P1 (persistence) shipped in layers A/B/C on branch `tournaments`. This is the
+original design + build plan for **P2: the economy**, from a three-front
+exploration pass (real-chip ledger, stakes system, bankroll/hook points) plus a
+code-architect blueprint, reshaped by the product decisions below.
+
+> Read `MULTI_TABLE_TOURNAMENT_PLAN.md` (§"tournament as a ledger actor") first.
+> The exploration that grounds every file:line here is summarized in
+> §"Integration surface (verified)".
 
 ## The core idea: the tournament is an economy *thermostat*
 

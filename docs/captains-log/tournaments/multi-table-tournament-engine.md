@@ -2,7 +2,7 @@
 purpose: Grounded narrative log of building the headless multi-table tournament engine (branch tournaments)
 type: reference
 created: 2026-05-29
-last_updated: 2026-05-30
+last_updated: 2026-06-01
 ---
 
 <!-- newest entries at the bottom -->
@@ -502,3 +502,63 @@ stream (untouched, fully tested) and `tournamentBeats.ts`'s icon/text/structural
 helpers — feeding the one remaining surface (`useTournamentEvents` toasts) and
 sitting ready if a richer surface is wanted again. The whole beats data path stayed
 worth keeping; only the always-rendered UI came off.
+
+## 2026-06-01 — economy/circuit design, a codex pass, the development merge, P2 handoff
+
+**Design, not code.** After the beats walk-back the thread turned to the economy.
+Rather than build P2 from the standalone blueprint, I pinned it to the cash state
+model that was landing on `development`: a tournament is the *tournament-shaped
+instance* of the same unified-ledger + chip-custody machines, not a parallel
+system. Wrote `TOURNAMENT_ECONOMY_ON_STATE_MODEL.md` (escrow as a ledger account
+sibling of `seat:<game_id>`; payout as an I6 idempotent terminal transition; one
+shared `EconomyChairman` signal feeding both the tournament and cash-rake levers)
+and `TOURNAMENT_CIRCUIT_SURFACING.md` (P3: how it shows up in circuit mode).
+
+**The user did the load-bearing simplifications, twice.** First the time model:
+I'd over-thought a "registration window in minutes-vs-hands" question; the user
+cut it — the tournament just rides the world tick when you're out, and entering
+*pauses the sandbox tick until you quit/bust/win*, persisting across days. Then
+the accounting: the user reframed payouts as "escrow the buy-ins, the runner
+returns a list of `(recipient, percent)` tuples, the sandbox distributes." That
+made the runner a pure funny-money function and the sandbox the sole real-chip
+authority — and it dissolved both holes a codex review then raised.
+
+**Codex earned its keep (after I fought the tooling).** Two self-inflicted
+`pkill -f` foot-guns (the pattern matched my own shell) and a mis-built waiter
+(codex buffers all output to exit, so watching for mid-run growth never fired)
+cost time before the review landed. Worth it: codex flagged (1) the global-bankroll
+↔ sandbox-scoped-audit boundary needs an explicit cross-scope transfer, (2)
+`tournament:<id>` alone doesn't separate overlay (a real bank draw) from buy-in (a
+transfer) — classify by *reason* at the source, and (3) "skip the whole sandbox
+tick" was too blunt: split a paused **simulation** tick from a still-running
+**maintenance** tick, and add a deadlock-recovery path (a wedged entered-tournament
+must never freeze the world forever). All three folded into the docs.
+
+**Then the substrate actually landed, so I merged it.** Development cut over the
+chip-custody machine (ledger projection, not a parcel store: `balance_of`,
+`record_ai_buy_in/cash_out`, settle-before-delete, schema v129). Merged
+`origin/development` into `tournaments`: **one conflict**, `schema_manager.py` —
+both branches had independently used v123/v124 for different migrations. Resolved
+by taking dev's file and renumbering ours to **v130 (create tournaments) / v131
+(drop tracker)**, `SCHEMA_VERSION=131`. 192 files auto-merged; frontend tsc + the
+fresh-DB tests green.
+
+**The schema collision bit the live DB, exactly as the docs warned.** Mid-merge the
+auto-reloader half-migrated this worktree's `data/poker_games.db` to v125 and
+crashed at v126 (it had applied *our* v124, never dev's v124 that creates
+`opponent_observation_lifetime`). I briefly conflated it with "the dev DB" — the
+user corrected me: the **development** worktree's DB is fine (v129); only my local
+throwaway was broken. Reset it (moved the broken copy aside, rebuilt fresh from
+`_init_db` at v131 with the full merged schema — `tournaments` + dev's
+`opponent_observation_lifetime`/`entity_presence`), backend healthy, the previously
+failing route/integration tests green.
+
+**Packaged the handoff honestly.** Asked if P2 was ready to hand to a fresh
+context, I checked instead of claiming: it wasn't. The obvious entry point
+(`MULTI_TABLE_TOURNAMENT_P2_ECONOMY.md`) was stale (v124, "two conservation
+statements", parcel framing) and didn't point at the superseding note — a fresh
+context would have built the wrong thing. Bannered it SUPERSEDED, wrote a single
+`P2_BUILD_HANDOFF.md` (substrate status, build order, the decided contracts, the
+version-corrected integration surface, the gotchas), and this entry. P2 is now a
+"hand this one doc to a fresh context and go" package — design complete, substrate
+landed, no code written.
