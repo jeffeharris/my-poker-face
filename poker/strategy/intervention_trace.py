@@ -70,6 +70,7 @@ _LAYER_NAMES = frozenset(
         'induce_override',  # Phase A / Phase B (Items 2-5)
         'strong_hand_override',
         'bluff_catch_override',
+        'sizing_defense',  # SIZING_AWARE_OPPONENT_MODELING.md §B: fold-more vs a face-up big bettor
         'multistreet_context',  # STRUCTURAL_PASSIVITY_PLAN.md
         'overbet_context',  # POSTFLOP_NEXT_LEVER.md: value overbet sizing on dry turns
         'defense_floor',  # Plan §2
@@ -109,6 +110,7 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     'induce_override': frozenset({'default'}),
     'strong_hand_override': frozenset({'default'}),
     'bluff_catch_override': frozenset({'default'}),
+    'sizing_defense': frozenset({'default'}),
     'multistreet_context': frozenset({'default', 'barrel', 'fold_barrel'}),
     'overbet_context': frozenset({'default', 'overbet'}),
     'defense_floor': frozenset({'default'}),
@@ -138,6 +140,7 @@ _LAYER_ORDER: Dict[str, int] = {
     'induce_override': 2,  # Phase A: smooth-call vs barrelers (preempts strong_hand_override)
     'strong_hand_override': 2,
     'bluff_catch_override': 3,
+    'sizing_defense': 3,  # §B: fold-more vs face-up big bettor (runs just after bluff_catch, same facing-bet tier)
     'multistreet_context': 4,  # STRUCTURAL_PASSIVITY_PLAN.md: hero's-own-line barrel / fold-to-barrel (runs just before defense_floor)
     'overbet_context': 4,  # POSTFLOP_NEXT_LEVER.md: value overbet sizing (multistreet sets freq, overbet sets size)
     'defense_floor': 4,  # Plan §2: price-sensitive call floor
