@@ -382,6 +382,13 @@ def _reclaim_zombie_casino_seats(
 ) -> int:
     """Open stale casino AI seats that nothing else can clear.
 
+    PRESENCE CUTOVER — RETIRE CANDIDATE (confirmed quiet, not yet removable).
+    Fired 0× over a multi-hour authority soak; its save_table already drives
+    presence. But its core job is a CROSS-system case presence can't prevent —
+    a seat whose `personality_id` no longer resolves (a DELETED persona). Keep
+    until that's handled by a presence-backed check; see
+    docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md "Reconciler retirement".
+
     Two seat classes qualify, both of which permanently consume a seat the
     human or a live-filling grinder could take (refill only adds fish;
     teardown only sweeps `archetype='fish'` seats):

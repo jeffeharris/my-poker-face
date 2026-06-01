@@ -2,7 +2,7 @@
 purpose: Implementation blueprint for Phase 3 of the cash-mode Presence cutover — making entity_presence the authoritative store for actor location, demoting cash_tables seat map / cash_idle_pool / ai_*_state to projections
 type: design
 created: 2026-05-31
-last_updated: 2026-05-31
+last_updated: 2026-06-01
 ---
 
 # Cash Mode — Presence Phase-3 Authority Flip (design pass)
@@ -177,3 +177,38 @@ MODIFY: `schema_manager.py` (v129), `cash_table_repository.py` (`save_table`),
 `economy_flags.py` (+`PRESENCE_AUTHORITY_ENABLED`), `lobby.py`,
 `ai_side_hustle.py`, `ai_vice_spending.py`, `cash_routes.py`, `game_handler.py`,
 `sim_runner.py`, `validate_presence_shadow.py` (+`--post-flip`).
+
+## Reconciler retirement — evidence & decision (2026-06-01, post-flip dev soak)
+
+After the authority flip on dev + a multi-hour real-play soak, the three
+reconcilers the cutover targets fired **0 times**:
+- `_free_ghost_human_seats` (cash_routes.py) — 0 frees
+- `_reclaim_zombie_casino_seats` (casino_provisioning.py) — 0 reclaims
+- `_restore_cash_table_binding` (game_handler.py) — 0 cold-load self-heals
+
+That's strong evidence the cutover made them redundant **for normal operation**.
+DECISION: **do NOT delete them yet** — they each guard a RARE *cross-system*
+event that presence does not (yet) prevent and that a 5h soak can't exercise:
+a purged/deleted `games` row with a surviving seat (`_free_ghost_human_seats`),
+and a seat whose `personality_id` no longer resolves — a DELETED persona
+(`_reclaim_zombie_casino_seats`). Deleting a rare-event safety net on
+no-fire-over-5h is the wrong trade. They're cheap (iterate tables on a sit/leave)
+and already authority-correct (their `save_table` drives presence). Marked in
+code as RETIRE CANDIDATEs.
+
+Safe to retire only after EITHER (a) a longer soak with continued 0 firings AND
+the cross-system cases handled by a presence-backed read (e.g. session-lifecycle
+guarantees a `GO_OFFLINE` on game-row deletion; persona-deletion sweeps seats
+directly), OR (b) those cross-system repairs move into a single presence-aware
+reconciler. `whereabouts.py`'s HARD-flag detection (seated_and_idle / double_seat)
+is likewise now structurally impossible under authority, but it's a read-only
+cache-consistency MONITOR worth keeping during the soak (it's how we confirm the
+legacy stores stay consistent).
+
+### Non-blocking residual observed in the soak
+A persistent `OFFGRID_STALE` (e.g. `ai:cleopatra`): her side-hustle EXPIRED
+(`ends_at` in the past) but the row wasn't reaped and presence stayed
+`side_hustle`, because the world ticker only advances ACTIVE-player sandboxes
+(design D4) — an idle sandbox's expired hustles aren't reaped until the player
+returns, which also fires `END_OFFGRID`. Self-healing, matches legacy behaviour
+(the hustle row also lingers), not a flip regression.

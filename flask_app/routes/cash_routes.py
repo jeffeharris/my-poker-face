@@ -411,6 +411,14 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
 def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
     """Reset any cash_tables human OR reserved seat owned by `owner_id` to open.
 
+    PRESENCE CUTOVER — RETIRE CANDIDATE (confirmed quiet, not yet removable).
+    Under the authority flip this reconciler's save_table already drives presence,
+    and a clean human lifecycle leaves no ghost — it fired 0× over a multi-hour
+    authority soak. But it still guards a CROSS-system case presence can't prevent
+    (the cash-* game row purged/deleted while the persisted seat survives). Keep
+    as cheap insurance until that case is covered by a presence-backed read; see
+    docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md "Reconciler retirement".
+
     Used by the memory-miss leave path and the boot reconcile to catch
     the case where the cash-* game row is gone (purged or deleted) but
     the persisted seat survives. Without this, the lobby renders the
