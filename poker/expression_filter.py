@@ -13,28 +13,34 @@ from typing import Optional
 # === Emotion Dampening Map ===
 # Maps true emotions to dampened versions as visibility decreases.
 # Format: true_emotion -> (medium_visibility_emotion, low_visibility_emotion)
+#
+# Design: at MEDIUM visibility, only HIGH-AROUSAL emotions soften one step
+# (angry->frustrated). LOW-AROUSAL emotions keep their flavor (a quiet
+# frustration still reads as frustration) rather than all collapsing to
+# 'thinking' — the old behavior flattened five different feelings into one
+# label and made low/mid-expressive tables read as a wall of "thinking".
 EMOTION_DAMPENING_MAP = {
-    # High intensity -> medium -> poker face
+    # High-arousal -> soften one step at medium -> poker face at low
     'angry': ('frustrated', 'poker_face'),
     'shocked': ('nervous', 'poker_face'),
     'elated': ('happy', 'poker_face'),
     'smug': ('confident', 'poker_face'),
-    # Fun-lover family (high intensity, positive) -> medium -> poker face
     'giddy': ('gleeful', 'poker_face'),
     'gleeful': ('happy', 'poker_face'),
-    # Medium intensity -> thinking -> poker face
-    'sheepish': ('thinking', 'poker_face'),
-    'frustrated': ('thinking', 'poker_face'),
-    'nervous': ('thinking', 'poker_face'),
-    'happy': ('thinking', 'poker_face'),
-    'confident': ('thinking', 'poker_face'),
-    # Low intensity emotions stay or go to poker face
+    # Low-arousal -> keep flavor at medium (don't flatten to 'thinking') -> poker face at low
+    'frustrated': ('frustrated', 'poker_face'),
+    'nervous': ('nervous', 'poker_face'),
+    'sheepish': ('sheepish', 'poker_face'),
+    'happy': ('happy', 'poker_face'),
+    'confident': ('confident', 'poker_face'),
     'thinking': ('thinking', 'poker_face'),
     'poker_face': ('poker_face', 'poker_face'),
 }
 
-# Visibility thresholds
-HIGH_VISIBILITY_THRESHOLD = 0.6
+# Visibility thresholds. HIGH lowered 0.6 -> 0.5 so mid-expressive personas
+# (expr ~0.5) surface their true emotion instead of sitting permanently in the
+# dampened band.
+HIGH_VISIBILITY_THRESHOLD = 0.5
 MEDIUM_VISIBILITY_THRESHOLD = 0.3
 
 # Low visibility: probability of showing poker_face vs dampened emotion

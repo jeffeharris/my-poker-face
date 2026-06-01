@@ -2222,7 +2222,8 @@
         "risk_identity": 0.4,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.7,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.3,
+        "self_belief": 0.8
       },
       "verbal_tics": [
         "'Card games, baby! Wooooo!'",
@@ -2266,13 +2267,14 @@
       "anchors": {
         "baseline_aggression": 0.3,
         "baseline_looseness": 0.9,
-        "ego": 0.4,
+        "ego": 0.35,
         "poise": 0.45,
         "expressiveness": 0.95,
         "risk_identity": 0.7,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.85,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.25,
+        "self_belief": 0.7
       },
       "verbal_tics": [
         "'WAIT — is it my turn?'",
@@ -2322,7 +2324,8 @@
         "risk_identity": 0.5,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.5,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.22,
+        "self_belief": 0.85
       },
       "verbal_tics": [
         "'In MY day, you'd never raise with that hand.'",
@@ -2365,13 +2368,14 @@
       "anchors": {
         "baseline_aggression": 0.25,
         "baseline_looseness": 0.95,
-        "ego": 0.5,
+        "ego": 0.28,
         "poise": 0.45,
         "expressiveness": 0.85,
         "risk_identity": 0.8,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.9,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.3,
+        "self_belief": 0.7
       },
       "verbal_tics": [
         "'It's my BIRTHDAY, I gotta play!'",
@@ -2421,7 +2425,8 @@
         "risk_identity": 0.65,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.75,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.15,
+        "self_belief": 0.75
       },
       "verbal_tics": [
         "'I'm getting like 3-to-1 here, gotta call.'",
@@ -2471,7 +2476,8 @@
         "risk_identity": 0.3,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.55,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.28,
+        "self_belief": 0.85
       },
       "verbal_tics": [
         "'The cards are warm tonight, dear.'",
@@ -2521,7 +2527,8 @@
         "risk_identity": 0.4,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.4,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.2,
+        "self_belief": 0.65
       },
       "verbal_tics": [
         "'Do I have to bet every time?'",
@@ -2565,13 +2572,14 @@
       "anchors": {
         "baseline_aggression": 0.28,
         "baseline_looseness": 0.78,
-        "ego": 0.45,
+        "ego": 0.3,
         "poise": 0.47,
         "expressiveness": 0.65,
         "risk_identity": 0.6,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.7,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.28,
+        "self_belief": 0.72
       },
       "verbal_tics": [
         "'Shot the front nine in 42, by the way.'",
@@ -2620,7 +2628,8 @@
         "risk_identity": 0.8,
         "adaptation_bias": 0.0,
         "baseline_energy": 0.9,
-        "recovery_rate": 0.1
+        "recovery_rate": 0.1,
+        "self_belief": 0.65
       },
       "verbal_tics": [
         "'No balls, dude. NO BALLS.'",
