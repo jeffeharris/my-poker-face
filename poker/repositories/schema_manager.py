@@ -2102,6 +2102,34 @@ class SchemaManager:
         }
 
         with self._get_connection() as conn:
+            # Renumber-collision self-heal. A DB migrated on the `training-room`
+            # branch recorded v123/v124 as the coach migrations (renumbered to
+            # v130/v131 on the development merge), so its version counter skipped
+            # development's real v123 (`circulating`) and v124
+            # (`opponent_observation_lifetime`). Re-assert those two effects
+            # idempotently before the forward loop — otherwise the v126/v127
+            # ALTERs against `opponent_observation_lifetime` crash on the missing
+            # table. No-op on clean DBs (both methods are existence-guarded) and
+            # only reachable while migrations are still pending.
+            collision = (
+                current_version >= 124
+                and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='opponent_observation_lifetime'"
+                ).fetchone()
+                is None
+            )
+            if collision:
+                logger.warning(
+                    "Detected training-room renumber collision (version %d but "
+                    "opponent_observation_lifetime missing) — re-asserting the "
+                    "skipped v123/v124 development migrations idempotently",
+                    current_version,
+                )
+                self._migrate_v123_add_personality_circulating(conn)
+                self._migrate_v124_create_opponent_observation_lifetime(conn)
+                conn.commit()
+
             for version in range(current_version + 1, SCHEMA_VERSION + 1):
                 if version in migrations:
                     migrate_func, description = migrations[version]
