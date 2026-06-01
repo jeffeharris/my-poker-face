@@ -3,8 +3,47 @@ purpose: Single-entry handoff for building P2 — the multi-table tournament eco
 type: guide
 created: 2026-06-01
 last_updated: 2026-06-01
-status: READY TO BUILD — design complete, substrate landed, no code written yet
+status: STEPS 1–4 BUILT + GREEN (economy spine: buy-in→escrow→overlay→payout→
+  conservation→idempotency). Step 5 (staking) deferred — see §"Build progress".
 ---
+
+## Build progress (2026-06-01)
+
+Steps 1–4 landed on `tournaments` (each its own commit, green tests):
+
+1. **EconomyChairman** — `core/economy/economy_signal.py`: `signal()` +
+   `tournament_funding()` + `cash_rake_schedule()`, pure over the ledger
+   read-model, EXP_006 ~0.08 setpoint. 15 tests.
+2. **Escrow + ledger + schema v132** — `tournament(id)` account +
+   `record_tournament_buy_in/payout/overlay/return` (buy-in/payout are
+   drift-invisible transfers; overlay a pool DRAW; return a pool deposit);
+   `tournaments` gains `buy_in/rake/bank_overlay/prize_pool/payout_status`
+   (`set_economy`/`set_payout_status` kept OUT of `save()` so a boundary persist
+   never wipes them). 11 tests.
+3. **Buy-in flow** — `flask_app/services/tournament_economy_service.py`
+   (`plan_funding`/`apply_buy_in`) + `register_tournament` (buy_in parse,
+   402 affordability gate, debit→escrow→overlay, rollback) under the sandbox
+   lock. 10 tests.
+4. **Payout** — pure `tournament/economy.py` (`compute_payout_schedule`,
+   residual→1st) + `apply_payout_on_complete` (I6 `payout_status` guard, human
+   paid real, synthetic-AI shares swept to pool, escrow nets to 0) wired at the
+   boundary + advance + play-out. 13 tests.
+
+**Key v1 decision (synthetic field):** the engine's field entrants are synthetic
+ids (`P07`), NOT real personas with bankrolls. So at payout the **human is paid
+for real; every other finisher's share is swept back to the bank pool**
+(`tournament_return`), keeping the escrow at 0 and restoring the overlay it
+cancels. Real AI-to-AI redistribution needs **real-persona fields** (a P3 /
+tourist-buy-in concern) — the synthetic branch in `apply_payout_on_complete` is
+the documented swap point.
+
+5. **Staking into entries — DEFERRED.** Blocked on the same real-persona-field
+   gap: with synthetic entrants there is no real backer/borrower to stake or
+   credit, and the offer/accept willingness paths overlap P3 surfacing. The
+   binding itself is small (a `tournament_entry_id` column + a repo lookup +
+   `settle_stake_on_leave(chips_at_leave=prize)` reusing the house-stake
+   no-carry override) and slots into `apply_payout_on_complete`'s human branch
+   when real fields land.
 
 # P2 Tournament Economy — Build Handoff (START HERE)
 
