@@ -405,6 +405,7 @@ def delete_personality(name):
                     repos={
                         'entity_presence_repo': getattr(extensions, 'entity_presence_repo', None),
                         'cash_table_repo': getattr(extensions, 'cash_table_repo', None),
+                        'chip_ledger_repo': getattr(extensions, 'chip_ledger_repo', None),
                     },
                 )
                 returned = settle_ai_bankroll_to_pool_on_delete(

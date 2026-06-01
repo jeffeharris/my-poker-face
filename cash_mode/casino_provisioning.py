@@ -419,6 +419,11 @@ def _reclaim_zombie_casino_seats(
     Returns the number of seats reclaimed.
     """
     reclaimed = 0
+    # R4 retirement monitor: split by class. `unresolved` (deleted persona) is now
+    # prevented at the source by R3b (sweep_presence_on_persona_delete); `unstamped`
+    # is a pre-migration data artifact (no NEW ones under authority).
+    unresolved_reclaimed = 0
+    unstamped_reclaimed = 0
     for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
         if table.table_type != 'casino':
             continue
@@ -476,6 +481,10 @@ def _reclaim_zombie_casino_seats(
             new_seats[idx] = open_slot()
             changed = True
             reclaimed += 1
+            if unresolved:
+                unresolved_reclaimed += 1
+            else:
+                unstamped_reclaimed += 1
             if pid:
                 reclaimed_pids.append(pid)
             logger.info(
@@ -515,6 +524,24 @@ def _reclaim_zombie_casino_seats(
                         sandbox_id=sandbox_id,
                         event=PresenceEvent.RETURN_TO_POOL,
                     )
+    # R4 retirement monitor: a non-zero `unresolved` count post-R3b means a
+    # persona was deleted-while-seated without the sweep firing — alert so it's
+    # visible. `unstamped` is historical pre-migration data (one-time cleanup);
+    # once both stay 0 over a soak and the un-stamped backfill has run, this
+    # reconciler retires. See CASH_MODE_TECH_DEBT.md §5 / R4.
+    if unresolved_reclaimed:
+        logger.warning(
+            "[CASH LIFECYCLE] _reclaim_zombie_casino_seats reclaimed %d "
+            "DELETED-PERSONA seat(s) in sandbox=%r — R3b should have freed these "
+            "at the delete source; investigate the path that bypassed the sweep",
+            unresolved_reclaimed, sandbox_id,
+        )
+    if unstamped_reclaimed:
+        logger.info(
+            "[CASH][CASINO] reclaimed %d pre-migration un-stamped fish seat(s) in "
+            "sandbox=%r (historical artifact; expected to trend to 0)",
+            unstamped_reclaimed, sandbox_id,
+        )
     return reclaimed
 
 

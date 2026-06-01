@@ -373,9 +373,11 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
         return 0
 
     freed = 0
+    ghost_human_freed = 0  # 'human' clears — the orphan R3a now prevents at source
     for table in tables:
         for idx, slot in enumerate(table.seats):
-            if slot.get("kind") not in ("human", "reserved"):
+            kind = slot.get("kind")
+            if kind not in ("human", "reserved"):
                 continue
             if slot.get("personality_id") != owner_id:
                 continue
@@ -385,12 +387,12 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
                     sandbox_id=sandbox_id,
                 )
                 logger.info(
-                    "[CASH] _free_ghost_human_seats: freed table=%r seat=%d owner=%r",
-                    table.table_id,
-                    idx,
-                    owner_id,
+                    "[CASH] _free_ghost_human_seats: freed %s table=%r seat=%d owner=%r",
+                    kind, table.table_id, idx, owner_id,
                 )
                 freed += 1
+                if kind == "human":
+                    ghost_human_freed += 1
             except Exception as e:
                 logger.warning(
                     "[CASH] _free_ghost_human_seats: save_table failed " "for %r:%d: %s",
@@ -398,6 +400,18 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
                     idx,
                     e,
                 )
+    # RETIREMENT MONITOR (R4): clearing a 'reserved' hold is normal UX (abandoned
+    # SponsorModal). Clearing a 'human' ghost seat is the orphan R3a now prevents
+    # at the deletion source — so a non-zero count here post-R3 means a deletion
+    # path slipped past the sweep. Alert on it; once this stays 0 over a soak the
+    # ghost-seat half of this reconciler is dead (see CASH_MODE_TECH_DEBT.md §5 / R4).
+    if ghost_human_freed:
+        logger.warning(
+            "[CASH LIFECYCLE] _free_ghost_human_seats cleared %d HUMAN ghost seat(s) "
+            "for owner=%r — R3a should have freed these at the delete source; "
+            "investigate the deletion path that bypassed the sweep",
+            ghost_human_freed, owner_id,
+        )
     return freed
 
 

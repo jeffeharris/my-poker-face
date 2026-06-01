@@ -101,6 +101,7 @@ def sweep_presence_on_persona_delete(*, personality_id: str, repos: Dict[str, An
     cash_table_repo = repos.get("cash_table_repo")
     if presence_repo is None or cash_table_repo is None:
         return 0
+    chip_ledger_repo = repos.get("chip_ledger_repo")
     eid = ai_entity_id(personality_id)
     swept = 0
     try:
@@ -111,6 +112,21 @@ def sweep_presence_on_persona_delete(*, personality_id: str, repos: Dict[str, An
         return 0
     for st in seated:
         try:
+            # Conservation: return the seat's residual chips to the bank pool
+            # BEFORE opening (mirrors _reclaim_zombie_casino_seats — pool-funded
+            # casino chips must not vanish when the persona is deleted). Only
+            # open the seat if the return succeeds (or there were none); a failed
+            # return leaves the seat for the reconciler to retry, never vanishing
+            # chips.
+            if not _return_seat_chips_to_pool(
+                cash_table_repo, chip_ledger_repo, personality_id=personality_id, st=st
+            ):
+                logger.warning(
+                    "[CASH][SWEEP] persona-delete seat-chip return deferred for "
+                    "%r sandbox=%r — leaving seat for the reconciler",
+                    personality_id, st.sandbox_id,
+                )
+                continue
             opened = _open_seat(
                 cash_table_repo, sandbox_id=st.sandbox_id, table_id=st.table_id,
                 seat_index=st.seat_index, expect_id_field="personality_id",
@@ -128,6 +144,34 @@ def sweep_presence_on_persona_delete(*, personality_id: str, repos: Dict[str, An
             logger.warning("[CASH][SWEEP] persona-delete sweep failed for %r: %s",
                            personality_id, e)
     return swept
+
+
+def _return_seat_chips_to_pool(cash_table_repo, chip_ledger_repo, *, personality_id, st) -> bool:
+    """Return an AI seat's residual chips to the bank pool before it's opened.
+    Returns True when there were no chips to return, when custody is off / no
+    ledger, or when the return row landed; False only when a >0 return was
+    rejected (so the caller defers opening the seat — chips never vanish)."""
+    from cash_mode import economy_flags
+
+    table = cash_table_repo.load_table(st.table_id, sandbox_id=st.sandbox_id)
+    if table is None or st.seat_index is None or st.seat_index >= len(table.seats):
+        return True
+    slot = table.seats[st.seat_index]
+    if slot.get("personality_id") != personality_id:
+        return True  # seat moved on; nothing of ours to return
+    chips = int(slot.get("chips") or 0)
+    if chips <= 0 or chip_ledger_repo is None or not economy_flags.CHIP_CUSTODY_ENABLED:
+        return True
+    from core.economy import ledger as chip_ledger
+
+    row_id = chip_ledger.record_casino_seat_return(
+        chip_ledger_repo,
+        personality_id=personality_id,
+        amount=chips,
+        context={"site": "persona_delete_seat_return", "table_id": st.table_id},
+        sandbox_id=st.sandbox_id,
+    )
+    return row_id is not None
 
 
 def _open_slot():
