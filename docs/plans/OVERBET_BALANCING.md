@@ -460,6 +460,37 @@ DORMANT (intensity 0, no read wired); the mechanism is proven + measured both wa
 but the asymmetry makes it low-priority — ship only with a high-precision validated
 stab read.** Mechanism kept as a ready, measured, gated lever.
 
+## 5k. Stab-frequency read BUILT + VALIDATED + ENABLED (2026-06-01)
+
+Built the production gate the §5j defense needed. `stab_frequency` on
+`OpponentTendencies` (+ `update_stab` + `_record_stab_frequency` in memory_manager —
+replays each hand, counts bet-vs-check when the player is CHECKED TO postflop, i.e.
+not first-to-act with nothing to call; mirrors `_record_fold_to_big_bet`).
+`_resolve_stabber_read` now reads it (HU, matures at `_stab_opp_count >= 12`).
+
+**Validated on 57,347 casino hands** (reconstructed verbatim), 47 players with ≥20
+checked-to spots:
+
+| group | stab_frequency |
+|---|---|
+| CallStation | 0.00 |
+| calling stations / regs (Napoleon, CaseBot, Batman, Bob Ross) | 0.07–0.20 |
+| genuine stabbers (Triumph 0.55, ManiacBot 0.70, Blackbeard 0.88) | 0.55–0.88 |
+| population | min 0.00 / median 0.15 / max 0.88 |
+
+**High precision, large margin:** the false-positive opponents (callers/value-bettors,
+the −2.5 risk) cluster at 0.00–0.20 — a **0.30+ gap** below the 0.6 gate. Only 2/47
+(Blackbeard, ManiacBot) trip 0.6. So the unfavorable asymmetry (−2.5 misfire vs +1.0
+gain) is **managed by the read's precision** — a noisy read still won't flip a 0.20
+station to >0.6.
+
+**ENABLED:** `stab_defense_intensity=0.5`, `stab_defense_min=0.6` (production
+`__init__` defaults). Fires only vs the clearest stabbers (recovers ~+1.0), dormant
+vs the pool. Production read path = same as `fold_to_big_bet` (validated); eval
+harnesses bypass `__init__` so they're unaffected. Cold-start / immature → value-only.
+Residual: a small, rare-firing benefit (genuine stabbers are ~4% of the pool),
+enabled because the read validated safe; dial-back via `stab_defense_intensity`.
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*

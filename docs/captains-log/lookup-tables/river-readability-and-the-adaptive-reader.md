@@ -188,6 +188,20 @@ upside, so it needs a high-precision stab read we haven't built or validated." K
 dormant + measured. A better objection, earned by building the thing instead of
 asserting.
 
+## The stab read — built, validated, enabled
+
+The §5j defense was dormant for want of a production read. Built `stab_frequency`
+(bet rate when checked to postflop) on the opponent model + recorder, mirroring
+`fold_to_big_bet`. Validated it against the same 57k casino hands: it cleanly
+separates — CallStation 0.00, the stations/regs 0.07–0.20, genuine stabbers 0.55–0.88
+(a maniac bot literally among them). The decisive number for the −2.5/+1.0 asymmetry:
+the callers (the misfire risk) sit a full 0.30+ below the 0.6 gate, so a noisy read
+can't flip them. Enabled at intensity 0.5 / gate 0.6 — fires only vs the unambiguous
+stabbers (~2/47), recovers ~+1.0 there, dormant vs everyone else. The asymmetry that
+made me hesitate in §5j turned out to be defused by the read's precision once measured
+— the right call wasn't "skip it" or "ship on faith," it was "build the read and let
+the data say." It did.
+
 ## Where it landed
 
 One real readability leak, found and fixed to its structural max, gated so it costs

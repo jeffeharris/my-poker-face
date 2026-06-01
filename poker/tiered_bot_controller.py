@@ -403,10 +403,16 @@ class TieredBotController(AIPlayerController):
         self.air_barrel_target: float = 0.0
         # Gated stab-defense (OVERBET_BALANCING.md §5j): vs a detected frequent
         # stabber, shift fold→call facing a postflop bet (the bot over-folds ~41%
-        # to stabs into its capped check range). intensity 0 = OFF (byte-identical).
-        # _override forces the stab read in eval/tests (no model manager).
-        self.stab_defense_intensity: float = 0.0
-        self.stab_defense_min: float = 0.5  # opponent stab-freq gate
+        # to stabs into its capped check range). ON at intensity 0.5 (recovers the
+        # ~-1.2 leak by over-calling past MDF — a stabber over-bluffs). Gate at 0.6:
+        # the stab read is validated high-precision on 57k casino hands (CallStation
+        # 0.00, stations/regs 0.07-0.20, genuine stabbers 0.55-0.88 → ~2/47 trip
+        # 0.6), so the unfavorable asymmetry (-2.5 misfire vs +1.0 gain) is managed
+        # by the 0.30+ margin between the caller bulk and the gate. Matures via
+        # _stab_opp_count; cold-start / non-stabber → no defense (value-only).
+        # _override forces the read in eval/tests (no model manager).
+        self.stab_defense_intensity: float = 0.5
+        self.stab_defense_min: float = 0.6
         self.stab_defense_override: Optional[float] = None
         # Adaptive overbet (PERSONALITY_PRICING_AND_VARIETY.md "Attacker side"):
         # when True, scale the overbet's fraction by the live value-vs-station
@@ -3119,9 +3125,23 @@ class TieredBotController(AIPlayerController):
         override = getattr(self, 'stab_defense_override', None)
         if override is not None:
             return override
-        # TODO(production): add a stab-frequency read (bet-when-checked-to rate) to
-        # OpponentTendencies + wire it here, mirroring _resolve_river_bluff_ftbb.
-        return None
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return None
+        opps = [
+            p.name
+            for p in game_state.players
+            if p.name != self.player_name and not p.is_folded
+        ]
+        if len(opps) != 1:  # HU only for the MVP
+            return None
+        try:
+            tendencies = manager.get_model(self.player_name, opps[0]).tendencies
+        except Exception:  # noqa: BLE001 — no model yet → cold start
+            return None
+        if getattr(tendencies, '_stab_opp_count', 0) < 12:
+            return None  # immature read → no stab-defense (value-only)
+        return tendencies.stab_frequency
 
     def _select_exploitation_stats(
         self,
