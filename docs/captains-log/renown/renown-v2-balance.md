@@ -365,3 +365,29 @@ a single serial edit, nothing to fan out; workflows fit step 4 (parallel design
 + adversarial verify) or a cross-file review, not this. **Workstream A (the
 scalp tracker) is complete through step 3; step 4 (renown reads scalps) is the
 v2 build.**
+
+## 2026-06-01 — step 4 (v2 compute_prestige) kicked off as a WORKFLOW
+
+Jeff opted into a workflow for the v2 build — and this one genuinely fits the
+fan-out shape (unlike 3b): comprehend a wide surface, weigh an architectural
+decision, implement, and review from several adversarial angles. Structured it
+as Map → Design → Implement → Verify:
+- Map (4 parallel Explore readers): current v1 compute + all consumers; the
+  ticker recompute path + the field-wide-renown question; the VALIDATED offline
+  scorer as the porting spec; the scalp API + test surface.
+- Design (1 architect): a concrete blueprint with MINIMAL blast radius — explicit
+  on the field-wide/AI-symmetry decision and whether AI-renown persistence needs
+  schema (defer if risky), preserving the legibility guardrail + the 4 hooks.
+- Implement (1 agent, no parallel file conflicts): port the scorer into
+  cash_mode/prestige.py + wire the scalp driver + mirror the validated balance
+  assertions as pure unit tests. Implement-now vs defer per the blueprint.
+- Verify (4 parallel adversarial reviewers): correctness-vs-scorer, the
+  legibility guardrail + hook compatibility, AI-symmetry/blast-radius, tests.
+
+Deliberate guardrails on the workflow: agents do NOT commit and do NOT run
+Docker — I stay in the loop to run the real test suite in-container and commit,
+and the risky ticker/schema surgery is gated behind a "defer if risky" flag
+rather than executed blind. The offline scorer being pre-validated is what makes
+the implement phase safe: it's a faithful PORT of known-good math, not a fresh
+design. Workflow running in the background (wf_f79f48a0); will validate + land
+its output once it returns.
