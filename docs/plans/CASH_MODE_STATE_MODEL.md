@@ -2,7 +2,7 @@
 purpose: Design for unifying cash-mode presence and chip ownership behind two enforced state machines, eliminating the ghost-seat / orphan / silent-forfeiture bug classes
 type: design
 created: 2026-05-30
-last_updated: 2026-05-30
+last_updated: 2026-06-01
 reviewed: 2026-05-30 (codex-assist + code-architect + code-explorer fact-check)
 ---
 
@@ -10,8 +10,34 @@ reviewed: 2026-05-30 (codex-assist + code-architect + code-explorer fact-check)
 
 ## Status
 
-**DRAFT — design under review.** No code written. The pivotal open decision
-(table-as-projection, §6) is flagged inline for sign-off before implementation.
+**PARTIALLY IMPLEMENTED (updated 2026-06-01).** This doc is no longer a pure
+draft — significant pieces have shipped. Current state:
+
+- **Cut 1 — freeze-forever reaper guard: SHIPPED** (the stale-session watchdog no
+  longer zeros an active/paused session — the bug that lost the original
+  $2k/$8k buy-in). Behavioural guard.
+- **Cut 2 — human chip statement: SHIPPED** (`record_transfer` /
+  `record_player_buy_in` / `record_player_cash_out` in `core/economy/ledger.py`;
+  human buy-in/cash-out is now auditable). A statement, not the custody machine.
+- **Presence machine (§5.1): BUILT + FLIPPED ON DEV.** The full cutover landed —
+  shadow (Phase 1) → §C dedup (Phase 2) → authority flip behind
+  `PRESENCE_AUTHORITY_ENABLED` (Phase 3), validated in sims + a multi-hour live
+  dev soak; authoritative for seats AND idle (reads). See
+  `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md` (blueprint + soak findings) and
+  `docs/plans/CASH_PRESENCE_CUTOVER_HANDOFF.md`. Still **dev-only** (committed
+  default OFF); prod deploy is the remaining irreversible step.
+- **Chip-custody machine (§5.2): NOT BUILT.** The second machine — the structural
+  guarantee that chips can't vanish (`AT_TABLE` exits only via `SETTLING`) and
+  that bankroll becomes ledger-derived (D2). Cuts 1–2 closed the *pain*
+  behaviourally + made it auditable, but the state machine itself is unbuilt.
+  Scoped for a future build in `docs/plans/CASH_MODE_CHIP_CUSTODY_SCOPE.md`.
+- **Presence read-side polish: DEFERRED** — seat-map projection (§6/Phase 3 "table
+  as projection") and actual reconciler deletion are evidence-gathered but held
+  (see the Phase-3 doc's "Reconciler retirement" section).
+
+The pivotal table-as-projection decision (§6, D1) is ACCEPTED but its full
+demotion is deliberately deferred (the cutover kept `cash_tables`/`cash_idle_pool`
+as written caches; presence is authoritative on the read paths that matter).
 
 ## 1. Why this exists
 
