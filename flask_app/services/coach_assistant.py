@@ -521,6 +521,9 @@ def _format_stats_for_prompt(data: Dict) -> str:
             jam = dr.get('all_in_per_facing_bet')
             if jam is not None and jam > 0.15:
                 tell_parts.append(f"jams into bets {jam:.0%} (don't bluff thin)")
+            trap = dr.get('flop_check_then_barrel_rate')
+            if trap is not None and trap > 0.5:
+                tell_parts.append(f"checks flop then barrels turn {trap:.0%} (trap line)")
             if tell_parts:
                 lines.append(f"      tells: {', '.join(tell_parts)}")
 

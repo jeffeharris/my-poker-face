@@ -78,6 +78,9 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
         '_all_ins_facing_bet': max(1, hands // 12),
         '_postflop_open_opportunities': max(1, hands // 3),
         '_postflop_jam_opens': max(1, hands // 15),
+        # Flop-check-barrel counts (v135).
+        '_flop_check_barrel_count': max(1, hands // 10),
+        '_flop_check_barrel_opportunity_count': max(1, hands // 6),
     }
     conn = sqlite3.connect(db_path)
     try:
@@ -315,6 +318,7 @@ class TestDossierScoutingRoute(unittest.TestCase):
             'big_bet_faced_count', 'equity_betting_big_count',
             'equity_betting_small_count',
             'facing_bet_opportunities', 'postflop_open_opportunities',
+            'flop_check_barrel_opportunity_count',
         )
         col_sql = ", ".join(sample_cols)
         ph = ", ".join("?" for _ in sample_cols)

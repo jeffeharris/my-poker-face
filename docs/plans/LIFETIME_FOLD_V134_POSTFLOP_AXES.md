@@ -7,14 +7,13 @@ last_updated: 2026-06-01
 
 # Lifetime fold v134 — postflop aggression axes
 
-> **Status: SHIPPED.** The two core axes (`all_in_per_facing_bet`,
-> `postflop_jam_open_rate`) are implemented per this plan. `flop_check_then_barrel_rate`
-> was **deliberately excluded**: its counters (`_flop_check_barrel_count`,
-> `_flop_check_barrel_opportunity_count`) are not in `OpponentTendencies._SERIAL_FIELDS`,
-> so they aren't serialized to `tendencies_json` and the fold can't read them.
-> Folding it first requires adding those two to `_SERIAL_FIELDS` (a per-game
-> serialization change that also touches the characterization test) — a separate
-> task, not part of this fold.
+> **Status: SHIPPED (v134 + v135).** The two core axes (`all_in_per_facing_bet`,
+> `postflop_jam_open_rate`) shipped as **v134**. `flop_check_then_barrel_rate`
+> (the trap read) then shipped as **v135** — it first required adding its two
+> counters **and** the rate to `OpponentTendencies._SERIAL_FIELDS` (so they
+> serialize to `tendencies_json` for the fold to read), which also updated the
+> `test_exploitation_characterization` golden dicts. Same recipe otherwise.
+> All three postflop reads now accumulate cross-game.
 
 Same proven counts→fold→derive recipe as v132 (`limp_rate`), the showdown read,
 and v133 (sizing). This adds the **postflop opportunity-normalized aggression

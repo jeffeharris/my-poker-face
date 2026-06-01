@@ -286,7 +286,15 @@ _test_schema_template_path = None
 #       dossier + coach. Player/coach-facing read only — the live AI clamp reads
 #       per-game models, not this store (v124 separation), so AI behavior is
 #       unchanged. 4 INTEGER columns. Guarded ALTER, idempotent.
-SCHEMA_VERSION = 134
+# v135: Add the flop-check-then-barrel counters to `opponent_observation_lifetime`
+#       (flop_check_barrel_count, flop_check_barrel_opportunity_count) so the
+#       trap read `flop_check_then_barrel_rate` (checks flop OOP then bets turn
+#       after a check-through) accumulates cross-game and surfaces in the
+#       dossier + coach. Required adding the two counters (+ the rate) to
+#       OpponentTendencies._SERIAL_FIELDS first so they serialize per-game.
+#       Player/coach-facing read only. 2 INTEGER columns. Guarded ALTER,
+#       idempotent.
+SCHEMA_VERSION = 135
 
 
 class SchemaManager:
@@ -2129,6 +2137,10 @@ class SchemaManager:
             134: (
                 self._migrate_v134_add_postflop_axis_lifetime_counts,
                 "Add postflop aggression-axis counters to opponent_observation_lifetime (facing_bet_opportunities, all_ins_facing_bet, postflop_open_opportunities, postflop_jam_opens) so all_in_per_facing_bet + postflop_jam_open_rate accumulate cross-game; rates derive on read",
+            ),
+            135: (
+                self._migrate_v135_add_flop_check_barrel_lifetime_counts,
+                "Add flop-check-then-barrel counters to opponent_observation_lifetime (flop_check_barrel_count, flop_check_barrel_opportunity_count) so flop_check_then_barrel_rate accumulates cross-game; rate derives on read",
             ),
         }
 
@@ -7110,6 +7122,45 @@ class SchemaManager:
 
         logger.info(
             "Migration v134 complete: %d postflop-axis column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v135_add_flop_check_barrel_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v135: persist the flop-check-then-barrel counters.
+
+        `flop_check_then_barrel_rate` (checks flop OOP, then bets turn after a
+        check-through — a delayed-cbet / trap pattern) was tracked live but
+        never folded, so it reset every game. Persisting the count +
+        opportunity lets it accumulate cross-game and derive on read through
+        the canonical `OpponentTendencies._recalculate_stats`. The two counters
+        (and the rate) were added to `_SERIAL_FIELDS` in the same change so
+        they serialize per-game and the fold can read them.
+
+        Player/coach-facing read only. Same store-counts-derive-rates principle
+        as v126. Guarded ALTER, additive, idempotent.
+        """
+        new_columns = [
+            'flop_check_barrel_count',
+            'flop_check_barrel_opportunity_count',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v135 complete: %d flop-check-barrel column(s) added to "
             "opponent_observation_lifetime",
             len(new_columns),
         )

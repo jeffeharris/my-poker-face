@@ -927,6 +927,7 @@ class OpponentTendencies:
         ('cbet_attempt_rate', 0.5),
         ('barrel_frequency', 0.5),
         ('third_barrel_frequency', 0.5),
+        ('flop_check_then_barrel_rate', 0.5),
         ('bluff_frequency', 0.3),
         ('showdown_win_rate', 0.5),
         ('all_in_frequency', 0.0),
@@ -954,6 +955,8 @@ class OpponentTendencies:
         ('_barrel_opportunity_count', 0),
         ('_third_barrel_count', 0),
         ('_third_barrel_opportunity_count', 0),
+        ('_flop_check_barrel_count', 0),
+        ('_flop_check_barrel_opportunity_count', 0),
         ('_showdowns', 0),
         ('_showdowns_won', 0),
         # Phase 7.5 counters

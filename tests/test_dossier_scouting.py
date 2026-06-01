@@ -54,6 +54,7 @@ def _full_response():
             'fold_to_big_bet': 0.65,
             'all_in_per_facing_bet': 0.2,
             'postflop_jam_open_rate': 0.1,
+            'flop_check_then_barrel_rate': 0.45,
             'equity_when_betting': 0.65,
             'equity_when_raising': 0.72,
             'equity_when_calling': 0.55,
@@ -96,6 +97,7 @@ def _maxed(hands=10_000):
         'big_bet_faced_count': 100, 'equity_betting_big_count': 100,
         'equity_betting_small_count': 100,
         'facing_bet_opportunities': 100, 'postflop_open_opportunities': 100,
+        'flop_check_barrel_opportunity_count': 100,
     }
 
 
@@ -252,6 +254,7 @@ def test_deep_reads_full_unlock_keeps_everything():
     assert dr['fold_to_big_bet'] == 0.65
     assert dr['all_in_per_facing_bet'] == 0.2
     assert dr['postflop_jam_open_rate'] == 0.1
+    assert dr['flop_check_then_barrel_rate'] == 0.45
     assert dr['equity_when_betting'] == 0.65
 
 

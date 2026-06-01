@@ -110,6 +110,10 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
                  ('facing_bet_opportunities',), 15, 'bets faced'),
     ScoutingTier('jam_open', 'Open-jam rate', 200,
                  ('postflop_open_opportunities',), 20, 'postflop open spots'),
+    # Trap read (v135): check-flop-then-barrel-turn. Opportunity-rare (needs the
+    # flop to check through), so a real sample before the rate means anything.
+    ScoutingTier('flop_check_barrel', 'Trap line', 220,
+                 ('flop_check_barrel_opportunity_count',), 12, 'check-flop spots'),
     # B2 "the read" — exploit advice + archetype badge, derived from the
     # tiered-bot exploitation detectors. Hand-only tiers: the per-pattern
     # detectors enforce their own sample minimums, so an unlocked-but-thin
@@ -145,6 +149,7 @@ _DEEPER_FIELDS: Dict[str, Tuple[str, ...]] = {
     'sizing_polarization': ('sizing_polarization_score',),
     'jam_response': ('all_in_per_facing_bet',),
     'jam_open': ('postflop_jam_open_rate',),
+    'flop_check_barrel': ('flop_check_then_barrel_rate',),
 }
 
 # Every gateable field in the deeper_reads block (used to collapse a fully
@@ -187,7 +192,7 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
             'all_in_freq', 'barrel', 'polarization',
             'limp_rate', 'showdown_win_rate',
             'fold_to_big_bet', 'sizing_polarization',
-            'jam_response', 'jam_open',
+            'jam_response', 'jam_open', 'flop_check_barrel',
         ],
     },
     'tactical_read': {

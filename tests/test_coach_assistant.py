@@ -92,6 +92,7 @@ class TestOpponentDeepReadsInPrompt(unittest.TestCase):
             'limp_rate': 0.25, 'showdown_win_rate': 0.55,
             'fold_to_big_bet': 0.68, 'sizing_polarization_score': 0.3,
             'all_in_per_facing_bet': 0.35,
+            'flop_check_then_barrel_rate': 0.7,
             'cbet_attempt_rate': None, 'aggression_factor_postflop': None,
         }))
         self.assertIn('tells:', text)
@@ -102,6 +103,7 @@ class TestOpponentDeepReadsInPrompt(unittest.TestCase):
         self.assertIn('folds to big bets 68%', text)
         self.assertIn('bet size telegraphs strength', text)
         self.assertIn('jams into bets 35%', text)
+        self.assertIn('checks flop then barrels turn 70%', text)
 
     def test_balanced_sizing_not_called_a_tell(self):
         # A small/zero polarization score must NOT be reported as a sizing tell.

@@ -405,6 +405,31 @@ def test_fold_stores_postflop_axes_and_derives_reads(repo, db_path):
     assert deep['postflop_jam_open_rate'] == pytest.approx(0.2)   # 2 / 10
 
 
+def test_fold_stores_flop_check_barrel_and_derives_rate(repo, db_path):
+    """v135: the flop-check-then-barrel counters fold cross-game and the
+    reconstructed tendency derives flop_check_then_barrel_rate."""
+    _insert_model(
+        db_path, "g1", "obs1", "opp1",
+        _counts(hands_observed=60, hands_dealt=60,
+                _flop_check_barrel_count=3, _flop_check_barrel_opportunity_count=5),
+    )
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 1
+    _insert_model(
+        db_path, "g2", "obs1", "opp1",
+        _counts(hands_observed=40, hands_dealt=40,
+                _flop_check_barrel_count=1, _flop_check_barrel_opportunity_count=5),
+    )
+    assert repo.fold_observations_into_lifetime("g2", "sb1") == 1
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['flop_check_barrel_count'] == 4               # 3 + 1
+    assert life['flop_check_barrel_opportunity_count'] == 10  # 5 + 5
+
+    from flask_app.routes.character_routes import _deeper_reads_from_lifetime
+    deep = _deeper_reads_from_lifetime(life)
+    assert deep['flop_check_then_barrel_rate'] == pytest.approx(0.4)  # 4 / 10
+
+
 def test_deeper_reads_from_lifetime_empty_is_none():
     from flask_app.routes.character_routes import _deeper_reads_from_lifetime
 
@@ -537,6 +562,8 @@ def test_deep_reads_from_tendencies_gates_unobserved_reads():
     # No postflop-axis samples → those reads gate to None too.
     assert reads['all_in_per_facing_bet'] is None
     assert reads['postflop_jam_open_rate'] is None
+    # No flop-check-barrel samples → trap read gates to None.
+    assert reads['flop_check_then_barrel_rate'] is None
 
 
 # --- Informant unlock store (Phase 3) ---------------------------------------

@@ -940,6 +940,10 @@ class GameRepository(BaseRepository):
         '_all_ins_facing_bet': 'all_ins_facing_bet',
         '_postflop_open_opportunities': 'postflop_open_opportunities',
         '_postflop_jam_opens': 'postflop_jam_opens',
+        # v135 flop-check-then-barrel counts — feed flop_check_then_barrel_rate
+        # (the trap read).
+        '_flop_check_barrel_count': 'flop_check_barrel_count',
+        '_flop_check_barrel_opportunity_count': 'flop_check_barrel_opportunity_count',
     }
 
     # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
@@ -1124,6 +1128,8 @@ class GameRepository(BaseRepository):
         'equity_betting_small_count',
         # v134 postflop-axis gate sample denominators.
         'facing_bet_opportunities', 'postflop_open_opportunities',
+        # v135 flop-check-barrel gate sample denominator.
+        'flop_check_barrel_opportunity_count',
     )
 
     def list_observation_lifetime_for_observer(
