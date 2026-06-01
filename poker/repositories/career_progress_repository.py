@@ -91,6 +91,11 @@ class CareerProgress:
     # at the revealed table). Set by the first vouch, served+cleared by the lobby
     # the first time it renders the handoff. None = no pending handoff.
     mentor_intro_table_id: Optional[str] = None
+    # One-shot: the comped Scene-0 seed has been returned to the bank pool on
+    # graduation (you were mistaken for a fish; the house comp goes back, so you
+    # enter the lobby with nothing and Sal stakes your first real seat). True once
+    # the return has fired, so it never double-returns. See the lobby route.
+    comp_returned: bool = False
 
     def has_vouched(self, personality_id: str) -> bool:
         """True if `personality_id` has already spent its one vouch (v1 rule)."""
@@ -119,6 +124,7 @@ class CareerProgress:
                 "vouched_by": self.vouched_by,
                 "scene_progress": self.scene_progress,
                 "mentor_intro_table_id": self.mentor_intro_table_id,
+                "comp_returned": self.comp_returned,
             }
         )
 
@@ -157,6 +163,7 @@ class CareerProgress:
             vouched_by=list(blob.get("vouched_by") or []),
             scene_progress=dict(blob.get("scene_progress") or {}),
             mentor_intro_table_id=blob.get("mentor_intro_table_id"),
+            comp_returned=bool(blob.get("comp_returned", False)),
         )
 
 

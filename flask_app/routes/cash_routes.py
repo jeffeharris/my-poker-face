@@ -5422,6 +5422,41 @@ def get_lobby():
             seated_table_id = persisted_session.cash_table_id
             seated_stake_label = persisted_session.stake_label
 
+    # Comp-return (the Circuit): you were comped as a fish, so on graduation the
+    # house takes its stake back — you walk into the lobby with nothing and Sal
+    # stakes your first real seat. One-shot (`comp_returned`), and only once
+    # you've fully left Scene-0 (no active session), so we never strip chips
+    # mid-game. Conservation-safe: the chips move player → bank pool via the
+    # ledger, mirroring `_drain_fish_bankroll_to_pool`. MUST run before the
+    # affordability pass below so the home court reads as sponsor-eligible at 0.
+    if (
+        career_progress is not None
+        and career_progress.career_active
+        and career_progress.tutorial_complete
+        and not career_progress.comp_returned
+        and not has_active_session
+        and career_progress_repo is not None
+        and bankroll.chips > 0
+    ):
+        try:
+            from core.economy.ledger import player as _player_entity
+            from core.economy.ledger import record_bank_pool_deposit
+
+            record_bank_pool_deposit(
+                _chip_ledger_repo,
+                source=_player_entity(owner_id),
+                amount=bankroll.chips,
+                context={'reason_detail': 'scene0_comp_return', 'sandbox_id': sandbox_id},
+                sandbox_id=sandbox_id,
+            )
+            bankroll.chips = 0
+            bankroll_repo.save_player_bankroll(bankroll)
+            career_progress.comp_returned = True
+            career_progress_repo.save(career_progress)
+            logger.info("[CASH][LOBBY] comp returned to pool for %r (graduated)", owner_id)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] comp-return failed: %s", exc)
+
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
     # Career keyring (v124): a player in the Act-1 flow sees only their scripted

@@ -130,6 +130,37 @@ class TestCareerKeyringLobby(unittest.TestCase):
         assert prog.scene0_seeded is True
         assert cp.SCENE0_TABLE_ID in prog.revealed_table_ids
 
+    def test_graduation_returns_the_comp_to_the_pool(self):
+        # You were comped as a fish; on graduation the house takes it back, so you
+        # land in the lobby at 0 and the comp moves to the bank pool (conserved).
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+        from poker.repositories.bankroll_repository import PlayerBankrollState
+
+        repo = self.repos['career_progress_repo']
+        sb = self.repos['sandbox_repo'].list_for_owner(PLAYER_OWNER_ID)[0].sandbox_id
+        prog = repo.load(sb, PLAYER_OWNER_ID)
+        prog.career_active = True
+        prog.tutorial_complete = True
+        prog.comp_returned = False
+        repo.save(prog)
+        # Give them a comp to hand back (no active session in this harness).
+        self.repos['bankroll_repo'].save_player_bankroll(
+            PlayerBankrollState(player_id=PLAYER_OWNER_ID, chips=150, starting_bankroll=200)
+        )
+        pool_before = compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb)
+
+        data = self.client.get("/api/cash/lobby").get_json()
+
+        assert data["bankroll"] == 0  # walked in with nothing
+        after = repo.load(sb, PLAYER_OWNER_ID)
+        assert after.comp_returned is True
+        pool_after = compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb)
+        assert pool_after - pool_before == 150  # conserved: the comp moved to the pool
+
+        # One-shot: a second load doesn't strip again (bankroll stays 0, no re-deposit).
+        self.client.get("/api/cash/lobby")
+        assert compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb) == pool_after
+
     def test_mentor_intro_handoff_is_served_once_then_cleared(self):
         # Simulate "just graduated": the first vouch queued Sal's lobby handoff.
         repo = self.repos['career_progress_repo']
