@@ -161,6 +161,47 @@ class TestCareerKeyringLobby(unittest.TestCase):
         self.client.get("/api/cash/lobby")
         assert compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb) == pool_after
 
+    def test_scene_top_up_rebuys_the_short_fish_from_its_bankroll(self):
+        """If the hero short-stacks Larry, the cast top-up rebuys him from his own
+        (sandbox-scoped) bankroll so he can still play the script — no minting."""
+        from cash_mode.bankroll import AIBankrollState
+        from cash_mode.career_progression import SAL_ID, SCENE0_FISH_ID
+        from flask_app.handlers import game_handler as gh
+        from poker.poker_game import initialize_game_state
+        from poker.poker_state_machine import PokerStateMachine
+
+        sb = self.repos['sandbox_repo'].list_for_owner(PLAYER_OWNER_ID)[0].sandbox_id
+        self.repos['bankroll_repo'].save_ai_bankroll(
+            AIBankrollState(personality_id=SCENE0_FISH_ID, chips=5000),
+            sandbox_id=sb,
+            chip_ledger_repo=self.repos['chip_ledger_repo'],
+        )
+        before = self.repos['bankroll_repo'].load_ai_bankroll(SCENE0_FISH_ID, sandbox_id=sb).chips
+
+        gs = initialize_game_state(player_names=["Sal Monroe", "Loose Larry"], human_name="You")
+        gs = gs.update(
+            players=tuple(
+                p.update(stack=10) if p.name == "Loose Larry" else p for p in gs.players
+            )
+        )
+        sm = PokerStateMachine(game_state=gs)
+        game_data = {
+            'sandbox_id': sb,
+            'state_machine': sm,
+            'cash_personality_ids': {"Sal Monroe": SAL_ID, "Loose Larry": SCENE0_FISH_ID},
+            'scene_roles': {'hero': "You", 'mentor': "Sal Monroe", 'fish': "Loose Larry"},
+        }
+        gh._scene_top_up_cast("g-topup", game_data, sm)
+
+        larry = next(
+            p for p in game_data['state_machine'].game_state.players if p.name == "Loose Larry"
+        )
+        assert larry.stack == 160  # $2 table → fish target = 2 × min_buy_in
+        after = self.repos['bankroll_repo'].load_ai_bankroll(SCENE0_FISH_ID, sandbox_id=sb).chips
+        # Conservation: the +150 to the seat came OUT of Larry's bankroll (no mint).
+        assert after < before
+        assert before - after >= 100
+
     def test_mentor_intro_handoff_is_served_once_then_cleared(self):
         # Simulate "just graduated": the first vouch queued Sal's lobby handoff.
         repo = self.repos['career_progress_repo']

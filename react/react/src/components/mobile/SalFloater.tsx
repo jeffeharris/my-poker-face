@@ -19,26 +19,22 @@
 import { useEffect } from 'react';
 import type { ChatMessage } from '../../types';
 import { parseMessageInline } from '../../utils/messages';
-import {
-  TYPING_SPEED_MS,
-  READING_BUFFER_MS,
-  MESSAGE_BASE_DURATION_MS,
-  MESSAGE_MIN_DURATION_MS,
-  MESSAGE_MAX_DURATION_MS,
-} from '../../config/timing';
 import './SalFloater.css';
 
-/**
- * How long Sal's bubble lingers — scaled to the line length so his longer
- * coaching lines get enough reading time (a fixed timer made the multi-sentence
- * setups auto-dismiss at roughly half the time needed). Same per-char budget as
- * FloatingChat so the pacing matches the rest of the table; clamped to its
- * min/max. Tap the floater to advance early.
- */
+// Sal's bubble is STATIC text (no char-by-char typing), and his lines are
+// multi-sentence coaching the player actually wants to read and absorb — not
+// skim. So his dwell is deliberately more generous than the typing bubbles:
+// a comfortable read-and-process budget, not bare reading speed. Tap to advance.
+const SAL_BASE_MS = 3500; // settle-in beat before the clock starts mattering
+const SAL_PER_CHAR_MS = 80; // ~comfortable read + a moment to absorb the advice
+const SAL_MIN_MS = 6000; // even a one-liner lingers a beat
+const SAL_MAX_MS = 26000; // cap so a long line can't wedge the queue forever
+
+/** How long Sal's bubble lingers — scaled to line length, generous on purpose. */
 function readMs(text: string): number {
   const chars = (text || '').trim().length;
-  const ms = chars * (TYPING_SPEED_MS + READING_BUFFER_MS) + MESSAGE_BASE_DURATION_MS;
-  return Math.min(MESSAGE_MAX_DURATION_MS, Math.max(MESSAGE_MIN_DURATION_MS, ms));
+  const ms = chars * SAL_PER_CHAR_MS + SAL_BASE_MS;
+  return Math.min(SAL_MAX_MS, Math.max(SAL_MIN_MS, ms));
 }
 
 interface SalFloaterProps {

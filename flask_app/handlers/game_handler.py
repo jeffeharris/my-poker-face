@@ -1804,6 +1804,66 @@ def _scene_roles(game_data: dict, state_machine, scene) -> tuple:
     return roles, seats
 
 
+def _scene_top_up_cast(game_id: str, game_data: dict, state_machine) -> None:
+    """Keep the scripted cast funded so they can always play the script.
+
+    The hero can take the fish (or mentor) all-in on an earlier hand, leaving
+    them too short to execute a later teaching hand (the fish would just fold for
+    lack of chips). So at each rigged-hand boundary we top the cast back up — the
+    fish "rebuys all night" (canon), and the mentor stays deep enough to break the
+    fish in the finale. Conservation-safe: chips come from each persona's OWN
+    (sandbox-scoped) bankroll via debit_bankroll_for_seat, which REFUSES rather
+    than mints if the bankroll is short (worst case: the seat stays low — never a
+    phantom chip). Mirrors the pressure-rebuy path (`_apply_rebuys`).
+    """
+    from cash_mode.bankroll import debit_bankroll_for_seat
+    from cash_mode.career_progression import SCENE0_STAKE
+    from cash_mode.stakes_ladder import table_buy_in_window
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo
+    from flask_app.services import game_state_service
+
+    if bankroll_repo is None:
+        return
+    roles = game_data.get('scene_roles') or {}
+    name_to_pid = game_data.get('cash_personality_ids', {}) or {}
+    sandbox_id = _sandbox_id_for(game_data)
+    # Scene-0 is a $2 table; the cast top-up is pegged to that stake. Fish back to
+    # 2× min buy-in (a healthy soft-spot stack); mentor to 4× so he always covers
+    # the fish when he stacks him in the finale.
+    _, min_buy_in, _ = table_buy_in_window(SCENE0_STAKE)
+    targets = {'fish': min_buy_in * 2, 'mentor': min_buy_in * 4}
+    now = datetime.now()
+    changed = False
+    for role, target in targets.items():
+        name = roles.get(role)
+        pid = name_to_pid.get(name)
+        if not name or not pid:
+            continue
+        gs = state_machine.game_state
+        idx = next((i for i, p in enumerate(gs.players) if p.name == name), None)
+        if idx is None:
+            continue
+        cur = gs.players[idx].stack
+        if cur >= target:
+            continue
+        amount = target - cur
+        try:
+            debited = debit_bankroll_for_seat(
+                bankroll_repo, pid, amount, sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo, now=now,
+            )
+        except Exception:
+            logger.warning("[SCENE] cast top-up debit failed for %r", pid, exc_info=True)
+            continue
+        if debited is None:
+            continue  # bankroll short — leave the seat as-is (no mint)
+        state_machine.game_state = state_machine.game_state.update_player(idx, stack=cur + amount)
+        changed = True
+    if changed:
+        game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, game_data)
+
+
 def _mentor_say(game_id: str, scene, line: str) -> None:
     """The scene's mentor narrates in table chat. No-op for an empty line.
 
@@ -2057,7 +2117,17 @@ def _advance_scene(game_id: str, game_data: dict, state_machine) -> None:
             _complete_scene(game_id, game_data, scene)
         return
 
-    # 3. Pre-stack the upcoming hand's deck (rigged hands only) + preview the
+    # 3. Top the cast back up so they can always play the script (the fish
+    #    rebuys all night; the mentor stays deep enough to break the fish in the
+    #    finale) — even if the hero took one of them all-in earlier. Conservation-
+    #    safe (each persona's own bankroll; refuses rather than mints if short).
+    if nxt.rigged:
+        try:
+            _scene_top_up_cast(game_id, game_data, state_machine)
+        except Exception:
+            logger.warning("[SCENE] cast top-up failed", exc_info=True)
+
+    # 4. Pre-stack the upcoming hand's deck (rigged hands only) + preview the
     #    table. The deck is provided as scripted HOLES KEYED BY PLAYER NAME and
     #    resolved at deal time against the live (post-button-rotation) seating —
     #    so the right cards reach the right player even though the players tuple
