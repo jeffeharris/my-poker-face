@@ -13,11 +13,9 @@ if TYPE_CHECKING:
     from ..strategy.exploitation import AggregatedOpponentStats
 
 from ..archetypes import (
-    AF_AGGRESSIVE as AGGRESSION_FACTOR_HIGH,
     AF_PASSIVE as AGGRESSION_FACTOR_LOW,
     AF_VERY_AGGRESSIVE as AGGRESSION_FACTOR_VERY_HIGH,
     VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
-    VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
     VPIP_VERY_SELECTIVE,
 )
 from ..config import (
@@ -866,17 +864,8 @@ class OpponentTendencies:
         if sample < MIN_HANDS_FOR_STYLE_LABEL:
             return 'unknown'
 
-        is_tight = self.vpip < VPIP_TIGHT_THRESHOLD
-        is_aggressive = self.aggression_factor > AGGRESSION_FACTOR_HIGH
-
-        if is_tight and is_aggressive:
-            return 'tight-aggressive'
-        elif not is_tight and is_aggressive:
-            return 'loose-aggressive'
-        elif is_tight and not is_aggressive:
-            return 'tight-passive'
-        else:
-            return 'loose-passive'
+        from ..archetypes import play_style_label
+        return play_style_label(self.vpip, self.aggression_factor)
 
     def get_summary(self) -> str:
         """Generate human-readable summary for AI prompts."""

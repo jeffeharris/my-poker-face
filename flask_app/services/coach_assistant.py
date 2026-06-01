@@ -6,6 +6,7 @@ with a poker-coaching system prompt and stat formatting.
 
 import json
 import logging
+import os
 from collections import defaultdict
 from typing import Dict, List, Optional, TypedDict
 
@@ -282,6 +283,21 @@ class CoachAssistant:
         except json.JSONDecodeError as e:
             logger.warning(f"Coach review JSON parse failed: {e}, raw: {response[:200]}")
             return response.strip()
+
+
+def apply_coach_highlight(stats, coach_action, coach_raise_to) -> None:
+    """Point the UI's recommendation highlight at the coach's pick.
+
+    When `COACH_HIGHLIGHT_SOURCE` is 'coach' (the default) and the coach
+    returned an action, overwrite the bounded-options default highlight in
+    `stats` with the coach's action/raise_to. No-op when the env opts out, the
+    coach gave no action, or there are no stats. Mutates `stats` in place.
+    Shared by the interactive ask route and the background prefetch so the two
+    can't drift.
+    """
+    if stats and coach_action and os.getenv('COACH_HIGHLIGHT_SOURCE', 'coach') == 'coach':
+        stats['recommendation'] = coach_action
+        stats['raise_to'] = coach_raise_to
 
 
 def _format_stats_for_prompt(data: Dict) -> str:

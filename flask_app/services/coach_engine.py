@@ -276,8 +276,25 @@ def _extract_postflop_aggression(
     return most_aggressive_action
 
 
+def _load_cross_session_historical(human_name: str, user_id: Optional[str]) -> dict:
+    """Cross-session opponent stats for `human_name`, or {} (no user / on error).
+
+    Pulled out so `compute_coaching_data` can load it ONCE and pass it to both
+    `_build_opponent_infos` and `_get_opponent_stats` instead of each hitting
+    the DB independently per coaching tick.
+    """
+    if not user_id:
+        return {}
+    try:
+        return game_repo.load_cross_session_opponent_models(human_name, user_id)
+    except Exception as e:
+        logger.warning(f"Failed to load cross-session opponent stats: {e}")
+        return {}
+
+
 def _build_opponent_infos(
-    game_data: dict, game_state, human_name: str, user_id: Optional[str] = None
+    game_data: dict, game_state, human_name: str, user_id: Optional[str] = None,
+    historical_data: Optional[dict] = None,
 ) -> List[OpponentInfo]:
     """Build OpponentInfo objects for active opponents (for range-based equity).
 
@@ -303,14 +320,10 @@ def _build_opponent_infos(
     state_machine = game_data.get('state_machine')
     current_phase = state_machine.phase.name if state_machine else 'PRE_FLOP'
 
-    # Load cross-session historic stats if user_id provided
-    # AI personalities have deterministic behavior, so historic stats are reliable
-    historical_data = {}
-    if user_id:
-        try:
-            historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
-        except Exception as e:
-            logger.warning(f"Failed to load historic stats: {e}")
+    # Cross-session historic stats (AI personalities are deterministic, so
+    # historic stats are reliable). Caller may pass it pre-loaded; else fetch.
+    if historical_data is None:
+        historical_data = _load_cross_session_historical(human_name, user_id)
 
     min_hands = EquityConfig().min_hands_for_stats
 
@@ -361,23 +374,15 @@ def _build_opponent_infos(
 
 
 def _get_style_label(vpip: float, aggression: float) -> str:
-    """Derive play style label from VPIP and aggression stats.
+    """Play style label for the cross-session `historical` block.
 
-    Uses same thresholds as OpponentTendencies.get_play_style_label().
+    The cross-session loader returns raw rate floats (not an
+    `OpponentTendencies`), and the caller has already gated on a hand floor —
+    so this is the shared quadrant mapping with no sample gate of its own.
     """
-    from poker.archetypes import AF_AGGRESSIVE, VPIP_TIGHT
+    from poker.archetypes import play_style_label
 
-    is_tight = vpip < VPIP_TIGHT
-    is_aggressive = aggression > AF_AGGRESSIVE
-
-    if is_tight and is_aggressive:
-        return 'tight-aggressive'
-    elif not is_tight and is_aggressive:
-        return 'loose-aggressive'
-    elif is_tight and not is_aggressive:
-        return 'tight-passive'
-    else:
-        return 'loose-passive'
+    return play_style_label(vpip, aggression)
 
 
 # Detection-layer archetype labels → coach-friendly phrasing. The classifier
@@ -438,7 +443,8 @@ def _opponent_deep_reads(tendencies, model, memory_manager, user_id):
     return deep_reads_from_tendencies(read_tendencies)
 
 
-def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
+def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None,
+                        historical_data: Optional[dict] = None) -> List[Dict]:
     """Extract opponent stats from memory manager, including stack and all-in status.
 
     Args:
@@ -465,13 +471,9 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
         logger.error(f"_get_opponent_stats: cannot access game_state: {e}")
         return stats
 
-    # Load historical data if user_id provided
-    historical_data = {}
-    if user_id:
-        try:
-            historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
-        except Exception as e:
-            logger.warning(f"Failed to load historical opponent data: {e}")
+    # Cross-session historical data — caller may pass it pre-loaded; else fetch.
+    if historical_data is None:
+        historical_data = _load_cross_session_historical(human_name, user_id)
 
     from poker.hand_ranges import EquityConfig
 
@@ -763,8 +765,15 @@ def compute_coaching_data(
         'opponent_stats': [],
     }
 
+    # Load cross-session opponent history ONCE and share it between the
+    # equity build and the opponent-stats block (both keyed on player_name +
+    # user_id) instead of each hitting the DB independently.
+    historical_data = _load_cross_session_historical(player_name, user_id)
+
     # Equity calculations (pass user_id for cross-session historic stats)
-    opponent_infos = _build_opponent_infos(game_data, game_state, player_name, user_id)
+    opponent_infos = _build_opponent_infos(
+        game_data, game_state, player_name, user_id, historical_data=historical_data
+    )
     num_opponents = len(opponent_infos) or 1
 
     # Primary: equity vs opponent ranges (used for coaching guidance)
@@ -842,7 +851,9 @@ def compute_coaching_data(
     result['raise_to'] = None
 
     # Opponent stats (with stack, all-in info, and historical data if user_id provided)
-    result['opponent_stats'] = _get_opponent_stats(game_data, player_name, user_id=user_id)
+    result['opponent_stats'] = _get_opponent_stats(
+        game_data, player_name, user_id=user_id, historical_data=historical_data
+    )
 
     # Available actions (what the player can actually do)
     result['available_actions'] = _get_available_actions(game_state, player, cost_to_call)
