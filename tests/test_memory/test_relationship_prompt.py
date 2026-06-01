@@ -44,14 +44,21 @@ def manager(repo):
     return mgr
 
 
-def _seed_state(repo, observer_id, opponent_id, *, heat=0.0, respect=0.5, likability=0.5):
-    """Seed a relationship row with the given axes pinned to NOW."""
+def _seed_state(repo, observer_id, opponent_id, *, heat=0.0, respect=0.5, likability=0.5, at=NOW):
+    """Seed a relationship row with the given axes pinned to `at` (default NOW).
+
+    Tests that read heat back through a path projecting to a fixed `now=NOW`
+    leave `at` at the default (zero decay). A test that reads through a path
+    using the REAL wall clock (e.g. the controller helper, which calls
+    `datetime.utcnow()` internally and can't take an injected `now`) must seed
+    with `at=datetime.utcnow()` instead — otherwise heat decays from the fixed
+    NOW to the real now and the test rots as wall-clock time drifts."""
     state = RelationshipState(
         heat=heat,
         respect=respect,
         likability=likability,
-        last_seen=NOW,
-        last_decay_tick=NOW,
+        last_seen=at,
+        last_decay_tick=at,
     )
     repo.save_relationship_state(observer_id, opponent_id, state)
 
@@ -244,7 +251,10 @@ class TestPromptInjection:
         assert result == "ORIGINAL"
 
     def test_helper_appends_block_when_flag_on(self, manager, repo):
-        _seed_state(repo, "alice_pid", "bob_pid", heat=0.65)
+        # The controller helper reads live heat via the REAL clock
+        # (datetime.utcnow, not injectable), so seed at "now" — otherwise heat
+        # decays from the fixed NOW to the real now and the assertion rots.
+        _seed_state(repo, "alice_pid", "bob_pid", heat=0.65, at=datetime.utcnow())
         from types import SimpleNamespace
 
         from poker.controllers import AIPlayerController
