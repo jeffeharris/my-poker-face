@@ -192,9 +192,11 @@ export function PokerTable({
   const recommendedAction = coach.mode === 'off' ? null : coach.coachAction;
   const raiseToAmount = coach.mode === 'off' ? null : coach.coachRaiseTo;
 
-  // When a hand ends, request a post-hand review from the coach.
+  // When a hand ends, request a post-hand review from the coach. Skip guests:
+  // a stale localStorage coach_mode can briefly read non-'off' before the
+  // server config resolves, and the coach endpoints 401 for guests.
   useEffect(() => {
-    if (winnerInfo && coach.mode !== 'off') {
+    if (winnerInfo && !isGuest && coach.mode !== 'off') {
       coach.fetchHandReview();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

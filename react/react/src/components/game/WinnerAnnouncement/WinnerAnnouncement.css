@@ -793,10 +793,10 @@
 
 .loading-dots::after {
   content: '...';
-  animation: loadingDots 1.2s step-end infinite;
+  animation: winnerLoadingDots 1.2s step-end infinite;
 }
 
-@keyframes loadingDots {
+@keyframes winnerLoadingDots {
   0%,
   100% {
     content: '.';
