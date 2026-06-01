@@ -119,6 +119,38 @@ cap (§5e) prevents. So the adaptive reader independently re-derives the same ce
 the tell map and oracle found — via a completely different mechanism (a learning
 best-responder). Three instruments, one consistent story.
 
+## The dual instrument: an adaptive bluff-RAISER (defense vs aggression)
+
+The owner asked the natural next question: does the bot read aggression too — could
+it tell a human bluff-raising it "10× in a row" from a calling station? The bot has
+the *sensors* (AF, all-in rate, `equity_when_raising`, `compute_aggression_polarization`
+which explicitly separates bluffers from value-raisers from stations) but the
+"call-down vs a detected bluffer" *reflex* was the parked/inert piece — so it looked
+like an open defense question. Built the dual of the reader to settle it.
+
+`AdaptiveAggressorState` + `build_adaptive_aggressor_strategy` (human_clone.py): a reg
+that bluff-raises its junk (would-otherwise-fold air) facing a hero bet, learns the
+hero's fold-to-raise from the **visible** fold/call response (no perfect observation
+needed — the dual is easier than the reader), and escalates while it's profitable.
+Measure-first: build the instrument, measure the leak BEFORE building any defense.
+
+There was no leak. HU, 4000h × 3:
+
+| opponent | bot bb/100 | hero fold-to-raise |
+|---|---|---|
+| static reg (no bluff-raise) | +24.4 | 0.23 |
+| adaptive bluff-raiser | +24.7 (no change — self-corrects) | 0.23 |
+| relentless maniac (threshold 0, always) | **+31.3 (+6.9 — donates)** | 0.22 |
+
+The bot folds to raises only ~22%, far below the ~50% a pot-raise bluff needs. So a
+rational bluff-raiser learns the bot calls down and **stops**; a relentless one gets
+**snapped off and donates +6.9**. The bot's sticky calling — its *liability* vs
+honest value in a leaky pool — is precisely what makes it **robust vs aggression**.
+No defense (Phase 2) needed. The "10× air-raises" worry is a non-issue: the bot calls
+and wins. (The mirror exposure — over-paying a thin *value*-raiser — is real but is
+ordinary poker, not a run-over.) Two adaptive instruments now exist, reader + raiser,
+and both reach clean verdicts the static pool couldn't.
+
 ## Where it landed
 
 One real readability leak, found and fixed to its structural max, gated so it costs

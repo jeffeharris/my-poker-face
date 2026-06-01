@@ -353,7 +353,13 @@ def _apply_mode(controller, mode: str):
 
 
 def run_passivity_hand(
-    sm, controllers, hero_name: str, stats: PassivityStats, hero_trace=None, hero_overbet_obs=None
+    sm,
+    controllers,
+    hero_name: str,
+    stats: PassivityStats,
+    hero_trace=None,
+    hero_overbet_obs=None,
+    hero_faced_raise_obs=None,
 ):
     """Drive one hand; instrument the hero's postflop decisions.
 
@@ -466,6 +472,11 @@ def run_passivity_hand(
                 hand_strength = snap.get('hand_strength', '')
                 active_count = sum(1 for p in gs.players if not p.is_folded)
                 stats.postflop_active_count[active_count] += 1
+                # Feed the adaptive bluff-raiser: when the hero faces a raise (HU
+                # → from the aggressor), record whether the hero folded so the
+                # aggressor learns the hero's fold-to-raise and escalates/backs off.
+                if hero_faced_raise_obs is not None and action_context == 'facing_raise':
+                    hero_faced_raise_obs.append(action == 'fold')
                 sig = derive_signals(controller, phase_name.lower())
                 if action_context == 'unopened':
                     stats.unopened_decisions += 1
@@ -654,11 +665,29 @@ def run_passivity_matchup(
         from poker.human_clone import load_profile_from_file, register_adaptive_reader
 
         profile = load_profile_from_file(PUNISHER_CLONE_PROFILE)  # competent-reg base
-        register_adaptive_reader('clone_adaptive_reader', profile)
-        # Re-bind state via a fresh registration so each matchup starts cold.
+        # Fresh registration per matchup so each starts cold.
         adaptive_reader_state = register_adaptive_reader('clone_adaptive_reader', profile)
         ARCHETYPES['AdaptiveReader'] = {'kind': 'rule_bot', 'strategy': 'clone_adaptive_reader'}
         opp_configs = [ARCHETYPES['AdaptiveReader']] * len(opponent_seats)
+
+    # Adaptive bluff-raiser (OVERBET_BALANCING.md §5h / DEFENSE_VS_AGGRESSION): the
+    # dual of the reader — tests whether the bot bleeds to escalating bluff-raises.
+    # AGGRESSOR_BLUFF=0 = static-reg control (no bluff-raising) for the A/B.
+    adaptive_aggressor_state = None
+    if os.environ.get('ADAPTIVE_AGGRESSOR'):
+        from poker.human_clone import load_profile_from_file, register_adaptive_aggressor
+
+        profile = load_profile_from_file(PUNISHER_CLONE_PROFILE)
+        bluff_on = os.environ.get('AGGRESSOR_BLUFF', '1') != '0'
+        _thr = float(os.environ.get('AGGRESSOR_THRESHOLD', '0.5'))  # 0 = relentless maniac
+        adaptive_aggressor_state = register_adaptive_aggressor(
+            'clone_adaptive_aggressor', profile, bluff_raise=bluff_on, threshold=_thr
+        )
+        ARCHETYPES['AdaptiveAggressor'] = {
+            'kind': 'rule_bot',
+            'strategy': 'clone_adaptive_aggressor',
+        }
+        opp_configs = [ARCHETYPES['AdaptiveAggressor']] * len(opponent_seats)
 
     stats = PassivityStats()
     deltas: List[float] = []
@@ -739,16 +768,21 @@ def run_passivity_matchup(
             )
 
         hero_overbet_obs = [] if adaptive_reader_state is not None else None
+        hero_faced_raise_obs = [] if adaptive_aggressor_state is not None else None
         final_stacks, callcall_river = run_passivity_hand(
             sm,
             controllers,
             hero_name,
             stats,
             hero_overbet_obs=hero_overbet_obs,
+            hero_faced_raise_obs=hero_faced_raise_obs,
         )
         if adaptive_reader_state is not None and hero_overbet_obs:
             for hs in hero_overbet_obs:
                 adaptive_reader_state.observe(hs in _BLUFF_CLASSES)
+        if adaptive_aggressor_state is not None and hero_faced_raise_obs:
+            for folded in hero_faced_raise_obs:
+                adaptive_aggressor_state.observe(folded)
         delta = final_stacks.get(hero_name, starting_stack) - starting_stack
         deltas.append(delta)
         if callcall_river and delta < 0:
@@ -759,6 +793,12 @@ def run_passivity_matchup(
         print(
             f"[ADAPTIVE_READER seed={base_seed}] learned overbet bluff_freq="
             f"{s.bluff_freq():.2f} (value={s.value_obs} bluff={s.bluff_obs})"
+        )
+    if adaptive_aggressor_state is not None:
+        a = adaptive_aggressor_state
+        print(
+            f"[ADAPTIVE_AGGRESSOR seed={base_seed}] hero fold_to_raise="
+            f"{a.fold_to_raise():.2f} (raises_faced={a.raises_made} folds={a.folds_induced})"
         )
 
     return deltas, stats

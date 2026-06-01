@@ -367,6 +367,30 @@ different mechanism. **Caveat:** still a rule-class best-responder (perfect
 observation), not a real human — confirms the mechanism + a positive live benefit
 vs a strong reader; a creative human could attack other dimensions.
 
+## 5h. The dual instrument — adaptive bluff-RAISER (defense vs aggression)
+
+Tests whether the bot bleeds to a human bluff-raising it ("10× air-raises in a
+row"). `AdaptiveAggressorState` + `build_adaptive_aggressor_strategy`
+(`poker/human_clone.py`): a reg that bluff-raises its junk facing a hero bet, learns
+the hero's fold-to-raise from the VISIBLE response (no perfect observation needed),
+and escalates while profitable. `measure_passivity ADAPTIVE_AGGRESSOR=1`
+(`AGGRESSOR_BLUFF=0` control; `AGGRESSOR_THRESHOLD=0` = relentless maniac).
+
+**Result (HU 4000h × 3): NO leak — the bot is robust vs bluff-raising.**
+
+| opponent | bot bb/100 | hero fold-to-raise |
+|---|---|---|
+| static reg | +24.4 | 0.23 |
+| adaptive bluff-raiser | +24.7 (self-corrects → stops) | 0.23 |
+| relentless maniac | +31.3 (donates +6.9) | 0.22 |
+
+The bot folds to raises only ~22% (< the ~50% a pot-raise bluff needs) → a rational
+bluff-raiser learns the bot calls down and stops; a relentless one gets snapped off
+and donates. The bot's sticky calling defends it vs aggression. **No defense build
+indicated.** The sensors to detect a bluffer (AF, `compute_aggression_polarization`)
+exist but don't need wiring for THIS purpose — the call-down already handles it.
+(Mirror exposure: over-paying a thin value-raiser — ordinary poker, not a run-over.)
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*

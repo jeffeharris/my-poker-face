@@ -631,3 +631,98 @@ def register_adaptive_reader(name: str, profile: CloneProfile) -> AdaptiveReader
     state = AdaptiveReaderState()
     BUILT_IN_STRATEGIES[name] = build_adaptive_reader_strategy(profile, state)
     return state
+
+
+# ── Adaptive bluff-RAISER best-responder (the dual of the reader; eval-only) ──
+# Tests the bot's DEFENSE vs aggression (does it get run over by relentless
+# bluff-raises?). Unlike the reader (which needs perfect observation of the hero's
+# hidden cards), this learns purely from the hero's VISIBLE response: it raises its
+# weakest hands (air) as bluffs facing a hero bet, observes how often the hero
+# FOLDS to the raise, and escalates — bluff-raise more while the hero over-folds,
+# back off when the hero calls down. The "10× air-raises in a row" scenario: if the
+# hero never adapts its fold-to-raise, this prints. Measures the leak (bot bb/100
+# with bluff-raising OFF vs ON) and, later, whether a call-down defense closes it.
+
+_AGGR_BLUFF_EQUITY_MAX = 0.35  # only raise true junk (would otherwise fold) as a bluff
+_AGGR_MIN_OBS = 8  # raises observed before trusting the empirical fold-to-raise
+_AGGR_PRIOR_FOLD = 0.70  # optimistic prior → starts bluffing (explores), then adjusts
+_AGGR_PROFIT_THRESHOLD = 0.50  # bluff-raise only while hero folds >= this (pot-raise breakeven)
+
+
+class AdaptiveAggressorState:
+    """Cross-hand memory for the adaptive bluff-raiser. The harness feeds each
+    `observe(hero_folded)` after the hero faces one of its raises; `fold_to_raise()`
+    is the running estimate the strategy best-responds to."""
+
+    def __init__(self, min_obs: int = _AGGR_MIN_OBS, prior_fold: float = _AGGR_PRIOR_FOLD):
+        self.raises_made = 0
+        self.folds_induced = 0
+        self.min_obs = min_obs
+        self.prior_fold = prior_fold
+
+    def observe(self, hero_folded: bool) -> None:
+        self.raises_made += 1
+        if hero_folded:
+            self.folds_induced += 1
+
+    def fold_to_raise(self) -> float:
+        if self.raises_made < self.min_obs:
+            return self.prior_fold
+        return self.folds_induced / self.raises_made
+
+
+def build_adaptive_aggressor_strategy(
+    profile: CloneProfile,
+    state: AdaptiveAggressorState,
+    bluff_raise: bool = True,
+    threshold: float = _AGGR_PROFIT_THRESHOLD,
+    bluff_equity_max: float = _AGGR_BLUFF_EQUITY_MAX,
+):
+    """A competent reg (base = profile) that, facing a hero postflop bet with a
+    junk hand, BLUFF-RAISES iff its learned hero fold-to-raise clears the
+    pot-raise breakeven. `bluff_raise=False` = the static-reg control (no
+    bluff-raising) for the A/B that isolates the bluff-raise's effect."""
+    base = build_clone_strategy(profile)
+
+    def strategy(context: Dict) -> Dict:
+        phase = context.get('phase', '')
+        cost_to_call = context.get('cost_to_call', 0) or 0
+        equity = context.get('equity', 0.5) or 0.5
+        valid = context.get('valid_actions', [])
+        pot = context.get('pot_total', 0) or 0
+        min_raise = context.get('min_raise', 0) or 0
+        max_raise = context.get('max_raise', 0) or 0
+
+        if (
+            bluff_raise
+            and phase in ('FLOP', 'TURN', 'RIVER')
+            and cost_to_call > 0
+            and 'raise' in valid
+            and max_raise > 0
+            and equity < bluff_equity_max  # true air → would otherwise fold
+            and state.fold_to_raise() >= threshold
+        ):
+            target = max(min_raise, min(int(pot) or min_raise, max_raise))
+            return {'action': 'raise', 'raise_to': target}  # bluff-raise (pot-sized)
+        return base(context)
+
+    return strategy
+
+
+def register_adaptive_aggressor(
+    name: str,
+    profile: CloneProfile,
+    bluff_raise: bool = True,
+    threshold: float = _AGGR_PROFIT_THRESHOLD,
+) -> AdaptiveAggressorState:
+    """Install an adaptive bluff-raiser under `name`; return its state so the
+    harness can `observe()` the hero's fold-to-raise across hands. `threshold=0`
+    makes it RELENTLESS (always bluff-raise regardless of profitability) — the
+    '10x air-raises in a row' maniac that the calling-down bot should punish."""
+    from .rule_strategies import BUILT_IN_STRATEGIES
+
+    state = AdaptiveAggressorState()
+    BUILT_IN_STRATEGIES[name] = build_adaptive_aggressor_strategy(
+        profile, state, bluff_raise=bluff_raise, threshold=threshold
+    )
+    return state
