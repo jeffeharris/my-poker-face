@@ -317,6 +317,95 @@ socket without fixing it. A pre-existing `tsc` type-narrowing on
 `handleSendMessage` (`usePokerGame.ts:58` declares 1 param, impl has 4) is
 unrelated to this work.
 
+## Optional extension: emotional-state-sensitive reception (clamped, flag-gated, default OFF)
+
+Today both the shipped trash-talk reception and the spec'd sarcasm
+reception are **static** — keyed off anchor-derived disposition only.
+Neither the relationship layer nor the emotional layer reads a character's
+*current* mood when applying a social shift (the emotional layer's
+ego/poise sensitivity is also static-anchor, not state). So a steaming
+player and a calm one take the same jab identically.
+
+The extension: let **current composure** nudge how hard an inbound barb
+lands — a character who's already tilting takes the needle worse; a
+composed one shrugs it. Thematically rich, but the *practical* risk is
+real and is the whole reason this is gated and clamped:
+
+- **Feedback spiral** — tilted → barb hits harder → … (must not compound).
+- **Pile-on** — a steaming player at a chatty table gets hammered every jab.
+- **Permanent damage from a transient mood** — `respect`/`likability`
+  **don't decay**, so a bad ten minutes shouldn't permanently tank a bond.
+- **Double-count** — the same jab already pressed composure *down* on the
+  emotional layer; that lowered composure must not then massively amplify
+  the relationship hit through one transient state.
+
+### Containment design (the point of the feature)
+
+Five clamps, each addressing one risk above:
+
+1. **Factor is 1.0 at the character's own baseline.** Read composure
+   *relative to* `psychology._baseline_composure`, not absolute — so a
+   naturally-volatile character isn't permanently amplified; only a
+   deviation *below their own normal* engages it. At baseline, reception is
+   exactly the static value.
+2. **Heat axis only.** The state factor scales `heat` and nothing else.
+   `respect`/`likability` stay at their static temperament values — because
+   heat **decays** (`project_heat`) so a tilt-moment spike self-heals,
+   while respect/likability are permanent and must stay calibrated. This
+   alone kills the "permanent damage from a transient mood" risk.
+3. **Amplify-only, barbs-only (first cut).** Engage only when the resolved
+   override is a *barb* (positive heat / negative likability — i.e. `stung`,
+   or sarcasm-on-stung). Bonding shifts (`energized`) are left untouched
+   (being tilted shouldn't make you bond *more* over a jab). Dampening on a
+   *heater* (composure above baseline → shrug it off) is a thematically
+   nice but separate phase — deferred so the first cut can only ever *add*
+   a bounded amount, never invert or zero a reception.
+4. **Bounded factor with a dead-band.** `state_factor = 1 + STATE_K ·
+   clamp(deficit, 0, 1)` where `deficit = (baseline − composure) / baseline`
+   and `STATE_K ≈ 0.25` (±25% ceiling). A `TILT_DEADBAND ≈ 0.15` means
+   small wobble does nothing — most jabs land static; only a genuinely
+   steaming player gets the extra sting (also keeps trajectories readable,
+   not noisy).
+5. **Hard output ceiling.** After the factor, clamp the heat delta to a
+   `SOCIAL_HEAT_EVENT_CEILING` (≈ 0.20, the table's existing max mirror
+   heat). Belt-and-suspenders: bounded factor *and* bounded output, so no
+   compounding path can push a single chat event's heat past the
+   established maximum.
+
+No same-tick loop exists by construction: the factor reads a composure
+*snapshot* at the moment of the jab, and the relationship shift never feeds
+back into composure — the only coupling is hand-over-hand, and heat decay +
+composure recovery both pull back toward baseline between hands.
+
+### Seam + gating
+
+- One place: `_temperament_mirror_override` (`chat_relationship.py:106`)
+  already resolves the target's controller and thus `psychology.axes`
+  (current composure) **and** `psychology._baseline_composure`. Apply the
+  clamped factor to the resolved override's `heat` there, after
+  `temperament_adjusted_mirror_shift` returns and before handing it to
+  `record_event`. No signature change to the relationship layer.
+- Flag-gated, **default OFF**, mirroring `economy_flags.REPUTATION_DEMEANOR_ENABLED`
+  (`player_psychology.py:545` precedent). Ship dormant; enable only after a
+  sim shows heat distributions stay bounded and no runaway pairs emerge.
+- Alternative state signal: `tilt_score` (already surfaced in
+  `dossier_signals.build_temperament`) instead of raw composure deficit —
+  evaluate which is steadier.
+
+### Validation before enabling
+
+Sim a chatty table with a tilt-prone character (low poise/recovery) under
+sustained needling, flag ON vs OFF; confirm (a) peak inbound heat stays
+≤ ceiling, (b) it decays back post-tilt (no permanent nemesis from one bad
+stretch), (c) respect/likability trajectories are identical to flag-OFF
+(proves heat-only containment). Only promote if all three hold.
+
+**Open sub-decision:** amplify-only (shipped first) vs also-dampen-on-heater
+(phase 2). Dampening interacts with the `W_SOCIAL` leave-pressure idea — a
+winning, composed chip-leader would feel *even less* social heat, which may
+be thematically correct (the cocky leader doesn't care) but compounds two
+"winner is comfortable" effects; decide together with `W_SOCIAL`.
+
 ## Open questions / decisions
 
 - Which trait keys temperament — reuse `attitude`/`aggression` or add a
