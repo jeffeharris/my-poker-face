@@ -352,3 +352,38 @@ class TestSettleBeforeDelete:
         )
         assert gid in game_repo.deleted
         assert bankroll_repo.load_player_bankroll(OID).chips == 5_000  # untouched
+
+
+class TestPersonaDeleteSettle:
+    """Phase 5 deletion integrity: deleting an AI persona returns its bankroll
+    chips (every sandbox) to the bank pool — conservation-safe, not stranded."""
+
+    def test_returns_all_sandbox_bankrolls_to_pool(
+        self, bankroll_repo, ledger_repo, db_path, custody_on
+    ):
+        from cash_mode.bankroll import settle_ai_bankroll_to_pool_on_delete
+
+        bankroll_repo.save_ai_bankroll(AIBankrollState(PID, 4_000, NOW), sandbox_id=SB)
+        bankroll_repo.save_ai_bankroll(AIBankrollState(PID, 1_500, NOW), sandbox_id="sb-2")
+
+        returned = settle_ai_bankroll_to_pool_on_delete(
+            PID, bankroll_repo=bankroll_repo, chip_ledger_repo=ledger_repo
+        )
+        assert returned == 5_500
+        # Rows zeroed (chips recycled, not stranded).
+        assert bankroll_repo.load_ai_bankroll(PID, sandbox_id=SB).chips == 0
+        assert bankroll_repo.load_ai_bankroll(PID, sandbox_id="sb-2").chips == 0
+        # Two casino_seat_return rows (ai → bank pool) recorded.
+        rows = [e for e in ledger_repo.recent_entries()
+                if e["reason"] == "casino_seat_return" and e["source"] == f"ai:{PID}"]
+        assert sum(e["amount"] for e in rows) == 5_500
+
+    def test_noop_when_custody_off(self, bankroll_repo, ledger_repo, db_path):
+        from cash_mode.bankroll import settle_ai_bankroll_to_pool_on_delete
+
+        bankroll_repo.save_ai_bankroll(AIBankrollState(PID, 4_000, NOW), sandbox_id=SB)
+        returned = settle_ai_bankroll_to_pool_on_delete(
+            PID, bankroll_repo=bankroll_repo, chip_ledger_repo=ledger_repo
+        )
+        assert returned == 0
+        assert bankroll_repo.load_ai_bankroll(PID, sandbox_id=SB).chips == 4_000

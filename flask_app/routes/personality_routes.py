@@ -386,6 +386,28 @@ def delete_personality(name):
                 {'success': False, 'error': 'Only admins can delete system personalities'}
             ), 403
 
+        # Chip-custody deletion integrity (Phase 5): before dropping the persona,
+        # return any bankroll chips it holds (every sandbox) to the bank pool so
+        # the chips recycle instead of vanishing (the zombie-persona drift class).
+        # No-op unless CHIP_CUSTODY_ENABLED. Best-effort — never block the delete.
+        try:
+            pid = extensions.personality_repo.resolve_name_to_personality_id(name)
+            if pid:
+                from cash_mode.bankroll import settle_ai_bankroll_to_pool_on_delete
+
+                returned = settle_ai_bankroll_to_pool_on_delete(
+                    pid,
+                    bankroll_repo=getattr(extensions, 'bankroll_repo', None),
+                    chip_ledger_repo=getattr(extensions, 'chip_ledger_repo', None),
+                )
+                if returned:
+                    logger.info(
+                        "[CASH] persona delete %r (pid=%s): returned %d chips to pool",
+                        name, pid, returned,
+                    )
+        except Exception as e:
+            logger.warning("[CASH] persona-delete chip settle failed for %r: %s", name, e)
+
         # Delete associated avatar images
         extensions.personality_repo.delete_avatar_images(name)
 

@@ -304,6 +304,83 @@ def credit_ai_cash_out(
     return new_state
 
 
+def settle_ai_bankroll_to_pool_on_delete(
+    personality_id: str,
+    *,
+    bankroll_repo,
+    chip_ledger_repo,
+    now: Optional[datetime] = None,
+) -> int:
+    """Return a soon-to-be-deleted AI's bankroll chips (EVERY sandbox) to the
+    bank pool, so persona deletion is conservation-safe — the chip-custody
+    deletion-integrity hook (Phase 5).
+
+    Deleting a personality row drops its `ai_bankroll_state` rows; if those
+    held chips, the chips vanish from the ledger's view (drift) and from the
+    closed economy (the recurring zombie-persona bug class). Instead, for each
+    sandbox the AI has chips in, record a `casino_seat_return` (ai → bank pool —
+    the established conservation-safe AI-removal mechanism) and zero the row, so
+    the chips recycle back into the pool that funds future AIs.
+
+    Gated on CHIP_CUSTODY_ENABLED + both repos present. Returns the total chips
+    returned. Best-effort per sandbox — one bad row doesn't abort the rest.
+    Caller should run this BEFORE `delete_personality`.
+    """
+    from cash_mode import economy_flags
+
+    if (
+        not economy_flags.CHIP_CUSTODY_ENABLED
+        or bankroll_repo is None
+        or chip_ledger_repo is None
+        or not personality_id
+    ):
+        return 0
+    if now is None:
+        now = datetime.utcnow()
+    from core.economy import ledger as chip_ledger
+
+    pairs = [
+        (pid, sb)
+        for (pid, sb) in bankroll_repo.iter_personality_ids_with_bankrolls_by_sandbox()
+        if pid == personality_id
+    ]
+    total = 0
+    for pid, sandbox_id in pairs:
+        try:
+            state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        except TypeError:
+            state = bankroll_repo.load_ai_bankroll(pid)
+        chips = int(state.chips) if state is not None else 0
+        if chips <= 0:
+            continue
+        row_id = chip_ledger.record_casino_seat_return(
+            chip_ledger_repo,
+            personality_id=pid,
+            amount=chips,
+            context={'site': 'persona_delete', 'sandbox_id': sandbox_id},
+            sandbox_id=sandbox_id,
+        )
+        if row_id is None:
+            logger.warning(
+                "[CASH LIFECYCLE] persona-delete settle: ledger return REJECTED "
+                "for %s sandbox=%s (%d chips) — NOT zeroing the row to avoid "
+                "forfeiting them; needs operator attention",
+                pid, sandbox_id, chips,
+            )
+            continue
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(personality_id=pid, chips=0, last_regen_tick=now),
+            sandbox_id=sandbox_id,
+        )
+        total += chips
+        logger.info(
+            "[CASH] persona-delete settle: returned %d chips to pool for %s "
+            "sandbox=%s (conservation-safe deletion)",
+            chips, pid, sandbox_id,
+        )
+    return total
+
+
 def debit_bankroll_for_seat(
     bankroll_repo,
     personality_id: str,
