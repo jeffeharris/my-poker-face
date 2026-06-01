@@ -2,8 +2,23 @@
 purpose: Make table social friction (heat from being a hog, trash talk) drive behavior and vary by personality temperament, plus nuanced quickchats to express it
 type: design
 created: 2026-05-26
-last_updated: 2026-05-26
+last_updated: 2026-06-01
 ---
+
+> **Status (2026-06-01):** The **trash-talk-reception** half of the
+> temperament nuance is **implemented** (derived from anchors, no
+> personalities.json change). Inbound `TRASH_TALK` / `TAUNT_POST_WIN`
+> now land on the recipient's relationship axes per their social
+> disposition: `energized` bonds over the needle (heat suppressed,
+> likability/respect up), `stung` takes it harder (heat/likability
+> amplified), `stoic` keeps the neutral global mirror. Seam:
+> `temperament_adjusted_mirror_shift` in `poker/memory/relationship_events.py`,
+> reused disposition from `PlayerPsychology._classify_social_disposition`,
+> wired through a `mirror_shift_override` kwarg on
+> `OpponentModelManager.record_event` and resolved in
+> `flask_app/handlers/chat_relationship.py`. Still **deferred**: the
+> near-term aggregate-heat leave-pressure term, the **hog disposition**
+> (needs that movement term first), and the `SARCASM` quickchat tone.
 
 # Social Temperament & Nuanced Quickchats
 

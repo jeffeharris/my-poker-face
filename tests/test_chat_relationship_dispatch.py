@@ -27,6 +27,13 @@ from poker.memory.relationship_events import (
 from poker.repositories.relationship_repository import RelationshipRepository
 from poker.repositories.schema_manager import SchemaManager
 
+# Disposition anchor sets, shared across the emotional-reaction and
+# temperament-divergence test classes.
+# Napoleon-like: proud + reserved → 'stung'.
+STUNG_ANCHORS = {"ego": 0.86, "poise": 0.65, "expressiveness": 0.32, "baseline_aggression": 0.8}
+# Wilde-like: proud + expressive → 'energized'.
+ENERGIZED_ANCHORS = {"ego": 0.8, "poise": 0.62, "expressiveness": 0.68, "baseline_aggression": 0.35}
+
 
 @pytest.fixture
 def repo(tmp_path):
@@ -272,10 +279,9 @@ class TestDispatchAppliesEmotionalReaction:
         }
         return game_data, psych
 
-    # Napoleon-like: proud + reserved → 'stung' → composure drops.
-    STUNG = {"ego": 0.86, "poise": 0.65, "expressiveness": 0.32, "baseline_aggression": 0.8}
-    # Wilde-like: proud + expressive → 'energized' → energy rises.
-    ENERGIZED = {"ego": 0.8, "poise": 0.62, "expressiveness": 0.68, "baseline_aggression": 0.35}
+    # 'stung' → composure drops; 'energized' → energy rises.
+    STUNG = STUNG_ANCHORS
+    ENERGIZED = ENERGIZED_ANCHORS
 
     def test_jab_stings_a_proud_character(self, opp_manager):
         game_data, psych = self._ai_game_data(opp_manager, "bob", self.STUNG)
@@ -376,7 +382,7 @@ class TestBroadcastFanOut:
     reduced scale, and leaves the relationship layer untouched.
     """
 
-    STUNG = {"ego": 0.86, "poise": 0.65, "expressiveness": 0.32, "baseline_aggression": 0.8}
+    STUNG = STUNG_ANCHORS
 
     def _multi_ai_game_data(self, opp_manager, specs):
         from poker.player_psychology import PlayerPsychology
@@ -443,3 +449,93 @@ class TestBroadcastFanOut:
         dispatch_chat_relationship_event(game_data, "alice", None, tone="goad", intensity="spicy")
         assert controllers["alice"].psychology.composure == alice_before
         assert controllers["bob"].psychology.composure < bob_before
+
+
+class TestTemperamentDivergence:
+    """The same needle lands on the RECIPIENT's relationship axes
+    differently by their social temperament: an 'energized' banter-lover
+    bonds over it (likability up, heat flat), a 'stung' character takes it
+    harder (heat/likability amplified). This is the mirror (target's-POV)
+    row — the actor side is never temperament-adjusted.
+    """
+
+    def _ai_game_data(self, opp_manager, name, anchors):
+        from poker.player_psychology import PlayerPsychology
+
+        psych = PlayerPsychology.from_personality_config(name, {"anchors": anchors})
+        controller = SimpleNamespace(psychology=psych)
+        memory_manager = SimpleNamespace(
+            get_opponent_model_manager=lambda: opp_manager,
+            hand_count=3,
+        )
+        game_data = {
+            "memory_manager": memory_manager,
+            "ai_controllers": {name: controller},
+        }
+        return game_data
+
+    def test_energized_recipient_bonds_over_trash_talk(self, opp_manager, repo):
+        from poker.memory.relationship_events import (
+            RelationshipEvent,
+            temperament_adjusted_mirror_shift,
+        )
+
+        game_data = self._ai_game_data(opp_manager, "bob", ENERGIZED_ANCHORS)
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="goad", intensity="spicy"
+        )
+        # Mirror = bob's view of alice. Energized → heat flat, likability up.
+        mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+        assert mirror is not None
+        expected = temperament_adjusted_mirror_shift(RelationshipEvent.TRASH_TALK, 'energized')
+        assert mirror.heat == pytest.approx(0.0)
+        assert mirror.likability == pytest.approx(0.5 + expected.likability)
+        assert mirror.likability > 0.5  # the needle BUILT warmth
+
+    def test_stung_recipient_takes_trash_talk_harder(self, opp_manager, repo):
+        from poker.memory.relationship_events import (
+            RelationshipEvent,
+            mirror_shift,
+            temperament_adjusted_mirror_shift,
+        )
+
+        game_data = self._ai_game_data(opp_manager, "bob", STUNG_ANCHORS)
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="goad", intensity="spicy"
+        )
+        mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+        assert mirror is not None
+        neutral = mirror_shift(RelationshipEvent.TRASH_TALK)
+        stung = temperament_adjusted_mirror_shift(RelationshipEvent.TRASH_TALK, 'stung')
+        assert mirror.heat == pytest.approx(stung.heat)
+        assert mirror.heat > neutral.heat  # bites harder than neutral
+        assert mirror.likability == pytest.approx(0.5 + stung.likability)
+        assert mirror.likability < 0.5 + neutral.likability
+
+    def test_same_needle_diverges_by_recipient_temperament(self, opp_manager, repo):
+        # Energized bob and stung bob hear the identical jab; their views of
+        # the sender move in opposite directions.
+        gd_e = self._ai_game_data(opp_manager, "bob", ENERGIZED_ANCHORS)
+        dispatch_chat_relationship_event(gd_e, "alice", ["bob"], tone="goad", intensity="spicy")
+        energized_mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+
+        # Fresh sender/target pair to avoid compounding on the same row.
+        opp_manager.register_player_id("carol", "carol_pid")
+        gd_s = self._ai_game_data(opp_manager, "carol", STUNG_ANCHORS)
+        dispatch_chat_relationship_event(gd_s, "alice", ["carol"], tone="goad", intensity="spicy")
+        stung_mirror = repo.load_raw_relationship_state("carol_pid", "alice_pid")
+
+        assert energized_mirror.heat < stung_mirror.heat
+        assert energized_mirror.likability > stung_mirror.likability
+
+    def test_actor_side_is_not_temperament_adjusted(self, opp_manager, repo):
+        # Alice's view of an energized bob still uses the neutral ACTOR shift —
+        # only the recipient's mirror reception is reshaped.
+        game_data = self._ai_game_data(opp_manager, "bob", ENERGIZED_ANCHORS)
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="goad", intensity="spicy"
+        )
+        actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
+        expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.TRASH_TALK]
+        assert actor_state.heat == pytest.approx(expected.heat)
+        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
