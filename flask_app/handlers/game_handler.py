@@ -20,7 +20,6 @@ from poker.ai_resilience import (
 from poker.betting_context import BettingContext
 from poker.card_utils import card_to_string
 from poker.config import AI_MESSAGE_CONTEXT_LIMIT, MIN_RAISE
-from poker.emotional_state import EmotionalState
 from poker.equity_snapshot import HandEquityHistory
 from poker.equity_tracker import EquityTracker
 from poker.game_helpers import should_clear_player_options
@@ -355,7 +354,6 @@ def restore_ai_controllers(
     bot_types = bot_types or {}
 
     controller_states = {}
-    emotional_states = {}
     try:
         # The loaders now skip individual corrupt rows internally, so an
         # empty dict here means "no saved state" (a fresh/legacy game) —
@@ -363,7 +361,6 @@ def restore_ai_controllers(
         # (e.g. DB/connection error): every AI silently reverts to default
         # tilt/emotion, so log it loudly (error + traceback), not as a warning.
         controller_states = game_repo.load_all_controller_states(game_id)
-        emotional_states = game_repo.load_all_emotional_states(game_id)
     except Exception as e:
         logger.error(
             f"Failed to load controller/emotional states for {game_id}; "
@@ -407,9 +404,7 @@ def restore_ai_controllers(
                     debug_logging=True,
                     default_strategy=strategy,
                 )
-                logger.info(
-                    f"[RESTORE] Created controller for {player.name} (bot_type={strategy})"
-                )
+                logger.info(f"[RESTORE] Created controller for {player.name} (bot_type={strategy})")
             else:
                 # No bot_types entry — match the new-game route's default of
                 # 'sharp' (the tiered solver bot, the core engine). Legacy
@@ -476,11 +471,9 @@ def restore_ai_controllers(
                         controller.psychology.tilt = ComposureState.from_tilt_state(
                             ctrl_state['tilt_state']
                         )
-                    # Note: elastic_personality is deprecated - new system uses anchors/axes
-                    if player.name in emotional_states:
-                        controller.psychology.emotional = EmotionalState.from_dict(
-                            emotional_states[player.name]
-                        )
+                    # Note: elastic_personality is deprecated - new system uses anchors/axes.
+                    # The legacy emotional_state table was retired in v136; narrative/
+                    # inner_voice now restore from psychology_json on the primary path above.
 
                 # Restore prompt_config (toggleable prompt components)
                 if ctrl_state.get('prompt_config'):
@@ -1282,8 +1275,8 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
 
     if _ef.PRESENCE_AUTHORITY_ENABLED:
         try:
-            from flask_app.extensions import entity_presence_repo as _epr
             from cash_mode.presence import Presence, player_entity_id
+            from flask_app.extensions import entity_presence_repo as _epr
 
             if _epr is not None:
                 st = _epr.load(player_entity_id(cs.owner_id), cs.sandbox_id)
@@ -1292,14 +1285,15 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
                         logger.info(
                             "[CASH][PRESENCE] cold-load binding from presence %r:%s "
                             "(cash_sessions had %r:%s) for %r",
-                            st.table_id, st.seat_index,
-                            cs.cash_table_id, cs.cash_seat_index, game_id,
+                            st.table_id,
+                            st.seat_index,
+                            cs.cash_table_id,
+                            cs.cash_seat_index,
+                            game_id,
                         )
                     resolved_table_id, resolved_seat = st.table_id, st.seat_index
         except Exception as e:  # noqa: BLE001 — presence read must not block recovery
-            logger.warning(
-                "[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e
-            )
+            logger.warning("[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e)
     if resolved_table_id is None:
         return None
     game_data['cash_table_id'] = resolved_table_id
@@ -2902,8 +2896,15 @@ def _run_async_narration(game_id: str, game_data: dict, pending: list) -> None:
         try:
             controller.psychology.generate_narration(**req.kwargs)
             if controller.psychology.emotional:
-                game_repo.save_emotional_state(
-                    game_id, req.player_name, controller.psychology.emotional
+                # Persist the freshly narrated emotional state via the unified
+                # controller_state row (psychology_json carries narrative/
+                # inner_voice). The emotional_state table was retired in v136.
+                prompt_config = getattr(controller, 'prompt_config', None)
+                game_repo.save_controller_state(
+                    game_id,
+                    req.player_name,
+                    psychology=controller.psychology.to_dict(),
+                    prompt_config=prompt_config.to_dict() if prompt_config else None,
                 )
         except Exception as e:
             logger.warning(

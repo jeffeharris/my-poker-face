@@ -131,10 +131,6 @@ class DecisionAnalysis:
     # Psychology snapshot (emotional state at decision time)
     tilt_level: Optional[float] = None
     tilt_source: Optional[str] = None
-    valence: Optional[float] = None
-    arousal: Optional[float] = None
-    control: Optional[float] = None
-    focus: Optional[float] = None
     display_emotion: Optional[str] = None
     elastic_aggression: Optional[float] = None
     elastic_bluff_tendency: Optional[float] = None  # Legacy - kept for historical data
@@ -330,10 +326,6 @@ class DecisionAnalyzer:
         if psychology_snapshot:
             analysis.tilt_level = psychology_snapshot.get('tilt_level')
             analysis.tilt_source = psychology_snapshot.get('tilt_source')
-            analysis.valence = psychology_snapshot.get('valence')
-            analysis.arousal = psychology_snapshot.get('arousal')
-            analysis.control = psychology_snapshot.get('control')
-            analysis.focus = psychology_snapshot.get('focus')
             analysis.display_emotion = psychology_snapshot.get('display_emotion')
             analysis.elastic_aggression = psychology_snapshot.get('elastic_aggression')
             analysis.elastic_bluff_tendency = psychology_snapshot.get('elastic_bluff_tendency')

@@ -1573,10 +1573,7 @@ class AIPlayerController:
                 )
                 if equity is not None:
                     hand_equity = equity  # Store for drama detection
-                    is_tilted = False
-                    if self.psychology and self.psychology.emotional:
-                        valence = self.psychology.emotional.valence
-                        is_tilted = valence < -0.2
+                    is_tilted = bool(self.psychology and self.psychology.is_tilted)
 
                     if equity >= 0.80:
                         hand_strength = evaluate_hand_strength(hole_cards, community_cards)
@@ -2132,10 +2129,6 @@ class AIPlayerController:
                     'tilt_source': psych.tilt.tilt_source if psych.tilt else None,
                 }
                 if psych.emotional:
-                    snapshot['valence'] = psych.emotional.valence
-                    snapshot['arousal'] = psych.emotional.arousal
-                    snapshot['control'] = psych.emotional.control
-                    snapshot['focus'] = psych.emotional.focus
                     snapshot['display_emotion'] = psych.get_display_emotion()
                 traits = psych.traits
                 # New 5-trait model
