@@ -154,20 +154,22 @@ restore/persist** tests), `test_career_progression.py`,
      relationship ("mentors start warm") so the existing relationship-driven
      forgiveness handles a busted carry.
 
-   ⚠️ **OPEN CONSERVATION QUESTION — RESOLVE FIRST (could mint chips):** how is a
-   *personality* stake's principal funded/debited from the lender? `_build_cash_game`
-   debits only **seated** AI bankrolls and is **not** passed a lender; the
-   post-stake block mints only for *house* loans (`offer_lender_id is None`). The
-   code comment claims personality loans are "pure transfers (AI lender's bankroll
-   → player table stack via the AI debit step in `_build_cash_game`)" — which
-   implies funding is **coupled to the lender being one of the seated AIs**
-   (Lobby v1.5). If so, a **non-seated Sal would not be debited → minted chips**.
-   First write a paired before/after audit test for an existing personality stake;
-   if funding needs seating, debit Sal explicitly in the mentor branch via a paired
-   ledger entry (AI bankroll → player table stack). (Jeff's intent: stakers gate on
-   **capacity ~2× high buy-in, NOT seating** — but the general offers-route seated
-   narrowing is being **left as-is** per his call; only the mentor stake needs the
-   non-seated funding path.)
+   ✅ **CONSERVATION QUESTION — ANSWERED (2026-06-01 audit).** A personality stake
+   from a **non-seated** lender **MINTS the principal**. Audit test
+   `tests/test_cash_sponsor_routes.py::...::test_personality_stake_principal_comes_from_lender_not_minted`
+   (runs `_build_cash_game` UNMOCKED, checks `compute_audit` drift): the player's
+   table stack grows by the principal with **no offsetting debit** from the
+   lender's bankroll — drift moved by ≈ the principal. (`_build_cash_game` only
+   debits SEATED AIs and isn't passed the lender; the post-stake block mints only
+   for *house* loans.) The test is committed as **`xfail(strict=True)`** — it
+   documents the bug and flips to xpass when fixed (then remove the marker).
+   **THE FIX:** in the mentor branch, after the stake is created, **explicitly
+   debit Sal's bankroll by the principal** (a paired ledger transfer: Sal's
+   bankroll → the player's table stack) so the chips come from the chips he took
+   off Larry, never minted — making the audit test pass. (Jeff's intent: stakers
+   gate on **capacity ~2× high buy-in, NOT seating**; the general offers-route
+   seated narrowing is **left as-is** per his call — only the mentor stake needs
+   the non-seated funding path.)
 2. **Verify the finale live** — confirm Sal actually busts Larry to 0 in a real
    playthrough (headless drivers couldn't replicate the betting loop).
 3. **M2 — real `vouch_ready`** (respect-gated, likability-driven, played-with,
@@ -181,6 +183,11 @@ restore/persist** tests), `test_career_progression.py`,
    reconstruction engine from `training-room` when hand-replay is built; the
    `table_scenes` system is the natural host).
 6. **Wire avatar generation** (seam: `intake_avatar_prompt`).
+7. **Polish — single-source the intake reply text.** The three vibe replies now
+   live in TWO places: `VIBES[].reply` (frontend display, `LuckyStackIntake.tsx`)
+   and `_INTAKE_ANSWERS` (backend bio prompt, `career_progression.py`), kept in
+   sync by hand. Have the frontend send the chosen reply text in the intake
+   payload so there's one source of truth.
 
 ## Career vs custom (generic) sandbox separation
 Jeff wants to later split career mode from a generic/custom sandbox and **keep the
