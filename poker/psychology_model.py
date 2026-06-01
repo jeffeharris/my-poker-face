@@ -111,6 +111,28 @@ class EmotionalQuadrant(Enum):
     SHAKEN = "shaken"
 
 
+class EmotionFamily(Enum):
+    """
+    Temperament family that selects HOW a quadrant is expressed.
+
+    The quadrant (confidence x composure) decides the *internal* feeling;
+    the family — derived from personality anchors — decides which surface
+    emotion that feeling becomes. Two players in the same OVERHEATED
+    quadrant read very differently: a high-ego competitor looks ``angry``
+    while a low-ego fun-lover looks ``giddy``/``gleeful``.
+
+    - COMPETITOR: high ego — cares about being outplayed, sharp emotions
+    - FUN_LOVER: low ego — playful, takes losses cheerfully
+    - STOIC: low expressiveness — muted, compresses toward poker face
+    - ANXIOUS: middling ego — default, nervier reads
+    """
+
+    COMPETITOR = "competitor"
+    FUN_LOVER = "fun_lover"
+    STOIC = "stoic"
+    ANXIOUS = "anxious"
+
+
 @dataclass(frozen=True)
 class PersonalityAnchors:
     """
@@ -499,6 +521,37 @@ def get_quadrant(confidence: float, composure: float) -> EmotionalQuadrant:
         return EmotionalQuadrant.COMMANDING if composure > 0.5 else EmotionalQuadrant.OVERHEATED
     else:
         return EmotionalQuadrant.GUARDED if composure > 0.5 else EmotionalQuadrant.SHAKEN
+
+
+# Family thresholds (anchor-space). See EmotionFamily for rationale.
+FAMILY_STOIC_EXPRESSIVENESS = 0.40
+FAMILY_FUN_LOVER_EGO = 0.40
+FAMILY_COMPETITOR_EGO = 0.55
+
+
+def get_emotion_family(anchors: "PersonalityAnchors") -> EmotionFamily:
+    """
+    Derive a player's emotion family from static personality anchors.
+
+    Pure function of identity anchors (never changes during a session), so
+    the same quadrant always expresses through the same vocabulary for a
+    given persona. Precedence: stoicism (low expressiveness) wins first
+    because such players show little regardless of ego; then ego splits the
+    expressive players into playful (low) / sharp (high) / nervy (middle).
+
+    Args:
+        anchors: PersonalityAnchors with ``ego`` and ``expressiveness``.
+
+    Returns:
+        EmotionFamily for this persona.
+    """
+    if anchors.expressiveness < FAMILY_STOIC_EXPRESSIVENESS:
+        return EmotionFamily.STOIC
+    if anchors.ego < FAMILY_FUN_LOVER_EGO:
+        return EmotionFamily.FUN_LOVER
+    if anchors.ego > FAMILY_COMPETITOR_EGO:
+        return EmotionFamily.COMPETITOR
+    return EmotionFamily.ANXIOUS
 
 
 def compute_modifiers(

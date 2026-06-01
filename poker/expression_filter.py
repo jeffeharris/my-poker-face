@@ -19,7 +19,11 @@ EMOTION_DAMPENING_MAP = {
     'shocked': ('nervous', 'poker_face'),
     'elated': ('happy', 'poker_face'),
     'smug': ('confident', 'poker_face'),
+    # Fun-lover family (high intensity, positive) -> medium -> poker face
+    'giddy': ('gleeful', 'poker_face'),
+    'gleeful': ('happy', 'poker_face'),
     # Medium intensity -> thinking -> poker face
+    'sheepish': ('thinking', 'poker_face'),
     'frustrated': ('thinking', 'poker_face'),
     'nervous': ('thinking', 'poker_face'),
     'happy': ('thinking', 'poker_face'),
