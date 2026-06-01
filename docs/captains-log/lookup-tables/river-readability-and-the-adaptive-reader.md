@@ -151,6 +151,23 @@ and wins. (The mirror exposure — over-paying a thin *value*-raiser — is real
 ordinary poker, not a run-over.) Two adaptive instruments now exist, reader + raiser,
 and both reach clean verdicts the static pool couldn't.
 
+## Capped checking ranges — the first real defensive leak (small)
+
+The dual of the overbet: when the bot checks, is its range capped → stabbable? Built
+a check-range map + an adaptive stabber (bets junk a half-pot when checked to, learns
+fold-to-stab). The check-range map surprised me: the FLOP is capped (5% strong) but
+the **river is protected** (29% strong — the bot checks back / slowplays rivers),
+the opposite of my worry. The stab A/B: the bot folds **41%** to half-pot stabs (vs
+22% to raises — confirming the weaker-after-checking hypothesis), costing **−1.2
+bb/100** (adaptive == relentless; 0.41 already clears the half-pot breakeven). So:
+the **first genuine defensive leak** (bluff-raising had donated), but small,
+flop-concentrated, river-protected, and ~0 vs the real fish (who don't stab). A gated
+stab-defense (symmetric to the river-bluff gate) could capture it, but it's a real
+build for a −1.2 ceiling that the actual pool never realizes — left as the owner's
+cost/benefit call, recommended against on this session's repeated lesson (defensive
+discipline costs more vs the value-betting pool than it saves). Measure-first again
+kept us from a fix bigger than the leak.
+
 ## Where it landed
 
 One real readability leak, found and fixed to its structural max, gated so it costs

@@ -726,3 +726,66 @@ def register_adaptive_aggressor(
         profile, state, bluff_raise=bluff_raise, threshold=threshold
     )
     return state
+
+
+_STAB_SIZE_FRAC = 0.5  # half-pot stab (breakeven fold ~0.33 — the exploiter's size)
+_STAB_THRESHOLD = 0.34  # stab while hero folds >= this (half-pot breakeven)
+
+
+def build_adaptive_stabber_strategy(
+    profile: CloneProfile,
+    state: AdaptiveAggressorState,
+    bluff_stab: bool = True,
+    threshold: float = _STAB_THRESHOLD,
+    bluff_equity_max: float = _AGGR_BLUFF_EQUITY_MAX,
+    stab_size_frac: float = _STAB_SIZE_FRAC,
+):
+    """Tests the capped-checking-range leak: when the bot CHECKS (its range is
+    capped — strong hands all bet), can a stabber punish it? Bets junk when
+    checked-to (cost_to_call==0, postflop), learns the hero's fold-to-stab from the
+    visible response, escalates while profitable. Distinct from the aggressor: the
+    bot faces this stab with a CAPPED (weak) range, so it could fold more than it
+    does facing a raise (where it had bet first). `bluff_stab=False` = control."""
+    base = build_clone_strategy(profile)
+
+    def strategy(context: Dict) -> Dict:
+        phase = context.get('phase', '')
+        cost_to_call = context.get('cost_to_call', 0) or 0
+        equity = context.get('equity', 0.5) or 0.5
+        valid = context.get('valid_actions', [])
+        pot = context.get('pot_total', 0) or 0
+        min_raise = context.get('min_raise', 0) or 0
+        max_raise = context.get('max_raise', 0) or 0
+
+        if (
+            bluff_stab
+            and phase in ('FLOP', 'TURN', 'RIVER')
+            and cost_to_call == 0  # checked to / free to act → a stab, not a raise
+            and 'raise' in valid  # betting when free is the 'raise' action in this engine
+            and max_raise > 0
+            and equity < bluff_equity_max
+            and state.fold_to_raise() >= threshold
+        ):
+            target = max(min_raise, min(int(pot * stab_size_frac) or min_raise, max_raise))
+            return {'action': 'raise', 'raise_to': target}  # stab (fractional-pot bet)
+        return base(context)
+
+    return strategy
+
+
+def register_adaptive_stabber(
+    name: str,
+    profile: CloneProfile,
+    bluff_stab: bool = True,
+    threshold: float = _STAB_THRESHOLD,
+) -> AdaptiveAggressorState:
+    """Install an adaptive stabber under `name`; return its state (shared shape
+    with the aggressor — `observe(hero_folded)` / `fold_to_raise()` read as
+    fold-to-stab here). `threshold=0` = relentless stabber."""
+    from .rule_strategies import BUILT_IN_STRATEGIES
+
+    state = AdaptiveAggressorState()
+    BUILT_IN_STRATEGIES[name] = build_adaptive_stabber_strategy(
+        profile, state, bluff_stab=bluff_stab, threshold=threshold
+    )
+    return state

@@ -391,6 +391,42 @@ indicated.** The sensors to detect a bluffer (AF, `compute_aggression_polarizati
 exist but don't need wiring for THIS purpose — the call-down already handles it.
 (Mirror exposure: over-paying a thin value-raiser — ordinary poker, not a run-over.)
 
+## 5i. Capped checking ranges — a REAL but small leak (2026-06-01)
+
+The dual of the river-overbet leak: when the bot CHECKS, is its range capped (no
+strong hands → a reader stabs it)? Built a check-range composition map
+(`measure_passivity --tell-map` "CHECK-RANGE COMPOSITION") + an adaptive STABBER
+(`build_adaptive_stabber_strategy`, `ADAPTIVE_STABBER=1`): bets junk at a half-pot
+size when the bot checks to it, learns fold-to-stab, escalates.
+
+**Check-range composition (HU vs jeff):** FLOP **5% strong → CAPPED**; TURN 9%
+(borderline); RIVER **29% strong → PROTECTED** (the bot checks back / slowplays
+strong rivers). So the capped range is the FLOP, not the river I worried about.
+
+**Stab A/B (HU 4000h × 3):**
+
+| arm | bot bb/100 | hero fold-to-stab |
+|---|---|---|
+| no stabbing (control) | +24.4 | 0.41 |
+| half-pot stabber (adaptive == relentless) | **+23.2 (−1.2)** | 0.41 |
+
+**A genuine leak — the first one (bluff-raising donated; this costs −1.2).** The bot
+folds **41%** to half-pot stabs (vs 22% to raises — confirming the directional
+hypothesis: after checking, its weaker range folds more), above the half-pot MDF
+(~33%). But it's **small** (ceiling −1.2; adaptive==relentless because 0.41 already
+clears the stab's breakeven), **flop-concentrated**, and the **river is protected**.
+Much of the 41% fold is irreducible (a capped-weak range genuinely can't continue
+67%). Real-world: the **fish don't stab** (they bet value / check), so the production
+leak is ~0.
+
+**Fix option (not built — owner's cost/benefit call):** a *gated stab-defense*
+symmetric to the river-bluff gate — widen the bot's defense facing a bet ONLY when
+it checked into the spot AND the opponent reads as a frequent stabber → low fish
+cost, captures the −1.2 vs an actual stabber. Real build (new stab-frequency read +
+defense layer) for a −1.2 ceiling that's ~0 vs the real pool. Per this session's
+pattern (defensive discipline tends to cost more vs the value-betting pool than it
+saves), recommend against unless a human is shown to stab-exploit in practice.
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*
