@@ -168,6 +168,26 @@ cost/benefit call, recommended against on this session's repeated lesson (defens
 discipline costs more vs the value-betting pool than it saves). Measure-first again
 kept us from a fix bigger than the leak.
 
+## The gated stab-defense — and a corrected objection
+
+The owner pushed back, correctly: I'd recommended against fixing the stab leak
+because "defensive discipline costs vs the pool" — but we *gate* everything, so a
+stab-defense would fire only vs a detected stabber and cost ~0 vs the fish, exactly
+like the river-bluff gate. My objection was inconsistent with our own design. And
+unlike the river bluff, I had the opponent to measure it (the stabber). So I built
+the gated defense (`apply_stab_defense`) and measured properly.
+
+It works — and not inertly: at intensity 0.5 the bot drops fold-to-stab 0.41→0.23
+and recovers ~+1.0 (the leak). The insight: recovery needs OVER-calling *past* MDF
+(0.31 = MDF recovered nothing; 0.23 did) because a relentless stabber over-bluffs.
+But the measured asymmetry is the decision: false-positive cost vs a caller (−2.5)
+> true-positive gain (+1.0), *because* recovery requires over-calling, which bleeds
+to value-bettors. So the right reason to hold it is not "it costs vs the pool"
+(the owner was right that gating fixes that) but "the misfire downside exceeds the
+upside, so it needs a high-precision stab read we haven't built or validated." Kept
+dormant + measured. A better objection, earned by building the thing instead of
+asserting.
+
 ## Where it landed
 
 One real readability leak, found and fixed to its structural max, gated so it costs

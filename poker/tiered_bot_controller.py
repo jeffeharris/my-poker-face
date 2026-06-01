@@ -401,6 +401,13 @@ class TieredBotController(AIPlayerController):
         # multistreet_context. OFF by default (measure-first: it costs EV vs
         # callers and only helps if barreled air actually reaches the river).
         self.air_barrel_target: float = 0.0
+        # Gated stab-defense (OVERBET_BALANCING.md §5j): vs a detected frequent
+        # stabber, shift fold→call facing a postflop bet (the bot over-folds ~41%
+        # to stabs into its capped check range). intensity 0 = OFF (byte-identical).
+        # _override forces the stab read in eval/tests (no model manager).
+        self.stab_defense_intensity: float = 0.0
+        self.stab_defense_min: float = 0.5  # opponent stab-freq gate
+        self.stab_defense_override: Optional[float] = None
         # Adaptive overbet (PERSONALITY_PRICING_AND_VARIETY.md "Attacker side"):
         # when True, scale the overbet's fraction by the live value-vs-station
         # detection intensity (× sample confidence, already baked into the
@@ -1225,6 +1232,42 @@ class TieredBotController(AIPlayerController):
             overbet_trace=overbet_trace,
         )
         self._last_intervention_trace.append(defense_floor_trace)
+
+        # 6a.6b Gated stab-defense (OVERBET_BALANCING §5j): vs a detected frequent
+        # stabber, widen the bot's defense facing a postflop bet (shift fold→call)
+        # — the bot over-folds (~41%) to stabs into its capped check range. Gated
+        # on a stab-frequency read so it never costs vs the fish (who don't stab).
+        # OFF by default (stab_defense_intensity=0) → byte-identical.
+        stab_intensity = getattr(self, 'stab_defense_intensity', 0.0)
+        stab_defense_trace = make_no_op_trace(
+            layer='stab_defense',
+            rule_id='default',
+            layer_order=layer_order_for('stab_defense'),
+            reason_code='flag_disabled',
+        )
+        if stab_intensity > 0.0:
+            from .strategy.stab_defense import apply_stab_defense
+
+            stab_prior_fired = (
+                induce_override_trace.fired
+                or value_override_trace.fired
+                or bluff_catch_trace.fired
+                or overbet_trace.fired
+            )
+            modified_strategy, stab_defense_trace = apply_stab_defense(
+                modified_strategy,
+                action_context=node.facing_action,
+                street=node.street,
+                stab_read=self._resolve_stabber_read(game_state),
+                intensity=stab_intensity,
+                min_stab=getattr(self, 'stab_defense_min', 0.5),
+                prior_layer_fired=stab_prior_fired,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            stab_defense_trace = _fill_prior_action_source(
+                stab_defense_trace, self._last_intervention_trace
+            )
+        self._last_intervention_trace.append(stab_defense_trace)
 
         # 6a.6 Phase 6 Step B: short-stack heuristic. Suppress medium-raise
         # probability mass below 20 BB effective stack — non-jam raises
@@ -3066,6 +3109,19 @@ class TieredBotController(AIPlayerController):
         if getattr(tendencies, '_big_bet_faced_count', 0) < 8:
             return None  # immature read → value-only
         return tendencies.fold_to_big_bet
+
+    def _resolve_stabber_read(self, game_state) -> Optional[float]:
+        """Resolve the opponent read that gates the stab-defense (OVERBET_BALANCING
+        §5j): the opponent's stab frequency (how often it bets when checked to).
+        `stab_defense_override` (eval/tests) wins. Production read is not yet
+        tracked on OpponentTendencies — until it is, returns the override or None
+        (→ no stab-defense, the safe value-only default)."""
+        override = getattr(self, 'stab_defense_override', None)
+        if override is not None:
+            return override
+        # TODO(production): add a stab-frequency read (bet-when-checked-to rate) to
+        # OpponentTendencies + wire it here, mirroring _resolve_river_bluff_ftbb.
+        return None
 
     def _select_exploitation_stats(
         self,

@@ -783,6 +783,14 @@ def run_passivity_matchup(
             _abt = os.environ.get('AIR_BARREL_TARGET')
             if _abt:
                 controllers[0].air_barrel_target = float(_abt)
+        # Gated stab-defense (§5j) validation knob (independent of river bluff):
+        # STAB_DEFENSE=intensity, STAB_DEFENSE_READ=synthetic stab-freq (default 1.0
+        # = simulate a detected stabber, trips the 0.5 gate). Measured vs the
+        # adaptive stabber (does it recover the −1.2?) + vs static (false-pos cost).
+        _sd = os.environ.get('STAB_DEFENSE')
+        if _sd:
+            controllers[0].stab_defense_intensity = float(_sd)
+            controllers[0].stab_defense_override = float(os.environ.get('STAB_DEFENSE_READ', '1.0'))
         # Range-aware prototype: turn on equity-vs-range for the hero and feed it
         # perfect-read field stats (uniform-field assumption: all opponents share
         # the first opponent archetype's stats). Concept-test ceiling.

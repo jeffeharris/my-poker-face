@@ -427,6 +427,39 @@ defense layer) for a −1.2 ceiling that's ~0 vs the real pool. Per this session
 pattern (defensive discipline tends to cost more vs the value-betting pool than it
 saves), recommend against unless a human is shown to stab-exploit in practice.
 
+## 5j. Gated stab-defense — BUILT + measured; works but unfavorable asymmetry
+
+(The "cost vs the pool" objection in §5i was wrong — a GATED defense, like the
+river-bluff gate, fires only vs a detected stabber and so costs ~0 vs the fish. Built
+it to measure properly.) `apply_stab_defense` (`poker/strategy/stab_defense.py`):
+shifts fold→call facing a postflop bet, gated on an opponent stab-frequency read.
+Controller `stab_defense_intensity` (OFF=0 default), `_resolve_stabber_read`
+(override in eval; **production read NOT yet wired** — resolver returns None →
+dormant). `measure_passivity STAB_DEFENSE=intensity`.
+
+**Recovery vs the adaptive stabber (HU 4000h × 3):**
+
+| intensity | hero fold-to-stab | bot bb/100 |
+|---|---|---|
+| 0 (off) | 0.41 | +23.2 (leak) |
+| 0.3 | 0.31 (≈ MDF) | +23.2 (no recovery) |
+| 0.5 | 0.23 | **+24.2 (recovers ~+1.0)** |
+
+**It works** (not inert, unlike the prior maniac-defense). Key insight: recovery
+needs OVER-calling *past* MDF (0.31 = MDF didn't recover; 0.23 did) — a relentless
+stabber over-bluffs, so the max-EV counter is to over-call, not hit MDF.
+
+**But the asymmetry is unfavorable (the decisive number):** false-positive cost vs
+jeff (a caller wrongly defended) = **−2.5** (+43.9 → +41.4 with intensity 0.5
+forced) > the **+1.0** true-positive gain. Because recovery *requires* over-calling,
+and over-calling bleeds to value-bettors, the defense is net-positive ONLY if the
+stab-read almost never misfires — and stabbers are rare, callers common. So it needs
+(a) a production stab-frequency read built + validated to the river-bluff standard,
+and (b) even then it's marginal (+1.0 upside, −2.5 misfire downside). **Verdict: keep
+DORMANT (intensity 0, no read wired); the mechanism is proven + measured both ways,
+but the asymmetry makes it low-priority — ship only with a high-precision validated
+stab read.** Mechanism kept as a ready, measured, gated lever.
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*
