@@ -816,9 +816,11 @@ def _process_global_greedy_fills(
         for s in tbl.seats:
             if s.get("kind") != "ai":
                 continue
-            if s.get("archetype") == "fish":
+            if s.get("personality_id") in fish_ids:
                 # A fish at a lobby table IS the whale (regular fish are
-                # casino-only); weigh it as a whale.
+                # casino-only); weigh it as a whale. Count by persona
+                # identity (not the `archetype='fish'` seat stamp) so an
+                # un-stamped fish seat can't masquerade as a grinder.
                 if is_lobby:
                     whale_chips += int(s.get("chips", 0))
                 else:
@@ -4097,8 +4099,9 @@ def _boot_sweep_stale_cash_rows(
                 )
                 # 1c. Presence half (R3a): open the human's persisted seat so the
                 # deleted row can't leave a ghost seat (save_table drives
-                # GO_OFFLINE under authority). Makes _free_ghost_human_seats'
-                # orphan unrepresentable at this — the documented — source.
+                # GO_OFFLINE under authority). Makes the orphan the retired
+                # _free_ghost_human_seats used to sweep unrepresentable at this
+                # — the documented — source.
                 _sweep_sb = session.sandbox_id if session else None
                 if cash_table_repo is not None and row.owner_id and _sweep_sb:
                     from cash_mode.presence_sweep import free_human_seat_on_delete
