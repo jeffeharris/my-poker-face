@@ -1496,6 +1496,16 @@ class PlayerPsychology:
     }
     _TRUE_EMOTION_ENERGY_SPLIT = 0.6
 
+    @property
+    def is_fish(self) -> bool:
+        """Persona-level fish archetype (the oblivious-tourist marks).
+
+        Distinct from the playstyle `archetype` property (TAG/LAG/Rock/Fish
+        derived from tightness x aggression) — this reads the curated persona's
+        declared archetype from its config.
+        """
+        return (self.personality_config or {}).get('archetype') == 'fish'
+
     def _get_true_emotion(self) -> str:
         """Get the player's true emotional state (before expression filtering).
 
@@ -1511,6 +1521,19 @@ class PlayerPsychology:
         cell = self._EMOTION_MATRIX.get(family, {}).get(quadrant)
         if cell is None:
             return "poker_face"
+
+        # Fish are written as relentlessly oblivious-happy ("Aw, ya got me —
+        # great hand, buddy! Deal again, deal again."). They never figure out
+        # they're the mark, so even a losing/SHAKEN fish stays cheerful instead
+        # of sheepish. Gated to archetype=='fish'; ordinary fun-lovers still feel
+        # the "oops" (sheepish) of a real beat.
+        if (
+            self.is_fish
+            and family is EmotionFamily.FUN_LOVER
+            and quadrant is EmotionalQuadrant.SHAKEN
+        ):
+            return 'gleeful' if energy > self._TRUE_EMOTION_ENERGY_SPLIT else 'happy'
+
         high_energy, low_energy = cell
         return high_energy if energy > self._TRUE_EMOTION_ENERGY_SPLIT else low_energy
 
