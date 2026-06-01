@@ -413,9 +413,19 @@ The doc was drafted partly from memory; an independent source audit corrected:
   current balances** so the ledger is authoritative from day one, then deprecate
   the old shape. It is deferred-and-backfilled migration, not zero migration.
   Restitution (D5) is a separate one-time recovery from backups.
-- **D1 — Table as projection. ACCEPTED.** `cash_tables` seat map is a derived
-  read-model of Presence ∩ Chip-custody; nothing writes it independently. Ghost
-  seats become unrepresentable. (§6.)
+- **D1 — Table as projection. ACCEPTED (occupancy only); payload demotion
+  deferred (downgraded 2026-06-01).** Presence is the single authority for *who is
+  where*; `cash_tables.seats_json` is a written CACHE for the seat payload (chips,
+  archetype, seated_at), committed atomically with presence inside `save_table`.
+  Ghost seats are unrepresentable not by derivation but by presence's partial-
+  unique seat index (a would-be double-seat write raises `IntegrityError` → the
+  `save_table` transaction rolls back). A *true* derived view would require every
+  payload field to get a durable home (chips → the ledger; archetype/seated_at → a
+  satellite) — high-risk, no bug-class gain over the IntegrityError guard, so it's
+  deferred. The read-only `assert_presence_seat_consistency`
+  (`cash_mode/presence_consistency.py`) documents/monitors the invariant the
+  system now enforces by construction. See `CASH_MODE_PRESENCE_READSIDE_COMPLETION.md`
+  + `CASH_MODE_TECH_DEBT.md` §3. (§6.)
 - **D2 — Ledger-derived bankroll. ACCEPTED (Option A).** Money moves only by
   writing a balanced ledger entry; bankroll = sum of `IN_BANKROLL` parcels, with
   the integer as an optional cache. Conservation (I1) is enforced, not audited.
