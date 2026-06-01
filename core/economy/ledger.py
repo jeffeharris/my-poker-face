@@ -773,33 +773,6 @@ def record_house_stake_issue(
     )
 
 
-def record_cap_clamp(
-    repo: Optional[ChipLedgerRepository],
-    *,
-    personality_id: str,
-    overflow: int,
-    context: Optional[Dict[str, Any]] = None,
-    sandbox_id: Optional[str] = None,
-) -> Optional[int]:
-    """ai → central_bank for chips that would push past `starting_bankroll`.
-
-    Fired by `credit_ai_cash_out` when the AI's table stack would
-    push the bankroll past its cap; the excess effectively evaporates
-    back into the bank. No-op when `overflow <= 0`.
-    """
-    if repo is None or overflow <= 0:
-        return None
-    return record(
-        repo,
-        source=ai(personality_id),
-        sink=bank(),
-        amount=overflow,
-        reason='cap_clamp',
-        context=context,
-        sandbox_id=sandbox_id,
-    )
-
-
 def record_table_rake(
     repo: Optional[ChipLedgerRepository],
     *,
@@ -956,7 +929,7 @@ def record_vice_spending(
     `BANK_POOL_DEPOSIT_REASONS` so the pool depth accounting picks
     these up the same way it picks up `bank_pool_deposit`.
 
-    Mirrors `record_cap_clamp`'s shape (single-personality destruction).
+    A single-personality destruction (ai → central_bank).
     """
     if repo is None or amount <= 0:
         return None
