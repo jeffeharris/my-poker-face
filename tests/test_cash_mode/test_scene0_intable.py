@@ -131,6 +131,54 @@ def test_fish_river_bluff_resolves_when_checked_to():
     assert action["amount"] > 0
 
 
+def test_fish_tell_fires_on_the_flop_of_the_discipline_hand(monkeypatch):
+    """The per-STREET fish line is dispatched by the community-card hook: on the
+    discipline hand Larry comes alive on the flop (when he makes the nut straight),
+    not at hand open. Drives the flop directly and asserts the line is emitted."""
+    from poker.poker_state_machine import PokerPhase
+
+    game_data, sm = _scene0_game()
+    gh._init_scene("g1", game_data, sm, SCENE0)  # sets scene_roles (the fish name)
+    disc_idx = next(i for i, h in enumerate(cs.SCENE0_SCRIPT) if h.lesson == "discipline")
+    game_data["scene_idx"] = disc_idx
+    disc = cs.SCENE0_SCRIPT[disc_idx]
+
+    said: list = []
+    monkeypatch.setattr(gh, "_fish_say", lambda gid, gd, line: said.append(line))
+    monkeypatch.setattr(gh, "send_message", lambda *a, **k: None)
+
+    flop = tuple(Card.from_short(s) for s in disc.board[:3])
+    sm = sm.with_game_state(sm.game_state.update(community_cards=flop)).with_phase(
+        PokerPhase.FLOP
+    )
+    game_data["state_machine"] = sm
+
+    gh.handle_phase_cards_dealt("g1", sm, sm.game_state, game_data)
+    assert said == [disc.fish_streets["FLOP"]]
+
+
+def test_no_fish_tell_on_a_street_without_a_scripted_line(monkeypatch):
+    """The hook is silent on streets the hand doesn't script (turn here), and on
+    ordinary (non-scene) hands — it only speaks when a line is keyed to the phase."""
+    from poker.poker_state_machine import PokerPhase
+
+    game_data, sm = _scene0_game()
+    gh._init_scene("g1", game_data, sm, SCENE0)
+    disc_idx = next(i for i, h in enumerate(cs.SCENE0_SCRIPT) if h.lesson == "discipline")
+    game_data["scene_idx"] = disc_idx
+
+    said: list = []
+    monkeypatch.setattr(gh, "_fish_say", lambda gid, gd, line: said.append(line))
+    monkeypatch.setattr(gh, "send_message", lambda *a, **k: None)
+
+    board4 = tuple(Card.from_short(s) for s in cs.SCENE0_SCRIPT[disc_idx].board[:4])
+    sm = sm.with_game_state(sm.game_state.update(community_cards=board4)).with_phase(
+        PokerPhase.TURN
+    )
+    gh.handle_phase_cards_dealt("g1", sm, sm.game_state, game_data)
+    assert said == []  # the discipline hand scripts no TURN line
+
+
 def test_scripted_holes_follow_player_name_through_button_rotation():
     """Regression for the rig bug: cards are keyed by NAME, so the per-hand button
     rotation (reset_game_state_for_new_hand reorders the players tuple each hand)

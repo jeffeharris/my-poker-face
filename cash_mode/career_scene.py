@@ -67,6 +67,13 @@ class Scene0Hand:
     # Larry never figures out he's the mark. Empty = silent (real-game texture).
     fish_setup: str = ""
     fish_react: str = ""
+    # Per-STREET fish chatter, keyed by phase name ('FLOP'/'TURN'/'RIVER'). Fires
+    # once when that community card street is dealt — so the fish can react to what
+    # he actually CATCHES rather than telegraphing strength at hand-open. The
+    # discipline hand uses it: Larry is a clueless limp preflop (junk J9o) and only
+    # comes ALIVE on the flop, the moment he makes the nut straight (mirroring Chan,
+    # who was quiet then sprang the trap). Empty = no mid-hand fish line.
+    fish_streets: Dict[str, str] = field(default_factory=dict)
     # The FINALE: lift the no-bust guard so Sal can drain the fish to zero
     # (bets uncapped, 'passive' calls the all-in off, 'shove' jams). Sal is seeded
     # to cover, so the loser's chips just transfer — no minting.
@@ -313,13 +320,16 @@ _VALUE = Scene0Hand(
     pass_when="not_folded",
     # Sal can't see the hero's cards — he coaches the PRINCIPLE off Larry's
     # public behavior, never the hero's hand. The player reads their own set.
+    # Thinking out loud about Larry (the strategy talk a fish glazes past) — not
+    # yet coaching YOU. The player reads their own set and applies it.
     sal_setup=(
-        "Larry calls with anything and folds nothing, kid — no quit in the man. "
-        "So when you've got the goods against a fella like that, don't get cute "
-        "and slow-play it. Bet it, every street, and make the fish pay."
+        "Funny thing about ol' Larry there — he'll call with a postcard, folds "
+        "nothin'. No quit in the man. Way you beat a fella like that's simple: "
+        "you flop somethin' good, you bet it — every street. No sense slow-playin' "
+        "a man who'll pay you off anyhow."
     ),
     # Pass = the hero stayed in → showdown → Larry's weak pair is public.
-    sal_pass="See that? He paid you off with one pair — that's free money. That's why you bet your good hands at a station, kid, not check 'em.",
+    sal_pass="See that? Paid off with one pair — that's free money. That's why you bet your good hands at a station, not check 'em and pray.",
     sal_fail="A man who calls everything, you bet everything — don't go givin' the fish a free pass next time.",
     fish_setup="Ooh, a king! I like kings.\n*blub*\nYou comin' along, friend?",
     fish_react="Aw, ya got me. Great hand, buddy — I almost had ya! Deal again, deal again.",
@@ -345,11 +355,13 @@ _BLUFF_CATCH = Scene0Hand(
     lesson="bluff_catch",
     correct_action="call",
     pass_when="not_folded",
-    # Principle off Larry's tendency, not the hero's hand ("if you've got a piece").
+    # Still musing aloud — but the first flicker that the right play is rare here
+    # (a quiet nod toward the fact that YOU might be different, without saying so).
     sal_setup=(
-        "Watch Larry this hand. When he's got nothin', he can't help himself — he "
-        "fires and fires, tryin' to scare ya off. So if you've got a piece worth "
-        "callin', don't let the barrel run ya over. Look him up, kid."
+        "Now watch Larry close this one. When he's got nothin' he can't help "
+        "himself — fires and fires, tryin' to scare folks off the pot. Anybody "
+        "with a piece worth callin' oughta just look him up. Most around here "
+        "won't, though. Their loss."
     ),
     # Pass = hero called → showdown → Larry's air is public.
     sal_pass="What'd I tell ya — king-high nothin', three streets of it. You looked him up. Better men have folded that and kicked themselves all night.",
@@ -383,17 +395,27 @@ _DISCIPLINE = Scene0Hand(
     lesson="discipline",
     correct_action="fold",
     pass_when="folded",
+    # The recognition surfaces: he notices YOU'VE been tracking the talk all night
+    # (fish don't) — and for the first time addresses you directly as "kid".
     sal_setup=(
-        "Careful this one, kid. Even a fish catches a card now and then. Larry's "
-        "been limp-callin' all night — so if he suddenly wakes up and bets BIG, "
-        "out of nowhere? That ain't a bluff. Don't pay him off just 'cause you've "
-        "got something."
+        "Huh. You're still trackin' all this, ain'tcha — most folks have glazed "
+        "over by now. Alright, kid: careful this one. Even a fish catches a card. "
+        "Larry's limp-called all night, so if he wakes up and bets BIG out of "
+        "nowhere — that ain't a bluff. Don't pay him off just 'cause you got "
+        "something."
     ),
     # Pass = hero folded → no showdown → Sal speaks to the tendency, not Larry's muck.
     sal_pass="Good lay-down. A quiet fella only comes alive like that with the goods. Knowin' when to fold is the whole job, kid — the greats lost titles forgettin' it.",
     # Fail = hero called → showdown → Larry's straight is public.
     sal_fail="Oof — he flopped the joint and trapped ya cold. When the quiet one suddenly bets the farm, believe him. Dodge that one next time.",
-    fish_setup="Oh! Oh! I like THIS hand!\n*blub blub*\nBettin' a lot now, fellas — a LOT.",
+    # Preflop he's his usual clueless self — J-nine offsuit is nothing yet, and a
+    # fish has no idea it's about to become everything. The tell comes WHEN he hits.
+    fish_setup="Eh, jack-nine. I'll tag along, sure.\n*blub*\nWhy not, right?",
+    # FLOP (Q-8-T) makes his nut straight — NOW he wakes up, loud and obvious. This
+    # is the read Sal warned about: the quiet limper suddenly betting big = the goods.
+    fish_streets={
+        "FLOP": "Oh! Oh! NOW I like it!\n*blub blub*\nLookit them cards line up — I'm bettin' a LOT, fellas, a LOT!",
+    },
     fish_react="Hee hee, I had the good cards that time! See? Even I get 'em. Don't feel bad, friend.",
     # Larry bets his straight for value; the hero should fold top pair.
     fish_plan={
@@ -443,10 +465,14 @@ SCENE0_SCRIPT: List[Scene0Hand] = [
     # biscuits-and-gravy gag is carried by the table, never voiced by you.
     Scene0Hand(
         rigged=False,
+        # Slow burn: early Sal is a chatty old-timer running his mouth at no one
+        # in particular (the canon mechanic — fish tune it out, you don't). He
+        # does NOT single you out or coach you yet; that recognition builds and
+        # only pays off at graduation. "friend" now → "kid" once he's clocked you.
         sal_setup=(
-            "Sit down, kid, sit down. Waitress send ya back? Course she did. Keep "
-            "your money in your pocket till I tell ya — first one's just to get "
-            "the feel of it."
+            "Sit down, sit down — plenty of room. Don't mind me, friend; I just "
+            "like to talk while the cards run. Been doin' it so long the regulars "
+            "tune me right out. First hand's a freebie — just feel it out."
         ),
         fish_setup="Hiya, new fella!\n*blub*\nYou here for the game or the biscuits and gravy? Heh — everybody says the biscuits.",
     ),

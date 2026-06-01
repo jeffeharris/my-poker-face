@@ -850,6 +850,25 @@ def handle_phase_cards_dealt(
             phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
             memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
+    # Scripted-scene per-STREET fish tell: the fish reacts to the board he just
+    # caught, not to the hand at open. On the discipline hand Larry flops the nut
+    # straight and only THEN comes alive (the read Sal warned about). Gated on
+    # `scene_idx` (set only for scene games) so ordinary cash hands pay nothing.
+    # This is the once-per-phase-transition hook, so the line fires exactly once.
+    if game_data is not None and game_data.get('scene_idx') is not None:
+        try:
+            scene = _scene_for_game(game_id, game_data)
+            if scene is not None:
+                hand = scene.hand_for_index(game_data.get('scene_idx', -1))
+                if hand is not None and getattr(hand, 'rigged', False):
+                    line = (getattr(hand, 'fish_streets', None) or {}).get(
+                        state_machine.current_phase.name
+                    )
+                    if line:
+                        _fish_say(game_id, game_data, line)
+        except Exception:
+            logger.warning("[SCENE] per-street fish tell failed", exc_info=True)
+
 
 def _reputation_order_refill_pool(eligible_pool, *, owner_id, sandbox_id, now):
     """Reorder the cash refill candidate pool by the human's reputation.

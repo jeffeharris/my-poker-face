@@ -106,6 +106,20 @@ def test_discipline_hand_judged_on_fold():
     assert d.holes[ROLE_HERO] == ["Qc", "7c"]
 
 
+def test_discipline_fish_tell_lands_on_the_flop_not_at_open():
+    """Larry holds junk (J9o) preflop and only catches the nut straight on the
+    flop — so his strength tell must fire WHEN he hits, never at hand open (which
+    would both make no poker sense and telegraph the trap a street early)."""
+    d = cs.hand_for_index(6)
+    # Preflop he's a clueless limp — no big-bet telegraph at open.
+    assert d.fish_setup
+    assert "lot" not in d.fish_setup.lower()
+    # The loud "bettin' a LOT" tell is keyed to the FLOP (the moment he makes it),
+    # and only the flop — turn/river he simply keeps barreling the made hand.
+    assert set(d.fish_streets) == {"FLOP"}
+    assert "lot" in d.fish_streets["FLOP"].lower()
+
+
 # --- scripted-action resolver ------------------------------------------------
 
 

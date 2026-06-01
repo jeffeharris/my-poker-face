@@ -157,10 +157,12 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
             <div className="lucky__avatar" aria-hidden="true">🐟</div>
             {result.bio && <p className="lucky__bio">“{result.bio}”</p>}
             <div className="lucky__waitress">
-              <img className="lucky__waitress-img" src="/sal.png" alt="Sal Monroe" />
+              <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
               <p className="lucky__line lucky__welcome">
-                An old guy at the corner table looks up from his coffee and nods at the
-                empty seat across from him.
+                She tips her head toward a near-empty back table — plenty of open
+                chairs, just a couple regulars in it: some old-timer yappin' away
+                over his coffee, and a wide-eyed fella across from him.
+                <em> “Go on, hon. They don't bite. Much.”</em>
               </p>
             </div>
             <button className="lucky__btn" onClick={onDone}>
