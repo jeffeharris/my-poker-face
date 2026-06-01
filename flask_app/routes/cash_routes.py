@@ -5624,6 +5624,50 @@ def get_lobby():
             seated_table_id = persisted_session.cash_table_id
             seated_stake_label = persisted_session.stake_label
 
+    # Self-heal a finished tutorial: a graduated player whose ONLY active session
+    # is still their Scene-0 table means the scene's teardown never landed — the
+    # frontend leave is best-effort (queue-gated + silently caught), and a cold-
+    # load or manual nav back to /cash bypasses it entirely. That lingering
+    # session wedges the ENTIRE post-graduation handoff, since both the comp-
+    # return and Sal's mentor stake gate on `not has_active_session`. Settle +
+    # close it here (reuses the leave path: the comped stack returns to bankroll,
+    # which the comp-return below then sweeps to the pool). Gated tightly on the
+    # player's OWN Scene-0 table + `tutorial_complete`, so it can never close a
+    # session that's still mid-tutorial or any other live cash game.
+    if (
+        has_active_session
+        and career_progress is not None
+        and career_progress.career_active
+        and career_progress.tutorial_complete
+        and seated_table_id == career_progression.SCENE0_TABLE_ID
+    ):
+        stuck_game_id = active_game_id
+        try:
+            lock = game_state_service.get_game_lock(stuck_game_id)
+            with lock:
+                _leave_table_locked(owner_id, stuck_game_id)
+            has_active_session = False
+            active_game_id = None
+            seated_table_id = None
+            seated_stake_label = None
+            seated_since = None
+            # The leave settled the comped table stack back into the bankroll;
+            # re-read it so the comp-return below sees those chips (and sweeps
+            # them to the pool) rather than the stale pre-leave value.
+            bankroll = _load_or_seed_player_bankroll(owner_id)
+            logger.info(
+                "[CASH][LOBBY] auto-closed finished Scene-0 session %r for %r "
+                "(unwedging the graduation handoff)",
+                stuck_game_id,
+                owner_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] Scene-0 session auto-close failed for %r: %s",
+                stuck_game_id,
+                exc,
+            )
+
     # Comp-return (the Circuit): you were comped as a fish, so on graduation the
     # house takes its stake back — you walk into the lobby with nothing and Sal
     # stakes your first real seat. One-shot (`comp_returned`), and only once

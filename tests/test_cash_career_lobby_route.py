@@ -367,6 +367,62 @@ class TestCareerMentorStake(unittest.TestCase):
         repo.save(prog)
         assert self.client.get("/api/cash/lobby").get_json()["mentor_stake"] is None
 
+    def test_lobby_self_heals_a_lingering_scene0_session_and_unwedges_handoff(self):
+        """A graduated player still 'seated' at the finished Scene-0 table (the
+        frontend leave didn't land) must not stay wedged: the lobby closes that
+        session so the comp-return + mentor stake fire. Mocks the stuck session +
+        the leave teardown; asserts the handoff goes through."""
+        from unittest.mock import patch
+
+        from poker.repositories.bankroll_repository import PlayerBankrollState
+
+        sb = self._sandbox_id()
+        home = self._home_court(sb)
+        repo = self.repos['career_progress_repo']
+        prog = repo.load(sb, MENTOR_OWNER_ID)
+        prog.career_active = True
+        prog.tutorial_complete = True
+        prog.comp_returned = False  # the comp hasn't been swept yet
+        prog.mentor_stake_used = False
+        prog.home_court_table_id = home.table_id
+        if home.table_id not in prog.revealed_table_ids:
+            prog.revealed_table_ids.append(home.table_id)
+        repo.save(prog)
+        # The comped chips are still in bankroll (as if the leave settled them).
+        self.repos['bankroll_repo'].save_player_bankroll(
+            PlayerBankrollState(player_id=MENTOR_OWNER_ID, chips=200, starting_bankroll=200)
+        )
+
+        stuck_id = "cash-stuck-scene0"
+        leave_calls = []
+
+        def _fake_get_game(gid):
+            # Surface the stuck session as seated at the Scene-0 table.
+            if gid == stuck_id:
+                return {"cash_table_id": cp.SCENE0_TABLE_ID, "cash_stake_label": "$2"}
+            return None
+
+        with patch(
+            "flask_app.routes.cash_routes._find_active_cash_game_id",
+            return_value=stuck_id,
+        ), patch(
+            "flask_app.routes.cash_routes._leave_table_locked",
+            side_effect=lambda owner, gid: leave_calls.append((owner, gid)),
+        ), patch(
+            "flask_app.services.game_state_service.get_game",
+            side_effect=_fake_get_game,
+        ):
+            data = self.client.get("/api/cash/lobby").get_json()
+
+        # The finished Scene-0 session was torn down (leave invoked for it)...
+        assert leave_calls == [(MENTOR_OWNER_ID, stuck_id)]
+        # ...so the handoff is no longer wedged: comp swept (→ 0), Sal's stake offered.
+        assert data["has_active_session"] is False
+        assert data["bankroll"] == 0
+        assert repo.load(sb, MENTOR_OWNER_ID).comp_returned is True
+        assert data["mentor_stake"] is not None
+        assert data["mentor_stake"]["lender_id"] == cp.SAL_ID
+
     def test_mentor_stake_sit_funds_from_sal_and_is_one_shot(self):
         """Non-circulating Sal can back the graduate's first seat — the carve-out —
         and the principal comes OUT of his bankroll (never minted), one time only."""
