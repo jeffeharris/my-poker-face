@@ -17,6 +17,14 @@ interface ActionFreq {
   call: number;
   raise: number;
 }
+// Recent-window rollup attached to each all-time leak (may be absent on
+// older responses — code defensively against the trend chip + caption).
+interface RecentLeak {
+  n: number; // decisions for this spot within the recent window
+  gap: number | null; // recent deviation gap, or null if insufficient
+  status: 'watching' | 'confirmed' | null;
+  trend: 'shrinking' | 'persistent' | 'worsening' | 'cleared' | 'insufficient';
+}
 interface Leak {
   scenario: string; // rfi | vs_open | vs_3bet
   position: string; // 6-max label (UTG/HJ/CO/BTN/SB/BB)
@@ -27,6 +35,14 @@ interface Leak {
   gap: number;
   times_seen: number;
   status: string; // 'confirmed' | 'watching'
+  recent?: RecentLeak; // recent-vs-all-time rollup (optional)
+}
+// Emerging leaks share the all-time leak shape minus the `recent` rollup.
+type EmergingLeak = Omit<Leak, 'recent'>;
+interface RecentWindow {
+  unit: 'hands';
+  n: number;
+  decisions: number;
 }
 interface LeaksResponse {
   total_decisions: number;
@@ -37,7 +53,17 @@ interface LeaksResponse {
   graded: number;
   eligible_groups: number;
   skipped: Record<string, number>;
+  emerging?: EmergingLeak[]; // recent-only leaks not in the all-time list
+  recent_window?: RecentWindow; // describes the recent window, if computed
 }
+
+const TREND_LABEL: Record<RecentLeak['trend'], string> = {
+  shrinking: '↓ improving',
+  persistent: 'no change',
+  worsening: '↑ worse',
+  cleared: '✓ cleared recently',
+  insufficient: '— recent: too few',
+};
 
 const SCENARIO_PHRASE: Record<string, string> = {
   rfi: 'opening from',
@@ -83,6 +109,21 @@ function leakText(lk: Leak): string {
       detail = `you just call; the solver raises ${pct(lk.chart_freq.raise)}% of the time`;
   }
   return `${subject} — ${detail}`;
+}
+
+// Small inline chip summarising how the recent window compares to all-time.
+// Falls back to the muted "too few" treatment when the rollup is missing.
+function TrendChip({ recent }: { recent?: RecentLeak }) {
+  const trend = recent?.trend ?? 'insufficient';
+  const title =
+    recent && recent.n > 0
+      ? `recent: ${recent.n} of this spot's hands in the recent window vs all-time`
+      : 'recent: too few hands to compare vs all-time';
+  return (
+    <span className={`pfl-trend pfl-trend--${trend}`} title={title}>
+      {TREND_LABEL[trend]}
+    </span>
+  );
 }
 
 const POSITION_LABEL: Record<string, string> = {
@@ -262,6 +303,7 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                       <span className={`pfl-leak-badge${confirmed ? '' : ' watch'}`}>
                         {confirmed ? 'leak' : 'watching'}
                       </span>
+                      <TrendChip recent={lk.recent} />
                       <button
                         type="button"
                         className="pfl-leak-drill"
@@ -273,6 +315,41 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                   );
                 })}
               </ul>
+            )}
+
+            {data.emerging && data.emerging.length > 0 && (
+              <div className="pfl-emerging">
+                <h4 className="pfl-emerging-head">Showing up recently</h4>
+                <ul className="pfl-leaks">
+                  {data.emerging.map((lk) => (
+                    <li
+                      key={`emerging-${lk.scenario}-${lk.position}-${lk.hand}-${lk.kind}`}
+                      className="pfl-leak pfl-leak--emerging"
+                    >
+                      <span className="pfl-leak-detail">
+                        {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
+                      </span>
+                      <span className="pfl-trend pfl-trend--emerging" title="new in the recent window">
+                        ↑ new
+                      </span>
+                      <button
+                        type="button"
+                        className="pfl-leak-drill"
+                        onClick={() => onDrill(lk.scenario, lk.position)}
+                      >
+                        Drill
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {data.recent_window && (
+              <p className="pfl-note">
+                Recent = your last {data.recent_window.n} hands ({data.recent_window.decisions}{' '}
+                analyzed).
+              </p>
             )}
             <p className="pfl-note pfl-note--tier">
               <strong>watching</strong> = small sample so far (could be variance);{' '}

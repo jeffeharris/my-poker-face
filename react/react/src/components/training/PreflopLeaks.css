@@ -175,6 +175,60 @@
   background: rgba(234, 179, 8, 0.18);
   color: #fcd34d;
 }
+/* Recent-vs-all-time trend chip — sits inline next to the leak badge. */
+.pfl-trend {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.pfl-trend--shrinking {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+.pfl-trend--cleared {
+  background: rgba(52, 211, 153, 0.1);
+  color: rgba(110, 231, 183, 0.75);
+}
+.pfl-trend--persistent {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-muted, #9ca3af);
+}
+.pfl-trend--worsening {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
+}
+.pfl-trend--insufficient {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(156, 163, 175, 0.7);
+}
+.pfl-trend--emerging {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fcd34d;
+}
+
+/* Emerging (recent-only) leaks — amber, like watch-items. */
+.pfl-emerging {
+  margin-bottom: 1.25rem;
+}
+.pfl-emerging-head {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fcd34d;
+}
+.pfl-leak--emerging {
+  background: rgba(234, 179, 8, 0.07);
+  border-color: rgba(234, 179, 8, 0.18);
+}
+.pfl-leak--emerging .pfl-leak-hand {
+  color: #fcd34d;
+}
+
 .pfl-leak-drill {
   flex: 0 0 auto;
   align-self: center;

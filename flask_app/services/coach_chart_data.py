@@ -117,6 +117,9 @@ def reconstruct_context(row: dict, bb: Optional[float]) -> Optional[dict]:
             'effective_stack_bb': eff_bb,
             'num_players': num_players,
             'action': row.get('action') or row.get('action_taken'),
+            # Carried for recency slicing; harmless to the pure grader.
+            'created_at': row.get('created_at'),
+            'hand_number': row.get('hand_number'),
         }
     )
     return ctx
@@ -154,6 +157,8 @@ def load_owner_chart_decisions(db_path: str, owner_id: str) -> list[dict]:
                    pda.player_stack          AS player_stack,
                    pda.num_opponents         AS num_opponents,
                    pda.player_name           AS player_name,
+                   pda.created_at            AS created_at,
+                   pda.hand_number           AS hand_number,
                    g.owner_name              AS owner_name,
                    {node_col}
                    CAST(json_extract(g.game_state_json, '$.current_ante') AS REAL) AS bb

@@ -257,7 +257,11 @@ def coach_preflop_leaks():
     a raise). See flask_app/services/coach_leaks for the scope caveats.
     """
     from ..services.coach_chart_data import load_owner_chart_decisions
-    from ..services.coach_chart_leaks import compute_chart_leaks
+    from ..services.coach_chart_leaks import (
+        compute_chart_leaks,
+        compute_slice_diff,
+        recent_slice,
+    )
     from ..services.coach_leaks import compute_preflop_leaks, load_owner_preflop_decisions
     from poker.strategy.preflop_reference import reference_strategy
 
@@ -267,17 +271,24 @@ def coach_preflop_leaks():
 
     # Below this, the signal is too thin to act on — the UI shows "keep playing".
     min_for_signal = 50
+    # "Recent" = the player's last N hands (volume-stable; ?window_hands= override).
+    try:
+        recent_hands = max(50, min(5000, int(request.args.get('window_hands', 500))))
+    except (TypeError, ValueError):
+        recent_hands = 500
 
     try:
         # VPIP-by-position bars: orientation only (context, not a verdict).
         vpip_report = compute_preflop_leaks(
             load_owner_preflop_decisions(extensions.persistence_db_path, owner_id)
         )
-        # Chart-graded leaks: your frequencies vs the bots' solver charts.
-        chart_report = compute_chart_leaks(
-            load_owner_chart_decisions(extensions.persistence_db_path, owner_id),
-            reference_strategy,
-            group_by='position',
+        # Chart-graded leaks: your frequencies vs the bots' solver charts. Load
+        # the decisions ONCE and reuse for the all-time report + the recent slice.
+        decisions = load_owner_chart_decisions(extensions.persistence_db_path, owner_id)
+        chart_report = compute_chart_leaks(decisions, reference_strategy, group_by='position')
+        recent = recent_slice(decisions, n_hands=recent_hands)
+        trends, emerging = compute_slice_diff(
+            decisions, recent, reference_strategy, group_by='position'
         )
     except Exception as e:
         logger.error(f"preflop-leaks failed for {owner_id}: {e}", exc_info=True)
@@ -288,6 +299,7 @@ def coach_preflop_leaks():
         for g in ('early', 'middle', 'late', 'blind')
         if g in vpip_report.by_position_summary
     ]
+    _insufficient = {'n': 0, 'gap': None, 'status': None, 'trend': 'insufficient'}
     leaks = [
         {
             'scenario': lk.scenario,
@@ -299,9 +311,25 @@ def coach_preflop_leaks():
             'gap': lk.gap,
             'times_seen': lk.n,
             'status': lk.status,  # 'confirmed' | 'watching'
+            # Recent-window rollup: shrinking/persistent/worsening/cleared/insufficient.
+            'recent': trends.get((lk.scenario, lk.position), _insufficient),
         }
         for lk in chart_report.leaks
     ][:15]
+    emerging_payload = [
+        {
+            'scenario': m['scenario'],
+            'position': m['position'],
+            'hand': m['hand'],
+            'kind': m['kind'],
+            'your_freq': m['your_freq'],
+            'chart_freq': m['chart_freq'],
+            'gap': m['gap'],
+            'times_seen': m['n'],
+            'status': m['status'],
+        }
+        for m in emerging
+    ][:10]
 
     return jsonify(
         {
@@ -310,6 +338,8 @@ def coach_preflop_leaks():
             'min_for_signal': min_for_signal,
             'by_position': by_position,
             'leaks': leaks,
+            'emerging': emerging_payload,
+            'recent_window': {'unit': 'hands', 'n': recent_hands, 'decisions': len(recent)},
             # Chart-grading coverage — disclosed, never silently dropped.
             'graded': chart_report.graded,
             'eligible_groups': chart_report.eligible_groups,

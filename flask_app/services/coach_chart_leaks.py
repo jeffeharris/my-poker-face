@@ -168,10 +168,58 @@ def compute_chart_leaks(
     granularity (aggregates are stable, so a smaller gap is trustworthy).
     """
     by_hand = group_by == 'hand'
-    if min_sample is None:
-        min_sample = DEFAULT_MIN_SAMPLE if by_hand else 5
     if deviation_min is None:
         deviation_min = HAND_DEVIATION_MIN if by_hand else POSITION_DEVIATION_MIN
+
+    metrics, graded, eligible, skipped = _grade_groups(
+        decisions, resolve_ref, group_by=group_by, min_sample=min_sample
+    )
+    leaks = [
+        ChartLeak(
+            scenario=m['scenario'],
+            position=m['position'],
+            hand=m['hand'],
+            kind=m['kind'],
+            n=m['n'],
+            your_freq=m['your_freq'],
+            chart_freq=m['chart_freq'],
+            gap=m['gap'],
+            severity=round(m['gap'] * m['n'], 3),
+            status=m['status'],
+        )
+        for m in metrics.values()
+        if m['kind'] is not None and m['gap'] >= deviation_min
+    ]
+    leaks.sort(key=lambda lk: lk.severity, reverse=True)
+    return ChartLeakReport(
+        leaks=leaks,
+        total_decisions=len(decisions),
+        graded=graded,
+        eligible_groups=eligible,
+        skipped=skipped,
+    )
+
+
+def _grade_groups(
+    decisions: List[dict],
+    resolve_ref: ReferenceResolver,
+    *,
+    group_by: str = 'position',
+    min_sample: Optional[int] = None,
+) -> tuple:
+    """Grade decisions into per-group metrics — the shared core under
+    ``compute_chart_leaks`` and ``compute_slice_diff``.
+
+    Returns ``(metrics, graded, eligible, skipped)`` where ``metrics`` maps a
+    group key to ``{scenario, position, hand, kind, gap, n, status, your_freq,
+    chart_freq}`` for EVERY eligible group — leak or not (so slices can be
+    diffed on the dominant gap, not just thresholded leaks). ``kind`` is None
+    when no leak shape applies; ``gap`` is the dominant deviation regardless of
+    threshold.
+    """
+    by_hand = group_by == 'hand'
+    if min_sample is None:
+        min_sample = DEFAULT_MIN_SAMPLE if by_hand else 5
 
     skipped: Dict[str, int] = defaultdict(int)
     groups: Dict[tuple, dict] = defaultdict(lambda: {'actions': [], 'refs': []})
@@ -204,7 +252,7 @@ def compute_chart_leaks(
     graded = sum(len(g['actions']) for g in groups.values())
     eligible = sum(1 for g in groups.values() if len(g['actions']) >= min_sample)
 
-    leaks: List[ChartLeak] = []
+    metrics: Dict[tuple, dict] = {}
     for key, g in groups.items():
         n = len(g['actions'])
         if n < min_sample:
@@ -212,39 +260,87 @@ def compute_chart_leaks(
         scen, pos = key[0], key[1]
         hand = key[3] if by_hand else ''
         your = {
-            k: sum(1 for a in g['actions'] if a == k) / n
-            for k in ('fold', 'call', 'raise')
+            k: sum(1 for a in g['actions'] if a == k) / n for k in ('fold', 'call', 'raise')
         }
-        chart = {
-            k: sum(r[k] for r in g['refs']) / n for k in ('fold', 'call', 'raise')
+        chart = {k: sum(r[k] for r in g['refs']) / n for k in ('fold', 'call', 'raise')}
+        # deviation_min=-inf → always return the dominant (kind, gap), unthresholded.
+        verdict = _classify(scen, your, chart, float('-inf'))
+        kind, gap = verdict if verdict is not None else (None, 0.0)
+        metrics[key] = {
+            'scenario': scen,
+            'position': pos,
+            'hand': hand,
+            'kind': kind,
+            'gap': round(gap, 3),
+            'n': n,
+            'status': 'confirmed' if n >= CONFIRM_MIN_SEEN else 'watching',
+            'your_freq': {k: round(v, 3) for k, v in your.items()},
+            'chart_freq': {k: round(v, 3) for k, v in chart.items()},
         }
-        verdict = _classify(scen, your, chart, deviation_min)
-        if verdict is None:
-            continue
-        kind, gap = verdict
-        leaks.append(
-            ChartLeak(
-                scenario=scen,
-                position=pos,
-                hand=hand,
-                kind=kind,
-                n=n,
-                your_freq={k: round(v, 3) for k, v in your.items()},
-                chart_freq={k: round(v, 3) for k, v in chart.items()},
-                gap=round(gap, 3),
-                severity=round(gap * n, 3),
-                status='confirmed' if n >= CONFIRM_MIN_SEEN else 'watching',
-            )
-        )
+    return metrics, graded, eligible, dict(skipped)
 
-    leaks.sort(key=lambda lk: lk.severity, reverse=True)
-    return ChartLeakReport(
-        leaks=leaks,
-        total_decisions=len(decisions),
-        graded=graded,
-        eligible_groups=eligible,
-        skipped=dict(skipped),
+
+# ── Recency slicing + diff ───────────────────────────────────────────────
+
+# A leak's gap must move by at least this (≈10 points) to count as shrinking or
+# worsening rather than holding steady.
+TREND_DELTA = 0.10
+
+
+def recent_slice(decisions: List[dict], n_hands: int = 500) -> List[dict]:
+    """The player's most recent ``n_hands`` decisions, by created_at then
+    hand_number. Decisions missing a timestamp sort oldest (so they fall out of
+    the recent window first). Returns all of them when fewer than the window."""
+    ordered = sorted(
+        decisions, key=lambda d: (d.get('created_at') or '', d.get('hand_number') or 0)
     )
+    if n_hands and len(ordered) > n_hands:
+        return ordered[-n_hands:]
+    return ordered
+
+
+def compute_slice_diff(
+    all_decisions: List[dict],
+    recent_decisions: List[dict],
+    resolve_ref: ReferenceResolver,
+    *,
+    group_by: str = 'position',
+    delta: float = TREND_DELTA,
+) -> tuple:
+    """Diff a recent slice against all-time. Returns ``(trends, emerging)``.
+
+    ``trends`` maps each ALL-TIME leak's key → ``{n, gap, status, trend}`` where
+    trend ∈ shrinking / persistent / worsening / cleared / insufficient.
+    ``emerging`` is the list of metric dicts that are leaks in the recent slice
+    but NOT all-time (newly showing up).
+    """
+    dev = HAND_DEVIATION_MIN if group_by == 'hand' else POSITION_DEVIATION_MIN
+    all_m, *_ = _grade_groups(all_decisions, resolve_ref, group_by=group_by)
+    rec_m, *_ = _grade_groups(recent_decisions, resolve_ref, group_by=group_by)
+
+    def is_leak(m: dict) -> bool:
+        return m['kind'] is not None and m['gap'] >= dev
+
+    all_leak_keys = {k for k, m in all_m.items() if is_leak(m)}
+    trends: Dict[tuple, dict] = {}
+    for k in all_leak_keys:
+        rm = rec_m.get(k)
+        if rm is None:  # not enough recent hands in this spot to judge
+            trends[k] = {'n': 0, 'gap': None, 'status': None, 'trend': 'insufficient'}
+            continue
+        ga, gr = all_m[k]['gap'], rm['gap']
+        if gr < dev:
+            trend = 'cleared'
+        elif gr <= ga - delta:
+            trend = 'shrinking'
+        elif gr >= ga + delta:
+            trend = 'worsening'
+        else:
+            trend = 'persistent'
+        trends[k] = {'n': rm['n'], 'gap': rm['gap'], 'status': rm['status'], 'trend': trend}
+
+    emerging = [rec_m[k] for k in rec_m if is_leak(rec_m[k]) and k not in all_leak_keys]
+    return trends, emerging
 
 
 # ── Prompt text ─────────────────────────────────────────────────────────

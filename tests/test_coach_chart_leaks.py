@@ -186,6 +186,59 @@ class TestCoverageAndSkips:
         assert rep.skipped.get('unparsed') == 4
 
 
+class TestRecencySliceAndDiff:
+    def _dec(self, hand, action, n, *, scenario='rfi', position='SB', created=1, eff_bb=100, nplayers=6):
+        return [
+            {
+                'hand': hand, 'position': position, 'scenario': scenario, 'opener': None,
+                'effective_stack_bb': eff_bb, 'num_players': nplayers, 'action': action,
+                'created_at': f'2026-01-{created:02d} 00:00:00', 'hand_number': i,
+            }
+            for i in range(n)
+        ]
+
+    def test_recent_slice_takes_newest_by_time(self):
+        from flask_app.services.coach_chart_leaks import recent_slice
+
+        old = self._dec('72o', 'fold', 3, created=1)
+        new = self._dec('AA', 'raise', 2, created=9)
+        got = recent_slice(old + new, n_hands=2)
+        assert len(got) == 2
+        assert all(d['hand'] == 'AA' for d in got)  # newest by created_at
+
+    def test_shrinking_when_recent_gap_smaller(self):
+        from flask_app.services.coach_chart_leaks import compute_slice_diff
+
+        ref = lambda *a: {'fold': 0.9, 'call': 0.05, 'raise': 0.05}  # chart folds 72o
+        # all-time: plays 72o constantly (gap ~0.7). recent: still a leak but
+        # smaller (plays half → gap ~0.4) → shrinking, not cleared.
+        all_d = self._dec('72o', 'call', 12, created=1)
+        recent = self._dec('72o', 'call', 4, created=9) + self._dec('72o', 'fold', 4, created=9)
+        trends, _ = compute_slice_diff(all_d + recent, recent, ref)
+        assert trends[('rfi', 'SB')]['trend'] == 'shrinking'
+
+    def test_insufficient_when_no_recent_volume(self):
+        from flask_app.services.coach_chart_leaks import compute_slice_diff
+
+        ref = lambda *a: {'fold': 0.9, 'call': 0.05, 'raise': 0.05}
+        all_d = self._dec('72o', 'call', 10, created=1)
+        recent = self._dec('72o', 'call', 2, created=9)  # < min_sample (5)
+        trends, _ = compute_slice_diff(all_d + recent, recent, ref)
+        assert trends[('rfi', 'SB')]['trend'] == 'insufficient'
+
+    def test_emerging_recent_only_leak(self):
+        from flask_app.services.coach_chart_leaks import compute_slice_diff
+
+        ref = lambda *a: {'fold': 0.9, 'call': 0.05, 'raise': 0.05}
+        # Lots of clean old folds dilute all-time below threshold; the recent
+        # slice plays it (a new leak that all-time doesn't yet show).
+        all_d = self._dec('72o', 'fold', 50, created=1)
+        recent = self._dec('72o', 'call', 6, created=9)
+        trends, emerging = compute_slice_diff(all_d + recent, recent, ref)
+        assert ('rfi', 'SB') not in trends  # not an all-time leak
+        assert len(emerging) == 1 and emerging[0]['position'] == 'SB'
+
+
 class TestPromptText:
     def test_empty_when_nothing_graded(self):
         rep = compute_chart_leaks([], _ref({}))
