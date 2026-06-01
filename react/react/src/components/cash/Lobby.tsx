@@ -28,7 +28,7 @@ import { io } from 'socket.io-client';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
 import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
-import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
+import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, sponsorAndSit, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { LuckyStackIntake } from './LuckyStackIntake';
 import { TableCard } from './TableCard';
@@ -46,6 +46,7 @@ import type {
   LobbyEvent,
   LobbyTable,
   MentorIntro,
+  MentorStake,
   ReputationData,
   StakableAiCandidate,
   StakeLabel,
@@ -231,6 +232,9 @@ export function Lobby() {
   // out (the server already cleared its copy, so it won't replay on next load).
   const [mentorIntro, setMentorIntro] = useState<MentorIntro | null>(null);
   const dismissMentorIntro = useCallback(() => setMentorIntro(null), []);
+  // Sal's STANDING mentor-stake offer (persists until taken). When the player
+  // taps the home-court seat, sit via sponsor-and-sit(lender=Sal) directly.
+  const [mentorStake, setMentorStake] = useState<MentorStake | null>(null);
   const mentorIntroQueue = useMemo<ChatMessage[]>(
     () =>
       mentorIntro
@@ -349,6 +353,9 @@ export function Lobby() {
         // One-shot Sal handoff: capture the first time it arrives (the server
         // clears its copy on serve), then let the floater play it out.
         if (lobby.mentor_intro) setMentorIntro(lobby.mentor_intro);
+        // Standing mentor stake: reflect server truth each load (it clears once
+        // taken / no longer eligible), so a stale offer can't linger client-side.
+        setMentorStake(lobby.mentor_stake ?? null);
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
@@ -468,6 +475,21 @@ export function Lobby() {
       // press registers, rather than waiting on the /sit round-trip.
       setSittingDown({ submessage: table.table_name ?? `${table.stake_label} table` });
       try {
+        // The Circuit's mentor stake: at the home court, the broke graduate's
+        // seat is backed by Sal directly. Route straight to sponsor-and-sit with
+        // Sal as the lender — the generic /sit → SponsorModal path would only
+        // offer lenders drawn from the table's own AIs, never non-circulating
+        // Sal. The server re-validates the career gate, so a stale offer 400s
+        // (caught below) rather than mis-seating.
+        if (mentorStake && mentorStake.table_id === table.table_id) {
+          const staked = await sponsorAndSit(
+            mentorStake.stake_label,
+            { lender_id: mentorStake.lender_id },
+            { table_id: table.table_id, seat_index: seatIndex }
+          );
+          navigate(`/game/${staked.game_id}`);
+          return;
+        }
         const result = await sitAtTable(table.table_id, seatIndex);
         if ('kind' in result) {
           // Sponsor flow takes over the screen — drop the transition so the
@@ -517,7 +539,7 @@ export function Lobby() {
         setBusy(false);
       }
     },
-    [busy, navigate]
+    [busy, navigate, mentorStake]
   );
 
   /** Intake "Take the seat" → drop straight into the Scene-0 game (not the

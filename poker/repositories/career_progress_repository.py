@@ -96,6 +96,12 @@ class CareerProgress:
     # enter the lobby with nothing and Sal stakes your first real seat). True once
     # the return has fired, so it never double-returns. See the lobby route.
     comp_returned: bool = False
+    # One-shot: Sal has staked the player into their home court (the comp-return's
+    # other half). Non-circulating Sal can't be surfaced by the generic eligible
+    # pool, so the mentor branch in `sponsor_and_sit` builds his offer directly,
+    # gated on this flag (career_active + tutorial_complete + home_court set +
+    # NOT used). True once the mentor stake has been taken, so it never re-offers.
+    mentor_stake_used: bool = False
 
     def has_vouched(self, personality_id: str) -> bool:
         """True if `personality_id` has already spent its one vouch (v1 rule)."""
@@ -125,6 +131,7 @@ class CareerProgress:
                 "scene_progress": self.scene_progress,
                 "mentor_intro_table_id": self.mentor_intro_table_id,
                 "comp_returned": self.comp_returned,
+                "mentor_stake_used": self.mentor_stake_used,
             }
         )
 
@@ -164,6 +171,7 @@ class CareerProgress:
             scene_progress=dict(blob.get("scene_progress") or {}),
             mentor_intro_table_id=blob.get("mentor_intro_table_id"),
             comp_returned=bool(blob.get("comp_returned", False)),
+            mentor_stake_used=bool(blob.get("mentor_stake_used", False)),
         )
 
 

@@ -238,3 +238,188 @@ class TestCareerKeyringLobby(unittest.TestCase):
         after = self.client.get("/api/cash/lobby").get_json()
         assert after["intake_needed"] is False
         assert after["fish_name"] == body["fish_name"]
+
+
+MENTOR_OWNER_ID = "career-mentor-1"
+
+
+class TestCareerMentorStake(unittest.TestCase):
+    """The mentor stake — the comp-return's other half: non-circulating Sal backs
+    the graduate's first real seat at their home court.
+
+    Its own fresh DB (NOT the keyring class's shared one): the funded sit creates
+    a live cash session + world churn, and this suite runs under pytest-randomly,
+    so sharing state would intermittently pollute the keyring pool assertions.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        cls.test_db.close()
+        repos = create_repos(cls.test_db.name)
+        cls.repos = repos
+        repos['personality_repo'].seed_personalities_from_json('poker/personalities.json')
+
+        import flask_app.extensions as ext
+
+        cls._ext_keys = [k for k in repos if k != 'db_path'] + ['persistence_db_path']
+        cls._ext_snapshot = {k: getattr(ext, k, None) for k in cls._ext_keys}
+
+        def mock_init_persistence():
+            for key, val in repos.items():
+                if key == 'db_path':
+                    continue
+                setattr(ext, key, val)
+            ext.persistence_db_path = repos['db_path']
+
+        from tests._sandbox_test_helper import pin_sandbox_for
+
+        pin_sandbox_for(MENTOR_OWNER_ID, repos['sandbox_repo'])
+
+        with patch('flask_app.extensions.init_persistence', mock_init_persistence):
+            cls.app = create_app()
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import flask_app.extensions as ext
+
+        for k, v in cls._ext_snapshot.items():
+            setattr(ext, k, v)
+        try:
+            os.unlink(cls.test_db.name)
+        except FileNotFoundError:
+            pass
+
+    def setUp(self):
+        user = {'id': MENTOR_OWNER_ID, 'name': 'Mentor Tester'}
+        self._authz_patcher = patch(
+            'poker.authorization.authorization_service',
+            _mock_authorization_service(user=user),
+        )
+        self._authz_patcher.start()
+        auth_mock = MagicMock()
+        auth_mock.get_current_user.return_value = user
+        self._auth_patcher = patch('flask_app.extensions.auth_manager', auth_mock)
+        self._auth_patcher.start()
+
+    def tearDown(self):
+        self._auth_patcher.stop()
+        self._authz_patcher.stop()
+        # The funded sit registers a live `cash-*` game in game_state_service — a
+        # MODULE-LEVEL in-memory store shared across ALL tests regardless of DB.
+        # Left behind, it leaks into other suites' global live-session scans, so
+        # evict any game this owner created here.
+        from flask_app.services import game_state_service
+
+        for gid in list(game_state_service.list_game_ids()):
+            data = game_state_service.get_game(gid)
+            if data and data.get('owner_id') == MENTOR_OWNER_ID:
+                game_state_service.delete_game(gid)
+
+    def _sandbox_id(self):
+        return self.repos['sandbox_repo'].list_for_owner(MENTOR_OWNER_ID)[0].sandbox_id
+
+    def _home_court(self, sb):
+        """Seed the world (via a lobby load) and return a real $2 home-court table."""
+        self.client.get("/api/cash/lobby")
+        return next(
+            t
+            for t in self.repos['cash_table_repo'].list_all_tables(sandbox_id=sb)
+            if t.stake_label == cp.HOME_COURT_STAKE
+        )
+
+    def _set_graduated_broke(self, sb, home_table_id):
+        """Mark the player graduated, broke, and pinned to a revealed home court."""
+        from poker.repositories.bankroll_repository import PlayerBankrollState
+
+        repo = self.repos['career_progress_repo']
+        prog = repo.load(sb, MENTOR_OWNER_ID)
+        prog.career_active = True
+        prog.tutorial_complete = True
+        prog.comp_returned = True  # already handed the comp back → don't re-trigger
+        prog.mentor_stake_used = False
+        prog.home_court_table_id = home_table_id
+        if home_table_id not in prog.revealed_table_ids:
+            prog.revealed_table_ids.append(home_table_id)
+        repo.save(prog)
+        self.repos['bankroll_repo'].save_player_bankroll(
+            PlayerBankrollState(player_id=MENTOR_OWNER_ID, chips=0, starting_bankroll=200)
+        )
+
+    def test_lobby_offers_mentor_stake_when_graduated_and_broke(self):
+        sb = self._sandbox_id()
+        home = self._home_court(sb)
+        self._set_graduated_broke(sb, home.table_id)
+
+        ms = self.client.get("/api/cash/lobby").get_json()["mentor_stake"]
+        assert ms is not None
+        assert ms["lender_id"] == cp.SAL_ID
+        assert ms["lender_name"] == cp.SAL_NAME
+        assert ms["table_id"] == home.table_id
+        assert ms["stake_label"] == cp.HOME_COURT_STAKE
+
+        # One-shot: once Sal's stake is spent the offer stops surfacing.
+        repo = self.repos['career_progress_repo']
+        prog = repo.load(sb, MENTOR_OWNER_ID)
+        prog.mentor_stake_used = True
+        repo.save(prog)
+        assert self.client.get("/api/cash/lobby").get_json()["mentor_stake"] is None
+
+    def test_mentor_stake_sit_funds_from_sal_and_is_one_shot(self):
+        """Non-circulating Sal can back the graduate's first seat — the carve-out —
+        and the principal comes OUT of his bankroll (never minted), one time only."""
+        sb = self._sandbox_id()
+        home = self._home_court(sb)
+        seat_index = next(i for i, s in enumerate(home.seats) if s.get("kind") == "open")
+        self._set_graduated_broke(sb, home.table_id)
+
+        # Snapshot Sal's roll before the stake. He may already have a bankroll row
+        # (he's seated at Scene-0, so the world flow can seed him), or none yet —
+        # in which case the mentor stake seeds his 6000 roll just-in-time. Either
+        # way the principal must come OUT of that roll (the conservation check).
+        sal_before = self.repos['bankroll_repo'].load_ai_bankroll(cp.SAL_ID, sandbox_id=sb)
+        sal_before_chips = sal_before.chips if sal_before is not None else 6000
+
+        resp = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={
+                'stake_label': cp.HOME_COURT_STAKE,
+                'lender_id': cp.SAL_ID,
+                'table_id': home.table_id,
+                'seat_index': seat_index,
+            },
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        offer = resp.get_json()['offer']
+        assert offer['kind'] == 'personality'
+        assert offer['lender_id'] == cp.SAL_ID
+        principal = offer['amount']
+
+        # One-shot burned so the generic pool (which never lists Sal) can't re-offer.
+        assert self.repos['career_progress_repo'].load(sb, MENTOR_OWNER_ID).mentor_stake_used is True
+
+        # Conservation: the principal came OUT of Sal's bankroll, never minted. His
+        # roll dropped by exactly the principal — a pure transfer to the player's
+        # table stack (any just-in-time seed is a separate ledgered ai_seed; passive
+        # regen is ~0 over a sub-second test, so the drop is exactly the principal).
+        sal_after = self.repos['bankroll_repo'].load_ai_bankroll(cp.SAL_ID, sandbox_id=sb)
+        assert sal_after is not None
+        assert sal_before_chips - sal_after.chips == principal, (
+            f"principal {principal} not funded from Sal's roll "
+            f"(before={sal_before_chips}, after={sal_after.chips})"
+        )
+
+        # A second attempt is refused — both the active session AND the spent
+        # one-shot block it (no double mentor-stake).
+        resp2 = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={
+                'stake_label': cp.HOME_COURT_STAKE,
+                'lender_id': cp.SAL_ID,
+                'table_id': home.table_id,
+                'seat_index': seat_index,
+            },
+        )
+        assert resp2.status_code != 200

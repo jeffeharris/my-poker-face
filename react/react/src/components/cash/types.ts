@@ -388,12 +388,26 @@ export interface LobbyResponse {
    *  spotlights the `table_id` card. Served once then cleared server-side, so
    *  it's present on exactly one load. Null when there's no handoff pending. */
   mentor_intro?: MentorIntro | null;
+  /** Sal's STANDING mentor-stake offer (the comp-return's other half): after
+   *  graduation, broke at 0, Sal backs the player's first real seat at their
+   *  home court. Unlike the one-shot `mentor_intro` walk-over, this persists in
+   *  the lobby until taken. When present, the frontend sits the home-court seat
+   *  via `sponsor-and-sit(lender_id)` instead of the generic SponsorModal. Null
+   *  once spent (or when not graduated / not broke / no home court). */
+  mentor_stake?: MentorStake | null;
 }
 
 export interface MentorIntro {
   table_id: string;
   name: string;
   line: string;
+}
+
+export interface MentorStake {
+  table_id: string;
+  lender_id: string;
+  lender_name: string;
+  stake_label: StakeLabel;
 }
 
 /** How fast the background world ticks for unseated tables. */

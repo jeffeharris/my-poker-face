@@ -1894,6 +1894,167 @@ def _materialize_personality_offer(
     return offers[0] if offers else None
 
 
+def _maybe_mentor_offer(
+    *,
+    lender_id: str,
+    owner_id: str,
+    sandbox_id: str,
+    stake_label: str,
+    table_id: Optional[str],
+    max_buy_in: int,
+) -> Optional[PersonalitySponsorOffer]:
+    """Build Sal's pre-arranged mentor-stake offer, or None if not applicable.
+
+    The Circuit's comp-return drops the graduate to 0 chips, and the design's
+    other half is Sal staking them into their FIRST real seat (their revealed
+    home court). Non-circulating Sal Monroe (`sal_moretti`) is filtered out of
+    `list_eligible_for_cash_mode` (`visibility=public AND circulating=1`), so the
+    generic `_materialize_personality_offer` returns None for him. This branch
+    builds his offer directly on friendly terms, gated tightly on the player's
+    `career_progress` so it's the ONLY way Sal lends and fires exactly once:
+
+      - the lender is Sal,
+      - career is active and the tutorial was graduated,
+      - the seat is the player's revealed home court ($2), and
+      - the one-shot `mentor_stake_used` hasn't been spent.
+
+    Friendly terms: a full max buy-in, no cut (`rate=0`), full forgiveness floor
+    (`floor=1.0`). Conservation of the principal is handled downstream by the
+    same `_debit_personality_lender_principal` path every personality stake uses
+    (Sal's bankroll funds it — never minted).
+    """
+    from cash_mode.career_progression import HOME_COURT_STAKE, SAL_ID, SAL_NAME
+    from flask_app.extensions import career_progress_repo
+
+    if lender_id != SAL_ID or career_progress_repo is None:
+        return None
+    if table_id is None or stake_label != HOME_COURT_STAKE:
+        return None
+    progress = career_progress_repo.load(sandbox_id, owner_id)
+    if not (
+        progress.career_active
+        and progress.tutorial_complete
+        and not progress.mentor_stake_used
+        and progress.home_court_table_id is not None
+        and progress.home_court_table_id == table_id
+    ):
+        return None
+
+    amount = int(max_buy_in)
+    return PersonalitySponsorOffer(
+        lender_id=SAL_ID,
+        lender_name=SAL_NAME,
+        amount=amount,
+        floor=1.0,
+        rate=0.0,
+        flavor=(
+            "Sal slides a full rack across the felt. “This one’s on me, "
+            "kid — your room now. Win it back when you’re flush.”"
+        ),
+        relationship_hint="Your mentor fronts your first real seat.",
+        capacity=amount,
+    )
+
+
+def _debit_personality_lender_principal(
+    *,
+    lender_id: str,
+    principal: int,
+    sandbox_id: str,
+    game_id: str,
+    stake_label: str,
+    now: datetime,
+) -> None:
+    """Fund a personality stake's principal OUT of the lender's bankroll.
+
+    A personality stake puts `principal` chips on the player's table stack
+    (`_build_cash_game` sets the human's starting stack = principal). Nothing
+    else debits that, so without this the principal is MINTED — and at settlement
+    `staker_total` is credited back into the lender's bankroll, turning the mint
+    into permanent real chips (the round-trip never conserves). Here we debit the
+    lender's projected bankroll by the principal: a pure non-bank transfer
+    (lender bankroll → the player's table stack) that keeps the chip-ledger audit
+    drift flat. Mirrors the seated-AI buy-in debit in `_build_cash_game`
+    (project → debit → ledger the regen mint), and is ADDITIVE to any seat
+    buy-in a seated lender also paid (they fund both their own stack and the loan).
+
+    Best-effort: a failure logs and leaves the (pre-existing) mint in place
+    rather than failing an already-built game; the audit drift is the backstop.
+    """
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo
+
+    try:
+        knobs = bankroll_repo.load_personality_knobs(lender_id)
+        stored = bankroll_repo.load_ai_bankroll(lender_id, sandbox_id=sandbox_id)
+        if stored is None:
+            # No bankroll row yet (e.g. non-circulating Sal, never seeded into
+            # this sandbox). Seed the full starting bankroll FIRST — passing
+            # `chip_ledger_repo` fires the `ai_seed` entry that gives the chips an
+            # audit source — then debit the principal as a pure transfer below.
+            seed_amount = int(knobs.starting_bankroll)
+            bankroll_repo.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=lender_id,
+                    chips=seed_amount,
+                    last_regen_tick=now,
+                ),
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+            )
+            projected = seed_amount
+            stored_chips = seed_amount  # already ledgered via ai_seed; no regen
+        else:
+            projected = project_bankroll(
+                stored,
+                knobs.starting_bankroll,
+                knobs.bankroll_rate,
+                now,
+            )
+            stored_chips = stored.chips
+
+        if projected < int(principal):
+            # Shouldn't happen — the offer amount is bounded by the lender's
+            # capacity (projected bankroll). Log loudly rather than drive the
+            # bankroll negative; the audit drift surfaces the residual mint.
+            logger.warning(
+                "[CASH][SPONSOR] lender %r bankroll %d < principal %d; "
+                "principal funding incomplete",
+                lender_id,
+                projected,
+                principal,
+            )
+
+        debited = AIBankrollState(
+            personality_id=lender_id,
+            chips=projected - int(principal),
+            last_regen_tick=now,
+        )
+        bankroll_repo.save_ai_bankroll(debited, sandbox_id=sandbox_id)
+        # The regen portion (projected - stored) is a bank mint; ledger it so the
+        # audit nets out. The principal debit itself is a pure non-bank transfer
+        # to the table stack and intentionally writes no ledger row.
+        chip_ledger.record_ai_regen(
+            chip_ledger_repo,
+            personality_id=lender_id,
+            stored_chips=stored_chips,
+            projected_chips=projected,
+            context={
+                'game_id': game_id,
+                'stake_label': stake_label,
+                'site': 'personality_stake_principal_debit',
+                'sandbox_id': sandbox_id,
+            },
+            sandbox_id=sandbox_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[CASH][SPONSOR] failed to debit lender %r principal=%d: %s",
+            lender_id,
+            principal,
+            exc,
+        )
+
+
 @cash_bp.route("/api/cash/sponsor-and-sit", methods=["POST"])
 def sponsor_and_sit():
     """POST /api/cash/sponsor-and-sit
@@ -2036,23 +2197,37 @@ def sponsor_and_sit():
     # state, no client trust. Pass stake_repo + stake_label so the
     # re-materialized terms include the Phase 2 tier bump + per-staker
     # garnishment that the sponsor-offers route applied.
+    is_mentor_stake = False
     if lender_id:
-        personality_offer = _materialize_personality_offer(
+        # The Circuit's mentor stake: non-circulating Sal can't be surfaced by
+        # the generic eligible pool, so check the career-gated direct offer first
+        # and fall through to the generic materialization for every other lender.
+        personality_offer = _maybe_mentor_offer(
             lender_id=lender_id,
-            player_owner_id=owner_id,
+            owner_id=owner_id,
             sandbox_id=sandbox_id,
-            min_buy_in=min_buy_in,
-            max_buy_in=max_buy_in,
-            bankroll_repo=bankroll_repo,
-            personality_repo=personality_repo,
-            relationship_repo=relationship_repo,
-            stake_repo=stake_repo,
             stake_label=stake_label,
-            # Player-prestige hook 2: enforce the same villain-closure here so a
-            # reviled player can't sit with a personality lender the closed pool
-            # would never have surfaced (anti-tamper parity with sponsor-offers).
-            human_regard=_resolve_human_regard(sandbox_id, owner_id),
+            table_id=table_id,
+            max_buy_in=max_buy_in,
         )
+        is_mentor_stake = personality_offer is not None
+        if personality_offer is None:
+            personality_offer = _materialize_personality_offer(
+                lender_id=lender_id,
+                player_owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                min_buy_in=min_buy_in,
+                max_buy_in=max_buy_in,
+                bankroll_repo=bankroll_repo,
+                personality_repo=personality_repo,
+                relationship_repo=relationship_repo,
+                stake_repo=stake_repo,
+                stake_label=stake_label,
+                # Player-prestige hook 2: enforce the same villain-closure here so a
+                # reviled player can't sit with a personality lender the closed pool
+                # would never have surfaced (anti-tamper parity with sponsor-offers).
+                human_regard=_resolve_human_regard(sandbox_id, owner_id),
+            )
         if personality_offer is None:
             return jsonify(
                 {
@@ -2286,10 +2461,14 @@ def sponsor_and_sit():
         cash_seat_index=seat_index,
     )
 
-    # House-archetype loans create chips out of central_bank. Personality
-    # loans are pure transfers (AI lender's bankroll → player's table
-    # stack via the AI debit step in _build_cash_game) and aren't routed
-    # through here.
+    # Fund the principal. House-archetype loans create chips out of central_bank
+    # (the `house_stake_issue` mint). Personality loans are pure transfers — the
+    # principal comes OUT of the lender's bankroll into the player's table stack;
+    # `_build_cash_game` only ever debited SEATED AIs for their OWN buy-ins, never
+    # the loan principal, so this debit is what actually conserves the personality
+    # stake (without it the principal is minted and becomes permanent chips in the
+    # lender's bankroll at settlement). Covers the Sal mentor stake too — he funds
+    # the graduate's first seat from his own roll.
     if offer_lender_id is None:
         from flask_app.extensions import chip_ledger_repo
 
@@ -2307,6 +2486,29 @@ def sponsor_and_sit():
             },
             sandbox_id=sandbox_id,
         )
+    else:
+        _debit_personality_lender_principal(
+            lender_id=offer_lender_id,
+            principal=offer_amount,
+            sandbox_id=sandbox_id,
+            game_id=game_id,
+            stake_label=stake_label,
+            now=datetime.utcnow(),
+        )
+
+    # The Circuit: Sal just fronted the graduate their first real seat. Burn the
+    # one-shot so the mentor offer never re-surfaces (the generic eligible pool
+    # never lists non-circulating Sal, so this flag is the only re-offer guard).
+    if is_mentor_stake:
+        from flask_app.extensions import career_progress_repo
+
+        if career_progress_repo is not None:
+            try:
+                mp = career_progress_repo.load(sandbox_id, owner_id)
+                mp.mentor_stake_used = True
+                career_progress_repo.save(mp)
+            except Exception as exc:
+                logger.warning("[CASH][SPONSOR] failed to set mentor_stake_used: %s", exc)
 
     if lender_id:
         logger.info(
@@ -5952,6 +6154,32 @@ def get_lobby():
         except Exception as exc:
             logger.warning("[CASH][LOBBY] failed to clear mentor_intro: %s", exc)
 
+    # Sal's standing mentor-stake offer: persists in the lobby (unlike the
+    # one-shot `mentor_intro` walk-over) until the graduate takes it. It's the
+    # comp-return's other half — broke at 0 after graduation, Sal backs your
+    # first real seat at the home court. The frontend routes that seat's sit to
+    # `sponsor-and-sit(lender_id=sal_moretti)` instead of the generic stake modal.
+    # Gated identically to the route's `_maybe_mentor_offer` carve-out so the
+    # surfaced offer and the honoured one can't diverge.
+    from cash_mode.career_progression import HOME_COURT_STAKE, SAL_ID, SAL_NAME
+
+    mentor_stake = None
+    if (
+        career_progress is not None
+        and career_progress.career_active
+        and career_progress.tutorial_complete
+        and not career_progress.mentor_stake_used
+        and career_progress.home_court_table_id is not None
+        and not has_active_session
+        and is_sponsor_eligible(bankroll.chips, HOME_COURT_STAKE)
+    ):
+        mentor_stake = {
+            "table_id": career_progress.home_court_table_id,
+            "lender_id": SAL_ID,
+            "lender_name": SAL_NAME,
+            "stake_label": HOME_COURT_STAKE,
+        }
+
     return jsonify(
         {
             "bankroll": bankroll.chips,
@@ -5982,6 +6210,10 @@ def get_lobby():
             # Sal's one-shot post-graduation handoff (portrait + bubble + which
             # table to spotlight), or null when there's nothing to show.
             "mentor_intro": mentor_intro,
+            # Sal's standing mentor-stake offer (lender_id + home-court table), or
+            # null. When present the frontend sits the home court via
+            # sponsor-and-sit(lender_id) rather than the generic stake modal.
+            "mentor_stake": mentor_stake,
         }
     )
 
