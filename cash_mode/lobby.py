@@ -3951,6 +3951,8 @@ def _boot_sweep_stale_cash_rows(
     stake_repo=None,
     chip_ledger_repo=None,
     bankroll_repo=None,
+    cash_table_repo=None,
+    entity_presence_repo=None,
     stale_ttl_seconds: int,
     now: datetime,
     skip_game_ids: Optional[Set[str]] = None,
@@ -4093,6 +4095,22 @@ def _boot_sweep_stale_cash_rows(
                     chip_ledger_repo=chip_ledger_repo,
                     now=now,
                 )
+                # 1c. Presence half (R3a): open the human's persisted seat so the
+                # deleted row can't leave a ghost seat (save_table drives
+                # GO_OFFLINE under authority). Makes _free_ghost_human_seats'
+                # orphan unrepresentable at this — the documented — source.
+                _sweep_sb = session.sandbox_id if session else None
+                if cash_table_repo is not None and row.owner_id and _sweep_sb:
+                    from cash_mode.presence_sweep import free_human_seat_on_delete
+
+                    free_human_seat_on_delete(
+                        owner_id=row.owner_id,
+                        sandbox_id=_sweep_sb,
+                        repos={
+                            "cash_table_repo": cash_table_repo,
+                            "entity_presence_repo": entity_presence_repo,
+                        },
+                    )
                 # 2. Mark the session closed (idempotent via ended_at guard).
                 # `player_take_home`/`final_chips_at_table` reflect any chips the
                 # settle just returned — the record is no longer a flat zero when
@@ -4184,6 +4202,7 @@ def kill_all_cash_sessions(
     cash_session_repo=None,
     stake_repo=None,
     chip_ledger_repo=None,
+    entity_presence_repo=None,
     stale_ttl_seconds: int = DEFAULT_STALE_TTL_SECONDS,
     now: Optional[datetime] = None,
 ) -> int:
@@ -4242,6 +4261,8 @@ def kill_all_cash_sessions(
             stake_repo=stake_repo,
             chip_ledger_repo=chip_ledger_repo,
             bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            entity_presence_repo=entity_presence_repo,
             stale_ttl_seconds=stale_ttl_seconds,
             now=now,
             # Lock + re-check guard against the resurrection race (Codex #2).

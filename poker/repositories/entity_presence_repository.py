@@ -93,6 +93,29 @@ class EntityPresenceRepository(BaseRepository):
             ).fetchall()
         return [_row_to_state(r) for r in rows]
 
+    def seated_rows_for_entity(
+        self, entity_id: str, *, sandbox_id: Optional[str] = None
+    ) -> List[PresenceState]:
+        """Every SEATED presence row for one entity, across sandboxes (or scoped
+        to `sandbox_id`). For deletion-time sweeps (R3): on a game/persona delete,
+        find where the entity is seated so the seat can be opened + GO_OFFLINE
+        driven. A human is single-presence (≤1 row); an AI persona may be seated in
+        more than one sandbox, hence a list."""
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            if sandbox_id is None:
+                rows = conn.execute(
+                    "SELECT * FROM entity_presence WHERE entity_id = ? AND state = 'seated'",
+                    (entity_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM entity_presence "
+                    "WHERE entity_id = ? AND sandbox_id = ? AND state = 'seated'",
+                    (entity_id, sandbox_id),
+                ).fetchall()
+        return [_row_to_state(r) for r in rows]
+
     def seat_occupant(
         self, sandbox_id: str, table_id: str, seat_index: int
     ) -> Optional[PresenceState]:
