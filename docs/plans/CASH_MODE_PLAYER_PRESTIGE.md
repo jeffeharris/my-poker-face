@@ -2,7 +2,7 @@
 purpose: Design for a human-facing prestige/reputation system — an earned, persistent status axis with two poles (beloved legend ↔ infamous villain) that the world responds to, giving cash mode a career spine and sandbox replayability.
 type: design
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-06-01
 ---
 
 # Player Prestige & Reputation
@@ -182,6 +182,78 @@ the load-bearing one for symmetry; the achievement bridge is a human-side bonus.
   yet. Wiring it serves both renown (scalps) and the `bounty`/`double_knockout`
   achievements, for the human **and** AIs. Lower priority than shipping the
   metric, per the product call. **Full spec: `CASH_MODE_SCALP_TRACKER.md`.**
+
+### Pre-build balance validation (offline scorer) — Rung 1 done 2026-06-01
+
+Because renown is a **read-side projection** over data the game already
+produces, the formula's *balance* can be validated offline — against fixtures,
+then the real DB, then a frozen sim log — with **zero production code** (no
+migration, ticker, hooks, or UI). The plan is a four-rung ladder, cheapest
+first, each a go/no-go gate:
+
+1. **Rung 1 — synthetic archetype probe** (fixtures, no DB, no sim): do the
+   four ★ routes *each* reach high renown, and does a volume bot dominate?
+2. **Rung 2 — score the real field** (read-only DB snapshot): do the top names
+   match intuition? (baseline-first sanity check)
+3. **Rung 3 — weight sweep over a frozen sim log**: re-score one fixed log
+   under a grid of weights; watch rank-order stability + the treadmill
+   correlation. (Re-scoring a frozen log is a *perfectly paired* A/B — no RNG
+   desync, unlike same-seed re-runs.)
+4. **Rung 4 — build** A→B→C against the validated formula.
+
+The instrument lives at `scripts/renown_v2_scorer.py` (pure stdlib, throwaway;
+becomes the spec for the real `compute_prestige` v2 and the oracle for its
+unit tests).
+
+**Rung 1 result: PASS** — all four routes (grinder/whale/patron/villain) reach
+high renown via *their own* signature driver, the control up-and-comer stays
+low, and no single driver carries >85% of any score. The probe **failed twice
+first**, and each failure is a design rule now baked into the spec:
+
+- **Uncapping breaks any term that multiplies by another entity's renown.**
+  v1's scalp weight `base + 1.6·victim_renown` was safe at `[0,1]` but explodes
+  once renown is unbounded (one legend-scalp ≈ 70 pts; the villain hit 212 vs a
+  ~30 field). **Rule: weight by the victim's *field percentile*, not raw
+  renown** — bounded, outlier-robust, and "busting a big name" is correctly
+  *relative* fame.
+- **Pure top-X% gating manufactures fake stars** from a tourist-heavy field
+  (top-30% labelled the up-and-comer and even the volume bot "high renown").
+  **Rule: high renown = top-X% *AND* ≥ k×field-median.** The percentile caps
+  *how many* figures exist (no star-inflation as renown ratchets up forever);
+  the median multiple is a *self-scaling quality floor* (a weak field can't
+  mint stars). Both inputs are field-relative — **no absolute constant**, which
+  is precisely v1's `RENOWN_HIGH_THRESHOLD = 0.40` trap, now avoided.
+- **Wall-clock denomination of volume drivers, quantified:** the same fixtures
+  put the volume bot at #1 under hand-count, #6 under wall-clock. The
+  anti-treadmill claim is no longer just an assertion.
+
+Settled formula choices (spec-ready): uncapped lifetime ledger with every
+driver **concave** (sqrt/log1p — unbounded but can't explode); scalp quality
+`= base + scale·victim_field_percentile` with `log1p(count)` per victim (can't
+farm one bot); the victim-percentile circularity resolved as **one refinement
+pass over last-tick percentile** (verified not to need fixed-point iteration);
+"high renown" `= max(top-20% boundary, 3×median)`.
+
+**Rung 2 result (real field, 80-entity sandbox, `scripts/renown_v2_rung2.py`,
+read-only `immutable=1`): structure validated, two weight issues flagged.** The
+scaffolding holds on real data — cross-table ids join (after stripping the
+`ai:`/`player:` prefix `holdings_snapshots` uses but `cash_pair_stats`/`stakes`
+don't — a recurring trap), regard reproduces v1 exactly (the human reads
+"Infamous Villain", regard −0.25 vs v1's −0.247), and quadrants are sensible
+(warm high-renown AIs → Beloved Legend). Two balance findings that **fixtures
+could not surface**, deferred to Rung 3's sweep (not hand-patched, to avoid
+overfitting one sandbox):
+
+- **Volume drivers let the most-active entity run away.** Hands-denominated,
+  the human is #1 at 2.7× the #2, 71% from breadth alone. Confirms the
+  wall-clock denomination / tighter breadth cap is load-bearing on real data,
+  not just against the synthetic bot.
+- **`w_backing` is too hot.** Real AI-to-AI staking volume dwarfs the Rung-1
+  fixtures, so ~all AIs are 50–80% backing-driven — the AI field collapses to a
+  single route. Scalps + legendary are absent on static data (no `cash_scalps`
+  table / nugget log yet), so the villain/legendary routes can't be assessed
+  until workstream A ships — reinforcing that the scalp tracker is the
+  shippable prerequisite.
 
 ## Renown as a live competition — world speed & keeping pace
 
