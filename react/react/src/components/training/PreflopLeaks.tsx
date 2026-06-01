@@ -76,6 +76,21 @@ const TREND_LABEL: Record<RecentLeak['trend'], string> = {
   insufficient: '— too few',
 };
 
+// Plain-language hover explanations — "recent" = your last ~500 hands vs
+// all-time. `n` is how many of this spot's hands fell in the recent window.
+const TREND_TOOLTIP: Record<RecentLeak['trend'], (n: number) => string> = {
+  shrinking: (n) =>
+    `Improving: you're doing this less in your recent ${n} hands than all-time — but it's still a leak.`,
+  persistent: (n) =>
+    `No change: about as often in your recent ${n} hands as all-time — still leaking here.`,
+  worsening: (n) =>
+    `Getting worse: you're doing this MORE in your recent ${n} hands than all-time.`,
+  cleared: (n) =>
+    `Cleared: it's a leak over all-time, but across your recent ${n} hands you've stopped — looks fixed lately (won't nudge you live anymore).`,
+  insufficient: () =>
+    `Not enough recent hands in this spot yet to compare with your all-time play.`,
+};
+
 const SCENARIO_PHRASE: Record<string, string> = {
   rfi: 'opening from',
   vs_open: 'facing a raise in',
@@ -126,12 +141,8 @@ function leakText(lk: Leak): string {
 // Falls back to the muted "too few" treatment when the rollup is missing.
 function TrendChip({ recent }: { recent?: RecentLeak }) {
   const trend = recent?.trend ?? 'insufficient';
-  const title =
-    recent && recent.n > 0
-      ? `recent: ${recent.n} of this spot's hands in the recent window vs all-time`
-      : 'recent: too few hands to compare vs all-time';
   return (
-    <span className={`pfl-trend pfl-trend--${trend}`} title={title}>
+    <span className={`pfl-trend pfl-trend--${trend}`} title={TREND_TOOLTIP[trend](recent?.n ?? 0)}>
       {TREND_LABEL[trend]}
     </span>
   );
@@ -398,7 +409,10 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                         {leakText(lk)} <em>(seen {lk.times_seen}×)</em>
                       </span>
                       <span className="pfl-leak-trend">
-                        <span className="pfl-trend pfl-trend--emerging" title="new in the recent window">
+                        <span
+                          className="pfl-trend pfl-trend--emerging"
+                          title="New: showing up in your recent hands but not (yet) in your all-time profile."
+                        >
                           ↑ new
                         </span>
                       </span>
