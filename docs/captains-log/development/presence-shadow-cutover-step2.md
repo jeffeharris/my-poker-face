@@ -243,3 +243,37 @@ MATCH incl. the human + all fish, only benign MISSING_IDLE + one STALE_SEAT_GONE
 That's the first validation against real slot shapes the AI-only sim never made.
 Shadow left armed so ongoing real play keeps populating it. The flip stays
 unbuilt, pending review of the blueprint.
+
+## 2026-06-01 — soak findings + idle-pool read projection
+
+After hours of soak with authority ON: the SEAT machine is rock-solid — 0
+persistent seat divergences, full human sit→play→leave clean, 0 5xx, 0
+IntegrityError/IllegalPresenceTransition (the only log errors were unrelated
+`[QuickChat]` JSON parse failures). The headline bug class is dead.
+
+A soak audit looked alarming — "presence tracks only 5 of 67 idle". Chasing it to
+the data (instead of reporting the first read) corrected the story twice: I first
+guessed cash_idle_pool was stale-bloated (wrong — 0 seated_and_idle); the real
+picture is presence accounts for ALL idle-pool AIs in their true state (idle 7 /
+side_hustle 57 / pool 5), with 56/57 side_hustle rows on ACTIVE hustles. So
+presence was CORRECT — the "gap" was an AUDIT PRECEDENCE BUG: `_truth_states`
+ranked idle above off-grid, so an AI legitimately idle-pooled WHILE on a hustle
+got called idle-truth and false-flagged MISSING_IDLE against presence's (correct)
+SIDE_HUSTLE.
+
+Built the genuine idle read-projection: fixed the audit precedence (seated >
+off-grid > idle, matching whereabouts) + read the physical pool independently;
+`list_idle` derives from `entity_presence` under authority (the available-to-seat
+set — hustlers excluded though the legacy pool lists them); `delete_idle` clears a
+stale presence IDLE (reap → OFFLINE) so the derived list never returns a ghost,
+leaving a SEATED row (re-seat) untouched. Found + fixed a test-isolation bug: the
+suite now runs INSIDE the authority-ON container, so the env leaked into pytest
+(shadow tests silently ran under authority, failing for the wrong reason) —
+autouse conftest fixture now resets both flags.
+
+Result: live audit 56 false MISSING_IDLE → PASS (0 persistent unexpected; MATCH
+853, benign MISSING_IDLE 5); table fill healthy (67%); 1074 cash_mode tests green.
+Presence is now authority for BOTH seats and idle (reads). Remaining: seat-map
+projection (Step 9) + reconciler retirement (post more soak), then prod. Lesson:
+chase the alarming number to the data before reporting — twice it wasn't what the
+first read suggested.
