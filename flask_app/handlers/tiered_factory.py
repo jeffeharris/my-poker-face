@@ -88,7 +88,8 @@ def build_tiered_controller(
 # Map of the rule-based "training" bot types exposed in Custom Game to their
 # underlying RuleBotController strategy name.
 _RULE_BOT_STRATEGY_MAP = {
-    'casebot': 'case_based',
+    'casebot': 'case_based_v2',  # promoted: value-extraction beats v1 4-12x vs clones
+    'regplus': 'reg_plus',  # disciplined value-extractor; beats casebot, robust vs bots
     'gto_lite': 'pot_odds_robot',
 }
 
@@ -125,8 +126,9 @@ def build_controller(
                               weak_fish loadout at the $2 bottom tier
         - ``'sharp'``       → build_tiered_controller(...)
         - ``'baseline_solver'`` → build_tiered_controller(..., baseline=True)
-        - ``'casebot'`` / ``'gto_lite'`` → RuleBotController with the mapped
-                              rule strategy (case_based / pot_odds_robot)
+        - ``'casebot'`` / ``'regplus'`` / ``'gto_lite'`` → RuleBotController with
+                              the mapped rule strategy (case_based_v2 / reg_plus /
+                              pot_odds_robot)
         - ``'chaos'``       → AIPlayerController (full LLM, full personality)
         - ``'lean'``        → LeanBoundedController
         - default/else      → HybridAIController, UNLESS ``default_strategy`` is

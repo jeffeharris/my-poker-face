@@ -45,6 +45,8 @@ from cash_mode.ai_vice_spending import (
     DURATION_RANGES,
     duration_for_bucket,
 )
+from cash_mode import presence_shadow
+from cash_mode.presence import PresenceEvent, ai_entity_id
 
 logger = logging.getLogger(__name__)
 
@@ -401,6 +403,16 @@ def tick_side_hustle_expirations(
             # Row already gone (concurrent path) — don't pay a phantom.
             continue
 
+        # Phase 1 dual-write SHADOW (CASH_MODE_PRESENCE_MIGRATION.md §D):
+        # SIDE_HUSTLE -> IDLE via the timer-driven END_OFFGRID, mirroring the
+        # authoritative ai_side_hustle_state DELETE above. Flag-gated +
+        # swallows illegal transitions inside the helper.
+        presence_shadow.shadow_transition(
+            entity_id=ai_entity_id(h.personality_id),
+            sandbox_id=sandbox_id,
+            event=PresenceEvent.END_OFFGRID,
+        )
+
         target = int(h.amount)
         payout = min(target, max(0, remaining_pool))
         if HUSTLE_FLOOR_WAGE > 0 and payout < HUSTLE_FLOOR_WAGE:
@@ -482,6 +494,20 @@ def _commit_hustle_start(
             exc,
         )
         return None
+
+    # Phase 1 dual-write SHADOW (CASH_MODE_PRESENCE_MIGRATION.md §D): mirror
+    # the authoritative ai_side_hustle_state INSERT above into the Presence
+    # machine. AI-only (ai_entity_id); off-grid carries no seat. Flag-gated +
+    # try/except inside the helper, so it never disturbs the real write.
+    # START_HUSTLE is only legal from IDLE; a broke AI that went off-grid
+    # straight from being unseated may have no IDLE shadow row yet, in which
+    # case the helper SWALLOWS the illegal transition — that is the expected
+    # divergence this shadow phase exists to surface, not a bug to "fix".
+    presence_shadow.shadow_transition(
+        entity_id=ai_entity_id(personality_id),
+        sandbox_id=sandbox_id,
+        event=PresenceEvent.START_HUSTLE,
+    )
 
     logger.info(
         "[HUSTLE] started pid=%r target=%d bucket=%s ends=%s",

@@ -621,9 +621,21 @@ def _apply_rake_to_winner(
     }
     if table_id:
         ctx['table_id'] = table_id
+    # The rake comes off the winner's SEAT stack (`final_chips` above), not
+    # their bankroll. Under chip custody the at-table chips live in the seat
+    # account, so the rake must be sourced from there — debiting `ai:<pid>`
+    # (the bankroll) would desync the ledger-derived bankroll from the stored
+    # int (the chips never left the bankroll). Reason stays `table_rake`, so
+    # bank-pool depth accounting is unchanged. Pre-custody falls back to the
+    # bankroll account (the historical approximation).
+    rake_source = (
+        chip_ledger.ai_seat(sandbox_id, winner_pid)
+        if (economy_flags.CHIP_CUSTODY_ENABLED and sandbox_id)
+        else chip_ledger.ai(winner_pid)
+    )
     chip_ledger.record_table_rake(
         chip_ledger_repo,
-        source=chip_ledger.ai(winner_pid),
+        source=rake_source,
         amount=rake,
         context=ctx,
         sandbox_id=sandbox_id,

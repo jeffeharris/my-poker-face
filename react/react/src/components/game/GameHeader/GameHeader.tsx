@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, GraduationCap } from 'lucide-react';
 import { formatCompactCurrency } from '../../../utils/formatters';
 import './GameHeader.css';
 
@@ -16,6 +16,10 @@ interface GameHeaderProps {
   location?: { tableName?: string | null; stakeLabel?: string | null };
   onBackClick?: () => void;
   onSettingsClick?: () => void;
+  /** Toggle the poker coach on/off. Omit to hide the control (e.g. guests). */
+  onCoachToggle?: () => void;
+  /** Whether the coach is currently active — drives the toggle's lit state. */
+  coachActive?: boolean;
 }
 
 export function GameHeader({
@@ -25,6 +29,8 @@ export function GameHeader({
   location,
   onBackClick,
   onSettingsClick,
+  onCoachToggle,
+  coachActive = false,
 }: GameHeaderProps) {
   // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
   const formatPhase = (p: string): string => {
@@ -109,8 +115,19 @@ export function GameHeader({
         )}
       </div>
 
-      {/* Right: Settings */}
+      {/* Right: Coach toggle + Settings */}
       <div className="game-header__right">
+        {onCoachToggle && (
+          <button
+            className={`game-header__coach-btn btn-icon${coachActive ? ' is-active' : ''}`}
+            onClick={onCoachToggle}
+            aria-label={coachActive ? 'Turn poker coach off' : 'Turn poker coach on'}
+            aria-pressed={coachActive}
+            title={coachActive ? 'Coach on — click to turn off' : 'Turn on the poker coach'}
+          >
+            <GraduationCap size={18} aria-hidden />
+          </button>
+        )}
         {onSettingsClick && (
           <button
             className="game-header__settings-btn btn-icon"

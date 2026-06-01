@@ -78,10 +78,15 @@ def get_personalities():
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
 
+        # Players see the circulating pool + their own personas; demoted
+        # sim/test zombies (public but circulating=0) are hidden from the
+        # opponent picker. Admins see everything for curation. Mirrors the
+        # cash circuit (v123 / list_eligible_for_cash_mode).
         db_personalities = extensions.personality_repo.list_personalities(
             limit=200,
             user_id=user_id,
             include_disabled=is_admin,
+            circulating_only=not is_admin,
         )
 
         personalities = {}
@@ -381,6 +386,41 @@ def delete_personality(name):
                 {'success': False, 'error': 'Only admins can delete system personalities'}
             ), 403
 
+        # Deletion integrity: before dropping the persona, settle what it holds so
+        # nothing is stranded. Two composed, best-effort, gated halves (never block
+        # the delete):
+        #   - CHIPS (Phase 5): return its bankroll (every sandbox) to the bank pool
+        #     so the chips recycle (the zombie-persona drift class).
+        #   - PRESENCE (R3b): open any casino seat it occupies (drives
+        #     RETURN_TO_POOL/GO_OFFLINE) so the seat can't outlive the persona —
+        #     what lets _reclaim_zombie_casino_seats retire.
+        try:
+            pid = extensions.personality_repo.resolve_name_to_personality_id(name)
+            if pid:
+                from cash_mode.bankroll import settle_ai_bankroll_to_pool_on_delete
+                from cash_mode.presence_sweep import sweep_presence_on_persona_delete
+
+                sweep_presence_on_persona_delete(
+                    personality_id=pid,
+                    repos={
+                        'entity_presence_repo': getattr(extensions, 'entity_presence_repo', None),
+                        'cash_table_repo': getattr(extensions, 'cash_table_repo', None),
+                        'chip_ledger_repo': getattr(extensions, 'chip_ledger_repo', None),
+                    },
+                )
+                returned = settle_ai_bankroll_to_pool_on_delete(
+                    pid,
+                    bankroll_repo=getattr(extensions, 'bankroll_repo', None),
+                    chip_ledger_repo=getattr(extensions, 'chip_ledger_repo', None),
+                )
+                if returned:
+                    logger.info(
+                        "[CASH] persona delete %r (pid=%s): returned %d chips to pool",
+                        name, pid, returned,
+                    )
+        except Exception as e:
+            logger.warning("[CASH] persona-delete settle failed for %r: %s", name, e)
+
         # Delete associated avatar images
         extensions.personality_repo.delete_avatar_images(name)
 
@@ -572,8 +612,11 @@ def generate_theme():
         # Load personality names from database filtered by user visibility
         current_user = extensions.auth_manager.get_current_user()
         user_id = current_user.get('id') if current_user else None
+        # A themed game auto-rosters from this pool, so it must only draw
+        # circulating personas (+ the user's own) — never a demoted sim/test
+        # zombie (v123). Same gate as the opponent picker above.
         db_personalities = extensions.personality_repo.list_personalities(
-            limit=200, user_id=user_id
+            limit=200, user_id=user_id, circulating_only=True
         )
         if db_personalities:
             all_personalities = [p['name'] for p in db_personalities]

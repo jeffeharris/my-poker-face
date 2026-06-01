@@ -13,6 +13,7 @@ import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
+import { safeGetItem, safeSetItem } from '../../utils/storage';
 import { ChatTargetSelector } from './ChatTargetSelector';
 import './QuickChatSuggestions.css';
 
@@ -71,6 +72,44 @@ const TONE_OPTIONS: ToneOption[] = [
   { id: 'befriend', icon: Handshake, label: 'Befriend' },
 ];
 
+// Delivery register (chill/spicy) is remembered per tone — last used wins.
+// So a player who always needles spicy but gives props chill doesn't
+// re-toggle each time: picking a tone recalls how they last delivered it.
+// Stored as a { tone: register } map; a tone with no stored preference
+// cold-starts at 'chill'.
+const REGISTER_PREFS_KEY = 'quickchat_register_by_tone';
+const DEFAULT_REGISTER: ChatIntensity = 'chill';
+// Recognized delivery registers. Stored prefs are validated against this so a
+// corrupted / hand-edited / stale-schema value falls back to the default
+// rather than flowing through to the API as an unknown register. Extend this
+// when a new register (e.g. 'sarcastic') ships.
+const VALID_REGISTERS: readonly ChatIntensity[] = ['chill', 'spicy'];
+
+function readRegisterPrefs(): Partial<Record<ChatTone, ChatIntensity>> {
+  const raw = safeGetItem(REGISTER_PREFS_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    // Keep only recognized register values; drop anything unknown.
+    const clean: Partial<Record<ChatTone, ChatIntensity>> = {};
+    for (const [tone, register] of Object.entries(parsed)) {
+      if (VALID_REGISTERS.includes(register as ChatIntensity)) {
+        clean[tone as ChatTone] = register as ChatIntensity;
+      }
+    }
+    return clean;
+  } catch {
+    return {};
+  }
+}
+
+function writeRegisterPref(tone: ChatTone, register: ChatIntensity): void {
+  const prefs = readRegisterPrefs();
+  prefs[tone] = register;
+  safeSetItem(REGISTER_PREFS_KEY, JSON.stringify(prefs));
+}
+
 export function QuickChatSuggestions({
   gameId,
   playerName,
@@ -95,13 +134,13 @@ export function QuickChatSuggestions({
   // Cache suggestions by target+tone+length+intensity combination
   const suggestionsCache = useRef<Record<string, TargetedSuggestion[]>>({});
 
-  // Length and intensity toggles with localStorage persistence
+  // Length toggle persists globally. Delivery register (intensity) is
+  // per-tone instead (see writeRegisterPref) — it's seeded on tone
+  // select, so the pre-tone value here is just a harmless default.
   const [length, setLength] = useState<ChatLength>(
     () => (localStorage.getItem('quickchat_length') as ChatLength) || 'short'
   );
-  const [intensity, setIntensity] = useState<ChatIntensity>(
-    () => (localStorage.getItem('quickchat_intensity') as ChatIntensity) || 'chill'
-  );
+  const [intensity, setIntensity] = useState<ChatIntensity>(DEFAULT_REGISTER);
 
   // Helper to generate cache key
   const getCacheKey = useCallback(
@@ -110,14 +149,11 @@ export function QuickChatSuggestions({
     []
   );
 
-  // Persist toggles to localStorage
+  // Persist the length toggle globally. (Intensity is persisted per-tone
+  // at selection time, not globally — see selectIntensity.)
   useEffect(() => {
     localStorage.setItem('quickchat_length', length);
   }, [length]);
-
-  useEffect(() => {
-    localStorage.setItem('quickchat_intensity', intensity);
-  }, [intensity]);
 
   // All AI players stay selectable as chat targets — including folded ones.
   // Folded targets are still useful: the player can needle a busted opponent
@@ -224,8 +260,24 @@ export function QuickChatSuggestions({
 
   const handleToneSelect = (tone: ChatTone) => {
     setSelectedTone(tone);
+    // Recall how this tone was last delivered (last-used register), so the
+    // delivery row reflects the player's habit for this intent. Falls back
+    // to 'chill' for a tone never delivered before.
+    setIntensity(readRegisterPrefs()[tone] ?? DEFAULT_REGISTER);
     // The useEffect handles fetching/cache lookup when both target and tone are set
   };
+
+  // Change the delivery register and remember it for the current tone, so
+  // the next time this tone is picked it comes back the same way.
+  const selectIntensity = useCallback(
+    (register: ChatIntensity) => {
+      setIntensity(register);
+      if (selectedTone) {
+        writeRegisterPref(selectedTone, register);
+      }
+    },
+    [selectedTone]
+  );
 
   const handleSuggestionClick = (text: string) => {
     // Only attach addressing when targeting a specific opponent. The
@@ -314,6 +366,28 @@ export function QuickChatSuggestions({
         </div>
       </div>
 
+      {/* Delivery register — sits directly below the tone it modifies, and
+          appears as soon as a tone is picked. Remembered per-tone. */}
+      {selectedTone && (
+        <div className="delivery-selector">
+          <div className="selector-label">Delivery?</div>
+          <div className="toggle-group">
+            <button
+              className={`toggle-btn ${intensity === 'chill' ? 'active' : ''}`}
+              onClick={() => selectIntensity('chill')}
+            >
+              Chill
+            </button>
+            <button
+              className={`toggle-btn ${intensity === 'spicy' ? 'active' : ''}`}
+              onClick={() => selectIntensity('spicy')}
+            >
+              🌶️
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Suggestions display */}
       {(loading || suggestions.length > 0) && (
         <div className="suggestions-section">
@@ -332,20 +406,6 @@ export function QuickChatSuggestions({
                   onClick={() => setLength('long')}
                 >
                   Long
-                </button>
-              </div>
-              <div className="toggle-group">
-                <button
-                  className={`toggle-btn ${intensity === 'chill' ? 'active' : ''}`}
-                  onClick={() => setIntensity('chill')}
-                >
-                  Chill
-                </button>
-                <button
-                  className={`toggle-btn ${intensity === 'spicy' ? 'active' : ''}`}
-                  onClick={() => setIntensity('spicy')}
-                >
-                  🌶️
                 </button>
               </div>
             </div>

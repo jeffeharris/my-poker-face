@@ -25,17 +25,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
-import { PageLayout, MenuBar } from '../shared';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play } from 'lucide-react';
+import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
+import type { TickerLine } from '../shared/ShuffleLoading';
 import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
-import { feedEventKey } from './tickerEvents';
+import { feedEventKey, renderEventIcon } from './tickerEvents';
+import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
 import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
-import { WhereaboutsDrawer } from './WhereaboutsDrawer';
+import { IntelHub } from './IntelHub';
+import type { FileCabinetPerson } from './types';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
@@ -200,6 +203,12 @@ export function Lobby() {
   const [busy, setBusy] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
   const [sitError, setSitError] = useState<string | null>(null);
+  /** Non-null while a seat tap is in flight: shows the shuffle transition
+   *  ("Taking your seat…") immediately on press so the join feels responsive
+   *  instead of a frozen lobby. Stays up through the navigate() on success so
+   *  the game page's own "Setting up the table" shuffle hands off seamlessly;
+   *  cleared if we bail (sponsor modal / error) and stay on the lobby. */
+  const [sittingDown, setSittingDown] = useState<{ submessage?: string } | null>(null);
   const [sponsorState, setSponsorState] = useState<{
     stakeLabel: StakeLabel;
     tableId: string;
@@ -207,7 +216,7 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
-  const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
+  const [intelHubOpen, setIntelHubOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -417,9 +426,15 @@ export function Lobby() {
       if (busy) return;
       setSitError(null);
       setBusy(true);
+      // Optimistic transition: drop the shuffle screen in immediately so the
+      // press registers, rather than waiting on the /sit round-trip.
+      setSittingDown({ submessage: table.table_name ?? `${table.stake_label} table` });
       try {
         const result = await sitAtTable(table.table_id, seatIndex);
         if ('kind' in result) {
+          // Sponsor flow takes over the screen — drop the transition so the
+          // modal is visible and we stay on the lobby.
+          setSittingDown(null);
           // Open sponsor modal scoped to the seat the backend actually
           // reserved. It echoes table_id + seat_index because live-fill
           // may have taken the tapped seat and the server fell back to
@@ -434,9 +449,23 @@ export function Lobby() {
         }
         navigate(`/game/${result.game_id}`);
       } catch (e) {
-        const status = (e as Error & { status?: number }).status;
+        const err = e as Error & { status?: number; gameId?: string };
+        const status = err.status;
         const msg = e instanceof Error ? e.message : String(e);
         logger.error('Sit failed:', msg);
+        // The "a cash session is already active" 409 carries the existing
+        // game_id (the seat-race / full-table 409s carry seat_kind instead).
+        // It isn't a failure — the player just can't open a second seat — so
+        // route them into the game they're already in (Resume) and keep the
+        // transition up for the handoff, rather than the confusing "seat
+        // filled up" message.
+        if (status === 409 && err.gameId) {
+          navigate(`/game/${err.gameId}`);
+          return;
+        }
+        // Any other failure: drop the transition so the lobby (and the error /
+        // refresh) is visible again instead of a stuck shuffle screen.
+        setSittingDown(null);
         if (status === 409) {
           // Seat-race or full table: the lobby snapshot was stale. Refresh
           // it so the seat state reconciles instead of leaving a silently
@@ -545,8 +574,28 @@ export function Lobby() {
       ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null)
       : null) ?? seatedStakeLabelFromServer;
 
+  // The "meanwhile, elsewhere" strip for the join transition — the same
+  // rare-events digest the interhand shuffle uses, built from the lobby's
+  // live world feed so the wait shows the room is alive.
+  const sitTicker = useMemo<TickerLine[]>(
+    () =>
+      selectInterhandTicker(events, 3).map((e) => ({
+        key: feedEventKey(e),
+        icon: renderEventIcon(e.type),
+        message: e.message,
+      })),
+    [events]
+  );
+
   return (
     <>
+      <ShuffleLoading
+        isVisible={!!sittingDown}
+        message="Taking your seat"
+        submessage={sittingDown?.submessage}
+        ticker={sitTicker}
+        exitStyle="slide"
+      />
       <MenuBar
         onBack={() => navigate('/menu')}
         title="The Circuit"
@@ -594,18 +643,12 @@ export function Lobby() {
             </div>
           )}
 
-          <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
-
-          <div className="cash-entry__whereabouts-row">
-            <button
-              type="button"
-              className="cash-entry__whereabouts-trigger"
-              onClick={() => setWhereaboutsOpen(true)}
-            >
-              <MapPin size={13} aria-hidden="true" />
-              Who's around
-            </button>
-          </div>
+          <ActivityTicker
+            events={events}
+            worldPace={worldPace}
+            onPaceChange={handlePaceChange}
+            onOpenIntel={() => setIntelHubOpen(true)}
+          />
 
           {loadError && (
             <div className="cash-entry__error" role="alert">
@@ -789,6 +832,10 @@ export function Lobby() {
           character={dossier?.dossier ?? { name: '' }}
           origin={dossier?.origin}
           identifier={dossier?.identifier}
+          circuitContext  /* the lobby is always the Circuit */
+          // Refresh the lobby intel surfaces (incl. the file cabinet behind
+          // this card) after an informant purchase so unlock state updates.
+          onIntelChanged={() => setStakablePanelTick((t) => t + 1)}
         />
         <NetWorthDrawer
           isOpen={netWorthOpen}
@@ -797,10 +844,23 @@ export function Lobby() {
             void reloadLobbyRef.current();
           }}
         />
-        <WhereaboutsDrawer
-          isOpen={whereaboutsOpen}
-          onClose={() => setWhereaboutsOpen(false)}
+        <IntelHub
+          isOpen={intelHubOpen}
+          onClose={() => setIntelHubOpen(false)}
+          events={events}
           refreshTick={stakablePanelTick}
+          onOpenDossier={(person: FileCabinetPerson) => {
+            // Open the dossier ON TOP of the hub (it has a higher z-index) and
+            // leave the hub open behind it — so closing the dossier returns
+            // you to the file cabinet you came from, on the same tab, rather
+            // than dropping you back to the lobby. Circuit context, so the
+            // informant buy buttons show.
+            setDossier({
+              dossier: { name: person.name },
+              origin: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+              identifier: person.personality_id,
+            });
+          }}
         />
         <StakeOfferModal
           target={stakeTarget}

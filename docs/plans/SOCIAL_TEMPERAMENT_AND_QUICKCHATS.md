@@ -2,8 +2,34 @@
 purpose: Make table social friction (heat from being a hog, trash talk) drive behavior and vary by personality temperament, plus nuanced quickchats to express it
 type: design
 created: 2026-05-26
-last_updated: 2026-05-26
+last_updated: 2026-06-01
 ---
+
+> **Status (2026-06-01):** The **trash-talk-reception** half of the
+> temperament nuance is **implemented** (derived from anchors, no
+> personalities.json change). Inbound `TRASH_TALK` / `TAUNT_POST_WIN`
+> now land on the recipient's relationship axes per their social
+> disposition: `energized` bonds over the needle (heat suppressed,
+> likability/respect up), `stung` takes it harder (heat/likability
+> amplified), `stoic` keeps the neutral global mirror. Seam:
+> `temperament_adjusted_mirror_shift` in `poker/memory/relationship_events.py`,
+> reused disposition from `PlayerPsychology._classify_social_disposition`,
+> wired through a `mirror_shift_override` kwarg on
+> `OpponentModelManager.record_event` and resolved in
+> `flask_app/handlers/chat_relationship.py`.
+>
+> **Quickchat UI groundwork also shipped (frontend-only):** the delivery
+> register (`chill`/`spicy`) moved into its own row **directly below the
+> tone selector** (was buried in the suggestions header), and the register
+> is now remembered **per tone** (last-used) via a `{tone: register}`
+> localStorage map (`quickchat_register_by_tone`) instead of one global
+> value. These are the scaffolding the `sarcastic` register slots into —
+> see "Quickchats redesign" below.
+>
+> Still **deferred / spec-only**: the near-term aggregate-heat
+> leave-pressure term, the **hog disposition** (needs that movement term
+> first), and the whole **sarcasm + palette redesign** (this doc's
+> "Quickchats redesign" section).
 
 # Social Temperament & Nuanced Quickchats
 
@@ -65,25 +91,334 @@ Candidate hook: a new `social_temperament` field (or derive from existing
 `attitude` / `aggression` / `chattiness` traits in `personalities.json`).
 Keep the global table as the neutral default; temperament only deviates.
 
-## Quickchats
+## Quickchats redesign (spec)
 
-Today's quickchat tones map to `RelationshipEvent`s in
-`flask_app/handlers/chat_relationship.py` (`TRASH_TALK`, `COMPLIMENT`,
-`TAUNT_POST_WIN`, `FRIENDLY_BANTER`). The suggestion set
-(`react/.../chat/QuickChatSuggestions/`) reportedly has near-duplicate
-copies of the same intent.
+Supersedes the old one-line "add a SARCASM tone" idea. Sarcasm is **not a
+tone** — it's a *delivery register*. A standalone `SARCASM` tone has a
+hole in it (sarcastic about *what?*); sarcasm needs an underlying
+sentiment to invert. So it rides on top of a tone, in the same slot as
+`chill`/`spicy`.
 
-- Introduce a **`SARCASM`** tone (and possibly 1–2 others, e.g. a dry
-  "appreciative needle") whose *reception* is temperament-dependent —
-  lands as banter (likability) for some, as an insult (heat) for others.
-- **Replace** the duplicate quickchats with these nuanced ones rather than
-  growing the list — net-neutral count, higher expressive range.
+Two surfaces feed the dispatch today (`flask_app/handlers/chat_relationship.py`
+→ `poker/memory/chat_intent.py` `map_tone`): **mid-hand** `ChatTone` and
+**post-round** `PostRoundTone`. Mid-hand tones take an intensity modifier;
+post-round tones "encode their own intensity in the choice" (no chill/spicy).
 
-## Open questions
+### 1. Delivery register replaces "intensity"
+
+The delivery slot becomes an enum, not a scalar:
+
+- **Mid-hand:** `chill` · `spicy` · `sarcastic` — mutually exclusive.
+  Sarcasm carries its own implicit intensity; "chill-sarcastic" vs
+  "spicy-sarcastic" is a distinction nobody reaches for, so it's a third
+  *position*, not an orthogonal axis.
+- **Post-round:** `earnest` · `sarcastic` — chill/spicy never applied here
+  anyway, so sarcastic is the only register worth adding.
+
+Mechanically the slot stops being a pure multiplier: `chill`/`spicy`
+resolve to the existing `0.5`/`1.0` multipliers; `sarcastic` is its own
+branch (below).
+
+### 2. Sarcasm has two halves — both required
+
+1. **Generation** — a flag into the suggestion prompt so the produced line
+   reads dry/backhanded ("Oh, *great* play") instead of plain.
+2. **Reception** — a temperament-aware valence flip on the recipient's
+   relationship axes, reusing the `mirror_shift_override` seam already
+   built for trash-talk reception. Without (2), sarcasm is just flavor
+   text that moves no axes.
+
+### 3. The rule: sarcasm weaponizes *warm* tones
+
+What makes a tone sarcasm-compatible is **having a positive surface to
+invert into a barb**. Sarcasm turns a nice thing mean. So the compatible
+set is the warm tones, *not* the already-hostile ones (there's nothing to
+invert in "trash talk" — sarcastic trash talk is just trash talk said
+dryly).
+
+| Tone | Surface | Sarcastic = | Compatible? |
+|---|---|---|---|
+| Props | respect | backhanded "nice play" | ✅ |
+| Gracious (post) | congrats | fake-nice "wp" | ✅ |
+| Flatter | praise | mocking flattery (obviously offensive) | ✅ |
+| Humble (post) | self-deprecating | humblebrag ("just got lucky 😏") | ✅ |
+| Commiserate (post) | sympathy | fake sympathy ("aw, tough beat 🙄") | ✅ |
+| Banter | playful | basically just a needle | marginal — exclude for now |
+| Trash talk / Salty / Needle / Gloat / Intimidate | hostile | nothing to invert | ❌ |
+
+Reception of a sarcastic warm tone is **register-dominated** (the barb
+matters more than the surface event), and it *widens* the temperament
+split: an `energized` recipient is in on the joke (banter — likability up),
+a `stung`/earnest one takes the bait (heat up, condescension). Sarcastic
+`flatter` short-circuits the existing flattery vain/sees-through path — it
+is unambiguously a barb (banter for energized, insult for the rest).
+
+### 4. UX interaction: tone-primary, register-yields
+
+Settled rules (the register groundwork below #1–#2 is already built; the
+sarcastic value + gating is spec):
+
+- **Layout:** target → tone ("Goal?") → delivery ("Delivery?", directly
+  beneath) → suggestions → send. The reactive control sits under the thing
+  it reacts to; cause→effect reads top-to-bottom. *(Built.)*
+- **Per-tone memory:** delivery is remembered per tone (last-used). Picking
+  a tone recalls how you last delivered it. *(Built for chill/spicy.)*
+- **Tone is primary; the register yields.** The tone grid never dims or
+  reshuffles. The delivery row reflects the selected tone: `chill`/`spicy`
+  always present, `sarcastic` lights up **only on warm tones**.
+- **Reverse order:** if `sarcastic` is active and you then pick a hostile
+  tone, `sarcastic` **visibly reverts** to `spicy` (the existing default);
+  the grid is untouched. Invalid combos are unreachable, nothing silent.
+- **Compositional bonus:** because the register is stored *per tone*, a
+  hostile tone can only ever store `chill`/`spicy` and a warm tone may
+  store `sarcastic`, so recalling a tone's last-used register always lands
+  on a valid value — gating and memory don't fight.
+
+### 5. Redesigned tone palette
+
+Today four mid-hand tones (`tilt`/`goad`/`needle`/`bait`) all collapse to
+`TRASH_TALK`, differing only by multiplier — the "near-duplicate" rot.
+With temperament now splitting *reception*, trade redundant hostiles for
+distinct *intents* and let disposition + register carry the nuance.
+
+**Mid-hand** (6 intents + bluff):
+
+| Tone | Intent | Maps to | Sarcastic? |
+|---|---|---|---|
+| Trash talk | open hostility, tilt them | `TRASH_TALK` (full) | ❌ |
+| Needle | sly provocation, bait a call/rise | `PROVOKE` *(new)* or `TRASH_TALK`-light | ❌ |
+| Banter | playful ribbing, rapport | `FRIENDLY_BANTER` | ❌ (marginal) |
+| Props | respect a specific play | `PROPS` | ✅ |
+| Intimidate | project dominance, pressure a fold | reputation/demeanor hook *(or new)* | ❌ |
+| Flatter | insincere ego-stroke | flattery path | ✅ |
+| Bluff | talk about own hand | `None` (no axis) — keep | — |
+
+**Post-round** (6 intents):
+
+| Tone | Intent | Maps to | Sarcastic? |
+|---|---|---|---|
+| Gloat | rub in the win | `TAUNT_POST_WIN` | ❌ |
+| Salty | complain about the beat | `TRASH_TALK` | ❌ |
+| Gracious | tip the cap to the winner | `COMPLIMENT` | ✅ |
+| Humble | downplay your own win | `FRIENDLY_BANTER` | ✅ (humblebrag) |
+| Props | respect the specific play | `PROPS` | ✅ |
+| Commiserate | console a loser you weren't in the pot with | `COMMISERATE` *(new)* | ❌ |
+
+`Commiserate` is the genuinely missing color — today there's no way to be
+warm toward someone *other than* the person who just beat you.
+
+### 6. Reception numbers — the sarcasm transform
+
+Sarcasm reception is register-dominated, so rather than a full table per
+warm tone, define one **disposition-keyed sarcasm transform** on the
+mirror side (the recipient's view of the sender), layered like the
+existing `_TEMPERAMENT_MIRROR_OVERRIDES`. Starting calibration (tune from
+play data), against the `[0,1]` axes (heat default 0, respect/likability
+default 0.5):
+
+| Disposition | heat | respect | likability | reading |
+|---|---|---|---|---|
+| `energized` | 0.00 | +0.05 | +0.05 | in on the joke; wit bonds (capped at sincere-props warmth — sarcasm never out-bonds sincerity) |
+| `stoic` | +0.03 | 0.00 | −0.03 | reads the literal surface, mild suspicion |
+| `stung` | +0.12 | −0.05 | −0.15 | takes the bait; backhand stings worse than an open jab (condescension → respect down too) |
+
+Notes:
+- `stung` likability hit (−0.15) matches the amplified plain-needle value;
+  the added `respect −0.05` is what makes a *backhand* nastier than an open
+  jab — being condescended to, not just insulted.
+- `energized` is net-positive (likability + respect up) — a sarcastic spar
+  with a wit you respect is *bonding*, slightly better socially than a
+  sincere compliment.
+- Applies uniformly to the sarcasm-compatible tones; the underlying event
+  (`PROPS`/`COMPLIMENT`/flattery/…) is overridden on the mirror side when
+  `register == sarcastic`. The **actor** side still uses the neutral
+  `actor_shift` for the surface event (the sender's own feelings don't
+  depend on how the target took it) — same asymmetry as the shipped
+  trash-talk reception.
+- **Calibration flags (from review):** (a) `stung` sarcastic-props nets a
+  ~0.13 respect swing from baseline (loses the sincere `PROPS` +0.08, then
+  −0.05) — that makes it the **second-sharpest single-event respect hit**
+  after `STAKE_DEFAULTED`/`BAD_BEAT`. Intended (condescension cuts), but
+  verify against play data before shipping. (b) The inherited actor side
+  means sending a sarcastic backhanded `PROPS` raises the *sender's*
+  respect for the target by +0.10 (the neutral `PROPS` actor shift). Likely
+  fine — you only bother backhand-complimenting someone you grudgingly rate
+  — but it's an inherited behavior to ratify, not an accident.
+
+### 7. Build outline (when greenlit) — verified against code
+
+Two fresh design-review passes traced the spec end-to-end. Key findings
+baked in below: `intensity` transports as a free-form string with **no hop
+rejecting `'sarcastic'`** — but **two hops silently no-op it** unless
+extended (`INTENSITY_GUIDANCE` dict at `stats_routes.py:72` on the
+generation side, and the reception transform, since
+`temperament_adjusted_mirror_shift` only matches `TRASH_TALK`/`TAUNT_POST_WIN`
+events today). The post-round chat surface **exists and is live**
+(`react/.../mobile/MobileWinnerAnnouncement.tsx`, 5 tones, mounted in
+`MobilePokerTable.tsx` only on showdown) but has **no register row** and
+its route reads no intensity — so post-round sarcasm is additive plumbing,
+not a retrofit.
+
+Steps 1 and 2 are fully parallel; step 3 depends on step 1's transport;
+step 5 is blocked on step 4 only if `commiserate` ships with it.
+
+1. **Type + transport + frontend gating.** Add `'sarcastic'` to
+   `ChatIntensity` (`react/.../types/chat.ts:61`) **and** the per-tone
+   memory map's value type. Add the `sarcastic` button to the delivery row
+   in `QuickChatSuggestions.tsx` (currently two hardcoded buttons at
+   ~`:359`), gated to warm tones, with the revert-to-`spicy`-on-hostile
+   behavior. No route/validation change needed — `game_routes.py:1951` and
+   `stats_routes.py:320` both `dict.get` intensity with no allowlist.
+2. **Reception (backend).** Add a `register: str = 'earnest'` param to
+   `temperament_adjusted_mirror_shift` (`relationship_events.py`) + a
+   `_SARCASM_MIRROR_OVERRIDES` table keyed on disposition (uniform across
+   warm tones, per §6) — Option A, keeps shift logic in `relationship_events.py`.
+   Thread `register` through `_temperament_mirror_override` →
+   `dispatch_chat_relationship_event` (`chat_relationship.py`). Backward-
+   compatible default means existing callers are untouched. Can build
+   concurrently with step 1 (invisible until the FE sends `'sarcastic'`).
+   - **Flattery sub-task (understated in earlier drafts):** `flatter` takes
+     a *separate early-return path* (`_dispatch_flattery`, `chat_relationship.py:137`)
+     that (a) never passes `mirror_shift_override` to its `record_event`
+     call (~`:193`) and (b) uses `_classify_flattery_disposition`
+     (vain/sees-through), **not** `_classify_social_disposition`. Sarcastic
+     flatter must: take the `register`, **bypass** the flattery-disposition
+     branch, fire the `'jab'` emotional stimulus (not `'flatter'`), and pass
+     the sarcasm `mirror_shift_override` keyed on the *social* disposition.
+3. **Generation flag.** Add a `'sarcastic'` key to `INTENSITY_GUIDANCE`
+   (`stats_routes.py:72`, e.g. *"Dry, backhanded — sounds like a compliment,
+   reads as a barb."*). The templates already interpolate
+   `{intensity_guidance}`, so **no template change**. Starts after step 1.
+4. **Palette.** Retire the `tilt`/`bait`→`TRASH_TALK` collapse. For
+   `needle`→`PROVOKE` and `commiserate`→`COMMISERATE`: reuse-first
+   (`TRASH_TALK`-light / `FRIENDLY_BANTER`) is genuinely free for `needle`
+   (one-line `map_tone` change to promote later). But **`commiserate` is
+   worth adding as a real event now** — its reuse substitute `FRIENDLY_BANTER`
+   has no temperament override, so it'd land flat. A new `RelationshipEvent`
+   costs: enum + `ACTOR_AXIS_SHIFTS` + `MIRROR_AXIS_SHIFTS` rows + (optional)
+   temperament override + `_POST_ROUND_TONE_MAP` entry + `_stimulus_for_event`
+   + the post-round route's **hardcoded `allowed_tones` allowlist**
+   (`stats_routes.py:535` — the *only* tone allowlist in the codebase) + a
+   new `post_round_commiserate` YAML template + tests. Decide `intimidate`
+   as a tone vs a reputation/demeanor byproduct.
+5. **Post-round register (more than a toggle).** `MobileWinnerAnnouncement.tsx`
+   needs a register-row state + buttons; `getPostRoundChatSuggestions`
+   (`api.ts`, currently sends only name+tone) + the post-round route
+   (`stats_routes.py:501`, reads no intensity) need an intensity/register
+   field; and a sarcastic guidance/template branch for post-round. Dispatch
+   side needs nothing (`map_tone` already ignores intensity for post-round).
+   Blocked on step 4 if `commiserate` is in scope.
+
+**Out-of-scope notes the review flagged:** the socket `send_message`
+handler (`game_routes.py:2382`) reads neither `tone` nor `intensity` and
+never calls the dispatch — a dead zone, harmless today because player chat
+uses the REST path, but don't route structured quick-chat through the
+socket without fixing it. A pre-existing `tsc` type-narrowing on
+`handleSendMessage` (`usePokerGame.ts:58` declares 1 param, impl has 4) is
+unrelated to this work.
+
+## Optional extension: emotional-state-sensitive reception (clamped, flag-gated, default OFF)
+
+Today both the shipped trash-talk reception and the spec'd sarcasm
+reception are **static** — keyed off anchor-derived disposition only.
+Neither the relationship layer nor the emotional layer reads a character's
+*current* mood when applying a social shift (the emotional layer's
+ego/poise sensitivity is also static-anchor, not state). So a steaming
+player and a calm one take the same jab identically.
+
+The extension: let **current composure** nudge how hard an inbound barb
+lands — a character who's already tilting takes the needle worse; a
+composed one shrugs it. Thematically rich, but the *practical* risk is
+real and is the whole reason this is gated and clamped:
+
+- **Feedback spiral** — tilted → barb hits harder → … (must not compound).
+- **Pile-on** — a steaming player at a chatty table gets hammered every jab.
+- **Permanent damage from a transient mood** — `respect`/`likability`
+  **don't decay**, so a bad ten minutes shouldn't permanently tank a bond.
+- **Double-count** — the same jab already pressed composure *down* on the
+  emotional layer; that lowered composure must not then massively amplify
+  the relationship hit through one transient state.
+
+### Containment design (the point of the feature)
+
+Five clamps, each addressing one risk above:
+
+1. **Factor is 1.0 at the character's own baseline.** Read composure
+   *relative to* `psychology._baseline_composure`, not absolute — so a
+   naturally-volatile character isn't permanently amplified; only a
+   deviation *below their own normal* engages it. At baseline, reception is
+   exactly the static value.
+2. **Heat axis only.** The state factor scales `heat` and nothing else.
+   `respect`/`likability` stay at their static temperament values — because
+   heat **decays** (`project_heat`) so a tilt-moment spike self-heals,
+   while respect/likability are permanent and must stay calibrated. This
+   alone kills the "permanent damage from a transient mood" risk.
+3. **Amplify-only, barbs-only (first cut).** Engage only when the resolved
+   override is a *barb* (positive heat / negative likability — i.e. `stung`,
+   or sarcasm-on-stung). Bonding shifts (`energized`) are left untouched
+   (being tilted shouldn't make you bond *more* over a jab). Dampening on a
+   *heater* (composure above baseline → shrug it off) is a thematically
+   nice but separate phase — deferred so the first cut can only ever *add*
+   a bounded amount, never invert or zero a reception.
+4. **Bounded factor with a dead-band.** `state_factor = 1 + STATE_K ·
+   clamp(deficit, 0, 1)` where `deficit = (baseline − composure) / baseline`
+   and `STATE_K ≈ 0.25` (±25% ceiling). A `TILT_DEADBAND ≈ 0.15` means
+   small wobble does nothing — most jabs land static; only a genuinely
+   steaming player gets the extra sting (also keeps trajectories readable,
+   not noisy).
+5. **Hard output ceiling.** After the factor, clamp the heat delta to a
+   `SOCIAL_HEAT_EVENT_CEILING` (≈ 0.20, the table's existing max mirror
+   heat). Belt-and-suspenders: bounded factor *and* bounded output, so no
+   compounding path can push a single chat event's heat past the
+   established maximum.
+
+No same-tick loop exists by construction: the factor reads a composure
+*snapshot* at the moment of the jab, and the relationship shift never feeds
+back into composure — the only coupling is hand-over-hand, and heat decay +
+composure recovery both pull back toward baseline between hands.
+
+### Seam + gating
+
+- One place: `_temperament_mirror_override` (`chat_relationship.py:106`)
+  already resolves the target's controller and thus `psychology.axes`
+  (current composure) **and** `psychology._baseline_composure`. Apply the
+  clamped factor to the resolved override's `heat` there, after
+  `temperament_adjusted_mirror_shift` returns and before handing it to
+  `record_event`. No signature change to the relationship layer.
+- Flag-gated, **default OFF**, mirroring `economy_flags.REPUTATION_DEMEANOR_ENABLED`
+  (`player_psychology.py:545` precedent). Ship dormant; enable only after a
+  sim shows heat distributions stay bounded and no runaway pairs emerge.
+- Alternative state signal: `tilt_score` (already surfaced in
+  `dossier_signals.build_temperament`) instead of raw composure deficit —
+  evaluate which is steadier.
+
+### Validation before enabling
+
+Sim a chatty table with a tilt-prone character (low poise/recovery) under
+sustained needling, flag ON vs OFF; confirm (a) peak inbound heat stays
+≤ ceiling, (b) it decays back post-tilt (no permanent nemesis from one bad
+stretch), (c) respect/likability trajectories are identical to flag-OFF
+(proves heat-only containment). Only promote if all three hold.
+
+**Open sub-decision:** amplify-only (shipped first) vs also-dampen-on-heater
+(phase 2). Dampening interacts with the `W_SOCIAL` leave-pressure idea — a
+winning, composed chip-leader would feel *even less* social heat, which may
+be thematically correct (the cocky leader doesn't care) but compounds two
+"winner is comfortable" effects; decide together with `W_SOCIAL`.
+
+## Open questions / decisions
 
 - Which trait keys temperament — reuse `attitude`/`aggression` or add a
-  dedicated `social_temperament`? (Leaning dedicated, defaulted from
-  existing traits so personalities.json doesn't need a mass edit.)
+  dedicated `social_temperament`? **Resolved for trash-talk reception:**
+  derived from anchors via `_classify_social_disposition` (no JSON field).
+  Sarcasm reuses the same disposition.
+- **New events (`PROVOKE`, `COMMISERATE`) now, or reuse + promote later?**
+  Each new event = new ACTOR/MIRROR rows (+ temperament overrides). Leaning
+  reuse-first (`TRASH_TALK`-light / `FRIENDLY_BANTER`) to keep the first
+  cut small, promote when reception needs to differ.
+- **Is `intimidate` a tone or a byproduct** of the reputation/demeanor
+  system (a feared villain's plain trash talk already intimidates)? Could
+  be redundant.
 - `W_SOCIAL` weight + heat-aggregation shape (sum vs mean, threshold) —
   tune so a mildly-resented winner still farms a bit but a table-wide
   pile-on pushes them out.

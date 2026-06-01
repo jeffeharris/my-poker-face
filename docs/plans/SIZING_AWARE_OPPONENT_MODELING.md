@@ -145,6 +145,23 @@ A 0.45-vpip TAG who bets small with air and huge with sets registers correctly.
 
 ## B — defend (consume the read, facing a bet)
 
+> **⚠️ 2026-05-31 MEASUREMENT — B is LOW-LEVERAGE in our pool; deprioritized.**
+> Before building B, measured the defense leak directly with `PolarValue` (a
+> maximally face-up nit: bets 1.2x ONLY with strong+, never bluffs — every big bet
+> is the nuts). Bracket vs 5×PolarValue (6max, 1500h×3, fair = measured − self-play
+> H): **CaseBotV2 +207** (pays off big bets) > **RegPlus +81** (folds to big bets)
+> > **tiered/TAG +50**. The tell: if folding-to-big-bets (the B behavior) paid,
+> RegPlus would BEAT CaseBotV2 here — instead CaseBotV2 wins by +126. Because a
+> face-up nit bets big *rarely* (only the nuts), the pay-off cost is tiny vs the EV
+> of stealing its many folds → **defending face-up value bets saves little; the
+> magnitude scales with how OFTEN the opponent value-overbets (modest in our pool,
+> larger vs a loose human — unmeasurable here).** So B joins the human-only bucket.
+> The same data redirects to **C** (PolarValue folds constantly → a
+> `fold_to_big_bet`-aware attacker overbet-steals it far more; EV is in the
+> frequent fold spots) and to the tiered bot's under-extraction vs folders
+> (+50 = lowest → the blind-defense/over-folding gap). Probe: `PolarValue`
+> archetype / `_strategy_polar_value`.
+
 `bluff_catch_override` (`value_override.py`) is the only facing-bet layer that
 already reads `bet_size_pot_ratio` → a call-prob table. Extend it with optional
 `sizing_archetype` / `bet_bucket` params: vs a `sizing_polar` opponent's

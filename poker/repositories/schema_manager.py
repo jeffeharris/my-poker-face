@@ -213,7 +213,61 @@ _test_schema_template_path = None
 #       Read-only scoreboard — never injected into core AI thresholds. See
 #       `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
 #       Renumbered from v121 on the prestige→prep-for-main merge (collision).
-SCHEMA_VERSION = 124
+# v123: Add `circulating` to personalities — decouple "visible/selectable"
+#       (visibility) from "auto-seeded into the opponent pool" (circulating).
+#       The cash-mode seat-filler now only auto-seats circulating=1 personas;
+#       new ownerless auto-creations default to 0. Closes the "test/zombie
+#       persona silently pollutes everyone's circuit" class structurally.
+# v124: Create `opponent_observation_lifetime` — the Circuit's durable,
+#       per-sandbox scouting memory: cumulative behavioral COUNTS (not rates)
+#       per (sandbox_id, observer_id, opponent_id), summed across every game
+#       in that sandbox. Rates (VPIP/PFR/AF/showdown) derive on read. Filled
+#       only from sandbox-bound games (legacy per-game `opponent_models` stays
+#       unchanged and serves live in-game AI as before). Also add
+#       `opponent_models.lifetime_applied_json` — the per-game high-water mark
+#       of counts already folded in, so the continuous delta-fold is
+#       resume-safe and never double-counts. Additive/idempotent. See
+#       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+#       Renumbered from v123 on the dossiers→development merge (circulating
+#       took v123 on development; the create-before-alter order is preserved).
+# v125: Create `dossier_informant_unlocks` — sections the player paid the
+#       informant (chip sink) to reveal on an opponent's dossier, per
+#       (sandbox_id, observer_id, opponent_id, section_id). Unioned with the
+#       grind unlocks (bypasses the floor). Additive/idempotent. See
+#       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`. Renumbered from v124.
+# v126: Add deep postflop count/sum columns to `opponent_observation_lifetime`
+#       (Tier-2 dossier reads — fold-to-cbet, c-bet %, barreling, all-in freq,
+#       postflop aggression, polarization equity-at-action). Counts/sums only;
+#       rates derive on read through the canonical OpponentTendencies. Guarded
+#       ALTERs, additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+#       Renumbered from v125.
+# v127: Add preflop opportunity-count columns to `opponent_observation_lifetime`
+#       (preflop_voluntary_action/opportunities + open_raise/open_opportunities)
+#       so vpip_per_voluntary_opportunity / pfr_per_open_opportunity derive on
+#       read — the player-count-stable signals the station/nit exploitation
+#       detectors gate on (dossier "the read", Part B2). Guarded ALTERs,
+#       additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+#       Renumbered from v126.
+# v128: Create `entity_presence` — the single authoritative presence row per
+#       (entity_id, sandbox_id) for the Presence state machine (Cut 3). Compound
+#       PK structurally forbids an entity being in two places, plus a partial
+#       UNIQUE index forbids two entities sharing one (table_id, seat_index) seat,
+#       making `seated_and_idle` / `double_seat` unrepresentable. ADDITIVE AND
+#       DORMANT — nothing reads/writes it yet; a later human-reviewed phase
+#       reroutes the seat/idle/hustle/vice writers through it. CREATE ... IF NOT
+#       EXISTS, non-destructive, idempotent. See
+#       `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6) and
+#       `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`.
+# v130: Add `preflop_node_key` to player_decision_analysis — the exact
+#       solver-chart node (scenario|position|opener|hand) captured at decision
+#       time so the chart-graded coach leak finder grades the precise spot.
+#       Nullable; old rows fall back to reconstruction. Renumbered from v123 on
+#       the training-room→development merge (circulating took v123).
+# v131: Create `coach_tips` — proactive in-decision coach tip log (and which
+#       leak nudge fired) so the coach's effect on play can be measured by
+#       joining to player_decision_analysis. Pure instrumentation. Renumbered
+#       from v124 on the training-room→development merge.
+SCHEMA_VERSION = 131
 
 
 class SchemaManager:
@@ -2010,11 +2064,39 @@ class SchemaManager:
                 "Create prestige_snapshots table — sandbox-scoped human-player reputation (renown ratchets, regard swings) captured by the ticker with component breakdown; add idx_relationship_states_opponent for the inbound-edge aggregate",
             ),
             123: (
-                self._migrate_v123_add_preflop_node_key,
-                "Add preflop_node_key to player_decision_analysis — exact solver-chart node (scenario|position|opener|hand) captured at decision time for chart-graded coach leaks",
+                self._migrate_v123_add_personality_circulating,
+                "Add circulating flag to personalities — decouple visibility (who can see/pick) from auto-seeding into the opponent pool; backfill preserves current behavior (all public rows circulate)",
             ),
             124: (
-                self._migrate_v124_create_coach_tips,
+                self._migrate_v124_create_opponent_observation_lifetime,
+                "Create opponent_observation_lifetime — per-sandbox cumulative behavioral counts (the Circuit's scouting memory); add opponent_models.lifetime_applied_json high-water mark for the resume-safe delta-fold",
+            ),
+            125: (
+                self._migrate_v125_create_dossier_informant_unlocks,
+                "Create dossier_informant_unlocks — sections the player paid the informant to reveal per (sandbox, observer, opponent); unioned with grind unlocks to bypass the floor",
+            ),
+            126: (
+                self._migrate_v126_add_deep_postflop_lifetime_counts,
+                "Add deep postflop count/sum columns to opponent_observation_lifetime (fold-to-cbet, c-bet %, barreling, all-in freq, postflop aggression, polarization equity sums) — Tier-2 dossier reads; rates derive on read",
+            ),
+            127: (
+                self._migrate_v127_add_preflop_opportunity_lifetime_counts,
+                "Add preflop opportunity-count columns to opponent_observation_lifetime (voluntary action/opportunities + open raise/opportunities) so vpip_per_voluntary_opportunity / pfr_per_open_opportunity derive — the signals the station/nit exploitation detectors gate on (dossier 'the read')",
+            ),
+            128: (
+                self._migrate_v128_create_entity_presence,
+                "Create entity_presence — single authoritative presence row per (entity_id, sandbox_id) for the Presence state machine (Cut 3); compound PK + partial unique seat index make seated_and_idle / double_seat unrepresentable. Additive and dormant.",
+            ),
+            129: (
+                self._migrate_v129_create_cash_idle_metadata,
+                "Create cash_idle_metadata — satellite for the idle-pool routing payload (reason/target_stake/left_at) that entity_presence's pure machine deliberately doesn't carry. At the Presence authority flip, entity_presence owns the IDLE state and this table carries the movement metadata. Additive; cash_idle_pool stays a written cache (view-conversion deferred).",
+            ),
+            130: (
+                self._migrate_v130_add_preflop_node_key,
+                "Add preflop_node_key to player_decision_analysis — exact solver-chart node (scenario|position|opener|hand) captured at decision time for chart-graded coach leaks",
+            ),
+            131: (
+                self._migrate_v131_create_coach_tips,
                 "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
             ),
         }
@@ -6411,8 +6493,373 @@ class SchemaManager:
         """)
         logger.info("Migration v122 complete: prestige_snapshots table created")
 
-    def _migrate_v123_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
-        """Migration v123: add `preflop_node_key` to player_decision_analysis.
+    def _migrate_v123_add_personality_circulating(self, conn: sqlite3.Connection) -> None:
+        """Migration v123: add `circulating` to personalities.
+
+        Decouples two ideas that `visibility` previously conflated:
+          - `visibility` (public/private/disabled) — who can SEE / PICK a
+            persona. Unchanged.
+          - `circulating` (0/1) — whether the persona is AUTOMATICALLY
+            seeded into the opponent pool (the cash-mode seat-filler) with
+            nobody explicitly choosing it.
+
+        Why: an ownerless persona — a sim seat, an admin/test creation, an
+        unknown-name auto-generate — was written `visibility='public'` and
+        therefore immediately auto-seated into EVERY player's cash games.
+        That's the recurring "test/zombie persona pollutes the circuit"
+        class (Test Player, Unknown Celebrity, AI 12-15, Fishy, … all
+        leaked this way and racked up tens of thousands of seatings). The
+        `RESERVED_PERSONA_NAMES` guard only caught a hardcoded list and
+        only blocked the WRITE; this makes the safe behaviour structural —
+        new ownerless personas are public-but-not-circulating, and entering
+        the live pool becomes an explicit, curated act (`set_circulating`,
+        or seeding with `circulating=1`).
+
+        Backfill preserves CURRENT behaviour exactly: every row that is
+        public today keeps circulating, so the whole seeded celebrity
+        corpus (including the good `ai_generated` ones — Cthulhu, Snoop
+        Dogg, Yoda, …) is unaffected. Only the forward default changes.
+        Demoting the existing junk rows is a separate, explicit data step
+        (it's environment-specific — prod has different junk than dev), not
+        baked into this generic, reusable migration. Non-destructive,
+        additive, reversible.
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+        if 'circulating' not in columns:
+            conn.execute(
+                "ALTER TABLE personalities ADD COLUMN circulating INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_personalities_circulating "
+            "ON personalities(circulating)"
+        )
+        # Preserve today's behaviour: everything currently public auto-seats.
+        updated = conn.execute(
+            "UPDATE personalities SET circulating = 1 WHERE visibility = 'public'"
+        ).rowcount
+        logger.info(
+            f"Migration v123 complete: added circulating column, "
+            f"marked {updated} public personas circulating"
+        )
+
+    def _migrate_v124_create_opponent_observation_lifetime(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v124: create `opponent_observation_lifetime` + add the
+        `opponent_models.lifetime_applied_json` high-water mark.
+
+        The Circuit's durable scouting memory. One row per
+        (sandbox_id, observer_id, opponent_id) holding cumulative behavioral
+        COUNTS summed across every game in that sandbox; rates (VPIP, PFR,
+        aggression factor, showdown win-rate) are derived on read. Storing
+        counts (not rates) is what lets games merge losslessly — a new game's
+        tallies simply add to the running totals.
+
+        Filled ONLY from sandbox-bound games (Circuit cash + Circuit
+        tournaments). The legacy per-game `opponent_models` table is
+        unchanged and keeps serving the live in-game AI as before — this is a
+        Circuit-only feature layered on top, not a change to how any mode
+        models opponents.
+
+        `opponent_models.lifetime_applied_json` is the per-(game, observer,
+        opponent) high-water mark of counts already folded into the lifetime
+        row. The fold is a continuous delta-fold at each hand-boundary save
+        (`delta = current − applied; lifetime += delta; applied = current`),
+        which is resume-safe (cold-load reuses game_id) and never
+        double-counts. The ALTER is guarded by a PRAGMA check so the
+        migration is safe on a partially-applied DB.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS, guarded ALTER).
+        See `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS opponent_observation_lifetime (
+                sandbox_id      TEXT NOT NULL,
+                observer_id     TEXT NOT NULL,
+                opponent_id     TEXT NOT NULL,
+                hands_dealt     INTEGER NOT NULL DEFAULT 0,
+                hands_observed  INTEGER NOT NULL DEFAULT 0,
+                vpip_count      INTEGER NOT NULL DEFAULT 0,
+                pfr_count       INTEGER NOT NULL DEFAULT 0,
+                bet_raise_count INTEGER NOT NULL DEFAULT 0,
+                call_count      INTEGER NOT NULL DEFAULT 0,
+                showdowns_seen  INTEGER NOT NULL DEFAULT 0,
+                showdowns_won   INTEGER NOT NULL DEFAULT 0,
+                first_seen      TIMESTAMP,
+                last_updated    TIMESTAMP,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_obs_lifetime_observer
+                ON opponent_observation_lifetime(sandbox_id, observer_id)
+        """)
+
+        # Add the high-water mark column to opponent_models, guarded so the
+        # migration is safe whether or not the column already exists (fresh
+        # installs create opponent_models in _init_db without it; a
+        # partially-applied DB may already have it).
+        cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(opponent_models)").fetchall()
+        }
+        if "lifetime_applied_json" not in cols:
+            conn.execute(
+                "ALTER TABLE opponent_models ADD COLUMN lifetime_applied_json TEXT"
+            )
+
+        logger.info(
+            "Migration v124 complete: opponent_observation_lifetime created + "
+            "opponent_models.lifetime_applied_json added"
+        )
+
+    def _migrate_v125_create_dossier_informant_unlocks(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v125: create `dossier_informant_unlocks` (Phase 3).
+
+        Records sections the player has paid the informant to reveal on an
+        opponent's dossier, per (sandbox_id, observer_id, opponent_id,
+        section_id). The dossier's effective unlock state is the grind
+        unlocks (derived from observed hands) UNION these purchased sections,
+        so a purchase bypasses the grind floor and persists.
+
+        `price_paid` is stored per row so the audit / future pricing tweaks
+        can see what was actually charged. Non-destructive, idempotent
+        (CREATE ... IF NOT EXISTS). See
+        `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dossier_informant_unlocks (
+                sandbox_id   TEXT NOT NULL,
+                observer_id  TEXT NOT NULL,
+                opponent_id  TEXT NOT NULL,
+                section_id   TEXT NOT NULL,
+                price_paid   INTEGER NOT NULL DEFAULT 0,
+                purchased_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id, section_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_informant_unlocks_pair
+                ON dossier_informant_unlocks(sandbox_id, observer_id, opponent_id)
+        """)
+        logger.info(
+            "Migration v125 complete: dossier_informant_unlocks table created"
+        )
+
+    def _migrate_v126_add_deep_postflop_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v126: extend `opponent_observation_lifetime` with the deep
+        postflop count/sum columns (Tier-2 dossier reads).
+
+        v124 stored only the headline counts (VPIP/PFR/AF/showdown).
+        `OpponentTendencies` already tracks far more (fold-to-cbet, c-bet
+        attempt, barrel/3rd-barrel, all-in, postflop aggression, and the
+        equity-at-action polarization sums). This promotes those counters into
+        the durable per-sandbox store so they accumulate cross-game, feeding
+        the new grind tiers past 180 hands. Same principle as v124: store
+        COUNTS (and the equity SUMS), derive rates on read through the
+        canonical `OpponentTendencies` formula so definitions never drift.
+
+        Each derived rate needs both numerator AND denominator counts because
+        the read reconstructs an `OpponentTendencies` and re-derives the rate.
+        The equity polarization means are mean = sum / count, so we store the
+        REAL sum alongside its integer count.
+
+        Every ALTER is guarded by a PRAGMA check so the migration is safe on a
+        partially-applied DB. Additive, idempotent. See
+        `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+        """
+        # (column, sql_type) — integer counts, then the REAL equity sums.
+        new_columns = [
+            ('all_in_count', 'INTEGER'),
+            ('fold_to_cbet_count', 'INTEGER'),
+            ('cbet_faced_count', 'INTEGER'),
+            ('cbet_attempt_count', 'INTEGER'),
+            ('postflop_seen_as_pfr_count', 'INTEGER'),
+            ('barrel_count', 'INTEGER'),
+            ('barrel_opportunity_count', 'INTEGER'),
+            ('third_barrel_count', 'INTEGER'),
+            ('third_barrel_opportunity_count', 'INTEGER'),
+            ('postflop_bet_raise_count', 'INTEGER'),
+            ('postflop_call_count', 'INTEGER'),
+            ('equity_betting_count', 'INTEGER'),
+            ('equity_raising_count', 'INTEGER'),
+            ('equity_calling_count', 'INTEGER'),
+            ('equity_betting_sum', 'REAL'),
+            ('equity_raising_sum', 'REAL'),
+            ('equity_calling_sum', 'REAL'),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col, sql_type in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} {sql_type} NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v126 complete: %d deep postflop column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v127_add_preflop_opportunity_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v127: add the preflop opportunity-count columns to
+        `opponent_observation_lifetime`.
+
+        The Part-B2 dossier "the read" reuses the tiered-bot exploitation
+        detectors (`poker.strategy.exploitation`). The station and tight-nit
+        detectors gate on `vpip_per_voluntary_opportunity` (and the steal read
+        on `pfr_per_open_opportunity`) — the player-count-stable, opportunity-
+        normalized preflop rates, NOT the raw hands-dealt-normalized vpip/pfr.
+        Those rates derive from preflop opportunity counters that v124 didn't
+        store, so without these columns the station/nit reads could never fire
+        from lifetime data. The counters are already serialized in
+        `tendencies_json`, so the existing delta-fold picks them up once they
+        join `_LIFETIME_COUNT_FIELDS`.
+
+        Guarded ALTERs, additive, idempotent. See
+        `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+        """
+        new_columns = [
+            'preflop_voluntary_action_count',
+            'preflop_voluntary_opportunities',
+            'preflop_open_raise_count',
+            'preflop_open_opportunities',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v127 complete: %d preflop opportunity column(s) added "
+            "to opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v128_create_entity_presence(self, conn: sqlite3.Connection) -> None:
+        """Migration v128: create `entity_presence` (Cut 3 of the state-model plan).
+
+        The single authoritative presence row per `(entity_id, sandbox_id)` for
+        the Presence state machine (`cash_mode/presence.py`). The point of the
+        table is *structural* impossibility of two bug classes:
+
+          - **`seated_and_idle` / two-states-at-once.** The compound PRIMARY KEY
+            `(entity_id, sandbox_id)` allows exactly one row — therefore exactly
+            one `state` — per entity per sandbox. There is nowhere to record a
+            second, contradictory state.
+          - **`double_seat`.** A partial UNIQUE index over
+            `(sandbox_id, table_id, seat_index)` WHERE `state = 'seated'` forbids
+            two entities occupying the same physical seat. (Non-seated rows carry
+            NULL table_id/seat_index and are excluded from the constraint.)
+
+        `entity_id` uses the ledger convention (`player:<owner_id>` /
+        `ai:<personality_id>`; pool-funded casino AI also live here with a `pool`
+        origin state). `table_id` / `seat_index` are populated iff `state =
+        'seated'` (enforced in the application layer by the pure machine and
+        structurally by the CHECK constraint below).
+
+        ADDITIVE AND DORMANT: nothing reads or writes this table yet. A later,
+        human-reviewed phase reroutes the seat / idle-pool / hustle / vice writers
+        through the machine (see `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`).
+        Until then `cash_idle_pool`, `ai_side_hustle_state`, `ai_vice_state`, and
+        the occupancy half of `cash_tables` remain the authorities — this table
+        changes no behaviour.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). See
+        `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS entity_presence (
+                entity_id   TEXT NOT NULL,
+                sandbox_id  TEXT NOT NULL DEFAULT 'default',
+                state       TEXT NOT NULL,
+                table_id    TEXT,
+                seat_index  INTEGER,
+                updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (entity_id, sandbox_id),
+                CHECK (state IN ('offline','seated','idle','side_hustle','vice','pool')),
+                CHECK (
+                    (state = 'seated' AND table_id IS NOT NULL AND seat_index IS NOT NULL)
+                    OR
+                    (state <> 'seated' AND table_id IS NULL AND seat_index IS NULL)
+                )
+            )
+        """)
+        # Forbid two entities sharing one physical seat (the double_seat class).
+        # Partial index: only seated rows participate; non-seated rows have NULL
+        # seat fields and are excluded.
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_presence_seat
+                ON entity_presence(sandbox_id, table_id, seat_index)
+                WHERE state = 'seated'
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_entity_presence_sandbox
+                ON entity_presence(sandbox_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_entity_presence_sandbox_state
+                ON entity_presence(sandbox_id, state)
+        """)
+        logger.info("Migration v128 complete: entity_presence table created")
+
+    def _migrate_v129_create_cash_idle_metadata(self, conn: sqlite3.Connection) -> None:
+        """Migration v129: create `cash_idle_metadata` (Presence cutover Phase 3).
+
+        The Presence state machine (`entity_presence`) records WHERE an actor is
+        as a single state value. For the IDLE state, the cash-mode mover also
+        needs two pieces of routing payload that are meaningless for every other
+        state: `reason` (why the AI left — take_break / forced_leave /
+        stake_up_queued / bored_move) and `target_stake` (which stake it wants to
+        re-sit at). Those drive the idle-candidate filter (`cash_mode/movement.py`).
+
+        Putting them on `entity_presence` would pollute the pure machine with
+        nullable, IDLE-only columns (the dataclass `__post_init__` already forbids
+        non-seated rows from carrying seat fields — the same philosophy rejects
+        idle-only payload on non-IDLE states). So they live here, in a satellite
+        keyed the same way the old `cash_idle_pool` was: `(personality_id,
+        sandbox_id)`. At the authority flip, `entity_presence` owns the IDLE
+        *state* and this table carries the *metadata*; `cash_idle_pool` keeps
+        being written as a derived cache (its hard view-conversion is a separate,
+        later step — see `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md` D2).
+
+        Additive and dormant: nothing writes this until the flip wiring lands
+        behind `economy_flags.PRESENCE_AUTHORITY_ENABLED` (default off). Idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_idle_metadata (
+                personality_id TEXT NOT NULL,
+                sandbox_id     TEXT NOT NULL,
+                reason         TEXT,
+                target_stake   TEXT,
+                left_at        TEXT,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        logger.info("Migration v129 complete: cash_idle_metadata table created")
+
+    def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
+        """Migration v130: add `preflop_node_key` to player_decision_analysis.
 
         The exact solver-chart node — ``scenario|position|opener|hand`` — captured
         at decision time (via the tiered bot's `build_preflop_node`) so the
@@ -6420,6 +6867,9 @@ class SchemaManager:
         including the exact opener and `vs_3bet` scenarios that backfill
         reconstruction can only approximate. Nullable; old rows fall back to
         reconstruction. Non-destructive, idempotent.
+
+        Renumbered from v123 on the training-room→development merge (collision:
+        circulating took v123 on development).
         """
         cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -6428,10 +6878,10 @@ class SchemaManager:
                 "ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT"
             )
             logger.info("Added preflop_node_key column to player_decision_analysis")
-        logger.info("Migration v123 complete: preflop_node_key added")
+        logger.info("Migration v130 complete: preflop_node_key added")
 
-    def _migrate_v124_create_coach_tips(self, conn: sqlite3.Connection) -> None:
-        """Migration v124: create `coach_tips` — proactive in-decision tip log.
+    def _migrate_v131_create_coach_tips(self, conn: sqlite3.Connection) -> None:
+        """Migration v131: create `coach_tips` — proactive in-decision tip log.
 
         One row per proactive coach tip actually served to the player. Records
         the spot (game/hand/phase/position) and, when a recurring chart leak was
@@ -6443,6 +6893,9 @@ class SchemaManager:
 
         Pure instrumentation: nothing here feeds AI decisions. Non-destructive,
         idempotent.
+
+        Renumbered from v124 on the training-room→development merge (collision:
+        opponent_observation_lifetime took v124 on development).
         """
         conn.execute("""
             CREATE TABLE IF NOT EXISTS coach_tips (
@@ -6471,4 +6924,4 @@ class SchemaManager:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
         )
-        logger.info("Migration v124 complete: coach_tips table created")
+        logger.info("Migration v131 complete: coach_tips table created")

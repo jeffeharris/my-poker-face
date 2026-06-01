@@ -30,6 +30,7 @@ import type {
   StakerForgiveResponse,
   WhereaboutsResponse,
   WorldPace,
+  FileCabinetResponse,
 } from './types';
 
 const BASE = `${config.API_URL}/api/cash`;
@@ -186,6 +187,13 @@ export async function getWhereabouts(): Promise<WhereaboutsResponse> {
   return getJson('/whereabouts');
 }
 
+/** The file cabinet (dossier Phase 4): the roster of everyone you've
+ *  accumulated scouting on in this sandbox, with headline stats + the
+ *  "people met / dossiers unlocked" counts. Sorting is client-side. */
+export async function getFileCabinet(): Promise<FileCabinetResponse> {
+  return getJson('/file-cabinet');
+}
+
 // --- Net Worth (Phase 3) ---
 
 export async function getNetWorth(): Promise<NetWorthResponse> {
@@ -314,11 +322,19 @@ export async function sitAtTable(
     return { kind: 'requires_sponsor', data };
   }
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const err = new Error((data as { error?: string }).error || `HTTP ${res.status}`);
-    // Attach status so the lobby can self-heal on a 409 (seat-race /
-    // full-table) by reloading rather than dead-ending the tap.
-    (err as Error & { status?: number }).status = res.status;
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      game_id?: string;
+    };
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    // Attach status + game_id so the lobby can tell the two 409s apart: the
+    // "session already active" 409 carries the existing game_id (route the
+    // player back into it) vs a seat-race / full-table conflict which doesn't
+    // (reload the lobby), rather than dead-ending the tap.
+    Object.assign(err as Error & { status?: number; gameId?: string }, {
+      status: res.status,
+      gameId: data.game_id,
+    });
     throw err;
   }
   return (await res.json()) as SitResponse;

@@ -9,6 +9,9 @@ interface UseRunoutDirectorParams {
   runItOut: boolean | undefined;
   /** True once opponent hole cards are revealed (the matchup is on the table). */
   revealed: boolean;
+  /** True when the human has folded — a spectator to the run-out, so their hole
+   *  cards must NOT throw up to "present" (there's no hand to show). */
+  heroFolded: boolean;
   /** How many community cards are currently shown. */
   communityCardCount: number;
   /** Store hand number — a change means a new hand; reset direction. */
@@ -50,6 +53,7 @@ export function useRunoutDirector({
   schedule,
   runItOut,
   revealed,
+  heroFolded,
   communityCardCount,
   handNumber,
   fastForward,
@@ -130,13 +134,15 @@ export function useRunoutDirector({
     if (!revealed || !schedule || directingScheduleRef.current !== schedule) return;
     // Present the human's hand the instant the matchup reveals (the commit beat);
     // the opponents' INITIAL read then lands a beat later, as the cards settle.
-    setHeroCommitted(true);
+    // A folded human is only spectating the AIs' showdown — they have no hand to
+    // show, so skip the presentation animation entirely.
+    if (!heroFolded) setHeroCommitted(true);
     if (playedRef.current.has('INITIAL:0')) return;
     playedRef.current.add('INITIAL:0');
     const step = stepsByPhase.INITIAL?.[0];
     at(RUNOUT_TIMING.initialReactionDelayMs, () => applyStep(step));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revealed, schedule, stepsByPhase]);
+  }, [revealed, heroFolded, schedule, stepsByPhase]);
 
   // Per-street batch: when a street's cards land, schedule each card's reaction
   // at its cascade offset (flop card i at i × stagger). After the river, queue

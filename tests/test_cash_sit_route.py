@@ -97,6 +97,7 @@ class _CashSitRouteBase(unittest.TestCase):
                     'stake_comfort_zone': '$10',
                 },
             },
+            circulating=True,
         )
         cls.bankroll_repo.save_ai_bankroll(
             AIBankrollState(
@@ -117,6 +118,7 @@ class _CashSitRouteBase(unittest.TestCase):
                         'stake_comfort_zone': '$10',
                     },
                 },
+                circulating=True,
             )
             cls.bankroll_repo.save_ai_bankroll(
                 AIBankrollState(

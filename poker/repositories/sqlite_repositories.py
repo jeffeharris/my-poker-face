@@ -63,6 +63,46 @@ class PressureEventRepository(BaseRepository):
 
         return events
 
+    def get_player_events_for_owner(
+        self, player_name: str, owner_id: str, limit: int = 2000
+    ) -> List[Dict[str, Any]]:
+        """Every pressure event for `player_name` across all of `owner_id`'s
+        games — the lifetime (cross-game) view the dossier replays into a
+        PlayerPressureStats summary.
+
+        Scoped by the game owner (≈ the player's sandbox under v1's 1:1
+        ownership) rather than globally, so one save's pressure record doesn't
+        bleed into another. Same row shape as `get_events_for_game`. Ordered
+        oldest-first so the replay's max/▸signature derivations match a live
+        game. `limit` caps the replay for pathological histories.
+        """
+        events = []
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT pe.id, pe.game_id, pe.player_name, pe.event_type,
+                       pe.timestamp, pe.details_json
+                FROM pressure_events pe
+                JOIN games g ON pe.game_id = g.game_id
+                WHERE g.owner_id = ? AND pe.player_name = ?
+                ORDER BY pe.timestamp ASC
+                LIMIT ?
+                """,
+                (owner_id, player_name, limit),
+            )
+            for row in cursor:
+                events.append(
+                    {
+                        'id': row['id'],
+                        'game_id': row['game_id'],
+                        'player_name': row['player_name'],
+                        'event_type': row['event_type'],
+                        'timestamp': row['timestamp'],
+                        'details': json.loads(row['details_json']) if row['details_json'] else {},
+                    }
+                )
+        return events
+
     def delete_by_game_id(self, game_id: str) -> None:
         """Delete all pressure events for a game."""
         with self._get_connection() as conn:

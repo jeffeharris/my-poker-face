@@ -1,0 +1,287 @@
+---
+purpose: Handoff for the next batch of opponent-dossier work — the file cabinet (Phase 4) plus the Tier-2 intel enrichments — with grounding, decided design, and concrete build steps
+type: guide
+created: 2026-05-29
+last_updated: 2026-05-29
+---
+
+# Dossier Enrichment Handoff (file cabinet + Tier 2)
+
+Picks up where the scouting meta-game left off. **Phases 1–4 + durable
+pressure/memorable + the Intel hub + B1 (deep postflop reads) are shipped**
+(as of 2026-05-29); the next phase is **Part B2 — exploit hints**, below.
+Parent vision + decisions:
+`docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`. Narrative log (incl. the
+wrong-turns): `docs/captains-log/dossiers/opponent-dossier-progression.md`.
+
+> **NOTE for the next context:** Part A (the file cabinet) is **DONE** — it
+> shipped as the **Intel hub** ("The Field Office": `IntelHub.tsx` with three
+> tabs — **The Wire** / **The Floor** / **The Files**). Skip Part A; start at
+> **Part B / B1**. The file-cabinet roster you'll touch for B1 is
+> `flask_app/services/file_cabinet.py` + `FileCabinetPanel.tsx`.
+
+## What already exists (read this first)
+
+The dossier is a **persistent, per-sandbox scouting meta-game**:
+
+- **Lifetime observation store** — `opponent_observation_lifetime` (schema
+  v123), cumulative behavioral COUNTS per `(sandbox_id, observer_id,
+  opponent_id)`, folded each hand-boundary via
+  `GameRepository.fold_observations_into_lifetime` (delta-fold, resume-safe,
+  high-water mark on `opponent_models.lifetime_applied_json`). Read via
+  `load_observation_lifetime`. Rates derived through the canonical
+  `OpponentTendencies._recalculate_stats` (no duplication).
+- **Pressure + memorable** are durable too, but via *aggregate-on-read scoped
+  by owner* (not the fold): `PressureEventRepository.get_player_events_for_owner`
+  + `GameRepository.load_lifetime_memorable_hands`.
+- **The grind gate** — `flask_app/services/dossier_scouting.py`
+  (`SCOUTING_SCHEDULE`, `compute_scouting`, `apply_scouting_gate`). Server
+  strips locked reads; floor 25; item drip 25→180 hands. Behind kill switch
+  `economy_flags.DOSSIER_SCOUTING_GATE_ENABLED`. Circuit-only (gates only
+  when a sandbox+observer exist).
+- **The informant** — `dossier_informant_unlocks` (schema v124),
+  `INFORMANT_SECTIONS`, `POST /api/character/<id>/informant` (debits bankroll
+  → bank pool via `informant_unlock` ledger reason). Purchasing is gated to a
+  Circuit context via the `circuitContext` prop on `CharacterDetailCard`.
+- **Dossier endpoint** — `GET /api/character/<id>/dossier`
+  (`flask_app/routes/character_routes.py:get_dossier`). Returns `scouting`
+  (gate state + `informant_offers`) and `player_bankroll` (so the informant
+  UI disables unaffordable unlocks). **UI** —
+  `react/react/src/components/character/CharacterDetailCard.tsx` (+ `api.ts`,
+  `CharacterDetailCard.css`); the scouting/informant UI is `ScoutingStrip`.
+- **Intel hub (Part A, DONE)** — `IntelHub.tsx` ("The Field Office", archive
+  aesthetic): **The Wire** (activity feed), **The Floor** (whereabouts),
+  **The Files** (the dossier roster). Roster aggregator
+  `flask_app/services/file_cabinet.py` (`build_file_cabinet`) →
+  `GET /api/cash/file-cabinet`; rendered by `FileCabinetPanel.tsx` (search +
+  reversible sorts incl. Name; excludes the viewer's own account). Opened
+  from the lobby's "Intel" trigger folded into the wire's title bar; a dossier
+  opens on top (z-index 1600) and the cabinet refreshes on purchase via
+  `onIntelChanged`.
+
+### Conventions to follow (learned the hard way)
+- **Migrations**: bump `SCHEMA_VERSION` in `schema_manager.py`, add a
+  `_migrate_vN_*` method + dict entry + changelog comment. New tables go in
+  the migration only (fresh DBs run the chain). Add the method BEFORE the
+  dict entry so the auto-reloader never sees a dangling reference.
+- **Tests run in Docker** on non-default ports here (backend 5001, frontend
+  5175): `docker compose exec -T backend python -m pytest <path> -p no:warnings`.
+  `docker compose exec -T frontend npx tsc --noEmit` for types.
+- **Don't fold-then-overlay carelessly** — the observation fold double-counted
+  because `save_opponent_models` delete+reinserts and wiped the high-water
+  mark; the unit test missed it because it never simulated a save between
+  folds. Prefer aggregate-on-read when the source events already exist.
+- **Gate leaks via static props** — `CharacterDetailCard.merged` falls back to
+  the static `character.*` prop when a fetched field is null; in a gated
+  context a null means "classified", so don't fall back. (Fixed for
+  observation; watch for it on any new gated field.)
+- **Scope**: new per-pair intel keys on `(sandbox_id, observer_id,
+  opponent_id)`. Pressure/memorable are currently owner-scoped (≈ sandbox
+  under 1:1) — fine for v1, flagged for multi-sandbox.
+
+---
+
+## Part A — The File Cabinet ✅ DONE
+
+Shipped as the **Intel hub** (see "What already exists" above). Don't rebuild;
+the next context starts at Part B.
+
+---
+
+## Part B — Tier 2 intel enrichments  ← **START HERE**
+
+The dossier already has the data for most of these — it's mostly surfacing
+work. Each becomes new grind tiers / reads.
+
+### B1. Deep postflop reads as new grind tiers ✅ DONE (2026-05-29)
+
+Shipped: migration **v125** added the deep count/sum columns to
+`opponent_observation_lifetime`; the fold (`_LIFETIME_COUNT_FIELDS` +
+new `_LIFETIME_SUM_FIELDS`) and `load_observation_lifetime` now build their
+SQL from those maps so future fields are picked up automatically;
+`_deeper_reads_from_lifetime` in `character_routes.py` derives the reads and
+the route attaches a `deeper_reads` block; 6 new `SCOUTING_SCHEDULE` tiers
+(fold-to-cbet @220 → polarization @480) with `_DEEPER_FIELDS` redaction + a
+`deep_reads` informant section ($1500); a gated **DEEP READ** section renders
+in `CharacterDetailCard.tsx` (type `DossierDeeperReads` in `api.ts`). Tests in
+`test_observation_lifetime.py` + `test_dossier_scouting.py`.
+
+> **Gotcha the original plan missed:** the equity polarization MEANS
+> (`equity_when_betting/raising/calling`) are NOT recomputed by
+> `_recalculate_stats()` — the live path updates them incrementally in
+> `record_equity_at_action`. So `_deeper_reads_from_lifetime` derives them
+> manually as `sum / count` from the stored `_equity_*_sum`/`_count` pairs.
+> Everything else (fold-to-cbet, c-bet, barrel, all-in, postflop AF) DOES come
+> out of `_recalculate_stats()` as the plan described.
+
+> **B1.5 — hybrid opportunity-count gate ✅ DONE (2026-05-30):** the deep
+> tiers now unlock on a hand floor **AND** enough samples of the actual spot
+> (e.g. fold-to-cbet needs 180 hands + 20 c-bets faced), so the unlocked stat
+> is statistically real — a 300-hand nit who's shown you 4 c-bets keeps that
+> read classified instead of surfacing noise. No migration (the opportunity
+> denominators were already stored at v125). Mechanics:
+> - `SCOUTING_SCHEDULE` entries are now a `ScoutingTier` NamedTuple
+>   `(id, label, hands, sample_fields, sample_min, sample_noun)`; Tier-1 reads
+>   leave `sample_fields` empty (hands = their sample count). `all_in_freq`
+>   stays hand-only (its denominator IS hands). `sample_fields` is a tuple so a
+>   read can sum several buckets (postflop AF = bet/raise+call; polarization =
+>   the three equity counts).
+> - `compute_scouting` / `apply_scouting_gate` now take the **lifetime counts
+>   dict** (still accept a bare int for legacy callers — sample-gated tiers
+>   then stay locked). The dossier route + informant routes pass `life_counts`;
+>   the file cabinet path widened `list_observation_lifetime_for_observer`
+>   (+`_ROSTER_SAMPLE_COLUMNS`) so the cabinet's unlock % matches the dossier.
+> - Locked descriptors carry `sample_min`/`samples_observed`/`sample_noun`; the
+>   `ScoutingStrip` renders "12/20 c-bets faced" and the hand progress bar
+>   retires once every hand floor is cleared (sample-only remainder shows
+>   per-row). Frontend `DossierScoutingLock` gained the three optional fields.
+> - **Tuning knobs (all in `dossier_scouting.py`):** per-tier hand floors
+>   (180–300) + `sample_min` (12–30). First-pass values; easy to retune.
+
+**ORIGINAL PLAN (kept for reference):**
+
+The idea: deep postflop reads as new grind tiers.
+
+**The idea:** the lifetime store currently keeps only the headline counts
+(VPIP/PFR/AF/showdown). `OpponentTendencies` computes far more and already
+serializes it to `opponent_models.tendencies_json` (see `to_dict` in
+`poker/memory/opponent_model.py`). Promote those into the lifetime store so
+they accumulate cross-game, then expose them as new grind tiers — fold-to-cbet,
+c-bet %, barrel/double-barrel, all-in frequency, postflop aggression, and the
+polarization (equity-at-action) reads. This is what gives the 100–500-hand
+range something to unlock and makes a maxed dossier genuinely deep.
+
+**The build (in order):**
+
+1. **Schema migration (v125):** add the new count columns to
+   `opponent_observation_lifetime`. ⚠ For each derived *rate* you must store
+   **both numerator AND denominator** counts, because the read reconstructs an
+   `OpponentTendencies` and calls `_recalculate_stats()` to derive the rate
+   (this is how we avoid duplicating formulas). The pairs:
+   - fold-to-cbet → `_fold_to_cbet_count` / `_cbet_faced_count`
+   - c-bet attempt → `_cbet_attempt_count` / `_postflop_seen_as_pfr_count`
+   - barrel → `_barrel_count` / `_barrel_opportunity_count`
+   - 3rd barrel → `_third_barrel_count` / `_third_barrel_opportunity_count`
+   - all-in freq → `_all_in_count` (denominator already there: hands_dealt)
+   - postflop AF → `_postflop_bet_raise_count` / `_postflop_call_count`
+   - polarization → `_equity_betting_sum`/`_count`,
+     `_equity_raising_sum`/`_count`, `_equity_calling_sum`/`_count`
+   (Confirm the exact key names against the current `to_dict` before writing
+   the migration — they're the source of truth.)
+2. **Fold:** add every new key to `_LIFETIME_COUNT_FIELDS`
+   (`game_repository.py`) — it's a flat `{tendencies_key: column}` map, so the
+   delta-fold picks them up automatically. (Sums work for all of these,
+   including the equity `_sum` accumulators.)
+3. **Read:** add the columns to `load_observation_lifetime`'s SELECT + return.
+4. **Derive:** in `character_routes._observation_from_lifetime`, set the new
+   `_*` fields on the reconstructed `OpponentTendencies` before
+   `_recalculate_stats()` — then `t.fold_to_cbet`, `t.cbet_attempt_rate`,
+   `t.barrel_frequency`, etc. come out correct, matching the live path.
+   Surface them in the response (extend the observation block or add a
+   `deeper_reads` block).
+5. **Gate + grind tiers:** add new item ids to `SCOUTING_SCHEDULE`
+   (`dossier_scouting.py`) past 180 (e.g. fold-to-cbet @120, c-bet @150,
+   barrel @220, polarization @300) and a `_redact_item` case for each. Note:
+   `reads_total` is `len(SCOUTING_SCHEDULE)`, so the gate progress, the
+   dossier "X/N pages", and the cabinet unlock % **all auto-scale** when you
+   add tiers — no other change needed there.
+6. **Informant:** optionally add an `INFORMANT_SECTIONS` entry bundling the
+   new deep reads (so they're buyable).
+7. **Frontend:** render the new reads in `ScoutingStrip` / the dossier's
+   observation/TABLE-POSTURE section (gated rows; null when locked).
+8. **Tests:** mirror `tests/test_repositories/test_observation_lifetime.py`
+   (fold lossless-merge for the new counts) + `tests/test_dossier_scouting*`
+   (gate redaction for the new item ids).
+
+### B2. Exploit hints ("the read") ✅ DONE (2026-05-30)
+
+Shipped — and **not** as a standalone rules-on-stats function. The
+`development` merge brought the tiered-bot exploitation detector layer
+(`poker/strategy/exploitation.py`) into reach, so "the read" is a thin
+PRESENTATION layer over the *calibrated* detectors the bots use to exploit
+these archetypes — the dossier read matches how the AI itself plays them.
+
+- **`flask_app/services/dossier_read.py`** `build_the_read(tendencies)` →
+  `{tips: [{pattern, text, intensity}], archetype: {id,label}|None}`. It calls
+  `classify_detected_patterns` (→ exploit lines), `classify_opponent_archetype`
+  (→ badge), and `compute_pattern_intensity` (→ phrasing strength). A
+  `{pattern: advice}` map is the only new logic; unmapped/inert patterns are
+  dropped (per the eval discipline — don't dress up a non-edge).
+- **`character_routes._tendencies_from_lifetime`** is the shared full rebuild
+  (now also feeds `deeper_reads`); the route attaches `the_read` + `archetype`.
+- **Gate:** hand-only tiers `archetype_badge` @120, `the_read` @200 (the
+  detectors self-gate on sample size, so an unlocked-but-thin opponent shows no
+  read rather than a wrong one). `_redact_item` nulls `the_read`/`archetype`.
+  Informant section `tactical_read` ($1250) bundles both. Frontend: `THE READ`
+  section + archetype chip; types `DossierReadTip` / `DossierArchetype`.
+
+> **Gotcha (why this needed a migration):** the station + tight-nit detectors
+> gate on `vpip_per_voluntary_opportunity` / `pfr_per_open_opportunity` — the
+> player-count-stable opportunity-normalized rates, NOT raw vpip/pfr. Those
+> derive from preflop opportunity counters the lifetime store didn't persist,
+> so the station read (the headline "don't bluff the station") could never
+> fire from dossier data. **Migration v126** adds the 4 preflop opportunity
+> counts (already in `tendencies_json` → the fold picks them up via
+> `_LIFETIME_COUNT_FIELDS` automatically). Without it, only the AF-based
+> (maniac) and c-bet-fold reads work; the all-important station/nit reads stay
+> dark. Backfill caveat as always: old rows lack the counts until re-folded.
+
+> **The archetype badge** — a previously *parked* item — fell out for free
+> from `classify_opponent_archetype` (Calling Station / Sticky Jammer / Maniac).
+
+### B3. Temperament / emotional read ✅ DONE (2026-05-30)
+Shipped as the dossier's **emotional read** — `dossier_signals.build_temperament`
+synthesizes the pressure `tilt_score` (a tilt gauge, event-gated so it isn't
+noise), `poise` (tilt resistance), and `expressiveness` (readability) into a
+`TEMPERAMENT` section: *"Rattles easily — keep the pressure on"*, *"Stone-faced
+— trust the math over reads."* Gate `temperament` @100; informant `tells`
+section. Distinct from the live in-the-moment `emotion` wax-seal the dossier
+already shows.
+
+> **The VPIP loosening/tightening *trend* was NOT built** — `recent_trend` is
+> dormant (never computed, always 'stable'), and a real trend needs windowed
+> snapshots the lifetime store doesn't keep (only cumulative counts). That's a
+> separate storage effort; flagged, not faked.
+
+### B4. Field-relative percentiles ✅ DONE (2026-05-30)
+Shipped — `dossier_signals.field_position(vpip, af)` ranks the opponent against
+the real LLM field (EXP_004's `llm_field.csv`, 26 personas, baked as a sorted
+constant — no runtime file dep): *"Looser than 80% of the field."* `FIELD
+STANDING` section, gated `field_position` @90. VPIP + aggression only — the CSV
+has no fold-to-cbet column, so FTC percentiles are out until a wider audit.
+Refresh the baked baseline when a new population audit lands.
+
+### Also parked (bigger, separate efforts)
+- ~~**Archetype badge**~~ — ✅ done as part of B2 (Calling Station / Sticky
+  Jammer / Maniac, from `classify_opponent_archetype`). A *fish/whale/regular*
+  economic badge is still separate — that needs the whale/fish classification
+  source (`CASH_MODE_WHALE_AT_CARDROOM.md`, `CASH_MODE_FISH_AS_PERSONAS.md`);
+  B2's badge is behavioral (how they play), not economic (their stakes/role).
+- **Tells system** (`TELLS_SYSTEM.md`).
+- ~~**Relationship-history hands**~~ — ✅ done (2026-05-30) as **THE HISTORY**:
+  `dossier_history.build_relationship_history` over a new
+  `GameRepository.load_relationship_history` aggregate (event counts by type +
+  the highest-impact defining clash, from `memorable_hands.memory_type` — no
+  new table). Renders a rivalry headline, the defining hand, and clash/banter
+  tallies. Gated `rivalry` @140 (with `memorable`), in the `track_record`
+  informant section. The raw per-hand memorable list already showed coolers;
+  this adds the *synthesis* (counts + headline + defining hand).
+- **Perks / "Data Collector"** passive scouting (parent doc "Future").
+
+---
+
+## Suggested order
+1. ~~File cabinet (Part A)~~ — ✅ done (the Intel hub).
+2. ~~**B1 deep reads**~~ — ✅ done (2026-05-29, schema v125).
+3. ~~**B2 exploit hints**~~ — ✅ done (2026-05-30, "the read" over the
+   exploitation detectors + archetype badge; schema v126).
+4. ~~**B3 / B4**~~ — ✅ done (2026-05-30, temperament/emotional read +
+   field-relative percentiles). **Part B complete.** What's left is the
+   "parked" backlog below (tells system, fish/whale economic badge,
+   relationship-history coolers, Data Collector perk) + the dormant-`recent_trend`
+   storage effort if a real loosening/tightening trend is wanted.
+
+## Open tuning knobs (not blocking)
+- Per-item grind thresholds + informant prices (flat first-pass today).
+- Partial-section informant pricing (full price for partial progress today).
+- Pressure/memorable true per-sandbox scoping (owner-scoped today).

@@ -105,8 +105,9 @@ def _insert_personality(db_path: str, personality_id: str, *, name: str, bankrol
     config = {"bankroll_knobs": bankroll_knobs}
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id, visibility) "
-            "VALUES (?, ?, ?, 'public')",
+            "INSERT INTO personalities "
+            "(name, config_json, personality_id, visibility, circulating) "
+            "VALUES (?, ?, ?, 'public', 1)",
             (name, json.dumps(config), personality_id),
         )
         conn.commit()
