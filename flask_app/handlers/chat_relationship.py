@@ -103,6 +103,26 @@ def _broadcast_targets(game_data: dict, sender: str) -> List[str]:
     return sorted(names)
 
 
+def _temperament_mirror_override(game_data: dict, target_name: str, event):
+    """Resolve the recipient's temperament-reshaped mirror shift, or None.
+
+    Returns an `AxisShift` to override the neutral mirror side of the
+    bilateral update when the target is an AI whose social disposition
+    deviates from neutral for this needling event; returns None to leave
+    the global mirror table in force. Degrades to None (neutral) whenever
+    the target has no AI controller (the human), no psychology, or the
+    event isn't temperament-sensitive — so existing flows are unchanged.
+    """
+    controllers = game_data.get('ai_controllers') or {}
+    psychology = getattr(controllers.get(target_name), 'psychology', None)
+    if psychology is None:
+        return None
+    from poker.memory.relationship_events import temperament_adjusted_mirror_shift
+
+    disposition = psychology._classify_social_disposition()
+    return temperament_adjusted_mirror_shift(event, disposition)
+
+
 def _flattery_relationship_event(disposition: str):
     """The relationship event for a flattery outcome, or None for 'unmoved'."""
     from poker.memory.relationship_events import RelationshipEvent
@@ -282,6 +302,9 @@ def dispatch_chat_relationship_event(
                 context_multiplier=mapping.multiplier,
                 narrative=f"{sender} → {target_name}: {tone}",
                 hand_id=hand_id,
+                mirror_shift_override=_temperament_mirror_override(
+                    game_data, target_name, mapping.event
+                ),
             )
     except Exception:
         logger.exception("[chat] relationship dispatch failed")
