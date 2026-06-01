@@ -2,7 +2,7 @@
 purpose: Continuation/handoff for the Career "Circuit" Scene-0 work on branch circuit-progression — what's built, how it works, what's verified, and what to do next
 type: guide
 created: 2026-05-31
-last_updated: 2026-05-31
+last_updated: 2026-06-01
 ---
 
 # Career "The Circuit" — handoff (branch `circuit-progression`)
@@ -14,18 +14,31 @@ narrative log in `docs/captains-log/circuit-progression/`.
 
 ## TL;DR — where we are
 
-**Act-1 "The Circuit" is built, working, and committed** (`1144fc2c` on
-`circuit-progression`, **not pushed**). A new player wanders into the **Lucky
-Stack** diner, gets a comped stake + an alliterative **fish-name**, sits at a
-pinned **Scene-0** table with mentor **Sal Monroe** + the fish **Loose Larry**,
-plays a **rigged ~10-hand tutorial** (deck pre-stacked so the lessons always
-appear), and on completion **Sal vouches them into a home-court cardroom**.
+**Act-1 "The Circuit" is built and committed on `circuit-progression`.** A new
+player wanders into the **Lucky Stack** diner, gets a comped stake + an
+alliterative **fish-name**, sits at a pinned **Scene-0** table with mentor **Sal
+Monroe** (display name; persona id stays `sal_moretti`) + the fish **Loose
+Larry**, plays a **rigged ~10-hand tutorial**, watches Sal **stack Larry in a
+finale**, **graduates** → walks back to the lobby (Sal **escorts** him there) →
+**hands the comp back** (enters the lobby at 0) and is meant to be **staked by Sal
+into a home-court cardroom**.
 
-The two big gating risks from the first cut are **both resolved**: the live rig
-now deals the scripted cards reliably (the seat-rotation bug is fixed), and the
-scene **survives cold-load** (restart / eviction / >2h idle resumes mid-scene
-instead of restarting at hand 0). The rig machinery is now a **reusable
-table-scene system**, not Scene-0-specific.
+Session-2 status (newest first):
+- **Comp-return** ✅ committed `91ca28b6` — on graduation the house reclaims the
+  comp (player → 0, chips to the bank pool via the ledger, conservation-tested);
+  the $2 home court is sponsor-eligible at 0 so there's no soft-lock.
+- **Scene→lobby return + Sal's lobby handoff** ✅ committed `96583149`.
+- **Finale (Sal stacks Larry)** ✅ committed `29e8cd8c` — mechanics unit-tested;
+  the end-to-end "Larry busts to 0" still wants a **live playtest** (headless
+  drivers can't replicate the handler betting loop).
+- **Rig + scene system** ✅ (`1144fc2c`): seat-rotation bug fixed (name-keyed
+  deck), cold-load survival, generalized into a reusable `table_scenes` registry,
+  real famous-hand teaching spots, chat-bubble beat formatting.
+
+**NEXT (not built): Sal *stakes* the home court** — see Next steps #1 + the
+**open conservation question** there. The comp-return drops you to 0, but the
+"Sal backs your first seat" half isn't wired yet (today the generic staking
+system would offer you a backer from the home court's own seated AIs, not Sal).
 
 ## What's built (with file pointers)
 
@@ -98,8 +111,10 @@ restore/persist** tests), `test_career_progression.py`,
 `tests/test_cash_career_lobby_route.py`. Cash bucket green; TS + eslint clean.
 
 ## Status
-- **Branch:** `circuit-progression`. **Committed `1144fc2c`, not pushed.** Schema
-  v124. Live dev DB (`guest_jeff`) migrated + seeded.
+- **Branch:** `circuit-progression`. Commits (newest→oldest): `91ca28b6`
+  comp-return, `96583149` scene→lobby + Sal handoff, `29e8cd8c` finale + bubble
+  formatting, `32fd6ed4` docs, `1144fc2c` the Circuit feature. Schema v124. Live
+  dev DB (`guest_jeff`) migrated + seeded.
 
 ## Known risks / gotchas (READ before continuing)
 1. **Narrow deal-window race (residual).** Cold-load resumes by persisted scene
@@ -118,18 +133,74 @@ restore/persist** tests), `test_career_progression.py`,
    backend. `scripts/reset_career.py` does the DB part.
 
 ## Next steps (suggested order)
-1. **Push** `circuit-progression` (deliberately left local).
-2. **M2 — real `vouch_ready`** (respect-gated, likability-driven, played-with,
+1. **Sal *stakes* the home court** (the comp-return's other half — design locked
+   with Jeff: a **stake** with friendly terms that introduces the staking system;
+   **forgiveness** via a strong Sal↔player relationship through the *existing*
+   forgiveness system, **NOT** a bespoke settlement hook). Build:
+   - **Carve-out** so non-circulating **Sal Monroe** (`sal_moretti`) can be the
+     lender for the pre-arranged mentor stake. He's filtered out of
+     `list_eligible_for_cash_mode` (`visibility=public AND circulating=1`), so
+     generic `sponsor_and_sit(lender_id=sal)` returns None. Add a mentor branch in
+     `sponsor_and_sit` gated on `career_progress` (career_active + tutorial_complete
+     + `home_court_table_id == table_id` + not `mentor_stake_used`) that builds
+     Sal's offer directly with friendly terms (floor 1.0, rate 0), sets
+     `offer_lender_id=SAL_ID` (→ personality/pure stake path), and flips a new
+     one-shot `mentor_stake_used` flag on `CareerProgress`.
+   - **Lobby** exposes `mentor_stake {table_id, lender_id, lender_name='Sal
+     Monroe'}` when graduated + broke + home court set + not used.
+   - **Frontend** routes the home-court sit to `sponsor_and_sit(lender_id=sal_moretti)`
+     instead of the generic StakeOfferModal.
+   - **Forgiveness** (deferred, no settlement code): seed a strong Sal↔player
+     relationship ("mentors start warm") so the existing relationship-driven
+     forgiveness handles a busted carry.
+
+   ⚠️ **OPEN CONSERVATION QUESTION — RESOLVE FIRST (could mint chips):** how is a
+   *personality* stake's principal funded/debited from the lender? `_build_cash_game`
+   debits only **seated** AI bankrolls and is **not** passed a lender; the
+   post-stake block mints only for *house* loans (`offer_lender_id is None`). The
+   code comment claims personality loans are "pure transfers (AI lender's bankroll
+   → player table stack via the AI debit step in `_build_cash_game`)" — which
+   implies funding is **coupled to the lender being one of the seated AIs**
+   (Lobby v1.5). If so, a **non-seated Sal would not be debited → minted chips**.
+   First write a paired before/after audit test for an existing personality stake;
+   if funding needs seating, debit Sal explicitly in the mentor branch via a paired
+   ledger entry (AI bankroll → player table stack). (Jeff's intent: stakers gate on
+   **capacity ~2× high buy-in, NOT seating** — but the general offers-route seated
+   narrowing is being **left as-is** per his call; only the mentor stake needs the
+   non-seated funding path.)
+2. **Verify the finale live** — confirm Sal actually busts Larry to 0 in a real
+   playthrough (headless drivers couldn't replicate the betting loop).
+3. **M2 — real `vouch_ready`** (respect-gated, likability-driven, played-with,
    one-per-AI) over the relationship graph; evaluate on the world ticker. FIRST
    step is the regard-edge **instrumentation/logging** M1 was meant to leave so
    the thresholds (~0.70 like / respect floor) are tuned from real data — verify
    that logging exists before tuning. See `CASH_MODE_CAREER_PROGRESSION.md` § M2.
-3. **Generalize the floater** to any scene mentor (risk #2) when a second scene
+4. **Generalize the floater** to any scene mentor (risk #2) when a second scene
    needs it.
-4. **M3** — training lounge / scripted drills (re-port the `from_saved_state`
+5. **M3** — training lounge / scripted drills (re-port the `from_saved_state`
    reconstruction engine from `training-room` when hand-replay is built; the
    `table_scenes` system is the natural host).
-5. **Wire avatar generation** (seam: `intake_avatar_prompt`).
+6. **Wire avatar generation** (seam: `intake_avatar_prompt`).
+
+## Career vs custom (generic) sandbox separation
+Jeff wants to later split career mode from a generic/custom sandbox and **keep the
+rigged stuff out of custom sandboxes**. Good news — it's already gated per-sandbox,
+so this is a toggle + audit later, not a refactor:
+- **`career_progress.career_active`** (per `(sandbox, owner)`) defaults **False =
+  plain full lobby**. The keyring filter, intake, and all Circuit behavior only
+  engage when True. A custom sandbox simply never flips it on.
+- **Scripted scenes** only fire at tables in the `cash_mode/table_scenes` registry,
+  and those tables are only **seeded** into a brand-new *career* sandbox
+  (`classify_new_player` → "seed" path in `get_lobby`). A custom sandbox has no
+  `cash-scene0-*` table, so `_scene_for_game` → None and the driver is a no-op.
+- **Comp-return** is gated on `career_active and tutorial_complete`; the **mentor
+  stake** (when built) gates on `career_progress`. Neither touches a non-career
+  sandbox.
+- **Discipline to keep:** every new career/rigged feature stays gated on
+  `career_active` / the scene registry — never inline in a generic cash path. Then
+  "break out career mode" later is: a sandbox-mode setting that controls whether
+  `career_active` is ever set, plus a one-pass audit that nothing rigged leaks when
+  it's off.
 
 ## Resetting a player's career (dev)
 ```bash
