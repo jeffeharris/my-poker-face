@@ -65,7 +65,7 @@ doc is authoritative for the *how*; the mapping:
 | **R2** | `whereabouts` STATUS from presence (keep off-grid from `ai_*_state` — see its caveat) | low | |
 | **R3a** | `delete_game` GO_OFFLINE/open-seat hook (`sandbox_id` param) | low | **chip half already done** (Phase 3 reaper settle) → occupancy-only |
 | **R3b** | `delete_personality` presence sweep | low | **add beside the shipped Phase-5 `settle_ai_bankroll_to_pool_on_delete`** in the same route |
-| **R4** | retire `_free_ghost_human_seats` + `_reclaim_zombie_casino_seats` (after R3 soaks at 0 fires) | low | the actual reconciler deletion |
+| **R4** | retire `_free_ghost_human_seats` + `_reclaim_zombie_casino_seats` | **blocked** | NOT deletable on R3 alone — both are load-bearing seat managers for the authority-OFF (prod) path. Gated on the Presence authority flip becoming the committed PROD default. R3 + the alertable monitors are the prep; deletion follows the prod cutover. |
 | **R5** (opt) | promote off-grid writers to fail-loud `persist_transition` | med | closes the SIDE_HUSTLE/VICE best-effort gap |
 
 **Unblocks:** `_free_ghost_human_seats`, `_reclaim_zombie_casino_seats` (R3→R4),
@@ -115,8 +115,8 @@ real split-brain windows while the caches are still written.
 
 | Reconciler | File | Repairs | Retirement gate |
 |---|---|---|---|
-| `_free_ghost_human_seats` | cash_routes.py | human seat survives a deleted game row | **Step A / R3a→R4** — chip half done (Phase-3 reaper settle); add the `delete_game` presence hook, soak, delete |
-| `_reclaim_zombie_casino_seats` | casino_provisioning.py | seat holds a deleted/un-stamped persona | **Step A / R3b→R4** — chip half done (Phase-5 `settle_ai_bankroll_to_pool_on_delete`); add the `delete_personality` presence sweep beside it, soak, delete |
+| `_free_ghost_human_seats` | cash_routes.py | human seat survives a deleted game row | **NOT a pure reconciler — load-bearing.** Also the seat-vacate for memory-miss / sponsor-NULL leave (cash_routes 4556/4613/5003), works regardless of authority. R3a covers the reaper orphan + an alertable monitor flags HUMAN ghost clears. **Real deletion gate: PRESENCE_AUTHORITY_ENABLED as the committed PROD default** (then `save_table` drives all seat state) AND the memory-miss leave re-expressed via presence. Until then it's the prod seat-manager. |
+| `_reclaim_zombie_casino_seats` | casino_provisioning.py | seat holds a deleted/un-stamped persona | **NOT a pure reconciler — load-bearing.** Ungated casino self-heal + seat-chip return; on prod (authority off) it's the only handler. R3b covers deleted-persona under authority (chips included) + a monitor flags DELETED-PERSONA reclaims; un-stamped fish is historical (one-time). **Real deletion gate: same Presence prod authority flip.** |
 | `whereabouts.py` | cash_mode/whereabouts.py | unions 4 stores to name `seated_and_idle` etc. | **Step A / R2** → degrades to a trivial `entity_presence` read (keep off-grid STATUS from `ai_*_state` per the R2 caveat) |
 | `_shadow_reconcile_table` + call-site `shadow_transition` (seat sites) | lobby.py / routes | mirror seats → entity_presence when authority OFF | **dead once `PRESENCE_AUTHORITY_ENABLED` is the committed default** (currently early-return no-ops under authority; kept for the flag-off / prod path) |
 | `_boot_sweep_stale_cash_rows` | lobby.py | GC abandoned `cash-*` rows; now settles seat chips first (Phase 3) | **keep** — it's a legitimate GC/janitor (TTL eviction), not a store-disagreement repair. Not debt. |

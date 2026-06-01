@@ -201,9 +201,17 @@ required.
   wired into `personality_routes.py` **right beside the existing Phase-5
   `settle_ai_bankroll_to_pool_on_delete` call** + test (delete seated persona →
   seat open, no presence row, chips already returned to pool).
-- **R4 — retire reconcilers** (after R3 soaks at 0 fires): stub → confirm →
-  delete `_free_ghost_human_seats` + `_reclaim_zombie_casino_seats`; mark
-  `CASH_MODE_STATE_MODEL.md §8` retired.
+- **R4 — retire reconcilers** — **BLOCKED, deeper than first scoped (corrected
+  2026-06-01).** These two are NOT pure reconcilers: `_free_ghost_human_seats` is
+  the seat-vacate for the memory-miss / sponsor-NULL leave paths and
+  `_reclaim_zombie_casino_seats` is ungated casino self-heal + seat-chip return —
+  both run regardless of `PRESENCE_AUTHORITY_ENABLED`. Since authority is dev-only
+  (committed default 0), the R3 sweeps no-op on prod, so on prod these are still
+  the only seat managers. **Real gate: the Presence authority flip as the
+  committed PROD default** (then `save_table` drives all seat state) AND the
+  memory-miss leave re-expressed through presence. R3 + the alertable
+  `[CASH LIFECYCLE]` monitors (HUMAN-ghost clears / DELETED-PERSONA reclaims) are
+  the prep + the evidence; deletion follows the prod cutover, not R3 alone.
 - **(optional R5) off-grid writers → authoritative** — promote the 4
   `shadow_transition` calls to fail-loud `persist_transition` under authority, so
   off-grid presence is reliable and whereabouts R2 can use presence for ALL
