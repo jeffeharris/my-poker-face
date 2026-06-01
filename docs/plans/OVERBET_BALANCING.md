@@ -208,10 +208,23 @@ read's real-world maturity/accuracy (does `fold_to_big_bet` converge fast enough
 correctly classify a human) is itself unmeasured here — the gate is only as good as
 the read feeding it.
 
-**Open / next:** raise-as-bluff readability is UNAUDITED (the tell map folds raises
-into size buckets) — a distinct face-up dimension (does the bot ever 3-bet /
-check-raise as a bluff, or are raises pure value?). Split the tell map by
-bet-vs-raise context to find it.
+**Raise audit DONE (2026-06-01).** Split the tell map by bet-vs-raise context
+(`ctx` column). Finding — **raising readability MIRRORS betting; no separate
+gaping hole:**
+
+| raise context | composition | verdict |
+|---|---|---|
+| TURN raise (jam ~3.8x) | 40% val / 47% blf, blf/pol 54% vs target 44% | **balanced — has bluffs** |
+| RIVER raise (~pot) | 82–100% val, ~10% blf (gap −23) | under-bluffed/thin, **low freq** (n≈22/10kh) |
+| FLOP raise (check-raise) | over-bluffed | low-confidence (merge artifact) |
+
+The turn/flop raise ranges already carry bluffs; the only face-up raise spot is the
+RIVER (same direction + street as the bet leak, much lower frequency). So **the
+river BET fix (T2) is the dominant lever**; a river check-raise-bluff is an
+analogous minor secondary lever, not a priority. Raise samples are thin (the bot
+seldom raises, esp. vs a station) → moderate confidence, but consistent across
+station + reg. Preflop 3-bet-bluff readability still unaudited (the tell map is
+postflop-only).
 
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +

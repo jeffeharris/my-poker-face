@@ -509,8 +509,14 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                     if pot_before > 0 and inc > 0:
                         frac = inc / pot_before
                         bucket = _size_bucket(frac)
-                        stats.size_strength[(phase_name, bucket)][hand_strength] += 1
-                        stats.size_frac_sum[(phase_name, bucket)] += frac
+                        # Split bet (unopened) from raise (facing a bet/raise) so
+                        # raise-as-bluff readability is visible separately — a
+                        # raise range that's pure value is as face-up as a bet one
+                        # (a reader never pays the raise).
+                        ctx_tag = 'bet' if action_context == 'unopened' else 'raise'
+                        key = (phase_name, ctx_tag, bucket)
+                        stats.size_strength[key][hand_strength] += 1
+                        stats.size_frac_sum[key] += frac
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
                 hero_reached_river = True
@@ -829,41 +835,45 @@ def print_tell_map(stats: PassivityStats, min_n: int = 15):
     GTO-unexploitable target s/(1+2s). `gap = bluff% − target%`: large-negative at
     a frequently-used big size = a high-value readability leak. `read` flags it.
     """
-    print("\n── SIZE→STRENGTH TELL MAP (the hero's own bet-sizing readability) ──")
+    print("\n── SIZE→STRENGTH TELL MAP (the hero's own sizing readability) ──")
     print(
         "  value=nuts+strong  bluff=air*  merge=rest.  bluff%/polar = bluff/(bluff+value)."
     )
     print(
-        f"  {'street':<6} {'size':<4} {'~x pot':>6} {'n':>5}  "
+        "  ctx=bet (first-in/checked-to) vs raise (facing a bet/raise — the raise range)."
+    )
+    print(
+        f"  {'street':<6} {'ctx':<5} {'size':<4} {'~x pot':>6} {'n':>5}  "
         f"{'val%':>5} {'blf%':>5} {'mrg%':>5} | {'blf/pol':>7} {'gto':>5} {'gap':>5}  read"
     )
-    for street in ('FLOP', 'TURN', 'RIVER'):
-        for name, lo, hi in _SIZE_BUCKETS:
-            key = (street, name)
-            counter = stats.size_strength.get(key)
-            n = sum(counter.values()) if counter else 0
-            if n < min_n:
-                continue
-            mean_frac = stats.size_frac_sum[key] / n
-            value = sum(counter[c] for c in _VALUE_CLASSES)
-            bluff = sum(counter[c] for c in _BLUFF_CLASSES)
-            merge = n - value - bluff
-            polar = value + bluff
-            bluff_polar = bluff / polar if polar else 0.0
-            target = _gto_bluff_target(mean_frac)
-            gap = bluff_polar - target
-            # Flag a readability leak: a big-ish size (>=~0.6 pot) that is
-            # value-heavy and bluffs well under the GTO target → fold-to-it.
-            read = ''
-            if mean_frac >= 0.6 and value >= 3 and bluff_polar < 0.5 * target:
-                read = 'FACE-UP' if bluff_polar < 0.10 else 'thin'
-            print(
-                f"  {street:<6} {name:<4} {mean_frac:>6.2f} {n:>5}  "
-                f"{100*value/n:>5.0f} {100*bluff/n:>5.0f} {100*merge/n:>5.0f} | "
-                f"{100*bluff_polar:>6.0f}% {100*target:>4.0f}% {100*gap:>+4.0f}%  {read}"
-            )
+    for ctx_tag in ('bet', 'raise'):
+        for street in ('FLOP', 'TURN', 'RIVER'):
+            for name, lo, hi in _SIZE_BUCKETS:
+                key = (street, ctx_tag, name)
+                counter = stats.size_strength.get(key)
+                n = sum(counter.values()) if counter else 0
+                if n < min_n:
+                    continue
+                mean_frac = stats.size_frac_sum[key] / n
+                value = sum(counter[c] for c in _VALUE_CLASSES)
+                bluff = sum(counter[c] for c in _BLUFF_CLASSES)
+                merge = n - value - bluff
+                polar = value + bluff
+                bluff_polar = bluff / polar if polar else 0.0
+                target = _gto_bluff_target(mean_frac)
+                gap = bluff_polar - target
+                # Flag a readability leak: a big-ish size (>=~0.6 pot) that is
+                # value-heavy and bluffs well under the GTO target → fold-to-it.
+                read = ''
+                if mean_frac >= 0.6 and value >= 3 and bluff_polar < 0.5 * target:
+                    read = 'FACE-UP' if bluff_polar < 0.10 else 'thin'
+                print(
+                    f"  {street:<6} {ctx_tag:<5} {name:<4} {mean_frac:>6.2f} {n:>5}  "
+                    f"{100*value/n:>5.0f} {100*bluff/n:>5.0f} {100*merge/n:>5.0f} | "
+                    f"{100*bluff_polar:>6.0f}% {100*target:>4.0f}% {100*gap:>+4.0f}%  {read}"
+                )
     print(
-        "  (read=FACE-UP: big size, ~0% bluffs → a sizing-reader folds to it for free;\n"
+        "  (read=FACE-UP: big size, ~0% bluffs → a reader folds to it for free;\n"
         "   thin: under-bluffed but not pure-value. Rank fixes by gap × n.)"
     )
     if stats.overbet_outcomes:
