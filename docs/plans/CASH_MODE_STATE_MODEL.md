@@ -26,11 +26,18 @@ draft — significant pieces have shipped. Current state:
   `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md` (blueprint + soak findings) and
   `docs/plans/CASH_PRESENCE_CUTOVER_HANDOFF.md`. Still **dev-only** (committed
   default OFF); prod deploy is the remaining irreversible step.
-- **Chip-custody machine (§5.2): NOT BUILT.** The second machine — the structural
-  guarantee that chips can't vanish (`AT_TABLE` exits only via `SETTLING`) and
-  that bankroll becomes ledger-derived (D2). Cuts 1–2 closed the *pain*
-  behaviourally + made it auditable, but the state machine itself is unbuilt.
-  Scoped for a future build in `docs/plans/CASH_MODE_CHIP_CUSTODY_SCOPE.md`.
+- **Chip-custody machine (§5.2): MOSTLY BUILT + FLIPPED ON DEV (2026-06-01).**
+  The second machine. **Done + cut over on dev** (`CHIP_CUSTODY_ENABLED=1` in dev
+  `.env`, committed default OFF): AI ledger parity (`ai↔seat` transfers at the two
+  bankroll chokepoints), D2 ledger-derived bankroll (`balance_of` +
+  `derive_*_balance`, int as cache), the structural settle-before-delete reaper
+  (`AT_TABLE` exits only via a settlement transfer), and conservation-safe persona
+  deletion. The dev DB was backfilled and audits **LEDGER COMPLETE** (AI 1239/1239
+  + Player 4/4). **Remaining: the seats-as-view storage demotion (D1) — blocked on
+  a design decision (the live stack in `cash_tables.seats[].chips` ≠ the ledger
+  `seat:` balance mid-hand, because per-hand P&L isn't ledgered).** See
+  `docs/plans/CASH_MODE_CHIP_CUSTODY_HANDOFF.md` (STATUS) +
+  `CASH_MODE_CHIP_CUSTODY_SCOPE.md`.
 - **Presence read-side polish: DEFERRED** — seat-map projection (§6/Phase 3 "table
   as projection") and actual reconciler deletion are evidence-gathered but held
   (see the Phase-3 doc's "Reconciler retirement" section).

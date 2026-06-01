@@ -7,6 +7,59 @@ last_updated: 2026-06-01
 
 # Cash Mode — Chip-Custody Foundation: Handoff
 
+> ## STATUS — 2026-06-01 (cut over on dev)
+>
+> **Phases 1, 2, 3, and the deletion-integrity half of 5 are DONE, validated,
+> committed on `development`, and flipped on dev** (`CHIP_CUSTODY_ENABLED=1` in
+> dev `.env`; committed compose default stays `0` so prod is untouched). The dev
+> DB was backfilled (`scripts/backfill_chip_custody.py`) and now audits
+> **LEDGER COMPLETE — AI 1239/1239 + Player 4/4** (was 339/1239 + 3/4; ~32.6M
+> gap → 0). Backup: `data/poker_games.backup_custody_20260601.db`.
+>
+> - **Phase 1 — AI ledger parity: DONE.** `record_ai_buy_in`/`record_ai_cash_out`
+>   + the `seat:ai:<sandbox>:<pid>` account; the two chokepoints wired;
+>   `credit_ai_cash_out` gained a `from_seat` discriminator (stake payoffs record
+>   `stake_payoff`, not a seat transfer); `table_rake` (sim + live) re-sourced to
+>   the seat account. Go-forward proven by `scripts/validate_chip_custody.py`
+>   (fresh sandbox, 807 ticks / 8 checkpoints → 0 drift).
+> - **Phase 2 — D2 derived bankroll: DONE.** `ChipLedgerRepository.balance_of`
+>   (scope-aware: AI per-sandbox, player global — the asymmetry resolution);
+>   `ledger.derive_ai_balance`/`derive_player_balance`; `BankrollRepository`
+>   derived reads gated behind `CHIP_CUSTODY_DERIVE_READS` (default OFF — the int
+>   stays the transaction-consistent hot-path cache; see the Phase-4 note for why
+>   hot-path derivation needs an index + atomic writes). Backfill gained a global
+>   player pass (closed the pre-Cut-2 unledgered `player_seed` gap).
+> - **Phase 3 — structural settle-before-delete reaper: DONE.**
+>   `_settle_orphan_seat_to_bankroll` returns a non-empty `seat:<game_id>` balance
+>   to the bankroll before the reaper deletes a row — forfeiture-by-deletion is
+>   structurally impossible.
+> - **Phase 5 — deletion integrity: DONE for persona deletion**
+>   (`settle_ai_bankroll_to_pool_on_delete` recycles a deleted AI's bankroll to
+>   the pool; wired into the delete route). Game-deletion integrity rides Phase 3's
+>   reaper settle. **Reconciler RETIREMENT is deferred — it depends on Phase 4.**
+>
+> **Phase 4 — seats-as-view: NOT done (deliberately). The design has a blocking
+> tension the original plan glossed over:** `cash_tables.seats[].chips` is the
+> LIVE stack (changes every hand via the game engine), but the ledger `seat:`
+> balance only updates at buy-in/cash-out — per-hand P&L is NOT ledgered (Phase
+> 1's deliberate choice: it nets in the seat balance, settles at cash-out). So
+> the live stack **cannot** be a pure derived view of the ledger mid-hand. The
+> two are different facts (live stack vs committed custody), consistent only at
+> session boundaries. Making `cash_tables.seats` a true derived VIEW therefore
+> requires FIRST deciding how the live stack relates to the ledger — either
+> (a) ledger per-hand P&L (hot-path SQLite cost — the doc warns against this), or
+> (b) formally treat `cash_tables.seats` as the live-stack cache and only the
+> *committed* chips as the ledger view. This is the multi-week atomic migration
+> §7/§10 flags (≈30 `save_table` callsites, "two writers if half-done = the
+> bug"). The bounded surface measured 2026-06-01: 23 `save_table` callsites,
+> ~8 `slot['chips']` readers, 14 `archetype` readers, 3 `seated_at`. **Do NOT
+> rip out the seat-map writers until the live-stack/ledger relationship above is
+> decided** — a partial state is the ghost-seat bug class. The SEMANTIC goal
+> ("chips at a seat = a ledger balance") is already met at session boundaries via
+> the `seat:` accounts; only the storage demotion remains.
+>
+> Everything below is the original cold-start handoff (now mostly history).
+
 Start here cold. The **Presence** machine (actor location) is built and flipped on
 dev; this hands off its twin — the **chip authority** — which is the real
 tech-debt payoff. Read this top-to-bottom, then `CASH_MODE_CHIP_CUSTODY_SCOPE.md`
