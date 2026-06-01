@@ -267,7 +267,12 @@ _test_schema_template_path = None
 #       leak nudge fired) so the coach's effect on play can be measured by
 #       joining to player_decision_analysis. Pure instrumentation. Renumbered
 #       from v124 on the training-room→development merge.
-SCHEMA_VERSION = 131
+# v132: Add `limp_count` to `opponent_observation_lifetime` — the numerator for
+#       the new `OpponentTendencies.limp_rate` (times an opponent limped preflop
+#       in an open spot). Its denominator (`preflop_open_opportunities`) is
+#       already folded (v127-era), so this is a single additive column; the rate
+#       derives on read via OpponentTendencies. Guarded ALTER, idempotent.
+SCHEMA_VERSION = 132
 
 
 class SchemaManager:
@@ -2098,6 +2103,10 @@ class SchemaManager:
             131: (
                 self._migrate_v131_create_coach_tips,
                 "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
+            ),
+            132: (
+                self._migrate_v132_add_limp_lifetime_count,
+                "Add limp_count to opponent_observation_lifetime — numerator for OpponentTendencies.limp_rate (limps preflop in an open spot); denominator preflop_open_opportunities already folded, rate derives on read",
             ),
         }
 
@@ -6953,3 +6962,39 @@ class SchemaManager:
             "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
         )
         logger.info("Migration v131 complete: coach_tips table created")
+
+    def _migrate_v132_add_limp_lifetime_count(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v132: add `limp_count` to `opponent_observation_lifetime`.
+
+        The numerator for `OpponentTendencies.limp_rate` — how often an
+        opponent limps preflop (voluntarily CALLS in an open spot, i.e. with
+        no live raise above the blind in front of them). The denominator,
+        `preflop_open_opportunities`, was already added (v127-era), so the
+        rate `limp_count / preflop_open_opportunities` derives on read through
+        the canonical `OpponentTendencies._recalculate_stats()` — same
+        store-counts-derive-rates principle as v126/v127. A single additive
+        column.
+
+        Guarded ALTER, additive, idempotent.
+        """
+        new_columns = ['limp_count']
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v132 complete: %d column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )

@@ -923,6 +923,10 @@ class GameRepository(BaseRepository):
         '_preflop_voluntary_opportunities': 'preflop_voluntary_opportunities',
         '_preflop_open_raise_count': 'preflop_open_raise_count',
         '_preflop_open_opportunities': 'preflop_open_opportunities',
+        # v132 limp counter — numerator for limp_rate; the denominator
+        # (preflop_open_opportunities) is already folded above, so this is a
+        # single new column. Rate derives on read via OpponentTendencies.
+        '_limp_count': 'limp_count',
     }
 
     # Float accumulators (v125): the equity-at-action sums. Same delta-fold as

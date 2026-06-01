@@ -365,6 +365,8 @@ def _tendencies_from_lifetime(counts: Optional[dict]):
     t._preflop_voluntary_opportunities = counts.get('preflop_voluntary_opportunities', 0)
     t._preflop_open_raise_count = counts.get('preflop_open_raise_count', 0)
     t._preflop_open_opportunities = counts.get('preflop_open_opportunities', 0)
+    # v132 limp counter — limp_rate derives off it + preflop_open_opportunities.
+    t._limp_count = counts.get('limp_count', 0)
     t._recalculate_stats()
 
     # Equity-at-action means (recalc doesn't touch these — see docstring).

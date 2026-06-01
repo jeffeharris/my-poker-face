@@ -356,6 +356,80 @@ def test_fold_stores_preflop_opportunity_counts(repo, db_path):
     assert t.vpip_per_voluntary_opportunity == pytest.approx(0.9)  # 27 / 30
 
 
+def test_limp_count_increments_and_derives_live():
+    """v132: driving real actions through OpponentTendencies increments
+    _limp_count only on open-spot calls (limps), not cold-calls or opens, and
+    limp_rate derives off the open-opportunity denominator."""
+    from poker.memory.opponent_model import OpponentTendencies
+
+    t = OpponentTendencies()
+
+    # Hand 1: a limp (voluntary preflop call, no live raise to face).
+    t.update_from_action('call', 'PRE_FLOP', is_voluntary=True, was_facing_bet=False)
+    # Hand 2: an open raise — not a limp.
+    t.update_from_action('raise', 'PRE_FLOP', is_voluntary=True, was_facing_bet=False)
+    # Hand 3: a cold-call facing a raise — a call, but NOT a limp.
+    t.update_from_action('call', 'PRE_FLOP', is_voluntary=True, was_facing_bet=True)
+
+    assert t._limp_count == 1                       # only hand 1
+    assert t._preflop_open_opportunities == 2       # hands 1 & 2 (open spots)
+    assert t.limp_rate == pytest.approx(0.5)        # 1 limp / 2 open spots
+
+    # Per-hand gate: two calls in the SAME hand still count one limp.
+    t2 = OpponentTendencies()
+    t2.update_from_action('call', 'PRE_FLOP', is_voluntary=True,
+                          was_facing_bet=False, count_hand=True)
+    t2.update_from_action('call', 'PRE_FLOP', is_voluntary=True,
+                          was_facing_bet=False, count_hand=False)
+    assert t2._limp_count == 1
+
+    # Gate must RESET across the count_hand=True boundary (no record_hand_dealt
+    # in this path) — limps in consecutive hands must both count.
+    t3 = OpponentTendencies()
+    t3.update_from_action('call', 'PRE_FLOP', is_voluntary=True,
+                          was_facing_bet=False, count_hand=True)
+    t3.update_from_action('call', 'PRE_FLOP', is_voluntary=True,
+                          was_facing_bet=False, count_hand=True)
+    assert t3._limp_count == 2
+
+
+def test_limp_count_serializes_round_trip():
+    """_limp_count + limp_rate survive to_dict/from_dict (the in-game save)."""
+    from poker.memory.opponent_model import OpponentTendencies
+
+    t = OpponentTendencies()
+    t.update_from_action('call', 'PRE_FLOP', is_voluntary=True, was_facing_bet=False)
+    restored = OpponentTendencies.from_dict(t.to_dict())
+    assert restored._limp_count == t._limp_count == 1
+
+
+def test_fold_stores_limp_count_and_derives_rate(repo, db_path):
+    """v132: limp_count folds into the lifetime row cross-game and the
+    reconstructed tendency derives limp_rate on read."""
+    _insert_model(
+        db_path, "g1", "obs1", "opp1",
+        _counts(hands_observed=20, hands_dealt=20,
+                _limp_count=4, _preflop_open_opportunities=10),
+    )
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 1
+
+    # A second game vs the same opponent in the same sandbox accumulates.
+    _insert_model(
+        db_path, "g2", "obs1", "opp1",
+        _counts(hands_observed=10, hands_dealt=10,
+                _limp_count=2, _preflop_open_opportunities=10),
+    )
+    assert repo.fold_observations_into_lifetime("g2", "sb1") == 1
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['limp_count'] == 6                       # 4 + 2 (lossless merge)
+    assert life['preflop_open_opportunities'] == 20      # 10 + 10
+
+    from flask_app.routes.character_routes import _tendencies_from_lifetime
+    t = _tendencies_from_lifetime(life)
+    assert t.limp_rate == pytest.approx(0.3)             # 6 / 20
+
+
 # --- Informant unlock store (Phase 3) ---------------------------------------
 
 def test_informant_unlock_record_and_load(repo):
