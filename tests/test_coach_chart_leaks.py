@@ -239,6 +239,47 @@ class TestRecencySliceAndDiff:
         assert len(emerging) == 1 and emerging[0]['position'] == 'SB'
 
 
+class TestTrendAndDepth:
+    def _dec(self, action, n, *, hand='72o', position='SB', eff_bb=100, start=0):
+        return [
+            {
+                'hand': hand, 'position': position, 'scenario': 'rfi', 'opener': None,
+                'effective_stack_bb': eff_bb, 'num_players': 6, 'action': action,
+                'created_at': '2026-01-01 00:00:00', 'hand_number': start + i,
+            }
+            for i in range(n)
+        ]
+
+    def test_trend_series_per_block(self):
+        from flask_app.services.coach_chart_leaks import compute_leak_trend
+
+        ref = lambda *a: {'fold': 0.9, 'call': 0.05, 'raise': 0.05}  # chart folds 72o
+        d = self._dec('call', 60)  # always limps it → a leak in every block
+        tr = compute_leak_trend(d, ref, blocks=6)
+        series = tr[('rfi', 'SB')]
+        assert len(series) == 6
+        assert all(s is not None and s > 0.5 for s in series)  # persistent leak
+
+    def test_trend_thin_block_is_none(self):
+        from flask_app.services.coach_chart_leaks import compute_leak_trend
+
+        ref = lambda *a: {'fold': 0.9, 'call': 0.05, 'raise': 0.05}
+        d = self._dec('call', 6)  # 6 hands / 6 blocks = 1 each, below min_sample
+        tr = compute_leak_trend(d, ref, blocks=6)
+        # No eligible block → no series for the spot.
+        assert ('rfi', 'SB') not in tr
+
+    def test_depth_slice_bands(self):
+        from flask_app.services.coach_chart_leaks import depth_slice
+
+        deep = self._dec('call', 3, eff_bb=100)
+        short = self._dec('call', 3, eff_bb=10)
+        pool = deep + short
+        assert len(depth_slice(pool, 'deep')) == 3
+        assert len(depth_slice(pool, 'short')) == 3
+        assert len(depth_slice(pool, 'all')) == 6
+
+
 class TestPromptText:
     def test_empty_when_nothing_graded(self):
         rep = compute_chart_leaks([], _ref({}))

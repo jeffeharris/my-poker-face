@@ -381,3 +381,33 @@ def load_owner_preflop_decisions(db_path: str, owner_id: str) -> list[dict]:
     except Exception as e:
         logger.warning("load_owner_preflop_decisions failed for %s: %s", owner_id, e)
     return rows
+
+
+def count_owner_preflop_decisions(db_path: str, owner_id: str) -> int:
+    """Cheap owner-scoped PRE_FLOP row count — the cache key for the leak report.
+
+    Slightly over-counts vs the human-seat filter (we don't apply
+    player_name==owner_name here, to keep it a single indexed COUNT), which is
+    fine for a cache key: any new hand bumps it, the cache misses, and the report
+    recomputes. Read-only.
+    """
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
+        n = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM player_decision_analysis pda
+            JOIN games g ON g.game_id = pda.game_id
+            WHERE g.owner_id = ?
+              AND pda.phase = 'PRE_FLOP'
+              AND pda.player_hand_canonical IS NOT NULL
+            """,
+            (owner_id,),
+        ).fetchone()[0]
+        conn.close()
+        return int(n)
+    except Exception as e:
+        logger.warning("count_owner_preflop_decisions failed for %s: %s", owner_id, e)
+        return -1  # -1 never equals a real count → always misses (safe: recompute)

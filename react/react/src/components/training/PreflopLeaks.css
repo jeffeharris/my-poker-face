@@ -229,6 +229,62 @@
   color: #fcd34d;
 }
 
+/* Per-leak gap trajectory — a tiny inline sparkline next to the trend chip. */
+.pfl-leak-spark {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 64px;
+  height: 24px;
+}
+
+/* Stack-depth scope — segmented toggle above the leak list. */
+.pfl-depth {
+  margin-bottom: 1rem;
+}
+.pfl-depth-toggle {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+}
+.pfl-depth-btn {
+  padding: 0.35rem 0.75rem;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: var(--color-text-muted, #9ca3af);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.pfl-depth-btn:last-child {
+  border-right: none;
+}
+.pfl-depth-btn:hover:not(:disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text, #e5e7eb);
+}
+.pfl-depth-btn.active {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+.pfl-depth-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pfl-depth-count {
+  font-weight: 500;
+  opacity: 0.8;
+}
+.pfl-depth-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--color-text-muted, #9ca3af);
+}
+
 .pfl-leak-drill {
   flex: 0 0 auto;
   align-self: center;

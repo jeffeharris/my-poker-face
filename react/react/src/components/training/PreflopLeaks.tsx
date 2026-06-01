@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
+import { Sparkline } from '../cash/Sparkline';
+import type { BankrollPoint } from '../cash/types';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import './PreflopLeaks.css';
+
+type DepthBand = 'all' | 'deep' | 'short';
 
 interface PositionRow {
   position: string; // early | middle | late | blind
@@ -36,6 +40,9 @@ interface Leak {
   times_seen: number;
   status: string; // 'confirmed' | 'watching'
   recent?: RecentLeak; // recent-vs-all-time rollup (optional)
+  // Per-time-block gap series, oldest→newest; null = block too thin to grade.
+  // Higher gap = worse, so a series trending DOWN means the leak is improving.
+  trend?: { series: (number | null)[] };
 }
 // Emerging leaks share the all-time leak shape minus the `recent` rollup.
 type EmergingLeak = Omit<Leak, 'recent'>;
@@ -55,6 +62,10 @@ interface LeaksResponse {
   skipped: Record<string, number>;
   emerging?: EmergingLeak[]; // recent-only leaks not in the all-time list
   recent_window?: RecentWindow; // describes the recent window, if computed
+  // Stack-depth scoping for the leak analysis. `band` echoes the requested
+  // scope; `deep`/`short` are all-time totals per band (drive the toggle
+  // counts + disabled state).
+  depth?: { band: DepthBand; deep: number; short: number };
 }
 
 const TREND_LABEL: Record<RecentLeak['trend'], string> = {
@@ -126,6 +137,25 @@ function TrendChip({ recent }: { recent?: RecentLeak }) {
   );
 }
 
+// Per-leak gap trajectory as a tiny inline sparkline. Drops thin (null)
+// blocks, renders nothing under 2 graded points. Tone is hue-only (the line
+// shape carries the real trajectory): improving → green, worsening → red.
+function LeakSpark({ lk }: { lk: Leak }) {
+  const series = lk.trend?.series;
+  if (!series) return null;
+  const points: BankrollPoint[] = series
+    .map((v, i) => ({ v, i }))
+    .filter((p): p is { v: number; i: number } => p.v != null)
+    .map((p) => ({ t: String(p.i), value: p.v }));
+  if (points.length < 2) return null;
+
+  const t = lk.recent?.trend;
+  const tone: 'up' | 'down' | 'flat' =
+    t === 'shrinking' || t === 'cleared' ? 'up' : t === 'worsening' ? 'down' : 'flat';
+
+  return <Sparkline points={points} tone={tone} className="pfl-leak-spark" />;
+}
+
 const POSITION_LABEL: Record<string, string> = {
   early: 'Early (UTG / MP)',
   middle: 'Middle (HJ)',
@@ -153,6 +183,7 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [effect, setEffect] = useState<Effectiveness | null>(null);
+  const [depth, setDepth] = useState<DepthBand>('all');
 
   const askCoach = async () => {
     if (feedbackLoading) return;
@@ -173,11 +204,16 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
     }
   };
 
-  useEffect(() => {
+  // Re-runnable loader scoped to the current depth band. Returns a cleanup
+  // that cancels a stale in-flight request when the depth changes mid-fetch.
+  const load = useCallback(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     (async () => {
       try {
-        const resp = await fetch(`${config.API_URL}/api/coach/preflop-leaks`, {
+        const qs = depth === 'all' ? '' : `?depth=${depth}`;
+        const resp = await fetch(`${config.API_URL}/api/coach/preflop-leaks${qs}`, {
           credentials: 'include',
         });
         if (!resp.ok) throw new Error(`Leaks returned ${resp.status}`);
@@ -193,7 +229,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [depth]);
+
+  useEffect(() => load(), [load]);
 
   // How often you've taken the solver line after a coach nudge (best-effort).
   useEffect(() => {
@@ -281,6 +319,36 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
               ))}
             </div>
 
+            {data.depth && (data.depth.deep > 0 || data.depth.short > 0) && (
+              <div className="pfl-depth">
+                <div className="pfl-depth-toggle" role="group" aria-label="Stack-depth scope">
+                  {(
+                    [
+                      { band: 'all' as const, label: 'All', count: null },
+                      { band: 'deep' as const, label: 'Deep', count: data.depth.deep },
+                      { band: 'short' as const, label: 'Short', count: data.depth.short },
+                    ] satisfies { band: DepthBand; label: string; count: number | null }[]
+                  ).map(({ band, label, count }) => (
+                    <button
+                      key={band}
+                      type="button"
+                      className={`pfl-depth-btn${depth === band ? ' active' : ''}`}
+                      aria-pressed={depth === band}
+                      disabled={count === 0}
+                      onClick={() => setDepth(band)}
+                    >
+                      {label}
+                      {count != null && <span className="pfl-depth-count"> ({count})</span>}
+                    </button>
+                  ))}
+                </div>
+                <p className="pfl-depth-note">
+                  Scopes the leak analysis to {depth === 'all' ? 'all stack depths' : `${depth}-stack spots`}.
+                  The VPIP bars above stay all-time.
+                </p>
+              </div>
+            )}
+
             <h3 className="pfl-leaks-head">Where your play diverges from the solver</h3>
             {data.leaks.length === 0 ? (
               <p className="pfl-clean">
@@ -304,6 +372,7 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                         {confirmed ? 'leak' : 'watching'}
                       </span>
                       <TrendChip recent={lk.recent} />
+                      <LeakSpark lk={lk} />
                       <button
                         type="button"
                         className="pfl-leak-drill"

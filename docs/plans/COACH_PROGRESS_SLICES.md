@@ -119,12 +119,16 @@ Until then, the trend is a *view*, not stored state.
 
 ## Phasing
 
-- **P1 — recency slice + diff.** Loader returns `created_at`; add a `window`
-  param; show recent-vs-all-time. (Highest value; foundation for the rest.)
-- **P2 — trend.** Volume-block series + sparkline on the panel.
-- **P3 — cache.** `(owner, count)`-keyed memoization; instant repeat opens.
-- **P4 — depth slice.** Deep/short toggle.
-- **P5 — snapshot table.** Only if retention/audit demands it.
+- **P1 — recency slice + diff. ✅ shipped.** Loader returns `created_at`;
+  `?window_hands=` param; recent-vs-all-time diff per leak + recall reads recent.
+- **P2 — trend. ✅ shipped.** `compute_leak_trend` (K equal volume-blocks) →
+  per-leak `trend.series`; reused `Sparkline` on the panel.
+- **P3 — cache. ✅ shipped.** `preflop_leak_cache`, keyed by
+  `(owner, depth, window)` and gated by the owner's decision count
+  (self-invalidating); process-local, mirrors `sandbox_resolver`.
+- **P4 — depth slice. ✅ shipped.** `depth_slice` (deep ≥35bb / short) +
+  `?depth=` param + a deep/short toggle on the panel.
+- **P5 — snapshot table.** Only if retention/audit demands it. (Not built.)
 
 ## Open decisions
 

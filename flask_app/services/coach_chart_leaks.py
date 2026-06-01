@@ -287,6 +287,21 @@ def _grade_groups(
 TREND_DELTA = 0.10
 
 
+# Effective-stack floor (BB) separating "deep" from "short" play for the depth
+# toggle. Above it, the 50/100bb charts apply; below, short-stack ranges differ.
+DEEP_FLOOR_BB = 35.0
+
+
+def depth_slice(decisions: List[dict], band: str) -> List[dict]:
+    """Filter decisions to a stack-depth band: 'deep' (≥35bb), 'short' (<35bb),
+    or 'all' (unchanged). Lets the panel show 'disciplined deep, spew short'."""
+    if band == 'deep':
+        return [d for d in decisions if (d.get('effective_stack_bb') or 0) >= DEEP_FLOOR_BB]
+    if band == 'short':
+        return [d for d in decisions if 0 < (d.get('effective_stack_bb') or 0) < DEEP_FLOOR_BB]
+    return decisions
+
+
 def recent_slice(decisions: List[dict], n_hands: int = 500) -> List[dict]:
     """The player's most recent ``n_hands`` decisions, by created_at then
     hand_number. Decisions missing a timestamp sort oldest (so they fall out of
@@ -341,6 +356,45 @@ def compute_slice_diff(
 
     emerging = [rec_m[k] for k in rec_m if is_leak(rec_m[k]) and k not in all_leak_keys]
     return trends, emerging
+
+
+# Default number of trend points (volume-blocks) for the sparkline.
+TREND_BLOCKS = 6
+
+
+def compute_leak_trend(
+    decisions: List[dict],
+    resolve_ref: ReferenceResolver,
+    *,
+    group_by: str = 'position',
+    blocks: int = TREND_BLOCKS,
+) -> Dict[tuple, List[Optional[float]]]:
+    """Per-spot gap trajectory for a sparkline ("watch it shrink").
+
+    Splits the player's history (ordered by created_at then hand_number) into
+    ``blocks`` equal contiguous volume-blocks, oldest→newest, and grades each.
+    Returns ``{key: [gap|None, ...]}`` — one gap per block (None where that block
+    had too few hands in the spot to grade). Higher gap = leakier, so a
+    downward series = improving. Equal-volume blocks keep each point's sample
+    comparable; the newest point's gap matches the recent read.
+    """
+    ordered = sorted(
+        decisions, key=lambda d: (d.get('created_at') or '', d.get('hand_number') or 0)
+    )
+    n = len(ordered)
+    if n == 0 or blocks < 1:
+        return {}
+    # Equal contiguous chunks; boundaries via i*n//blocks so sizes differ by ≤1.
+    chunks = [ordered[i * n // blocks:(i + 1) * n // blocks] for i in range(blocks)]
+    block_metrics = [
+        _grade_groups(ch, resolve_ref, group_by=group_by)[0] for ch in chunks
+    ]
+    keys: set = set()
+    for bm in block_metrics:
+        keys |= set(bm.keys())
+    return {
+        k: [(bm[k]['gap'] if k in bm else None) for bm in block_metrics] for k in keys
+    }
 
 
 # ── Prompt text ─────────────────────────────────────────────────────────
