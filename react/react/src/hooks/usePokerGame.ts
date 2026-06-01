@@ -17,7 +17,7 @@ interface UsePokerGameOptions {
   onGameLoadFailed?: () => void;
 }
 
-type QueuedAction = 'check_fold' | null;
+export type QueuedAction = 'check_fold' | null;
 
 // State buffer for card animation gating
 enum BufferState {

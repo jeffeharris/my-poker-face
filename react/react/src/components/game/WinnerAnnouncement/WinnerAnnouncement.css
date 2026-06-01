@@ -606,6 +606,220 @@
   }
 }
 
+/* Side Pots Summary (desktop) */
+.winner-side-pots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 20px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.winner-side-pot-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.winner-side-pot-name {
+  color: #ffd700;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.winner-side-pot-winners {
+  color: #e2e8f0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.winner-side-pot-amount {
+  color: #4ade80;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  flex-shrink: 0;
+}
+
+/* Post-round chat bar — desktop (inline in the winner card, not a bottom sheet) */
+.winner-chat-bar {
+  margin: 20px 0 8px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+}
+
+.winner-chat-tones {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.winner-chat-tone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.1s;
+}
+
+.winner-chat-tone:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.winner-chat-tone.tone-gloat:hover {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+
+.winner-chat-tone.tone-humble:hover {
+  background: rgba(74, 222, 128, 0.15);
+  border-color: #4ade80;
+  color: #4ade80;
+}
+
+.winner-chat-tone.tone-salty:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+.winner-chat-tone.tone-gracious:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: #818cf8;
+  color: #a5b4fc;
+}
+
+.winner-chat-tone.tone-props:hover {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: #a855f7;
+  color: #c084fc;
+}
+
+.winner-chat-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.winner-chat-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0 6px 0;
+  transition: color 0.15s;
+}
+
+.winner-chat-back:hover {
+  color: #cbd5e1;
+}
+
+.winner-chat-suggestion {
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.winner-chat-suggestion:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.winner-chat-suggestion.tone-gloat:hover {
+  background: rgba(251, 191, 36, 0.14);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.winner-chat-suggestion.tone-humble:hover {
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+.winner-chat-suggestion.tone-salty:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.winner-chat-suggestion.tone-gracious:hover {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(129, 140, 248, 0.35);
+}
+
+.winner-chat-suggestion.tone-props:hover {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.35);
+}
+
+.winner-chat-loading {
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+  padding: 4px 0;
+}
+
+.loading-dots::after {
+  content: '...';
+  animation: loadingDots 1.2s step-end infinite;
+}
+
+@keyframes loadingDots {
+  0%,
+  100% {
+    content: '.';
+  }
+  33% {
+    content: '..';
+  }
+  66% {
+    content: '...';
+  }
+}
+
+.winner-chat-sent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #4ade80;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 0;
+}
+
 /* Continue to Results Button */
 .continue-to-results-btn {
   display: block;

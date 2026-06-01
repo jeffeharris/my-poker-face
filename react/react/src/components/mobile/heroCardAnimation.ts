@@ -10,16 +10,23 @@ import { RUNOUT_TIMING } from '../../constants/runoutTiming';
  * (reach/spread/tilt + the equity-driven commit-* variant vars) lives in
  * MobilePokerTable.css.
  *
- * Shared by MobilePokerTable (the real table) and the dev RunoutCommitSandbox.
+ * Shared by MobilePokerTable (the real table), the dev RunoutCommitSandbox, and
+ * the desktop PlayerCommandCenter. The optional `keyframePrefix` lets a consumer
+ * point at its own keyframe set (desktop uses px offsets, mobile uses dvh) so the
+ * two stylesheets — both global in the SPA — don't collide on shared names.
  */
 export function heroCardAnimation(
   side: 'Left' | 'Right',
-  flags: { heroRetreating: boolean; heroCommitted: boolean; isDealing: boolean }
+  flags: { heroRetreating: boolean; heroCommitted: boolean; isDealing: boolean },
+  keyframePrefix = ''
 ): string {
   const { presentSec, retreatSec, card2StaggerSec, easing } = RUNOUT_TIMING.hero;
   const stagger = side === 'Right' ? ` ${card2StaggerSec}s` : '';
-  if (flags.heroRetreating) return `heroPullDown${side} ${retreatSec}s ${easing} forwards`;
-  if (flags.heroCommitted) return `heroPresentUp${side} ${presentSec}s ${easing}${stagger} forwards`;
-  if (flags.isDealing) return `dealCardIn ${presentSec}s ${easing}${stagger} both`;
+  const pullDown = `${keyframePrefix}heroPullDown${side}`;
+  const presentUp = `${keyframePrefix}heroPresentUp${side}`;
+  const dealIn = `${keyframePrefix}dealCardIn`;
+  if (flags.heroRetreating) return `${pullDown} ${retreatSec}s ${easing} forwards`;
+  if (flags.heroCommitted) return `${presentUp} ${presentSec}s ${easing}${stagger} forwards`;
+  if (flags.isDealing) return `${dealIn} ${presentSec}s ${easing}${stagger} both`;
   return 'none';
 }
