@@ -2,7 +2,7 @@
 purpose: Pre-release tech debt and code quality review findings triaged by release-blocking severity
 type: reference
 created: 2025-06-15
-last_updated: 2026-05-15
+last_updated: 2026-05-30
 ---
 
 > **Pre-main batch status (2026-05-15):** All 50+ items in T1-28..T1-39,
@@ -90,6 +90,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T2-35 | Psychology system too complex | `poker/player_psychology.py`, `poker/elasticity_manager.py`, `poker/emotional_state.py`, `poker/tilt_modifier.py` | Current system has 4 elastic traits → 4 emotional dimensions → avatar emotion, plus separate tilt tracking. Hard to understand and maintain. **Proposal**: Replace with 5 poker-native traits (tightness, aggression, confidence, composure, table_talk) that directly map to behavior. Emotion derived from confidence × composure. Tilt = low composure. See [POKER_NATIVE_PSYCHOLOGY.md](/docs/plans/POKER_NATIVE_PSYCHOLOGY.md). | |
+| T2-75 | `refresh_unseated_tables` god-function (~1,715 lines) | `cash_mode/lobby.py:518` | Single function with a ~890-line per-table loop body of inline, ordering-coupled side-effect stages (burst → aspiration → stake settlement → bankroll transfers → stake creations → events) + ~380 lines of post-loop passes. Extract the per-table stages into named functions so the body reads as a pipeline; preserve the settlement→`from_seat`-index ordering contract. Drive with the `tests/test_cash_mode/` bucket + a chip-conservation drift check. See [`REFRESH_UNSEATED_TABLES_GOD_FUNCTION.md`](/docs/triage/REFRESH_UNSEATED_TABLES_GOD_FUNCTION.md). | **OPEN — P1 (owner-elevated 2026-05-29)** — above the usual big-refactor→Tier-3 demotion: it's the active seam for in-flight cash-mode work AND freshly lifecycle-hardened (high churn + high regression risk). Dedicated work, NOT entangled with feature changes. |
 | T2-01 | ~~Immutable/mutable confusion~~ | `poker/poker_state_machine.py` | **Demoted to Tier 3** — see T3-35. Inner core is genuinely immutable; mutable wrapper is a thin convenience layer. Cognitive overhead only, no bug risk. | |
 | T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | **FIXED** — adapter already delegated; moved `awaiting_action`/`run_it_out` guards to `validation.py` where they belong |
 | T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | **DISMISSED** — consolidated into T2-29 (now T3-40) |
@@ -301,9 +302,11 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 32 | 27 | 6 | 0 (T1-34 demoted+gated, T1-26/T1-27 open) |
-| **Tier 2: Should-Fix** | 57 | 49 | 6 | 2 |
+| **Tier 2: Should-Fix** | 58 | 49 | 6 | 3 |
 | **Tier 3: Post-Release** | 74 | 37 | 1 | 36 |
-| **Total** | **163** | **113** | **13** | **38** |
+| **Total** | **164** | **113** | **13** | **39** |
+
+*2026-05-29: added T2-75 (`refresh_unseated_tables` god-function, owner-elevated P1) — see Architecture & Design.*
 
 *Note: T1-34 demoted to T2 on 2026-05-15 after round-2 calibration check (gated implementation shipped). T1-26 and T1-27 (guest identity / chat session leak) were not in scope of the pre-main batch and remain open. The pre-main batch (T1-28..T1-39, T2-36..T2-64, T3-61..T3-73 minus deferred) shipped 50+ items in commits c450a359..9f585182 (2026-05-15).*
 
@@ -337,3 +340,60 @@ The state machine uses an **immutable/mutable hybrid** pattern. On deeper invest
 - **Tier 3**: Tech debt to address during ongoing development
 - **FIXED**: Resolved in ralph-wiggum work
 - **DISMISSED**: Investigated and determined to be a false positive
+
+---
+
+## Batch: Maintainability Audit + Cash Hardening (2026-05-30)
+
+Multi-agent god-function audit + equivalence-gated remediation. All commits are
+local on `development` (not pushed). IDs prefixed `MA-`/`CH-` to avoid collision
+with the `T#` series above; cross-refs to existing `T#` items noted inline.
+Method: behavior-preserving unless a fix reproduced a real bug; every landed
+change verified against original code via `git stash` (fail→pass for fixes,
+bit-/decision-identical for refactors) + the relevant test bucket.
+
+### Done — remediation (behavior-preserving)
+
+| ID | Item | Commit |
+|----|------|--------|
+| MA-01 | Unify ~8 drifted AI-controller dispatch sites → `build_controller()` | `2ae2bf10` |
+| MA-02 | `avatarUrlForEmotion` shared util (3 regex copies → 1) | `f495b804` |
+| MA-03 | Hoist psychology pressure-impact table to a module constant | `a89d37b1` |
+| MA-04 | Split `exploitation` god-fn + `opponent_model` serialization registry + aggregation dedup (golden bit-identical) | `9b577ce8` |
+| MA-05 | Extract `_get_postflop_decision` layers — decision-identical (4287-trace harness) | `68500203` |
+| MA-06 | Shared sim hand loop `drive_hand` (2 of 3 runners; `run_ai_tournament` left, LLM-coupled) | `4a466a44` |
+| MA-07 | `hand_outcome_detector` shared showdown setup | `0e18c4ed` |
+| MA-08 | `induce_override` shared trace assembly | `58bca60b` |
+| MA-09 | Trajectory-viewer HTML → template file | `43a3c8cd` |
+| MA-10 | Document intentional create/restore bot_type contract (+ pin test) — was mis-flagged as a bug, it's correct | `5e9d2df3` |
+
+### Done — cash chip-conservation bugs (REAL, reproduced — Tier-1 correctness class)
+
+| ID | Window | Commit | Bug fixed |
+|----|--------|--------|-----------|
+| CH-00 | Phase 0 seat/conservation harness + plan doc | `32586713` | diagnostic: headless invariant holds |
+| CH-01 | `SeatOccupancyRegistry` (Phase 1) | `42070939` | hardening — makes a double-seat loud |
+| CH-02 | Window A — `_process_aspiration_asks` (Phase 2) | `eb68fce0` | minted `principal` chips on staker-debit failure (raise OR None return) |
+| CH-03 | Window B — `ensure_lobby_seeded` (Phase 3) | `4b001417` | seated-unfunded mint on refused debit |
+| CH-04 | Window C — `offer_stake_to_ai` (Phase 4) | `58a8d2d7` | player chips stranded on raced seat / orphan stake row |
+
+Plan + accepted residuals: [plans/CASH_SEAT_INVARIANT_HARDENING.md](plans/CASH_SEAT_INVARIANT_HARDENING.md).
+Each gated by a stash-proven fail→pass test + Phase 0 harness 40/40 + full cash bucket (925).
+
+### Open — remaining maintainability backlog (audit-confirmed)
+
+| ID | Item | Location | Notes |
+|----|------|----------|-------|
+| MA-11 | `AIPlayerController` god methods | `controllers.py` `_get_ai_decision:1193`, `_build_decision_prompt:1513` (computes equity 2×) | extends **T3-41** (factory dedup done; class split still open) |
+| MA-12 | tiered-bot remainder | `tiered_bot_controller.py` preflop `_get_ai_decision:624` near-dup; `_apply_exploitation:1375` `self._last_*` side effects; `__init__:231` flag soup | gate with `tiered_bot_equivalence_harness.py` |
+| MA-13 | `opponent_model.update_from_action:260` recomputes all stats every action (~240×/hand) | `poker/memory/opponent_model.py` | defer recalc to a hand-boundary flush |
+| MA-14 | `memory_manager` god methods | `on_hand_complete:641`, `generate_commentary_for_hand:774` | staged concerns + threading inline |
+| MA-15 | Frontend god-components (deferred) | `PersonalityManager`(3225), `usePokerGame`(1176), `MobilePokerTable`(1257), `DecisionAnalyzer`(2436), `UnifiedSettings`(1509), `CustomGameConfig`(1236) | extends **T3-42** |
+| MA-16 | `cash_routes` god-handlers (non-money-fix part) | `_leave_table_locked`, `get_lobby` (a GET that mutates world state), `_build_cash_game`, `sponsor_and_sit` | service-layer extraction |
+| MA-17 | `game_handler.handle_evaluating_hand_phase:2993` (~545) | `flask_app/handlers/game_handler.py` | god phase handler + async-dispatch race |
+
+Overlaps with existing items: **T2-75** `refresh_unseated_tables` (update: `5063bfec` already extracted ~411 lines; remainder stable — further extraction optional and needs a seeded equivalence test first); **T3-43** `experiment_routes`; **T3-44** `schema_manager`.
+
+### Process notes
+- **Worktree concurrency:** parallel agents/sessions on one worktree race the git index (a `git reset` clobbered a commit; a merge collided with an in-flight agent). Give each agent its own worktree, or serialize commits / stay off the branch while a batch runs.
+- **Reusable harnesses:** `tests/tiered_bot_equivalence_harness.py` (engine decision-identity) and `tests/test_cash_mode/test_seat_occupancy_invariants.py` (seeded seat/conservation guard).

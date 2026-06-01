@@ -27,6 +27,15 @@ class TestGameStateTTLEviction:
         assert "game1" in game_state_service.game_last_access
         assert isinstance(game_state_service.game_last_access["game1"], datetime)
 
+    def test_set_game_stamps_game_id(self):
+        """PRH-9: set_game stamps the game's own id into its data so
+        consumers (e.g. build_cash_mode_payload's active_loan lookup) don't
+        depend on every builder remembering to set it."""
+        data = {"data": "test"}
+        game_state_service.set_game("cash-xyz", data)
+        assert data["game_id"] == "cash-xyz"
+        assert game_state_service.get_game("cash-xyz")["game_id"] == "cash-xyz"
+
     def test_get_game_updates_access_time(self):
         game_state_service.set_game("game1", {"data": "test"})
         old_time = game_state_service.game_last_access["game1"]
@@ -107,3 +116,43 @@ class TestGameStateTTLEviction:
         for i in range(5):
             assert f"stale_{i}" not in game_state_service.games
         assert "fresh" in game_state_service.games
+
+
+class TestCleanupLockSafety:
+    """PRH-23: TTL cleanup must not evict a game whose lock is held in-flight,
+    or pop locks outside `_game_locks_lock`."""
+
+    def setup_method(self):
+        _clear_state()
+
+    def teardown_method(self):
+        _clear_state()
+
+    def test_held_lock_blocks_eviction(self):
+        game_state_service.set_game("held", {"data": 1})
+        game_state_service.game_last_access["held"] = datetime.now() - timedelta(hours=3)
+        lock = game_state_service.get_game_lock("held")
+
+        assert lock.acquire(blocking=False)
+        try:
+            game_state_service._cleanup_stale_games()
+            # Stale, but a request holds the lock → not evicted (would otherwise
+            # let the next get_game_lock mint a 2nd lock → double progression).
+            assert "held" in game_state_service.games
+            assert "held" in game_state_service.game_locks
+        finally:
+            lock.release()
+
+        # Once released, the next pass evicts it (game + lock together).
+        game_state_service._cleanup_stale_games()
+        assert "held" not in game_state_service.games
+        assert "held" not in game_state_service.game_locks
+
+    def test_unheld_stale_game_with_lock_is_evicted(self):
+        game_state_service.set_game("idle", {"data": 1})
+        game_state_service.game_last_access["idle"] = datetime.now() - timedelta(hours=3)
+        game_state_service.get_game_lock("idle")  # lock exists but not held
+
+        game_state_service._cleanup_stale_games()
+        assert "idle" not in game_state_service.games
+        assert "idle" not in game_state_service.game_locks

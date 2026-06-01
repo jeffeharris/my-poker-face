@@ -145,3 +145,12 @@ class ExpressionContext:
     # needle the human about it the same way chaos/standard see it in their
     # decision prompts. Empty default preserves the baseline prompt.
     human_bio: str = ''
+
+    # Pre-formatted "table reputation" tone hint (hook 3 of the prestige
+    # system): a one-line nudge to how this AI's table talk should address the
+    # human, keyed to the human's room-level reputation quadrant (warm for a
+    # Beloved Legend, needling for an Infamous Villain; empty for low-renown
+    # players the room doesn't react to yet). Built by the game handler from
+    # the persisted prestige stat. Flavor only — never feeds action selection.
+    # Empty default preserves the baseline prompt.
+    human_reputation_tone: str = ''

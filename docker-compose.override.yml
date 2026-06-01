@@ -23,3 +23,14 @@ services:
   nginx:
     profiles:
       - never
+
+# Docker's default address pools (172.17-172.31/16 and the 192.168.x/20 set) are
+# fully subnetted by the many sibling worktree stacks on this host, so the auto
+# allocator errors with "all predefined address pools have been fully subnetted".
+# Pin this project's network to an explicit, unused 10.x subnet so it never draws
+# from the exhausted default pool.
+networks:
+  poker-network:
+    ipam:
+      config:
+        - subnet: 10.123.45.0/24

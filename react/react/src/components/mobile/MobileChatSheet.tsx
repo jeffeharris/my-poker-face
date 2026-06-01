@@ -108,8 +108,10 @@ interface MobileChatSheetProps {
   gameId: string;
   playerName: string;
   players: Player[];
+  /** Quick-chat per-turn limit (guests: one send per turn). */
   guestChatDisabled?: boolean;
-  isGuest?: boolean;
+  /** Free-text (keyboard) is sign-in-gated for guests (PRH-27). */
+  guestFreeChatLocked?: boolean;
   /** Pre-select an opponent as the quick-chat target on open. */
   initialTarget?: string | null;
 }
@@ -123,10 +125,12 @@ export function MobileChatSheet({
   playerName,
   players,
   guestChatDisabled = false,
-  isGuest = false,
+  guestFreeChatLocked = false,
   initialTarget = null,
 }: MobileChatSheetProps) {
-  const [activeTab, setActiveTab] = useState<InputTab>(isGuest ? 'keyboard' : 'quick');
+  // Default to quick-chat for everyone: it's the bounded, always-available
+  // surface (guests get it once per turn; their keyboard tab is locked).
+  const [activeTab, setActiveTab] = useState<InputTab>('quick');
   const [inputValue, setInputValue] = useState('');
   // Target for free-text messages on the keyboard tab. 'table' (the default)
   // sends a broadcast — addressing is omitted so existing behavior is
@@ -395,23 +399,23 @@ export function MobileChatSheet({
               aria-selected={activeTab === 'quick'}
               aria-controls="mcs-tabpanel-quick"
               aria-label="Switch to Quick Chat mode"
-              className={`mcs-tab ${activeTab === 'quick' ? 'mcs-tab-active' : ''} ${isGuest ? 'mcs-tab-disabled' : ''}`}
-              onClick={() => !isGuest && setActiveTab('quick')}
-              disabled={isGuest}
+              className={`mcs-tab ${activeTab === 'quick' ? 'mcs-tab-active' : ''}`}
+              onClick={() => setActiveTab('quick')}
             >
               <Zap size={15} />
-              <span>{isGuest ? 'Quick Chat (Sign in)' : 'Quick Chat'}</span>
+              <span>Quick Chat</span>
             </button>
             <button
               role="tab"
               aria-selected={activeTab === 'keyboard'}
               aria-controls="mcs-tabpanel-keyboard"
               aria-label="Switch to keyboard input mode"
-              className={`mcs-tab ${activeTab === 'keyboard' ? 'mcs-tab-active' : ''}`}
-              onClick={() => setActiveTab('keyboard')}
+              className={`mcs-tab ${activeTab === 'keyboard' ? 'mcs-tab-active' : ''} ${guestFreeChatLocked ? 'mcs-tab-disabled' : ''}`}
+              onClick={() => !guestFreeChatLocked && setActiveTab('keyboard')}
+              disabled={guestFreeChatLocked}
             >
               <Keyboard size={15} />
-              <span>Type</span>
+              <span>{guestFreeChatLocked ? 'Type (Sign in)' : 'Type'}</span>
             </button>
           </div>
 
@@ -459,8 +463,8 @@ export function MobileChatSheet({
                     type="text"
                     className="mcs-text-input"
                     placeholder={
-                      guestChatDisabled
-                        ? 'Chat available next turn'
+                      guestFreeChatLocked
+                        ? 'Sign in with Google to chat'
                         : textTarget && textTarget !== 'table'
                           ? `Message ${textTarget}...`
                           : 'Say something...'
@@ -469,12 +473,12 @@ export function MobileChatSheet({
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
                     maxLength={200}
-                    disabled={guestChatDisabled}
+                    disabled={guestFreeChatLocked}
                   />
                   <button
                     type="submit"
                     className={`mcs-send-btn ${inputValue.trim() ? 'mcs-send-active' : ''}`}
-                    disabled={!inputValue.trim() || guestChatDisabled}
+                    disabled={!inputValue.trim() || guestFreeChatLocked}
                     aria-label="Send message"
                   >
                     <Send size={22} aria-hidden="true" />

@@ -288,10 +288,14 @@ def main() -> None:
     print(f"\n=== Summary ({n} personalities) ===")
     print(f"  field VPIP  median {_median(vpips):.2f}  (min {vpips[0]:.2f} / max {vpips[-1]:.2f})")
     print(f"  field WtSD  median {_median(wtsds):.2f}" if wtsds else "  field WtSD  n/a")
-    print(f"  H1.1a prevalence : {len(in_zone)}/{n} = {100*len(in_zone)/n:.0f}% in sticky-mid zone (bar: >=10%)")
+    print(
+        f"  H1.1a prevalence : {len(in_zone)}/{n} = {100*len(in_zone)/n:.0f}% in sticky-mid zone (bar: >=10%)"
+    )
     if in_zone:
         rate = 100 * len(missed) / len(in_zone)
-        print(f"  H1.1b detector-miss: {len(missed)}/{len(in_zone)} = {rate:.0f}% of in-zone players return None (bar: >=80%)")
+        print(
+            f"  H1.1b detector-miss: {len(missed)}/{len(in_zone)} = {rate:.0f}% of in-zone players return None (bar: >=80%)"
+        )
     print(f"  current detector fires on {len(detected_any)}/{n} personalities total")
 
     if args.out:
@@ -299,17 +303,43 @@ def main() -> None:
         with open(args.out, "w", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(
-                ["personality", "hands", "vpip", "pfr", "vpip_pfr_gap", "global_af",
-                 "flop_af", "turn_af", "river_af", "postflop_af", "wtsd",
-                 "all_in_freq", "in_sticky_mid_zone", "detector_label", "detector_misses"]
+                [
+                    "personality",
+                    "hands",
+                    "vpip",
+                    "pfr",
+                    "vpip_pfr_gap",
+                    "global_af",
+                    "flop_af",
+                    "turn_af",
+                    "river_af",
+                    "postflop_af",
+                    "wtsd",
+                    "all_in_freq",
+                    "in_sticky_mid_zone",
+                    "detector_label",
+                    "detector_misses",
+                ]
             )
             for pr in profiles:
                 w.writerow(
-                    [pr.name, pr.hands, f"{pr.vpip:.4f}", f"{pr.pfr:.4f}",
-                     f"{pr.vpip_pfr_gap:.4f}", f"{pr.global_af:.4f}",
-                     pr.flop_af, pr.turn_af, pr.river_af, pr.postflop_af, pr.wtsd,
-                     f"{pr.all_in_freq:.4f}", pr.in_sticky_mid_zone,
-                     pr.detector_label or "", pr.detector_misses]
+                    [
+                        pr.name,
+                        pr.hands,
+                        f"{pr.vpip:.4f}",
+                        f"{pr.pfr:.4f}",
+                        f"{pr.vpip_pfr_gap:.4f}",
+                        f"{pr.global_af:.4f}",
+                        pr.flop_af,
+                        pr.turn_af,
+                        pr.river_af,
+                        pr.postflop_af,
+                        pr.wtsd,
+                        f"{pr.all_in_freq:.4f}",
+                        pr.in_sticky_mid_zone,
+                        pr.detector_label or "",
+                        pr.detector_misses,
+                    ]
                 )
         print(f"\nWrote {len(profiles)} rows → {args.out}")
 

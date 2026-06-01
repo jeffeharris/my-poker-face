@@ -4,6 +4,8 @@ Authentication module for My Poker Face.
 Provides session-based authentication with optional Google OAuth support.
 """
 
+import hashlib
+import hmac
 import logging
 import os
 import re
@@ -21,7 +23,26 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 logger = logging.getLogger(__name__)
 
 # JWT configuration
-JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', secrets.token_hex(32))
+# Mirror flask_app.config's SECRET_KEY handling: in production a missing OR
+# empty JWT_SECRET_KEY is fatal. An empty secret signs forgeable tokens (full
+# auth bypass), and `docker-compose.prod.yml` interpolates an unset
+# `${JWT_SECRET_KEY}` to "" — a present-but-empty value that os.environ.get
+# would otherwise hand back unchecked. JWT_SECRET_KEY is also the fallback
+# secret for the signed guest cookies below, so an empty value poisons those too.
+# In development, fall back to an ephemeral random secret.
+_jwt_is_development = (
+    os.environ.get('FLASK_ENV', 'production') == 'development'
+    or os.environ.get('FLASK_DEBUG', '0') == '1'
+)
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+if not JWT_SECRET_KEY:
+    if _jwt_is_development:
+        JWT_SECRET_KEY = secrets.token_hex(32)
+    else:
+        raise RuntimeError(
+            "JWT_SECRET_KEY environment variable is required in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
 
 # Signed-cookie support for guest_id (T1-26).
 # The raw guest_id cookie was previously format-checked only — anyone
@@ -39,6 +60,10 @@ JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', secrets.token_hex(32))
 #   - The guest session is recreatable (it's a guest!) — worst case
 #     a returning user loses their guest_id and gets a new one
 _GUEST_ID_SIGNER_SALT = 'guest-id-v1'
+# PRH-26: the guest_tracking_id cookie (the hand-quota key) is signed too, so a
+# client can't mint a fresh quota by forging/clearing it — an unverifiable
+# cookie falls back to the IP-derived stable id (see resolve_guest_tracking_id).
+_GUEST_TRACKING_SIGNER_SALT = 'guest-tracking-v1'
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(days=7)
 
@@ -83,10 +108,44 @@ class AuthManager:
             logger.warning("Could not import limiter for rate limit exemption")
         return f
 
+    def _guest_minting_request(self) -> bool:
+        """True when this request would mint a brand-new guest (PRH-26).
+
+        A guest login carrying a valid signed `guest_id` cookie is a returning
+        guest, not a mint; a non-guest (password) login isn't a mint either.
+        Used as the rate-limit's exempt condition so the cap bites only scripted
+        minting, never legit users (incl. many distinct users behind one
+        shared/CGNAT IP, who each carry their own cookie).
+        """
+        data = request.get_json(silent=True) or {}
+        if not data.get('guest'):
+            return False
+        existing = self._unsign_guest_id(request.cookies.get('guest_id'))
+        return not self._is_valid_guest_id(existing)
+
+    def _guest_login_limit(self):
+        """Return a decorator that rate-limits fresh guest minting per IP.
+
+        No-op if the limiter can't be imported. Exempts returning guests and
+        password logins via `_guest_minting_request`.
+        """
+        try:
+            from flask_app.config import RATE_LIMIT_GUEST_LOGIN
+            from flask_app.extensions import limiter
+        except ImportError:
+            return lambda f: f
+        if not limiter:
+            return lambda f: f
+        return limiter.limit(
+            RATE_LIMIT_GUEST_LOGIN,
+            exempt_when=lambda: not self._guest_minting_request(),
+        )
+
     def _register_routes(self):
         """Register authentication routes."""
 
         @self.app.route('/api/auth/login', methods=['POST'])
+        @self._guest_login_limit()
         def login():
             """Login with username/password or as guest."""
             data = request.json or {}
@@ -103,15 +162,20 @@ class AuthManager:
                 guest_id = existing_guest_id if self._is_valid_guest_id(existing_guest_id) else None
                 user_data = self.create_guest_user(guest_name, guest_id=guest_id)
 
-                # Check for existing tracking cookie, generate if needed
-                tracking_id = request.cookies.get('guest_tracking_id')
-                if not tracking_id:
-                    tracking_id = str(uuid.uuid4())
+                # Resolve the hand-quota tracking id (PRH-7 + PRH-26): a
+                # tracking cookie WE signed (proves it's ours, not a forged
+                # reset) takes precedence; otherwise the IP-derived stable id,
+                # so clearing or forging the cookie can't mint a fresh quota.
+                # Only when even the IP is unavailable do we mint a random id.
+                tracking_id = self.resolve_guest_tracking_id() or str(uuid.uuid4())
                 user_data['tracking_id'] = tracking_id
 
-                response = jsonify(
-                    {'success': True, 'user': user_data, 'token': self.generate_token(user_data)}
-                )
+                # Auth rides the HttpOnly session + signed guest cookies set
+                # below; we no longer hand the browser a bearer token to stash
+                # in localStorage (PRH-37 — shrinks the XSS blast radius). The
+                # server still *accepts* a Bearer header in get_current_user for
+                # any non-browser/API client, but browser flows are cookie-only.
+                response = jsonify({'success': True, 'user': user_data})
 
                 # Set a long-lived cookie for guest ID (30 days), signed
                 # with the app SECRET_KEY so the value can't be forged by
@@ -126,10 +190,13 @@ class AuthManager:
                     samesite='Lax',
                 )
 
-                # Set tracking cookie for hand counting (30 days)
+                # Set tracking cookie for hand counting (30 days). Signed
+                # (PRH-26) so a forged/cleared cookie can't mint a fresh quota
+                # — resolve_guest_tracking_id rejects unverifiable values and
+                # falls back to the IP-derived id.
                 response.set_cookie(
                     'guest_tracking_id',
-                    tracking_id,
+                    self._sign_tracking_id(tracking_id),
                     max_age=30 * 24 * 60 * 60,
                     httponly=True,
                     secure=is_prod,
@@ -147,29 +214,17 @@ class AuthManager:
 
                 return response
 
-            # Username/password login (for future implementation)
-            username = data.get('username')
-            password = data.get('password')
-
-            if not username or not password:
-                return jsonify({'success': False, 'error': 'Username and password required'}), 400
-
-            # For now, just create a user session
-            # In production, this would validate against a user database
-            user_data = {
-                'id': f'user_{secrets.token_hex(8)}',
-                'username': username,
-                'name': username,
-                'is_guest': False,
-                'created_at': datetime.utcnow().isoformat(),
-            }
-
-            session['user'] = user_data
-            session.permanent = True
-
+            # Username/password login is not implemented. The previous stub
+            # accepted ANY credentials and minted a non-guest (guest-limit-free)
+            # session — an abuse hole (PRH-26). Refuse until real account auth
+            # exists; sign-in goes through Google OAuth or guest login.
             return jsonify(
-                {'success': True, 'user': user_data, 'token': self.generate_token(user_data)}
-            )
+                {
+                    'success': False,
+                    'error': 'Password login is not available. Use Google sign-in or continue as a guest.',
+                    'code': 'PASSWORD_LOGIN_UNAVAILABLE',
+                }
+            ), 501
 
         @self.app.route('/api/auth/logout', methods=['POST'])
         def logout():
@@ -399,6 +454,34 @@ class AuthManager:
             secret_key = JWT_SECRET_KEY
         return URLSafeTimedSerializer(secret_key, salt=_GUEST_ID_SIGNER_SALT)
 
+    def _ip_derived_tracking_id(self) -> Optional[str]:
+        """Derive a stable guest tracking id from the client IP (PRH-7).
+
+        Used only when the `guest_tracking_id` cookie is absent. Keying the
+        fallback on IP (HMAC'd with the app secret so it isn't guessable or
+        cross-correlatable) means clearing cookies no longer mints a fresh
+        quota bucket — a cookie-cleared guest maps back to the same id. The
+        cookie takes precedence when present, so distinct browsers behind one
+        IP stay distinct once issued a cookie.
+
+        Returns None when no client IP is available (caller falls back to a
+        random id — no worse than the prior behavior). `request.remote_addr`
+        is the real client IP in production (ProxyFix trusts X-Forwarded-For).
+        """
+        try:
+            ip = request.remote_addr
+        except Exception:
+            ip = None
+        if not ip:
+            return None
+        secret_key = self.app.config.get('SECRET_KEY') if self.app else None
+        if not secret_key:
+            secret_key = JWT_SECRET_KEY
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode('utf-8')
+        digest = hmac.new(secret_key, ip.encode('utf-8'), hashlib.sha256).hexdigest()
+        return f"ipguest_{digest[:32]}"
+
     def _sign_guest_id(self, guest_id: str) -> str:
         """Produce a signed cookie value for a guest_id.
 
@@ -446,6 +529,53 @@ class AuthManager:
                     return signed_value
             logger.debug("Guest ID cookie has invalid signature")
             return None
+
+    def _get_tracking_id_signer(self) -> URLSafeTimedSerializer:
+        """Signer for the guest_tracking_id cookie (PRH-26), keyed on SECRET_KEY."""
+        secret_key = self.app.config.get('SECRET_KEY') if self.app else None
+        if not secret_key:
+            secret_key = JWT_SECRET_KEY
+        return URLSafeTimedSerializer(secret_key, salt=_GUEST_TRACKING_SIGNER_SALT)
+
+    def _sign_tracking_id(self, tracking_id: str) -> str:
+        """Produce a signed cookie value for a guest tracking id."""
+        return self._get_tracking_id_signer().dumps(tracking_id)
+
+    def _unsign_tracking_id(
+        self,
+        signed_value: Optional[str],
+        max_age_seconds: int = 30 * 24 * 60 * 60,
+    ) -> Optional[str]:
+        """Verify a signed guest_tracking_id cookie and return the raw id.
+
+        Returns None for a missing / forged / expired / unsigned value, so the
+        caller falls back to the IP-derived id rather than honoring an
+        unverifiable cookie (the quota-reset hole). Dev accepts legacy unsigned
+        cookies for local convenience (mirrors `_unsign_guest_id`).
+        """
+        if not signed_value:
+            return None
+        try:
+            return self._get_tracking_id_signer().loads(signed_value, max_age=max_age_seconds)
+        except SignatureExpired:
+            return None
+        except BadSignature:
+            if os.environ.get('FLASK_ENV') != 'production':
+                return signed_value  # dev: honor legacy unsigned tracking cookie
+            return None
+
+    def resolve_guest_tracking_id(self) -> Optional[str]:
+        """Resolve the stable hand-quota tracking id for the current request.
+
+        Order (PRH-26): a tracking cookie we signed (proves it's ours, not a
+        forged reset) -> the IP-derived stable id (so clearing/forging the
+        cookie can't mint a fresh quota) -> None. Login mints a random id only
+        when even the IP is unavailable.
+        """
+        signed = self._unsign_tracking_id(request.cookies.get('guest_tracking_id'))
+        if signed:
+            return signed
+        return self._ip_derived_tracking_id()
 
     def create_guest_user(self, name: str, guest_id: Optional[str] = None) -> Dict[str, Any]:
         """Create a guest user session based on name."""
@@ -509,15 +639,14 @@ class AuthManager:
                     session['user'] = user
                     session.permanent = True
 
-        # Attach tracking_id from cookie for guest users (shallow copy to avoid mutating session dict)
+        # Attach the resolved tracking id for guests (shallow copy to avoid
+        # mutating the session dict). resolve_guest_tracking_id (PRH-26) honors
+        # only a signed cookie, else the IP-derived stable id — so a forged or
+        # cleared cookie can't mint a fresh hand quota.
         if user and user.get('is_guest'):
-            tracking_id = request.cookies.get('guest_tracking_id')
+            tracking_id = self.resolve_guest_tracking_id()
             if tracking_id:
-                try:
-                    uuid.UUID(tracking_id)
-                    user = {**user, 'tracking_id': tracking_id}
-                except ValueError:
-                    logger.warning("Invalid guest_tracking_id cookie value")
+                user = {**user, 'tracking_id': tracking_id}
 
         return user
 

@@ -1467,7 +1467,7 @@ function AvatarImageManager({
 // ============================================
 
 interface BankrollKnobs {
-  bankroll_cap: number;
+  starting_bankroll: number;
   bankroll_rate: number;
   buy_in_multiplier: number;
   stake_comfort_zone: string;
@@ -1533,7 +1533,7 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
   const hasChanges =
     !!knobs &&
     !!original &&
-    (knobs.bankroll_cap !== original.bankroll_cap ||
+    (knobs.starting_bankroll !== original.starting_bankroll ||
       knobs.bankroll_rate !== original.bankroll_rate ||
       knobs.buy_in_multiplier !== original.buy_in_multiplier ||
       knobs.stake_comfort_zone !== original.stake_comfort_zone);
@@ -1610,19 +1610,19 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
 
       <div className="admin-form-row">
         <div className="admin-form-group">
-          <label className="admin-label" htmlFor="bankroll_cap">
-            Bankroll cap
+          <label className="admin-label" htmlFor="starting_bankroll">
+            Starting bankroll
           </label>
           <input
-            id="bankroll_cap"
+            id="starting_bankroll"
             type="number"
             className="admin-input"
             min={0}
-            value={knobs.bankroll_cap}
-            onChange={(e) => updateField('bankroll_cap', Number(e.target.value))}
+            value={knobs.starting_bankroll}
+            onChange={(e) => updateField('starting_bankroll', Number(e.target.value))}
           />
           <p className="admin-help-text">
-            Hard ceiling; default {defaults.bankroll_cap.toLocaleString()}
+            Seed bankroll on first sit; default {defaults.starting_bankroll.toLocaleString()}
           </p>
         </div>
         <div className="admin-form-group">
@@ -2986,9 +2986,12 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                 const currentVis = meta?.visibility || 'public';
                 const isOwner = !!currentUserId && meta?.owner_id === currentUserId;
                 const canChangeVisibility = isAdmin || isOwner;
-                const visibilityOptions = isAdmin
-                  ? (['public', 'private', 'disabled'] as const)
-                  : (['public', 'private'] as const);
+                // PRH-27: publishing is admin-only. A non-admin owner can keep
+                // their personality private (or un-publish a legacy public one)
+                // but can't make it public — the server rejects it too.
+                const visibilityOptions: readonly ('public' | 'private' | 'disabled')[] = isAdmin
+                  ? ['public', 'private', 'disabled']
+                  : ['private'];
                 return (
                   <div className="admin-detail__header">
                     <div>

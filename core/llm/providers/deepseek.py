@@ -116,6 +116,7 @@ class DeepSeekProvider(LLMProvider):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         """Make a chat completion request.
 
@@ -162,6 +163,11 @@ class DeepSeekProvider(LLMProvider):
         # Enable thinking mode if needed (for reasoning + tools)
         if use_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+        # PRH-18: per-call timeout override; short for in-game/ticker calls
+        # so a stalled provider fails fast instead of hanging under a lock.
+        if timeout is not None:
+            kwargs["timeout"] = timeout
 
         return self._client.chat.completions.create(**kwargs)
 

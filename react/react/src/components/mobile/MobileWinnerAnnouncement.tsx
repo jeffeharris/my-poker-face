@@ -4,11 +4,13 @@ import {
   Smile,
   Angry,
   Handshake,
+  Award,
   ArrowLeft,
   Check,
   type LucideIcon,
 } from 'lucide-react';
 import { Card } from '../cards';
+import { INTERHAND_TIMING } from '../../constants/interhandTiming';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -79,16 +81,19 @@ interface MobileWinnerAnnouncementProps {
   players?: Player[];
 }
 
-// Tone options for winners
+// Tone options for winners. 'props' (tip-of-the-cap respect) is offered
+// on both sides — you can salute a worthy opponent whether you won or lost.
 const WINNER_TONES: ToneOption[] = [
   { id: 'gloat', icon: PartyPopper, label: 'Gloat' },
   { id: 'humble', icon: Smile, label: 'Humble' },
+  { id: 'props', icon: Award, label: 'Props' },
 ];
 
 // Tone options for losers
 const LOSER_TONES: ToneOption[] = [
   { id: 'salty', icon: Angry, label: 'Salty' },
   { id: 'gracious', icon: Handshake, label: 'Gracious' },
+  { id: 'props', icon: Award, label: 'Props' },
 ];
 
 export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
@@ -149,6 +154,10 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
             { text: 'Nice hand.', tone: 'gracious' },
             { text: 'Well played.', tone: 'gracious' },
           ],
+          props: [
+            { text: 'Respect. Well played.', tone: 'props' },
+            { text: 'That was a sharp read.', tone: 'props' },
+          ],
         };
         setSuggestions(fallbacks[tone]);
         return;
@@ -179,6 +188,10 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
             { text: 'Nice hand.', tone: 'gracious' },
             { text: 'Well played.', tone: 'gracious' },
           ],
+          props: [
+            { text: 'Respect. Well played.', tone: 'props' },
+            { text: 'That was a sharp read.', tone: 'props' },
+          ],
         };
         setSuggestions(fallbacks[tone]);
       } finally {
@@ -198,10 +211,11 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
     // Post-round addressing: a loser's reaction is naturally
     // directed at the hand's winner — derive addressing from
     // winnerInfo so the backend can route the relationship event
-    // to the right pair. The winner's reaction (gloat/humble) is
-    // broadcast — no easy "primary loser" inference from the
-    // current props, so we leave addressing empty and the
-    // backend will skip the relationship dispatch.
+    // to the right pair. The winner's reaction is left unaddressed
+    // (no easy "primary loser" inference from the current props):
+    // the backend treats tone + empty addressing as a broadcast,
+    // fanning the emotional reaction out to the seated AIs at a
+    // reduced scale while skipping the pairwise relationship update.
     const addressing = !playerWon && winnerInfo?.winners?.[0] ? [winnerInfo.winners[0]] : undefined;
     onSendMessage(text, addressing, tone);
     setMessageSent(true);
@@ -223,7 +237,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
 
       const cardTimer = setTimeout(() => {
         setShowCards(true);
-      }, 800);
+      }, INTERHAND_TIMING.showdownCardRevealMs);
 
       return () => {
         clearTimeout(cardTimer);
@@ -241,7 +255,9 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         setShowCards(false);
         onComplete();
       },
-      winnerInfo.showdown ? 12000 : 8000
+      winnerInfo.showdown
+        ? INTERHAND_TIMING.showdownResultMs
+        : INTERHAND_TIMING.foldoutResultMs
     );
 
     return () => {

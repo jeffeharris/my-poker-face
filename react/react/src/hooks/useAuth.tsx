@@ -63,7 +63,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // Use localStorage for initial state while loading, but always verify with backend
       const storedUser = localStorage.getItem('currentUser');
-      const authToken = localStorage.getItem('authToken');
 
       // Set initial state from localStorage (optimistic)
       if (storedUser) {
@@ -75,18 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      // Always check with backend to get fresh permissions
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
-
+      // Always check with backend to get fresh permissions. Auth rides the
+      // HttpOnly session / guest cookies (credentials: 'include') — we no
+      // longer store or send a bearer token in browser-readable storage
+      // (PRH-37: shrinks the XSS blast radius).
       const response = await fetch(`${config.API_URL}/api/auth/me`, {
         credentials: 'include',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
       });
 
       if (response.ok) {
@@ -178,10 +172,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isAuthenticated: true,
         });
 
-        // Store in localStorage
-        if (data.token) {
-          localStorage.setItem('authToken', data.token);
-        }
+        // Cache the user for optimistic load only — the session/guest cookies
+        // (set by the backend on this response) carry auth, not a stored token
+        // (PRH-37).
         localStorage.setItem('currentUser', JSON.stringify(data.user));
 
         return { success: true };
@@ -211,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
     });
     localStorage.removeItem('currentUser');
+    // Clear any legacy bearer token left by an older client build (PRH-37).
     localStorage.removeItem('authToken');
   }, []);
 

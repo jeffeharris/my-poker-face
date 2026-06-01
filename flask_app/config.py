@@ -1,8 +1,11 @@
 """Configuration for the Flask application."""
 
+import logging
 import os
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -17,6 +20,12 @@ enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
 
 # Animation speed multiplier — 1.0 is normal, 0 disables all pacing delays
 ANIMATION_SPEED = float(os.environ.get('ANIMATION_SPEED', '1.0'))
+
+# All-in run-out: how long (seconds, before ANIMATION_SPEED scaling) to hold on
+# the hole-card reveal so the player can register the matchup before the board
+# runs out. Was 4s, which read as a dead beat (the first board card is already
+# showing by the time this fires); 1.5s matches the per-street reaction cadence.
+RUNOUT_REVEAL_HOLD = float(os.environ.get('RUNOUT_REVEAL_HOLD', '1.5'))
 
 # AI decision mode — 'llm' for real LLM calls, 'fallback_random' for instant random actions
 AI_DECISION_MODE = os.environ.get('AI_DECISION_MODE', 'llm')
@@ -44,6 +53,28 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 # CORS configuration
 CORS_ORIGINS_ENV = os.environ.get('CORS_ORIGINS', '*')
 
+# PRH-24: Socket.IO async model. Prod runs under a gevent-websocket gunicorn
+# worker that monkey-patches I/O, so `gevent` is the standards-aligned pairing.
+# Default stays `threading` (the long-standing value — it works because the
+# worker patches threading→greenlets; dev's Werkzeug server also uses threading),
+# so behavior is unchanged until an operator opts into `gevent` via this env
+# after validating the WebSocket flow. The startup runtime check logs whether
+# gevent monkey-patching is actually active (see flask_app.create_app).
+SOCKETIO_ASYNC_MODE = os.environ.get('SOCKETIO_ASYNC_MODE', 'threading')
+
+# CSRF protection (PRH-36) — double-submit cookie. Default ARMED in production
+# (the SPA and API are same-origin there, so the frontend JS can read the
+# non-HttpOnly csrf_token cookie and echo it in the X-CSRF-Token header). Default
+# OFF in development, where the SPA (:5173) and API (:5000) are cross-origin and
+# the cookie isn't JS-readable, and off under the test suite (FLASK_ENV is
+# development there). Override explicitly with CSRF_PROTECTION_ENABLED=true/false.
+CSRF_PROTECTION_ENABLED = os.environ.get(
+    'CSRF_PROTECTION_ENABLED',
+    'false' if is_development else 'true',
+).strip().lower() in ('1', 'true', 'yes', 'on')
+CSRF_COOKIE_NAME = 'csrf_token'
+CSRF_HEADER_NAME = 'X-CSRF-Token'
+
 # Rate limiting configuration (all env-var overridable)
 _rate_limit_default_env = os.environ.get('RATE_LIMIT_DEFAULT')
 if _rate_limit_default_env is not None:
@@ -52,6 +83,11 @@ else:
     RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
 RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')
 RATE_LIMIT_GAME_ACTION = os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute')
+# PRH-26: per-IP cap on FRESH guest minting (only applies when there's no valid
+# existing guest cookie — returning guests and password logins are exempt, so
+# legit users behind shared/CGNAT IPs aren't penalized). Bounds scripted guest
+# creation; the global LLM budget (PRH-25) is the financial backstop.
+RATE_LIMIT_GUEST_LOGIN = os.environ.get('RATE_LIMIT_GUEST_LOGIN', '60 per hour')
 # High-frequency read-only state polling (cash/game state, lobby). A single
 # generous per-minute window — these are cheap GETs driven by client polling,
 # and a day/hour cap would punish long play sessions. The minute cap still
@@ -62,6 +98,97 @@ RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALIT
 RATE_LIMIT_GENERATE_THEME = os.environ.get('RATE_LIMIT_GENERATE_THEME', '10 per hour')
 RATE_LIMIT_REGENERATE_AVATAR = os.environ.get('RATE_LIMIT_REGENERATE_AVATAR', '10 per hour')
 RATE_LIMIT_GENERATE_IMAGES = os.environ.get('RATE_LIMIT_GENERATE_IMAGES', '5 per hour')
+
+# ---------------------------------------------------------------------------
+# LLM spend kill-switch (PRH-2)
+# ---------------------------------------------------------------------------
+# Rolling 24h spend ceilings in USD, enforced centrally in LLMClient (the gate
+# itself lands in a follow-up step). Two layers:
+#   - LLM_GLOBAL_DAILY_BUDGET_USD: total spend across every owner.
+#   - LLM_PER_OWNER_DAILY_BUDGET_USD: spend attributable to a single owner_id.
+#
+# Disabled sentinel: 0 (or unset, or any non-positive value) => that layer is
+# OFF and enforces no ceiling. Both default to disabled so this change is inert
+# until an operator opts in via env. Startup logs loudly which layers are live
+# (see log_llm_budget_status, called from create_app).
+
+
+def _read_budget_usd(env_name: str) -> float:
+    """Parse a USD budget env var; treat blank/garbage/non-positive as disabled (0.0)."""
+    raw = os.environ.get(env_name)
+    if not raw:
+        return 0.0
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Ignoring non-numeric %s=%r; treating spend layer as disabled", env_name, raw
+        )
+        return 0.0
+    return value if value > 0 else 0.0
+
+
+LLM_GLOBAL_DAILY_BUDGET_USD = _read_budget_usd('LLM_GLOBAL_DAILY_BUDGET_USD')
+LLM_PER_OWNER_DAILY_BUDGET_USD = _read_budget_usd('LLM_PER_OWNER_DAILY_BUDGET_USD')
+
+
+def log_llm_budget_status() -> None:
+    """Log loudly, at startup, whether the LLM spend kill-switch is armed.
+
+    A disabled budget means an overrun runs until the provider's own billing
+    limit — operators should see this in the boot log, not discover it later.
+    """
+    if LLM_GLOBAL_DAILY_BUDGET_USD <= 0 and LLM_PER_OWNER_DAILY_BUDGET_USD <= 0:
+        logger.warning(
+            "[LLM BUDGET] spend kill-switch DISABLED — no global or per-owner daily "
+            "ceiling is enforced. Set LLM_GLOBAL_DAILY_BUDGET_USD (and optionally "
+            "LLM_PER_OWNER_DAILY_BUDGET_USD) to arm it."
+        )
+        return
+
+    parts = []
+    if LLM_GLOBAL_DAILY_BUDGET_USD > 0:
+        parts.append(f"global=${LLM_GLOBAL_DAILY_BUDGET_USD:.2f}/24h")
+    else:
+        parts.append("global=disabled")
+    if LLM_PER_OWNER_DAILY_BUDGET_USD > 0:
+        parts.append(f"per_owner=${LLM_PER_OWNER_DAILY_BUDGET_USD:.2f}/24h")
+    else:
+        parts.append("per_owner=disabled")
+    logger.info("[LLM BUDGET] spend kill-switch ARMED — %s", ", ".join(parts))
+
+
+def warn_missing_pricing_rows() -> None:
+    """At startup, scan recent api_usage for rows with NULL ``estimated_cost``.
+
+    Such rows almost always mean the matching ``model_pricing`` row is missing
+    — and because the spend gate sums via ``COALESCE(SUM, 0)``, they count as
+    $0 and silently slip the cap. Surfacing the offending ``(provider, model)``
+    combos in the boot log lets the operator add pricing rows before drift
+    accumulates. Idempotent; fails open (no log on DB error).
+    """
+    from core.llm.tracking import UsageTracker
+
+    try:
+        tracker = UsageTracker.get_default()
+        combos = tracker.find_recent_null_cost_combos()
+    except Exception as e:
+        logger.debug("[LLM BUDGET] missing-pricing scan skipped: %s", e)
+        return
+
+    if not combos:
+        return
+
+    for provider, model, count in combos:
+        logger.warning(
+            "[LLM BUDGET] %s/%s has %d recent api_usage row(s) with NULL "
+            "estimated_cost — those silently slip the cap; add a model_pricing "
+            "row for this SKU to make them billable.",
+            provider,
+            model,
+            count,
+        )
+
 
 # Pagination
 GAME_LIST_MAX_LIMIT = int(os.environ.get('GAME_LIST_MAX_LIMIT', '100'))

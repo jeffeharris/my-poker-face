@@ -1,0 +1,64 @@
+/* Desktop Coach Dock — fixed right-side panel, sits above the table felt.
+   Uses the same dark-glass + gold-accent visual language as StatsPanel and
+   CashControls. No overlay, no drag-to-dismiss — this is a persistent sidebar. */
+
+.coach-dock {
+  position: fixed;
+  top: 60px; /* Clear the GameHeader (~56px) with a small gap */
+  right: 0;
+  width: 340px;
+  max-width: 90vw;
+  /* Leave 80px at the bottom for the PlayerCommandCenter */
+  bottom: 80px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(20, 22, 30, 0.97) 0%, rgba(12, 13, 18, 0.98) 100%);
+  border-left: 1px solid rgba(212, 165, 116, 0.25);
+  border-top: 1px solid rgba(212, 165, 116, 0.15);
+  border-bottom: 1px solid rgba(212, 165, 116, 0.12);
+  border-radius: var(--radius-xl, 16px) 0 0 var(--radius-xl, 16px);
+  backdrop-filter: blur(24px);
+  box-shadow:
+    -4px 0 24px rgba(0, 0, 0, 0.5),
+    -1px 0 0 rgba(255, 255, 255, 0.03) inset;
+  z-index: 150;
+  overflow: hidden;
+  animation: coachDockSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes coachDockSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Override the coach-header padding slightly for the docked context */
+.coach-dock .coach-header {
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  /* No touch-action override needed on desktop */
+  touch-action: auto;
+}
+
+/* The coach-messages flex-1 already handles scroll, but we set a
+   proper overflow on the dock itself so content doesn't escape. */
+.coach-dock .coach-messages {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Slightly smaller font for desktop density */
+.coach-dock .coach-text-input {
+  font-size: 14px; /* Override mobile 16px (16px prevents iOS zoom, not needed on desktop) */
+}
+
+/* Tighter input padding on desktop */
+.coach-dock .coach-input-area {
+  padding-bottom: 10px; /* No safe-area-inset needed on desktop */
+}

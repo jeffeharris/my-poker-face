@@ -41,8 +41,9 @@ def _insert_personality(db_path: str, pid: str, *, name: str | None = None) -> N
     }
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id, visibility) "
-            "VALUES (?, ?, ?, 'public')",
+            "INSERT INTO personalities "
+            "(name, config_json, personality_id, visibility, circulating) "
+            "VALUES (?, ?, ?, 'public', 1)",
             (
                 name or f"Personality {pid}",
                 json.dumps({"bankroll_knobs": knobs}),

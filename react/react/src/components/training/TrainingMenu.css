@@ -1,0 +1,168 @@
+/* Training (Practice) menu — difficulty + free play + drills.
+ * Scoped to training-* ; visual language echoes the app's menu surfaces. */
+
+.training-menu__crest {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 0.5rem;
+  border-radius: 50%;
+  color: var(--color-emerald, #34d399);
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.training-menu__intro {
+  margin: 0.75rem auto 1.25rem;
+  max-width: 34rem;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.training-menu__review {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0 0 1.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  background: rgba(52, 211, 153, 0.08);
+  color: var(--color-text, #e5e7eb);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.training-menu__review:hover {
+  transform: translateY(-1px);
+  background: rgba(52, 211, 153, 0.13);
+  border-color: rgba(52, 211, 153, 0.5);
+}
+.training-menu__review > svg:first-child {
+  color: var(--color-emerald, #34d399);
+  flex: 0 0 auto;
+}
+.training-menu__review-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.training-menu__review-text strong {
+  font-size: 0.95rem;
+}
+.training-menu__review-text span {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.training-menu__group {
+  border: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+
+.training-menu__group-label {
+  display: block;
+  margin-bottom: 0.6rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.training-menu__chips {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.training-menu__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 0;
+  min-width: 6rem;
+  justify-content: center;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text, #e5e7eb);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.training-menu__chip:hover:not(:disabled) {
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+.training-menu__chip--active {
+  border-color: var(--color-emerald, #34d399);
+  background: rgba(52, 211, 153, 0.14);
+  color: #fff;
+}
+
+/* Per-tier accent when active. */
+.training-menu__chip--easy.training-menu__chip--active {
+  border-color: #34d399;
+  background: rgba(52, 211, 153, 0.16);
+}
+.training-menu__chip--medium.training-menu__chip--active {
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.16);
+}
+.training-menu__chip--hard.training-menu__chip--active {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.16);
+}
+
+.training-menu__group:disabled .training-menu__chip,
+.training-menu__group:disabled .training-drill {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.training-menu__hint {
+  margin: 0.6rem 0 0;
+  min-height: 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.training-menu__primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.9rem;
+  padding: 0.8rem 1rem;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-emerald, #10b981);
+  color: #04150f;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.12s ease;
+}
+
+.training-menu__primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.training-menu__primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+

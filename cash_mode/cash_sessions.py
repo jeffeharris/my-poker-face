@@ -20,9 +20,28 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-# `closed_status` values
+# `closed_status` values — the *why* of a close (free-text-ish detail).
 CLOSED_STATUS_LEFT = "left"
 CLOSED_STATUS_GHOST_CLEANUP = "ghost_cleanup"
+CLOSED_STATUS_BOOT_SWEPT = "boot_swept"
+CLOSED_STATUS_STALE_SWEPT = "stale_swept"
+
+# `session_state` values (Tier 3) — the coarse machine-state the sit
+# guard reads. Distinct from `closed_status`: state answers "can this
+# session block a new sit / be resumed?", closed_status records *how*
+# it ended. `active`/`paused`/`abandoning` block a new sit; `closed`/
+# `broken` do not.
+SESSION_STATE_ACTIVE = "active"  # live in memory, or resumable (frozen)
+SESSION_STATE_PAUSED = "paused"  # resumable, de-memoized (reserved)
+SESSION_STATE_ABANDONING = "abandoning"  # teardown in flight (reserved for outbox)
+SESSION_STATE_CLOSED = "closed"  # settled / swept — terminal
+SESSION_STATE_BROKEN = "broken"  # cleanup couldn't converge — terminal, non-blocking
+
+# States that still represent a session the player owns and could
+# resume — i.e. they BLOCK a new sit. Everything else is dead weight.
+SESSION_STATES_BLOCKING = frozenset(
+    {SESSION_STATE_ACTIVE, SESSION_STATE_PAUSED, SESSION_STATE_ABANDONING}
+)
 
 
 @dataclass(frozen=True)
@@ -75,3 +94,10 @@ class CashSession:
     biggest_pot_won: Optional[int] = None
     duration_seconds: Optional[int] = None
     closed_status: Optional[str] = None
+    # Tier 3: explicit lifecycle state the sit guard reads (see the
+    # SESSION_STATE_* constants). Defaults to `active` for a fresh sit.
+    session_state: str = SESSION_STATE_ACTIVE
+    # Tier 3: last cold-load failure (error class + timestamp), for
+    # debugging a wedged session without log archaeology. None until a
+    # load fails.
+    last_load_error: Optional[str] = None

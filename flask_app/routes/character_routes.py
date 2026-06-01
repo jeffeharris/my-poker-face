@@ -215,8 +215,10 @@ def _find_game_data_with_player(player_name: str) -> Optional[dict]:
                 continue
             if any(p.name == player_name for p in roster):
                 return gdata
-    except Exception:
-        pass
+    except Exception as e:
+        # Display-only dossier scan; never fail the request over it, but log
+        # so a persistent failure (e.g. corrupt game_state) isn't invisible.
+        logger.warning("dossier game_data scan failed for %r: %s", player_name, e)
     return None
 
 
@@ -275,6 +277,166 @@ def _build_observation(game_data: dict, player_name: str) -> Optional[dict]:
     }
 
 
+def _observation_from_lifetime(counts: Optional[dict]) -> Optional[dict]:
+    """Shape the durable lifetime observation counts into the dossier's
+    `observation` block, deriving rates through the canonical
+    `OpponentTendencies` formula so VPIP/PFR/AF/play-style match the live
+    path exactly (no duplicated thresholds, no drift).
+
+    Returns None when there's no lifetime row or no hands yet.
+    """
+    if not counts or not counts.get('hands_observed'):
+        return None
+
+    from poker.memory.opponent_model import OpponentTendencies
+
+    t = OpponentTendencies()
+    t.hands_dealt = counts['hands_dealt']
+    t.hands_observed = counts['hands_observed']
+    t._vpip_count = counts['vpip_count']
+    t._pfr_count = counts['pfr_count']
+    t._bet_raise_count = counts['bet_raise_count']
+    t._call_count = counts['call_count']
+    t._showdowns = counts['showdowns_seen']
+    t._showdowns_won = counts['showdowns_won']
+    t._recalculate_stats()
+
+    return {
+        'hands_observed': t.hands_observed,
+        'vpip': round(t.vpip, 2),
+        'pfr': round(t.pfr, 2),
+        'aggression_factor': round(t.aggression_factor, 2),
+        'play_style': t.get_play_style_label(),
+        # Marks this as the cross-game scouting read (vs. a live in-game one)
+        # so the dossier can label it "lifetime".
+        'lifetime': True,
+    }
+
+
+def _tendencies_from_lifetime(counts: Optional[dict]):
+    """Reconstruct a full `OpponentTendencies` from the durable lifetime
+    COUNTS (the single rebuild both `deeper_reads` and "the read" share).
+
+    Sets every persisted counter — headline (v123), deep postflop (v125), and
+    preflop opportunity (v126) — then `_recalculate_stats()` so the derived
+    rates match the live path exactly. The equity polarization MEANS aren't
+    recomputed by `_recalculate_stats` (the live path updates them incrementally
+    in `record_equity_at_action`), so they're set explicitly here as sum/count
+    — keeping the reconstructed object fully faithful for any consumer (e.g. the
+    exploitation detectors behind "the read").
+
+    Returns None when there's no lifetime row or no hands yet.
+    """
+    if not counts or not counts.get('hands_observed'):
+        return None
+
+    from poker.memory.opponent_model import OpponentTendencies
+
+    t = OpponentTendencies()
+    t.hands_dealt = counts.get('hands_dealt', 0)
+    t.hands_observed = counts.get('hands_observed', 0)
+    t._vpip_count = counts.get('vpip_count', 0)
+    t._pfr_count = counts.get('pfr_count', 0)
+    t._bet_raise_count = counts.get('bet_raise_count', 0)
+    t._call_count = counts.get('call_count', 0)
+    t._showdowns = counts.get('showdowns_seen', 0)
+    t._showdowns_won = counts.get('showdowns_won', 0)
+    # Deep postflop counters (v125).
+    t._all_in_count = counts.get('all_in_count', 0)
+    t._fold_to_cbet_count = counts.get('fold_to_cbet_count', 0)
+    t._cbet_faced_count = counts.get('cbet_faced_count', 0)
+    t._cbet_attempt_count = counts.get('cbet_attempt_count', 0)
+    t._postflop_seen_as_pfr_count = counts.get('postflop_seen_as_pfr_count', 0)
+    t._barrel_count = counts.get('barrel_count', 0)
+    t._barrel_opportunity_count = counts.get('barrel_opportunity_count', 0)
+    t._third_barrel_count = counts.get('third_barrel_count', 0)
+    t._third_barrel_opportunity_count = counts.get('third_barrel_opportunity_count', 0)
+    t._postflop_bet_raise_count = counts.get('postflop_bet_raise_count', 0)
+    t._postflop_call_count = counts.get('postflop_call_count', 0)
+    t._equity_betting_count = counts.get('equity_betting_count', 0)
+    t._equity_raising_count = counts.get('equity_raising_count', 0)
+    t._equity_calling_count = counts.get('equity_calling_count', 0)
+    t._equity_betting_sum = counts.get('equity_betting_sum', 0.0)
+    t._equity_raising_sum = counts.get('equity_raising_sum', 0.0)
+    t._equity_calling_sum = counts.get('equity_calling_sum', 0.0)
+    # Preflop opportunity counters (v126) — drive vpip_per_voluntary_opportunity
+    # / pfr_per_open_opportunity, the signals the station/nit detectors gate on.
+    t._preflop_voluntary_action_count = counts.get('preflop_voluntary_action_count', 0)
+    t._preflop_voluntary_opportunities = counts.get('preflop_voluntary_opportunities', 0)
+    t._preflop_open_raise_count = counts.get('preflop_open_raise_count', 0)
+    t._preflop_open_opportunities = counts.get('preflop_open_opportunities', 0)
+    t._recalculate_stats()
+
+    # Equity-at-action means (recalc doesn't touch these — see docstring).
+    def _eq(total, n):
+        return total / n if n else 0.5
+    t.equity_when_betting_postflop = _eq(t._equity_betting_sum, t._equity_betting_count)
+    t.equity_when_raising_postflop = _eq(t._equity_raising_sum, t._equity_raising_count)
+    t.equity_when_calling_postflop = _eq(t._equity_calling_sum, t._equity_calling_count)
+    return t
+
+
+def _deeper_reads_from_lifetime(counts: Optional[dict]) -> Optional[dict]:
+    """Shape the durable lifetime COUNTS into the dossier's `deeper_reads`
+    block — the Tier-2 postflop reads (fold-to-cbet, c-bet %, barreling,
+    all-in frequency, postflop aggression, polarization).
+
+    Rates derive through the canonical `OpponentTendencies._recalculate_stats()`
+    (via `_tendencies_from_lifetime`) so they match the live path exactly. A
+    rate is `None` until at least one opportunity is observed (rather than the
+    model's neutral 0.5 prior), so the gated UI shows "—" not a misleading
+    default.
+
+    Returns None when there's no lifetime row or no hands yet.
+    """
+    t = _tendencies_from_lifetime(counts)
+    if t is None:
+        return None
+
+    def _mean(total, n):
+        return round(total / n, 2) if n else None
+
+    return {
+        'fold_to_cbet': (
+            round(t.fold_to_cbet, 2) if counts.get('cbet_faced_count') else None
+        ),
+        'cbet_attempt_rate': (
+            round(t.cbet_attempt_rate, 2)
+            if counts.get('postflop_seen_as_pfr_count') else None
+        ),
+        'barrel_frequency': (
+            round(t.barrel_frequency, 2)
+            if counts.get('barrel_opportunity_count') else None
+        ),
+        'third_barrel_frequency': (
+            round(t.third_barrel_frequency, 2)
+            if counts.get('third_barrel_opportunity_count') else None
+        ),
+        # all-in freq uses hands_dealt as denominator (>0 here); 0% is a
+        # legitimate read, so it's never None once there are hands.
+        'all_in_frequency': round(t.all_in_frequency, 3),
+        'aggression_factor_postflop': (
+            round(t.aggression_factor_postflop, 2)
+            if (counts.get('postflop_bet_raise_count')
+                or counts.get('postflop_call_count')) else None
+        ),
+        # Polarization: mean equity the opponent held at each action type.
+        'equity_when_betting': _mean(
+            counts.get('equity_betting_sum', 0.0),
+            counts.get('equity_betting_count', 0),
+        ),
+        'equity_when_raising': _mean(
+            counts.get('equity_raising_sum', 0.0),
+            counts.get('equity_raising_count', 0),
+        ),
+        'equity_when_calling': _mean(
+            counts.get('equity_calling_sum', 0.0),
+            counts.get('equity_calling_count', 0),
+        ),
+        'lifetime': True,
+    }
+
+
 def _build_pressure_summary(game_data: dict, player_name: str) -> Optional[dict]:
     """Pull pressure_stats.get_summary() for this player, if available."""
     pstats = (game_data or {}).get('pressure_stats')
@@ -286,6 +448,59 @@ def _build_pressure_summary(game_data: dict, player_name: str) -> Optional[dict]
     try:
         return player_pressure.get_summary()
     except Exception:
+        return None
+
+
+def _build_lifetime_pressure_summary(
+    owner_id: Optional[str], player_name: Optional[str]
+) -> Optional[dict]:
+    """Durable cross-game pressure summary for `player_name`, replaying every
+    pressure event across the owner's games through the canonical
+    `PlayerPressureStats` aggregation (same get_summary() the live path uses,
+    so signature move / biggest pots / HU record / bluff tallies are derived
+    identically — just over a lifetime instead of one game).
+
+    Owner-scoped (≈ sandbox under v1's 1:1 ownership). Returns None when there
+    are no events. Reusing the live aggregator means a fresh re-aggregation
+    each read — it can't double-count.
+    """
+    if not owner_id or not player_name:
+        return None
+    try:
+        from datetime import datetime
+
+        from flask_app.extensions import persistence_db_path
+        from poker.pressure_stats import PlayerPressureStats, PressureEvent
+        from poker.repositories.sqlite_repositories import PressureEventRepository
+
+        if not persistence_db_path:
+            return None
+        repo = PressureEventRepository(persistence_db_path)
+        events = repo.get_player_events_for_owner(player_name, owner_id)
+        if not events:
+            return None
+
+        stats = PlayerPressureStats(player_name)
+        for e in events:
+            raw_ts = e.get('timestamp')
+            if isinstance(raw_ts, datetime):
+                ts = raw_ts
+            else:
+                try:
+                    ts = datetime.fromisoformat(str(raw_ts))
+                except (TypeError, ValueError):
+                    ts = datetime.now()
+            stats.add_event(
+                PressureEvent(
+                    timestamp=ts,
+                    event_type=e['event_type'],
+                    player_name=player_name,
+                    details=e.get('details') or {},
+                )
+            )
+        return stats.get_summary()
+    except Exception as exc:
+        logger.debug("[CHARACTER] lifetime pressure load failed: %s", exc)
         return None
 
 
@@ -422,6 +637,11 @@ def get_dossier(identifier: str):
     # in the bankroll repo keyed on (personality_id, sandbox_id) since
     # the v102 per-sandbox scoping; the dossier is per-viewer so we
     # resolve the observer's default sandbox.
+    # Resolved once and reused for both the AI bankroll lookup and the
+    # per-sandbox cash_pair_stats read below. Stays None if resolution
+    # fails — load_cash_pair_stats(sandbox_id=None) then falls back to the
+    # cross-sandbox sum (identical under v1's 1:1 ownership).
+    sandbox_id: Optional[str] = None
     ai_bankroll_chips: Optional[int] = None
     try:
         from flask_app.extensions import bankroll_repo, sandbox_repo
@@ -509,9 +729,13 @@ def get_dossier(identifier: str):
             ),
         }
 
-    # Cash pair stats (lifetime cash-mode PnL with this personality).
+    # Cash pair stats (per-sandbox cash-mode PnL with this personality).
+    # Scoped to the observer's active sandbox per the dossier per-sandbox
+    # principle; falls back to the cross-sandbox sum when sandbox_id is None.
     try:
-        cps = relationship_repo.load_cash_pair_stats(observer_id, personality_id)
+        cps = relationship_repo.load_cash_pair_stats(
+            observer_id, personality_id, sandbox_id=sandbox_id
+        )
     except Exception as e:
         logger.debug("[CHARACTER] cash_pair_stats load failed: %s", e)
         cps = None
@@ -521,11 +745,145 @@ def get_dossier(identifier: str):
             'hands_played_cash': cps.hands_played_cash,
         }
 
+    # Durable cross-game observation (Phase 1 scouting memory). Prefer it
+    # over the live in-game read when a lifetime row exists: it accumulates
+    # across every game in this sandbox (folded each hand), so it's the more
+    # complete read, and it survives game-end — the whole point of the
+    # dossier becoming persistent. Falls back to the live `observation`
+    # (already set above) when there's no lifetime row yet. `life_counts` is
+    # also the source of the scouting gate's observed-hand count below.
+    life_counts = None
+    response['deeper_reads'] = None
+    response['the_read'] = []
+    response['archetype'] = None
+    if sandbox_id:
+        try:
+            from flask_app.extensions import game_repo
+
+            life_counts = game_repo.load_observation_lifetime(
+                sandbox_id, observer_id, personality_id
+            )
+            life_obs = _observation_from_lifetime(life_counts)
+            if life_obs is not None:
+                response['observation'] = life_obs
+            # Tier-2 deep postflop reads (gated past 180 hands below).
+            deeper = _deeper_reads_from_lifetime(life_counts)
+            if deeper is not None:
+                response['deeper_reads'] = deeper
+            # B2 "the read": exploit advice + archetype badge, from the
+            # tiered-bot exploitation detectors over the same tendencies.
+            tendencies = _tendencies_from_lifetime(life_counts)
+            if tendencies is not None:
+                from flask_app.services.dossier_read import build_the_read
+
+                read = build_the_read(tendencies)
+                response['the_read'] = read['tips']
+                response['archetype'] = read['archetype']
+        except Exception as e:
+            logger.debug("[CHARACTER] lifetime observation load failed: %s", e)
+
+    # Durable cross-game pressure + memorable hands. Like observation, these
+    # were live-only (lost between games); prefer the lifetime version so a
+    # signature move / biggest pots / HU record / memorable hands survive
+    # game-end. Owner-scoped (≈ sandbox under 1:1 ownership). Falls back to
+    # the live builders (already set above) when there's no durable history.
+    try:
+        lifetime_pressure = _build_lifetime_pressure_summary(observer_id, player_name)
+        if lifetime_pressure is not None:
+            response['pressure_summary'] = lifetime_pressure
+    except Exception as e:
+        logger.debug("[CHARACTER] lifetime pressure merge failed: %s", e)
+    try:
+        from flask_app.extensions import game_repo
+
+        lifetime_memorable = game_repo.load_lifetime_memorable_hands(
+            observer_id, player_name
+        )
+        if lifetime_memorable:
+            response['memorable_hands'] = lifetime_memorable
+    except Exception as e:
+        logger.debug("[CHARACTER] lifetime memorable merge failed: %s", e)
+
+    # The history (rivalry read): aggregate the logged relationship events
+    # between the human and this opponent into a headline + defining clash +
+    # clash/banter tallies. Owner-scoped, from the same memorable_hands store.
+    response['relationship_history'] = None
+    try:
+        from flask_app.extensions import game_repo
+        from flask_app.services.dossier_history import (
+            CLASH_EVENTS,
+            build_relationship_history,
+        )
+
+        hist = game_repo.load_relationship_history(
+            observer_id, player_name, CLASH_EVENTS
+        )
+        response['relationship_history'] = build_relationship_history(hist)
+    except Exception as e:
+        logger.debug("[CHARACTER] relationship history failed: %s", e)
+
     # Player-authored note (v95). None when no row OR row has NULL note.
     try:
         response['note'] = relationship_repo.load_note(observer_id, personality_id)
     except Exception as e:
         logger.debug("[CHARACTER] note load failed: %s", e)
+
+    # The viewer's own bankroll — lets the informant UI know what they can
+    # afford up front (disable unaffordable unlocks instead of failing the
+    # click with a 402). None when no bankroll row yet.
+    response['player_bankroll'] = None
+    try:
+        from flask_app.extensions import bankroll_repo
+
+        player_bankroll = bankroll_repo.load_player_bankroll(observer_id)
+        if player_bankroll is not None:
+            response['player_bankroll'] = player_bankroll.chips
+    except Exception as e:
+        logger.debug("[CHARACTER] player_bankroll load failed: %s", e)
+
+    # B3 emotional read + B4 field standing — pure derivations over numbers
+    # already loaded (pressure tilt, psychology anchors, observation vpip/af).
+    # Computed before the gate so it can redact them by their own tiers.
+    try:
+        from flask_app.services.dossier_signals import (
+            build_temperament,
+            field_position,
+        )
+
+        anchors_block = (response.get('personality') or {}).get('anchors')
+        response['temperament'] = build_temperament(
+            response.get('pressure_summary'), anchors_block
+        )
+        obs_block = response.get('observation') or {}
+        response['field_position'] = field_position(
+            obs_block.get('vpip'), obs_block.get('aggression_factor')
+        )
+    except Exception as e:
+        logger.debug("[CHARACTER] temperament/field signals failed: %s", e)
+        response['temperament'] = None
+        response['field_position'] = None
+
+    # Scouting gate (Phase 2 — the grind). Circuit-only: applies when a
+    # sandbox is in play, gating the earnable reads behind hands observed
+    # against this opponent. Outside the Circuit (no sandbox) the dossier is
+    # ungated, as before. Behind a kill switch. Strips locked values + adds
+    # the `scouting` descriptor the client renders the locked file from.
+    if sandbox_id:
+        try:
+            from cash_mode import economy_flags
+
+            if economy_flags.DOSSIER_SCOUTING_GATE_ENABLED:
+                from flask_app.extensions import game_repo
+                from flask_app.services.dossier_scouting import apply_scouting_gate
+
+                purchased = game_repo.load_informant_unlocks(
+                    sandbox_id, observer_id, personality_id
+                )
+                # Pass the full lifetime counts (not just hands) so the Tier-2
+                # opportunity gates can read their sample denominators.
+                apply_scouting_gate(response, life_counts or {}, purchased)
+        except Exception as e:
+            logger.debug("[CHARACTER] scouting gate failed: %s", e)
 
     return jsonify(response)
 
@@ -625,6 +983,105 @@ def put_note(identifier: str):
 
     saved = relationship_repo.load_note(observer_id, personality_id)
     return jsonify({'note': saved})
+
+
+@character_bp.route('/api/character/<identifier>/informant', methods=['POST'])
+def post_informant_unlock(identifier: str):
+    """POST /api/character/<identifier>/informant  body: {"section_id": str}
+
+    Pay the informant to reveal a still-locked dossier section (Phase 3 —
+    the chip sink). Debits the player's bankroll into the recyclable bank
+    pool and records the purchase so the section stays unlocked. The
+    informant bypasses the grind floor — you can buy intel on someone you've
+    barely played.
+
+    Returns 401 (no observer), 404 (unknown personality), 400 (unknown
+    section / scouting disabled), 409 (section already unlocked), 402
+    (insufficient bankroll), or 200 with the updated scouting + bankroll.
+    """
+    observer_id = _resolve_observer_id()
+    if not observer_id:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    personality_id = _resolve_personality_id(identifier)
+    if not personality_id:
+        return jsonify({'error': 'Personality not found'}), 404
+
+    from cash_mode import economy_flags
+    from flask_app.services.dossier_scouting import INFORMANT_SECTIONS, compute_scouting
+
+    if not economy_flags.DOSSIER_SCOUTING_GATE_ENABLED:
+        return jsonify({'error': 'Scouting is disabled'}), 400
+
+    payload = request.get_json(silent=True) or {}
+    section_id = payload.get('section_id')
+    section = INFORMANT_SECTIONS.get(section_id)
+    if not section:
+        return jsonify({'error': 'Unknown section'}), 400
+
+    from flask_app.extensions import (
+        bankroll_repo,
+        chip_ledger_repo,
+        game_repo,
+        sandbox_repo,
+    )
+    from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+    sandbox_id = resolve_default_sandbox_for(observer_id, sandbox_repo=sandbox_repo)
+
+    # Only sections with still-locked items are buyable (a payment always
+    # makes progress — never "you paid for what you already had").
+    life = game_repo.load_observation_lifetime(sandbox_id, observer_id, personality_id)
+    purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
+    offers = {o['id'] for o in compute_scouting(life or {}, purchased)['informant_offers']}
+    if section_id not in offers:
+        return jsonify({'error': 'Section already unlocked'}), 409
+
+    price = int(section['price'])
+
+    bankroll = bankroll_repo.load_player_bankroll(observer_id)
+    if bankroll is None or bankroll.chips < price:
+        return jsonify({
+            'error': 'Insufficient bankroll',
+            'price': price,
+            'bankroll': bankroll.chips if bankroll else 0,
+        }), 402
+
+    # Record the unlock first (idempotent). If it was already owned (a race),
+    # bail before charging — never double-charge on a retry. The reverse
+    # order would risk charging twice; storing first at worst grants a free
+    # unlock if the debit then fails, which favors the player.
+    newly = game_repo.record_informant_unlock(
+        sandbox_id, observer_id, personality_id, section_id, price
+    )
+    if not newly:
+        return jsonify({'error': 'Section already unlocked'}), 409
+
+    # Debit bankroll → recyclable bank pool (mirrors the vice-spending sink).
+    from cash_mode.bankroll import PlayerBankrollState
+    from core.economy import ledger
+
+    new_bankroll = PlayerBankrollState(
+        player_id=bankroll.player_id,
+        chips=bankroll.chips - price,
+        starting_bankroll=bankroll.starting_bankroll,
+    )
+    bankroll_repo.save_player_bankroll(new_bankroll)
+    ledger.record_informant_unlock(
+        chip_ledger_repo,
+        owner_id=observer_id,
+        amount=price,
+        sandbox_id=sandbox_id,
+        context={'opponent_id': personality_id, 'section_id': section_id},
+    )
+
+    updated = compute_scouting(life or {}, purchased | {section_id})
+    return jsonify({
+        'scouting': updated,
+        'bankroll': new_bankroll.chips,
+        'section_id': section_id,
+        'price': price,
+    })
 
 
 # Nicknames are displayed prominently and are mostly short cues —

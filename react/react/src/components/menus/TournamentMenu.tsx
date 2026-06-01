@@ -349,7 +349,7 @@ export function TournamentMenu({
 
             <LockedMenuOption
               icon={<Settings className="option-icon" size={24} />}
-              title="Custom Game"
+              title="Custom Tournament"
               description="Choose your opponents and game settings"
               onClick={onCustomGame}
               isGuest={isGuest}
@@ -360,7 +360,7 @@ export function TournamentMenu({
 
             <LockedMenuOption
               icon={<Sparkles className="option-icon" size={24} />}
-              title="Themed Game"
+              title="Themed Tournament"
               description="Play with a surprise cast of personalities!"
               onClick={onThemedGame}
               isGuest={isGuest}
@@ -377,7 +377,7 @@ export function TournamentMenu({
             >
               <FolderOpen className="option-icon" size={24} />
               <div className="option-content">
-                <h3>Continue Game</h3>
+                <h3>Continue Tournament</h3>
                 <p>
                   {savedGamesCount > 0
                     ? `Resume from ${savedGamesCount} saved game${savedGamesCount > 1 ? 's' : ''}`

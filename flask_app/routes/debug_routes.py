@@ -4,8 +4,7 @@ import logging
 
 from flask import Blueprint, Response, jsonify, redirect, request
 
-from .. import config
-from ..extensions import persistence_db_path
+from .. import config, extensions
 from ..route_utils import register_admin_guard
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
@@ -350,8 +349,6 @@ def get_relationships_debug(game_id):
 
     from poker.memory.relationship_prompt import _classify
 
-    from ..extensions import game_repo, relationship_repo
-
     now = datetime.utcnow()
     game_data = game_state_service.get_game(game_id)
 
@@ -373,10 +370,10 @@ def get_relationships_debug(game_id):
     # survive game eviction; `opponent_models` rows scoped to the
     # game tell us which pairs to surface. `memorable_hands` is
     # already attached to the loaded model dict via game_repo.
-    if game_repo is None or relationship_repo is None:
+    if extensions.game_repo is None or extensions.relationship_repo is None:
         return jsonify({'error': 'Repositories not initialized'}), 500
 
-    models_dict = game_repo.load_opponent_models(game_id)
+    models_dict = extensions.game_repo.load_opponent_models(game_id)
     if not models_dict:
         return jsonify(
             {
@@ -390,7 +387,7 @@ def get_relationships_debug(game_id):
         _build_relationships_response_from_db(
             game_id,
             models_dict,
-            relationship_repo,
+            extensions.relationship_repo,
             now,
         )
     )
@@ -575,7 +572,7 @@ def game_trajectory_viewer(game_id):
     try:
         from experiments.generate_trajectory_viewer import extract_data_for_game, generate_html
 
-        data = extract_data_for_game(persistence_db_path, game_id)
+        data = extract_data_for_game(extensions.persistence_db_path, game_id)
         if not data:
             return jsonify({'error': f'No psychology data for game {game_id}'}), 404
         html = generate_html(data)

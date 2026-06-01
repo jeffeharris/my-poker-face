@@ -13,16 +13,12 @@ from . import extensions
 from .config import SECRET_KEY, is_development
 from .extensions import init_extensions, socketio
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-)
+# Configure logging (PRH-35): structured output + per-request correlation ids,
+# with a LogRecordFactory that stamps request_id on every record (so the alert
+# webhook carries it too). Quiets the noisy third-party loggers internally.
+from .logging_setup import configure_logging
 
-# Quiet noisy third-party loggers
-logging.getLogger("werkzeug").setLevel(logging.WARNING)
-logging.getLogger("socketio").setLevel(logging.WARNING)
-logging.getLogger("engineio").setLevel(logging.WARNING)
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +43,39 @@ class SafeJSONProvider(DefaultJSONProvider):
 
     def dumps(self, obj, **kwargs):
         return super().dumps(_sanitize_for_json(obj), **kwargs)
+
+
+def _log_async_runtime():
+    """PRH-24: log (and check) the Socket.IO async model at startup.
+
+    `async_mode='threading'` only yields cooperatively under the prod
+    gevent-websocket worker *because* that worker monkey-patches the stdlib —
+    a non-standard pairing. Logging whether gevent monkey-patching is actually
+    active turns that assumption into an observable fact, and escalates the
+    genuinely-broken case (production + threading + NOT patched → blocking I/O
+    would stall the single worker) to an alertable ERROR.
+    """
+    from .config import SOCKETIO_ASYNC_MODE
+
+    try:
+        from gevent import monkey
+
+        patched = monkey.is_module_patched("socket")
+    except Exception:
+        patched = False
+
+    logger.info(
+        "[ASYNC] socketio async_mode=%s; gevent socket monkey-patch active=%s",
+        SOCKETIO_ASYNC_MODE,
+        patched,
+    )
+    if SOCKETIO_ASYNC_MODE == "threading" and not patched and not is_development:
+        logger.error(
+            "[ASYNC] production is running async_mode=threading WITHOUT gevent "
+            "monkey-patching — blocking I/O will NOT yield cooperatively and can "
+            "stall the single worker. Run under the gevent-websocket gunicorn "
+            "worker (docker-compose.prod.yml) or set SOCKETIO_ASYNC_MODE=gevent."
+        )
 
 
 def recover_interrupted_experiments():
@@ -79,6 +108,51 @@ def create_app():
     # Initialize extensions
     init_extensions(app)
 
+    # PRH-36: double-submit CSRF protection (armed in prod; see flask_app.csrf).
+    from .csrf import init_csrf
+
+    init_csrf(app)
+
+    # PRH-35: per-request correlation id (X-Request-ID) on every HTTP request.
+    from .logging_setup import init_request_logging
+
+    init_request_logging(app)
+
+    # PRH-24: confirm the async model at startup (see _log_async_runtime).
+    _log_async_runtime()
+
+    # PRH-34: release per-thread SQLite connections at the end of each request /
+    # socket event (flask-socketio pushes an app context per event), so the
+    # thread-local connection cache doesn't leak WAL readers + fds over uptime.
+    @app.teardown_appcontext
+    def _close_thread_db_connections(_exc):
+        from poker.repositories.base_repository import close_all_thread_connections
+
+        close_all_thread_connections()
+
+    # PRH-28: attach the webhook alert handler (no-op unless ALERT_WEBHOOK_URL
+    # is set) before the budget/pricing startup checks, so a "[LLM BUDGET]
+    # DISABLED" or NULL-pricing warning on boot also pages.
+    from .services.alerting import init_alerting
+
+    init_alerting()
+
+    # Arm the LLM spend kill-switch (PRH-2) from app config and announce its
+    # status. core.llm can't import flask_app, so we push the limits in here.
+    from core.llm.budget import configure_spend_limits
+
+    from .config import (
+        LLM_GLOBAL_DAILY_BUDGET_USD,
+        LLM_PER_OWNER_DAILY_BUDGET_USD,
+        log_llm_budget_status,
+        warn_missing_pricing_rows,
+    )
+
+    configure_spend_limits(LLM_GLOBAL_DAILY_BUDGET_USD, LLM_PER_OWNER_DAILY_BUDGET_USD)
+    log_llm_budget_status()
+    # Surface any recent api_usage rows missing pricing — those slip the cap.
+    warn_missing_pricing_rows()
+
     # Mark any experiments that were running when server stopped as interrupted
     recover_interrupted_experiments()
 
@@ -98,6 +172,13 @@ def create_app():
     from .services.game_state_service import start_cleanup_timer
 
     start_cleanup_timer()
+
+    # PRH-32: daily retention sweep — purges prompt_captures + api_usage past
+    # their configured windows. No-op until LLM_PROMPT_RETENTION_DAYS /
+    # API_USAGE_RETENTION_DAYS are set (so inert in dev/tests).
+    from .services.retention_service import start_retention_sweep
+
+    start_retention_sweep()
 
     # Start the realtime cash-mode world ticker (advances unseated tables
     # for active sandboxes; pushes lobby_tick / world_event over socket).
@@ -120,6 +201,12 @@ def create_app():
         kill_all_cash_sessions(
             game_state_service=game_state_service,
             game_repo=extensions.game_repo,
+            # T2.2: sweep abandoned cash-* rows (untouched past the TTL)
+            # so a session orphaned by a crash/restart doesn't wedge the
+            # sit guard forever. Fresh rows are preserved for resume.
+            cash_session_repo=extensions.cash_session_repo,
+            stake_repo=extensions.stake_repo,
+            chip_ledger_repo=extensions.chip_ledger_repo,
         )
     except Exception as e:
         logger.error(f"[CASH] lobby boot hook failed: {e}", exc_info=True)
@@ -182,6 +269,7 @@ def register_blueprints(app: Flask) -> None:
         range_explorer_bp,
         replay_experiment_bp,
         stats_bp,
+        training_bp,
         user_bp,
     )
 
@@ -203,6 +291,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(cash_bp)
     app.register_blueprint(chip_ledger_bp)
     app.register_blueprint(character_bp)
+    app.register_blueprint(training_bp)
 
     # Test helper endpoints — only available when ENABLE_TEST_ROUTES=true
     if os.environ.get('ENABLE_TEST_ROUTES', 'false').lower() == 'true':

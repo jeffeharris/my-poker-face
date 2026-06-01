@@ -10,9 +10,7 @@ from poker.strategy.strategy_profile import StrategyProfile
 from poker.tiered_bot_controller import TieredBotController
 
 # A flop spot with mass split between checking and betting.
-BASE = StrategyProfile(
-    action_probabilities={'check': 0.30, 'bet_67': 0.50, 'bet_100': 0.20}
-)
+BASE = StrategyProfile(action_probabilities={'check': 0.30, 'bet_67': 0.50, 'bet_100': 0.20})
 SLOWPLAY = (('slowplay', 0.6),)
 GIVEUP = (('give_up_turn', 0.6),)
 FITFOLD = (('fit_or_fold', 0.6),)
@@ -23,21 +21,31 @@ UNDERBLUFF = (('under_bluff', 0.6),)
 FOLD2B = (('over_fold_2nd_barrel', 0.6),)
 DONK = (('donk_when_weak', 0.6),)
 # A flop spot facing a bet (fold + call + a little raise) — fit-or-fold input.
-FACING = StrategyProfile(
-    action_probabilities={'fold': 0.40, 'call': 0.45, 'raise_67': 0.15}
-)
+FACING = StrategyProfile(action_probabilities={'fold': 0.40, 'call': 0.45, 'raise_67': 0.15})
 # Loose cap so the reshape isn't clipped (isolates the slow-play effect).
 LOOSE_CAP = 0.60
 
 
 def _agg(strategy):
     p = strategy.action_probabilities
-    return sum(v for a, v in p.items() if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_')))
+    return sum(
+        v for a, v in p.items() if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_'))
+    )
 
 
-def _apply(strategy=BASE, *, hand_class='nuts', action_context='unopened', street='flop',
-           has_initiative=True, tendencies=SLOWPLAY, max_shift=LOOSE_CAP, disable_rules=None,
-           facing_double_barrel=False, position=None):
+def _apply(
+    strategy=BASE,
+    *,
+    hand_class='nuts',
+    action_context='unopened',
+    street='flop',
+    has_initiative=True,
+    tendencies=SLOWPLAY,
+    max_shift=LOOSE_CAP,
+    disable_rules=None,
+    facing_double_barrel=False,
+    position=None,
+):
     return apply_spot_tendencies(
         strategy,
         spot_tendencies=tendencies,
@@ -134,6 +142,7 @@ def test_emitted_traces_validate():
 # classes when hero has initiative and is checked to. Turn-only; disjoint from
 # slow-play (which targets nuts/strong_made).
 
+
 def test_give_up_turn_fires_on_thin_hand_with_initiative():
     out, traces = _apply(tendencies=GIVEUP, hand_class='medium_made', street='turn')
     assert _agg(out) < _agg(BASE)  # barrel abandoned → aggression dampened
@@ -185,7 +194,9 @@ def test_give_up_turn_no_op_facing_a_bet():
 
 def test_give_up_turn_is_ablatable():
     out, traces = _apply(
-        tendencies=GIVEUP, hand_class='medium_made', street='turn',
+        tendencies=GIVEUP,
+        hand_class='medium_made',
+        street='turn',
         disable_rules=frozenset({(LAYER, 'give_up_turn')}),
     )
     assert out is BASE
@@ -205,9 +216,7 @@ def test_give_up_turn_respects_per_action_cap():
 def test_give_up_turn_and_slowplay_are_disjoint():
     # Both configured: a turn medium_made fires give-up but not slow-play; a turn
     # nuts fires slow-play but not give-up. Exactly one reshape per spot.
-    out, traces = _apply(
-        tendencies=SLOWPLAY + GIVEUP, hand_class='medium_made', street='turn'
-    )
+    out, traces = _apply(tendencies=SLOWPLAY + GIVEUP, hand_class='medium_made', street='turn')
     fired = [t for t in traces if t.fired]
     assert len(fired) == 1 and fired[0].rule_id == 'give_up_turn'
 
@@ -219,7 +228,9 @@ def test_give_up_turn_and_slowplay_are_disjoint():
 def test_give_up_turn_emitted_traces_validate():
     _, fired = _apply(tendencies=GIVEUP, hand_class='medium_made', street='turn')
     _, disabled = _apply(
-        tendencies=GIVEUP, hand_class='medium_made', street='turn',
+        tendencies=GIVEUP,
+        hand_class='medium_made',
+        street='turn',
         disable_rules=frozenset({(LAYER, 'give_up_turn')}),
     )
     _, noop = _apply(tendencies=GIVEUP, hand_class='nuts', street='turn')
@@ -232,13 +243,17 @@ def test_give_up_turn_emitted_traces_validate():
 # Pumps fold for weak/air facing a flop bet. Input distribution must contain a
 # fold action (facing a bet), so these use FACING, not BASE.
 
+
 def test_fit_or_fold_pumps_fold_on_non_strong():
     # The widened range: fold everything except strong made — incl. equity hands
     # (2nd pair, draws), which is what makes it a real -EV leak.
     for hc in ('medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'):
         out, traces = _apply(
-            FACING, tendencies=FITFOLD, hand_class=hc,
-            action_context='facing_bet', street='flop',
+            FACING,
+            tendencies=FITFOLD,
+            hand_class=hc,
+            action_context='facing_bet',
+            street='flop',
         )
         assert out.action_probabilities['fold'] > FACING.action_probabilities['fold'], hc
         assert traces[0].fired and traces[0].rule_id == 'fit_or_fold', hc
@@ -249,8 +264,11 @@ def test_fit_or_fold_no_op_on_strong_made():
     # Strong hands continue (the only part of the range a fit-or-fold player keeps).
     for hc in ('nuts', 'strong_made'):
         out, traces = _apply(
-            FACING, tendencies=FITFOLD, hand_class=hc,
-            action_context='facing_bet', street='flop',
+            FACING,
+            tendencies=FITFOLD,
+            hand_class=hc,
+            action_context='facing_bet',
+            street='flop',
         )
         assert out is FACING, hc
         assert not traces[0].fired, hc
@@ -259,16 +277,22 @@ def test_fit_or_fold_no_op_on_strong_made():
 def test_fit_or_fold_no_op_when_unopened():
     # No bet to fold to.
     out, traces = _apply(
-        FACING, tendencies=FITFOLD, hand_class='air_no_draw',
-        action_context='unopened', street='flop',
+        FACING,
+        tendencies=FITFOLD,
+        hand_class='air_no_draw',
+        action_context='unopened',
+        street='flop',
     )
     assert out is FACING and not traces[0].fired
 
 
 def test_fit_or_fold_no_op_off_flop():
     out, traces = _apply(
-        FACING, tendencies=FITFOLD, hand_class='air_no_draw',
-        action_context='facing_bet', street='turn',
+        FACING,
+        tendencies=FITFOLD,
+        hand_class='air_no_draw',
+        action_context='facing_bet',
+        street='turn',
     )
     assert out is FACING and not traces[0].fired
 
@@ -276,14 +300,21 @@ def test_fit_or_fold_no_op_off_flop():
 def test_fit_or_fold_respects_cap_and_ablation():
     cap = 0.10
     out, _ = _apply(
-        FACING, tendencies=FITFOLD, hand_class='weak_made',
-        action_context='facing_bet', street='flop', max_shift=cap,
+        FACING,
+        tendencies=FITFOLD,
+        hand_class='weak_made',
+        action_context='facing_bet',
+        street='flop',
+        max_shift=cap,
     )
     for action, base_p in FACING.action_probabilities.items():
         assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
     out, traces = _apply(
-        FACING, tendencies=FITFOLD, hand_class='weak_made',
-        action_context='facing_bet', street='flop',
+        FACING,
+        tendencies=FITFOLD,
+        hand_class='weak_made',
+        action_context='facing_bet',
+        street='flop',
         disable_rules=frozenset({(LAYER, 'fit_or_fold')}),
     )
     assert out is FACING and traces[0].reason_code == 'disabled_by_ablation'
@@ -291,6 +322,7 @@ def test_fit_or_fold_respects_cap_and_ablation():
 
 # ── auto-c-bet / c-bets-100% ─────────────────────────────────────────────────
 # Pumps bet for the checking part of the range with initiative on the flop.
+
 
 def test_auto_cbet_pumps_bet_on_thin_hands():
     for hc in ('medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'):
@@ -334,8 +366,13 @@ def test_auto_cbet_is_the_dual_of_give_up_turn():
 
 def test_new_leaks_traces_validate():
     runs = [
-        _apply(FACING, tendencies=FITFOLD, hand_class='weak_made',
-               action_context='facing_bet', street='flop'),
+        _apply(
+            FACING,
+            tendencies=FITFOLD,
+            hand_class='weak_made',
+            action_context='facing_bet',
+            street='flop',
+        ),
         _apply(tendencies=AUTOCBET, hand_class='air_no_draw', street='flop'),
         _apply(tendencies=AUTOCBET, hand_class='nuts', street='flop'),  # no-op
     ]
@@ -348,11 +385,15 @@ def test_new_leaks_traces_validate():
 # Moves fold mass onto call for weak made facing a river bet. Uses FACING (has a
 # fold action).
 
+
 def test_sticky_pumps_call_on_weak_made_river():
     for hc in ('weak_made', 'medium_made'):
         out, traces = _apply(
-            FACING, tendencies=STICKY, hand_class=hc,
-            action_context='facing_bet', street='river',
+            FACING,
+            tendencies=STICKY,
+            hand_class=hc,
+            action_context='facing_bet',
+            street='river',
         )
         assert out.action_probabilities['fold'] < FACING.action_probabilities['fold'], hc
         assert out.action_probabilities['call'] > FACING.action_probabilities['call'], hc
@@ -362,16 +403,24 @@ def test_sticky_pumps_call_on_weak_made_river():
 
 def test_sticky_fires_facing_raise_too():
     out, traces = _apply(
-        FACING, tendencies=STICKY, hand_class='weak_made',
-        action_context='facing_raise', street='river',
+        FACING,
+        tendencies=STICKY,
+        hand_class='weak_made',
+        action_context='facing_raise',
+        street='river',
     )
-    assert traces[0].fired and out.action_probabilities['fold'] < FACING.action_probabilities['fold']
+    assert (
+        traces[0].fired and out.action_probabilities['fold'] < FACING.action_probabilities['fold']
+    )
 
 
 def test_sticky_no_op_off_river():
     out, traces = _apply(
-        FACING, tendencies=STICKY, hand_class='weak_made',
-        action_context='facing_bet', street='turn',
+        FACING,
+        tendencies=STICKY,
+        hand_class='weak_made',
+        action_context='facing_bet',
+        street='turn',
     )
     assert out is FACING and not traces[0].fired
 
@@ -379,8 +428,11 @@ def test_sticky_no_op_off_river():
 def test_sticky_no_op_when_unopened():
     # Not facing a bet → nothing to call.
     out, traces = _apply(
-        FACING, tendencies=STICKY, hand_class='weak_made',
-        action_context='unopened', street='river',
+        FACING,
+        tendencies=STICKY,
+        hand_class='weak_made',
+        action_context='unopened',
+        street='river',
     )
     assert out is FACING and not traces[0].fired
 
@@ -389,8 +441,11 @@ def test_sticky_no_op_on_strong_hands():
     # Strong hands aren't a pay-off spot (they'd raise, not crying-call).
     for hc in ('nuts', 'strong_made'):
         out, traces = _apply(
-            FACING, tendencies=STICKY, hand_class=hc,
-            action_context='facing_bet', street='river',
+            FACING,
+            tendencies=STICKY,
+            hand_class=hc,
+            action_context='facing_bet',
+            street='river',
         )
         assert out is FACING and not traces[0].fired, hc
 
@@ -398,18 +453,28 @@ def test_sticky_no_op_on_strong_hands():
 def test_sticky_respects_cap_and_ablation_and_validates():
     cap = 0.10
     out, _ = _apply(
-        FACING, tendencies=STICKY, hand_class='weak_made',
-        action_context='facing_bet', street='river', max_shift=cap,
+        FACING,
+        tendencies=STICKY,
+        hand_class='weak_made',
+        action_context='facing_bet',
+        street='river',
+        max_shift=cap,
     )
     for action, base_p in FACING.action_probabilities.items():
         assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
     _, fired = _apply(
-        FACING, tendencies=STICKY, hand_class='weak_made',
-        action_context='facing_bet', street='river',
+        FACING,
+        tendencies=STICKY,
+        hand_class='weak_made',
+        action_context='facing_bet',
+        street='river',
     )
     _, disabled = _apply(
-        FACING, tendencies=STICKY, hand_class='weak_made',
-        action_context='facing_bet', street='river',
+        FACING,
+        tendencies=STICKY,
+        hand_class='weak_made',
+        action_context='facing_bet',
+        street='river',
         disable_rules=frozenset({(LAYER, 'sticky')}),
     )
     assert disabled[0].reason_code == 'disabled_by_ablation'
@@ -420,6 +485,7 @@ def test_sticky_respects_cap_and_ablation_and_validates():
 
 # ── over-bluff river ─────────────────────────────────────────────────────────
 # Pumps river bet frequency for air as the bettor. Uses BASE (check + bet mass).
+
 
 def test_over_bluff_pumps_river_bet_with_air():
     for hc in ('air_no_draw', 'air_strong_draw'):
@@ -457,7 +523,9 @@ def test_over_bluff_respects_cap_and_ablation_and_validates():
         assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
     _, fired = _apply(tendencies=OVERBLUFF, hand_class='air_no_draw', street='river')
     _, disabled = _apply(
-        tendencies=OVERBLUFF, hand_class='air_no_draw', street='river',
+        tendencies=OVERBLUFF,
+        hand_class='air_no_draw',
+        street='river',
         disable_rules=frozenset({(LAYER, 'over_bluff')}),
     )
     assert disabled[0].reason_code == 'disabled_by_ablation'
@@ -467,6 +535,7 @@ def test_over_bluff_respects_cap_and_ablation_and_validates():
 
 
 # ── under-bluff river (inverse of over-bluff) ────────────────────────────────
+
 
 def test_under_bluff_dampens_river_bet_with_air():
     for hc in ('air_no_draw', 'air_strong_draw'):
@@ -506,7 +575,9 @@ def test_under_bluff_cap_ablation_validate():
         assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
     _, fired = _apply(tendencies=UNDERBLUFF, hand_class='air_no_draw', street='river')
     _, disabled = _apply(
-        tendencies=UNDERBLUFF, hand_class='air_no_draw', street='river',
+        tendencies=UNDERBLUFF,
+        hand_class='air_no_draw',
+        street='river',
         disable_rules=frozenset({(LAYER, 'under_bluff')}),
     )
     assert disabled[0].reason_code == 'disabled_by_ablation'
@@ -517,11 +588,16 @@ def test_under_bluff_cap_ablation_validate():
 
 # ── over-fold to 2nd barrel (needs facing_double_barrel signal) ──────────────
 
+
 def test_over_fold_2nd_barrel_fires_on_marginal_vs_double_barrel():
     for hc in ('medium_made', 'weak_made'):
         out, traces = _apply(
-            FACING, tendencies=FOLD2B, hand_class=hc,
-            action_context='facing_bet', street='turn', facing_double_barrel=True,
+            FACING,
+            tendencies=FOLD2B,
+            hand_class=hc,
+            action_context='facing_bet',
+            street='turn',
+            facing_double_barrel=True,
         )
         assert out.action_probabilities['fold'] > FACING.action_probabilities['fold'], hc
         assert traces[0].fired and traces[0].rule_id == 'over_fold_2nd_barrel', hc
@@ -530,32 +606,49 @@ def test_over_fold_2nd_barrel_fires_on_marginal_vs_double_barrel():
 def test_over_fold_2nd_barrel_no_op_without_double_barrel_signal():
     # Same spot, but not a sustained value line → no leak.
     out, traces = _apply(
-        FACING, tendencies=FOLD2B, hand_class='medium_made',
-        action_context='facing_bet', street='turn', facing_double_barrel=False,
+        FACING,
+        tendencies=FOLD2B,
+        hand_class='medium_made',
+        action_context='facing_bet',
+        street='turn',
+        facing_double_barrel=False,
     )
     assert out is FACING and not traces[0].fired
 
 
 def test_over_fold_2nd_barrel_no_op_on_strong_and_unopened():
     out, traces = _apply(
-        FACING, tendencies=FOLD2B, hand_class='strong_made',
-        action_context='facing_bet', street='turn', facing_double_barrel=True,
+        FACING,
+        tendencies=FOLD2B,
+        hand_class='strong_made',
+        action_context='facing_bet',
+        street='turn',
+        facing_double_barrel=True,
     )
     assert out is FACING and not traces[0].fired
     out, traces = _apply(
-        FACING, tendencies=FOLD2B, hand_class='medium_made',
-        action_context='unopened', street='turn', facing_double_barrel=True,
+        FACING,
+        tendencies=FOLD2B,
+        hand_class='medium_made',
+        action_context='unopened',
+        street='turn',
+        facing_double_barrel=True,
     )
     assert out is FACING and not traces[0].fired
 
 
 # ── donk-when-weak (needs position=OOP, not the aggressor) ───────────────────
 
+
 def test_donk_when_weak_fires_oop_no_initiative():
     for hc in ('medium_made', 'weak_made', 'air_no_draw'):
         out, traces = _apply(
-            tendencies=DONK, hand_class=hc, action_context='unopened', street='flop',
-            has_initiative=False, position='OOP',
+            tendencies=DONK,
+            hand_class=hc,
+            action_context='unopened',
+            street='flop',
+            has_initiative=False,
+            position='OOP',
         )
         assert _agg(out) > _agg(BASE), hc
         assert traces[0].fired and traces[0].rule_id == 'donk_when_weak', hc
@@ -564,23 +657,43 @@ def test_donk_when_weak_fires_oop_no_initiative():
 def test_donk_when_weak_no_op_ip_or_with_initiative():
     # IP isn't a donk; having initiative makes a bet a c-bet, not a donk.
     out, traces = _apply(
-        tendencies=DONK, hand_class='weak_made', action_context='unopened', street='flop',
-        has_initiative=False, position='IP',
+        tendencies=DONK,
+        hand_class='weak_made',
+        action_context='unopened',
+        street='flop',
+        has_initiative=False,
+        position='IP',
     )
     assert out is BASE and not traces[0].fired
     out, traces = _apply(
-        tendencies=DONK, hand_class='weak_made', action_context='unopened', street='flop',
-        has_initiative=True, position='OOP',
+        tendencies=DONK,
+        hand_class='weak_made',
+        action_context='unopened',
+        street='flop',
+        has_initiative=True,
+        position='OOP',
     )
     assert out is BASE and not traces[0].fired
 
 
 def test_signal_gated_leaks_validate():
     runs = [
-        _apply(FACING, tendencies=FOLD2B, hand_class='medium_made',
-               action_context='facing_bet', street='turn', facing_double_barrel=True),
-        _apply(tendencies=DONK, hand_class='weak_made', action_context='unopened',
-               street='flop', has_initiative=False, position='OOP'),
+        _apply(
+            FACING,
+            tendencies=FOLD2B,
+            hand_class='medium_made',
+            action_context='facing_bet',
+            street='turn',
+            facing_double_barrel=True,
+        ),
+        _apply(
+            tendencies=DONK,
+            hand_class='weak_made',
+            action_context='unopened',
+            street='flop',
+            has_initiative=False,
+            position='OOP',
+        ),
     ]
     for _, traces in runs:
         for t in traces:
@@ -589,13 +702,15 @@ def test_signal_gated_leaks_validate():
 
 # ── per-personality override hook ────────────────────────────────────────────
 
+
 def test_parse_spot_tendencies_normalizes():
     assert parse_spot_tendencies(None) == ()
     assert parse_spot_tendencies([]) == ()
     assert parse_spot_tendencies([['slowplay', 0.8]]) == (('slowplay', 0.8),)
     # float coercion + order preserved + accepts tuples
     assert parse_spot_tendencies((('slowplay', 1), ('donk', 0.5))) == (
-        ('slowplay', 1.0), ('donk', 0.5),
+        ('slowplay', 1.0),
+        ('donk', 0.5),
     )
 
 
@@ -642,16 +757,12 @@ def test_explicit_override_wins_over_config():
 
 
 def test_explicit_empty_override_turns_off_profile_tendencies():
-    base = dataclasses.replace(
-        DEVIATION_PROFILES['tag'], spot_tendencies=(('slowplay', 0.5),)
-    )
+    base = dataclasses.replace(DEVIATION_PROFILES['tag'], spot_tendencies=(('slowplay', 0.5),))
     c = _mk_controller(base=base, override=())  # explicit () = opt out
     assert c.deviation_profile.spot_tendencies == ()
 
 
 def test_absent_config_inherits_profile_tendencies():
-    base = dataclasses.replace(
-        DEVIATION_PROFILES['tag'], spot_tendencies=(('slowplay', 0.5),)
-    )
+    base = dataclasses.replace(DEVIATION_PROFILES['tag'], spot_tendencies=(('slowplay', 0.5),))
     c = _mk_controller(base=base, config={})  # no 'spot_tendencies' key
     assert c.deviation_profile.spot_tendencies == (('slowplay', 0.5),)

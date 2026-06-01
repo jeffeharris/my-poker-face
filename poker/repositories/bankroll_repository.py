@@ -77,6 +77,37 @@ class BankrollRepository(BaseRepository):
     stays enforced at one location.
     """
 
+    # D2 (chip custody): an optional ledger handle. `create_repos` sets it so
+    # reads can DERIVE the bankroll from `chip_ledger_entries` (the int as a
+    # cache) when `CHIP_CUSTODY_DERIVE_READS` is on. Class default None keeps a
+    # directly-constructed repo working unchanged.
+    chip_ledger_repo = None
+
+    def _derived_or_cached_ai_chips(
+        self, personality_id: str, sandbox_id: str, stored_chips: int
+    ) -> int:
+        """Return the read value for an AI's stored bankroll: the ledger-derived
+        balance when derive-reads is on (ledger = authority, int = cache), else
+        the stored int. Logs a divergence so a stale cache is alertable."""
+        from cash_mode import economy_flags
+
+        if not economy_flags.CHIP_CUSTODY_DERIVE_READS or self.chip_ledger_repo is None:
+            return stored_chips
+        from core.economy.ledger import derive_ai_balance
+
+        derived = derive_ai_balance(
+            self.chip_ledger_repo, personality_id=personality_id, sandbox_id=sandbox_id
+        )
+        if derived is None:
+            return stored_chips
+        if derived != stored_chips:
+            logger.warning(
+                "[CHIP_CUSTODY] ai bankroll cache divergence pid=%s sandbox=%s "
+                "stored=%d derived=%d (ledger authoritative)",
+                personality_id, sandbox_id, stored_chips, derived,
+            )
+        return derived
+
     # --- AI bankroll ---
     #
     # Every method that reads or writes ai_bankroll_state takes
@@ -161,7 +192,9 @@ class BankrollRepository(BaseRepository):
                 return None
             return AIBankrollState(
                 personality_id=personality_id,
-                chips=row["chips"],
+                chips=self._derived_or_cached_ai_chips(
+                    personality_id, sandbox_id, int(row["chips"])
+                ),
                 last_regen_tick=_parse_timestamp(row["last_regen_tick"]),
             )
 
@@ -488,6 +521,26 @@ class BankrollRepository(BaseRepository):
 
     # --- Player bankroll ---
 
+    def _derived_or_cached_player_chips(self, player_id: str, stored_chips: int) -> int:
+        """Player read value: ledger-derived (summed ACROSS sandboxes — player
+        bankroll is global) when derive-reads is on, else the stored int."""
+        from cash_mode import economy_flags
+
+        if not economy_flags.CHIP_CUSTODY_DERIVE_READS or self.chip_ledger_repo is None:
+            return stored_chips
+        from core.economy.ledger import derive_player_balance
+
+        derived = derive_player_balance(self.chip_ledger_repo, owner_id=player_id)
+        if derived is None:
+            return stored_chips
+        if derived != stored_chips:
+            logger.warning(
+                "[CHIP_CUSTODY] player bankroll cache divergence player=%s "
+                "stored=%d derived=%d (ledger authoritative)",
+                player_id, stored_chips, derived,
+            )
+        return derived
+
     def save_player_bankroll(self, state: PlayerBankrollState) -> None:
         """Upsert the player bankroll row.
 
@@ -533,7 +586,7 @@ class BankrollRepository(BaseRepository):
                 return None
             return PlayerBankrollState(
                 player_id=player_id,
-                chips=row["chips"],
+                chips=self._derived_or_cached_player_chips(player_id, int(row["chips"])),
                 starting_bankroll=row["starting_bankroll"],
             )
 

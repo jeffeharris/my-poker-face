@@ -81,6 +81,7 @@
 /* Selector sections */
 .target-selector,
 .tone-selector,
+.delivery-selector,
 .suggestions-section {
   display: flex;
   flex-direction: column;

@@ -20,14 +20,12 @@ from poker.ai_resilience import (
 from poker.betting_context import BettingContext
 from poker.card_utils import card_to_string
 from poker.config import AI_MESSAGE_CONTEXT_LIMIT, MIN_RAISE
-from poker.controllers import AIPlayerController
 from poker.emotional_state import EmotionalState
 from poker.equity_snapshot import HandEquityHistory
 from poker.equity_tracker import EquityTracker
 from poker.game_helpers import should_clear_player_options
 from poker.guest_limits import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 from poker.hand_evaluator import HandEvaluator
-from poker.hybrid_ai_controller import HybridAIController
 from poker.player_psychology import ComposureState
 from poker.poker_game import (
     advance_to_next_active_player,
@@ -39,7 +37,7 @@ from poker.poker_state_machine import PokerPhase
 from poker.psychology_pipeline import PsychologyContext, PsychologyPipeline
 from poker.rule_based_controller import RuleBasedController, RuleConfig
 from poker.rule_bot_controller import RuleBotController
-from poker.runout_reactions import compute_runout_reactions
+from poker.runout_reactions import compute_runout_reactions, runout_schedule_payload
 
 from .. import config
 from ..extensions import (
@@ -57,7 +55,7 @@ from ..extensions import (
 from ..services import game_state_service
 from ..services.ai_debug_service import get_all_players_llm_stats
 from ..services.elasticity_service import format_elasticity_data
-from .avatar_handler import get_avatar_url_with_fallback
+from .avatar_handler import get_avatar_url_with_fallback, start_single_emotion_generation
 from .message_handler import (
     format_action_message,
     format_messages_for_api,
@@ -223,7 +221,14 @@ def _track_guest_hand(game_id: str, game_data: dict) -> bool:
 
 
 def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
-    """Emit avatar update for a run-out reaction."""
+    """Emit avatar update for a run-out reaction.
+
+    `is_reaction` marks this as an authoritative emotion change (a run-out
+    reaction the player should see *now*), distinct from a late-arriving
+    generated avatar image. The frontend applies the emotion immediately for
+    reactions but must not clobber the displayed emotion for generation
+    arrivals — see the `avatar_update` handler in usePokerGame.ts.
+    """
     avatar_url = get_avatar_url_with_fallback(game_id, player_name, emotion)
     socketio.emit(
         'avatar_update',
@@ -231,6 +236,7 @@ def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
             'player_name': player_name,
             'avatar_url': avatar_url,
             'avatar_emotion': emotion,
+            'is_reaction': True,
         },
         to=game_id,
     )
@@ -351,10 +357,19 @@ def restore_ai_controllers(
     controller_states = {}
     emotional_states = {}
     try:
+        # The loaders now skip individual corrupt rows internally, so an
+        # empty dict here means "no saved state" (a fresh/legacy game) —
+        # benign. Reaching this except means a catastrophic load failure
+        # (e.g. DB/connection error): every AI silently reverts to default
+        # tilt/emotion, so log it loudly (error + traceback), not as a warning.
         controller_states = game_repo.load_all_controller_states(game_id)
         emotional_states = game_repo.load_all_emotional_states(game_id)
     except Exception as e:
-        logger.warning(f"Could not load controller/emotional states: {e}")
+        logger.error(
+            f"Failed to load controller/emotional states for {game_id}; "
+            f"all AIs will restore at default psychology: {e}",
+            exc_info=True,
+        )
 
     # Legacy bot_type aliases for stored games predating the chaos/standard/lean/sharp lineup.
     # hybrid → standard (full Hybrid path; previously also covered lean-bounded forced default)
@@ -364,145 +379,44 @@ def restore_ai_controllers(
     for player in state_machine.game_state.players:
         if not player.is_human:
             # Check if this player should use a special controller type
+            from flask_app.handlers.tiered_factory import build_controller
+
             if player.name in bot_types:
                 raw_strategy = bot_types[player.name]
                 strategy = _BOT_TYPE_ALIASES.get(raw_strategy, raw_strategy)
                 # Get player-specific llm_config or fall back to default (for personality loading)
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
 
-                if strategy == 'standard':
-                    # Standard: HybridAIController (full prompt pipeline + bounded options)
-                    controller = HybridAIController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created HybridAIController for {player.name}")
-                elif strategy == 'sharp':
-                    # Sharp: solver baselines + personality distortion + LLM expression
-                    from flask_app.handlers.tiered_factory import build_tiered_controller
-
-                    controller = build_tiered_controller(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                        expression_enabled=ai_chat,
-                        debug_logging=True,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created TieredBotController for {player.name} "
-                        f"(expression={'on' if ai_chat else 'off'})"
-                    )
-                elif strategy == 'baseline_solver':
-                    # Pure solver, no personality distortion, no expression layer
-                    from flask_app.handlers.tiered_factory import build_tiered_controller
-
-                    controller = build_tiered_controller(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                        baseline=True,
-                    )
-                    logger.info(f"[RESTORE] Created BaselineSolverBot for {player.name}")
-                elif strategy in ('casebot', 'regplus', 'gto_lite'):
-                    # Rule bots exposed in Custom Game for training/practice
-                    strategy_for_type = {
-                        'casebot': 'case_based_v2',  # promoted: value-extraction beats v1 4-12x vs clones
-                        'regplus': 'reg_plus',  # disciplined value-extractor; beats casebot, robust vs bots
-                        'gto_lite': 'pot_odds_robot',
-                    }[strategy]
-                    controller = RuleBotController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        strategy=strategy_for_type,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created RuleBotController for {player.name} ({strategy} → {strategy_for_type})"
-                    )
-                elif strategy == 'chaos':
-                    # Chaos: full LLM, full personality, no bounded options
-                    controller = AIPlayerController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created AIPlayerController (chaos) for {player.name}")
-                elif strategy == 'lean':
-                    # Lean: minimal LLM prompt, options-bounded
-                    from poker.lean_bounded_controller import LeanBoundedController
-
-                    controller = LeanBoundedController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created LeanBoundedController for {player.name}")
-                elif strategy == 'fish':
-                    # Fish restore as a tiered calling_station (unified engine):
-                    # anchors → calling_station + station width-tier table, and the
-                    # fish's tell rides along as a `spot_tendencies` entry in its
-                    # personality config (build_tiered_controller loads the persona
-                    # by name; _effective_spot_tendencies reads it), so the leak
-                    # survives cold-load. See docs/plans/FISH_AS_CALLING_STATION.md.
-                    from flask_app.handlers.tiered_factory import build_fish_controller
-
-                    controller = build_fish_controller(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created tiered fish (calling_station) for {player.name}")
-                else:
-                    # Rule-based controller with psychology (e.g., case_based, abc, always_fold)
-                    controller = RuleBotController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        strategy=strategy,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created RuleBotController for {player.name} with strategy '{strategy}'"
-                    )
+                # Unified dispatch. `default_strategy` flips the unknown-bot_type
+                # fallback to RuleBotController(strategy=strategy) — the restore
+                # path treats unrecognised strategies (e.g. 'abc', 'always_fold',
+                # 'case_based') as rule-bot names rather than Hybrid. 'standard'
+                # (the `hybrid` alias) still resolves to HybridAIController.
+                # `debug_logging=True` is honored on the tiered (sharp /
+                # baseline_solver) branches only.
+                controller = build_controller(
+                    bot_type=strategy,
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=llm_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                    expression_enabled=ai_chat,
+                    debug_logging=True,
+                    default_strategy=strategy,
+                )
+                logger.info(
+                    f"[RESTORE] Created controller for {player.name} (bot_type={strategy})"
+                )
             else:
                 # No bot_types entry — match the new-game route's default of
                 # 'sharp' (the tiered solver bot, the core engine). Legacy
                 # saves with no bot_types stamp fall through here.
-                from flask_app.handlers.tiered_factory import build_tiered_controller
-
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
-                controller = build_tiered_controller(
+                controller = build_controller(
+                    bot_type='sharp',
                     player_name=player.name,
                     state_machine=state_machine,
                     llm_config=llm_config,
@@ -798,6 +712,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     # skip, so the UI hides the fast-forward button.
     game_state_dict['ai_instant'] = _all_ai_no_llm(current_game_data.get('ai_controllers') or {})
 
+    # Always-fast-forward: the owner set game speed to 'always', so every AI turn
+    # resolves via the no-LLM path. Like ai_instant, this lets the UI hide the
+    # (now permanently-on) fast-forward button.
+    game_state_dict['always_fast_forward'] = _resolve_game_speed(current_game_data) == 'always'
+
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
@@ -817,14 +736,22 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
     owner_id_cash = current_game_data.get('owner_id')
     game_id_cash = current_game_data.get('game_id')
     bankroll_chips = 0
+    bankroll_unavailable = False
     active_loan = None
     if owner_id_cash:
         try:
             bankroll = bankroll_repo.load_player_bankroll(owner_id_cash)
             if bankroll is not None:
                 bankroll_chips = bankroll.chips
-        except Exception:
-            pass
+        except Exception as e:
+            # Don't silently render a transient load failure as "$0 bankroll":
+            # that's indistinguishable from genuinely broke and wrongly gates
+            # top-up/rebuy. Log it and flag it so the UI can show "couldn't
+            # load balance" instead of a false zero.
+            logger.warning(
+                "[CASH] failed to load bankroll for %r: %s", owner_id_cash, e, exc_info=True
+            )
+            bankroll_unavailable = True
     # `active_loan` shape preserves the legacy frontend contract
     # (amount/floor/rate/lender_id). Sourced from the active stake
     # row when one exists. `floor` defaults to 1.0 since the stake
@@ -842,12 +769,19 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
                     'rate': stake.cut,
                     'lender_id': stake.staker_id,
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            # A failed stake load masks an active loan as "no loan"; log it
+            # rather than swallowing so a persistent failure isn't invisible.
+            logger.warning(
+                "[CASH] failed to load active stake for %r: %s", game_id_cash, e, exc_info=True
+            )
     big_blind = game_state.current_ante
     return {
         'stake_label': current_game_data.get('cash_stake_label'),
         'bankroll': bankroll_chips,
+        # True when the bankroll load above threw — lets the UI distinguish
+        # "couldn't load balance" from a real $0 (which gates top-up/rebuy).
+        'bankroll_unavailable': bankroll_unavailable,
         'big_blind': big_blind,
         'min_buy_in': big_blind * 40,
         'max_buy_in': big_blind * 100,
@@ -917,6 +851,106 @@ def handle_phase_cards_dealt(
             memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
 
+def _reputation_order_refill_pool(eligible_pool, *, owner_id, sandbox_id, now):
+    """Reorder the cash refill candidate pool by the human's reputation.
+
+    Player-prestige hook 1 (table pull / rival-draw): *who* sits down with the
+    human reflects their room-level reputation. Returns the pool unchanged
+    unless the human is a high-renown figure, in which case candidates are
+    stable-sorted by `cash_mode.prestige.refill_affinity`:
+
+      - Beloved Legend → warm admirers (high inbound likability+respect) lead.
+      - Infamous Villain → a rival cohort (AIs with heat to settle) leads;
+        the cold/neutral room hangs back.
+
+    No candidate is removed — the table still fills, so the human always has
+    opponents (no wedge); the reputation effect is *ordering* only. Best-effort:
+    any failure (no snapshot, repo down, low-renown quadrant) returns the input
+    order, preserving the pre-hook behavior. Python's `sorted` is stable, so
+    equal-affinity candidates keep the pool's deterministic personality_id order.
+    """
+    if not eligible_pool or not owner_id or not sandbox_id:
+        return eligible_pool
+    try:
+        from cash_mode.prestige import (
+            QUADRANT_BELOVED_LEGEND,
+            QUADRANT_INFAMOUS_VILLAIN,
+            refill_affinity,
+        )
+
+        from ..extensions import prestige_snapshots_repo, relationship_repo
+
+        if prestige_snapshots_repo is None or relationship_repo is None:
+            return eligible_pool
+        snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+        if snap is None or snap["quadrant"] not in (
+            QUADRANT_BELOVED_LEGEND,
+            QUADRANT_INFAMOUS_VILLAIN,
+        ):
+            return eligible_pool  # no figure → the room doesn't reorder
+        quadrant = snap["quadrant"]
+        inbound = relationship_repo.load_inbound_relationships(owner_id, now=now)
+        return sorted(
+            eligible_pool,
+            key=lambda e: refill_affinity(quadrant, inbound.get(e["personality_id"])),
+            reverse=True,
+        )
+    except Exception as e:
+        logger.debug("Could not reputation-order refill pool: %s", e)
+        return eligible_pool
+
+
+def _apply_reputation_demeanor(game_data: dict, state_machine) -> None:
+    """Player-prestige hook 4 (AI demeanor): once-per-hand reputation nudge.
+
+    Nudges the psychology of the AIs seated with the human by the human's
+    room-level reputation quadrant: a feared **Infamous Villain** rattles
+    low-poise opponents (a composure press → scared / tilt-prone, the
+    exploitable edge), while a **Beloved Legend** loosens them up (a confidence
+    / energy lift). The poise/ego filter inside `apply_pressure_event` does the
+    "low-poise rattle, composed shrug" split for free. The nudge drives both
+    decisions (the emotional-window shift on bounded options) AND table-talk
+    demeanor (the expression generator reflects the axes), so one mechanism
+    delivers both.
+
+    This is the ONE prestige hook that touches the decision path, so it's
+    behind a dedicated kill switch (`economy_flags.REPUTATION_DEMEANOR_ENABLED`):
+    flip that to False to disable it completely with zero residual effect.
+    Best-effort and called once at the hand boundary (not per action, which
+    would compound) — never blocks the hand.
+    """
+    from cash_mode import economy_flags
+
+    if not economy_flags.REPUTATION_DEMEANOR_ENABLED:
+        return
+    owner_id = game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(game_data)
+    if not owner_id or not sandbox_id:
+        return
+    try:
+        from cash_mode.prestige import reputation_demeanor_stimulus
+
+        from ..extensions import prestige_snapshots_repo
+
+        if prestige_snapshots_repo is None:
+            return
+        snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+        if snap is None:
+            return
+        stimulus = reputation_demeanor_stimulus(snap['quadrant'])
+        if stimulus is None:
+            return  # low-renown human — the room doesn't react
+        ai_controllers = game_data.get('ai_controllers', {})
+        for player in state_machine.game_state.players:
+            if getattr(player, 'is_human', False):
+                continue
+            ctrl = ai_controllers.get(player.name)
+            if ctrl is not None and getattr(ctrl, 'psychology', None) is not None:
+                ctrl.psychology.react_to_table_reputation(stimulus)
+    except Exception as e:
+        logger.debug("Could not apply reputation demeanor: %s", e)
+
+
 def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     """Cash-mode helper: replace busted AI seats with fresh personalities.
 
@@ -974,6 +1008,14 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         and e['name'] not in {game_state.players[i].name for i in busted_indices}
     ]
 
+    # Player-prestige hook 1 (table pull / rival-draw): bias WHO refills the
+    # human's table by their reputation — warm admirers lead a Beloved Legend's
+    # table, a rival cohort leads an Infamous Villain's. No-op for low-renown /
+    # no-snapshot. The affordability loop below then picks from the head.
+    eligible_pool = _reputation_order_refill_pool(
+        eligible_pool, owner_id=owner_id, sandbox_id=sandbox_id, now=now
+    )
+
     refilled_count = 0
 
     for seat_idx in busted_indices:
@@ -1024,16 +1066,21 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         game_state = game_state.update(players=new_players)
         state_machine.game_state = game_state
 
-        # Persist AI bankroll debit
-        bankroll_repo.save_ai_bankroll(replacement_state, sandbox_id=sandbox_id)
+        # Persist AI bankroll debit. Pass chip_ledger_repo so a first-write
+        # for this personality+sandbox emits the `ai_seed` audit entry (the
+        # lobby seed path does the same) — without it, refilled chips could
+        # enter the economy with no ledger row → conservation drift.
+        from core.economy import ledger as chip_ledger
+        from flask_app.extensions import chip_ledger_repo
+
+        bankroll_repo.save_ai_bankroll(
+            replacement_state, sandbox_id=sandbox_id, chip_ledger_repo=chip_ledger_repo
+        )
         # (The seated⇒not-idle invariant is enforced when this seat is
         # persisted to cash_tables by `_refresh_lobby_table_for_session`'s
         # save_table — see CashTableRepository.save_table.)
         # Record any regen that this write commits. Transfer to table
         # stack is a pure non-bank move and isn't ledger-worthy.
-        from core.economy import ledger as chip_ledger
-        from flask_app.extensions import chip_ledger_repo
-
         # replacement_state.chips = projected - buy_in, so we
         # reconstruct projected = chips + buy_in to compare against
         # the pre-regen stored value.
@@ -1165,9 +1212,7 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
     off_grid = _off_grid_pids(sandbox_id, now)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     pool = [
-        e
-        for e in eligible
-        if e['name'] not in occupied and e['personality_id'] not in off_grid
+        e for e in eligible if e['name'] not in occupied and e['personality_id'] not in off_grid
     ]
     if prefer_pids:
         order = {pid: i for i, pid in enumerate(prefer_pids)}
@@ -1185,6 +1230,177 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
             continue
         picks.append({'personality_id': cand['personality_id'], 'name': cand['name']})
     return picks
+
+
+def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
+    """Re-attach a cash game's lobby-table binding from the durable
+    ``cash_sessions`` row when it's missing from ``game_data``.
+
+    ``cash_table_id`` / ``cash_seat_index`` are memory-only fields: they're
+    stamped at sit-down but are NOT part of the persisted
+    ``game_state_json``. Any cold-load that doesn't pass through the
+    ``/api/game-state`` restore block (e.g. a background hand advance after
+    the game was evicted from memory) leaves them ``None``. Without the
+    binding the hand-boundary refresh below early-returns, so the human seat
+    is never re-stamped into the ``cash_tables`` row; ``refresh_unseated_tables``
+    then treats the table as empty and refills the human's seat with AIs —
+    the "my seat got taken, Resume shows different players" split-brain.
+
+    Mirrors the same ``cash_sessions`` fallback ``leave_table`` already uses
+    (cash_routes.py). Writes the recovered ids back onto ``game_data`` via
+    ``set_game`` so subsequent hand-boundary refreshes and the eventual leave
+    see them too. Returns the resolved ``table_id`` (or ``None`` if it can't
+    be recovered — legacy ``/api/cash/start`` games never had a binding).
+    """
+    table_id = game_data.get('cash_table_id')
+    if table_id:
+        return table_id
+    try:
+        from flask_app.extensions import cash_session_repo
+
+        if cash_session_repo is None:
+            return None
+        cs = cash_session_repo.load(game_id)
+    except Exception as e:
+        logger.warning(
+            "[CASH][LOBBY] cash_sessions binding restore failed for %r: %s",
+            game_id,
+            e,
+        )
+        return None
+    if cs is None:
+        return None
+    # Read-side migration: prefer the AUTHORITATIVE entity_presence row when the
+    # flip is on — it's updated on every save_table (the live seat), whereas the
+    # cash_sessions binding is the sit-time seat (stale if the player ever moved
+    # seats). Falls back to cash_sessions when authority is off or presence has
+    # no SEATED row. Best-effort: a presence lookup failure never blocks the
+    # cash_sessions recovery below.
+    resolved_table_id = cs.cash_table_id
+    resolved_seat = cs.cash_seat_index
+    from cash_mode import economy_flags as _ef
+
+    if _ef.PRESENCE_AUTHORITY_ENABLED:
+        try:
+            from flask_app.extensions import entity_presence_repo as _epr
+            from cash_mode.presence import Presence, player_entity_id
+
+            if _epr is not None:
+                st = _epr.load(player_entity_id(cs.owner_id), cs.sandbox_id)
+                if st.state is Presence.SEATED and st.table_id is not None:
+                    if st.table_id != cs.cash_table_id or st.seat_index != cs.cash_seat_index:
+                        logger.info(
+                            "[CASH][PRESENCE] cold-load binding from presence %r:%s "
+                            "(cash_sessions had %r:%s) for %r",
+                            st.table_id, st.seat_index,
+                            cs.cash_table_id, cs.cash_seat_index, game_id,
+                        )
+                    resolved_table_id, resolved_seat = st.table_id, st.seat_index
+        except Exception as e:  # noqa: BLE001 — presence read must not block recovery
+            logger.warning(
+                "[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e
+            )
+    if resolved_table_id is None:
+        return None
+    game_data['cash_table_id'] = resolved_table_id
+    if game_data.get('cash_seat_index') is None:
+        game_data['cash_seat_index'] = resolved_seat
+    from flask_app.services import game_state_service
+
+    game_state_service.set_game(game_id, game_data)
+    logger.info(
+        "[CASH][LOBBY] restored cash-table binding %r:%s for orphaned cash game %r",
+        resolved_table_id,
+        resolved_seat,
+        game_id,
+    )
+    return resolved_table_id
+
+
+def _ensure_cash_mode(game_id: str, game_data: dict) -> bool:
+    """Guarantee a cash game's memory-only cash metadata is present, and
+    report whether the hand-end cash flow should run for it.
+
+    ``cash_mode``, ``cash_table_id``, ``cash_seat_index``,
+    ``cash_stake_label``, ``cash_personality_ids`` and ``sandbox_id`` are
+    stamped at sit-down but are NOT part of the persisted
+    ``game_state_json``. The ``/api/game-state`` restore block rehydrates
+    them on a warm reload, but a *background* hand advance after the game was
+    evicted from memory (the world ticker / socket loop) bypasses that block,
+    so ``cash_mode`` comes back falsy. Every hand-end cash step is gated on
+    ``cash_mode`` — refill, human-bust detection, the lobby-table refresh, and
+    the table-binding self-heal (`_restore_cash_table_binding`) inside it — so
+    a dropped flag silently skips all of them: the human seat is never
+    re-stamped into ``cash_tables``, ``refresh_unseated_tables`` treats it as
+    empty and refills it, and the live game decays out of sync with the world
+    table. The cold-load ghost-seat split-brain (the binding self-heal was
+    unreachable because it lived behind the very flag the cold-load dropped).
+
+    ``game_id.startswith("cash-")`` is the durable, memory-free signal — it's
+    exactly how the restore block decides ``is_cash_game``. When it's a cash
+    game whose flag is missing, rebuild the dropped fields from the durable
+    ``cash_sessions`` row + the live players so the cash flow can run.
+    Idempotent: a no-op once ``cash_mode`` is set (the warm path).
+    """
+    if game_data.get('cash_mode'):
+        return True
+    if not game_id.startswith('cash-'):
+        return False
+
+    game_data['cash_mode'] = True
+    # Table + seat binding from the durable cash_sessions row (persists itself
+    # when it recovers one; legacy /api/cash/start games have none).
+    _restore_cash_table_binding(game_id, game_data)
+
+    state_machine = game_data.get('state_machine')
+    players = state_machine.game_state.players if state_machine is not None else ()
+
+    # Stake label + table buy-in cap, resolved from the big blind. Mirrors the
+    # /api/game-state restore block so refill's affordability math matches.
+    try:
+        from flask_app.routes.cash_routes import STAKES_LADDER
+
+        big_blind = (state_machine.game_state.current_ante or 100) if state_machine else 100
+        stake_label = next(
+            (label for label, cfg in STAKES_LADDER.items() if cfg["big_blind"] == big_blind),
+            None,
+        )
+        if game_data.get('cash_stake_label') is None:
+            game_data['cash_stake_label'] = stake_label
+        if stake_label is not None:
+            mm = game_data.get('memory_manager')
+            if mm is not None:
+                from cash_mode.stakes_ladder import table_buy_in_window
+
+                _, _, cold_load_max_buy_in = table_buy_in_window(stake_label)
+                mm.set_table_max_buy_in(cold_load_max_buy_in)
+    except Exception as e:
+        logger.warning("[CASH] stake-label rehydrate failed for %r: %s", game_id, e)
+
+    # cash_personality_ids feeds the lobby refresh's busted-slot reconciliation
+    # AND the world sim's live_cash_seated_pids (so the human's live opponents
+    # aren't double-booked at another table). Rebuild from current opponents.
+    if not game_data.get('cash_personality_ids'):
+        from flask_app.extensions import personality_repo
+
+        cash_personality_ids = {}
+        for player in players:
+            if player.is_human:
+                continue
+            try:
+                pid = personality_repo.resolve_name_to_personality_id(player.name)
+            except Exception:
+                pid = None
+            if pid:
+                cash_personality_ids[player.name] = pid
+        game_data['cash_personality_ids'] = cash_personality_ids
+
+    game_state_service.set_game(game_id, game_data)
+    logger.info(
+        "[CASH] rehydrated cash metadata for cold-loaded game %r (background advance)",
+        game_id,
+    )
+    return True
 
 
 def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machine) -> None:
@@ -1219,10 +1435,14 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     Failures are caught by the caller — a flaky lobby refresh shouldn't
     block the hand from advancing.
     """
-    table_id = game_data.get('cash_table_id')
+    # Self-heal the table binding from the durable cash_sessions row when a
+    # cold-loaded game lost it (cash_table_id isn't in game_state_json). This
+    # keeps the human seat re-stamped each hand so refresh_unseated_tables
+    # never refills it — closing the cold-load ghost-seat split-brain.
+    table_id = _restore_cash_table_binding(game_id, game_data)
     if not table_id:
-        # Lobby v1.5 didn't tag the game with a table id (older /api/cash/start
-        # path). Nothing to refresh.
+        # No durable binding (legacy /api/cash/start games never had one).
+        # Nothing to refresh.
         return
 
     import random
@@ -1231,6 +1451,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from cash_mode.bankroll import AIBankrollState
     from cash_mode.lobby import _global_seated_set
     from cash_mode.movement import refresh_table_roster
+    from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
     from cash_mode.tables import ai_slot, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
@@ -1344,7 +1565,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         next_tier_min_buy_in = next_min
 
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
-    seated_globally = _global_seated_set([t for t in all_tables if t.table_id != table_id])
+    seated_globally = SeatOccupancyRegistry(
+        _global_seated_set([t for t in all_tables if t.table_id != table_id]),
+        label="game_handler.hand_boundary_refresh",
+    )
     seated_globally.update(s["personality_id"] for s in synced_seats if s["kind"] == "ai")
 
     # Exclude off-grid AIs (on a vice / side hustle) from BOTH seating
@@ -1502,6 +1726,28 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     }
     departed_pids = pre_refresh_ai_pids - post_refresh_ai_pids
     if departed_pids:
+        # PRH-3: credit each departing AI's seat chips back to its bankroll
+        # (with a ledger row) BEFORE dropping it from game state. The seated
+        # path previously destroyed these chips on voluntary leaves
+        # (bored_move / stake_up / take_break) — a monotonic ledger drift.
+        try:
+            from flask_app.extensions import chip_ledger_repo
+
+            _credit_departed_ai_bankrolls(
+                result,
+                departed_pids,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                now=now,
+                table_id=result.new_table.table_id,
+            )
+        except Exception as e:
+            logger.error(
+                "[CASH][LOBBY] departed-AI bankroll credit failed: %s",
+                e,
+                exc_info=True,
+            )
         try:
             _remove_departed_ais_from_game(
                 game_id,
@@ -1561,7 +1807,8 @@ def _apply_rebuys(
     will retry the refresh path. The "missing controller / missing
     name" cases are no-ops.
     """
-    from cash_mode.bankroll import AIBankrollState, project_bankroll
+    from cash_mode.bankroll import debit_bankroll_for_seat
+    from flask_app.extensions import chip_ledger_repo
 
     if not rebuy_changes:
         return
@@ -1574,38 +1821,21 @@ def _apply_rebuys(
         name = pid_to_name.get(change.personality_id)
         if not name:
             continue
-        # 1. Bankroll debit. Mirror the pattern used by _refill_cash_seats
-        # for fresh seats: project to `now`, subtract, persist. Pure
-        # transfer — chips moved bankroll → seat, no ledger entry needed
-        # (matches credit_ai_cash_out's complement on the leave path).
+        # 1. Audit-safe bankroll debit. debit_bankroll_for_seat projects
+        # regen forward, commits it as an ai_regen ledger row, and REFUSES
+        # (returns None) if the projected bankroll can't cover the rebuy.
+        # This replaces the old project + max(0, projected - amount) clamp,
+        # which silently MINTED `amount - projected` phantom chips when the
+        # AI was short while still bumping the seat the full amount.
         try:
-            knobs = bankroll_repo.load_personality_knobs(change.personality_id)
-            stored = bankroll_repo.load_ai_bankroll(change.personality_id, sandbox_id=sandbox_id)
-            if stored is None:
-                # Defensive: an AI without a bankroll row shouldn't be
-                # rolling rebuy in the first place (the pressure model
-                # only fires when projected bankroll signals affordability).
-                # Skip the debit and keep going.
-                logger.warning(
-                    "[CASH][LOBBY] rebuy: no bankroll row for %r; seat chips bumped without debit",
-                    change.personality_id,
-                )
-            else:
-                projected = project_bankroll(
-                    stored,
-                    knobs.starting_bankroll,
-                    knobs.bankroll_rate,
-                    now,
-                )
-                new_chips = max(0, projected - change.amount)
-                bankroll_repo.save_ai_bankroll(
-                    AIBankrollState(
-                        personality_id=change.personality_id,
-                        chips=new_chips,
-                        last_regen_tick=now,
-                    ),
-                    sandbox_id=sandbox_id,
-                )
+            debited = debit_bankroll_for_seat(
+                bankroll_repo,
+                change.personality_id,
+                change.amount,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
+            )
         except Exception as e:
             logger.warning(
                 "[CASH][LOBBY] rebuy bankroll debit failed for %r (+%d): %s",
@@ -1613,8 +1843,20 @@ def _apply_rebuys(
                 change.amount,
                 e,
             )
+            continue
+        if debited is None:
+            # Insufficient or missing bankroll — do NOT bump the seat, or
+            # we'd add chips to the table with no backing debit (the exact
+            # phantom-chip leak this helper exists to prevent).
+            logger.warning(
+                "[CASH][LOBBY] rebuy refused for %r (+%d): insufficient/missing "
+                "bankroll; seat left unchanged",
+                change.personality_id,
+                change.amount,
+            )
+            continue
 
-        # 2. Mirror to live game state.
+        # 2. Mirror to live game state (only after a successful debit).
         idx = name_to_player_idx.get(name)
         if idx is None:
             continue
@@ -1877,6 +2119,62 @@ def _emit_seated_movement_chat(
             )
 
 
+def _credit_departed_ai_bankrolls(
+    result,
+    departed_pids,
+    *,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id,
+    now,
+    table_id,
+) -> int:
+    """PRH-3: return each voluntarily-departed seated AI's seat chips to its
+    bankroll (with a ledger row), instead of destroying them.
+
+    Mirrors the unseated path's `from_seat` credit
+    (`cash_mode/lobby.py` `refresh_table_roster` consumer): the human's
+    seated table is processed ONLY here (`refresh_unseated_tables` skips
+    human-seated tables), so this is the sole place these chips get
+    credited — there is no double-credit.
+
+    Only `from_seat` changes are credited. `to_seat` (rebuy / live-fill) is
+    the *debit* channel, consumed separately by `_apply_rebuys` /
+    `_seat_freshly_filled_ais`; crediting it here would double-handle (see
+    the rebuy note in `cash_mode/movement.py`). Keyed on the stable
+    `personality_id` carried on each `BankrollChange`, never the name map
+    (PRH-13 — that map has a desync history).
+
+    Stake settlement on a seated voluntary leave is NOT replicated here:
+    the borrower is credited its full seat chips (chips are conserved); the
+    unseated path's staker-payout settlement is a separate, deferred concern.
+
+    Returns the total chips credited (for logging / test assertions).
+    """
+    from cash_mode.bankroll import credit_ai_cash_out
+
+    credited = 0
+    for bc in result.bankroll_changes:
+        if bc.direction != "from_seat" or bc.amount <= 0:
+            continue
+        if bc.personality_id not in departed_pids:
+            continue
+        credit_ai_cash_out(
+            bankroll_repo,
+            bc.personality_id,
+            bc.amount,
+            sandbox_id=sandbox_id,
+            now=now,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={
+                "site": "seated_table_vacate",
+                "table_id": table_id,
+            },
+        )
+        credited += bc.amount
+    return credited
+
+
 def _remove_departed_ais_from_game(
     game_id: str,
     game_data: dict,
@@ -1887,10 +2185,9 @@ def _remove_departed_ais_from_game(
     voluntarily left the persisted table from the running game so the
     next hand isn't dealt to ghost players.
 
-    The chips on the departing player's seat are not credited back to
-    the AI bankroll — that's the existing v1 behavior (chips stay
-    "on the table" conceptually). If/when leave-time cash-out is
-    extended to voluntary moves, plumb the credit through here.
+    The departing AI's seat chips are credited back to its bankroll by
+    `_credit_departed_ai_bankrolls` in the caller (PRH-3) *before* this
+    runs — this function only reconciles game state, not chips.
     """
     if not departed_pids:
         return
@@ -1991,29 +2288,31 @@ def _seat_freshly_filled_ais(
         state_machine.game_state = game_state
         occupied_names.add(name)
 
-        # Route fish-archetype personalities to the unified tiered engine as a
-        # calling_station (station width-tier table). The fish's tell is a
-        # `spot_tendencies` entry in its personality config (read natively on every
-        # build path). Mirrors the sit-route in cash_routes.py. See
-        # docs/plans/FISH_AS_CALLING_STATION.md.
+        # Route fish-archetype personalities to RuleBotController with
+        # strategy='fish'. Without this, mid-session live fills would
+        # build a HybridAIController for a fish — wasting LLM calls and
+        # ignoring the designated `fish_leak`. Mirrors the sit-route's
+        # `rule_strategy_override` branch in cash_routes.py.
         rule_strategy_override = (
             (personality or {}).get("rule_strategy") if isinstance(personality, dict) else None
         )
-        if rule_strategy_override == "fish":
-            from flask_app.handlers.tiered_factory import build_fish_controller
+        from flask_app.handlers.tiered_factory import build_controller
 
-            controller = build_fish_controller(
+        if rule_strategy_override == "fish":
+            fish_leak = (personality or {}).get("fish_leak")
+            controller = build_controller(
+                bot_type="fish",
                 player_name=name,
                 state_machine=state_machine,
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
                 decision_analysis_repo=decision_analysis_repo,
+                fish_leak=fish_leak,
             )
         else:
-            from flask_app.handlers.tiered_factory import build_tiered_controller
-
-            controller = build_tiered_controller(
+            controller = build_controller(
+                bot_type="sharp",
                 player_name=name,
                 state_machine=state_machine,
                 llm_config=game_data.get('llm_config', {}),
@@ -2141,7 +2440,11 @@ def handle_eliminations(
     Args:
         final_hand_data: Winner announcement data to include in tournament_complete event
     """
-    if 'tournament_tracker' not in game_data:
+    # Cash games have no tracker and must never route to tournament
+    # elimination logic. The cold-load/warm builders omit the key for cash;
+    # the cash_mode check is belt-and-suspenders against a leaked tracker
+    # (PRH-4) so a cash bust always reaches the rebuy modal, not "Nth place".
+    if 'tournament_tracker' not in game_data or game_data.get('cash_mode'):
         return None
 
     tracker = game_data['tournament_tracker']
@@ -2539,7 +2842,8 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
     Args:
         final_hand_data: Winner announcement data to include in tournament_complete event
     """
-    if 'tournament_tracker' not in game_data:
+    # Cash games never "complete" as a tournament — see handle_eliminations.
+    if 'tournament_tracker' not in game_data or game_data.get('cash_mode'):
         return False
 
     tracker = game_data['tournament_tracker']
@@ -2577,6 +2881,35 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
 
     send_message(game_id, "Table", f"TOURNAMENT OVER! {result['winner_name']} wins!", "system")
     return True
+
+
+def _run_async_narration(game_id: str, game_data: dict, pending: list) -> None:
+    """Generate deferred emotional narration off the inter-hand critical path.
+
+    The post-hand psychology pipeline updates composure synchronously (it
+    affects play) and hands us the narration jobs for players who actually
+    consume the prose — the LLM table-talk bots, or any bot in heads-up (whose
+    narrative/inner_voice the opponent panel displays). Running the LLM calls
+    here keeps them off the next-hand gate; the prose lands in memory and the
+    next state emit carries it to the heads-up panel. We persist it ourselves
+    since the synchronous emotional-state save was removed with the deferral.
+    """
+    ai_controllers = game_data.get('ai_controllers', {})
+    for req in pending:
+        controller = ai_controllers.get(req.player_name)
+        if controller is None or getattr(controller, 'psychology', None) is None:
+            continue
+        try:
+            controller.psychology.generate_narration(**req.kwargs)
+            if controller.psychology.emotional:
+                game_repo.save_emotional_state(
+                    game_id, req.player_name, controller.psychology.emotional
+                )
+        except Exception as e:
+            logger.warning(
+                f"[Game {game_id}] Async narration failed for {req.player_name}: {e}",
+                exc_info=True,
+            )
 
 
 def _run_async_commentary(
@@ -2655,12 +2988,21 @@ def _apply_player_table_rake(
     # Resolve the ledger source string. For AI seats we use the
     # cash-mode personality map; for the human seat we use owner_id.
     cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
+    sandbox_id = _sandbox_id_for(game_data)
+    from cash_mode import economy_flags
+
+    custody = economy_flags.CHIP_CUSTODY_ENABLED
     if winner_player.is_human:
         owner_id = game_data.get('owner_id')
         if not owner_id:
             logger.warning(f"[Game {game_id}] rake skipped: human winner with no owner_id")
             return game_state
-        source = chip_ledger.player(owner_id)
+        # Rake comes off the winner's at-table STACK (deducted above), not the
+        # bankroll. Under chip custody those chips live in the seat account
+        # (`seat:<game_id>` for humans, `seat:ai:...` for AI — Cut 2 / Phase 1),
+        # so sourcing the rake there keeps the ledger-derived bankroll in step
+        # with the stored int. Reason stays `table_rake` (pool depth unchanged).
+        source = chip_ledger.seat(game_id) if custody else chip_ledger.player(owner_id)
     else:
         pid = cash_pids.get(headline_name)
         if not pid:
@@ -2668,9 +3010,11 @@ def _apply_player_table_rake(
                 f"[Game {game_id}] rake skipped: no personality_id for AI winner {headline_name!r}"
             )
             return game_state
-        source = chip_ledger.ai(pid)
-
-    sandbox_id = _sandbox_id_for(game_data)
+        source = (
+            chip_ledger.ai_seat(sandbox_id, pid)
+            if (custody and sandbox_id)
+            else chip_ledger.ai(pid)
+        )
     ctx = {
         'site': 'handle_evaluating_hand_phase',
         'game_id': game_id,
@@ -2901,6 +3245,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             game_repo=game_repo,
             hand_history_repo=hand_history_repo_for_pipeline,
             enable_emotional_narration=True,
+            # Composure updates inline (it affects play); the emotional narration
+            # LLM calls are returned as pending jobs and run in a background task
+            # so they don't gate the next hand. See _run_async_narration.
+            defer_narration=True,
             persist_controller_state=False,  # game handler saves per-decision instead
         )
 
@@ -2940,22 +3288,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         psych_result = pipeline.process_hand(psych_ctx, on_events_resolved=_on_events_resolved)
         game_data['short_stack_players'] = psych_result.current_short_stack
 
-        # Save emotional states (since persist_controller_state=False skips full save)
-        for player_name, controller in ai_controllers.items():
-            try:
-                if (
-                    hasattr(controller, 'psychology')
-                    and controller.psychology
-                    and controller.psychology.emotional
-                ):
-                    game_repo.save_emotional_state(
-                        game_id, player_name, controller.psychology.emotional
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[Game {game_id}] Failed to save emotional state for {player_name}: {e}",
-                    exc_info=True,
-                )
+        # Emotional narration (prose) is deferred off the inter-hand critical
+        # path: composure already updated synchronously above; the LLM calls run
+        # in the background (concurrent with commentary) and persist the prose
+        # themselves. Only the consumers (chaos/hybrid, or any bot in heads-up)
+        # produce pending jobs — see PsychologyPipeline._update_composure.
+        if psych_result.pending_narrations:
+            socketio.start_background_task(
+                _run_async_narration, game_id, game_data, psych_result.pending_narrations
+            )
 
     # Start async commentary (genuinely slow — multiple LLM calls)
     commentary_complete = threading.Event()
@@ -3078,6 +3419,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
                 f"[CASH] Failed to refill seats for {game_id}: {e}",
                 exc_info=True,
             )
+        # Player-prestige hook 4: nudge seated AIs' demeanor by the human's
+        # reputation (kill-switched via REPUTATION_DEMEANOR_ENABLED). After
+        # refill so fresh arrivals feel it too. Self-protecting (best-effort
+        # internally) — never raises into the hand flow.
+        _apply_reputation_demeanor(game_data, state_machine)
         # Symmetric check for the human seat: emit a bust event so
         # the frontend can open the rebuy/sponsor modal. Wrapped
         # separately so a bust-emit failure doesn't taint the
@@ -3109,9 +3455,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # the game in HAND_OVER and return; rebuy or leave will unstick
         # it.
         chip_holders = sum(1 for p in state_machine.game_state.players if p.stack > 0)
-        human = next(
-            (p for p in state_machine.game_state.players if p.is_human), None
-        )
+        human = next((p for p in state_machine.game_state.players if p.is_human), None)
         human_busted = human is not None and human.stack == 0
         # Pause the table in HAND_OVER (don't deal the next hand) whenever
         # the human can't be dealt back in this instant. Two shapes:
@@ -3140,9 +3484,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             # — so a normal heads-up win (last opponent at 0 chips for one
             # HAND_OVER frame, about to be refilled) never trips it.
             paused_players = state_machine.game_state.players
-            others_have_chips = any(
-                p.stack > 0 and not p.is_human for p in paused_players
-            )
+            human = next((p for p in paused_players if p.is_human), None)
+            others_have_chips = any(p.stack > 0 and not p.is_human for p in paused_players)
             if human is not None and human.stack > 0 and not others_have_chips:
                 candidates = []
                 try:
@@ -3260,6 +3603,17 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
         elasticity_data = format_elasticity_data(game_data['ai_controllers'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
+    # Prefetch the proactive coach tip now, off the critical path, so the LLM
+    # call overlaps the player's thinking time instead of starting only after
+    # the client round-trips. No-op unless coach mode is 'proactive'; the /ask
+    # path serves this cached result (one LLM call per decision). Best-effort.
+    try:
+        from flask_app.services.coach_prefetch import prefetch_proactive_tip
+
+        socketio.start_background_task(prefetch_proactive_tip, game_id)
+    except Exception as e:
+        logger.debug(f"[COACH_PREFETCH] failed to schedule for {game_id}: {e}")
+
 
 def recover_stuck_runout(state_machine) -> bool:
     """Fast-forward a game persisted mid-all-in-runout to a stable state.
@@ -3329,6 +3683,14 @@ def progress_game(game_id: str) -> None:
         if not current_game_data:
             return
 
+        # Rehydrate cash-mode metadata when a background hand advance (world
+        # ticker / socket) cold-loaded this game without passing through the
+        # /api/game-state restore block. Otherwise the hand-end cash flow
+        # (refill, bust-detect, lobby refresh + table-binding self-heal) is
+        # gated off by the dropped `cash_mode` flag and the human seat
+        # orphans — the cold-load ghost-seat split-brain.
+        _ensure_cash_mode(game_id, current_game_data)
+
         while True:
             # Refresh game data (may have been updated by handle_ai_action)
             current_game_data = game_state_service.get_game(game_id)
@@ -3390,24 +3752,49 @@ def progress_game(game_id: str) -> None:
                     )
                     current_game_data['runout_reaction_schedule'] = reaction_schedule
 
-                    # Emit initial reactions based on equity at moment of reveal
-                    # Build current emotions so we can skip no-ops
-                    ai_controllers = current_game_data.get('ai_controllers', {})
-                    current_emotions = {
-                        name: ctrl.psychology.get_display_emotion()
-                        for name, ctrl in ai_controllers.items()
-                    }
-                    overrides = {}
-                    for reaction in reaction_schedule.reactions_by_phase.get('INITIAL', []):
-                        if reaction.emotion == current_emotions.get(reaction.player_name):
-                            continue  # Already showing this emotion
-                        overrides[reaction.player_name] = reaction.emotion
-                        _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
-                    current_game_data['runout_emotion_overrides'] = overrides
+                    # Emit the per-card schedule once, for the mobile run-out
+                    # director (Phase 2). Carries reactions + per-card timing
+                    # only — no board cards — so future-street cards never reach
+                    # the client ahead of reveal. The director reads each
+                    # street's faces from the per-street state push it already
+                    # gets. Desktop ignores this event and stays on the
+                    # backend-paced per-street emits below (one backend path,
+                    # no mobile/desktop branching). Emitted alongside the reveal
+                    # so the client has the timeline before the board moves.
+                    if reaction_schedule.steps:
+                        socketio.emit(
+                            'runout_schedule',
+                            runout_schedule_payload(reaction_schedule),
+                            to=game_id,
+                        )
+                        # Pre-warm every emotion image the schedule will use, now,
+                        # at the reveal — generation takes ~5-7s, and the whole
+                        # run-out plays over a similar window, so an emotion first
+                        # requested at its beat (the old on-demand path) only
+                        # finishes after that beat has passed (it then pops in on
+                        # the winner screen). Firing here gives each the maximum
+                        # head start. Thread-safe + skips already-cached/in-flight
+                        # emotions, so this is a cheap fire-and-forget.
+                        prewarmed = {
+                            (r.player_name, r.emotion)
+                            for step in reaction_schedule.steps
+                            for r in step.reactions
+                        }
+                        for player_name, emotion in prewarmed:
+                            start_single_emotion_generation(game_id, player_name, emotion)
+
+                    # The INITIAL (hole-card) reactions are the players' read on
+                    # the matchup. We deliberately do NOT emit them here, at the
+                    # same instant as the reveal — they land as their own beat
+                    # AFTER the cards have settled (the PRE_FLOP per-street emit
+                    # below maps to the INITIAL schedule). Start with no overrides
+                    # so the reveal cascade plays on its own first.
+                    current_game_data['runout_emotion_overrides'] = {}
                     game_state_service.set_game(game_id, current_game_data)
 
-                    # Extra pause for players to see the cards
-                    delay = 4 * config.ANIMATION_SPEED
+                    # Brief pause for players to register the all-in matchup
+                    # before the board runs out (see config.RUNOUT_REVEAL_HOLD).
+                    delay = config.RUNOUT_REVEAL_HOLD * config.ANIMATION_SPEED
                     if delay > 0:
                         _ff_aware_sleep(game_id, delay)
 
@@ -3415,7 +3802,17 @@ def progress_game(game_id: str) -> None:
                 # then hold so the player can absorb before next street.
                 # Flop (3 cards): ~2.825s animation (2s stagger + 0.825s)
                 # Turn/River (1 card): ~0.825s animation
-                animation_sleep = 3 if current_phase == PokerPhase.FLOP else 1
+                # PRE_FLOP is the reveal step — no community card is dealt, so
+                # there's no animation to wait for. Skipping it removes a dead
+                # ~1s before the board ran out; the reveal cascade already plays
+                # during RUNOUT_REVEAL_HOLD above, and the reaction_hold below
+                # now shows the preflop (INITIAL) reactions.
+                if current_phase == PokerPhase.FLOP:
+                    animation_sleep = 3
+                elif current_phase in (PokerPhase.TURN, PokerPhase.RIVER):
+                    animation_sleep = 1
+                else:
+                    animation_sleep = 0
                 reaction_hold = 1.5
                 delay = animation_sleep * config.ANIMATION_SPEED
                 if delay > 0:
@@ -3429,7 +3826,12 @@ def progress_game(game_id: str) -> None:
                 # Emit pre-computed avatar reactions for this street
                 reaction_schedule = current_game_data.get('runout_reaction_schedule')
                 if reaction_schedule:
-                    phase_name = current_phase.name
+                    # The PRE_FLOP reveal step shows the INITIAL (hole-card)
+                    # reactions — the players' read on the matchup — now as their
+                    # own beat, after the reveal has settled.
+                    phase_name = (
+                        'INITIAL' if current_phase == PokerPhase.PRE_FLOP else current_phase.name
+                    )
                     overrides = current_game_data.get('runout_emotion_overrides', {})
                     for reaction in reaction_schedule.reactions_by_phase.get(phase_name, []):
                         current = overrides.get(reaction.player_name)
@@ -3659,6 +4061,116 @@ def _resolve_human_bio(current_game_data: dict) -> str:
     return bio
 
 
+def _resolve_game_speed(current_game_data: dict) -> str:
+    """Resolve the owner's game-speed preference, cached per game.
+
+    'standard' / 'after_fold' / 'always'. Read once per game (lazily) — it's a
+    set-and-forget user preference, so a mid-game change not taking effect until
+    the game reloads is acceptable, and this avoids a DB hit on every AI turn.
+    Mirrors `_resolve_human_bio`.
+    """
+    if 'game_speed' in current_game_data:
+        return current_game_data['game_speed']
+    owner_id = current_game_data.get('owner_id')
+    if not owner_id:
+        current_game_data['game_speed'] = 'standard'
+        return 'standard'
+    try:
+        from ..extensions import user_prefs_repo
+
+        value = user_prefs_repo.get_game_speed(owner_id) if user_prefs_repo else 'standard'
+    except Exception as e:
+        # Don't cache on failure — retry on the next turn.
+        logger.debug(f"Could not resolve game_speed for {owner_id}: {e}")
+        return 'standard'
+    current_game_data['game_speed'] = value
+    return value
+
+
+def maybe_engage_fast_forward_on_fold(game_id: str, action: str) -> None:
+    """If the human just folded and their speed is 'after_fold', fast-forward.
+
+    Sets the one-orbit `fast_forward` flag so `handle_ai_action` swaps the
+    remaining AIs to no-LLM tiered controllers; it auto-clears when action
+    returns to the human next hand. ('always' doesn't need this — handle_ai_action
+    fast-forwards every turn on its own.) Call after applying the human's action,
+    before progress_game.
+    """
+    if action != 'fold':
+        return
+    current_game_data = game_state_service.get_game(game_id)
+    if not current_game_data or current_game_data.get('fast_forward'):
+        return
+    if _resolve_game_speed(current_game_data) == 'after_fold':
+        current_game_data['fast_forward'] = True
+        game_state_service.set_game(game_id, current_game_data)
+        logger.info(f"[FF] game={game_id} fast-forward engaged after human fold")
+
+
+def stamp_coach_default_mode(game_id: str, owner_id: Optional[str]) -> None:
+    """Seed a new game's coach mode from the owner's default preference.
+
+    The user's "default coaching mode" is a sticky per-user pref; applying it to
+    each new game at creation is what makes it carry across devices (the games
+    table is the source of truth the in-game coach reads). The in-game coach
+    panel still overrides per game. No-op for guests, or when the default is the
+    column default ('off') so we don't write redundantly.
+    """
+    if not owner_id:
+        return
+    try:
+        from ..extensions import user_prefs_repo
+
+        mode = user_prefs_repo.get_coach_default_mode(owner_id) if user_prefs_repo else 'off'
+        if mode and mode != 'off':
+            game_repo.save_coach_mode(game_id, mode)
+    except Exception as e:
+        logger.debug(f"[Coach] failed to stamp default mode for game {game_id}: {e}")
+
+
+def _resolve_human_reputation_tone(current_game_data: dict) -> str:
+    """Resolve a table-talk tone hint from the human's reputation, cached per game.
+
+    Hook 3 of the prestige system: the human's room-level reputation quadrant
+    colors how AIs address them in their table talk — warm/deferential for a
+    Beloved Legend, needling/hostile for an Infamous Villain, and silent for
+    low-renown players the room doesn't react to yet (see
+    `cash_mode.prestige.reputation_chat_tone`). Read-only FLAVOR: the hint only
+    reaches the ExpressionGenerator's prompt suffix, never the action math.
+
+    Cached on `game_data` like `human_bio`: reputation drifts slowly (the world
+    ticker recomputes it on the order of minutes, and renown ratchets), so a
+    per-game read is fresh enough and avoids a DB hit on every AI decision. A
+    quadrant change mid-session won't reflect until the game reloads — an
+    accepted tradeoff matching the bio precedent. Tournament games (no
+    sandbox/owner) and pre-first-capture sessions resolve to "".
+    """
+    if 'human_reputation_tone' in current_game_data:
+        return current_game_data['human_reputation_tone']
+    owner_id = current_game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(current_game_data)
+    if not owner_id or not sandbox_id:
+        current_game_data['human_reputation_tone'] = ""
+        return ""
+    try:
+        from cash_mode.prestige import reputation_chat_tone
+
+        from ..extensions import prestige_snapshots_repo
+
+        tone = ""
+        if prestige_snapshots_repo is not None:
+            snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+            if snap is not None:
+                tone = reputation_chat_tone(snap['quadrant'])
+    except Exception as e:
+        # Don't cache on failure — a transient DB error shouldn't suppress the
+        # tone for the rest of the session; retry on the next decision.
+        logger.debug(f"Could not resolve human reputation tone for {owner_id}: {e}")
+        return ""
+    current_game_data['human_reputation_tone'] = tone
+    return tone
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -3675,11 +4187,11 @@ def handle_ai_action(game_id: str) -> None:
     logger.debug(f"[AI_ACTION] Current AI player: {current_player.name}")
 
     # Fast-forward dispatch: swap to a tiered controller (solver + personality,
-    # no LLM expression) so the rest of the orbit resolves quickly. The flag
-    # auto-resets in progress_game once action returns to the human. Per-game
-    # FF controllers are cached in `ff_controllers` to avoid rebuilding the
-    # strategy tables on every decision.
-    if current_game_data.get('fast_forward'):
+    # no LLM expression) so the turn resolves quickly. Engaged by the one-orbit
+    # `fast_forward` flag (manual FF button / after-fold trigger) OR permanently
+    # when the owner's game speed is 'always'. Per-game FF controllers are
+    # cached in `ff_controllers` to avoid rebuilding the strategy tables.
+    if current_game_data.get('fast_forward') or _resolve_game_speed(current_game_data) == 'always':
         controller = _get_or_build_ff_controller(
             current_game_data,
             current_player.name,
@@ -3696,6 +4208,10 @@ def handle_ai_action(game_id: str) -> None:
     # Surface the human's self-description so the AI can needle them about it in
     # its table talk (dramatic_sequence). Runtime context, not config.
     controller.human_bio = _resolve_human_bio(current_game_data)
+    # Surface the human's room-level reputation so the AI's table talk skews by
+    # it (warm for a Beloved Legend, needling for an Infamous Villain). Flavor
+    # only — it reaches the narration prompt, never the action math.
+    controller.human_reputation_tone = _resolve_human_reputation_tone(current_game_data)
 
     response_addressing = []  # Default for fallback / exception paths
     try:

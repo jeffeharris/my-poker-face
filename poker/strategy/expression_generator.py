@@ -85,11 +85,15 @@ class ExpressionGenerator:
             return self._cleanup_client
         try:
             from core.llm import LLMClient
+            from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
             from core.llm.settings import get_fast_model, get_fast_provider
 
             self._cleanup_client = LLMClient(
                 provider=get_fast_provider(),
                 model=get_fast_model(),
+                # PRH-18: in-game (sharp-bot Layer-3) narration — bound it so a
+                # stalled provider can't hang the hand under the per-game lock.
+                default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
             )
         except Exception as e:
             logger.warning(
@@ -104,6 +108,7 @@ class ExpressionGenerator:
         context: ExpressionContext,
         call_type=None,
         game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
         capture_id_holder: Optional[list] = None,
     ) -> Dict[str, Any]:
         """Generate narration for the decided action.
@@ -148,6 +153,7 @@ class ExpressionGenerator:
                 json_format=True,
                 call_type=call_type,
                 game_id=game_id,
+                owner_id=owner_id,
                 player_name=context.personality_name,
                 prompt_template='decision_expression',
                 capture_enricher=capture_enricher,
@@ -175,6 +181,7 @@ class ExpressionGenerator:
                     seq,
                     self._get_cleanup_client(),
                     game_id=game_id,
+                    owner_id=owner_id,
                     player_name=context.personality_name,
                 )
         return parsed
@@ -369,6 +376,14 @@ class ExpressionGenerator:
         bio_block = getattr(ctx, 'human_bio', '') or ''
         if bio_block.strip():
             user_text = f"{user_text}\n\n{bio_block.strip()}"
+
+        # Append the table-reputation tone hint (hook 3 of the prestige system)
+        # when present — colors how the AI's table talk addresses the human by
+        # their room-level reputation. Like the bio block, it only reaches the
+        # user prompt, never action selection.
+        rep_block = getattr(ctx, 'human_reputation_tone', '') or ''
+        if rep_block.strip():
+            user_text = f"{user_text}\n\n{rep_block.strip()}"
 
         return system_text, user_text
 

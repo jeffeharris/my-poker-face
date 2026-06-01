@@ -13,11 +13,12 @@ from flask_app.utils.hand_context import (
 )
 from poker.authorization import get_authorization_service, require_permission
 
-from ..extensions import auth_manager, coach_repo, game_repo, limiter
+from .. import extensions
+from ..extensions import limiter
 from ..services import game_state_service
 from ..services.coach_assistant import get_or_create_coach_with_mode
 from ..services.coach_engine import compute_coaching_data_with_progression
-from ..services.coach_progression import CoachProgressionService
+from ..services.coach_progression import CoachProgressionService, restore_session_memory
 from ..services.skill_definitions import ALL_GATES, ALL_SKILLS
 
 logger = logging.getLogger(__name__)
@@ -39,9 +40,9 @@ def _get_human_player_name(game_data: dict) -> Optional[str]:
 
 def _get_current_user_id() -> str:
     """Get the current authenticated user's ID, or empty string."""
-    if not auth_manager:
+    if not extensions.auth_manager:
         return ''
-    user = auth_manager.get_current_user()
+    user = extensions.auth_manager.get_current_user()
     if not user:
         return ''
     if isinstance(user, dict):
@@ -69,7 +70,7 @@ def _require_game_owner(game_id: str, game_data: dict):
 
     owner_id = (game_data or {}).get('owner_id')
     if owner_id is None:
-        owner_info = game_repo.get_game_owner_info(game_id)
+        owner_info = extensions.game_repo.get_game_owner_info(game_id)
         if owner_info is not None:
             owner_id = owner_info.get('owner_id')
             if game_data is not None and owner_id is not None:
@@ -104,12 +105,44 @@ def coach_stats(game_id: str):
         player_name,
         user_id=user_id,
         game_data=game_data,
-        coach_repo=coach_repo,
+        coach_repo=extensions.coach_repo,
     )
     if data is None:
         return jsonify({'error': 'Could not compute stats'}), 500
 
     return jsonify(data)
+
+
+def _record_proactive_tip(game_id: str, game_data: dict, player_name: str, payload: dict) -> None:
+    """Best-effort log of a proactive tip that was served, for measuring the
+    coach's effect on play (joins to player_decision_analysis later). Never raises."""
+    try:
+        if not getattr(extensions, 'coach_repo', None):
+            return
+        stats = payload.get('stats') or {}
+        leak = stats.get('known_preflop_leak') or {}
+        mm = game_data.get('memory_manager')
+        rng = stats.get('player_range_analysis') or {}
+        extensions.coach_repo.record_tip(
+            {
+                'game_id': game_id,
+                'owner_id': game_data.get('owner_id'),
+                'player_name': player_name,
+                'hand_number': getattr(mm, 'hand_count', None) if mm else None,
+                'phase': stats.get('phase'),
+                'tip_text': payload.get('answer'),
+                'leak_fired': bool(leak),
+                'leak_scenario': leak.get('scenario'),
+                'leak_position': leak.get('position'),
+                'leak_kind': leak.get('kind'),
+                'leak_status': leak.get('status'),
+                'leak_granularity': leak.get('granularity'),
+                'player_hand_canonical': rng.get('canonical_hand'),
+                'player_position': stats.get('position'),
+            }
+        )
+    except Exception as e:
+        logger.debug(f"coach tip capture skipped: {e}")
 
 
 @coach_bp.route('/api/coach/<game_id>/ask', methods=['POST'])
@@ -137,6 +170,17 @@ def coach_ask(game_id: str):
     if request_type != 'proactive_tip' and not question:
         return jsonify({'error': 'No question provided'}), 400
 
+    # Serve a prefetched proactive tip if one is ready/in-flight for this exact
+    # decision (fired at turn-start in handle_human_turn). Guarantees a single
+    # coach LLM call per decision and hides the round-trip + start latency.
+    if request_type == 'proactive_tip':
+        from ..services.coach_prefetch import take_cached_tip
+
+        cached = take_cached_tip(game_data)
+        if cached is not None:
+            _record_proactive_tip(game_id, game_data, player_name, cached)
+            return jsonify(cached)
+
     # Compute current stats with progression context
     user_id = _get_current_user_id()
     stats = compute_coaching_data_with_progression(
@@ -144,7 +188,7 @@ def coach_ask(game_id: str):
         player_name,
         user_id=user_id,
         game_data=game_data,
-        coach_repo=coach_repo,
+        coach_repo=extensions.coach_repo,
     )
 
     # Use mode-aware coach if progression data is available
@@ -188,14 +232,279 @@ def coach_ask(game_id: str):
         stats['recommendation'] = coach_action
         stats['raise_to'] = coach_raise_to
 
+    payload = {
+        'answer': answer,
+        'coach_action': coach_action,
+        'coach_raise_to': coach_raise_to,
+        'stats': stats,
+    }
+    if request_type == 'proactive_tip':
+        _record_proactive_tip(game_id, game_data, player_name, payload)
+    return jsonify(payload)
+
+
+@coach_bp.route('/api/coach/preflop-leaks', methods=['GET'])
+@limiter.limit("20/minute")
+@_coach_required
+def coach_preflop_leaks():
+    """Your preflop range vs a reference — the leak-finder, across your real games.
+
+    User-scoped (not game-scoped): aggregates the caller's OWN preflop decisions.
+    Returns per-position context (your VPIP next to an opening-range reference —
+    context only, since VPIP includes calls/defense) plus the actionable signal:
+    specific below-range hands you keep voluntarily playing. The too-tight
+    direction is deliberately not graded (can't tell opens from correct folds to
+    a raise). See flask_app/services/coach_leaks for the scope caveats.
+    """
+    from ..services import preflop_leak_cache
+    from ..services.coach_chart_data import load_owner_chart_decisions
+    from ..services.coach_chart_leaks import (
+        DEEP_FLOOR_BB,
+        compute_chart_leaks,
+        compute_leak_trend,
+        compute_slice_diff,
+        depth_slice,
+        recent_slice,
+    )
+    from ..services.coach_leaks import (
+        compute_preflop_leaks,
+        count_owner_preflop_decisions,
+        load_owner_preflop_decisions,
+    )
+    from poker.strategy.preflop_reference import reference_strategy
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    # Below this, the signal is too thin to act on — the UI shows "keep playing".
+    min_for_signal = 50
+    # "Recent" = the player's last N hands (volume-stable; ?window_hands= override).
+    try:
+        recent_hands = max(50, min(5000, int(request.args.get('window_hands', 500))))
+    except (TypeError, ValueError):
+        recent_hands = 500
+    # Depth slice: 'all' | 'deep' (≥35bb) | 'short' (<35bb).
+    depth = request.args.get('depth', 'all')
+    if depth not in ('all', 'deep', 'short'):
+        depth = 'all'
+    db_path = extensions.persistence_db_path
+    _insufficient = {'n': 0, 'gap': None, 'status': None, 'trend': 'insufficient'}
+
+    def _build() -> dict:
+        # VPIP-by-position bars: orientation only (always all-time; depth scopes
+        # the chart leaks, not these context bars).
+        vpip_report = compute_preflop_leaks(load_owner_preflop_decisions(db_path, owner_id))
+        # Load chart decisions ONCE; depth-slice, then reuse for every pass.
+        all_decisions = load_owner_chart_decisions(db_path, owner_id)
+        deep_n = sum(1 for d in all_decisions if (d.get('effective_stack_bb') or 0) >= DEEP_FLOOR_BB)
+        short_n = sum(
+            1 for d in all_decisions if 0 < (d.get('effective_stack_bb') or 0) < DEEP_FLOOR_BB
+        )
+        decisions = depth_slice(all_decisions, depth)
+        chart_report = compute_chart_leaks(decisions, reference_strategy, group_by='position')
+        recent = recent_slice(decisions, n_hands=recent_hands)
+        trends, emerging = compute_slice_diff(
+            decisions, recent, reference_strategy, group_by='position'
+        )
+        trend_map = compute_leak_trend(decisions, reference_strategy, group_by='position')
+
+        by_position = [
+            {'position': g, **vpip_report.by_position_summary[g]}
+            for g in ('early', 'middle', 'late', 'blind')
+            if g in vpip_report.by_position_summary
+        ]
+        leaks = [
+            {
+                'scenario': lk.scenario,
+                'position': lk.position,
+                'hand': lk.hand,
+                'kind': lk.kind,
+                'your_freq': lk.your_freq,
+                'chart_freq': lk.chart_freq,
+                'gap': lk.gap,
+                'times_seen': lk.n,
+                'status': lk.status,
+                'recent': trends.get((lk.scenario, lk.position), _insufficient),
+                # Gap trajectory (oldest→newest, null where a block was too thin).
+                'trend': {'series': trend_map.get((lk.scenario, lk.position), [])},
+            }
+            for lk in chart_report.leaks
+        ][:15]
+        emerging_payload = [
+            {
+                'scenario': m['scenario'],
+                'position': m['position'],
+                'hand': m['hand'],
+                'kind': m['kind'],
+                'your_freq': m['your_freq'],
+                'chart_freq': m['chart_freq'],
+                'gap': m['gap'],
+                'times_seen': m['n'],
+                'status': m['status'],
+            }
+            for m in emerging
+        ][:10]
+        return {
+            'total_decisions': vpip_report.total_decisions,
+            'enough_data': vpip_report.total_decisions >= min_for_signal,
+            'min_for_signal': min_for_signal,
+            'by_position': by_position,
+            'leaks': leaks,
+            'emerging': emerging_payload,
+            'recent_window': {'unit': 'hands', 'n': recent_hands, 'decisions': len(recent)},
+            'depth': {'band': depth, 'deep': deep_n, 'short': short_n},
+            'graded': chart_report.graded,
+            'eligible_groups': chart_report.eligible_groups,
+            'skipped': chart_report.skipped,
+        }
+
+    try:
+        # Cache the computed report per (owner, depth, window); the owner's
+        # PRE_FLOP count gates staleness, so a new hand self-invalidates it.
+        count = count_owner_preflop_decisions(db_path, owner_id)
+        report = preflop_leak_cache.get_or_compute(
+            (owner_id, depth, recent_hands), count, _build
+        )
+    except Exception as e:
+        logger.error(f"preflop-leaks failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not compute leaks'}), 500
+
+    return jsonify(report)
+
+
+@coach_bp.route('/api/coach/preflop-leaks/feedback', methods=['POST'])
+@limiter.limit("10/minute")
+@_coach_required
+def coach_preflop_leaks_feedback():
+    """Have the coach interpret the player's preflop profile into feedback.
+
+    Recomputes the profile server-side (never trusts client-sent data) and feeds
+    the text description to the coach (Assistant tier). The coach explains real,
+    computed data — it can't invent leaks. User-initiated (one LLM call/click).
+    """
+    from ..services.coach_assistant import CoachAssistant
+    from ..services.coach_chart_data import load_owner_chart_decisions
+    from ..services.coach_chart_leaks import compute_chart_leaks, format_chart_leaks_for_prompt
+    from poker.strategy.preflop_reference import reference_strategy
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    try:
+        report = compute_chart_leaks(
+            load_owner_chart_decisions(extensions.persistence_db_path, owner_id),
+            reference_strategy,
+            group_by='position',
+        )
+        if report.graded == 0:
+            return jsonify({'feedback': "Play some hands first — there's nothing to review yet."})
+        profile_text = format_chart_leaks_for_prompt(report)
+        coach = CoachAssistant(game_id=f'preflop-leaks-{owner_id}', owner_id=owner_id, mode='review')
+        feedback = coach.review_preflop_leaks(profile_text)
+    except TimeoutError:
+        return jsonify({'error': 'Coach is taking too long, please try again'}), 504
+    except Exception as e:
+        logger.error(f"preflop-leaks feedback failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Coach unavailable'}), 503
+
+    return jsonify({'feedback': feedback})
+
+
+@coach_bp.route('/api/coach/tip-effectiveness', methods=['GET'])
+@limiter.limit("30/minute")
+@_coach_required
+def coach_tip_effectiveness():
+    """How often the CURRENT player took the solver line after a leak nudge,
+    vs their baseline rate in the same leak spots.
+
+    Self-scoped follow-through on the review panel — "is the coach helping me?".
+    Nudged side is empty until the coach has nudged this player; the baseline is
+    their overall play in those leak spots (correlational, not a clean A/B).
+    """
+    from ..services.coach_chart_data import get_owner_chart_leak_set, load_owner_chart_decisions
+    from ..services.coach_chart_leaks import compute_baseline_follow_rates, merge_effectiveness
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+    db = extensions.persistence_db_path
+    try:
+        nudged = extensions.coach_repo.get_tip_effectiveness(owner_id)
+        baseline = compute_baseline_follow_rates(
+            load_owner_chart_decisions(db, owner_id),
+            get_owner_chart_leak_set(db, owner_id, recent_hands=None),  # all-time leak spots
+        )
+        return jsonify(merge_effectiveness(nudged, baseline))
+    except Exception as e:
+        logger.error(f"tip-effectiveness failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load tip effectiveness'}), 500
+
+
+@coach_bp.route('/api/coach/drill', methods=['GET'])
+@limiter.limit("30/minute")
+@_coach_required
+def coach_drill():
+    """Build a preflop drill from the player's leak (the practice half of the loop).
+
+    Drills an explicit ?scenario=&position= when given, else the player's top
+    CONFIRMED chart leak. Returns {leak, spots} or {enough_data: false} when
+    there's nothing confirmed to practice yet.
+    """
+    from ..services.coach_chart_data import get_owner_chart_leak_set
+    from ..services.coach_drill import sample_drill_spots
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    scenario = (request.args.get('scenario') or '').strip()
+    position = (request.args.get('position') or '').strip()
+    kind = None
+    try:
+        if not (scenario and position):
+            from ..services.coach_drill import pick_drill_leak
+
+            leak = pick_drill_leak(
+                get_owner_chart_leak_set(extensions.persistence_db_path, owner_id)
+            )
+            if not leak:
+                return jsonify({'enough_data': False})
+            scenario, position, kind = leak['scenario'], leak['position'], leak['kind']
+        spots = sample_drill_spots(scenario, position, n=10)
+    except Exception as e:
+        logger.error(f"drill build failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not build drill'}), 500
+
+    if not spots:
+        return jsonify({'enough_data': False})
     return jsonify(
         {
-            'answer': answer,
-            'coach_action': coach_action,
-            'coach_raise_to': coach_raise_to,
-            'stats': stats,
+            'enough_data': True,
+            'leak': {'scenario': scenario, 'position': position, 'kind': kind},
+            'spots': spots,
         }
     )
+
+
+@coach_bp.route('/api/coach/drill/answer', methods=['POST'])
+@limiter.limit("120/minute")
+@_coach_required
+def coach_drill_answer():
+    """Grade one drill answer against the solver chart (recomputed server-side)."""
+    from ..services.coach_drill import grade_drill_answer
+
+    body = request.get_json(silent=True) or {}
+    result = grade_drill_answer(
+        body.get('scenario', ''),
+        body.get('position', ''),
+        body.get('hand', ''),
+        body.get('action', ''),
+    )
+    if result is None:
+        return jsonify({'error': 'Not a gradeable spot'}), 400
+    return jsonify(result)
 
 
 @coach_bp.route('/api/coach/<game_id>/config', methods=['GET'])
@@ -214,7 +523,7 @@ def coach_config_get(game_id: str):
         if mode:
             return jsonify({'mode': mode})
 
-    mode = game_repo.load_coach_mode(game_id)
+    mode = extensions.game_repo.load_coach_mode(game_id)
     return jsonify({'mode': mode})
 
 
@@ -237,7 +546,7 @@ def coach_config(game_id: str):
         return jsonify({'error': 'Invalid mode'}), 400
 
     game_data['coach_config'] = {'mode': mode}
-    game_repo.save_coach_mode(game_id, mode)
+    extensions.game_repo.save_coach_mode(game_id, mode)
     return jsonify({'status': 'ok', 'mode': mode})
 
 
@@ -292,8 +601,10 @@ def coach_hand_review(game_id: str):
         big_blind=big_blind,
     )
 
-    # Append skill evaluations from SessionMemory (if available)
-    session_memory = game_data.get('coach_session_memory')
+    # Append skill evaluations from SessionMemory (if available).
+    # PRH-15: restore persisted history on a memory miss (cold-load / restart)
+    # so a returning player's hand review still carries its skill evaluations.
+    session_memory = restore_session_memory(game_id, game_data, extensions.coach_repo)
     hand_number = getattr(hand, 'hand_number', None)
     if session_memory and hand_number is not None:
         evaluations = session_memory.get_hand_evaluations(hand_number)
@@ -343,7 +654,7 @@ def coach_progression(game_id: str):
     user_id = _get_current_user_id()
 
     try:
-        service = CoachProgressionService(coach_repo)
+        service = CoachProgressionService(extensions.coach_repo)
         state = service.get_or_initialize_player(user_id)
 
         return jsonify(
@@ -405,7 +716,7 @@ def coach_onboarding(game_id: str):
         return jsonify({'error': 'Invalid level'}), 400
 
     try:
-        service = CoachProgressionService(coach_repo)
+        service = CoachProgressionService(extensions.coach_repo)
 
         # Check if player already has a profile with accumulated stats
         existing_state = service.get_player_state(user_id)
@@ -440,7 +751,7 @@ _admin_required = require_permission('can_access_admin_tools')
 def coach_metrics_overview():
     """Aggregate overview of coach progression usage."""
     try:
-        stats = coach_repo.get_profile_stats()
+        stats = extensions.coach_repo.get_profile_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Coach metrics overview failed: {e}", exc_info=True)
@@ -453,7 +764,7 @@ def coach_metrics_overview():
 def coach_metrics_skills():
     """Per-skill distribution and advancement stats."""
     try:
-        stats = coach_repo.get_skill_distribution()
+        stats = extensions.coach_repo.get_skill_distribution()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Coach metrics skills failed: {e}", exc_info=True)
@@ -466,8 +777,26 @@ def coach_metrics_skills():
 def coach_metrics_advancement():
     """Skill advancement timing and difficulty analysis."""
     try:
-        stats = coach_repo.get_skill_advancement_stats()
+        stats = extensions.coach_repo.get_skill_advancement_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Coach metrics advancement failed: {e}", exc_info=True)
         return jsonify({'error': 'Could not load advancement metrics'}), 500
+
+
+@coach_bp.route('/api/coach/metrics/tip-effectiveness')
+@limiter.limit("30/minute")
+@_admin_required
+def coach_metrics_tip_effectiveness():
+    """After a leak nudge fired, did the player's next decision follow the solver?
+
+    Aggregates across all players (global). ``?owner=<id>`` scopes to one. Reads
+    only the instrumentation tables (coach_tips ⋈ player_decision_analysis) —
+    measures whether the live coach is helping vs. noise.
+    """
+    try:
+        owner = request.args.get('owner') or None
+        return jsonify(extensions.coach_repo.get_tip_effectiveness(owner))
+    except Exception as e:
+        logger.error(f"Coach tip effectiveness failed: {e}", exc_info=True)
+        return jsonify({'error': 'Could not load tip effectiveness'}), 500

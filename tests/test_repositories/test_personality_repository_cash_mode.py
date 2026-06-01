@@ -33,14 +33,18 @@ def repo(db_path):
     r.close()
 
 
-def _insert(db_path, *, name, personality_id, visibility="public", owner_id=None):
+def _insert(db_path, *, name, personality_id, visibility="public", owner_id=None, circulating=1):
+    # `circulating` defaults to 1 so a plain "public persona" in these tests
+    # behaves like a real seeded cash opponent (v123). Pass circulating=0 to
+    # represent a public-but-not-circulating persona (a leaked sim/test row).
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO personalities (name, config_json, personality_id, visibility, owner_id)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO personalities
+                (name, config_json, personality_id, visibility, owner_id, circulating)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (name, "{}", personality_id, visibility, owner_id),
+            (name, "{}", personality_id, visibility, owner_id, circulating),
         )
         conn.commit()
 
@@ -56,6 +60,21 @@ class TestListEligibleForCashMode:
         assert len(result) == 2
         ids = {r["personality_id"] for r in result}
         assert ids == {"bob_ross", "napoleon"}
+
+    def test_excludes_public_non_circulating(self, db_path, repo):
+        # v123: public governs visibility; circulating governs auto-seeding.
+        # A public-but-not-circulating persona (a leaked sim/test row) is
+        # visible/pickable elsewhere but must NOT auto-seat into cash games.
+        _insert(db_path, name="Real Celebrity", personality_id="real_celebrity")
+        _insert(
+            db_path,
+            name="Leaked Test Player",
+            personality_id="leaked_test_player",
+            circulating=0,
+        )
+        result = repo.list_eligible_for_cash_mode()
+        ids = {r["personality_id"] for r in result}
+        assert ids == {"real_celebrity"}
 
     def test_excludes_private_when_no_user_id(self, db_path, repo):
         _insert(db_path, name="Public Pat", personality_id="public_pat")

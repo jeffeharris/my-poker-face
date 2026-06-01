@@ -14,6 +14,12 @@ services:
       - FLASK_ENV=production
       - FLASK_DEBUG=0
       - PYTHONUNBUFFERED=1
+      # PRH-35: machine-parseable JSON logs (request_id on every line) for
+      # shipping to an aggregator. Set LOG_FORMAT= (empty) for human-readable.
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      # PRH-40: run the container as the non-root appuser. The entrypoint
+      # chowns the bind-mounted data volume then drops privileges via gosu.
+      - DROP_PRIVILEGES=1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -29,7 +35,17 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - CORS_ORIGINS=https://mypokerfacegame.com,https://www.mypokerfacegame.com
       - LLM_PROMPT_CAPTURE=${LLM_PROMPT_CAPTURE:-all}
-      - LLM_PROMPT_RETENTION_DAYS=${LLM_PROMPT_RETENTION_DAYS:-0}
+      # PRH-32: finite retention for the verbatim prompt captures (full prompts
+      # incl. user chat). Was 0 (kept forever) — default to 30 days; override
+      # via host env. The scheduled cleanup enforces it.
+      - LLM_PROMPT_RETENTION_DAYS=${LLM_PROMPT_RETENTION_DAYS:-30}
+      # PRH-32: finite retention for api_usage cost rows (aggregates are kept
+      # via the rollup; raw rows past this are purged on a schedule).
+      - API_USAGE_RETENTION_DAYS=${API_USAGE_RETENTION_DAYS:-90}
+      # PRH-30: per-decision equity Monte Carlo iterations (analytics only, not
+      # the bot's actual decision). Lower than the 2000 default to raise the
+      # single-worker concurrent-hands ceiling; override via host env.
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-500}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com
@@ -37,6 +53,16 @@ services:
       - IMAGE_MODEL=${IMAGE_MODEL:-}
       - RUNWARE_API_KEY=${RUNWARE_API_KEY:-}
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-}
+      # PRH-25: arm the LLM spend kill-switch in prod. Global is the hard
+      # backstop (the only ceiling a guest can't reset); per-owner caps any
+      # single signed-in user. Armed by default here so a fresh deploy is never
+      # unbounded; override via host env.
+      - LLM_GLOBAL_DAILY_BUDGET_USD=${LLM_GLOBAL_DAILY_BUDGET_USD:-50}
+      - LLM_PER_OWNER_DAILY_BUDGET_USD=${LLM_PER_OWNER_DAILY_BUDGET_USD:-5}
+      # PRH-28: alert destination for ERROR-level logs + [LEDGER]/[LLM BUDGET]
+      # signals. Slack-compatible webhook (Discord works via the /slack suffix).
+      # Unset = log-only (no-op handler).
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
     command: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
     depends_on:
       - redis

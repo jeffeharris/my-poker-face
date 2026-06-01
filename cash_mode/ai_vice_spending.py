@@ -31,6 +31,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from cash_mode import presence_shadow
+from cash_mode.presence import PresenceEvent, ai_entity_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -630,6 +633,16 @@ def tick_vice_expirations(
             # to retry next refresh than to mislead the player.
             continue
 
+        # Phase 1 dual-write SHADOW (CASH_MODE_PRESENCE_MIGRATION.md §E):
+        # VICE -> IDLE via the timer-driven END_OFFGRID, mirroring the
+        # authoritative ai_vice_state DELETE above. Flag-gated + swallows
+        # illegal transitions inside the helper.
+        presence_shadow.shadow_transition(
+            entity_id=ai_entity_id(v.personality_id),
+            sandbox_id=sandbox_id,
+            event=PresenceEvent.END_OFFGRID,
+        )
+
         out.append(
             ViceEndResult(
                 personality_id=v.personality_id,
@@ -1015,7 +1028,14 @@ def _commit_vice_start(
             sandbox_id=sandbox_id,
         )
 
-    new_chips = max(0, projected - amount)
+    # The floor-protection guard above guarantees projected - amount >=
+    # floor_protection >= 0, so this never goes negative. PRH-16: the old
+    # `max(0, projected - amount)` clamp was mint-shaped — if that guard ever
+    # drifted it would zero the bankroll while the ledger still recorded the
+    # full `amount` destroyed, leaving (amount - projected) chips untracked.
+    # Subtract directly so any future regression surfaces as a negative
+    # bankroll the audit flags, not a silent mint.
+    new_chips = projected - amount
     try:
         bankroll_repo.save_ai_bankroll(
             AIBankrollState(
@@ -1065,6 +1085,20 @@ def _commit_vice_start(
                 duration_bucket=duration_bucket,
                 narration=narration,
             )
+        )
+        # Phase 1 dual-write SHADOW (CASH_MODE_PRESENCE_MIGRATION.md §E):
+        # mirror the authoritative ai_vice_state INSERT into the Presence
+        # machine, only on a successful insert (kept inside this try so a
+        # phantom-debit/no-row case below does not also emit a shadow START).
+        # AI-only; off-grid carries no seat. Flag-gated + try/except inside
+        # the helper. START_VICE is only legal from IDLE; a broke AI that went
+        # off-grid straight from being unseated may have no IDLE shadow row
+        # yet, in which case the helper SWALLOWS the illegal transition — the
+        # expected divergence this shadow phase exists to surface, not a bug.
+        presence_shadow.shadow_transition(
+            entity_id=ai_entity_id(personality_id),
+            sandbox_id=sandbox_id,
+            event=PresenceEvent.START_VICE,
         )
     except Exception as exc:
         logger.warning(

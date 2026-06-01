@@ -8,8 +8,8 @@ from flask import Blueprint, jsonify, request
 
 from core.llm import Assistant, CallType, LLMClient
 
+from .. import extensions
 from ..decision_analysis_serializer import hydrate_decision_analysis
-from ..extensions import capture_label_repo, decision_analysis_repo, prompt_capture_repo
 from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ def list_captures():
 
     # Use label-based search if labels are provided, otherwise use regular listing
     if labels:
-        result = capture_label_repo.search_captures_with_labels(
+        result = extensions.capture_label_repo.search_captures_with_labels(
             labels=labels,
             match_all=label_match_all,
             game_id=filters.get('game_id'),
@@ -190,15 +190,15 @@ def list_captures():
             offset=filters.get('offset', 0),
         )
     else:
-        result = prompt_capture_repo.list_prompt_captures(**filters)
+        result = extensions.prompt_capture_repo.list_prompt_captures(**filters)
 
     # Also get stats (pass call_type filter to ensure stats match the filtered view)
-    stats = prompt_capture_repo.get_prompt_capture_stats(
+    stats = extensions.prompt_capture_repo.get_prompt_capture_stats(
         game_id=filters.get('game_id'), call_type=filters.get('call_type')
     )
 
     # Also get label stats
-    label_stats = capture_label_repo.get_label_stats(
+    label_stats = extensions.capture_label_repo.get_label_stats(
         game_id=filters.get('game_id'), call_type=filters.get('call_type')
     )
 
@@ -216,7 +216,7 @@ def list_captures():
 @prompt_debug_bp.route('/api/prompt-debug/emotions', methods=['GET'])
 def get_distinct_emotions():
     """Get distinct display_emotion values from decision analyses."""
-    emotions = prompt_capture_repo.get_distinct_emotions()
+    emotions = extensions.prompt_capture_repo.get_distinct_emotions()
     return jsonify({'success': True, 'emotions': emotions})
 
 
@@ -236,7 +236,7 @@ def get_label_stats():
     if call_type == 'all':
         call_type = None
 
-    label_stats = capture_label_repo.get_label_stats(
+    label_stats = extensions.capture_label_repo.get_label_stats(
         game_id=request.args.get('game_id'),
         player_name=request.args.get('player_name'),
         call_type=call_type,
@@ -256,7 +256,7 @@ def get_capture(capture_id):
     the analysis side anyway.
     """
     if capture_id < 0:
-        analysis = decision_analysis_repo.get_decision_analysis(-capture_id)
+        analysis = extensions.decision_analysis_repo.get_decision_analysis(-capture_id)
         if not analysis:
             return jsonify({'success': False, 'error': 'Analysis not found'}), 404
         capture = _stub_capture_from_analysis(analysis, capture_id)
@@ -269,13 +269,15 @@ def get_capture(capture_id):
             }
         )
 
-    capture = prompt_capture_repo.get_prompt_capture(capture_id)
+    capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
     # Get linked decision analysis if it exists
-    decision_analysis = decision_analysis_repo.get_decision_analysis_by_capture(capture_id)
+    decision_analysis = extensions.decision_analysis_repo.get_decision_analysis_by_capture(
+        capture_id
+    )
     decision_analysis = hydrate_decision_analysis(decision_analysis)
 
     return jsonify({'success': True, 'capture': capture, 'decision_analysis': decision_analysis})
@@ -350,7 +352,7 @@ def replay_capture(capture_id):
         model: Model to use (optional, defaults to original)
         reasoning_effort: Reasoning effort level (optional, defaults to original or 'low')
     """
-    capture = prompt_capture_repo.get_prompt_capture(capture_id)
+    capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -446,7 +448,7 @@ def interrogate_capture(capture_id):
         reasoning_effort_used: Reasoning effort level used
         latency_ms: Response latency
     """
-    capture = prompt_capture_repo.get_prompt_capture(capture_id)
+    capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -583,7 +585,7 @@ def update_capture_tags(capture_id):
         tags: List of tags
         notes: Optional notes string
     """
-    capture = prompt_capture_repo.get_prompt_capture(capture_id)
+    capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -593,7 +595,7 @@ def update_capture_tags(capture_id):
     tags = data.get('tags', [])
     notes = data.get('notes')
 
-    success = prompt_capture_repo.update_prompt_capture_tags(capture_id, tags, notes)
+    success = extensions.prompt_capture_repo.update_prompt_capture_tags(capture_id, tags, notes)
 
     return jsonify({'success': success})
 
@@ -611,7 +613,9 @@ def get_capture_stats():
     if call_type == 'all':
         call_type = None
 
-    stats = prompt_capture_repo.get_prompt_capture_stats(game_id=game_id, call_type=call_type)
+    stats = extensions.prompt_capture_repo.get_prompt_capture_stats(
+        game_id=game_id, call_type=call_type
+    )
 
     return jsonify({'success': True, 'stats': stats})
 
@@ -632,7 +636,7 @@ def cleanup_captures():
     if not game_id and not before_date:
         return jsonify({'success': False, 'error': 'Must specify game_id or before_date'}), 400
 
-    deleted = prompt_capture_repo.delete_prompt_captures(game_id, before_date)
+    deleted = extensions.prompt_capture_repo.delete_prompt_captures(game_id, before_date)
 
     return jsonify({'success': True, 'deleted': deleted})
 
@@ -666,12 +670,12 @@ def list_decision_analyses():
     # Remove None values
     filters = {k: v for k, v in filters.items() if v is not None}
 
-    result = decision_analysis_repo.list_decision_analyses(**filters)
+    result = extensions.decision_analysis_repo.list_decision_analyses(**filters)
     for row in result['analyses']:
         hydrate_decision_analysis(row)
 
     # Also get stats
-    stats = decision_analysis_repo.get_decision_analysis_stats(filters.get('game_id'))
+    stats = extensions.decision_analysis_repo.get_decision_analysis_stats(filters.get('game_id'))
 
     return jsonify(
         {'success': True, 'analyses': result['analyses'], 'total': result['total'], 'stats': stats}
@@ -681,7 +685,7 @@ def list_decision_analyses():
 @prompt_debug_bp.route('/api/prompt-debug/analysis/<int:analysis_id>', methods=['GET'])
 def get_decision_analysis(analysis_id):
     """Get a single decision analysis by ID."""
-    analysis = decision_analysis_repo.get_decision_analysis(analysis_id)
+    analysis = extensions.decision_analysis_repo.get_decision_analysis(analysis_id)
 
     if not analysis:
         return jsonify({'success': False, 'error': 'Analysis not found'}), 404
@@ -700,7 +704,7 @@ def get_analysis_stats():
     """
     game_id = request.args.get('game_id')
 
-    stats = decision_analysis_repo.get_decision_analysis_stats(game_id)
+    stats = extensions.decision_analysis_repo.get_decision_analysis_stats(game_id)
 
     return jsonify({'success': True, 'stats': stats})
 
@@ -711,7 +715,7 @@ def get_game_decision_quality(game_id):
 
     Returns aggregate stats for AI decision quality in this game.
     """
-    stats = decision_analysis_repo.get_decision_analysis_stats(game_id)
+    stats = extensions.decision_analysis_repo.get_decision_analysis_stats(game_id)
 
     # Calculate quality metrics
     total = stats.get('total', 0)

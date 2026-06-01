@@ -38,13 +38,16 @@ from cash_mode.full_sim import (
 from cash_mode.lobby import _emit_burst_events
 
 
-def _make_table(table_id: str = "cash-table-10-001", stake: str = "$10"):
+def _make_table(table_id: str = "cash-table-10-001", stake: str = "$10", name=None):
     """A minimal stand-in for CashTableState with just the fields the
     emission code reads. Avoids dragging the full table dataclass +
-    seat validation into these aggregation tests."""
+    seat validation into these aggregation tests. `name` is set explicitly
+    (not left to MagicMock auto-attr, which would be a truthy mock and leak
+    into the feed location label)."""
     t = MagicMock()
     t.table_id = table_id
     t.stake_label = stake
+    t.name = name
     return t
 
 
@@ -258,6 +261,107 @@ class TestEmitBurstEvents(unittest.TestCase):
         )
         # And doesn't emit (winner_name resolves to None → skipped).
         assert recent_events(limit=10) == []
+
+
+class TestSingleHandSummary(unittest.TestCase):
+    """The single-hand (live) path collapses a hand's beats into ONE
+    composed `primary` line and demotes the atomic win/all-in/bust events
+    to `primary=False` (kept for per-AI filtering, hidden from the ticker)."""
+
+    def setUp(self):
+        clear_events()
+        self.now = datetime(2026, 5, 28, 12, 0, 0)
+        self.repo = _personality_repo_with(
+            {"p-scrooge": "Scrooge", "p-r2": "R2-D2", "p-c3": "C-3PO"}
+        )
+        self.table = _make_table()
+
+    def _emit(self, r: HandSimResult):
+        _emit_burst_events(
+            table=self.table,
+            sim_results=[r],
+            personality_repo=self.repo,
+            now=self.now,
+        )
+        return recent_events(limit=10)
+
+    def test_exactly_one_primary_row_per_hand(self):
+        evs = self._emit(_hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True))
+        primary = [e for e in evs if e.primary]
+        assert len(primary) == 1
+        # Atomic pair still recorded for filtering, just hidden.
+        assert {e.type for e in evs if not e.primary} == {EVENT_BIG_WIN, EVENT_BIG_LOSS}
+
+    def test_shove_and_bust_fold_into_one_sentence(self):
+        evs = self._emit(
+            _hand_result(
+                winner="p-scrooge",
+                loser="p-r2",
+                delta=1200,
+                big_event=True,
+                hand_events=[
+                    HandEvent(type=HAND_EVENT_ALL_IN, personality_id="p-scrooge", amount=1200),
+                    HandEvent(type=HAND_EVENT_BUST, personality_id="p-r2", amount=600),
+                ],
+            )
+        )
+        primary = [e for e in evs if e.primary]
+        assert len(primary) == 1
+        msg = primary[0].message
+        assert "shoved all-in" in msg and "busting R2-D2" in msg
+        # Reuses the all_in type so the ticker picks the shove icon.
+        assert primary[0].type == EVENT_ALL_IN
+
+    def test_multiway_busts_listed_together(self):
+        evs = self._emit(
+            _hand_result(
+                winner="p-scrooge",
+                loser="p-r2",
+                delta=3000,
+                big_event=True,
+                hand_events=[
+                    HandEvent(type=HAND_EVENT_BUST, personality_id="p-r2", amount=1500),
+                    HandEvent(type=HAND_EVENT_BUST, personality_id="p-c3", amount=1500),
+                ],
+            )
+        )
+        primary = [e for e in evs if e.primary]
+        assert len(primary) == 1
+        assert "R2-D2 and C-3PO" in primary[0].message
+
+    def test_named_table_shows_familiar_name_with_bracketed_stake(self):
+        # A named table surfaces its familiar lobby name with the stake in
+        # brackets so players know where to find it.
+        self.table = _make_table(stake="$50", name="The Lodge")
+        evs = self._emit(_hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True))
+        msg = next(e for e in evs if e.primary).message
+        assert "The Lodge [$50]" in msg
+        # The bare stake stays on the structured field for filtering/grouping.
+        assert all(e.stake_label == "$50" for e in evs)
+
+    def test_unnamed_table_falls_back_to_stake_phrase(self):
+        self.table = _make_table(stake="$50", name=None)
+        evs = self._emit(_hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True))
+        msg = next(e for e in evs if e.primary).message
+        assert "the $50 table" in msg
+
+    def test_bust_only_hand_headlines_the_bust(self):
+        # Small pot (no big_event) where someone still busts.
+        evs = self._emit(
+            _hand_result(
+                winner="p-scrooge",
+                loser="p-r2",
+                delta=120,
+                big_event=False,
+                hand_events=[
+                    HandEvent(type=HAND_EVENT_BUST, personality_id="p-r2", amount=120),
+                ],
+            )
+        )
+        primary = [e for e in evs if e.primary]
+        assert len(primary) == 1
+        assert primary[0].type == EVENT_BUST
+        assert "busted out" in primary[0].message
 
 
 class TestDealerRotationInBurst(unittest.TestCase):

@@ -783,6 +783,66 @@ def apply_induce_override(
     )
 
 
+def _induce_no_op(reason_code: str) -> InterventionTrace:
+    """No-op trace for an induce branch whose gate failed.
+
+    Centralizes the (layer, rule_id, layer_order) identity shared by all
+    four branch no-op returns so the gate-fail path is assembled in one
+    place. Behavior is identical to the prior inline `make_no_op_trace`
+    calls.
+    """
+    return make_no_op_trace(
+        layer='induce_override',
+        rule_id='default',
+        layer_order=layer_order_for('induce_override'),
+        reason_code=reason_code,
+    )
+
+
+def _build_induce_trace(
+    strategy: StrategyProfile,
+    new_strategy: StrategyProfile,
+    *,
+    effect: str,
+    reason_code: str,
+    rationale: str,
+    inputs: dict,
+) -> InterventionTrace:
+    """Assemble a fired InterventionTrace for an induce branch.
+
+    Computes summary_before/after, primary_before/after, and effect_size
+    from `strategy` → `new_strategy` exactly as the four branches did
+    inline before this extraction. Only the branch-specific `effect`,
+    `reason_code`, `rationale`, and `inputs` differ between callers.
+    """
+    summary_before = summarize_strategy(strategy.action_probabilities)
+    summary_after = summarize_strategy(new_strategy.action_probabilities)
+    primary_before = primary_action(strategy.action_probabilities)
+    primary_after = primary_action(new_strategy.action_probabilities)
+    effect_size = l1_distance(
+        strategy.action_probabilities,
+        new_strategy.action_probabilities,
+    )
+
+    return InterventionTrace(
+        layer='induce_override',
+        rule_id='default',
+        layer_order=layer_order_for('induce_override'),
+        fired=True,
+        operation=InterventionOperation.OVERRIDE.value,
+        effect=effect,
+        effect_size=effect_size,
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        reason_code=reason_code,
+        rationale=rationale,
+        inputs=inputs,
+        input_strategy_summary=summary_before,
+        output_strategy_summary=summary_after,
+    )
+
+
 def _apply_facing_bet_induce(
     strategy: StrategyProfile,
     *,
@@ -818,36 +878,15 @@ def _apply_facing_bet_induce(
     )
 
     if not should_fire:
-        return strategy, make_no_op_trace(
-            layer='induce_override',
-            rule_id='default',
-            layer_order=layer_order_for('induce_override'),
-            reason_code=reason_code,
-        )
+        return strategy, _induce_no_op(reason_code)
 
     call_probability = compute_call_probability(stats)
     new_strategy = compute_induce_override_strategy(strategy, call_probability)
 
-    summary_before = summarize_strategy(strategy.action_probabilities)
-    summary_after = summarize_strategy(new_strategy.action_probabilities)
-    primary_before = primary_action(strategy.action_probabilities)
-    primary_after = primary_action(new_strategy.action_probabilities)
-    effect_size = l1_distance(
-        strategy.action_probabilities,
-        new_strategy.action_probabilities,
-    )
-
-    trace = InterventionTrace(
-        layer='induce_override',
-        rule_id='default',
-        layer_order=layer_order_for('induce_override'),
-        fired=True,
-        operation=InterventionOperation.OVERRIDE.value,
+    trace = _build_induce_trace(
+        strategy,
+        new_strategy,
         effect='smooth_call',
-        effect_size=effect_size,
-        action_changed=(primary_before != primary_after),
-        primary_action_before=primary_before,
-        primary_action_after=primary_after,
         reason_code=f'induced_{street}_facing_bet',
         rationale=(
             f'induce override: nuts IP on {street}, '
@@ -871,8 +910,6 @@ def _apply_facing_bet_induce(
             'call_probability': round(call_probability, 4),
             'hands_observed': stats.hands_observed,
         },
-        input_strategy_summary=summary_before,
-        output_strategy_summary=summary_after,
     )
 
     return new_strategy, trace
@@ -914,35 +951,14 @@ def _apply_open_spot_induce(
     )
 
     if not should_fire:
-        return strategy, make_no_op_trace(
-            layer='induce_override',
-            rule_id='default',
-            layer_order=layer_order_for('induce_override'),
-            reason_code=reason_code,
-        )
+        return strategy, _induce_no_op(reason_code)
 
     new_strategy = compute_open_spot_induce_strategy(strategy)
 
-    summary_before = summarize_strategy(strategy.action_probabilities)
-    summary_after = summarize_strategy(new_strategy.action_probabilities)
-    primary_before = primary_action(strategy.action_probabilities)
-    primary_after = primary_action(new_strategy.action_probabilities)
-    effect_size = l1_distance(
-        strategy.action_probabilities,
-        new_strategy.action_probabilities,
-    )
-
-    trace = InterventionTrace(
-        layer='induce_override',
-        rule_id='default',
-        layer_order=layer_order_for('induce_override'),
-        fired=True,
-        operation=InterventionOperation.OVERRIDE.value,
+    trace = _build_induce_trace(
+        strategy,
+        new_strategy,
         effect='check_back',
-        effect_size=effect_size,
-        action_changed=(primary_before != primary_after),
-        primary_action_before=primary_before,
-        primary_action_after=primary_after,
         reason_code=f'induced_{street}_open_spot',
         rationale=(
             f'induce override: {hand_strength} IP on {street} open spot, '
@@ -966,8 +982,6 @@ def _apply_open_spot_induce(
             'check_probability': OPEN_SPOT_CHECK_PROBABILITY,
             'hands_observed': stats.hands_observed,
         },
-        input_strategy_summary=summary_before,
-        output_strategy_summary=summary_after,
     )
 
     return new_strategy, trace
@@ -1013,35 +1027,14 @@ def _apply_oop_trap_check(
     )
 
     if not should_fire:
-        return strategy, make_no_op_trace(
-            layer='induce_override',
-            rule_id='default',
-            layer_order=layer_order_for('induce_override'),
-            reason_code=reason_code,
-        )
+        return strategy, _induce_no_op(reason_code)
 
     new_strategy = compute_oop_trap_check_strategy(strategy)
 
-    summary_before = summarize_strategy(strategy.action_probabilities)
-    summary_after = summarize_strategy(new_strategy.action_probabilities)
-    primary_before = primary_action(strategy.action_probabilities)
-    primary_after = primary_action(new_strategy.action_probabilities)
-    effect_size = l1_distance(
-        strategy.action_probabilities,
-        new_strategy.action_probabilities,
-    )
-
-    trace = InterventionTrace(
-        layer='induce_override',
-        rule_id='default',
-        layer_order=layer_order_for('induce_override'),
-        fired=True,
-        operation=InterventionOperation.OVERRIDE.value,
+    trace = _build_induce_trace(
+        strategy,
+        new_strategy,
         effect='trap_check',
-        effect_size=effect_size,
-        action_changed=(primary_before != primary_after),
-        primary_action_before=primary_before,
-        primary_action_after=primary_after,
         reason_code=f'induced_{street}_oop_trap_check',
         rationale=(
             f'induce override: {hand_strength} OOP on {street} open spot, '
@@ -1062,8 +1055,6 @@ def _apply_oop_trap_check(
             'check_probability': OOP_TRAP_CHECK_PROBABILITY,
             'hands_observed': stats.hands_observed,
         },
-        input_strategy_summary=summary_before,
-        output_strategy_summary=summary_after,
     )
 
     return new_strategy, trace
@@ -1109,35 +1100,14 @@ def _apply_oop_check_raise(
     )
 
     if not should_fire:
-        return strategy, make_no_op_trace(
-            layer='induce_override',
-            rule_id='default',
-            layer_order=layer_order_for('induce_override'),
-            reason_code=reason_code,
-        )
+        return strategy, _induce_no_op(reason_code)
 
     new_strategy = compute_oop_check_raise_strategy(strategy)
 
-    summary_before = summarize_strategy(strategy.action_probabilities)
-    summary_after = summarize_strategy(new_strategy.action_probabilities)
-    primary_before = primary_action(strategy.action_probabilities)
-    primary_after = primary_action(new_strategy.action_probabilities)
-    effect_size = l1_distance(
-        strategy.action_probabilities,
-        new_strategy.action_probabilities,
-    )
-
-    trace = InterventionTrace(
-        layer='induce_override',
-        rule_id='default',
-        layer_order=layer_order_for('induce_override'),
-        fired=True,
-        operation=InterventionOperation.OVERRIDE.value,
+    trace = _build_induce_trace(
+        strategy,
+        new_strategy,
         effect='check_raise',
-        effect_size=effect_size,
-        action_changed=(primary_before != primary_after),
-        primary_action_before=primary_before,
-        primary_action_after=primary_after,
         reason_code=f'induced_{street}_oop_check_raise',
         rationale=(
             f'induce override: {hand_strength} OOP on {street} facing cbet, '
@@ -1161,8 +1131,6 @@ def _apply_oop_check_raise(
             'raise_probability': OOP_CHECK_RAISE_PROBABILITY,
             'hands_observed': stats.hands_observed,
         },
-        input_strategy_summary=summary_before,
-        output_strategy_summary=summary_after,
     )
 
     return new_strategy, trace

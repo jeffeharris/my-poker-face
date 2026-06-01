@@ -195,7 +195,6 @@ class TestValueVsStationIntensity:
         assert compute_value_vs_station_intensity(spots) == pytest.approx(1.0)
 
 
-
 # ── compute_exploitation_offsets integration ──────────────────────────────
 
 

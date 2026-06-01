@@ -199,6 +199,40 @@ class RelationshipRepository(BaseRepository):
             ).fetchall()
             return {row['opponent_id']: _state_from_row(row, project_to=now) for row in rows}
 
+    def load_inbound_relationships(
+        self,
+        opponent_id: str,
+        *,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, RelationshipState]:
+        """Load every (*, opponent_id) row — the INBOUND edges, heat projected.
+
+        The mirror of `load_all_relationships`: that scans by `observer_id`
+        (this entity's view of everyone); this scans by `opponent_id`
+        (everyone's view OF this entity). Returns
+        `{observer_id: RelationshipState}`.
+
+        Used by the prestige aggregator to read the room's sentiment toward
+        the human (keyed by their `owner_id`) in one query when computing
+        `regard`. Note: `relationship_states` is not sandbox-scoped (v87), so
+        this returns the global inbound graph — which is correct, since the
+        edges accumulate globally as events fire. Hits
+        `idx_relationship_states_opponent` (v121).
+        """
+        if now is None:
+            now = datetime.utcnow()
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT observer_id, heat, respect, likability,
+                       last_seen, last_decay_tick
+                FROM relationship_states
+                WHERE opponent_id = ?
+                """,
+                (opponent_id,),
+            ).fetchall()
+            return {row['observer_id']: _state_from_row(row, project_to=now) for row in rows}
+
     # --- cash_pair_stats ---
 
     def save_cash_pair_stats(

@@ -61,7 +61,9 @@ def _emit_avatar_update(game_id: Optional[str], player_name: str, emotion: str) 
         )
 
 
-def generate_avatars_background(game_id: str, player_names: list) -> None:
+def generate_avatars_background(
+    game_id: str, player_names: list, owner_id: Optional[str] = None
+) -> None:
     """Generate avatar images for players in the background.
 
     Generates priority emotions (confident, thinking) first for each player,
@@ -71,6 +73,7 @@ def generate_avatars_background(game_id: str, player_names: list) -> None:
     Args:
         game_id: The game identifier
         player_names: List of player names to generate avatars for
+        owner_id: Optional user ID for tracking (and the per-owner budget gate)
     """
     logger.info(f"Background avatar generation started for game={game_id}, players={player_names}")
 
@@ -90,7 +93,9 @@ def generate_avatars_background(game_id: str, player_names: list) -> None:
         if priority:
             logger.info(f"Generating priority avatars ({priority}) for {player_name}...")
             try:
-                result = generate_character_images(player_name, emotions=priority, game_id=game_id)
+                result = generate_character_images(
+                    player_name, emotions=priority, game_id=game_id, owner_id=owner_id
+                )
                 generated = result.get('generated', 0)
                 if generated > 0:
                     for emotion in priority:
@@ -112,7 +117,9 @@ def generate_avatars_background(game_id: str, player_names: list) -> None:
     for player_name, emotions in remaining_work:
         logger.info(f"Generating remaining avatars ({emotions}) for {player_name}...")
         try:
-            result = generate_character_images(player_name, emotions=emotions, game_id=game_id)
+            result = generate_character_images(
+                player_name, emotions=emotions, game_id=game_id, owner_id=owner_id
+            )
             generated = result.get('generated', 0)
             if generated > 0:
                 for emotion in emotions:
@@ -185,19 +192,25 @@ def generate_single_emotion_background(
             _generation_in_progress.discard((player_name, emotion))
 
 
-def start_background_avatar_generation(game_id: str, ai_player_names: list) -> None:
+def start_background_avatar_generation(
+    game_id: str, ai_player_names: list, owner_id: Optional[str] = None
+) -> None:
     """Start background thread to generate missing avatars.
 
     Args:
         game_id: The game identifier
         ai_player_names: List of AI player names to check/generate
+        owner_id: Optional user ID for tracking (and the per-owner budget gate).
+            Pass the game owner so the paid spend attributes to them.
     """
     players_needing_images = [name for name in ai_player_names if not has_character_images(name)]
 
     if players_needing_images:
         logger.info(f"Starting background avatar generation for: {players_needing_images}")
         thread = threading.Thread(
-            target=generate_avatars_background, args=(game_id, players_needing_images), daemon=True
+            target=generate_avatars_background,
+            args=(game_id, players_needing_images, owner_id),
+            daemon=True,
         )
         thread.start()
 

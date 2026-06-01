@@ -67,9 +67,14 @@ def build_tiered_controller(
     # Baseline solver intentionally skips the expression layer — it's the
     # "pure GTO, no personality" option.
     if expression_enabled and not baseline:
+        from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
+
         llm_client = LLMClient(
             provider=llm_config.get('provider', 'openai'),
             model=llm_config.get('model'),
+            # PRH-18: in-game narration — bound it so a stalled provider can't
+            # hang the hand under the per-game lock.
+            default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
         )
         controller.expression_generator = ExpressionGenerator(
             llm_client=llm_client,
@@ -78,6 +83,217 @@ def build_tiered_controller(
         controller._expression_call_type = CallType.COMMENTARY
 
     return controller
+
+
+# Map of the rule-based "training" bot types exposed in Custom Game to their
+# underlying RuleBotController strategy name.
+_RULE_BOT_STRATEGY_MAP = {
+    'casebot': 'case_based_v2',  # promoted: value-extraction beats v1 4-12x vs clones
+    'regplus': 'reg_plus',  # disciplined value-extractor; beats casebot, robust vs bots
+    'gto_lite': 'pot_odds_robot',
+}
+
+
+def build_controller(
+    *,
+    bot_type: Optional[str],
+    player_name: str,
+    state_machine,
+    llm_config: Optional[dict] = None,
+    prompt_config=None,
+    game_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
+    capture_label_repo=None,
+    decision_analysis_repo=None,
+    expression_enabled: bool = True,
+    debug_logging: bool = False,
+    fish_leak=None,
+    stake_label: Optional[str] = None,
+    default_strategy: Optional[str] = None,
+):
+    """Construct the AI controller for a given ``bot_type``.
+
+    This is the single, canonical dispatch over bot type — the union of the
+    branch-sets that were previously copy-pasted across the new-game route,
+    the cash sit route, and the restore/refill paths. It ONLY constructs and
+    returns the controller object; all call-site bookkeeping (registering the
+    controller, stamping ``bot_types`` / ``llm_configs``, ``assign_bot``,
+    fish detection, memory wiring, logging) stays at the call site.
+
+    Dispatch:
+        - ``'fish'``        → build_fish_controller(...) — a tiered calling_station
+                              (unified off the rule bot); ``stake_label`` forces the
+                              weak_fish loadout at the $2 bottom tier
+        - ``'sharp'``       → build_tiered_controller(...)
+        - ``'baseline_solver'`` → build_tiered_controller(..., baseline=True)
+        - ``'casebot'`` / ``'regplus'`` / ``'gto_lite'`` → RuleBotController with
+                              the mapped rule strategy (case_based_v2 / reg_plus /
+                              pot_odds_robot)
+        - ``'chaos'``       → AIPlayerController (full LLM, full personality)
+        - ``'lean'``        → LeanBoundedController
+        - default/else      → HybridAIController, UNLESS ``default_strategy`` is
+                              set, in which case RuleBotController(strategy=bot_type)
+                              — this mirrors the restore path, which treats an
+                              unknown bot_type as a rule-bot strategy name.
+
+    Unknown-bot_type contract (intentional divergence -- NOT a bug):
+        The create paths and the restore path send unknown bot_types down
+        DIFFERENT fallbacks, and that is correct because they handle
+        NON-OVERLAPPING input domains:
+
+        * CREATE paths (``api_new_game``, cash sit/refill) never emit an
+          unknown bot_type. ``api_new_game`` rejects anything outside
+          ``VALID_BOT_TYPES`` (+ legacy aliases) with a 400; cash/refill only
+          pass ``assign_bot`` outputs (chaos/standard/sharp) or the literals
+          'fish'/'sharp'. So for create ``default_strategy is None`` and the
+          Hybrid fallback is reachable ONLY via the recognised 'standard' key.
+        * The RESTORE path reads PERSISTED bot_types. Today those are always
+          VALID_BOT_TYPES (handled by explicit branches above) or legacy
+          aliases (remapped before this call). The ``default_strategy``
+          else-branch below therefore only ever catches LEGACY RAW
+          rule-strategy names from old/experiment saves (e.g. 'abc',
+          'always_fold', 'case_based', 'pot_odds_robot') -- and routing those
+          to ``RuleBotController(strategy=bot_type)`` is exactly right (they
+          ARE rule-bot strategy names; RuleBotController itself defaults an
+          unrecognised strategy to always_fold).
+
+        Net: the "same unknown value builds a different class on create vs
+        restore" scenario cannot occur for any value a create path can emit.
+        If you ever add a NEW value to ``VALID_BOT_TYPES`` in game_routes you
+        MUST add a matching explicit branch here (above the else), or restored
+        games will silently route it to RuleBot. The regression test
+        ``tests/test_strategy/test_build_controller_unknown_bot_type.py`` pins
+        this contract.
+
+    Args:
+        default_strategy: When provided (any truthy marker), unknown bot types
+            are routed to ``RuleBotController(strategy=bot_type)`` rather than
+            ``HybridAIController``. Used by the restore path. Defaults to None
+            (new-game / cash semantics: unknown -> Hybrid).
+        fish_leak: Legacy kwarg, now IGNORED — the fish's tell rides on its
+            persona ``spot_tendencies``. Kept on the signature for back-compat.
+        stake_label: Forwarded to ``build_fish_controller`` on the ``'fish'``
+            branch; selects the weak_fish loadout at the $2 bottom tier. When
+            None, build_fish_controller reverse-looks-it-up from the big blind.
+        debug_logging: Forwarded to ``build_tiered_controller`` (sharp /
+            baseline_solver branches).
+    """
+    llm_config = llm_config or {}
+
+    if bot_type == 'fish':
+        # Fish run through the unified tiered engine as a `calling_station`
+        # (see build_fish_controller / docs/plans/FISH_AS_CALLING_STATION.md),
+        # NOT a RuleBotController. The fish's tell now rides on its persona's
+        # `spot_tendencies` (read natively on every build path), so `fish_leak`
+        # is no longer threaded here — the kwarg stays on the signature for
+        # back-compat with existing callers but is ignored on this branch.
+        return build_fish_controller(
+            player_name=player_name,
+            state_machine=state_machine,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+            stake_label=stake_label,
+        )
+
+    if bot_type == 'sharp':
+        return build_tiered_controller(
+            player_name=player_name,
+            state_machine=state_machine,
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+            expression_enabled=expression_enabled,
+            debug_logging=debug_logging,
+        )
+
+    if bot_type == 'baseline_solver':
+        return build_tiered_controller(
+            player_name=player_name,
+            state_machine=state_machine,
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+            baseline=True,
+        )
+
+    if bot_type in _RULE_BOT_STRATEGY_MAP:
+        from poker.rule_bot_controller import RuleBotController
+
+        return RuleBotController(
+            player_name=player_name,
+            state_machine=state_machine,
+            strategy=_RULE_BOT_STRATEGY_MAP[bot_type],
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    if bot_type == 'chaos':
+        from poker.controllers import AIPlayerController
+
+        return AIPlayerController(
+            player_name=player_name,
+            state_machine=state_machine,
+            llm_config=llm_config,
+            prompt_config=prompt_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    if bot_type == 'lean':
+        from poker.lean_bounded_controller import LeanBoundedController
+
+        return LeanBoundedController(
+            player_name,
+            state_machine,
+            llm_config=llm_config,
+            prompt_config=prompt_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    if default_strategy is not None and bot_type != 'standard':
+        # Restore-path semantics: an unrecognised bot_type is a rule-bot
+        # strategy name (e.g. 'abc', 'always_fold', 'case_based'). The explicit
+        # 'standard' key is excluded — it maps to HybridAIController below.
+        from poker.rule_bot_controller import RuleBotController
+
+        return RuleBotController(
+            player_name=player_name,
+            state_machine=state_machine,
+            strategy=bot_type,
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    # Default: HybridAIController (full prompt pipeline + bounded options).
+    from poker.hybrid_ai_controller import HybridAIController
+
+    return HybridAIController(
+        player_name,
+        state_machine,
+        llm_config=llm_config,
+        prompt_config=prompt_config,
+        game_id=game_id,
+        owner_id=owner_id,
+        capture_label_repo=capture_label_repo,
+        decision_analysis_repo=decision_analysis_repo,
+    )
 
 
 def build_fish_controller(

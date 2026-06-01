@@ -38,8 +38,8 @@ const CustomGameConfig = lazy(() =>
 const CareerStats = lazy(() =>
   import('./components/stats/CareerStats').then((m) => ({ default: m.CareerStats }))
 );
-const ProfilePage = lazy(() =>
-  import('./components/profile/ProfilePage').then((m) => ({ default: m.ProfilePage }))
+const SettingsPage = lazy(() =>
+  import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 );
 const InstallPrompt = lazy(() =>
   import('./components/pwa/InstallPrompt').then((m) => ({ default: m.InstallPrompt }))
@@ -51,6 +51,15 @@ const LandingPage = lazy(() =>
   import('./components/landing').then((m) => ({ default: m.LandingPage }))
 );
 const Lobby = lazy(() => import('./components/cash/Lobby').then((m) => ({ default: m.Lobby })));
+const TrainingMenu = lazy(() =>
+  import('./components/training/TrainingMenu').then((m) => ({ default: m.TrainingMenu }))
+);
+const PreflopLeaks = lazy(() =>
+  import('./components/training/PreflopLeaks').then((m) => ({ default: m.PreflopLeaks }))
+);
+const PreflopDrill = lazy(() =>
+  import('./components/training/PreflopDrill').then((m) => ({ default: m.PreflopDrill }))
+);
 const PrivacyPolicy = lazy(() =>
   import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
 );
@@ -59,6 +68,9 @@ const TermsOfService = lazy(() =>
 );
 const WinnerLayoutSandbox = lazy(() =>
   import('./components/dev/WinnerLayoutSandbox').then((m) => ({ default: m.WinnerLayoutSandbox }))
+);
+const RunoutCommitSandbox = lazy(() =>
+  import('./components/dev/RunoutCommitSandbox').then((m) => ({ default: m.RunoutCommitSandbox }))
 );
 
 // Fallback game limit values when usageStats hasn't loaded yet
@@ -76,9 +88,10 @@ const ROUTE_TITLES: Record<string, string> = {
   '/game/new/custom': 'Custom Game - My Poker Face',
   '/game/new/themed': 'Themed Game - My Poker Face',
   '/personalities': 'Manage Personalities - My Poker Face',
-  '/cash': 'Career - My Poker Face',
+  '/cash': 'The Circuit - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
-  '/profile': 'Your Profile - My Poker Face',
+  '/settings': 'Settings - My Poker Face',
+  '/profile': 'Settings - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
   '/privacy': 'Privacy Policy - My Poker Face',
   '/terms': 'Terms of Service - My Poker Face',
@@ -407,6 +420,32 @@ function App() {
     fetchSavedGamesCount();
   };
 
+  // Training mode: create a non-counting practice game vs difficulty-tiered
+  // opponents and drop into it. Reuses the standard /game/:id view.
+  const handleStartTraining = async (difficulty: string, presetId: string) => {
+    if (isCreatingGame) return;
+    setIsCreatingGame(true);
+    try {
+      const response = await fetch(`${config.API_URL}/api/training/start`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerName, difficulty, preset_id: presetId }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        navigate(`/game/${data.game_id}`);
+      } else {
+        toast.error(data.error || 'Failed to start practice game. Please try again.');
+      }
+    } catch (error) {
+      logger.error('Failed to start training game:', error);
+      toast.error('Failed to start practice game. Please try again.');
+    } finally {
+      setIsCreatingGame(false);
+    }
+  };
+
   // Show loading state while checking auth
   if (authLoading) {
     return (
@@ -451,6 +490,7 @@ function App() {
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/dev/winner-layout" element={<WinnerLayoutSandbox />} />
+            <Route path="/dev/runout-commit" element={<RunoutCommitSandbox />} />
 
             {/* Protected routes */}
             <Route
@@ -461,8 +501,51 @@ function App() {
                     playerName={playerName}
                     onCashMode={() => navigate('/cash')}
                     onTournament={() => navigate('/menu/tournament')}
+                    onTraining={() => navigate('/menu/training')}
                     onAdminDashboard={() => navigate('/admin')}
                   />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training"
+              element={
+                <ProtectedRoute>
+                  <TrainingMenu
+                    playerName={playerName}
+                    onStart={handleStartTraining}
+                    onReviewGame={() => navigate('/menu/training/leaks')}
+                    onBack={() => navigate('/menu')}
+                    isCreating={isCreatingGame}
+                  />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/leaks"
+              element={
+                <ProtectedRoute>
+                  <PreflopLeaks
+                    onBack={() => navigate('/menu/training')}
+                    onDrill={(scenario, position) =>
+                      navigate(
+                        scenario && position
+                          ? `/menu/training/drill?scenario=${scenario}&position=${position}`
+                          : '/menu/training/drill'
+                      )
+                    }
+                  />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/drill"
+              element={
+                <ProtectedRoute>
+                  <PreflopDrill onBack={() => navigate('/menu/training/leaks')} />
                 </ProtectedRoute>
               }
             />
@@ -549,13 +632,15 @@ function App() {
             />
 
             <Route
-              path="/profile"
+              path="/settings"
               element={
                 <ProtectedRoute>
-                  <ProfilePage onBack={() => navigate('/menu')} />
+                  <SettingsPage onBack={() => navigate('/menu')} />
                 </ProtectedRoute>
               }
             />
+            {/* Profile moved under Settings — keep the old path working. */}
+            <Route path="/profile" element={<Navigate to="/settings" replace />} />
 
             <Route
               path="/admin/*"
@@ -570,7 +655,11 @@ function App() {
               path="/cash"
               element={
                 <ProtectedRoute>
-                  <Lobby />
+                  <ErrorBoundary
+                    fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}
+                  >
+                    <Lobby />
+                  </ErrorBoundary>
                 </ProtectedRoute>
               }
             />

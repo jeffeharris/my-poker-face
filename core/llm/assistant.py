@@ -38,6 +38,7 @@ class Assistant:
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
         player_name: Optional[str] = None,
+        default_timeout: Optional[float] = None,
     ):
         """Initialize assistant.
 
@@ -52,12 +53,16 @@ class Assistant:
             game_id: Default game ID for tracking
             owner_id: Default user ID for tracking
             player_name: Default AI player name for tracking
+            default_timeout: Optional per-call HTTP timeout (seconds) for every
+                chat/chat_full on this assistant. In-game player assistants set a
+                short value (PRH-18) so a stalled provider can't hang a hand.
         """
         self._client = LLMClient(
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
             tracker=tracker,
+            default_timeout=default_timeout,
         )
         self._provider = provider
         self._reasoning_effort = reasoning_effort

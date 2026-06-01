@@ -72,9 +72,7 @@ def _bound_to_cap(
     base_arr = np.array([base.action_probabilities[k] for k in keys])
     cand_arr = np.array([candidate.action_probabilities[k] for k in keys])
     bounded = _clip_and_normalize(cand_arr, base_arr, max_shift)
-    return StrategyProfile(
-        action_probabilities={k: float(bounded[i]) for i, k in enumerate(keys)}
-    )
+    return StrategyProfile(action_probabilities={k: float(bounded[i]) for i, k in enumerate(keys)})
 
 
 def _dampen_aggression(

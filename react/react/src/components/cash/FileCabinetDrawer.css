@@ -1,0 +1,691 @@
+/*
+ * FileCabinetDrawer — "The Archive"
+ *
+ * The dossier index, in the same noir case-file world as CharacterDetailCard:
+ * aged paper on a smoky overlay, gold-leaf rules, JetBrains Mono classification
+ * type, a wet-ink CONFIDENTIAL stamp, manila folders with colored tabs. All
+ * pure CSS — no image assets. Palette + fonts mirror the dossier card so the
+ * index and the files it opens read as one artifact.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,700;0,6..96,900;1,6..96,400&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+.archive-overlay {
+  --paper: #ece1c8;
+  --paper-hi: #f5ecd5;
+  --paper-lo: #d8cbab;
+  --paper-shadow: #a89878;
+  --manila: #d9c79a;
+  --manila-lo: #c9b681;
+  --ink: #1a1410;
+  --ink-soft: #4a3d31;
+  --ink-faint: #7a6a55;
+  --gold-leaf: #b08433;
+  --gold-bright: #e2bf6f;
+  --emerald: #1d4a3c;
+  --emerald-bright: #3c7d63;
+  --crimson: #8a1d22;
+  --crimson-wet: #b22a2f;
+
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 4vw, 44px);
+  background:
+    radial-gradient(ellipse at center, rgba(20, 16, 12, 0.6) 0%, rgba(6, 4, 2, 0.94) 70%),
+    linear-gradient(135deg, #0c0805 0%, #1a120a 100%);
+  font-family: 'Fraunces', Georgia, serif;
+  cursor: pointer;
+  isolation: isolate;
+  animation: archive-fade 0.25s ease-out;
+}
+
+@keyframes archive-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.archive-overlay__grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+}
+
+/* ── The drawer / archive sheet ────────────────────────────────── */
+.archive {
+  position: relative;
+  width: min(540px, 96vw);
+  max-height: min(90vh, 860px);
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+  padding: clamp(22px, 4vw, 34px) clamp(18px, 3.5vw, 30px) clamp(14px, 2.5vw, 22px);
+  color: var(--ink);
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 23px,
+      rgba(120, 95, 60, 0.05) 24px
+    ),
+    radial-gradient(ellipse at 30% 0%, var(--paper-hi) 0%, var(--paper) 55%, var(--paper-lo) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 240, 200, 0.4) inset,
+    0 -1px 0 rgba(80, 60, 30, 0.18) inset,
+    0 24px 60px -12px rgba(0, 0, 0, 0.7),
+    0 60px 120px -30px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(80, 60, 30, 0.25);
+  outline: 1px solid var(--gold-leaf);
+  outline-offset: -10px;
+  animation: archive-rise 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes archive-rise {
+  from { transform: translateY(26px) scale(0.985); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* paper grain over the sheet */
+.archive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.32;
+  mix-blend-mode: multiply;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='1.7' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.27  0 0 0 0 0.17  0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+  background-size: 220px 220px;
+}
+
+/* ── Close: ink dot with a thick × (mirrors dossier) ───────────── */
+.archive__close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 5;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper-hi);
+  cursor: pointer;
+  font-family: 'Bodoni Moda', serif;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  padding: 0 0 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(255, 246, 220, 0.5);
+  transition: transform 0.18s ease-out, background 0.18s ease-out;
+}
+.archive__close:hover {
+  background: var(--crimson-wet);
+  transform: rotate(90deg);
+}
+
+/* ── Wet-ink CONFIDENTIAL stamp ────────────────────────────────── */
+.archive__stamp {
+  position: absolute;
+  top: clamp(20px, 5vw, 38px);
+  right: clamp(40px, 8vw, 70px);
+  z-index: 4;
+  padding: 6px 16px 4px;
+  border: 3px double var(--crimson);
+  color: var(--crimson);
+  text-align: center;
+  pointer-events: none;
+  transform: rotate(-8deg);
+  background:
+    radial-gradient(ellipse at 30% 50%, rgba(178, 42, 47, 0.07), transparent 60%),
+    radial-gradient(ellipse at 80% 70%, rgba(178, 42, 47, 0.05), transparent 50%);
+  text-shadow: 0 0 1px rgba(138, 29, 34, 0.4), 0.5px 0 0 rgba(138, 29, 34, 0.35);
+  filter: contrast(1.05);
+  opacity: 0.9;
+}
+.archive__stamp-inner {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  line-height: 1;
+}
+.archive__stamp-sub {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  margin-top: 3px;
+  letter-spacing: 0.3em;
+  opacity: 0.85;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.archive__header {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(60, 45, 25, 0.25);
+}
+.archive__classification {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: var(--ink-soft);
+}
+.archive__class-tag {
+  padding: 3px 8px;
+  background: var(--ink);
+  color: var(--paper-hi);
+  letter-spacing: 0.32em;
+}
+.archive__class-dot {
+  width: 4px;
+  height: 4px;
+  background: var(--gold-leaf);
+  transform: rotate(45deg);
+}
+.archive__title {
+  margin: 10px 0 6px;
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 900;
+  font-size: clamp(26px, 6vw, 36px);
+  line-height: 0.98;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.archive__census {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.archive__census strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+.archive__census-sep {
+  color: var(--gold-leaf);
+  margin: 0 8px;
+  font-size: 7px;
+  vertical-align: middle;
+}
+
+/* ── Sort index (file dividers) ─────────────────────────────────── */
+.archive__index {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.archive__index-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--ink-faint);
+}
+.archive__index-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.archive__index-tab {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 3px 9px 4px;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-soft);
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.archive__index-tab:hover {
+  color: var(--ink);
+}
+.archive__index-tab--active {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--gold-leaf);
+}
+
+/* ── The drawer of folders ──────────────────────────────────────── */
+.archive__drawer {
+  position: relative;
+  z-index: 2;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+/* ── A manila folder ────────────────────────────────────────────── */
+.folder {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  border: 1px solid var(--paper-shadow);
+  border-left: none;
+  border-radius: 2px 4px 4px 2px;
+  background:
+    linear-gradient(135deg, var(--manila) 0%, var(--manila-lo) 100%);
+  box-shadow: 0 1px 2px rgba(60, 45, 25, 0.25), 0 1px 0 rgba(255, 244, 214, 0.4) inset;
+  overflow: hidden;
+  transform-origin: left center;
+  animation: folder-slide 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: transform 0.16s ease-out, box-shadow 0.16s ease-out;
+}
+.folder:hover {
+  transform: translateX(5px);
+  box-shadow: 0 4px 12px rgba(40, 28, 12, 0.35), 0 1px 0 rgba(255, 244, 214, 0.5) inset;
+}
+.folder:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 2px;
+}
+
+@keyframes folder-slide {
+  from { transform: translateX(-14px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* the colored file tab on the left edge */
+.folder__tab {
+  flex: 0 0 7px;
+  background: var(--gold-leaf);
+}
+.folder--complete .folder__tab {
+  background: var(--emerald-bright);
+}
+.folder--classified .folder__tab {
+  background: var(--paper-shadow);
+}
+.folder--partial .folder__tab {
+  background: var(--gold-leaf);
+}
+
+.folder__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px 10px;
+}
+.folder__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.folder__no {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+.folder__rival {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--crimson);
+  border: 1px solid var(--crimson);
+  padding: 1px 4px;
+  transform: rotate(-3deg);
+}
+.folder__pnl {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.folder__pnl--pos { color: var(--emerald); }
+.folder__pnl--neg { color: var(--crimson); }
+.folder__pnl--even { color: var(--ink-faint); }
+
+.folder__name {
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.1;
+  margin: 1px 0 4px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.folder__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.folder__hands {
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.folder__status {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.folder__status--complete { color: var(--emerald); }
+.folder__status--partial { color: var(--gold-leaf); }
+.folder__status--classified { color: var(--crimson); }
+
+.folder__progress {
+  margin-top: 7px;
+  height: 2px;
+  background: rgba(60, 45, 25, 0.18);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.folder__progress-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-leaf), var(--gold-bright));
+}
+.folder--complete .folder__progress-fill {
+  background: linear-gradient(90deg, var(--emerald), var(--emerald-bright));
+}
+
+/* ── Empty state ────────────────────────────────────────────────── */
+.archive__empty {
+  text-align: center;
+  padding: 2.5rem 1.5rem 2rem;
+  color: var(--ink-soft);
+}
+.archive__empty-stamp {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  color: var(--crimson);
+  border: 3px double var(--crimson);
+  padding: 8px 18px 6px;
+  transform: rotate(-6deg);
+  opacity: 0.85;
+  margin-bottom: 1.1rem;
+}
+.archive__empty p {
+  margin: 0 auto;
+  max-width: 30ch;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archive-overlay,
+  .archive,
+  .folder {
+    animation: none;
+  }
+}
+
+/* ── Search: a typed query line on the paper ────────────────────── */
+.archive__search {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding: 5px 4px 6px;
+  border-bottom: 1.5px solid var(--gold-leaf);
+}
+.archive__search-icon {
+  color: var(--ink-faint);
+  flex: 0 0 auto;
+}
+.archive__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.archive__search-input::placeholder {
+  color: var(--ink-faint);
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+.archive__search-clear {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: 'Bodoni Moda', serif;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink-faint);
+  padding: 0 2px 2px;
+}
+.archive__search-clear:hover {
+  color: var(--crimson);
+}
+
+.archive__no-match {
+  text-align: center;
+  padding: 1.6rem 1rem;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   IntelHub — the field office (tabs + dispatch wire + field roster)
+   ════════════════════════════════════════════════════════════════ */
+
+.intel-hub {
+  width: min(560px, 96vw);
+  /* Lock the height so switching tabs doesn't resize the whole panel — only
+     the inner content scrolls. Capped to the viewport on short screens. */
+  height: min(78vh, 720px);
+}
+
+/* Tabs as file-divider folder tabs along the top of the drawer */
+.intel-hub__tabs {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(60, 45, 25, 0.3);
+}
+.intel-hub__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 7px 13px 8px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  margin-bottom: -1px;
+  background: transparent;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  transition: color 0.14s ease, background 0.14s ease;
+}
+.intel-hub__tab:hover {
+  color: var(--ink-soft);
+}
+.intel-hub__tab--active {
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at 50% 0%, var(--paper-hi) 0%, var(--manila) 120%);
+  border-color: rgba(60, 45, 25, 0.3);
+  box-shadow: 0 -2px 0 var(--gold-leaf) inset;
+}
+.intel-hub__tab svg {
+  color: var(--gold-leaf);
+}
+
+.intel-hub__panel {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+/* The cabinet panel's own drawer shouldn't make a second scroll context
+   inside the hub — let the hub panel own the scroll. */
+.intel-hub__panel .archive__drawer {
+  overflow: visible;
+}
+
+/* ── Dispatches: the live wire ──────────────────────────────────── */
+.intel-wire {
+  display: flex;
+  flex-direction: column;
+}
+.intel-wire__line {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 7px 2px;
+  border-bottom: 1px dashed rgba(120, 95, 60, 0.22);
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.intel-wire__line:last-child {
+  border-bottom: none;
+}
+.intel-wire__glyph {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--gold-leaf);
+}
+.intel-wire__glyph .lobby-ticker__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  display: inline-block;
+}
+.intel-wire__msg {
+  flex: 1 1 auto;
+}
+/* a little chip-drama coloring, restrained */
+.intel-wire__line--big_win .intel-wire__glyph,
+.intel-wire__line--whale_arrival .intel-wire__glyph {
+  color: var(--emerald-bright);
+}
+.intel-wire__line--bust .intel-wire__glyph,
+.intel-wire__line--big_loss .intel-wire__glyph,
+.intel-wire__line--last_stand .intel-wire__glyph {
+  color: var(--crimson);
+}
+
+/* ── Whereabouts: the field roster ──────────────────────────────── */
+.intel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.intel-field__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 2px;
+  border-bottom: 1px dashed rgba(120, 95, 60, 0.22);
+}
+.intel-field__row:last-child {
+  border-bottom: none;
+}
+.intel-field__dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.intel-field__row--seated .intel-field__dot { background: var(--emerald-bright); }
+.intel-field__row--side_hustle .intel-field__dot { background: var(--gold-leaf); }
+.intel-field__row--vice .intel-field__dot { background: var(--crimson-wet); }
+.intel-field__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.intel-field__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.intel-field__name {
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--ink);
+}
+.intel-field__tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--ink-faint);
+  border: 1px solid rgba(60, 45, 25, 0.3);
+  padding: 1px 5px;
+}
+.intel-field__pnl {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.intel-field__pnl--pos { color: var(--emerald); }
+.intel-field__pnl--neg { color: var(--crimson); }
+.intel-field__pnl--even { color: var(--ink-faint); }
+.intel-field__detail {
+  margin-top: 2px;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-soft);
+}

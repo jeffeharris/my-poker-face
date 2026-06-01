@@ -103,13 +103,15 @@ export function Chat({
             {/* Message Input */}
             <form className="chat-input-form" onSubmit={handleSendMessage}>
               {guestChatDisabled && (
-                <div className="chat-disabled-notice">Chat available next turn</div>
+                <div className="chat-disabled-notice">Sign in with Google to chat</div>
               )}
               <div className="input-container">
                 <input
                   type="text"
                   className="chat-input"
-                  placeholder={guestChatDisabled ? 'Chat available next turn' : 'Type a message...'}
+                  placeholder={
+                    guestChatDisabled ? 'Sign in with Google to chat' : 'Type a message...'
+                  }
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   maxLength={200}

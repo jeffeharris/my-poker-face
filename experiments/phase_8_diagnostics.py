@@ -41,9 +41,7 @@ from experiments.simulate_bb100 import (
 from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_state_machine import PokerStateMachine
 
-PHASE_8_PREFIXES = (
-    'value_vs_station_',
-)
+PHASE_8_PREFIXES = ('value_vs_station_',)
 
 
 def run_diagnostic_matchup(

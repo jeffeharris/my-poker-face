@@ -148,7 +148,7 @@ class SandboxRepository(BaseRepository):
                     """
                     SELECT sandbox_id, owner_id, name, created_at, archived_at
                     FROM sandboxes WHERE owner_id = ?
-                    ORDER BY created_at ASC
+                    ORDER BY created_at ASC, name ASC
                     """,
                     (owner_id,),
                 ).fetchall()
@@ -158,7 +158,7 @@ class SandboxRepository(BaseRepository):
                     SELECT sandbox_id, owner_id, name, created_at, archived_at
                     FROM sandboxes
                     WHERE owner_id = ? AND archived_at IS NULL
-                    ORDER BY created_at ASC
+                    ORDER BY created_at ASC, name ASC
                     """,
                     (owner_id,),
                 ).fetchall()
@@ -182,7 +182,7 @@ class SandboxRepository(BaseRepository):
                     """
                     SELECT sandbox_id, owner_id, name, created_at, archived_at
                     FROM sandboxes
-                    ORDER BY created_at ASC
+                    ORDER BY created_at ASC, name ASC
                     """
                 ).fetchall()
             else:
@@ -191,7 +191,7 @@ class SandboxRepository(BaseRepository):
                     SELECT sandbox_id, owner_id, name, created_at, archived_at
                     FROM sandboxes
                     WHERE archived_at IS NULL
-                    ORDER BY created_at ASC
+                    ORDER BY created_at ASC, name ASC
                     """
                 ).fetchall()
             return [_row_to_state(r) for r in rows]

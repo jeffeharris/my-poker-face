@@ -6,7 +6,7 @@ import os
 import sqlite3
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 # Cache TTL in seconds (1 hour)
 PRICING_CACHE_TTL = 3600
+
+# Spend-reader cache TTL in seconds. Short, because this backs the per-call
+# spend gate (PRH-2): we must not add a DB read to every LLM call on the hot
+# decision path, but the running total may only lag reality by a few seconds.
+SPEND_CACHE_TTL = 30
+
+# Default rolling window for the daily spend ceiling.
+SPEND_WINDOW_HOURS = 24
 
 # Configurable database path for prompt captures
 _capture_db_path: Optional[str] = None
@@ -108,6 +116,12 @@ class UsageTracker:
         self._cache_loaded_at: Optional[float] = None
         self._cache_lock = threading.Lock()
 
+        # Spend cache (PRH-2): {(owner_id_or_None, window_hours): (computed_at_epoch, total_usd)}.
+        # owner_id == None is the global (all-owners) running total. The window
+        # is part of the key so two different windows can't alias each other.
+        self._spend_cache: Dict[Tuple[Optional[str], int], Tuple[float, float]] = {}
+        self._spend_cache_lock = threading.Lock()
+
     @classmethod
     def get_default(cls) -> "UsageTracker":
         """Get or create the default singleton tracker (thread-safe)."""
@@ -168,7 +182,7 @@ class UsageTracker:
 
         # Persist to database
         try:
-            self._insert_usage(
+            estimated_cost = self._insert_usage(
                 response=response,
                 call_type=call_type,
                 game_id=game_id,
@@ -179,6 +193,10 @@ class UsageTracker:
                 message_count=message_count,
                 system_prompt_tokens=system_prompt_tokens,
             )
+            # Keep the spend cache (PRH-2) honest without a DB re-read: fold this
+            # call's cost into any warm cached totals so the budget gate sees it
+            # immediately, instead of lagging up to SPEND_CACHE_TTL behind it.
+            self._bump_spend_cache(owner_id, estimated_cost)
         except Exception as e:
             logger.error(f"Failed to persist usage data: {e}")
 
@@ -240,6 +258,146 @@ class UsageTracker:
         """Force cache refresh on next lookup. Call after updating pricing."""
         with self._cache_lock:
             self._cache_loaded_at = None
+
+    # ------------------------------------------------------------------
+    # Spend reader (PRH-2 — the read side of the global/per-owner kill-switch)
+    # ------------------------------------------------------------------
+    def get_recent_spend(
+        self,
+        owner_id: Optional[str] = None,
+        window_hours: int = SPEND_WINDOW_HOURS,
+    ) -> float:
+        """Return summed `estimated_cost` (USD) over a rolling window.
+
+        Backs the spend gate, so it is cached in memory with a short TTL
+        (`SPEND_CACHE_TTL`) to keep a DB read off the hot per-call path.
+
+        Args:
+            owner_id: If given, sum only rows for that owner; otherwise sum
+                across all owners (the global total).
+            window_hours: Rolling window size in hours (default 24h).
+
+        Returns:
+            Total estimated USD spend over the window. Rows with a NULL
+            `estimated_cost` (missing pricing) count as $0. Fails open: on any
+            DB error this returns 0.0 (and logs) so a spend backstop can never
+            freeze the game over a DB hiccup.
+        """
+        cache_key = (owner_id, window_hours)
+        now = datetime.now(timezone.utc).timestamp()
+        with self._spend_cache_lock:
+            cached = self._spend_cache.get(cache_key)
+            if cached is not None and now - cached[0] < SPEND_CACHE_TTL:
+                return cached[1]
+
+        # Recompute outside the lock — the SUM query is the slow part and we
+        # don't want to serialize concurrent callers behind it.
+        total = self._query_recent_spend(owner_id, window_hours)
+
+        with self._spend_cache_lock:
+            self._spend_cache[cache_key] = (now, total)
+        return total
+
+    def _query_recent_spend(self, owner_id: Optional[str], window_hours: int) -> float:
+        """Run the rolling-window SUM(estimated_cost) query. Fails open (0.0)."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                if owner_id is None:
+                    row = conn.execute(
+                        "SELECT COALESCE(SUM(estimated_cost), 0) FROM api_usage "
+                        "WHERE created_at >= ?",
+                        (cutoff,),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT COALESCE(SUM(estimated_cost), 0) FROM api_usage "
+                        "WHERE created_at >= ? AND owner_id = ?",
+                        (cutoff, owner_id),
+                    ).fetchone()
+            return float(row[0]) if row and row[0] is not None else 0.0
+        except Exception as e:
+            # Fail open: a cost backstop must never freeze the game on a DB error.
+            logger.error(f"Failed to read recent LLM spend (failing open, returning $0): {e}")
+            return 0.0
+
+    def invalidate_spend_cache(self) -> None:
+        """Drop the cached spend totals so the next read recomputes immediately."""
+        with self._spend_cache_lock:
+            self._spend_cache.clear()
+
+    def find_recent_null_cost_combos(
+        self, window_hours: int = SPEND_WINDOW_HOURS
+    ) -> List[Tuple[str, str, int]]:
+        """Find (provider, model) pairs with recent api_usage rows missing a cost.
+
+        Rows where ``estimated_cost IS NULL`` slip the budget cap silently
+        (``COALESCE(SUM, 0)`` treats them as $0) — almost always because the
+        ``model_pricing`` row is missing for that SKU. Surfaces them as a list
+        of ``(provider, model, count)`` so a startup check can warn loudly.
+
+        Fails open to an empty list on any DB error — this is observability,
+        not enforcement.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                rows = conn.execute(
+                    "SELECT provider, model, COUNT(*) FROM api_usage "
+                    "WHERE estimated_cost IS NULL AND created_at >= ? "
+                    "GROUP BY provider, model "
+                    "ORDER BY COUNT(*) DESC",
+                    (cutoff,),
+                ).fetchall()
+            return [(row[0], row[1], int(row[2])) for row in rows]
+        except Exception as e:
+            logger.debug(f"Could not query NULL-cost api_usage rows: {e}")
+            return []
+
+    def prune_old_usage(self, retention_days: int) -> int:
+        """Delete api_usage rows older than ``retention_days`` (PRH-32).
+
+        0 or negative = keep everything (no-op). Compares against an ISO cutoff
+        string, matching how ``created_at`` is written (UTC isoformat) and how
+        ``find_recent_null_cost_combos`` reads it. Fails open (logs, returns 0)
+        — this is housekeeping, never gameplay-critical.
+        """
+        if retention_days <= 0:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("DELETE FROM api_usage WHERE created_at < ?", (cutoff,))
+                deleted = cursor.rowcount
+            if deleted:
+                logger.info(
+                    "[RETENTION] purged %d api_usage row(s) older than %d days",
+                    deleted,
+                    retention_days,
+                )
+            return deleted
+        except Exception as e:
+            logger.warning("[RETENTION] api_usage purge failed: %s", e)
+            return 0
+
+    def _bump_spend_cache(self, owner_id: Optional[str], cost: Optional[float]) -> None:
+        """Add ``cost`` to any warm cached spend totals this call counts toward.
+
+        A just-recorded call falls inside every active rolling window, so we bump
+        the global key (``None``) and the call's owner key for *all* window sizes.
+        The cached entry's original timestamp is preserved, so the TTL still
+        forces a full DB recompute within ``SPEND_CACHE_TTL`` — this bump is an
+        eager correction between recomputes, not a replacement for them, so it
+        cannot drift or double-count (the recompute reads the persisted row).
+        Missing cache keys are left alone: the next read computes them fresh from
+        the DB, which already includes this row.
+        """
+        if not cost or cost <= 0:
+            return
+        with self._spend_cache_lock:
+            for (key_owner, window), (computed_at, total) in list(self._spend_cache.items()):
+                if key_owner is None or key_owner == owner_id:
+                    self._spend_cache[(key_owner, window)] = (computed_at, total + cost)
 
     def _get_sku_pricing(
         self,
@@ -345,8 +503,8 @@ class UsageTracker:
         prompt_template: Optional[str],
         message_count: Optional[int],
         system_prompt_tokens: Optional[int],
-    ) -> None:
-        """Insert usage record into database."""
+    ) -> Optional[float]:
+        """Insert usage record into database. Returns the estimated cost (USD)."""
         is_image = isinstance(response, ImageResponse)
 
         with sqlite3.connect(self.db_path) as conn:
@@ -398,6 +556,8 @@ class UsageTracker:
                     pricing_ids_json,
                 ),
             )
+
+        return estimated_cost
 
 
 def capture_prompt(

@@ -22,11 +22,21 @@ and §"Locked decisions" (3 — kill_all_cash_sessions).
 
 from __future__ import annotations
 
+import itertools
 import logging
 import random
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from cash_mode.attractiveness import (
+    CASINO_VENUE_APPEAL,
+    DEFAULT_SEEK_RATE,
+    FillableTable,
+    SeatSeeker,
+    assign_seats_greedy,
+    seeker_buy_in,
+)
 from cash_mode.bankroll import (
     AIBankrollState,
     project_bankroll,
@@ -39,12 +49,16 @@ from cash_mode.full_sim import (
 )
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
+    RESEAT_RECOVERY_FLOOR,
     RosterRefreshResult,
+    is_in_cooldown,
     is_in_vice_cooldown,
     project_idle_energy,
     record_vice_cooldown,
     refresh_table_roster,
+    reseat_readiness,
 )
+from cash_mode.seat_registry import SeatOccupancyRegistry
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
 from cash_mode.stakes_ladder import (
@@ -60,7 +74,182 @@ from cash_mode.tables import (
     open_slot,
 )
 
+# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
+# authoritative `save_table` seat write into the dormant `entity_presence`
+# table via `presence_shadow.shadow_transition`, which is a guarded no-op
+# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
+# in try/except so it can never break the real seat write it shadows. See
+# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
+from cash_mode import presence_shadow
+from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
+
 logger = logging.getLogger(__name__)
+
+
+def _shadow_seat_state(table: CashTableState) -> Dict[str, Tuple[str, int]]:
+    """Map of `entity_id -> (table_id, seat_index)` for the *occupied* seats
+    of `table`, in the Presence ledger-entity convention
+    (`player:<owner_id>` / `ai:<personality_id>`).
+
+    The real lobby seat writers persist a whole `CashTableState` rather than
+    moving one entity at a time, so the dual-write shadow derives "who is
+    where" from the table that was just saved. Open / reserved seats are
+    skipped (only `kind in {ai, human}` produce a Presence row).
+    """
+    out: Dict[str, Tuple[str, int]] = {}
+    for idx, slot in enumerate(table.seats):
+        kind = slot.get("kind")
+        if kind == "ai":
+            pid = slot.get("personality_id")
+            if pid:
+                out[ai_entity_id(pid)] = (table.table_id, idx)
+        elif kind == "human":
+            # `human_slot` (cash_mode/tables.py) stores the player owner_id in
+            # `personality_id` (so the routing layer can treat human + AI seats
+            # uniformly when checking occupancy). Check it LAST so the explicit
+            # owner_id/player_id/user_id keys still win if a slot ever carries
+            # them — but without `personality_id` the human is silently dropped
+            # and never gets a Presence row (the merged Phase-1 reader's bug).
+            owner = (
+                slot.get("owner_id")
+                or slot.get("player_id")
+                or slot.get("user_id")
+                or slot.get("personality_id")
+            )
+            if owner:
+                out[player_entity_id(owner)] = (table.table_id, idx)
+    return out
+
+
+def _shadow_repo():
+    """Resolve the `entity_presence` repository the same way
+    `presence_shadow.shadow_transition` does, so the dual-write reconcile can
+    *read* current presence to emit minimal, legal transitions. Returns None
+    (silently) when shadow writes are off or the repo isn't wired (sim / cold
+    boot) — the reconcile then degrades to no-ops, exactly like the helper."""
+    if not presence_shadow.is_enabled():
+        return None
+    try:
+        from flask_app import extensions
+
+        return getattr(extensions, "entity_presence_repo", None)
+    except Exception:  # noqa: BLE001 — never let shadow plumbing break the real path
+        return None
+
+
+def _shadow_reconcile_table(
+    table: CashTableState,
+    sandbox_id: Optional[str],
+    *,
+    repo=None,
+) -> None:
+    """Dual-write SHADOW: make `entity_presence` agree with the seat map of a
+    table that was just authoritatively saved.
+
+    Because the lobby persists a whole `CashTableState` (not per-entity
+    seat/vacate ops), we derive the Presence transitions by diffing the saved
+    seat map against current shadow state:
+
+      - occupant not currently SEATED here    -> `SIT` (legal from
+        OFFLINE/IDLE/POOL — a fresh seed, an idle re-seat, or a pool fish);
+      - occupant currently SEATED *elsewhere* -> `LEAVE` then `SIT` (a move);
+      - occupant already SEATED at this exact seat -> nothing (avoids the
+        illegal `SEATED --sit--> SEATED` self-edge, which would otherwise spam
+        the divergence log every refresh tick).
+
+    Vacated seats ARE turned into `LEAVE`s here (§C dedup decision): an entity
+    that left this table to the idle pool / off-grid / a bust appears only as
+    its absence from the new seat map, so step (1) below LEAVE-clears any stale
+    `SEATED` row this table still holds in the shadow. Without that, the stale
+    row keeps occupying the seat in the partial-unique index and the next
+    rightful `SIT` collides and is swallowed, stranding that entity unseated.
+    A cross-table *move* is still handled per-entity in step (2) (LEAVE-then-SIT
+    against the source table). The destination of a bare idle departure is left
+    to the machine's IDLE state; the idle-pool repo is deliberately NOT also
+    shadow-wired (that would double-drive — migration inventory §C).
+
+    Flag-gated + best-effort throughout (`_shadow_repo` returns None when the
+    switch is off; each transition goes through `presence_shadow`'s
+    try/except). `sandbox_id` must be the real sandbox — never the
+    `entity_presence` `'default'` fallback bucket (migration doc gotcha).
+    """
+    if sandbox_id is None:
+        return
+    # Under the AUTHORITY flip, `save_table` drives presence authoritatively
+    # inside its own transaction — this call-site reconcile (a separate
+    # connection, AFTER the commit) would be redundant and, in a TOCTOU window,
+    # could emit a spurious LEAVE against an entity a later save just seated.
+    # So skip entirely once authority is on; the chokepoint is the sole seat
+    # writer. (Off-grid mirroring still runs via presence_shadow.)
+    from cash_mode import economy_flags
+    if getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
+        return
+    if repo is None:
+        repo = _shadow_repo()
+    if repo is None:
+        return
+
+    desired = _shadow_seat_state(table)  # entity_id -> (table_id, seat_index)
+
+    # (1) Clear STALE occupants of this table first. The lobby persists a whole
+    # `CashTableState`, so a seat an entity vacated (to the idle pool / off-grid
+    # / a bust) shows up only as that entity's *absence* from the new seat map —
+    # never as an event. If we don't emit its `LEAVE`, the shadow keeps a stale
+    # `SEATED` row holding that seat in the partial-unique index, and the next
+    # entity that legitimately takes the seat collides (`IntegrityError`, which
+    # `shadow_transition` swallows) and is stranded unseated. This is the §C
+    # dedup decision (CASH_MODE_PRESENCE_MIGRATION.md): the seat->IDLE `LEAVE` is
+    # emitted HERE, by the reconcile that already sees the seat go empty — not at
+    # the idle-pool repo layer. So: LEAVE everyone the shadow currently has
+    # SEATED at THIS table who is not still in the new map at the same seat.
+    try:
+        seated_here = [
+            s for s in repo.list_for_sandbox(sandbox_id)
+            if s.is_seated and s.table_id == table.table_id
+        ]
+    except Exception:  # noqa: BLE001 — read failure must not break the real path
+        seated_here = []
+    for s in seated_here:
+        if desired.get(s.entity_id) == (s.table_id, s.seat_index):
+            continue  # still correctly seated here — leave it be
+        presence_shadow.shadow_transition(
+            entity_id=s.entity_id,
+            sandbox_id=sandbox_id,
+            event=PresenceEvent.LEAVE,
+            repo=repo,
+        )
+
+    # (2) Seat the desired occupants. A `SIT` is legal from OFFLINE/IDLE/POOL;
+    # an entity SEATED *elsewhere* (a cross-table move) is LEAVE-then-SIT'd here
+    # (step 1 only clears stale rows on THIS table, not the source table of a
+    # move — and SIT-from-SEATED is illegal by design).
+    for entity_id, (table_id, seat_index) in desired.items():
+        try:
+            current = repo.load(entity_id, sandbox_id)
+        except Exception:  # noqa: BLE001 — read failure must not break the real path
+            current = None
+
+        if current is not None and current.is_seated:
+            if current.table_id == table_id and current.seat_index == seat_index:
+                continue  # already correct in the shadow — no-op
+            # Seated elsewhere (or a different seat): model the move as
+            # LEAVE then SIT so the machine's one-seat-at-a-time invariant
+            # holds (SIT-from-SEATED is illegal by design).
+            presence_shadow.shadow_transition(
+                entity_id=entity_id,
+                sandbox_id=sandbox_id,
+                event=PresenceEvent.LEAVE,
+                repo=repo,
+            )
+
+        presence_shadow.shadow_transition(
+            entity_id=entity_id,
+            sandbox_id=sandbox_id,
+            event=PresenceEvent.SIT,
+            table_id=table_id,
+            seat_index=seat_index,
+            repo=repo,
+        )
 
 
 def _next_occupied_seat(
@@ -361,29 +550,69 @@ def ensure_lobby_seeded(
                     continue
 
                 seat_position = next(position_iter)
+                # Debit the AI's bankroll to fund their initial seat
+                # chips BEFORE committing the seat in memory. Without this
+                # debit the chip-ledger audit double-counts (the comment
+                # above this loop explained the original placeholder
+                # semantics). Pure transfer, no ledger entry —
+                # `ai_bankrolls_stored` and `cash_table_seats_ai` move in
+                # opposite directions by `ai_buy_in`, preserving
+                # `actual_outstanding`.
+                #
+                # Window B (cold-start) atomicity: `debit_bankroll_for_seat`
+                # can fail by *returning None* (row missing / projected <
+                # buy-in — the audit-safe refusal) or by *raising*. Either
+                # way the AI is NOT funded, so we must NOT place the seat:
+                # doing so would write a seated-but-unfunded AI (seat chips
+                # with no matching bankroll debit → minted chips once
+                # `save_table` persists the row). Debit-first + drop-on-fail
+                # makes a per-AI debit failure cleanly skip just that AI,
+                # leaving the position open for the next candidate. The
+                # success path (debit returns non-None) is unchanged.
+                from cash_mode.bankroll import debit_bankroll_for_seat
+
+                try:
+                    debit_result = debit_bankroll_for_seat(
+                        bankroll_repo,
+                        pid,
+                        ai_buy_in,
+                        sandbox_id=sandbox_id,
+                        chip_ledger_repo=chip_ledger_repo,
+                        now=now,
+                    )
+                except Exception:
+                    logger.exception(
+                        "[CASH][LOBBY] seed %s/%s: debit raised for %r — "
+                        "skipping seat (no chips moved)",
+                        stake_label,
+                        table_id,
+                        pid,
+                    )
+                    debit_result = None
+
+                if debit_result is None:
+                    # Refused/failed debit: AI was not funded. Return the
+                    # position to the pool (so a later candidate can use it)
+                    # and leave the seat open. Nothing was committed for this
+                    # AI — no seat write, no seated_globally entry, no
+                    # filled++.
+                    position_iter = itertools.chain([seat_position], position_iter)
+                    logger.warning(
+                        "[CASH][LOBBY] seed %s/%s: debit refused for %r "
+                        "(seat %d) — leaving seat open, AI dropped",
+                        stake_label,
+                        table_id,
+                        pid,
+                        seat_position,
+                    )
+                    continue
+
                 seats[seat_position] = ai_slot(pid, ai_buy_in)
                 seated_globally.add(pid)
                 # (If this AI was idle, the seated⇒not-idle invariant is
                 # enforced by the save_table call after this loop — see
                 # CashTableRepository.save_table.)
                 filled += 1
-                # Debit the AI's bankroll to fund their initial seat
-                # chips. Without this debit the chip-ledger audit
-                # double-counts (the comment above this loop explained the
-                # original placeholder semantics). Pure transfer, no
-                # ledger entry — `ai_bankrolls_stored` and
-                # `cash_table_seats_ai` move in opposite directions by
-                # `ai_buy_in`, preserving `actual_outstanding`.
-                from cash_mode.bankroll import debit_bankroll_for_seat
-
-                debit_bankroll_for_seat(
-                    bankroll_repo,
-                    pid,
-                    ai_buy_in,
-                    sandbox_id=sandbox_id,
-                    chip_ledger_repo=chip_ledger_repo,
-                    now=now,
-                )
                 logger.info(
                     "[CASH][LOBBY] seed %s/%s: seated %r at seat %d chips=%d",
                     stake_label,
@@ -402,6 +631,10 @@ def ensure_lobby_seeded(
                 name=display_name,
             )
             cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
+            # SHADOW (Presence cutover Phase 1): mirror the freshly-seeded
+            # AI seats into `entity_presence` (SEED→SIT, derived as SIT from
+            # OFFLINE by the reconcile). Additive, flag-gated, best-effort.
+            _shadow_reconcile_table(new_state, sandbox_id)
             out_tables.append(new_state)
             logger.info(
                 "[CASH][LOBBY] seed %s: created table %r (%r) with %d AI seats",
@@ -514,6 +747,292 @@ def _persist_reseat_recovery(bankroll_repo, personality_id, sandbox_id, recovere
         )
 
 
+def _process_global_greedy_fills(
+    *,
+    fill_ctx,
+    idle_pool,
+    eligible,
+    seated_globally,
+    fish_ids,
+    bankroll_lookup,
+    bankroll_repo,
+    cash_table_repo,
+    chip_ledger_repo,
+    personality_repo,
+    sandbox_id,
+    now,
+    rng,
+    seek_rate: float = DEFAULT_SEEK_RATE,
+    human_headroom: int = 0,
+) -> None:
+    """The loop inversion (CASH_MODE_TABLE_ATTRACTIVENESS.md §2).
+
+    Runs once after the per-table movement loop (which ran Step 1 only,
+    `enable_live_fill=False`). Seats idle / eligible-never-seated AIs across
+    ALL tables at once: each seeker (most-desperate first) picks the single
+    most attractive table it can afford and has an open seat at, with
+    occupancy recomputed between picks so `W_CROWD` spreads sharks.
+
+    Owns its OWN contained persistence for fills — the per-table loop's
+    bankroll/idle/save_table passes have already run for Step-1 outcomes, so
+    Step 1's `from_seat`/settlement path is untouched here. Per Codex's
+    invariant: each new seat is debited inline (`debit_bankroll_for_seat`)
+    and we do NOT also append a result-level `to_seat` change (which would
+    double-debit). `seated_globally` is mutated in place as each AI is
+    seated so the next pick can't reuse it.
+    """
+    if not fill_ctx:
+        return
+
+    from cash_mode.bankroll import debit_bankroll_for_seat
+
+    # 1. Build a FillableTable + the usable open-seat indices per table.
+    #    Usable = open now AND open at pre-burst start (excludes seats
+    #    vacated during this refresh — defer-freshly-vacated, Invariant 6).
+    tables_state: Dict[str, FillableTable] = {}
+    fill_indices: Dict[str, List[int]] = {}
+    for tid, (result, preburst_open) in fill_ctx.items():
+        tbl = result.new_table
+        try:
+            _, min_bi, max_bi = table_buy_in_window(tbl.stake_label)
+        except KeyError:
+            continue
+        usable = [
+            i for i, s in enumerate(tbl.seats) if s.get("kind") == "open" and i in preburst_open
+        ]
+        # Reserve `human_headroom` of the open seats for a human who taps
+        # Sit/Sponsor in the lobby — the fill leaves the highest-index
+        # open seats untouched so the ticker can't saturate a table and
+        # crowd the player out (the stale-snapshot 409 race). 0 = no
+        # reservation (sims/tests fill to full). We keep the LOW-index
+        # seats fillable so reserved seats are deterministic.
+        if human_headroom > 0 and usable:
+            reserve = min(len(usable), human_headroom)
+            usable = usable[: len(usable) - reserve]
+        if not usable:
+            continue
+        is_lobby = tbl.table_type == "lobby"
+        grinders = fish_chips = whale_chips = 0
+        for s in tbl.seats:
+            if s.get("kind") != "ai":
+                continue
+            if s.get("archetype") == "fish":
+                # A fish at a lobby table IS the whale (regular fish are
+                # casino-only); weigh it as a whale.
+                if is_lobby:
+                    whale_chips += int(s.get("chips", 0))
+                else:
+                    fish_chips += int(s.get("chips", 0))
+            else:
+                grinders += 1
+        tables_state[tid] = FillableTable(
+            table_id=tid,
+            stake_label=tbl.stake_label,
+            min_buy_in=min_bi,
+            max_buy_in=max_bi,
+            open_count=len(usable),
+            grinder_count=grinders,
+            fish_chips=fish_chips,
+            whale_chips=whale_chips,
+            # Casino = the low-rent public grind room: less attractive
+            # baseline, but the fish draw rides over it and it stays a valid
+            # open-to-all fallback (CASINO_VENUE_APPEAL).
+            venue_appeal=CASINO_VENUE_APPEAL if tbl.table_type == "casino" else 1.0,
+        )
+        fill_indices[tid] = usable
+    if not tables_state:
+        return
+
+    _knobs_cache: Dict[str, Any] = {}
+
+    def _knobs(pid: str):
+        if pid not in _knobs_cache:
+            _knobs_cache[pid] = bankroll_repo.load_personality_knobs(pid)
+        return _knobs_cache[pid]
+
+    def _recovery_fraction(pid: str, left_at) -> float:
+        """Recovery toward baseline for an idle AI (1.0 = fully rested) —
+        mirrors the retired per-table `_reseat_energy_lookup`."""
+        import json as _json
+
+        stored = baseline = 0.5
+        if bankroll_repo is not None:
+            try:
+                blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
+                if blob:
+                    st = _json.loads(blob)
+                    stored = float(st.get("axes", {}).get("energy", 0.5))
+                    baseline = float(st.get("anchors", {}).get("baseline_energy", stored))
+            except Exception:
+                stored = baseline = 0.5
+        if left_at is None:
+            projected = stored
+        else:
+            try:
+                idle_seconds = max(0.0, (now - left_at).total_seconds())
+            except Exception:
+                idle_seconds = 0.0
+            projected = project_idle_energy(stored, baseline, idle_seconds)
+        return 1.0 if baseline <= 0 else min(1.0, projected / baseline)
+
+    def _can_afford_target(
+        target_stake: str, projected: int, buy_in_multiplier: float
+    ) -> bool:
+        """Whether `projected` covers this AI's ACTUAL buy-in at `target_stake`.
+
+        Must mirror the placement gate (`assign_seats_greedy` →
+        `seeker_buy_in`): `round(min_buy_in × buy_in_multiplier)` capped at the
+        tier max — NOT the raw min. Gating stickiness on the raw min while the
+        greedy seats on the multiplied amount opens a dead band
+        `[min, min × mult]`: an AI there is rich enough to refuse lower tables
+        (this gate) yet too poor to ever be placed at its target (greedy), so
+        it strands forever as "stale idle". Mirroring the formula here lets
+        such an AI relax down to a tier it can actually sit at.
+        """
+        try:
+            _, t_min, t_max = table_buy_in_window(target_stake)
+        except Exception:
+            return True  # unknown tier — don't gate
+        required = min(round(t_min * buy_in_multiplier), t_max)
+        return projected >= required
+
+    # 2. Candidate pool: idle AIs first, then eligible-never-seated; exclude
+    #    fish (casino-only) and the already-seated.
+    candidates: List[Tuple[str, Any]] = []  # (pid, idle_entry | None)
+    seen: Set[str] = set()
+    for entry in idle_pool:
+        pid = entry.personality_id
+        if pid in fish_ids or pid in seated_globally or pid in seen:
+            continue
+        candidates.append((pid, entry))
+        seen.add(pid)
+    for cand in eligible:
+        pid = cand.get("personality_id")
+        if not pid or pid in fish_ids or pid in seated_globally or pid in seen:
+            continue
+        candidates.append((pid, None))
+        seen.add(pid)
+
+    # 3. Roll the seek-rate + apply the impure gates (recovery, cooldown,
+    #    target-stake) into each seeker's allowed_table_ids.
+    seekers: List[SeatSeeker] = []
+    idle_sourced: Set[str] = set()
+    recovery_frac: Dict[str, float] = {}
+    for pid, entry in candidates:
+        if rng.random() >= seek_rate:
+            continue
+        if entry is not None:
+            frac = _recovery_fraction(pid, entry.left_at)
+            if frac < RESEAT_RECOVERY_FLOOR or rng.random() >= reseat_readiness(frac):
+                continue  # still resting
+            recovery_frac[pid] = frac
+        projected = bankroll_lookup(pid) or 0
+        try:
+            knobs = _knobs(pid)
+        except Exception:
+            continue
+        allowed: Set[str] = set()
+        for tid, ft in tables_state.items():
+            if is_in_cooldown(tid, pid, now):
+                continue  # per-table leave cooldown (not a global ban)
+            if (
+                entry is not None
+                and entry.target_stake is not None
+                and entry.target_stake != ft.stake_label
+                and _can_afford_target(
+                    entry.target_stake, projected, knobs.buy_in_multiplier
+                )
+            ):
+                continue  # target-stake stickiness (relaxed if can't afford target)
+            allowed.add(tid)
+        if not allowed:
+            continue
+        seekers.append(
+            SeatSeeker(
+                personality_id=pid,
+                projected_bankroll=projected,
+                starting_bankroll=knobs.starting_bankroll,
+                comfort_zone=knobs.stake_comfort_zone or STAKES_ORDER[0],
+                allowed_table_ids=frozenset(allowed),
+                buy_in_multiplier=knobs.buy_in_multiplier,
+            )
+        )
+        if entry is not None:
+            idle_sourced.add(pid)
+    if not seekers:
+        return
+
+    # Most-desperate-first priority (mirrors the retired hungry-grinder
+    # reorder): lower bankroll/starting ratio picks first; pid breaks ties.
+    seekers.sort(
+        key=lambda s: (s.projected_bankroll / max(1, s.starting_bankroll), s.personality_id)
+    )
+
+    assignments = assign_seats_greedy(seekers, tables_state)
+    if not assignments:
+        return
+
+    # 4. Apply each assignment: fund (inline debit) → seat → idle-remove.
+    affected: Dict[str, List[str]] = {}
+    for pid, tid in assignments:
+        result, _preburst = fill_ctx[tid]
+        ft = tables_state[tid]
+        idxs = fill_indices[tid]
+        if not idxs:
+            continue
+        knobs = _knobs(pid)
+        buy_in = seeker_buy_in(ft, knobs.buy_in_multiplier)
+        # Inline debit (pure transfer bankroll → seat). Refuses + returns
+        # None on insufficiency (regen race etc.); skip seating then so we
+        # never mint chips. The greedy core already affordability-checked,
+        # so this is the rare belt-and-suspenders path.
+        if (
+            debit_bankroll_for_seat(
+                bankroll_repo,
+                pid,
+                buy_in,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
+            )
+            is None
+        ):
+            continue
+        seat_idx = idxs.pop(0)
+        result.new_table.seats[seat_idx] = ai_slot(pid, buy_in)
+        # Keep the global occupancy set accurate (within-batch double-seating
+        # is already prevented by the one-seeker-per-pid candidate dedup; this
+        # keeps `seated_globally` correct for the returned state and any
+        # post-fill consumer that reads it).
+        seated_globally.add(pid)
+        result.freshly_seated_personality_ids.append(pid)
+        if pid in idle_sourced:
+            cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
+            if pid in recovery_frac:
+                _persist_reseat_recovery(bankroll_repo, pid, sandbox_id, recovery_frac[pid])
+        affected.setdefault(tid, []).append(pid)
+
+    # 5. Persist the mutated tables + emit arrival (JOIN) events for fills.
+    for tid, pids in affected.items():
+        result, _preburst = fill_ctx[tid]
+        cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
+        # SHADOW (Presence cutover Phase 1): mirror this greedy fill's seat
+        # writes. The reconcile diffs the saved seat map vs current shadow
+        # state, so the AIs just seated here (idle→SIT / eligible→SIT, or a
+        # cross-table move as LEAVE+SIT) are recorded and unchanged
+        # neighbours are left alone. Additive, flag-gated, best-effort.
+        _shadow_reconcile_table(result.new_table, sandbox_id)
+        _emit_activity_events(
+            table=result.new_table,
+            previous_table=result.new_table,  # unused by the emitter
+            decisions={},
+            freshly_seated_personality_ids=pids,
+            personality_repo=personality_repo,
+            now=now,
+            sandbox_id=sandbox_id,
+        )
+
+
 def refresh_unseated_tables(
     *,
     cash_table_repo,
@@ -524,6 +1043,13 @@ def refresh_unseated_tables(
     user_id: Optional[str] = None,
     sandbox_id: Optional[str] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
+    # Per-refresh probability that an idle/eligible AI goes room-hunting in
+    # the global greedy fill (replaces the per-seat live_fill_prob Bernoulli;
+    # CASH_MODE_TABLE_ATTRACTIVENESS.md §2). Sim-tunable; a future refinement
+    # could scale it with the catch-up gap so long-unwatched lobbies fill
+    # faster. `live_fill_prob` is retained only for the (now fill-disabled)
+    # refresh_table_roster signature / back-compat.
+    seek_rate: float = DEFAULT_SEEK_RATE,
     hand_sim_prob: float = DEFAULT_HAND_SIM_PROB,
     chip_ledger_repo=None,
     # Phase 4: stake_repo + relationship_repo are required for the
@@ -555,6 +1081,11 @@ def refresh_unseated_tables(
     # opponent at another table mid-hand. None → no live games to honor
     # (the default for sim/test callers, preserving their behavior).
     live_seated_pids: Optional[Set[str]] = None,
+    # Number of open seats the global greedy fill leaves untouched on each
+    # table, reserving them for a human who taps Sit/Sponsor in the lobby.
+    # 0 (default) = full saturation, which is what sims/tests want; the
+    # LIVE lobby + ticker pass `economy_flags.LIVE_FILL_HUMAN_HEADROOM`.
+    human_headroom: int = 0,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -583,8 +1114,41 @@ def refresh_unseated_tables(
         vice_mode = _economy_flags.VICE_MODE
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+
+    # Sponsorship seat-hold expiry — runs BEFORE seated_globally / the
+    # per-table loop so a hold whose TTL lapsed this refresh frees its
+    # seat back to "open" and becomes fillable in the same tick. The
+    # frontend releases holds explicitly on SponsorModal-close; this is
+    # the safety net for the abandoned-modal case (closed tab, dropped
+    # network) so a stale hold can't strand a seat against live-fill.
+    # Mutates the loaded `tables` in place so the rest of the refresh
+    # sees the freed seats.
+    from cash_mode.tables import is_reservation_expired, open_slot
+
+    for table in tables:
+        freed_any = False
+        for idx, slot in enumerate(table.seats):
+            if is_reservation_expired(slot, now):
+                table.seats[idx] = open_slot()
+                freed_any = True
+        if freed_any:
+            try:
+                cash_table_repo.save_table(table, sandbox_id=sandbox_id, now=now)
+                logger.info(
+                    "[CASH][LOBBY] expired sponsorship seat-hold(s) on table=%r",
+                    table.table_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] failed to free expired seat-hold on %r: %s",
+                    table.table_id,
+                    exc,
+                )
+
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
-    seated_globally = _global_seated_set(tables)
+    seated_globally = SeatOccupancyRegistry(
+        _global_seated_set(tables), label="refresh_unseated_tables"
+    )
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
 
     # A persona the human is playing live counts as occupied even when the
@@ -682,6 +1246,23 @@ def refresh_unseated_tables(
     if unavailable:
         idle_pool = [entry for entry in idle_pool if entry.personality_id not in unavailable]
         eligible = [cand for cand in eligible if cand.get("personality_id") not in unavailable]
+
+    # Circulating gate (v123): an idle persona only walks back to a seat if
+    # it's still in the eligible (circulating) set. `eligible` is already
+    # circulating-only (list_eligible_for_cash_mode gates on it), so a persona
+    # demoted to circulating=0 — a leaked sim/test zombie, or any deliberately
+    # retired persona — DRAINS out of the lobby: its idle rows are skipped here
+    # instead of cycling back in via the idle-first re-seat path, which keys on
+    # personality_id and would otherwise bypass the gate (the re-seat candidate
+    # pools take idle AIs before consulting `eligible`). One filter here covers
+    # both seat-fill consumers (per-table refresh_table_roster + the global
+    # greedy fill), mirroring the `unavailable` filter above. Legit AIs are
+    # unaffected — list_eligible returns every circulating persona regardless of
+    # bankroll, so the intersection only removes non-circulating idlers.
+    _circulating_ids = {
+        cand.get("personality_id") for cand in eligible if cand.get("personality_id")
+    }
+    idle_pool = [entry for entry in idle_pool if entry.personality_id in _circulating_ids]
 
     # Closed-economy: fish are a casino-only player class. The lobby
     # never live-fills a fish; this set is the defense-in-depth filter
@@ -896,7 +1477,7 @@ def refresh_unseated_tables(
     # seated AI at $0 reserve seen this refresh. Reconciled against the
     # prior refresh after the table loop so the ticker fires once per
     # episode rather than every tick.
-    last_stand_qualifying: Dict[str, Tuple[str, str]] = {}
+    last_stand_qualifying: Dict[str, Tuple[str, str, Optional[str]]] = {}
 
     # Vice-on-leave plumbing. A discretionary leaver (take_break /
     # bored_move) who is rich enough rolls the existing wealth×psych vice
@@ -963,6 +1544,12 @@ def refresh_unseated_tables(
                 return compute_vice_probability(excess, pressure)
 
     out: Dict[str, RosterRefreshResult] = {}
+    # Per-table context for the post-loop GLOBAL greedy fill
+    # (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): the refresh result (to mutate
+    # seats + append to_seat/idle changes) and the set of seat indices that
+    # were OPEN at this table's pre-burst start — the fill may only use seats
+    # open the whole refresh, not ones freshly vacated this tick.
+    fill_ctx: Dict[str, Tuple[RosterRefreshResult, frozenset]] = {}
     for table in tables:
         if table.human_seat_index() is not None:
             # Active session table; the hand-boundary hook handles it.
@@ -1165,127 +1752,21 @@ def refresh_unseated_tables(
                 prior = getattr(ctrl, '_detached_hands', 0)
                 ctrl._detached_hands = (prior + 1) if zone == 'detached' else 0
 
-            # Per-hand movement + fill. Each iteration sees the latest
-            # seat state (chips updated by play_one_hand) and rolls
-            # against the same pressure model used at seated tables.
-            # Closed-economy: fish are a casino-only player class —
-            # ALWAYS filter them out of the lobby's idle pool, even at
-            # casino-tier stakes. Casino spawn pulls fish via its own
-            # path (`PersonalityRepository.list_fish_for_cash_mode` →
-            # `_refill_one_fish`), never via lobby live-fill. See
-            # `docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
-            if _fish_ids:
-                _table_idle_pool = [e for e in idle_pool if e.personality_id not in _fish_ids]
-            else:
-                _table_idle_pool = idle_pool
-
-            # Predator pull. Two flavors, both boost the live-fill
-            # probability so seats fill faster and reorder the idle pool so
-            # the predators we want are seated first:
-            #   • Casino tables: hungry grinders (bankroll < starting × 0.8,
-            #     comfort zone in {$2,$10}) — economic pressure to farm fish.
-            #   • Cardroom (lobby) tables with a whale: AIs who can AFFORD
-            #     the stake, richest first. A whale sits at $50/$200, so the
-            #     casino-tier hunger signal doesn't fit — affordability does.
-            #     "A fish seat at a lobby table" IS the whale (regular fish
-            #     are casino-only). See `resolve_whale_provisioning`.
-            _effective_live_fill_prob = live_fill_prob
-            if table.table_type == 'casino':
-                from cash_mode.closed_economy import list_hungry_grinders
-
-                _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
-                _hungry_grinder_ids = list_hungry_grinders(
-                    bankroll_repo,
-                    sandbox_id=sandbox_id,
-                    now=now,
-                )
-                _hungry_set = set(_hungry_grinder_ids)
-                if _hungry_set:
-                    _hungry_entries = [
-                        e for e in _table_idle_pool if e.personality_id in _hungry_set
-                    ]
-                    _other_entries = [
-                        e for e in _table_idle_pool if e.personality_id not in _hungry_set
-                    ]
-                    # Sort hungry entries by the global hunger ranking
-                    # (most desperate first); ties broken by personality_id.
-                    _order_index = {pid: i for i, pid in enumerate(_hungry_grinder_ids)}
-                    _hungry_entries.sort(
-                        key=lambda e: _order_index.get(e.personality_id, 1_000_000)
-                    )
-                    _table_idle_pool = _hungry_entries + _other_entries
-            elif table.table_type == 'lobby' and any(
-                s.get('kind') == 'ai' and s.get('archetype') == 'fish' for s in table.seats
-            ):
-                from cash_mode.closed_economy import list_affordable_predators
-
-                _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
-                _predator_ids = list_affordable_predators(
-                    bankroll_repo,
-                    sandbox_id=sandbox_id,
-                    min_buy_in=table_min_buy_in,
-                    now=now,
-                )
-                _predator_set = set(_predator_ids)
-                if _predator_set:
-                    _pred_entries = [
-                        e for e in _table_idle_pool if e.personality_id in _predator_set
-                    ]
-                    _other_entries = [
-                        e for e in _table_idle_pool if e.personality_id not in _predator_set
-                    ]
-                    # Sort by the affordability ranking (richest first);
-                    # ties broken by personality_id.
-                    _order_index = {pid: i for i, pid in enumerate(_predator_ids)}
-                    _pred_entries.sort(key=lambda e: _order_index.get(e.personality_id, 1_000_000))
-                    _table_idle_pool = _pred_entries + _other_entries
-
-            # Idle-recovery gate: project each idle candidate's energy forward
-            # through the rest it's had (now − left_at) toward its baseline, so
-            # the re-seat path can keep still-tired AIs resting and bring
-            # rested ones back. Energy lives in the blob for idle AIs; memoize
-            # per table-refresh to avoid re-reading it for every open seat.
-            _reseat_left_at = {e.personality_id: e.left_at for e in _table_idle_pool}
-            _reseat_energy_memo: Dict[str, float] = {}
-
-            def _reseat_energy_lookup(
-                pid: str, _la=_reseat_left_at, _memo=_reseat_energy_memo
-            ) -> float:
-                import json as _json
-
-                if pid in _memo:
-                    return _memo[pid]
-                stored = baseline = 0.5
-                if bankroll_repo is not None:
-                    try:
-                        blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
-                        if blob:
-                            state = _json.loads(blob)
-                            stored = float(state.get("axes", {}).get("energy", 0.5))
-                            baseline = float(
-                                state.get("anchors", {}).get("baseline_energy", stored)
-                            )
-                    except Exception:
-                        stored = baseline = 0.5
-                la = _la.get(pid)
-                if la is None:
-                    projected = stored
-                else:
-                    try:
-                        idle_seconds = max(0.0, (now - la).total_seconds())
-                    except Exception:
-                        idle_seconds = 0.0
-                    projected = project_idle_energy(stored, baseline, idle_seconds)
-                # Recovery fraction toward baseline (1.0 = fully rested); the
-                # re-seat gate is relative so low-baseline AIs aren't stranded.
-                frac = 1.0 if baseline <= 0 else min(1.0, projected / baseline)
-                _memo[pid] = frac
-                return frac
-
+            # Per-hand MOVEMENT only (Step 1). Live-fill (Step 2) is now a
+            # single GLOBAL greedy pass after this loop
+            # (CASH_MODE_TABLE_ATTRACTIVENESS.md §2), so the old per-table
+            # fill prep — fish-filtered idle pool, casino/whale ×2 boost +
+            # hungry/predator reorders, and the idle-recovery memo — is gone:
+            # `_process_global_greedy_fills` subsumes them via
+            # `attractiveness` + `hunger` + `W_CROWD` + the seek-rate and its
+            # own cooldown/recovery gates.
             per_hand = refresh_table_roster(
                 table,
-                idle_pool=_table_idle_pool,
-                eligible_candidates=eligible,
+                # Fill is global now (enable_live_fill=False) — idle/eligible
+                # pools feed the post-loop greedy pass, not Step 2 here.
+                idle_pool=[],
+                eligible_candidates=[],
+                enable_live_fill=False,
                 seated_globally=seated_globally,
                 bankroll_lookup=_bankroll_lookup,
                 buy_in_lookup=_buy_in_for,
@@ -1295,10 +1776,7 @@ def refresh_unseated_tables(
                 table_min_buy_in=table_min_buy_in,
                 table_max_buy_in=table_max_buy_in,
                 next_tier_min_buy_in=next_tier_min_buy_in,
-                live_fill_prob=_effective_live_fill_prob,
-                defer_freshly_vacated_live_fill=True,
                 psych_lookup=_psych_lookup_sim,
-                energy_lookup=_reseat_energy_lookup,
                 # Phase 4: intercept forced_leave with take_stake when
                 # peer AIs are willing to fund the busting borrower.
                 # Wired only when callers pass relationship_repo and
@@ -1350,15 +1828,10 @@ def refresh_unseated_tables(
             agg_decisions.update(per_hand.decisions)
             agg_idle_changes.extend(per_hand.idle_changes)
             agg_bankroll_changes.extend(per_hand.bankroll_changes)
+            # Step 1 never live-fills (enable_live_fill=False), so
+            # freshly_seated is empty here — the global greedy pass below
+            # owns fills and the reseat-recovery persistence for them.
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
-            # Persist recovered energy for AIs that just returned from the idle
-            # pool, so their rebuilt controller starts rested (the gate already
-            # ensured they recovered past the floor before re-seating).
-            for _pid in per_hand.freshly_seated_personality_ids:
-                if _pid in _reseat_left_at:
-                    _persist_reseat_recovery(
-                        bankroll_repo, _pid, sandbox_id, _reseat_energy_lookup(_pid)
-                    )
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)
@@ -1423,6 +1896,16 @@ def refresh_unseated_tables(
         # synchronized with `play_one_hand`'s starting dealer), so we
         # don't need a separate `advance_dealer` step here.
         cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
+        # SHADOW (Presence cutover Phase 1): mirror the post-burst seat map
+        # into `entity_presence`. The reconcile records anyone now seated who
+        # wasn't already (e.g. a take_stake reseat) and is a no-op for the
+        # already-seated cast. AIs that LEFT this table during the burst are
+        # NOT turned into shadow LEAVEs here — that's owned by the idle-pool /
+        # hustle / vice writers (migration inventory C–E, out of scope for
+        # this lobby-only pass); their idle `save_idle` below is the
+        # authoritative record of the departure for now. Additive,
+        # flag-gated, best-effort.
+        _shadow_reconcile_table(result.new_table, sandbox_id)
 
         for change in result.idle_changes:
             if change.kind == "add" and change.entry is not None:
@@ -1440,367 +1923,36 @@ def refresh_unseated_tables(
         # skips ONLY that entry (not all from_seat entries for the
         # same pid — a take_stake earlier in the burst emits its
         # own from_seat for the bust chips, which must still credit).
-        settled_from_seat_indices: set = set()
-
-        def _ticker_name_for(pid: str, personality_repo) -> Optional[str]:
-            try:
-                personality = personality_repo.load_personality_by_id(pid)
-            except Exception:
-                return None
-            if not personality:
-                return None
-            return personality.get("name") or pid
-
-        if stake_repo is not None:
-            from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
-            from cash_mode.stake_chip_flow import (
-                DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
-                DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
-                build_stake_settlement_flows,
-            )
-            from cash_mode.stake_settlement import settle_stake_on_leave
-            from cash_mode.stakes import (
-                BORROWER_KIND_PERSONALITY,
-                STAKE_STATUS_CARRY,
-                STAKER_KIND_HUMAN,
-            )
-
-            # Find the LAST from_seat per pid — that's the session-end
-            # leave amount (any earlier from_seat for the same pid is
-            # the take_stake bust-chips return, which must still
-            # credit the bankroll normally).
-            last_from_seat_index: Dict[str, int] = {}
-            for i, bc in enumerate(result.bankroll_changes):
-                if bc.direction == "from_seat":
-                    last_from_seat_index[bc.personality_id] = i
-
-            for pid, idx in last_from_seat_index.items():
-                chips_at_leave = result.bankroll_changes[idx].amount
-                # Was this AI a stake borrower? Look up active stake.
-                active_stake = stake_repo.load_active_for_borrower(
-                    pid,
-                    BORROWER_KIND_PERSONALITY,
-                )
-                if active_stake is None:
-                    continue
-                settlement = settle_stake_on_leave(
-                    active_stake.stake_id,
-                    chips_at_leave,
-                    stake_repo=stake_repo,
-                    chip_ledger_repo=chip_ledger_repo,
-                    ledger_context={
-                        "site": "ai_session_end",
-                        "table_id": result.new_table.table_id,
-                    },
-                    sandbox_id=sandbox_id,
-                    now=now,
-                )
-                if settlement is None:
-                    continue
-                # Apply the settlement flows. For AI-staker / AI-borrower
-                # personality stakes the flows are pure bankroll→bankroll
-                # transfers — no ledger entry, mirror the route's leave
-                # path.
-                flows = build_stake_settlement_flows(settlement)
-                for flow in flows:
-                    if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
-                        # Phase 5 Commit 3 — human-staker branch. When
-                        # the staker is the player, credit their
-                        # player_bankroll_state row instead of
-                        # credit_ai_cash_out (which would mis-route the
-                        # chips into an AI bankroll). Read-modify-write
-                        # so concurrent leaves don't lose the credit.
-                        if flow.staker_kind == STAKER_KIND_HUMAN:
-                            from cash_mode.bankroll import PlayerBankrollState
-
-                            existing = bankroll_repo.load_player_bankroll(
-                                flow.staker_id,
-                            )
-                            if existing is not None:
-                                bankroll_repo.save_player_bankroll(
-                                    PlayerBankrollState(
-                                        player_id=existing.player_id,
-                                        chips=existing.chips + flow.amount,
-                                        starting_bankroll=existing.starting_bankroll,
-                                    ),
-                                )
-                            else:
-                                logger.warning(
-                                    "[CASH][LOBBY] human staker bankroll "
-                                    "missing for credit staker=%r stake=%r",
-                                    flow.staker_id,
-                                    active_stake.stake_id,
-                                )
-                        else:
-                            from cash_mode.bankroll import credit_ai_cash_out
-
-                            credit_ai_cash_out(
-                                bankroll_repo,
-                                flow.staker_id,
-                                flow.amount,
-                                sandbox_id=sandbox_id,
-                                now=now,
-                                chip_ledger_repo=chip_ledger_repo,
-                                ledger_context={
-                                    "stake_id": active_stake.stake_id,
-                                    "site": "ai_stake_settle_staker",
-                                },
-                            )
-                    elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
-                        from cash_mode.bankroll import credit_ai_cash_out
-
-                        credit_ai_cash_out(
-                            bankroll_repo,
-                            flow.borrower_id,
-                            flow.amount,
-                            sandbox_id=sandbox_id,
-                            now=now,
-                            chip_ledger_repo=chip_ledger_repo,
-                            ledger_context={
-                                "stake_id": active_stake.stake_id,
-                                "site": "ai_stake_settle_borrower",
-                            },
-                        )
-                # Fire repaid/defaulted event. Carry rolls forward
-                # silently on the relationship axes — only the
-                # explicit STAKE_DEFAULTED action would fire the
-                # sharper hit; natural carry is just a status='carry'
-                # row. Phase 4 Commit 5: when status is carry, emit
-                # an EVENT_AI_DEFAULT to the lobby ticker so the
-                # player sees the moment-of-default drama even though
-                # no axis-shift event fires.
-                if (
-                    relationship_repo is not None
-                    and settlement.new_status != STAKE_STATUS_CARRY
-                    and settlement.staker_id is not None
-                    and settlement.forgiven_amount == 0
-                ):
-                    try:
-                        from poker.memory import OpponentModelManager
-                        from poker.memory.relationship_events import (
-                            RelationshipEvent,
-                        )
-
-                        mgr = OpponentModelManager(
-                            relationship_repo=relationship_repo,
-                        )
-                        mgr.record_event(
-                            actor_id=settlement.staker_id,
-                            target_id=settlement.borrower_id,
-                            event=RelationshipEvent.STAKE_REPAID,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "[CASH][LOBBY] STAKE_REPAID event failed " "stake=%r: %s",
-                            active_stake.stake_id,
-                            exc,
-                        )
-                if (
-                    settlement.new_status == STAKE_STATUS_CARRY
-                    and settlement.carry_amount >= AI_STAKE_TICKER_THRESHOLD
-                    and settlement.staker_id is not None
-                ):
-                    try:
-                        from cash_mode.activity import (
-                            EVENT_AI_DEFAULT,
-                            LobbyEvent,
-                            format_ai_default_message,
-                            record_event,
-                        )
-
-                        staker_name = _ticker_name_for(
-                            settlement.staker_id,
-                            personality_repo,
-                        )
-                        borrower_name = _ticker_name_for(
-                            settlement.borrower_id,
-                            personality_repo,
-                        )
-                        if staker_name and borrower_name:
-                            record_event(
-                                LobbyEvent(
-                                    type=EVENT_AI_DEFAULT,
-                                    table_id=result.new_table.table_id,
-                                    stake_label=active_stake.stake_tier,
-                                    personality_id=settlement.borrower_id,
-                                    name=borrower_name,
-                                    reason=settlement.staker_id,
-                                    message=format_ai_default_message(
-                                        borrower_name,
-                                        staker_name,
-                                        active_stake.stake_tier,
-                                        settlement.carry_amount,
-                                    ),
-                                    created_at=now.isoformat(),
-                                    sandbox_id=sandbox_id,
-                                )
-                            )
-                    except Exception as exc:
-                        logger.warning(
-                            "[CASH][LOBBY] EVENT_AI_DEFAULT emit failed: %s",
-                            exc,
-                        )
-                settled_from_seat_indices.add(idx)
-
-        # Apply bankroll ↔ seat transfers (closes the v1.5 lobby-seed
-        # leak: live-fill used to mint chips on new seats without
-        # deducting from the AI's bankroll). `to_seat` is a pure
-        # transfer (no ledger entry); `from_seat` goes through
-        # `credit_ai_cash_out` so regen commits and cap-clamp overflow
-        # fires a ledger entry.
-        from cash_mode.bankroll import (
-            credit_ai_cash_out,
-            debit_bankroll_for_seat,
+        settled_from_seat_indices = _settle_table_stakes(
+            result,
+            stake_repo=stake_repo,
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            relationship_repo=relationship_repo,
+            personality_repo=personality_repo,
+            sandbox_id=sandbox_id,
+            now=now,
         )
 
-        for i, bc in enumerate(result.bankroll_changes):
-            if bc.direction == "to_seat":
-                debit_bankroll_for_seat(
-                    bankroll_repo,
-                    bc.personality_id,
-                    bc.amount,
-                    sandbox_id=sandbox_id,
-                    chip_ledger_repo=chip_ledger_repo,
-                    now=now,
-                )
-            elif bc.direction == "from_seat":
-                # Skip ONLY the specific from_seat entry the
-                # settlement consumed; earlier from_seat entries for
-                # the same pid (take_stake bust chips) still credit.
-                if i in settled_from_seat_indices:
-                    continue
-                credit_ai_cash_out(
-                    bankroll_repo,
-                    bc.personality_id,
-                    bc.amount,
-                    sandbox_id=sandbox_id,
-                    now=now,
-                    chip_ledger_repo=chip_ledger_repo,
-                    ledger_context={
-                        "site": "refresh_table_roster_vacate",
-                        "table_id": result.new_table.table_id,
-                    },
-                )
+        _apply_bankroll_transfers(
+            result,
+            settled_from_seat_indices=settled_from_seat_indices,
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            sandbox_id=sandbox_id,
+            now=now,
+        )
 
-        # Phase 4: apply AI-borrow stake creations. The seat refill
-        # was already baked into result.new_table by refresh_table_roster
-        # (the borrower's chips moved from chips_at_bust → principal,
-        # and the from_seat above credited the borrower's bankroll
-        # with chips_at_bust). What remains:
-        #   - Debit the staker's bankroll by principal.
-        #   - Persist a Stake row (status=active, both kinds personality).
-        #   - Fire STAKE_OFFERED so the staker's relationship axes
-        #     toward the borrower reflect the new tie.
-        #   - Emit EVENT_AI_STAKE on the lobby ticker (Commit 5).
-        from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
-
-        if result.stake_creations:
-            import uuid
-
-            from cash_mode.stakes import (
-                BORROWER_KIND_PERSONALITY,
-                STAKE_FORMAT_PURE,
-                STAKE_STATUS_ACTIVE,
-                STAKER_KIND_PERSONALITY,
-                Stake,
-            )
-
-            for sc in result.stake_creations:
-                debit_bankroll_for_seat(
-                    bankroll_repo,
-                    sc.staker_id,
-                    sc.principal,
-                    sandbox_id=sandbox_id,
-                    chip_ledger_repo=chip_ledger_repo,
-                    now=now,
-                )
-                stake = Stake(
-                    stake_id=f"ai_stake_{uuid.uuid4().hex[:12]}",
-                    session_id=f"ai_session_{sc.borrower_id}_{int(now.timestamp())}",
-                    staker_id=sc.staker_id,
-                    staker_kind=STAKER_KIND_PERSONALITY,
-                    borrower_id=sc.borrower_id,
-                    borrower_kind=BORROWER_KIND_PERSONALITY,
-                    format=STAKE_FORMAT_PURE,
-                    principal=sc.principal,
-                    match_amount=0,
-                    origination_fee=0,
-                    cut=sc.cut,
-                    status=STAKE_STATUS_ACTIVE,
-                    carry_amount=0,
-                    stake_tier=sc.stake_label,
-                    created_at=now,
-                )
-                if stake_repo is not None:
-                    stake_repo.create_stake(stake)
-                if relationship_repo is not None:
-                    try:
-                        from poker.memory import OpponentModelManager
-                        from poker.memory.relationship_events import (
-                            RelationshipEvent,
-                        )
-
-                        mgr = OpponentModelManager(
-                            relationship_repo=relationship_repo,
-                        )
-                        mgr.record_event(
-                            actor_id=sc.staker_id,
-                            target_id=sc.borrower_id,
-                            event=RelationshipEvent.STAKE_OFFERED,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "[CASH][LOBBY] STAKE_OFFERED event failed " "staker=%r borrower=%r: %s",
-                            sc.staker_id,
-                            sc.borrower_id,
-                            exc,
-                        )
-                # Phase 4 Commit 5: emit ticker event for stakes above
-                # the threshold so the player sees the AI economy
-                # moving. Smaller stakes (at $2/$10) fire silently —
-                # state mutates, but the ticker stays focused on
-                # higher-stakes drama.
-                if sc.principal >= AI_STAKE_TICKER_THRESHOLD:
-                    try:
-                        from cash_mode.activity import (
-                            EVENT_AI_STAKE,
-                            LobbyEvent,
-                            format_ai_stake_message,
-                            record_event,
-                        )
-
-                        staker_name = _ticker_name_for(
-                            sc.staker_id,
-                            personality_repo,
-                        )
-                        borrower_name = _ticker_name_for(
-                            sc.borrower_id,
-                            personality_repo,
-                        )
-                        if staker_name and borrower_name:
-                            record_event(
-                                LobbyEvent(
-                                    type=EVENT_AI_STAKE,
-                                    table_id=result.new_table.table_id,
-                                    stake_label=sc.stake_label,
-                                    personality_id=sc.staker_id,
-                                    name=staker_name,
-                                    reason=sc.borrower_id,
-                                    message=format_ai_stake_message(
-                                        staker_name,
-                                        borrower_name,
-                                        sc.stake_label,
-                                        sc.principal,
-                                    ),
-                                    created_at=now.isoformat(),
-                                    sandbox_id=sandbox_id,
-                                )
-                            )
-                    except Exception as exc:
-                        logger.warning(
-                            "[CASH][LOBBY] EVENT_AI_STAKE emit failed: %s",
-                            exc,
-                        )
+        _apply_stake_creations(
+            result,
+            stake_repo=stake_repo,
+            relationship_repo=relationship_repo,
+            personality_repo=personality_repo,
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            sandbox_id=sandbox_id,
+            now=now,
+        )
 
         # Emit lobby activity events from the refresh result.
         # `decisions` covers AIs that were on the table at the start
@@ -1842,6 +1994,7 @@ def refresh_unseated_tables(
             last_stand_qualifying[_pid] = (
                 result.new_table.table_id,
                 result.new_table.stake_label,
+                result.new_table.name,
             )
 
         # Refresh idle_pool snapshot so the next iteration sees the
@@ -1849,6 +2002,33 @@ def refresh_unseated_tables(
         idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
 
         out[table.table_id] = result
+        # Record pre-burst open seats so the global fill won't re-fill a
+        # seat that was vacated during THIS refresh (defer-freshly-vacated).
+        _preburst_open = frozenset(
+            i for i, s in enumerate(previous_table_snapshot.seats) if s.get("kind") == "open"
+        )
+        fill_ctx[result.new_table.table_id] = (result, _preburst_open)
+
+    # --- GLOBAL greedy fill (the loop inversion, spec §2) ---
+    # Step 1 above ran movement only; now seat idle/eligible AIs across ALL
+    # tables at once, each picking its most attractive affordable open table.
+    _process_global_greedy_fills(
+        fill_ctx=fill_ctx,
+        idle_pool=idle_pool,
+        eligible=eligible,
+        seated_globally=seated_globally,
+        fish_ids=_fish_ids,
+        bankroll_lookup=_bankroll_lookup,
+        bankroll_repo=bankroll_repo,
+        cash_table_repo=cash_table_repo,
+        chip_ledger_repo=chip_ledger_repo,
+        personality_repo=personality_repo,
+        sandbox_id=sandbox_id,
+        now=now,
+        rng=rng,
+        seek_rate=seek_rate,
+        human_headroom=human_headroom,
+    )
 
     # Emit the last-stand predator signal for AIs newly committed since
     # the previous refresh. Dedup keeps a steadily-committed seat from
@@ -2228,6 +2408,437 @@ def refresh_unseated_tables(
     return out
 
 
+def _settle_table_stakes(
+    result,
+    *,
+    stake_repo,
+    bankroll_repo,
+    chip_ledger_repo,
+    relationship_repo,
+    personality_repo,
+    sandbox_id,
+    now,
+) -> set:
+    """Settle active AI-borrower stakes for a table before from_seat credits.
+
+    Extracted verbatim from `refresh_unseated_tables`' per-table loop. For each
+    leaving AI with an active stake, splits the seat chips per the stake `cut`
+    between staker and borrower, fires repaid/defaulted relationship + ticker
+    events, and returns the set of `result.bankroll_changes` `from_seat` indices
+    the settlement consumed so the caller's transfer pass skips exactly those
+    (and only those) entries. Returns an empty set when `stake_repo` is None,
+    preserving the pre-extraction behavior for callers without staking wired.
+    """
+    settled_from_seat_indices: set = set()
+    if stake_repo is None:
+        return settled_from_seat_indices
+    from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
+    from cash_mode.stake_chip_flow import (
+        DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
+        DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
+        build_stake_settlement_flows,
+    )
+    from cash_mode.stake_settlement import settle_stake_on_leave
+    from cash_mode.stakes import (
+        BORROWER_KIND_PERSONALITY,
+        STAKE_STATUS_CARRY,
+        STAKER_KIND_HUMAN,
+    )
+
+    # Find the LAST from_seat per pid — that's the session-end
+    # leave amount (any earlier from_seat for the same pid is
+    # the take_stake bust-chips return, which must still
+    # credit the bankroll normally).
+    last_from_seat_index: Dict[str, int] = {}
+    for i, bc in enumerate(result.bankroll_changes):
+        if bc.direction == "from_seat":
+            last_from_seat_index[bc.personality_id] = i
+
+    for pid, idx in last_from_seat_index.items():
+        chips_at_leave = result.bankroll_changes[idx].amount
+        # Was this AI a stake borrower? Look up active stake.
+        active_stake = stake_repo.load_active_for_borrower(
+            pid,
+            BORROWER_KIND_PERSONALITY,
+        )
+        if active_stake is None:
+            continue
+        settlement = settle_stake_on_leave(
+            active_stake.stake_id,
+            chips_at_leave,
+            stake_repo=stake_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={
+                "site": "ai_session_end",
+                "table_id": result.new_table.table_id,
+            },
+            sandbox_id=sandbox_id,
+            now=now,
+        )
+        if settlement is None:
+            continue
+        # Apply the settlement flows. For AI-staker / AI-borrower
+        # personality stakes the flows are pure bankroll→bankroll
+        # transfers — no ledger entry, mirror the route's leave
+        # path.
+        flows = build_stake_settlement_flows(settlement)
+        for flow in flows:
+            if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
+                # Phase 5 Commit 3 — human-staker branch. When
+                # the staker is the player, credit their
+                # player_bankroll_state row instead of
+                # credit_ai_cash_out (which would mis-route the
+                # chips into an AI bankroll). Read-modify-write
+                # so concurrent leaves don't lose the credit.
+                if flow.staker_kind == STAKER_KIND_HUMAN:
+                    from cash_mode.bankroll import PlayerBankrollState
+
+                    existing = bankroll_repo.load_player_bankroll(
+                        flow.staker_id,
+                    )
+                    if existing is not None:
+                        bankroll_repo.save_player_bankroll(
+                            PlayerBankrollState(
+                                player_id=existing.player_id,
+                                chips=existing.chips + flow.amount,
+                                starting_bankroll=existing.starting_bankroll,
+                            ),
+                        )
+                    else:
+                        logger.warning(
+                            "[CASH][LOBBY] human staker bankroll "
+                            "missing for credit staker=%r stake=%r",
+                            flow.staker_id,
+                            active_stake.stake_id,
+                        )
+                else:
+                    from cash_mode.bankroll import credit_ai_cash_out
+
+                    credit_ai_cash_out(
+                        bankroll_repo,
+                        flow.staker_id,
+                        flow.amount,
+                        sandbox_id=sandbox_id,
+                        now=now,
+                        chip_ledger_repo=chip_ledger_repo,
+                        ledger_context={
+                            "stake_id": active_stake.stake_id,
+                            "site": "ai_stake_settle_staker",
+                        },
+                    )
+            elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
+                from cash_mode.bankroll import credit_ai_cash_out
+
+                credit_ai_cash_out(
+                    bankroll_repo,
+                    flow.borrower_id,
+                    flow.amount,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                    chip_ledger_repo=chip_ledger_repo,
+                    ledger_context={
+                        "stake_id": active_stake.stake_id,
+                        "site": "ai_stake_settle_borrower",
+                    },
+                )
+        # Fire repaid/defaulted event. Carry rolls forward
+        # silently on the relationship axes — only the
+        # explicit STAKE_DEFAULTED action would fire the
+        # sharper hit; natural carry is just a status='carry'
+        # row. Phase 4 Commit 5: when status is carry, emit
+        # an EVENT_AI_DEFAULT to the lobby ticker so the
+        # player sees the moment-of-default drama even though
+        # no axis-shift event fires.
+        if (
+            relationship_repo is not None
+            and settlement.new_status != STAKE_STATUS_CARRY
+            and settlement.staker_id is not None
+            and settlement.forgiven_amount == 0
+        ):
+            try:
+                from poker.memory import OpponentModelManager
+                from poker.memory.relationship_events import (
+                    RelationshipEvent,
+                )
+
+                mgr = OpponentModelManager(
+                    relationship_repo=relationship_repo,
+                )
+                mgr.record_event(
+                    actor_id=settlement.staker_id,
+                    target_id=settlement.borrower_id,
+                    event=RelationshipEvent.STAKE_REPAID,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] STAKE_REPAID event failed " "stake=%r: %s",
+                    active_stake.stake_id,
+                    exc,
+                )
+        if (
+            settlement.new_status == STAKE_STATUS_CARRY
+            and settlement.carry_amount >= AI_STAKE_TICKER_THRESHOLD
+            and settlement.staker_id is not None
+        ):
+            try:
+                from cash_mode.activity import (
+                    EVENT_AI_DEFAULT,
+                    LobbyEvent,
+                    format_ai_default_message,
+                    record_event,
+                )
+
+                staker_name = _ticker_name_for(
+                    settlement.staker_id,
+                    personality_repo,
+                )
+                borrower_name = _ticker_name_for(
+                    settlement.borrower_id,
+                    personality_repo,
+                )
+                if staker_name and borrower_name:
+                    record_event(
+                        LobbyEvent(
+                            type=EVENT_AI_DEFAULT,
+                            table_id=result.new_table.table_id,
+                            stake_label=active_stake.stake_tier,
+                            personality_id=settlement.borrower_id,
+                            name=borrower_name,
+                            reason=settlement.staker_id,
+                            message=format_ai_default_message(
+                                borrower_name,
+                                staker_name,
+                                active_stake.stake_tier,
+                                settlement.carry_amount,
+                            ),
+                            created_at=now.isoformat(),
+                            sandbox_id=sandbox_id,
+                        )
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] EVENT_AI_DEFAULT emit failed: %s",
+                    exc,
+                )
+        settled_from_seat_indices.add(idx)
+    return settled_from_seat_indices
+
+
+def _apply_stake_creations(
+    result,
+    *,
+    stake_repo,
+    relationship_repo,
+    personality_repo,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id,
+    now,
+) -> None:
+    """Apply AI-borrow stake creations recorded on `result`.
+
+    Extracted verbatim from `refresh_unseated_tables`' per-table loop:
+    debits each staker's bankroll, persists the Stake row, fires the
+    STAKE_OFFERED relationship event, and emits EVENT_AI_STAKE for stakes
+    above the ticker threshold. No-op when `result.stake_creations` is empty.
+    """
+    # Phase 4: apply AI-borrow stake creations. The seat refill
+    # was already baked into result.new_table by refresh_table_roster
+    # (the borrower's chips moved from chips_at_bust → principal,
+    # and the from_seat above credited the borrower's bankroll
+    # with chips_at_bust). What remains:
+    #   - Debit the staker's bankroll by principal.
+    #   - Persist a Stake row (status=active, both kinds personality).
+    #   - Fire STAKE_OFFERED so the staker's relationship axes
+    #     toward the borrower reflect the new tie.
+    #   - Emit EVENT_AI_STAKE on the lobby ticker (Commit 5).
+    from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
+    from cash_mode.bankroll import debit_bankroll_for_seat
+
+    if result.stake_creations:
+        import uuid
+
+        from cash_mode.stakes import (
+            BORROWER_KIND_PERSONALITY,
+            STAKE_FORMAT_PURE,
+            STAKE_STATUS_ACTIVE,
+            STAKER_KIND_PERSONALITY,
+            Stake,
+        )
+
+        for sc in result.stake_creations:
+            debit_bankroll_for_seat(
+                bankroll_repo,
+                sc.staker_id,
+                sc.principal,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
+            )
+            stake = Stake(
+                stake_id=f"ai_stake_{uuid.uuid4().hex[:12]}",
+                session_id=f"ai_session_{sc.borrower_id}_{int(now.timestamp())}",
+                staker_id=sc.staker_id,
+                staker_kind=STAKER_KIND_PERSONALITY,
+                borrower_id=sc.borrower_id,
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                format=STAKE_FORMAT_PURE,
+                principal=sc.principal,
+                match_amount=0,
+                origination_fee=0,
+                cut=sc.cut,
+                status=STAKE_STATUS_ACTIVE,
+                carry_amount=0,
+                stake_tier=sc.stake_label,
+                created_at=now,
+            )
+            if stake_repo is not None:
+                stake_repo.create_stake(stake)
+            if relationship_repo is not None:
+                try:
+                    from poker.memory import OpponentModelManager
+                    from poker.memory.relationship_events import (
+                        RelationshipEvent,
+                    )
+
+                    mgr = OpponentModelManager(
+                        relationship_repo=relationship_repo,
+                    )
+                    mgr.record_event(
+                        actor_id=sc.staker_id,
+                        target_id=sc.borrower_id,
+                        event=RelationshipEvent.STAKE_OFFERED,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[CASH][LOBBY] STAKE_OFFERED event failed " "staker=%r borrower=%r: %s",
+                        sc.staker_id,
+                        sc.borrower_id,
+                        exc,
+                    )
+            # Phase 4 Commit 5: emit ticker event for stakes above
+            # the threshold so the player sees the AI economy
+            # moving. Smaller stakes (at $2/$10) fire silently —
+            # state mutates, but the ticker stays focused on
+            # higher-stakes drama.
+            if sc.principal >= AI_STAKE_TICKER_THRESHOLD:
+                try:
+                    from cash_mode.activity import (
+                        EVENT_AI_STAKE,
+                        LobbyEvent,
+                        format_ai_stake_message,
+                        record_event,
+                    )
+
+                    staker_name = _ticker_name_for(
+                        sc.staker_id,
+                        personality_repo,
+                    )
+                    borrower_name = _ticker_name_for(
+                        sc.borrower_id,
+                        personality_repo,
+                    )
+                    if staker_name and borrower_name:
+                        record_event(
+                            LobbyEvent(
+                                type=EVENT_AI_STAKE,
+                                table_id=result.new_table.table_id,
+                                stake_label=sc.stake_label,
+                                personality_id=sc.staker_id,
+                                name=staker_name,
+                                reason=sc.borrower_id,
+                                message=format_ai_stake_message(
+                                    staker_name,
+                                    borrower_name,
+                                    sc.stake_label,
+                                    sc.principal,
+                                ),
+                                created_at=now.isoformat(),
+                                sandbox_id=sandbox_id,
+                            )
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "[CASH][LOBBY] EVENT_AI_STAKE emit failed: %s",
+                        exc,
+                    )
+
+
+def _apply_bankroll_transfers(
+    result,
+    *,
+    settled_from_seat_indices,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id,
+    now,
+) -> None:
+    """Apply bankroll <-> seat transfers for one table's refresh result.
+
+    Extracted verbatim from `refresh_unseated_tables`' per-table loop.
+    `to_seat` changes debit the AI's bankroll (pure transfer); `from_seat`
+    changes credit it via credit_ai_cash_out, EXCEPT the indices in
+    `settled_from_seat_indices`, which the stake-settlement pass already
+    consumed.
+    """
+    # Apply bankroll ↔ seat transfers (closes the v1.5 lobby-seed
+    # leak: live-fill used to mint chips on new seats without
+    # deducting from the AI's bankroll). `to_seat` is a pure
+    # transfer (no ledger entry); `from_seat` goes through
+    # `credit_ai_cash_out` so regen commits and cap-clamp overflow
+    # fires a ledger entry.
+    from cash_mode.bankroll import (
+        credit_ai_cash_out,
+        debit_bankroll_for_seat,
+    )
+
+    for i, bc in enumerate(result.bankroll_changes):
+        if bc.direction == "to_seat":
+            debit_bankroll_for_seat(
+                bankroll_repo,
+                bc.personality_id,
+                bc.amount,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
+            )
+        elif bc.direction == "from_seat":
+            # Skip ONLY the specific from_seat entry the
+            # settlement consumed; earlier from_seat entries for
+            # the same pid (take_stake bust chips) still credit.
+            if i in settled_from_seat_indices:
+                continue
+            credit_ai_cash_out(
+                bankroll_repo,
+                bc.personality_id,
+                bc.amount,
+                sandbox_id=sandbox_id,
+                now=now,
+                chip_ledger_repo=chip_ledger_repo,
+                ledger_context={
+                    "site": "refresh_table_roster_vacate",
+                    "table_id": result.new_table.table_id,
+                },
+            )
+
+
+def _ticker_name_for(pid: str, personality_repo) -> Optional[str]:
+    """Resolve a personality's display name for lobby ticker events.
+
+    Best-effort: returns None on any lookup failure or missing personality so
+    callers can skip emission rather than crash. Hoisted out of
+    `refresh_unseated_tables`' per-table loop (it was redefined every iteration)
+    so the extracted settlement / stake-creation stage helpers can share it.
+    """
+    try:
+        personality = personality_repo.load_personality_by_id(pid)
+    except Exception:
+        return None
+    if not personality:
+        return None
+    return personality.get("name") or pid
+
+
 def _emit_whale_events(whale_batch, *, sandbox_id: Optional[str], now: datetime) -> None:
     """Surface whale spawn / wind-down on the lobby ticker.
 
@@ -2316,6 +2927,7 @@ def _emit_activity_events(
         return personality.get("name") or pid
 
     stake = table.stake_label
+    table_name = table.name
     ts = now.isoformat()
 
     for pid, decision in decisions.items():
@@ -2333,7 +2945,7 @@ def _emit_activity_events(
                     personality_id=pid,
                     name=name,
                     reason=decision,
-                    message=format_leave_message(name, stake, decision),
+                    message=format_leave_message(name, stake, decision, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2355,7 +2967,7 @@ def _emit_activity_events(
                     personality_id=pid,
                     name=name,
                     reason="",
-                    message=format_join_message(name, stake),
+                    message=format_join_message(name, stake, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2366,15 +2978,15 @@ def _emit_activity_events(
 
 def _emit_last_stand_events(
     *,
-    candidates: Dict[str, Tuple[str, str]],
+    candidates: Dict[str, Tuple[str, str, Optional[str]]],
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
 ) -> None:
     """Push last-stand (predator-signal) events to the ring buffer.
 
-    `candidates` maps `personality_id -> (table_id, stake_label)` for the
-    AIs newly committed this refresh (already dedup'd by the caller).
+    `candidates` maps `personality_id -> (table_id, stake_label, table_name)`
+    for the AIs newly committed this refresh (already dedup'd by the caller).
     Best-effort, same defensive stance as the other emitters — the
     ticker is UX, never a correctness surface.
     """
@@ -2388,7 +3000,7 @@ def _emit_last_stand_events(
     )
 
     ts = now.isoformat()
-    for pid, (table_id, stake_label) in candidates.items():
+    for pid, (table_id, stake_label, table_name) in candidates.items():
         try:
             personality = personality_repo.load_personality_by_id(pid)
         except Exception:
@@ -2405,7 +3017,7 @@ def _emit_last_stand_events(
                     personality_id=pid,
                     name=name,
                     reason="",
-                    message=format_last_stand_message(name, stake_label),
+                    message=format_last_stand_message(name, stake_label, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2443,6 +3055,8 @@ def _emit_sim_events(
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
+    hand_id: Optional[str] = None,
+    primary: bool = True,
 ) -> None:
     """Push paired big_win + big_loss events for a sim hand.
 
@@ -2495,9 +3109,11 @@ def _emit_sim_events(
                 personality_id=winner_pid,
                 name=winner_name,
                 reason=loser_pid,  # opponent id for frontend grouping
-                message=format_big_win_message(winner_name, loser_name, stake, delta),
+                message=format_big_win_message(winner_name, loser_name, stake, delta, table.name),
                 created_at=ts,
                 sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=primary,
             )
         )
         record_event(
@@ -2508,9 +3124,11 @@ def _emit_sim_events(
                 personality_id=loser_pid,
                 name=loser_name,
                 reason=winner_pid,
-                message=format_big_loss_message(loser_name, winner_name, stake, delta),
+                message=format_big_loss_message(loser_name, winner_name, stake, delta, table.name),
                 created_at=ts,
                 sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=primary,
             )
         )
     except Exception:
@@ -2541,6 +3159,46 @@ def _emit_burst_events(
     framing reads "X shoved" once, not "X shoved 4 times").
     """
     if not sim_results:
+        return
+
+    # Single live hand (the common case): collapse the hand's beats into
+    # ONE composed primary line so the feed reads as a coherent sentence
+    # ("X shoved all-in and won $Y, busting Z") instead of a mis-ordered
+    # win/all-in/bust cluster. The atomic events are still recorded
+    # (primary=False) for per-AI filtering. The multi-hand burst path below
+    # stays compressed — its events span different hands and can't honestly
+    # be joined into one sentence.
+    if len(sim_results) == 1:
+        r = sim_results[0]
+        hand_id = f"{table.table_id}:{now.isoformat()}"
+        if r.big_event:
+            _emit_sim_events(
+                table=table,
+                sim_result=r,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=False,
+            )
+        if r.hand_events:
+            _emit_hand_events(
+                table=table,
+                sim_result=r,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=False,
+            )
+        _emit_hand_summary(
+            table=table,
+            sim_result=r,
+            personality_repo=personality_repo,
+            now=now,
+            hand_id=hand_id,
+            sandbox_id=sandbox_id,
+        )
         return
 
     # Pick the biggest big_event hand for the headline win/loss
@@ -2653,6 +3311,7 @@ def _emit_burst_summary(
                     hands=len(sim_results),
                     top_name=top_name,
                     top_net_delta=top_delta,
+                    table_name=table.name,
                 ),
                 created_at=now.isoformat(),
                 sandbox_id=sandbox_id,
@@ -2669,6 +3328,8 @@ def _emit_hand_events(
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
+    hand_id: Optional[str] = None,
+    primary: bool = True,
 ) -> None:
     """Translate `HandSimResult.hand_events` into `LobbyEvent`s.
 
@@ -2722,9 +3383,11 @@ def _emit_hand_events(
                         personality_id=evt.personality_id,
                         name=name,
                         reason=evt.opponent_pid or "",
-                        message=format_all_in_message(name, stake, opponent_name),
+                        message=format_all_in_message(name, stake, opponent_name, table.name),
                         created_at=ts,
                         sandbox_id=sandbox_id,
+                        hand_id=hand_id,
+                        primary=primary,
                     )
                 )
                 seen_types.add(evt.type)
@@ -2741,14 +3404,132 @@ def _emit_hand_events(
                         personality_id=evt.personality_id,
                         name=name,
                         reason=evt.opponent_pid or "",
-                        message=format_bust_message(name, stake),
+                        message=format_bust_message(name, stake, table.name),
                         created_at=ts,
                         sandbox_id=sandbox_id,
+                        hand_id=hand_id,
+                        primary=primary,
                     )
                 )
                 seen_types.add(evt.type)
             except Exception:
                 pass
+
+
+def _emit_hand_summary(
+    *,
+    table,
+    sim_result,
+    personality_repo,
+    now: datetime,
+    hand_id: str,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Emit the ONE composed primary line summarizing a single sim hand.
+
+    Headline priority: a big-pot win (folding in the winner's shove and the
+    loser's bust) → a bust → a lone all-in shove. Reuses the atomic event
+    `type` (big_win / all_in / bust) so the ticker picks the right icon; the
+    `primary=False` atomic copies emitted alongside carry the structured
+    data for filtering. Emits nothing when the hand had no notable beat
+    (matching the prior behavior where no atomic event would have fired).
+    """
+    from cash_mode.activity import (
+        EVENT_ALL_IN,
+        EVENT_BIG_WIN,
+        EVENT_BUST,
+        LobbyEvent,
+        format_all_in_message,
+        format_hand_summary_message,
+        record_event,
+    )
+    from cash_mode.full_sim import HAND_EVENT_ALL_IN, HAND_EVENT_BUST
+
+    def _name_for(pid: Optional[str]) -> Optional[str]:
+        if not pid:
+            return None
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
+    stake = table.stake_label
+    winner_pid = sim_result.winner_pid
+    loser_pid = sim_result.loser_pid
+    busted_pids = [e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_BUST]
+    allin_pids = {e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_ALL_IN}
+
+    winner_name = _name_for(winner_pid)
+    loser_name = _name_for(loser_pid)
+    busted_names = [n for n in (_name_for(p) for p in busted_pids) if n]
+    delta = int(sim_result.delta)
+
+    etype: Optional[str] = None
+    subject_pid: Optional[str] = None
+    opponent_pid = ""
+    message = ""
+
+    if sim_result.big_event and winner_name and winner_pid:
+        winner_shoved = winner_pid in allin_pids
+        etype = EVENT_ALL_IN if winner_shoved else EVENT_BIG_WIN
+        subject_pid = winner_pid
+        opponent_pid = loser_pid or ""
+        message = format_hand_summary_message(
+            winner=winner_name,
+            loser=loser_name,
+            amount=delta,
+            stake_label=stake,
+            winner_shoved=winner_shoved,
+            busted_names=busted_names,
+            table_name=table.name,
+        )
+    elif busted_names:
+        etype = EVENT_BUST
+        subject_pid = busted_pids[0]
+        opponent_pid = winner_pid or ""
+        message = format_hand_summary_message(
+            winner=winner_name,
+            loser=None,
+            amount=0,
+            stake_label=stake,
+            winner_shoved=False,
+            busted_names=busted_names,
+            table_name=table.name,
+        )
+    elif allin_pids:
+        shover_pid = next(iter(allin_pids))
+        shover_name = _name_for(shover_pid)
+        if shover_name:
+            etype = EVENT_ALL_IN
+            subject_pid = shover_pid
+            opponent = loser_pid if shover_pid == winner_pid else winner_pid
+            opponent_pid = opponent or ""
+            message = format_all_in_message(shover_name, stake, _name_for(opponent), table.name)
+
+    if not (etype and subject_pid and message):
+        return
+
+    try:
+        record_event(
+            LobbyEvent(
+                type=etype,
+                table_id=table.table_id,
+                stake_label=stake,
+                personality_id=subject_pid,
+                name=_name_for(subject_pid) or subject_pid,
+                reason=opponent_pid,
+                message=message,
+                created_at=now.isoformat(),
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=True,
+            )
+        )
+    except Exception:
+        pass
 
 
 def _emit_carry_resolution_events(
@@ -3064,6 +3845,353 @@ def _emit_side_hustle_events(
             )
 
 
+def _emit_session_event(cash_session_repo, session_id, event, **kwargs) -> None:
+    """Best-effort wrapper over `cash_session_repo.record_event` (Tier 3).
+
+    Tolerates a repo without `record_event` (older test fakes) and never
+    raises — lifecycle telemetry must not break a sweep.
+    """
+    record = getattr(cash_session_repo, "record_event", None)
+    if record is None:
+        return
+    try:
+        record(session_id, event, **kwargs)
+    except Exception:
+        logger.debug("[CASH][LOBBY] session event %r/%r emit failed", session_id, event)
+
+
+# Default "abandoned" threshold for the boot/watchdog sweep. 4h, not
+# 30m: a cash row is only reaped (settled at chips=0) once it's gone
+# untouched this long, so a player who steps away for lunch — or whose
+# session is frozen across a reboot ("resume on reboot is by design") —
+# doesn't get their table stack burned. Codex review #1.
+DEFAULT_STALE_TTL_SECONDS = 14400
+
+
+def _settle_orphan_seat_to_bankroll(
+    *,
+    game_id: str,
+    owner_id: Optional[str],
+    sandbox_id: Optional[str],
+    bankroll_repo,
+    chip_ledger_repo,
+    now: datetime,
+) -> int:
+    """Settle a non-empty human seat balance back to the owner's bankroll
+    BEFORE its games row is deleted — the structural chip-custody guarantee
+    (CASH_MODE_CHIP_CUSTODY, Phase 3 / D2).
+
+    A reaped row is normally a closed/busted/orphan session whose seat is empty
+    (the cash-out already returned the chips). But a sit that committed a buy-in
+    (`player_buy_in`: player→seat) and then errored before its session row
+    landed leaves chips recorded in `seat:<game_id>` with no cash-out. Deleting
+    that row would strand those chips — the silent-forfeiture bug class. So we
+    settle the seat balance back to the bankroll (a `player_cash_out` transfer +
+    a bankroll credit) instead of zeroing it. A seat balance can leave ONLY via
+    a settlement transfer; nothing may zero a non-empty seat.
+
+    Returns the chips recovered (0 when custody is off, the seat is empty, or
+    there's no bankroll row to settle into — in the last case the balance is
+    LEFT in the ledger, never forfeited, and flagged for an operator).
+    """
+    from cash_mode import economy_flags
+
+    if (
+        not economy_flags.CHIP_CUSTODY_ENABLED
+        or chip_ledger_repo is None
+        or bankroll_repo is None
+        or not owner_id
+    ):
+        return 0
+    from core.economy import ledger as chip_ledger
+
+    # game_id is globally unique, so the seat account's rows are all one
+    # sandbox — sum across (None) is safe and avoids a sandbox mismatch.
+    bal = chip_ledger_repo.balance_of(chip_ledger.seat(game_id), sandbox_id=None)
+    if bal <= 0:
+        return 0
+    state = bankroll_repo.load_player_bankroll(owner_id)
+    if state is None:
+        logger.warning(
+            "[CASH LIFECYCLE] settle-before-delete: seat %r holds %d chips but "
+            "owner %r has no bankroll row — LEAVING the balance in the ledger "
+            "(not forfeiting); needs operator attention",
+            game_id, bal, owner_id,
+        )
+        return 0
+    from cash_mode.bankroll import PlayerBankrollState
+
+    bankroll_repo.save_player_bankroll(
+        PlayerBankrollState(
+            player_id=state.player_id,
+            chips=state.chips + bal,
+            starting_bankroll=state.starting_bankroll,
+        )
+    )
+    chip_ledger.record_player_cash_out(
+        chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=bal,
+        context={'site': 'boot_sweep_settle', 'game_id': game_id},
+        sandbox_id=sandbox_id,
+    )
+    logger.info(
+        "[CASH][LOBBY] settle-before-delete recovered %d chips for owner %r "
+        "from seat %r (chip forfeiture prevented)",
+        bal, owner_id, game_id,
+    )
+    return bal
+
+
+def _boot_sweep_stale_cash_rows(
+    *,
+    game_repo,
+    cash_session_repo,
+    stake_repo=None,
+    chip_ledger_repo=None,
+    bankroll_repo=None,
+    cash_table_repo=None,
+    entity_presence_repo=None,
+    stale_ttl_seconds: int,
+    now: datetime,
+    skip_game_ids: Optional[Set[str]] = None,
+    source: str = "boot",
+    game_state_service=None,
+) -> int:
+    """Sweep abandoned `cash-*` rows whose `updated_at` is past the TTL.
+
+    `source` ("boot" | "watchdog") tags the close reason + lifecycle
+    event so ops can tell a reboot reconcile from a between-reboots
+    watchdog reap.
+
+    Resume-on-reboot is by design: a *fresh* cash row (touched within
+    `stale_ttl_seconds`) is left intact so the player reconnects to
+    their frozen table. But a row nobody has touched in a long time is
+    an abandoned orphan — leaving it makes `_find_active_cash_game_id`
+    surface it forever and the sit guard 409s every new sit. This is
+    the convergence backstop (T2.2): boot is where partial/abandoned
+    state gets resolved instead of lingering.
+
+    For each stale row we ghost-clean (the chips at the table are
+    notional at boot — last hand-boundary sync — and the bankroll
+    already reflects the buy-in debit):
+
+      1. Settle any *active* stake at chips=0 (full-bust path:
+         personality stakes carry the principal, house stakes forgive)
+         so the staker's debited principal doesn't dangle un-resolved.
+         Idempotent — `settle_stake_on_leave` no-ops on a non-active
+         stake. Skipped when `stake_repo` isn't provided.
+      2. Finalise the `cash_sessions` row as `closed_status='boot_swept'`
+         (the repo's `ended_at IS NULL` guard makes this idempotent).
+      3. Delete the `games` row so the sit guard stops 409-ing.
+
+    Returns the number of rows swept. Best-effort per row — one bad row
+    doesn't abort the rest of the sweep.
+    """
+    from cash_mode.cash_sessions import (
+        CLOSED_STATUS_BOOT_SWEPT,
+        CLOSED_STATUS_STALE_SWEPT,
+        SESSION_STATE_BROKEN,
+        SESSION_STATES_BLOCKING,
+    )
+
+    closed_status = CLOSED_STATUS_STALE_SWEPT if source == "watchdog" else CLOSED_STATUS_BOOT_SWEPT
+
+    swept = 0
+    try:
+        rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
+    except Exception as e:
+        logger.warning("[CASH][LOBBY] boot sweep list_games failed: %s", e)
+        return 0
+
+    skip_game_ids = skip_game_ids or set()
+    for row in rows:
+        if not row.game_id.startswith("cash-"):
+            continue
+        if row.game_id in skip_game_ids:
+            # In-memory / actively-played game — never sweep it. Deleting
+            # the DB row out from under a live in-memory copy just gets
+            # re-saved on the next tick (the resurrection race), and the
+            # player may still be at the table. The watchdog passes the
+            # live cash-game ids here.
+            continue
+        try:
+            age = (now - row.updated_at).total_seconds()
+        except Exception:
+            # Unparseable timestamp — treat as stale (safer than
+            # leaving a row we can't reason about wedged forever).
+            age = stale_ttl_seconds + 1
+        if age <= stale_ttl_seconds:
+            continue  # fresh → resumable, leave it alone
+
+        # Close the resurrection race (Codex review #2): a stale row can be
+        # warm-loaded / resumed into memory between the skip-set snapshot
+        # (built by the watchdog) and this delete. Acquire the SAME
+        # per-game lock the leave + cold-load paths use, then re-check
+        # in-memory presence under it; if the game is now live, skip it —
+        # deleting its row out from under a live in-memory copy is the
+        # split-brain the whole hardening effort fights. On boot the map
+        # is empty so the re-check is a no-op (and game_state_service may
+        # be None for older callers → nullcontext, no lock).
+        lock_ctx = (
+            game_state_service.get_game_lock(row.game_id)
+            if game_state_service is not None
+            else nullcontext()
+        )
+        try:
+            with lock_ctx:
+                if (
+                    game_state_service is not None
+                    and game_state_service.get_game(row.game_id) is not None
+                ):
+                    continue  # resumed into memory since the snapshot — don't sweep
+                session = cash_session_repo.load(row.game_id) if cash_session_repo else None
+                # FREEZE-FOREVER GUARD (CASH_MODE_STATE_MODEL.md §5.4, §10 Cut 1).
+                # Never sweep a session the player can still resume. A frozen
+                # (active/paused/abandoning) session IS the player's sacred table —
+                # zeroing its chips (final_chips_at_table=0, player_take_home=0) and
+                # deleting its games row is the silent-forfeiture bug that destroyed
+                # real buy-ins. Leave it wholly intact: the sit guard already treats
+                # a blocking session as the one resumable table per owner (by
+                # design), and the games row is durable hand history (kept forever).
+                # Only genuinely-dead rows — closed/broken sessions, or sessionless
+                # orphans from a sit that errored before its row landed — fall
+                # through to the cleanup below, and those carry no live chips.
+                if session is not None and session.session_state in SESSION_STATES_BLOCKING:
+                    logger.debug(
+                        "[CASH][LOBBY] %s sweep skipped resumable session %r "
+                        "(state=%s, age=%.0fs) — frozen table preserved",
+                        source,
+                        row.game_id,
+                        session.session_state,
+                        age,
+                    )
+                    continue
+                # 1. Resolve any active stake so its principal doesn't dangle.
+                if stake_repo is not None:
+                    active_stake = stake_repo.load_active_for_session(row.game_id)
+                    if active_stake is not None:
+                        from cash_mode.stake_settlement import settle_stake_on_leave
+
+                        settle_stake_on_leave(
+                            active_stake.stake_id,
+                            0,  # notional: treat an abandoned table as a bust
+                            stake_repo=stake_repo,
+                            chip_ledger_repo=chip_ledger_repo,
+                            ledger_context={'game_id': row.game_id, 'site': 'boot_sweep'},
+                            sandbox_id=session.sandbox_id if session else None,
+                            now=now,
+                        )
+                # 1b. STRUCTURAL settle-before-delete (chip-custody Phase 3):
+                # if the human seat account still holds chips (an orphan sit
+                # that committed a buy-in but never cashed out), settle them
+                # back to the bankroll rather than zeroing them on delete.
+                recovered = _settle_orphan_seat_to_bankroll(
+                    game_id=row.game_id,
+                    owner_id=row.owner_id,
+                    sandbox_id=session.sandbox_id if session else None,
+                    bankroll_repo=bankroll_repo,
+                    chip_ledger_repo=chip_ledger_repo,
+                    now=now,
+                )
+                # 1c. Presence half (R3a): open the human's persisted seat so the
+                # deleted row can't leave a ghost seat (save_table drives
+                # GO_OFFLINE under authority). Makes _free_ghost_human_seats'
+                # orphan unrepresentable at this — the documented — source.
+                _sweep_sb = session.sandbox_id if session else None
+                if cash_table_repo is not None and row.owner_id and _sweep_sb:
+                    from cash_mode.presence_sweep import free_human_seat_on_delete
+
+                    free_human_seat_on_delete(
+                        owner_id=row.owner_id,
+                        sandbox_id=_sweep_sb,
+                        repos={
+                            "cash_table_repo": cash_table_repo,
+                            "entity_presence_repo": entity_presence_repo,
+                        },
+                    )
+                # 2. Mark the session closed (idempotent via ended_at guard).
+                # `player_take_home`/`final_chips_at_table` reflect any chips the
+                # settle just returned — the record is no longer a flat zero when
+                # chips were actually recovered.
+                if session is not None and session.ended_at is None:
+                    cash_session_repo.finalise(
+                        session.session_id,
+                        ended_at=now,
+                        final_chips_at_table=recovered,
+                        sponsor_repaid=0,
+                        player_take_home=recovered,
+                        hands_played=session.hands_played or 0,
+                        hands_won=session.hands_won or 0,
+                        biggest_pot_won=session.biggest_pot_won or 0,
+                        duration_seconds=0,
+                        closed_status=closed_status,
+                    )
+                # 3. Drop the games row so the sit guard stops blocking sits.
+                game_repo.delete_game(row.game_id)
+                swept += 1
+            # Tier 3: lifecycle telemetry.
+            _emit_session_event(
+                cash_session_repo,
+                row.game_id,
+                "swept",
+                owner_id=row.owner_id,
+                sandbox_id=session.sandbox_id if session else None,
+                detail={"source": source, "age_seconds": int(age)},
+                now=now,
+            )
+            logger.info(
+                "[CASH][LOBBY] %s-swept stale orphan cash row %r "
+                "(age=%.0fs > ttl=%ds, owner=%r)",
+                source,
+                row.game_id,
+                age,
+                stale_ttl_seconds,
+                row.owner_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "[CASH][LOBBY] %s sweep failed for %r: %s",
+                source,
+                row.game_id,
+                e,
+            )
+            # Convergence: a row we couldn't sweep is marked `broken` so
+            # the sit guard stops treating it as an active session (it
+            # won't wedge new sits) even though its games row lingers.
+            try:
+                cash_session_repo.set_session_state(row.game_id, SESSION_STATE_BROKEN)
+                # Alertable signal (PRH-28): the `[CASH LIFECYCLE]` prefix is
+                # in alerting._PREFIXES, so a marked-broken session pages the
+                # webhook. `broken` shouldn't normally happen; a steady drip
+                # means orphans aren't self-healing — operator attention.
+                logger.warning(
+                    "[CASH LIFECYCLE] cash session %r marked BROKEN — %s sweep "
+                    "could not converge; sit guard will skip it (no player wedge), "
+                    "but it needs operator attention",
+                    row.game_id,
+                    source,
+                )
+                _emit_session_event(
+                    cash_session_repo,
+                    row.game_id,
+                    "broken",
+                    owner_id=row.owner_id,
+                    detail={"source": source, "error": str(e)},
+                    now=now,
+                )
+            except Exception:
+                logger.exception(
+                    "[CASH][LOBBY] failed to mark %r broken after sweep failure",
+                    row.game_id,
+                )
+
+    if swept:
+        logger.info("[CASH][LOBBY] boot sweep removed %d stale orphan cash row(s)", swept)
+    return swept
+
+
 def kill_all_cash_sessions(
     *,
     game_state_service,
@@ -3071,6 +4199,12 @@ def kill_all_cash_sessions(
     cash_table_repo=None,
     bankroll_repo=None,
     sandbox_id: Optional[str] = None,
+    cash_session_repo=None,
+    stake_repo=None,
+    chip_ledger_repo=None,
+    entity_presence_repo=None,
+    stale_ttl_seconds: int = DEFAULT_STALE_TTL_SECONDS,
+    now: Optional[datetime] = None,
 ) -> int:
     """Boot reconcile: drop stale in-memory cash games; reset orphan seats.
 
@@ -3114,6 +4248,28 @@ def kill_all_cash_sessions(
         game_state_service.delete_game(gid)
         dropped += 1
         logger.info("[CASH][LOBBY] kill_all_cash_sessions: dropped in-memory %r", gid)
+
+    # Stale-orphan row sweep (T2.2). Runs before the seat reconcile so
+    # that owners whose row we just swept fall into the "no surviving
+    # cash-* row" bucket below and get their lobby seat freed too.
+    if cash_session_repo is not None:
+        if now is None:
+            now = datetime.utcnow()
+        _boot_sweep_stale_cash_rows(
+            game_repo=game_repo,
+            cash_session_repo=cash_session_repo,
+            stake_repo=stake_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            entity_presence_repo=entity_presence_repo,
+            stale_ttl_seconds=stale_ttl_seconds,
+            now=now,
+            # Lock + re-check guard against the resurrection race (Codex #2).
+            # Harmless at boot (memory is empty) but correct if a request
+            # warm-loads a game mid-boot-reconcile.
+            game_state_service=game_state_service,
+        )
 
     # Reconcile orphan human seats. A seat is orphan when its owner
     # has no surviving `cash-*` row — the lobby would otherwise render
@@ -3494,32 +4650,33 @@ def _process_aspiration_asks(
             continue
         staker_id, staker_profile = picked
 
-        # Commit. Vacate the seat, return seat chips to bankroll, add
-        # the stake principal to the asker's bankroll, debit the
-        # staker, create the Stake row, place asker in the idle pool
-        # targeting the new tier.
+        # Commit — financial operations FIRST, structural mutations LAST
+        # (Window A atomicity, CASH_SEAT_INVARIANT_HARDENING §3).
+        #
+        # Order: (1) debit the staker; (2) create the Stake row, refunding
+        # the staker if that write fails; (3) only after BOTH financial
+        # ops have committed, vacate the seat + queue the chip-return.
+        #
+        # Rationale: the seat vacate and `from_seat` chip-return credit
+        # the asker `seat_chips + principal`. If they ran before a failed
+        # staker debit (the historical order), nobody was debited the
+        # `principal` → minted chips. Reordering makes the structural
+        # mutations pure in-memory writes on `result` that only run on the
+        # fully-committed financial path — they have no independent
+        # failure of their own. The success end-state is identical: the
+        # same debit, the same stake row, the same seat vacate, the same
+        # single `from_seat` of `seat_chips + principal`.
         seat_chips = int(slot.get("chips", 0) or 0)
-        table.seats[seat_idx] = open_slot()
 
-        # Single BankrollChange combining the seat-chip return and the
-        # stake-principal credit. The post-burst code applies
-        # from_seat changes via credit_ai_cash_out, which writes one
-        # row + handles regen — combining the two amounts is a
-        # single write, cleaner than two separate calls.
-        result.bankroll_changes.append(
-            BankrollChange(
-                direction="from_seat",
-                personality_id=asker_pid,
-                amount=seat_chips + principal,
-            )
-        )
-
-        # Debit the staker inline (matches Phase 4's stake_creations
-        # post-loop debit pattern).
+        # (1) Debit the staker inline (matches Phase 4's stake_creations
+        # post-loop debit pattern). `debit_bankroll_for_seat` signals
+        # failure two ways: it RAISES, or it returns None (insufficient
+        # funds / missing row — the audit-safe refusal). BOTH must skip
+        # the ask cleanly without touching the seat, or chips mint.
         try:
             from cash_mode.bankroll import debit_bankroll_for_seat
 
-            debit_bankroll_for_seat(
+            debited = debit_bankroll_for_seat(
                 bankroll_repo,
                 staker_id,
                 principal,
@@ -3537,8 +4694,20 @@ def _process_aspiration_asks(
                 exc,
             )
             continue
+        if debited is None:
+            logger.warning(
+                "[CASH][LOBBY] aspiration: staker debit refused "
+                "staker=%r pid=%r principal=%d — skipping climb",
+                staker_id,
+                asker_pid,
+                principal,
+            )
+            continue
 
-        # Create the stake row.
+        # (2) Create the stake row. If the write fails AFTER the staker
+        # was debited, refund the staker the `principal` (reversing only
+        # the transfer portion — any regen the debit committed is real
+        # and stays) and skip the ask. The seat has NOT been touched yet.
         import uuid
 
         stake = Stake(
@@ -3567,7 +4736,65 @@ def _process_aspiration_asks(
                 staker_id,
                 exc,
             )
+            # Refund the staker so the committed debit isn't a silent
+            # loss. `debited` is the post-debit AIBankrollState; add the
+            # principal back to it (the transfer is reversed; the regen
+            # commit, if any, is preserved).
+            try:
+                from cash_mode.bankroll import AIBankrollState
+
+                bankroll_repo.save_ai_bankroll(
+                    AIBankrollState(
+                        personality_id=staker_id,
+                        chips=debited.chips + principal,
+                        last_regen_tick=debited.last_regen_tick,
+                    ),
+                    sandbox_id=sandbox_id,
+                )
+            except TypeError as te:
+                if "sandbox_id" not in str(te):
+                    logger.warning(
+                        "[CASH][LOBBY] aspiration: staker refund failed "
+                        "staker=%r principal=%d: %s",
+                        staker_id,
+                        principal,
+                        te,
+                    )
+                else:
+                    bankroll_repo.save_ai_bankroll(
+                        AIBankrollState(
+                            personality_id=staker_id,
+                            chips=debited.chips + principal,
+                            last_regen_tick=debited.last_regen_tick,
+                        )
+                    )
+            except Exception as refund_exc:
+                logger.warning(
+                    "[CASH][LOBBY] aspiration: staker refund failed "
+                    "staker=%r principal=%d: %s",
+                    staker_id,
+                    principal,
+                    refund_exc,
+                )
             continue
+
+        # (3) Both financial ops committed — now vacate the seat and queue
+        # the chip-return. Pure in-memory mutations on `result`; no
+        # independent failure path.
+        table.seats[seat_idx] = open_slot()
+
+        # Single BankrollChange combining the seat-chip return and the
+        # stake-principal credit. The post-burst code applies
+        # from_seat changes via credit_ai_cash_out, which writes one
+        # row + handles regen — combining the two amounts is a
+        # single write, cleaner than two separate calls.
+        result.bankroll_changes.append(
+            BankrollChange(
+                direction="from_seat",
+                personality_id=asker_pid,
+                amount=seat_chips + principal,
+            )
+        )
 
         # Relationship event — same shape as bust-stake.
         if relationship_repo is not None:

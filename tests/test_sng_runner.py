@@ -62,8 +62,12 @@ class TestSeatSpecs:
     def test_cc_specs_split_is_correct(self):
         full = load_strategy_table()
         specs, challenger_names = _cc_seat_specs(
-            'multistreet', n_seats=6, challenger_idx={0, 2, 4}, champion_table=full,
-            challenger_table=full, archetype='Baseline',
+            'multistreet',
+            n_seats=6,
+            challenger_idx={0, 2, 4},
+            champion_table=full,
+            challenger_table=full,
+            archetype='Baseline',
         )
         assert len(specs) == 6
         assert len(challenger_names) == 3
@@ -75,12 +79,20 @@ class TestSeatSpecs:
         # challenger group in exactly the seats the base run left to champion.
         full = load_strategy_table()
         _, base_names = _cc_seat_specs(
-            'multistreet', n_seats=6, challenger_idx={0, 2, 4}, champion_table=full,
-            challenger_table=full, archetype='Baseline',
+            'multistreet',
+            n_seats=6,
+            challenger_idx={0, 2, 4},
+            champion_table=full,
+            challenger_table=full,
+            archetype='Baseline',
         )
         _, comp_names = _cc_seat_specs(
-            'multistreet', n_seats=6, challenger_idx={1, 3, 5}, champion_table=full,
-            challenger_table=full, archetype='Baseline',
+            'multistreet',
+            n_seats=6,
+            challenger_idx={1, 3, 5},
+            champion_table=full,
+            challenger_table=full,
+            archetype='Baseline',
         )
         # Seat indices are disjoint and cover the table.
         base_idx = {int(n.rsplit('_', 1)[1]) for n in base_names}
@@ -95,8 +107,12 @@ class TestSeatSpecs:
         # (Arch#k, never CHAL_/CHMP_, so the winner's name reveals which won).
         full = load_strategy_table()
         specs, challenger_names = _cc_seat_specs(
-            'exploitation', n_seats=6, challenger_idx={0}, champion_table=full,
-            challenger_table=full, archetype='TAG',
+            'exploitation',
+            n_seats=6,
+            challenger_idx={0},
+            champion_table=full,
+            challenger_table=full,
+            archetype='TAG',
             backdrop=('CallStation', 'FoldyBot', 'CallStation', 'FoldyBot'),
         )
         names = [s[0] for s in specs]
@@ -123,9 +139,7 @@ class TestPlaySng:
     def test_ends_with_winner_holding_every_chip(self):
         specs = self._small_field_specs()
         total = len(specs) * _START_STACK
-        res = play_sng(
-            specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7, max_hands=500
-        )
+        res = play_sng(specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7, max_hands=500)
         assert res.winner is not None
         assert res.terminal_reason == TERMINAL_SINGLE
         # WTA, no rake: chips are conserved across the whole tournament, so the
@@ -164,7 +178,11 @@ class TestPlaySng:
             decks = []
             specs = self._small_field_specs()
             play_sng(
-                specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=99,
+                specs,
+                _FAST_BLINDS,
+                _START_STACK,
+                _BIG_BLIND,
+                sng_seed=99,
                 on_hand_start=lambda i, gs: decks.append(tuple(gs.deck)),
             )
             return decks
@@ -212,9 +230,7 @@ class TestBootstrapCI:
         # A null with realistic block-to-block variance: half the blocks go 2-0
         # to the challenger, half 0-2. Mean is exactly 0.5 and — because the
         # blocks vary — the bootstrap CI is a real interval bracketing it.
-        blocks = [
-            CCBlock(seed=s, chal_wins=2 if s % 2 else 0, decisive=2) for s in range(200)
-        ]
+        blocks = [CCBlock(seed=s, chal_wins=2 if s % 2 else 0, decisive=2) for s in range(200)]
         point, lo, hi = _bootstrap_ci_blocks(blocks, iters=1000)
         assert point == 0.5
         assert lo < 0.5 < hi
@@ -248,7 +264,7 @@ class TestOpponentModelFeed:
         sm0 = PokerStateMachine(make_game_state(names, _BIG_BLIND, 10000, 0, seed=1))
         ctrls = [
             make_controller(nm, cfg, table, sm0, rng_seed=1000 * i)
-            for i, (nm, cfg) in enumerate(zip(names, cfgs))
+            for i, (nm, cfg) in enumerate(zip(names, cfgs, strict=False))
         ]
         return names, ctrls, table
 

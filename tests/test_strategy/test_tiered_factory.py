@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
 from flask_app.handlers.tiered_factory import build_tiered_controller
 
 
@@ -42,8 +43,11 @@ def test_factory_attaches_expression_when_enabled(
     assert ctor_kwargs['player_name'] == 'Lincoln'
     assert ctor_kwargs['game_id'] == 'game_test'
 
-    # LLMClient built from the player's llm_config
-    mock_llm_cls.assert_called_once_with(provider='openai', model='gpt-5-nano')
+    # LLMClient built from the player's llm_config, with the PRH-18 in-game
+    # timeout so a stalled provider can't hang the hand on narration.
+    mock_llm_cls.assert_called_once_with(
+        provider='openai', model='gpt-5-nano', default_timeout=INGAME_LLM_TIMEOUT_SECONDS
+    )
     # ExpressionGenerator gets the controller's prompt_manager
     mock_expr_cls.assert_called_once_with(llm_client=fake_client, prompt_manager=fake_pm)
 
@@ -98,4 +102,6 @@ def test_factory_handles_missing_llm_config(
         expression_enabled=True,
     )
 
-    mock_llm_cls.assert_called_once_with(provider='openai', model=None)
+    mock_llm_cls.assert_called_once_with(
+        provider='openai', model=None, default_timeout=INGAME_LLM_TIMEOUT_SECONDS
+    )

@@ -16,20 +16,7 @@ from flask import Blueprint, jsonify, request
 
 from poker.authorization import require_permission
 
-from ..extensions import (
-    bankroll_repo,
-    cash_table_repo,
-    chip_ledger_repo,
-    holdings_snapshots_repo,
-    persistence_db_path,
-    personality_repo,
-    relationship_repo,
-    sandbox_repo,
-    side_hustle_state_repo,
-    stake_repo,
-    user_repo,
-    vice_state_repo,
-)
+from .. import extensions
 from ..services import game_state_service
 from ..services.chip_ledger_audit import compute_audit
 from ..services.holdings_view import (
@@ -70,11 +57,11 @@ def chip_ledger_audit():
     """
     try:
         data = compute_audit(
-            ledger_repo=chip_ledger_repo,
-            bankroll_repo=bankroll_repo,
-            cash_table_repo=cash_table_repo,
-            stake_repo=stake_repo,
-            db_path=persistence_db_path,
+            ledger_repo=extensions.chip_ledger_repo,
+            bankroll_repo=extensions.bankroll_repo,
+            cash_table_repo=extensions.cash_table_repo,
+            stake_repo=extensions.stake_repo,
+            db_path=extensions.persistence_db_path,
             list_game_ids_fn=game_state_service.list_game_ids,
             get_game_fn=game_state_service.get_game,
             sandbox_id=_sandbox_arg(),
@@ -101,7 +88,7 @@ def chip_ledger_recent():
     limit = max(1, min(500, limit))
 
     try:
-        entries = chip_ledger_repo.recent_entries(
+        entries = extensions.chip_ledger_repo.recent_entries(
             limit=limit,
             sandbox_id=_sandbox_arg(),
         )
@@ -125,18 +112,59 @@ def chip_ledger_holdings():
     """
     try:
         data = compute_holdings_snapshot(
-            bankroll_repo=bankroll_repo,
-            personality_repo=personality_repo,
-            user_repo=user_repo,
-            stake_repo=stake_repo,
-            cash_table_repo=cash_table_repo,
-            db_path=persistence_db_path,
+            bankroll_repo=extensions.bankroll_repo,
+            personality_repo=extensions.personality_repo,
+            user_repo=extensions.user_repo,
+            stake_repo=extensions.stake_repo,
+            cash_table_repo=extensions.cash_table_repo,
+            db_path=extensions.persistence_db_path,
             sandbox_id=_sandbox_arg(),
         )
         return jsonify(data)
     except Exception as e:
         logger.error("chip-ledger holdings failed: %s", e, exc_info=True)
         return jsonify({'error': 'Holdings snapshot failed'}), 500
+
+
+@chip_ledger_bp.route('/api/admin/chip-ledger/lifecycle')
+@_admin_required
+def chip_ledger_lifecycle():
+    """Session-lifecycle telemetry for the admin Chip Economy tab (Tier 4.3).
+
+    Aggregates the `cash_session_events` stream (Tier 3.3) over a window
+    plus the current `session_state` distribution, so an operator can see
+    at a glance: how many sessions started / left cleanly / were swept as
+    orphans, and whether any `broken` sessions are outstanding (cleanup
+    that couldn't converge — the wedge class this whole plan targets).
+
+    `?window_hours=<int>` (default 24, clamped [1, 720]) bounds the event
+    counts; `?sandbox_id=` scopes both event + state counts.
+    """
+    from datetime import datetime, timedelta
+
+    try:
+        window_hours = int(request.args.get('window_hours', 24))
+    except (TypeError, ValueError):
+        window_hours = 24
+    window_hours = max(1, min(720, window_hours))
+    since = datetime.utcnow() - timedelta(hours=window_hours)
+    sandbox_id = _sandbox_arg()
+
+    try:
+        events = extensions.cash_session_repo.event_counts(since=since, sandbox_id=sandbox_id)
+        states = extensions.cash_session_repo.state_counts(sandbox_id=sandbox_id)
+        return jsonify(
+            {
+                'window_hours': window_hours,
+                'events': events,
+                'states': states,
+                # Convenience headline: cleanup that couldn't converge.
+                'outstanding_broken': int(states.get('broken', 0)),
+            }
+        )
+    except Exception as e:
+        logger.error("chip-ledger lifecycle failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Lifecycle stats failed'}), 500
 
 
 @chip_ledger_bp.route('/api/admin/chip-ledger/holdings/history')
@@ -159,22 +187,22 @@ def chip_ledger_holdings_history():
         # First-view seed: if a sandbox is selected but nothing has been
         # recorded yet (ticker hasn't fired, or fresh table), capture one
         # point now so the curve has something to draw.
-        if sandbox_id is not None and holdings_snapshots_repo is not None:
-            if holdings_snapshots_repo.latest_captured_at(sandbox_id) is None:
+        if sandbox_id is not None and extensions.holdings_snapshots_repo is not None:
+            if extensions.holdings_snapshots_repo.latest_captured_at(sandbox_id) is None:
                 record_holdings_snapshot(
-                    snapshots_repo=holdings_snapshots_repo,
-                    bankroll_repo=bankroll_repo,
-                    personality_repo=personality_repo,
-                    user_repo=user_repo,
-                    stake_repo=stake_repo,
-                    cash_table_repo=cash_table_repo,
-                    db_path=persistence_db_path,
+                    snapshots_repo=extensions.holdings_snapshots_repo,
+                    bankroll_repo=extensions.bankroll_repo,
+                    personality_repo=extensions.personality_repo,
+                    user_repo=extensions.user_repo,
+                    stake_repo=extensions.stake_repo,
+                    cash_table_repo=extensions.cash_table_repo,
+                    db_path=extensions.persistence_db_path,
                     sandbox_id=sandbox_id,
                 )
         data = compute_holdings_history(
-            snapshots_repo=holdings_snapshots_repo,
-            personality_repo=personality_repo,
-            user_repo=user_repo,
+            snapshots_repo=extensions.holdings_snapshots_repo,
+            personality_repo=extensions.personality_repo,
+            user_repo=extensions.user_repo,
             days=days,
             sandbox_id=sandbox_id,
         )
@@ -194,16 +222,16 @@ def list_sandboxes():
     chip-ledger view want live save-files, not history.
     """
     try:
-        sandboxes = sandbox_repo.list_all()
+        sandboxes = extensions.sandbox_repo.list_all()
         # Order by freshest net-worth snapshot, then newest — so the admin
         # panel can default to a sandbox that actually has a chart (the one
         # the ticker is actively recording) rather than a dormant/empty one.
         latest: dict = {}
-        if holdings_snapshots_repo is not None:
+        if extensions.holdings_snapshots_repo is not None:
             for s in sandboxes:
                 try:
                     latest[s.sandbox_id] = (
-                        holdings_snapshots_repo.latest_captured_at(s.sandbox_id) or ''
+                        extensions.holdings_snapshots_repo.latest_captured_at(s.sandbox_id) or ''
                     )
                 except Exception:
                     latest[s.sandbox_id] = ''
@@ -256,12 +284,12 @@ def cash_whereabouts():
             sandbox_id=sb_id,
             owner_id=owner_id,
             now=datetime.utcnow(),
-            cash_table_repo=cash_table_repo,
-            side_hustle_repo=side_hustle_state_repo,
-            vice_repo=vice_state_repo,
-            relationship_repo=relationship_repo,
-            bankroll_repo=bankroll_repo,
-            personality_repo=personality_repo,
+            cash_table_repo=extensions.cash_table_repo,
+            side_hustle_repo=extensions.side_hustle_state_repo,
+            vice_repo=extensions.vice_state_repo,
+            relationship_repo=extensions.relationship_repo,
+            bankroll_repo=extensions.bankroll_repo,
+            personality_repo=extensions.personality_repo,
         )
         people = data['people']
         for person in people:
@@ -276,7 +304,7 @@ def cash_whereabouts():
             # owner's POV so the "met"/PnL annotation is meaningful.
             owner_id = ''
             try:
-                sb = sandbox_repo.load(sandbox_id)
+                sb = extensions.sandbox_repo.load(sandbox_id)
                 owner_id = sb.owner_id if sb is not None else ''
             except Exception:
                 owner_id = ''
@@ -284,7 +312,7 @@ def cash_whereabouts():
         else:
             # All live sandboxes — a cross-world stuck scan.
             people = []
-            for sb in sandbox_repo.list_all():
+            for sb in extensions.sandbox_repo.list_all():
                 people.extend(_for_sandbox(sb.sandbox_id, sb.owner_id))
             # Re-sort the merged list: stuck first, then by sandbox.
             people.sort(

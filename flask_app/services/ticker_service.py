@@ -31,7 +31,7 @@ import logging
 import os
 import threading
 import time
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,13 @@ BASE_TICK_SECONDS = 2.0
 CYCLE_BUDGET_MS = 250.0
 # Max new ticker events scanned/pushed per sandbox per tick (cosmetic).
 WORLD_EVENT_LIMIT = 20
+# PRH-14: hard cap on how many distinct sandboxes one cycle advances. The
+# CYCLE_BUDGET already bounds wall-clock per cycle, but background work +
+# narration spend scale with the number of active sandboxes; this caps that
+# fan-out explicitly so presence (keep-the-lobby-polled) can't drive unbounded
+# concurrent ticking. Applied AFTER the round-robin rotation, so the capped
+# window slides across cycles and no sandbox is permanently starved.
+MAX_ACTIVE_SANDBOXES_PER_CYCLE = int(os.environ.get('WORLD_TICKER_MAX_SANDBOXES', '50'))
 
 # pace -> (hand_sim_prob, run_every_n_cycles). `run_every` lets the
 # quietest pace tick less often without a separate timer. With a 2s base
@@ -87,6 +94,31 @@ SNAPSHOT_INTERVAL_SECONDS = 600.0
 # sandbox_id -> monotonic time of its last recorded snapshot.
 _last_snapshot_at: Dict[str, float] = {}
 
+# Prestige recompute cadence. Reputation drifts even more slowly than net
+# worth (it aggregates a relationship graph that barely moves tick-to-tick),
+# and recomputing scans the human's inbound edges + completed sessions, so a
+# fine cadence would only add load. 5 minutes per active sandbox is plenty
+# to keep the lobby scoreboard fresh.
+PRESTIGE_INTERVAL_SECONDS = 300.0
+# sandbox_id -> monotonic time of its last prestige recompute.
+_last_prestige_at: Dict[str, float] = {}
+
+# Stale-session watchdog (T2.3). A cash session whose `games` row hasn't
+# been touched within STALE_SESSION_TTL_SECONDS — and which isn't in
+# memory (so nobody's actively playing it) — is an abandoned orphan: it
+# wedges the sit guard until cleaned. The watchdog runs the same sweep
+# the boot hook does, on a slow wall-clock cadence, so orphans created
+# between reboots self-clear instead of lingering. Far slower than the
+# base tick because abandonment is measured in minutes.
+# 4h, not 30m (Codex review #1): a session is only reaped — settled at
+# chips=0 — once it's gone genuinely cold, so a player who steps away
+# doesn't get their table stack burned. Mirrors cash_mode.lobby's
+# DEFAULT_STALE_TTL_SECONDS.
+STALE_SESSION_TTL_SECONDS = 14400.0
+WATCHDOG_INTERVAL_SECONDS = 300.0
+# monotonic time of the last watchdog pass (None until the first run).
+_last_watchdog_at: Optional[float] = None
+
 
 def start_world_ticker(socketio) -> None:
     """Start the shared ticker once. Idempotent across create_app() calls."""
@@ -128,6 +160,67 @@ def _run(socketio) -> None:
         except Exception:
             # One bad cycle must never kill the loop.
             logger.exception("[TICKER] cycle failed")
+        try:
+            _maybe_run_stale_session_watchdog()
+        except Exception:
+            # The watchdog is a janitor; a failure must never kill the loop.
+            logger.exception("[TICKER] stale-session watchdog failed")
+
+
+def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> int:
+    """Sweep abandoned cash sessions, rate-limited (T2.3).
+
+    Runs at most once per `WATCHDOG_INTERVAL_SECONDS`. Reuses the boot
+    sweep (`_boot_sweep_stale_cash_rows`) but passes the set of cash
+    games currently in memory as `skip_game_ids`: a live in-memory copy
+    would just re-save a deleted row (the resurrection race), and the
+    player may still be at the table. So only truly-cold, past-TTL rows
+    get reaped. Runs regardless of whether any sandbox is active —
+    orphans persist even when nobody's online.
+
+    Returns the number of rows swept (0 when rate-limited or disabled).
+    Best-effort: any failure is logged and swallowed by the caller.
+    """
+    global _last_watchdog_at
+    now = now_monotonic if now_monotonic is not None else time.monotonic()
+    if _last_watchdog_at is not None and (now - _last_watchdog_at) < WATCHDOG_INTERVAL_SECONDS:
+        return 0
+    # Stamp BEFORE the work so a persistently-failing sweep backs off to
+    # the normal cadence instead of retrying every tick.
+    _last_watchdog_at = now
+
+    from datetime import datetime
+
+    from cash_mode.lobby import _boot_sweep_stale_cash_rows
+    from flask_app import extensions
+    from flask_app.services import game_state_service
+
+    cash_session_repo = getattr(extensions, "cash_session_repo", None)
+    game_repo = getattr(extensions, "game_repo", None)
+    if cash_session_repo is None or game_repo is None:
+        return 0
+
+    in_memory_cash_ids = {
+        gid for gid, gdata in list(game_state_service.games.items()) if gdata.get("cash_mode")
+    }
+
+    return _boot_sweep_stale_cash_rows(
+        game_repo=game_repo,
+        cash_session_repo=cash_session_repo,
+        stake_repo=getattr(extensions, "stake_repo", None),
+        chip_ledger_repo=getattr(extensions, "chip_ledger_repo", None),
+        bankroll_repo=getattr(extensions, "bankroll_repo", None),
+        cash_table_repo=getattr(extensions, "cash_table_repo", None),
+        entity_presence_repo=getattr(extensions, "entity_presence_repo", None),
+        stale_ttl_seconds=int(STALE_SESSION_TTL_SECONDS),
+        now=datetime.utcnow(),
+        skip_game_ids=in_memory_cash_ids,
+        source="watchdog",
+        # The skip-set is a cheap first pass; the authoritative guard
+        # against the resurrection race (Codex #2) is the per-game lock +
+        # in-memory re-check the sweep does when given game_state_service.
+        game_state_service=game_state_service,
+    )
 
 
 def _run_cycle(socketio) -> None:
@@ -147,6 +240,13 @@ def _run_cycle(socketio) -> None:
     if sessions:
         _rr_offset = (_rr_offset + 1) % len(sessions)
         sessions = sessions[_rr_offset:] + sessions[:_rr_offset]
+
+    # PRH-14: cap how many sandboxes one cycle advances. The rotation above
+    # already slid the window, so this slice is fair across cycles — it just
+    # bounds the per-cycle fan-out (work + narration spend) when an unusual
+    # number of sandboxes are active at once.
+    if MAX_ACTIVE_SANDBOXES_PER_CYCLE > 0 and len(sessions) > MAX_ACTIVE_SANDBOXES_PER_CYCLE:
+        sessions = sessions[:MAX_ACTIVE_SANDBOXES_PER_CYCLE]
 
     active_owners = {s.owner_id for s in sessions}
     for stale in [o for o in _last_marker if o not in active_owners]:
@@ -172,18 +272,22 @@ def _resolve_pace(owner_id: str) -> Tuple[float, int]:
     if repo is not None:
         try:
             pace = repo.get_world_pace(owner_id)
-        except Exception:
+        except Exception as e:
+            # Display-only fallback, but log it so a persistent pace-lookup
+            # failure (e.g. a broken user_prefs read) isn't silently invisible.
+            logger.warning("world-pace lookup failed for %r; using default: %s", owner_id, e)
             pace = _DEFAULT_PACE
     return _PACE_PARAMS.get(pace, _PACE_PARAMS[_DEFAULT_PACE])
 
 
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
+    from cash_mode import economy_flags
     from cash_mode.activity import recent_events, serialize_event
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
     from flask_app.handlers.game_handler import live_cash_seated_pids
-    from flask_app.services import presence
+    from flask_app.services import game_state_service, presence
 
     hand_sim_prob, run_every = _resolve_pace(owner_id)
     if run_every > 1 and (_cycle % run_every) != 0:
@@ -195,22 +299,34 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         existing = recent_events(limit=1, sandbox_id=sandbox_id)
         _last_marker[owner_id] = existing[0].created_at if existing else ""
 
-    refresh_unseated_tables(
-        cash_table_repo=extensions.cash_table_repo,
-        personality_repo=extensions.personality_repo,
-        bankroll_repo=extensions.bankroll_repo,
-        user_id=owner_id,
-        sandbox_id=sandbox_id,
-        hand_sim_prob=hand_sim_prob,
-        chip_ledger_repo=extensions.chip_ledger_repo,
-        relationship_repo=extensions.relationship_repo,
-        stake_repo=extensions.stake_repo,
-        vice_repo=extensions.vice_state_repo,
-        side_hustle_repo=extensions.side_hustle_state_repo,
-        live_seated_pids=live_cash_seated_pids(sandbox_id),
-    )
+    # Hold the per-sandbox seat lock around the read-modify-write of the
+    # sandbox's tables so the ticker's live-fill serializes with the route-side
+    # seat claims (human sit / sponsor-sit), which take the same lock. Without
+    # it, a human sit interleaving across refresh's load→save DB-yield gap is
+    # last-write-wins → a stranded already-debited AI buy-in or a double-seat /
+    # seated_and_idle split-brain. See game_state_service.get_sandbox_lock.
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        refresh_unseated_tables(
+            cash_table_repo=extensions.cash_table_repo,
+            personality_repo=extensions.personality_repo,
+            bankroll_repo=extensions.bankroll_repo,
+            user_id=owner_id,
+            sandbox_id=sandbox_id,
+            hand_sim_prob=hand_sim_prob,
+            chip_ledger_repo=extensions.chip_ledger_repo,
+            relationship_repo=extensions.relationship_repo,
+            stake_repo=extensions.stake_repo,
+            vice_repo=extensions.vice_state_repo,
+            side_hustle_repo=extensions.side_hustle_state_repo,
+            live_seated_pids=live_cash_seated_pids(sandbox_id),
+            human_headroom=economy_flags.LIVE_FILL_HUMAN_HEADROOM,
+        )
 
     _maybe_record_holdings_snapshot(sandbox_id)
+    # Recompute the human's reputation scoreboard. Placed before the
+    # event-emit block below so a quadrant-shift beat it records into the
+    # activity buffer rides out on this same tick.
+    _maybe_recompute_prestige(owner_id, sandbox_id)
 
     room = presence.lobby_room_name(owner_id)
     # Push new ticker events (newest-first from the buffer; emit oldest
@@ -265,3 +381,80 @@ def _maybe_record_holdings_snapshot(sandbox_id: str) -> None:
         )
     except Exception:
         logger.exception("[TICKER] holdings snapshot failed for sandbox=%s", sandbox_id)
+
+
+def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
+    """Recompute + persist the human's prestige for this sandbox, rate-limited.
+
+    Captures at most once per `PRESTIGE_INTERVAL_SECONDS` per sandbox. Renown
+    ratchets (we pass the persisted peak into the compute, which takes the
+    max), regard swings. When the quadrant changes from the previous capture,
+    records a one-line "the room sees you differently" beat into the activity
+    ring buffer so the existing emit path surfaces it on the lobby ticker.
+
+    Best-effort: any failure is logged and swallowed — prestige must never
+    delay or break the world tick.
+    """
+    now_mono = time.monotonic()
+    last = _last_prestige_at.get(sandbox_id)
+    if last is not None and (now_mono - last) < PRESTIGE_INTERVAL_SECONDS:
+        return
+    try:
+        from datetime import datetime, timedelta
+
+        from cash_mode import activity
+        from cash_mode.prestige import compute_prestige, iso_utc
+        from flask_app import extensions
+        from poker.repositories.prestige_snapshots_repository import (
+            DEFAULT_RETENTION_DAYS,
+        )
+
+        repo = getattr(extensions, "prestige_snapshots_repo", None)
+        if repo is None:
+            return
+        # Stamp the attempt BEFORE the work: a persistently failing recompute
+        # (DB lock, schema mismatch) must back off to the normal cadence, not
+        # retry the full aggregate on every tick.
+        _last_prestige_at[sandbox_id] = now_mono
+
+        prev = repo.load_latest(sandbox_id, owner_id)
+        peak = repo.load_renown_peak(sandbox_id, owner_id)
+        now = datetime.utcnow()
+        score = compute_prestige(
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
+            now=now,
+            relationship_repo=extensions.relationship_repo,
+            cash_session_repo=extensions.cash_session_repo,
+            renown_peak=peak,
+        )
+        repo.record(
+            captured_at=score.computed_at,
+            sandbox_id=sandbox_id,
+            owner_id=owner_id,
+            score=score,
+        )
+        try:
+            cutoff = iso_utc(now - timedelta(days=DEFAULT_RETENTION_DAYS))
+            repo.prune(cutoff)
+        except Exception as exc:
+            logger.warning("[TICKER] prestige prune failed: %s", exc)
+
+        # Quadrant flip → ticker beat (only when we have a prior capture to
+        # compare against, so the first-ever capture is silent).
+        if prev is not None and prev.get("quadrant") != score.quadrant:
+            activity.record_event(
+                activity.LobbyEvent(
+                    type=activity.EVENT_REPUTATION_SHIFT,
+                    table_id="",
+                    stake_label="",
+                    personality_id="",
+                    name="",
+                    reason=score.quadrant,
+                    message=activity.format_reputation_shift_message(score.quadrant),
+                    created_at=score.computed_at,
+                    sandbox_id=sandbox_id,
+                )
+            )
+    except Exception:
+        logger.exception("[TICKER] prestige recompute failed for owner=%s", owner_id)

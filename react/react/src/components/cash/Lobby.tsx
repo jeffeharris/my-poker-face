@@ -25,21 +25,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
-import { PageLayout, MenuBar } from '../shared';
-import { getLobby, getState, sitAtTable, setWorldPace } from './api';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play } from 'lucide-react';
+import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
+import type { TickerLine } from '../shared/ShuffleLoading';
+import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
-import { feedEventKey } from './tickerEvents';
+import { feedEventKey, renderEventIcon } from './tickerEvents';
+import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
+import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
-import { WhereaboutsDrawer } from './WhereaboutsDrawer';
+import { IntelHub } from './IntelHub';
+import type { FileCabinetPerson } from './types';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
+  BankrollPoint,
   LobbyEvent,
   LobbyTable,
+  ReputationData,
   StakableAiCandidate,
   StakeLabel,
   WorldEvent,
@@ -157,11 +163,26 @@ function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent
     .slice(0, MAX_FEED_EVENTS);
 }
 
+/** Coarse "paused Xm/Xh/Xd ago" for the Resume bar. Returns null for a
+ *  missing/just-now/unparseable timestamp so the caller can omit the hint. */
+function formatPausedAgo(iso: string | null): string | null {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return null;
+  if (mins < 60) return `paused ${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `paused ${hrs}h ago`;
+  return `paused ${Math.floor(hrs / 24)}d ago`;
+}
+
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
-  const [bankrollHistory, setBankrollHistory] = useState<number[]>([]);
+  const [bankrollHistory, setBankrollHistory] = useState<BankrollPoint[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
+  const [reputation, setReputation] = useState<ReputationData | null>(null);
   const [tables, setTables] = useState<LobbyTable[]>([]);
   /** The table the player currently has a live session at, or null. Drives
    *  the "you're here" pin + Resume on the matching TableCard. Only ever
@@ -175,10 +196,19 @@ export function Lobby() {
   /** Stake label for the Resume bar when the seated table isn't in the
    *  rendered lobby list (cold / cross-sandbox session). */
   const [seatedStakeLabelFromServer, setSeatedStakeLabelFromServer] = useState<string | null>(null);
+  /** ISO start time of the active session, for the Resume bar's age hint. */
+  const [seatedSince, setSeatedSince] = useState<string | null>(null);
   const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   const [sitError, setSitError] = useState<string | null>(null);
+  /** Non-null while a seat tap is in flight: shows the shuffle transition
+   *  ("Taking your seat…") immediately on press so the join feels responsive
+   *  instead of a frozen lobby. Stays up through the navigate() on success so
+   *  the game page's own "Setting up the table" shuffle hands off seamlessly;
+   *  cleared if we bail (sponsor modal / error) and stay on the lobby. */
+  const [sittingDown, setSittingDown] = useState<{ submessage?: string } | null>(null);
   const [sponsorState, setSponsorState] = useState<{
     stakeLabel: StakeLabel;
     tableId: string;
@@ -186,7 +216,7 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
-  const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
+  const [intelHubOpen, setIntelHubOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -285,10 +315,12 @@ export function Lobby() {
         setBankroll(lobby.bankroll);
         setBankrollHistory(lobby.bankroll_history ?? []);
         setLastSessionDelta(lobby.last_session_delta ?? null);
+        setReputation(lobby.reputation ?? null);
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
         setSeatedStakeLabelFromServer(lobby.seated_stake_label ?? null);
+        setSeatedSince(lobby.seated_since ?? null);
         // Merge into the rolling feed rather than replace, so history the
         // server snapshot no longer carries stays scrollable. Drop any
         // prior self last-stand line first so the poll snapshot stays
@@ -394,31 +426,76 @@ export function Lobby() {
       if (busy) return;
       setSitError(null);
       setBusy(true);
+      // Optimistic transition: drop the shuffle screen in immediately so the
+      // press registers, rather than waiting on the /sit round-trip.
+      setSittingDown({ submessage: table.table_name ?? `${table.stake_label} table` });
       try {
         const result = await sitAtTable(table.table_id, seatIndex);
         if ('kind' in result) {
-          // Open sponsor modal scoped to this specific seat. Without
-          // seatIndex the backend would fall back to the legacy fresh-
-          // sample path and seat the player against a different AI
-          // lineup than the lobby card showed.
+          // Sponsor flow takes over the screen — drop the transition so the
+          // modal is visible and we stay on the lobby.
+          setSittingDown(null);
+          // Open sponsor modal scoped to the seat the backend actually
+          // reserved. It echoes table_id + seat_index because live-fill
+          // may have taken the tapped seat and the server fell back to
+          // another open one — targeting the original index would then
+          // reserve the wrong (or a taken) seat.
           setSponsorState({
             stakeLabel: result.data.stake_label,
-            tableId: table.table_id,
-            seatIndex,
+            tableId: result.data.table_id ?? table.table_id,
+            seatIndex: result.data.seat_index ?? seatIndex,
           });
           return;
         }
         navigate(`/game/${result.game_id}`);
       } catch (e) {
+        const err = e as Error & { status?: number; gameId?: string };
+        const status = err.status;
         const msg = e instanceof Error ? e.message : String(e);
         logger.error('Sit failed:', msg);
-        setSitError(msg);
+        // The "a cash session is already active" 409 carries the existing
+        // game_id (the seat-race / full-table 409s carry seat_kind instead).
+        // It isn't a failure — the player just can't open a second seat — so
+        // route them into the game they're already in (Resume) and keep the
+        // transition up for the handoff, rather than the confusing "seat
+        // filled up" message.
+        if (status === 409 && err.gameId) {
+          navigate(`/game/${err.gameId}`);
+          return;
+        }
+        // Any other failure: drop the transition so the lobby (and the error /
+        // refresh) is visible again instead of a stuck shuffle screen.
+        setSittingDown(null);
+        if (status === 409) {
+          // Seat-race or full table: the lobby snapshot was stale. Refresh
+          // it so the seat state reconciles instead of leaving a silently
+          // dead button, and tell the player to try again.
+          setSitError('That seat just filled up — refreshing the lobby. Try again.');
+          void reloadLobbyRef.current();
+        } else {
+          setSitError(msg);
+        }
       } finally {
         setBusy(false);
       }
     },
     [busy, navigate]
   );
+
+  /** Dismiss the SponsorModal, releasing the seat-hold the /sit 402
+   *  placed so an AI can't be cut out of taking it (and so the player
+   *  isn't shown as parked there). Fire-and-forget + idempotent
+   *  server-side: a successful sponsor-and-sit already converted the
+   *  hold to a human seat, so release is a harmless no-op there. */
+  const handleSponsorClose = useCallback(() => {
+    const held = sponsorState;
+    setSponsorState(null);
+    if (held) {
+      releaseSeat(held.tableId, held.seatIndex).catch((e) => {
+        logger.warn('Failed to release sponsorship seat-hold:', e instanceof Error ? e.message : String(e));
+      });
+    }
+  }, [sponsorState]);
 
   /** Resume the player's in-progress game. The lobby knows the seated
    *  table_id but not the game_id, so we resolve it via /api/cash/state
@@ -431,6 +508,38 @@ export function Lobby() {
       logger.error('Resume failed:', e instanceof Error ? e.message : String(e));
     }
   }, [navigate]);
+
+  /** End the in-progress session from the lobby without sitting back
+   *  down. Hits /api/cash/leave, which (post-hardening) cold-loads a
+   *  DB-only session and settles it properly before tearing it down —
+   *  the escape valve for a session that got wedged after a restart.
+   *  On success we clear the Resume bar locally and reload the lobby so
+   *  the seat/Resume state reconciles. */
+  const handleEndSession = useCallback(async () => {
+    if (endingSession) return;
+    if (
+      !window.confirm(
+        'End your current session? Your table chips will be cashed out and any active stake settled.'
+      )
+    ) {
+      return;
+    }
+    setEndingSession(true);
+    setSitError(null);
+    try {
+      await leaveTable();
+      setHasActiveSession(false);
+      setSeatedTableId(null);
+      setSeatedStakeLabelFromServer(null);
+      await reloadLobbyRef.current();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error('End session failed:', msg);
+      setSitError(msg);
+    } finally {
+      setEndingSession(false);
+    }
+  }, [endingSession]);
 
   /** Open the StakeOfferModal pre-targeted to a candidate. Looks up
    *  the target tier's [min, max] window from the lobby's tables so
@@ -461,14 +570,35 @@ export function Lobby() {
   // ends); fall back to the server-provided label for a cold session whose
   // table isn't in the rendered list.
   const seatedStakeLabel =
-    (seatedTableId ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null) : null) ??
-    seatedStakeLabelFromServer;
+    (seatedTableId
+      ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null)
+      : null) ?? seatedStakeLabelFromServer;
+
+  // The "meanwhile, elsewhere" strip for the join transition — the same
+  // rare-events digest the interhand shuffle uses, built from the lobby's
+  // live world feed so the wait shows the room is alive.
+  const sitTicker = useMemo<TickerLine[]>(
+    () =>
+      selectInterhandTicker(events, 3).map((e) => ({
+        key: feedEventKey(e),
+        icon: renderEventIcon(e.type),
+        message: e.message,
+      })),
+    [events]
+  );
 
   return (
     <>
+      <ShuffleLoading
+        isVisible={!!sittingDown}
+        message="Taking your seat"
+        submessage={sittingDown?.submessage}
+        ticker={sitTicker}
+        exitStyle="slide"
+      />
       <MenuBar
         onBack={() => navigate('/menu')}
-        title="Career"
+        title="The Circuit"
         showUserInfo
         onMainMenu={() => navigate('/menu')}
         onAdminTools={() => navigate('/admin')}
@@ -485,28 +615,40 @@ export function Lobby() {
             />
           )}
 
+          {reputation && <ReputationPanel reputation={reputation} />}
+
           {(hasActiveSession || seatedTableId) && (
-            <button type="button" className="cash-entry__resume" onClick={handleResume}>
-              <Play size={18} aria-hidden="true" />
-              <span className="cash-entry__resume-text">
-                Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
-              </span>
-              <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
-            </button>
+            <div className="cash-entry__resume-row">
+              <button type="button" className="cash-entry__resume" onClick={handleResume}>
+                <Play size={18} aria-hidden="true" />
+                <span className="cash-entry__resume-text">
+                  Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
+                  {(() => {
+                    const ago = formatPausedAgo(seatedSince);
+                    return ago ? <span className="cash-entry__resume-age"> · {ago}</span> : null;
+                  })()}
+                </span>
+                <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
+              </button>
+              {/* Escape valve: a session that wedged after a restart can
+                  be ended here without first having to resume into it. */}
+              <button
+                type="button"
+                className="cash-entry__end-session"
+                onClick={handleEndSession}
+                disabled={endingSession}
+              >
+                {endingSession ? 'Ending…' : 'End session'}
+              </button>
+            </div>
           )}
 
-          <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
-
-          <div className="cash-entry__whereabouts-row">
-            <button
-              type="button"
-              className="cash-entry__whereabouts-trigger"
-              onClick={() => setWhereaboutsOpen(true)}
-            >
-              <MapPin size={13} aria-hidden="true" />
-              Who's around
-            </button>
-          </div>
+          <ActivityTicker
+            events={events}
+            worldPace={worldPace}
+            onPaceChange={handlePaceChange}
+            onOpenIntel={() => setIntelHubOpen(true)}
+          />
 
           {loadError && (
             <div className="cash-entry__error" role="alert">
@@ -682,7 +824,7 @@ export function Lobby() {
               ? (tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null)
               : null
           }
-          onClose={() => setSponsorState(null)}
+          onClose={handleSponsorClose}
         />
         <CharacterDetailCard
           isOpen={dossier !== null}
@@ -690,6 +832,10 @@ export function Lobby() {
           character={dossier?.dossier ?? { name: '' }}
           origin={dossier?.origin}
           identifier={dossier?.identifier}
+          circuitContext  /* the lobby is always the Circuit */
+          // Refresh the lobby intel surfaces (incl. the file cabinet behind
+          // this card) after an informant purchase so unlock state updates.
+          onIntelChanged={() => setStakablePanelTick((t) => t + 1)}
         />
         <NetWorthDrawer
           isOpen={netWorthOpen}
@@ -698,10 +844,23 @@ export function Lobby() {
             void reloadLobbyRef.current();
           }}
         />
-        <WhereaboutsDrawer
-          isOpen={whereaboutsOpen}
-          onClose={() => setWhereaboutsOpen(false)}
+        <IntelHub
+          isOpen={intelHubOpen}
+          onClose={() => setIntelHubOpen(false)}
+          events={events}
           refreshTick={stakablePanelTick}
+          onOpenDossier={(person: FileCabinetPerson) => {
+            // Open the dossier ON TOP of the hub (it has a higher z-index) and
+            // leave the hub open behind it — so closing the dossier returns
+            // you to the file cabinet you came from, on the same tab, rather
+            // than dropping you back to the lobby. Circuit context, so the
+            // informant buy buttons show.
+            setDossier({
+              dossier: { name: person.name },
+              origin: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+              identifier: person.personality_id,
+            });
+          }}
         />
         <StakeOfferModal
           target={stakeTarget}

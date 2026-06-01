@@ -401,6 +401,7 @@ class StakeRepository(BaseRepository):
         status: str,
         *,
         settled_at: Optional[datetime] = None,
+        expected_status: Optional[str] = None,
     ) -> bool:
         """Transition a stake to a new status, optionally stamping
         `settled_at`.
@@ -411,17 +412,29 @@ class StakeRepository(BaseRepository):
         on purpose so the explicit-default action (Phase 2) can zero
         `carry_amount` and flip `status='defaulted'` in one call site
         without forcing settled_at semantics.
+
+        When `expected_status` is given the UPDATE is a compare-and-swap:
+        it only fires (and returns True) if the row is currently in that
+        status. This lets a caller atomically *claim* a transition —
+        e.g. settle a 'carry' stake — so two concurrent requests can't
+        both pass a read-then-write check and double-move chips. The
+        loser sees False and must not perform the side effect.
         """
         with self._get_connection() as conn:
+            where = "WHERE stake_id = ?"
+            tail_params: tuple = (stake_id,)
+            if expected_status is not None:
+                where += " AND status = ?"
+                tail_params = (stake_id, expected_status)
             if settled_at is not None:
                 cursor = conn.execute(
-                    "UPDATE stakes SET status = ?, settled_at = ? " "WHERE stake_id = ?",
-                    (status, settled_at.isoformat(), stake_id),
+                    f"UPDATE stakes SET status = ?, settled_at = ? {where}",
+                    (status, settled_at.isoformat(), *tail_params),
                 )
             else:
                 cursor = conn.execute(
-                    "UPDATE stakes SET status = ? WHERE stake_id = ?",
-                    (status, stake_id),
+                    f"UPDATE stakes SET status = ? {where}",
+                    (status, *tail_params),
                 )
             return cursor.rowcount > 0
 

@@ -99,7 +99,15 @@ export type SponsorOffer =
 
 /** Response from GET /api/cash/sponsor-offers. */
 export type SponsorOffersResponse =
-  | { eligible: true; stake_label: StakeLabel; offers: SponsorOffer[] }
+  | {
+      eligible: true;
+      stake_label: StakeLabel;
+      offers: SponsorOffer[];
+      /** Player-prestige hook 2: true when the player is too reviled
+       *  (room-level regard too low) for any named-AI backing — only house
+       *  offers show. The modal explains why. Absent ⇒ false. */
+      backing_restricted?: boolean;
+    }
   | { eligible: false; reason: string; bankroll: number; this_min_buy_in: number };
 
 /** Payload of the `cash_bust` / `cash_rebuy_needed` SocketIO events. */
@@ -211,7 +219,16 @@ export interface LobbyEvent {
     | 'hustle_end'
     // Last stand — an AI (or the player) has their entire bankroll on a
     // single table. The predator signal: a vulnerable seat to target.
-    | 'last_stand';
+    | 'last_stand'
+    // Whales — a rare pool-funded high roller at a cardroom table. Arrival
+    // is the pull signal; departure is the quiet provisioning recall.
+    | 'whale_arrival'
+    | 'whale_departure'
+    // AI asking the human staker to forgive an outstanding carry.
+    | 'ai_requests_forgiveness'
+    // v121 — the human's reputation quadrant changed (read-only scoreboard
+    // beat; `reason` carries the new quadrant label).
+    | 'reputation_shift';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -233,6 +250,14 @@ export interface LobbyEvent {
   reason: string;
   message: string;
   created_at: string;
+  /** Groups every event from one sim hand. Set only on the single-hand
+   *  path; null for non-hand and burst-compressed events. */
+  hand_id?: string | null;
+  /** Whether the ticker renders this row. The single-hand path emits one
+   *  composed `primary` summary per hand and demotes its atomic
+   *  win/all-in/bust events to `primary: false` — kept on the wire for
+   *  per-AI filtering, hidden from the feed. Absent ⇒ treated as primary. */
+  primary?: boolean;
 }
 
 /** An AI currently on a vice — off-grid for a bounded duration. */
@@ -250,6 +275,50 @@ export interface ActiveVice {
   ends_at: string;
   /** Chips spent on this vice. */
   amount: number;
+}
+
+/** One vertex of the career-hero net-worth sparkline. `value` is net
+ *  worth in chips; `t` is the ISO-8601 UTC timestamp it was reached. */
+export interface BankrollPoint {
+  t: string;
+  value: number;
+}
+
+/** The four reputation quadrants — kept in lockstep with the QUADRANT_*
+ *  constants in cash_mode/prestige.py. */
+export type ReputationQuadrant =
+  | 'Beloved Legend'
+  | 'Infamous Villain'
+  | 'Up-and-comer'
+  | 'Disliked Nobody';
+
+/** Per-axis component breakdown (already-weighted contributions) — surfaced
+ *  for the explain/debug affordance on the panel. renown_* sum to ~renown
+ *  (pre-ratchet); regard_* sum to ~regard (pre-clamp). */
+export interface ReputationComponents {
+  breadth: number;
+  tenure: number;
+  stake_tier: number;
+  beat_respected: number;
+  high_stakes: number;
+  likability: number;
+  respect: number;
+  heat: number;
+}
+
+/** The human player's reputation scoreboard. Absent (null) until the world
+ *  ticker has captured at least once (~minutes into a new sandbox). */
+export interface ReputationData {
+  /** [0, 1] — fame magnitude; ratchets up, behaviour-agnostic. */
+  renown: number;
+  /** [-1, 1] — how the room feels; swings, partially decays with heat. */
+  regard: number;
+  quadrant: ReputationQuadrant;
+  /** How many AIs have an opinion of you (inbound relationship edges). */
+  opponent_count: number;
+  /** ISO-8601 UTC of the capture. */
+  computed_at: string;
+  components: ReputationComponents;
 }
 
 export interface LobbyResponse {
@@ -270,6 +339,10 @@ export interface LobbyResponse {
    *  Without it the player is wedged — the backend 409s every new sit but
    *  the lobby shows no active session. */
   has_active_session?: boolean;
+  /** ISO start time of the active session, for the Resume bar's
+   *  "Paused Xh ago" hint. From the durable cash_sessions row, so it
+   *  works for cold (DB-only) sessions too. Null when no active session. */
+  seated_since?: string | null;
   events: LobbyEvent[];
   /** v110 — count of AI-borrower carries asking the player to forgive.
    *  Drives the wallet badge in the Lobby header. The full request
@@ -285,16 +358,22 @@ export interface LobbyResponse {
   /** How fast the realtime background ticker advances this user's world.
    *  Set via PUT /api/cash/world-pace; drives the lobby pace selector. */
   world_pace?: WorldPace;
-  /** Reconstructed bankroll trajectory (oldest → newest) for the career
-   *  hero's sparkline. Anchored to the current bankroll and walked back
-   *  through finalised cash sessions, so the last point is exact and
-   *  earlier points are a TREND sketch — not an audited balance. Empty
-   *  until the player has at least one finished session. */
-  bankroll_history?: number[];
+  /** Net-worth trajectory (oldest → newest) for the career hero's
+   *  sparkline: `{t, value}` change-points read from `holdings_snapshots`,
+   *  where `value` is net worth (chips + receivable − outstanding) and `t`
+   *  is the ISO timestamp it was first reached. Consecutive-equal idle
+   *  samples are collapsed, so the curve reads as the sequence of changes
+   *  and each vertex has a real time to show on hover. Empty until the
+   *  world ticker has recorded ≥1 point. */
+  bankroll_history?: BankrollPoint[];
   /** Net result of the player's most recent finished session
    *  (`player_take_home − total_buy_in`). Signed; null until the first
    *  session is finalised. Drives the hero's up/down delta chip. */
   last_session_delta?: number | null;
+  /** v121 — the player's reputation scoreboard (renown + regard + quadrant).
+   *  Null until the world ticker's first prestige capture; the panel renders
+   *  nothing while absent. Read-only — no AI behaviour reads it (yet). */
+  reputation?: ReputationData | null;
 }
 
 /** How fast the background world ticks for unseated tables. */
@@ -395,13 +474,19 @@ export interface SitResponse {
   seat_index: number;
 }
 
-/** 402 body when the player tapped a sponsor-required seat. */
+/** 402 body when the player tapped a sponsor-required seat. The
+ *  backend echoes the table_id + the seat it actually reserved — which
+ *  may differ from the tapped seat if live-fill took it and the server
+ *  fell back to another open seat — so the SponsorModal must target
+ *  these rather than the originally-tapped index. */
 export interface SitRequiresSponsor {
   requires_sponsor: true;
   stake_label: StakeLabel;
   bankroll: number;
   min_buy_in: number;
   max_buy_in: number;
+  table_id: string;
+  seat_index: number;
 }
 
 // --- Net Worth (Phase 3 Commit 1) ---
@@ -685,4 +770,30 @@ export interface ForgivenessResponse {
 export interface ForgivenessRateLimited {
   error: string;
   retry_after_seconds: number;
+}
+
+// --- File cabinet (dossier Phase 4) ---
+
+/** One opponent in the file-cabinet roster — everyone you've accumulated
+ *  scouting on, with the headline stats the UI sorts by. */
+export interface FileCabinetPerson {
+  personality_id: string;
+  name: string;
+  hands_observed: number;
+  net_pnl: number; // observer POV: positive = you're up
+  hands_played_cash: number;
+  heat: number;
+  respect: number;
+  likability: number;
+  last_seen: string | null;
+  reads_unlocked: number;
+  reads_total: number;
+  floor_met: boolean;
+  fully_unlocked: boolean;
+}
+
+export interface FileCabinetResponse {
+  people: FileCabinetPerson[];
+  people_met: number;
+  dossiers_unlocked: number;
 }

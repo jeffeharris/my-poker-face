@@ -13,7 +13,16 @@
  */
 
 import { useCallback, useState } from 'react';
-import { HandCoins, Coins, Fish, Wallet, Clock, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  HandCoins,
+  Coins,
+  Fish,
+  Wallet,
+  Clock,
+  MapPin,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import type { LobbySeat, LobbyTable } from './types';
 import { absolutizeAvatarUrl } from './avatarUrl';
 // type-only import keeps the Lobby ↔ TableCard cycle erased at runtime

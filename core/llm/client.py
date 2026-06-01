@@ -5,6 +5,7 @@ import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from .budget import classify_shed, get_spend_gate
 from .config import AVAILABLE_PROVIDERS, DEFAULT_MAX_TOKENS
 from .providers.anthropic import AnthropicProvider
 from .providers.base import LLMProvider
@@ -35,6 +36,7 @@ class LLMClient:
         model: Optional[str] = None,
         reasoning_effort: str = "low",
         tracker: Optional[UsageTracker] = None,
+        default_timeout: Optional[float] = None,
     ):
         """Initialize LLM client.
 
@@ -43,9 +45,14 @@ class LLMClient:
             model: Model to use (provider-specific default if None)
             reasoning_effort: Reasoning effort for models that support it
             tracker: Usage tracker (uses default singleton if None)
+            default_timeout: Optional per-call HTTP timeout (seconds) applied to
+                every complete() on this client unless overridden per call. Set a
+                short value for in-game/ticker clients (PRH-18); leave None for
+                batch/experiment clients to keep the long shared-client default.
         """
         self._provider = self._create_provider(provider, model, reasoning_effort)
         self._tracker = tracker or UsageTracker.get_default()
+        self._default_timeout = default_timeout
 
     def _create_provider(
         self,
@@ -105,6 +112,7 @@ class LLMClient:
         message_count: Optional[int] = None,
         system_prompt_tokens: Optional[int] = None,
         capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        timeout: Optional[float] = None,
     ) -> LLMResponse:
         """Make a completion request.
 
@@ -131,6 +139,31 @@ class LLMClient:
         """
         import json as json_module
 
+        # PRH-2 spend gate: short-circuit before any provider dispatch when the
+        # daily LLM budget is exceeded. Returns a failed LLMResponse — decision
+        # callers fall back to the deterministic engine; cosmetic calls vanish.
+        gate = get_spend_gate()
+        if gate.enabled:
+            reason = gate.over_budget_reason(owner_id, self._tracker)
+            if reason:
+                logger.warning(
+                    "[LLM BUDGET] blocked %s call (%s): %s",
+                    call_type.value if call_type else "unknown",
+                    classify_shed(call_type),
+                    reason,
+                )
+                return LLMResponse(
+                    content="",
+                    model=self._provider.model,
+                    provider=self._provider.provider_name,
+                    input_tokens=0,
+                    output_tokens=0,
+                    latency_ms=0,
+                    status="error",
+                    error_code="budget_exceeded",
+                    error_message=reason,
+                )
+
         start_time = time.time()
 
         # Track total usage across tool iterations
@@ -138,6 +171,12 @@ class LLMClient:
         total_output_tokens = 0
         total_cached_tokens = 0
         total_reasoning_tokens = 0
+
+        # PRH-18: resolve the per-call timeout (explicit arg wins over the
+        # client's default). Passed through to the provider only when set, so
+        # batch/experiment callers keep the shared client's long default.
+        resolved_timeout = timeout if timeout is not None else self._default_timeout
+        timeout_kwargs = {"timeout": resolved_timeout} if resolved_timeout is not None else {}
 
         # Make a mutable copy of messages for tool loop
         working_messages = list(messages)
@@ -161,6 +200,7 @@ class LLMClient:
                             max_tokens=max_tokens,
                             tools=tools,
                             tool_choice=tool_choice,
+                            **timeout_kwargs,
                         )
                         break  # success
                     except Exception as retry_err:
@@ -352,6 +392,27 @@ class LLMClient:
         Returns:
             ImageResponse with URL and metadata
         """
+        # PRH-2 spend gate: image generation is cosmetic and the most expensive
+        # per-call spend — block it first when over the daily budget.
+        gate = get_spend_gate()
+        if gate.enabled:
+            reason = gate.over_budget_reason(owner_id, self._tracker)
+            if reason:
+                logger.warning(
+                    "[LLM BUDGET] blocked image generation (%s): %s",
+                    classify_shed(call_type),
+                    reason,
+                )
+                return ImageResponse(
+                    url="",
+                    model=self._provider.image_model,
+                    provider=self._provider.provider_name,
+                    size=size,
+                    status="error",
+                    error_code="budget_exceeded",
+                    error_message=reason,
+                )
+
         start_time = time.time()
 
         try:

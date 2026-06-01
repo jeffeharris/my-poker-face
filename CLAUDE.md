@@ -107,6 +107,14 @@ docker compose exec frontend npx tsc --noEmit
 - Verify prompt templates render correctly
 - Check that personality traits affect decisions appropriately
 
+#### Writing tests (conventions)
+
+Conventions for authoring tests (markers, isolation, mocking, no import-copied globals)
+live in **`tests/CLAUDE.md`** — auto-loaded when working in that directory. Full rationale
+and the source→bucket map: **`docs/guides/TESTING.md`**. Coverage gate: CI enforces
+`--cov-fail-under=40` on `poker`/`flask_app`/`core` (a floor — prefer behavioural tests
+over line-padding; strategy quality is validated by sims, not unit coverage).
+
 ### Database Location
 
 **IMPORTANT**: The database path differs between environments:
@@ -330,7 +338,7 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    | `EXPERIMENT_ANALYSIS` | Assistant | |
    | `DEBUG_REPLAY` | User-specified | |
    | `DEBUG_INTERROGATE` | User-specified | |
-   | `COACHING` | Default | |
+   | `COACHING` | Assistant | Needs real reasoning; the Default tier (8B-class) hallucinates hand facts |
 
 5. **Tracking Data**: All API calls are logged to `api_usage` table with:
    - Token counts (input, output, cached, reasoning)
@@ -372,6 +380,8 @@ codex-assist resume <tag> "Follow-up question about the changes" -C /home/jeffh/
 
 ## DevOps & Production
 
+Ops runbook (deploy/rollback, launch activation checklist, env knobs, backups,
+monitoring, incident playbook): `docs/guides/OPS_RUNBOOK.md`.
 Server infrastructure docs: `~/projects/hetzner-infra/README.md`
 
 ### Quick Commands

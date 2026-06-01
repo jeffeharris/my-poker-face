@@ -15,14 +15,6 @@ export function arrivalSubtitle(now: Date = new Date()): string {
   const day = now.toLocaleDateString(undefined, { weekday: 'long' });
   const h = now.getHours();
   const band =
-    h < 5
-      ? 'late night'
-      : h < 12
-        ? 'morning'
-        : h < 17
-          ? 'afternoon'
-          : h < 21
-            ? 'evening'
-            : 'night';
+    h < 5 ? 'late night' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 21 ? 'evening' : 'night';
   return `${day} ${band}`;
 }

@@ -103,6 +103,7 @@ class _NetWorthRouteBase(unittest.TestCase):
                     'stake_comfort_zone': '$10',
                 },
             },
+            circulating=True,
         )
         # Napoleon needs a bankroll row for credit_ai_cash_out to land.
         self.bankroll_repo.save_ai_bankroll(
@@ -553,6 +554,7 @@ class TestLobbyCarryAnnotation(unittest.TestCase):
                     'stake_comfort_zone': '$10',
                 },
             },
+            circulating=True,
         )
         self.bankroll_repo.save_ai_bankroll(
             AIBankrollState(

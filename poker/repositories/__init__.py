@@ -14,11 +14,13 @@ from .cash_table_repository import CashTableRepository
 from .chip_ledger_repository import ChipLedgerRepository
 from .coach_repository import CoachRepository
 from .decision_analysis_repository import DecisionAnalysisRepository
+from .entity_presence_repository import EntityPresenceRepository
 from .experiment_repository import ExperimentRepository
 from .game_repository import GameRepository, SavedGame
 from .guest_tracking_repository import GuestTrackingRepository
 from .hand_history_repository import HandHistoryRepository
 from .holdings_snapshots_repository import HoldingsSnapshotsRepository
+from .prestige_snapshots_repository import PrestigeSnapshotsRepository
 from .llm_repository import LLMRepository
 from .personality_repository import PersonalityRepository
 from .prompt_capture_repository import PromptCaptureRepository
@@ -50,6 +52,12 @@ def create_repos(db_path: str) -> dict:
     game_repo = GameRepository(db_path)
     prompt_capture_repo = PromptCaptureRepository(db_path)
     capture_label_repo = CaptureLabelRepository(db_path, prompt_capture_repo=prompt_capture_repo)
+    bankroll_repo = BankrollRepository(db_path)
+    chip_ledger_repo = ChipLedgerRepository(db_path)
+    # D2: give the bankroll repo a ledger handle so its reads can derive from
+    # the ledger (int as cache) when CHIP_CUSTODY_DERIVE_READS is on. Best-effort
+    # wiring — the attribute defaults None so a repo built directly still works.
+    bankroll_repo.chip_ledger_repo = chip_ledger_repo
     return {
         'game_repo': game_repo,
         'user_repo': UserRepository(db_path),
@@ -68,9 +76,9 @@ def create_repos(db_path: str) -> dict:
         'coach_repo': CoachRepository(db_path),
         'pressure_event_repo': PressureEventRepository(db_path),
         'relationship_repo': RelationshipRepository(db_path),
-        'bankroll_repo': BankrollRepository(db_path),
+        'bankroll_repo': bankroll_repo,
         'cash_table_repo': CashTableRepository(db_path),
-        'chip_ledger_repo': ChipLedgerRepository(db_path),
+        'chip_ledger_repo': chip_ledger_repo,
         'stake_repo': StakeRepository(db_path),
         'cash_session_repo': CashSessionRepository(db_path),
         'sandbox_repo': SandboxRepository(db_path),
@@ -79,6 +87,8 @@ def create_repos(db_path: str) -> dict:
         'user_prefs_repo': UserPreferencesRepository(db_path),
         'user_avatar_repo': UserAvatarRepository(db_path),
         'holdings_snapshots_repo': HoldingsSnapshotsRepository(db_path),
+        'prestige_snapshots_repo': PrestigeSnapshotsRepository(db_path),
+        'entity_presence_repo': EntityPresenceRepository(db_path),
         'db_path': db_path,
     }
 
@@ -92,11 +102,13 @@ __all__ = [
     'ChipLedgerRepository',
     'CoachRepository',
     'DecisionAnalysisRepository',
+    'EntityPresenceRepository',
     'ExperimentRepository',
     'GameRepository',
     'GuestTrackingRepository',
     'HandHistoryRepository',
     'HoldingsSnapshotsRepository',
+    'PrestigeSnapshotsRepository',
     'LLMRepository',
     'PersonalityRepository',
     'PressureEventRepository',

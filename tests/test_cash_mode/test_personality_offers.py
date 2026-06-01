@@ -337,6 +337,51 @@ class TestEligibility:
         )
         assert offers == []
 
+    def _qualifying_setup(self):
+        """A willing, funded, neutral-relationship lender that qualifies."""
+        profiles = {
+            "ally": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
+            ),
+        }
+        bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"ally": 50_000})
+        rel = _FakeRelationshipRepo()
+        return bank, rel
+
+    def _offers_with_regard(self, human_regard):
+        bank, rel = self._qualifying_setup()
+        return compute_personality_offers(
+            player_owner_id="player",
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[{"personality_id": "ally", "name": "Ally"}],
+            bankroll_repo=bank,
+            relationship_repo=rel,
+            sandbox_id="test-sandbox-1",
+            human_regard=human_regard,
+        )
+
+    def test_reviled_regard_closes_pool(self):
+        # Hook 2: regard at/below VILLAIN_REGARD_FLOOR closes the named pool.
+        from cash_mode.sponsor_offers import VILLAIN_REGARD_FLOOR
+
+        assert self._offers_with_regard(VILLAIN_REGARD_FLOOR) == []
+        assert self._offers_with_regard(-1.0) == []
+
+    def test_regard_above_floor_keeps_pool(self):
+        # A qualifying lender still surfaces when regard is above the floor.
+        assert len(self._offers_with_regard(0.0)) == 1
+        assert len(self._offers_with_regard(0.5)) == 1
+
+    def test_regard_none_is_no_gate(self):
+        # Default None (AI-borrower / legacy callers) → pre-hook behavior.
+        assert len(self._offers_with_regard(None)) == 1
+
     def test_capacity_below_min_excluded(self):
         # 5% of 3000 = 150 < min 400 → excluded.
         profiles = {

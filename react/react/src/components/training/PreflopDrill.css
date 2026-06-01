@@ -1,0 +1,208 @@
+/* Preflop drill — practice a leak spot, graded vs the solver chart. */
+
+.pfd-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 2rem auto;
+  max-width: 24rem;
+  text-align: center;
+  color: var(--color-text-muted, #9ca3af);
+  line-height: 1.5;
+}
+.pfd-error {
+  color: #f87171;
+}
+
+.pfd-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pfd-spotline {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #9ca3af);
+  text-transform: none;
+}
+
+.pfd-hand {
+  /* Fixed-size frame so the box doesn't jump between hands (cards are uniform;
+     the shorthand label below them varies in length but the box doesn't). */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  width: 12rem;
+  height: 9rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pfd-cards {
+  display: flex;
+  gap: 0.35rem;
+}
+.pfd-hand-label {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+/* Spot picker — drill any spot, not just confirmed leaks. */
+.pfd-pick-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.pfd-pick-toggle {
+  border: none;
+  background: none;
+  color: var(--color-emerald, #34d399);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pfd-pick-toggle:hover {
+  filter: brightness(1.12);
+}
+.pfd-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 0.25rem 0 0.5rem;
+}
+.pfd-picker-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+.pfd-picker-field select {
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text, #e5e7eb);
+  font-size: 0.85rem;
+}
+
+.pfd-actions {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 22rem;
+}
+.pfd-btn {
+  flex: 1 1 0;
+  padding: 0.9rem 0.5rem;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #04150f;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+.pfd-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.pfd-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.pfd-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.pfd-btn--fold {
+  background: #94a3b8;
+}
+.pfd-btn--call {
+  background: #fcd34d;
+}
+.pfd-btn--raise {
+  background: var(--color-emerald, #34d399);
+}
+
+.pfd-feedback {
+  width: 100%;
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+.pfd-feedback--good {
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.1);
+}
+.pfd-feedback--thin {
+  border-color: rgba(234, 179, 8, 0.4);
+  background: rgba(234, 179, 8, 0.1);
+}
+.pfd-feedback--leak {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.1);
+}
+.pfd-verdict {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+}
+.pfd-freqs {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #cbd5e1);
+}
+
+.pfd-next {
+  margin-top: 0.4rem;
+  padding: 0.65rem 1.3rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--color-emerald, #10b981);
+  color: #04150f;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pfd-next:hover {
+  filter: brightness(1.08);
+}
+.pfd-secondary {
+  padding: 0.65rem 1.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text, #e5e7eb);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pfd-progress {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.pfd-end-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}

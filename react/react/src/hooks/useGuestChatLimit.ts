@@ -16,6 +16,11 @@ export function useGuestChatLimit(
 ) {
   const { user } = useAuth();
   const isGuest = user?.is_guest ?? true;
+  // PRH-27: free-text chat is sign-in-gated for guests (server enforces via
+  // GUEST_FREE_CHAT_ENABLED, default off — typed text reaches the AI prompt
+  // verbatim). The client locks conservatively for every guest; structured
+  // quick-chat is gated separately. Non-guests are never affected.
+  const guestFreeChatLocked = isGuest;
   const [guestChatSentThisAction, setGuestChatSentThisAction] = useState(false);
 
   const wasAwaitingAction = useRef(false);
@@ -40,7 +45,9 @@ export function useGuestChatLimit(
     [handleSendMessage, isGuest]
   );
 
+  // Quick-chat is allowed for guests but rate-limited to one send per turn.
+  // Free-text chat is gated separately (guestFreeChatLocked), always, for guests.
   const guestChatDisabled = isGuest && guestChatSentThisAction;
 
-  return { wrappedSendMessage, guestChatDisabled, isGuest };
+  return { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest };
 }

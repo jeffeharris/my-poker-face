@@ -328,7 +328,7 @@ class _FastForwardRouteBase(unittest.TestCase):
         user = {'id': 'u1', 'name': 'Tester', 'tracking_id': None}
         auth_stub = MagicMock(get_current_user=MagicMock(return_value=user))
         self._auth_patcher = patch(
-            'flask_app.routes.game_routes.auth_manager',
+            'flask_app.extensions.auth_manager',
             auth_stub,
         )
         self._auth_patcher.start()
@@ -342,6 +342,15 @@ class _FastForwardRouteBase(unittest.TestCase):
             ),
         )
         self._authz_patcher.start()
+        # game_routes reads `extensions.game_repo` live, so pin it on
+        # extensions (mirroring the auth_manager patch above) to this class's
+        # repo — otherwise a stale/None repo from an earlier test makes
+        # `_authorize_game_access` raise instead of returning a clean 404.
+        self._game_repo_patcher = patch(
+            'flask_app.extensions.game_repo',
+            self.repos['game_repo'],
+        )
+        self._game_repo_patcher.start()
 
         # Stub game_data in game_state_service — handle_ai_action /
         # progress_game aren't exercised here; we only care that the
@@ -369,6 +378,7 @@ class _FastForwardRouteBase(unittest.TestCase):
 
     def tearDown(self):
         self._progress_patcher.stop()
+        self._game_repo_patcher.stop()
         self._authz_patcher.stop()
         self._auth_patcher.stop()
         for gid in list(self._service.games.keys()):

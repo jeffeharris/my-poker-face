@@ -30,6 +30,7 @@ folders (where the self-play CRN gate read it null):
     docker compose exec -T backend python -m experiments.ab_node_attribution \
         jeff 4000 42,4042,8042 --a base --b base --b-mode h1 --heads-up
 """
+
 import argparse
 import math
 import os
@@ -144,7 +145,9 @@ def _size_collapse_transform(table):
     return table
 
 
-def _overbet_transform(table, classes, streets=('TURN', 'RIVER'), contexts=('unopened',), overbet_size=150):
+def _overbet_transform(
+    table, classes, streets=('TURN', 'RIVER'), contexts=('unopened',), overbet_size=150
+):
     """Convert the betting mass in *polarized aggressor spots* to a 150% pot
     OVERBET (bet_150 — the menu has no overbet today; the resolver handles it).
 
@@ -208,6 +211,7 @@ def _build_table(arm):
         import json
 
         from poker.strategy.strategy_table import _parse_postflop_json
+
         t = load_strategy_table()  # production preflop + authored (SRP,high) postflop
         for path in SLICE_POSTFLOP_PATHS:
             if not os.path.exists(path):
@@ -220,6 +224,7 @@ def _build_table(arm):
             t._postflop.update(_parse_postflop_json(json.load(open(path))))
         return t
     return load_strategy_table(json_path=CHARTS.get(arm, arm))
+
 
 # Rule-bot / clone rosters (mirror ab_preflop_width). Rule bots ignore the
 # strategy table, so opponents are identical across both arms.
@@ -247,7 +252,26 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False, disable_rules=None, hero_spot_tendencies=None, opp_spot_tendencies=None, overbet_bluff=0.0, river_bluff=0.0, river_bluff_ftbb=None):
+def _run_one_hand(
+    hero_name,
+    config_arch,
+    hero_table,
+    opponent_seats,
+    opp_configs,
+    opp_table,
+    hand_seed,
+    dealer_idx,
+    starting_stack=STARTING_STACK,
+    mode='off',
+    h1_streets=None,
+    overbet=False,
+    disable_rules=None,
+    hero_spot_tendencies=None,
+    opp_spot_tendencies=None,
+    overbet_bluff=0.0,
+    river_bluff=0.0,
+    river_bluff_ftbb=None,
+):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
     opponents and differ only in hero_table AND the multistreet `mode`
@@ -256,8 +280,11 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
     all_names = [hero_name] + opponent_seats
     random.seed(hand_seed)
     gs = make_game_state(
-        player_names=all_names, big_blind=BIG_BLIND, starting_stack=starting_stack,
-        dealer_idx=dealer_idx, seed=hand_seed,
+        player_names=all_names,
+        big_blind=BIG_BLIND,
+        starting_stack=starting_stack,
+        dealer_idx=dealer_idx,
+        seed=hand_seed,
     )
     sm = PokerStateMachine(gs)
     sm.current_hand_seed = hand_seed
@@ -302,7 +329,9 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
             opp._spot_tendencies_resolved = True
         controllers.append(opp)
     trace = []
-    final_stacks, _ = run_passivity_hand(sm, controllers, hero_name, PassivityStats(), hero_trace=trace)
+    final_stacks, _ = run_passivity_hand(
+        sm, controllers, hero_name, PassivityStats(), hero_trace=trace
+    )
     delta = final_stacks.get(hero_name, starting_stack) - starting_stack
     return delta, trace
 
@@ -323,7 +352,33 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp, a_hero, b_hero, a_disable, b_disable, hero_spot, opp_spot, a_overbet_bluff, b_overbet_bluff, a_river_bluff, b_river_bluff, river_bluff_ftbb = args
+    (
+        roster_name,
+        n_hands,
+        seed,
+        hero_arch,
+        arm_a,
+        arm_b,
+        stack_bb,
+        heads_up,
+        a_mode,
+        b_mode,
+        h1_streets,
+        a_overbet,
+        b_overbet,
+        adaptive_opp,
+        a_hero,
+        b_hero,
+        a_disable,
+        b_disable,
+        hero_spot,
+        opp_spot,
+        a_overbet_bluff,
+        b_overbet_bluff,
+        a_river_bluff,
+        b_river_bluff,
+        river_bluff_ftbb,
+    ) = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         # `adaptive_opp` registers the perfect-overbet-punisher clone variant under
@@ -356,8 +411,46 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % (1 + len(opponents))
-        da, ta = _run_one_hand(hero_name, config_arch_a, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet, a_disable, hero_spot, opp_spot, a_overbet_bluff, a_river_bluff, river_bluff_ftbb)
-        db, tb = _run_one_hand(hero_name, config_arch_b, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet, b_disable, hero_spot, opp_spot, b_overbet_bluff, b_river_bluff, river_bluff_ftbb)
+        da, ta = _run_one_hand(
+            hero_name,
+            config_arch_a,
+            table_a,
+            opponent_seats,
+            opp_configs,
+            opp_table,
+            hand_seed,
+            dealer_idx,
+            starting_stack,
+            a_mode,
+            h1_streets,
+            a_overbet,
+            a_disable,
+            hero_spot,
+            opp_spot,
+            a_overbet_bluff,
+            a_river_bluff,
+            river_bluff_ftbb,
+        )
+        db, tb = _run_one_hand(
+            hero_name,
+            config_arch_b,
+            table_b,
+            opponent_seats,
+            opp_configs,
+            opp_table,
+            hand_seed,
+            dealer_idx,
+            starting_stack,
+            b_mode,
+            h1_streets,
+            b_overbet,
+            b_disable,
+            hero_spot,
+            opp_spot,
+            b_overbet_bluff,
+            b_river_bluff,
+            river_bluff_ftbb,
+        )
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -414,95 +507,190 @@ def _parse_hero_spot(spec):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('roster', help='roster preset (jeff/punisher/station/maniac/lag/nit/rock/gto/mix)')
+    p.add_argument(
+        'roster', help='roster preset (jeff/punisher/station/maniac/lag/nit/rock/gto/mix)'
+    )
     p.add_argument('hands', type=int, help='hands per seed')
-    p.add_argument('seeds', help='comma-separated base seeds (space them >= hands apart to stay independent)')
+    p.add_argument(
+        'seeds', help='comma-separated base seeds (space them >= hands apart to stay independent)'
+    )
     p.add_argument('--hero', default='Baseline', help='hero archetype (default Baseline)')
     p.add_argument('--a', default='tight', help='baseline arm chart (CHARTS key or path)')
     p.add_argument('--b', default='wide', help='candidate arm chart (CHARTS key or path)')
     p.add_argument('--top', type=int, default=25, help='top-N nodes by |contribution|')
-    p.add_argument('--stack-bb', type=int, default=100,
-                   help='effective starting stack in BB (default 100). Use 50/25 to put the '
-                   'low-SPR slices in play (they barely fire at 100bb).')
-    p.add_argument('--heads-up', action='store_true',
-                   help='2-handed (collapse roster to 1 opponent) → every postflop decision is '
-                   'HU. Use with --b hu_aggro to quantify the HU-postflop-aggression leak.')
-    p.add_argument('--a-mode', default='off', choices=list(MODES),
-                   help='multistreet flag flavor for arm A (off|h1|h2|on). Default off. '
-                   'Set --a base --b base --b-mode h1 to A/B the multistreet barrel layer '
-                   '(same chart, flag flavor) and attribute it per node.')
-    p.add_argument('--b-mode', default='off', choices=list(MODES),
-                   help='multistreet flag flavor for arm B (off|h1|h2|on). Default off.')
-    p.add_argument('--h1-streets', default='all',
-                   help="streets H1 barrel-continuation fires on: 'all' (default) or a "
-                   "comma-separated subset (e.g. 'flop,turn' to drop the toxic river "
-                   "barrel found by per-node attribution). Applies to whichever arm runs H1.")
-    p.add_argument('--overbet-a', action='store_true',
-                   help="enable the overbet_context runtime layer on arm A. With --overbet-b on "
-                   "the other arm this A/Bs the production layer (vs the load-time "
-                   "_overbet_transform arm in --b).")
-    p.add_argument('--overbet-b', action='store_true',
-                   help="enable the overbet_context runtime layer on arm B (default off). Set "
-                   "--a base --b base --overbet-b to A/B the layer flag-flavor cleanly.")
-    p.add_argument('--a-hero', default=None,
-                   help="hero ARCHETYPE for arm A (default = --hero). Personality pricing: "
-                   "set --a-hero Baseline --b-hero <Nit|Rock|TAG|'Calling Station'|LAG|Maniac> "
-                   "to price that deviation profile's EV cost vs baseline, per node.")
-    p.add_argument('--b-hero', default=None,
-                   help="hero ARCHETYPE for arm B (default = --hero).")
-    p.add_argument('--a-disable', default=None,
-                   help="ablate rules on arm A's hero: comma-separated 'layer:rule_id' "
-                   "(e.g. 'spot_tendencies:slowplay'). Price one layer-rule by disabling "
-                   "it on arm A and leaving arm B on. Control: same value on both arms = "
-                   "100%% NO_DIVERGENCE.")
-    p.add_argument('--b-disable', default=None,
-                   help="ablate rules on arm B's hero (same format as --a-disable).")
-    p.add_argument('--hero-spot-tendency', default=None,
-                   help="configure spot tendencies on the hero (BOTH arms) without editing a "
-                   "deviation profile in source: comma-separated 'name:strength' (e.g. "
-                   "'give_up_turn:0.8' or 'fit_or_fold:0.8,auto_cbet:0.8'). Price one by "
-                   "pairing with --a-disable spot_tendencies:<name> (OFF) vs ON. Requires a "
-                   "non-Baseline --hero (e.g. TAG); Baseline skips the personality layer.")
-    p.add_argument('--opp-spot-tendency', default=None,
-                   help="configure spot tendencies on the OPPONENTS (both arms), same format. "
-                   "Attacker eval: put a leak on the opponent (use a tiered roster carrier like "
-                   "`tag`) and A/B an attacker layer on the hero (e.g. --overbet-b) to measure "
-                   "how much the attacker extracts from the leak. No-op on rule-bot/Baseline "
-                   "opponents (no personality layer).")
-    p.add_argument('--overbet-bluff-a', type=float, default=0.0,
-                   help="arm A: fraction of AIR bet-mass routed to the overbet size "
-                   "(OVERBET_BALANCING.md T1 — polarizes the overbet so a sizing-reader "
-                   "can't fold to it). 0 = value-only. Pair with --overbet-a.")
-    p.add_argument('--overbet-bluff-b', type=float, default=0.0,
-                   help="arm B: air→overbet fraction (see --overbet-bluff-a).")
-    p.add_argument('--river-bluff-a', type=float, default=0.0,
-                   help="arm A: fraction of give-up-air river CHECK mass promoted to a "
-                   "bet at the overbet size (OVERBET_BALANCING.md T2 — CREATES river "
-                   "bluff supply, the only fix for the face-up river). 0 = off.")
-    p.add_argument('--river-bluff-b', type=float, default=0.0,
-                   help="arm B: river give-up-air check→bet fraction (see --river-bluff-a).")
-    p.add_argument('--river-bluff-ftbb', type=float, default=None,
-                   help="regime-gate read: synthetic opponent fold_to_big_bet (no model "
-                   "manager in eval). >=0.6 = reader → river bluff fires; <0.6 = caller → "
-                   "value-only. Unset → gate never fires. Same read on both arms.")
-    p.add_argument('--adaptive-opp', action='store_true',
-                   help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
-                   "(D1, SIZING_AWARE_OPPONENT_MODELING.md): it max-folds all but near-nuts vs a "
-                   ">=1.2x-pot bet. Pair with --overbet-b to measure the overbet's exploitability "
-                   "CEILING; attribution stays clean (only the overbet-ON arm makes that size).")
+    p.add_argument(
+        '--stack-bb',
+        type=int,
+        default=100,
+        help='effective starting stack in BB (default 100). Use 50/25 to put the '
+        'low-SPR slices in play (they barely fire at 100bb).',
+    )
+    p.add_argument(
+        '--heads-up',
+        action='store_true',
+        help='2-handed (collapse roster to 1 opponent) → every postflop decision is '
+        'HU. Use with --b hu_aggro to quantify the HU-postflop-aggression leak.',
+    )
+    p.add_argument(
+        '--a-mode',
+        default='off',
+        choices=list(MODES),
+        help='multistreet flag flavor for arm A (off|h1|h2|on). Default off. '
+        'Set --a base --b base --b-mode h1 to A/B the multistreet barrel layer '
+        '(same chart, flag flavor) and attribute it per node.',
+    )
+    p.add_argument(
+        '--b-mode',
+        default='off',
+        choices=list(MODES),
+        help='multistreet flag flavor for arm B (off|h1|h2|on). Default off.',
+    )
+    p.add_argument(
+        '--h1-streets',
+        default='all',
+        help="streets H1 barrel-continuation fires on: 'all' (default) or a "
+        "comma-separated subset (e.g. 'flop,turn' to drop the toxic river "
+        "barrel found by per-node attribution). Applies to whichever arm runs H1.",
+    )
+    p.add_argument(
+        '--overbet-a',
+        action='store_true',
+        help="enable the overbet_context runtime layer on arm A. With --overbet-b on "
+        "the other arm this A/Bs the production layer (vs the load-time "
+        "_overbet_transform arm in --b).",
+    )
+    p.add_argument(
+        '--overbet-b',
+        action='store_true',
+        help="enable the overbet_context runtime layer on arm B (default off). Set "
+        "--a base --b base --overbet-b to A/B the layer flag-flavor cleanly.",
+    )
+    p.add_argument(
+        '--a-hero',
+        default=None,
+        help="hero ARCHETYPE for arm A (default = --hero). Personality pricing: "
+        "set --a-hero Baseline --b-hero <Nit|Rock|TAG|'Calling Station'|LAG|Maniac> "
+        "to price that deviation profile's EV cost vs baseline, per node.",
+    )
+    p.add_argument('--b-hero', default=None, help="hero ARCHETYPE for arm B (default = --hero).")
+    p.add_argument(
+        '--a-disable',
+        default=None,
+        help="ablate rules on arm A's hero: comma-separated 'layer:rule_id' "
+        "(e.g. 'spot_tendencies:slowplay'). Price one layer-rule by disabling "
+        "it on arm A and leaving arm B on. Control: same value on both arms = "
+        "100%% NO_DIVERGENCE.",
+    )
+    p.add_argument(
+        '--b-disable',
+        default=None,
+        help="ablate rules on arm B's hero (same format as --a-disable).",
+    )
+    p.add_argument(
+        '--hero-spot-tendency',
+        default=None,
+        help="configure spot tendencies on the hero (BOTH arms) without editing a "
+        "deviation profile in source: comma-separated 'name:strength' (e.g. "
+        "'give_up_turn:0.8' or 'fit_or_fold:0.8,auto_cbet:0.8'). Price one by "
+        "pairing with --a-disable spot_tendencies:<name> (OFF) vs ON. Requires a "
+        "non-Baseline --hero (e.g. TAG); Baseline skips the personality layer.",
+    )
+    p.add_argument(
+        '--opp-spot-tendency',
+        default=None,
+        help="configure spot tendencies on the OPPONENTS (both arms), same format. "
+        "Attacker eval: put a leak on the opponent (use a tiered roster carrier like "
+        "`tag`) and A/B an attacker layer on the hero (e.g. --overbet-b) to measure "
+        "how much the attacker extracts from the leak. No-op on rule-bot/Baseline "
+        "opponents (no personality layer).",
+    )
+    p.add_argument(
+        '--overbet-bluff-a',
+        type=float,
+        default=0.0,
+        help="arm A: fraction of AIR bet-mass routed to the overbet size "
+        "(OVERBET_BALANCING.md T1 — polarizes the overbet so a sizing-reader "
+        "can't fold to it). 0 = value-only. Pair with --overbet-a.",
+    )
+    p.add_argument(
+        '--overbet-bluff-b',
+        type=float,
+        default=0.0,
+        help="arm B: air→overbet fraction (see --overbet-bluff-a).",
+    )
+    p.add_argument(
+        '--river-bluff-a',
+        type=float,
+        default=0.0,
+        help="arm A: fraction of give-up-air river CHECK mass promoted to a "
+        "bet at the overbet size (OVERBET_BALANCING.md T2 — CREATES river "
+        "bluff supply, the only fix for the face-up river). 0 = off.",
+    )
+    p.add_argument(
+        '--river-bluff-b',
+        type=float,
+        default=0.0,
+        help="arm B: river give-up-air check→bet fraction (see --river-bluff-a).",
+    )
+    p.add_argument(
+        '--river-bluff-ftbb',
+        type=float,
+        default=None,
+        help="regime-gate read: synthetic opponent fold_to_big_bet (no model "
+        "manager in eval). >=0.6 = reader → river bluff fires; <0.6 = caller → "
+        "value-only. Unset → gate never fires. Same read on both arms.",
+    )
+    p.add_argument(
+        '--adaptive-opp',
+        action='store_true',
+        help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
+        "(D1, SIZING_AWARE_OPPONENT_MODELING.md): it max-folds all but near-nuts vs a "
+        ">=1.2x-pot bet. Pair with --overbet-b to measure the overbet's exploitability "
+        "CEILING; attribution stays clean (only the overbet-ON arm makes that size).",
+    )
     args = p.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(',')]
 
     h1_streets = (
-        None if args.h1_streets == 'all'
+        None
+        if args.h1_streets == 'all'
         else frozenset(s.strip().upper() for s in args.h1_streets.split(','))
     )
     a_disable = _parse_disables(args.a_disable)
     b_disable = _parse_disables(args.b_disable)
     hero_spot = _parse_hero_spot(args.hero_spot_tendency)
     opp_spot = _parse_hero_spot(args.opp_spot_tendency)
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp, args.a_hero, args.b_hero, a_disable, b_disable, hero_spot, opp_spot, args.overbet_bluff_a, args.overbet_bluff_b, args.river_bluff_a, args.river_bluff_b, args.river_bluff_ftbb) for s in seeds]
+    work = [
+        (
+            args.roster,
+            args.hands,
+            s,
+            args.hero,
+            args.a,
+            args.b,
+            args.stack_bb,
+            args.heads_up,
+            args.a_mode,
+            args.b_mode,
+            h1_streets,
+            args.overbet_a,
+            args.overbet_b,
+            args.adaptive_opp,
+            args.a_hero,
+            args.b_hero,
+            a_disable,
+            b_disable,
+            hero_spot,
+            opp_spot,
+            args.overbet_bluff_a,
+            args.overbet_bluff_b,
+            args.river_bluff_a,
+            args.river_bluff_b,
+            args.river_bluff_ftbb,
+        )
+        for s in seeds
+    ]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -539,12 +727,18 @@ def main():
         a_label += f" -[{args.a_disable}]"
     if args.b_disable:
         b_label += f" -[{args.b_disable}]"
-    print(f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={roster_label}"
-          f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
-          f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
-    print(f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]")
+    print(
+        f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={roster_label}"
+        f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
+        f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ==="
+    )
+    print(
+        f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]"
+    )
     nd = merged.get(('-', 'NO_DIVERGENCE'), [0, 0.0, 0.0])
-    print(f"NO_DIVERGENCE: {nd[0]} hands ({100.0*nd[0]/total_n:.1f}%), residual {_bb(nd[1]/total_n):+.3f} bb/100 (should be ~0)")
+    print(
+        f"NO_DIVERGENCE: {nd[0]} hands ({100.0*nd[0]/total_n:.1f}%), residual {_bb(nd[1]/total_n):+.3f} bb/100 (should be ~0)"
+    )
 
     # Per-node rows: contribution = sum/total_N (sums to TOTAL); when-fires = sum/n.
     rows = []
@@ -556,9 +750,13 @@ def main():
         rows.append((node, phase, n, 100.0 * n / total_n, contrib_bb, whenfires_bb))
     rows.sort(key=lambda r: -abs(r[4]))
 
-    print(f"\n  {'node_key':<34} {'ph':<5} {'n':>5} {'freq%':>6} {'contrib bb/100':>15} {'when-fires':>11}")
-    for node, phase, n, freq, contrib, whenfires in rows[:args.top]:
-        print(f"  {node[:34]:<34} {phase[:5]:<5} {n:>5} {freq:>6.1f} {contrib:>+15.2f} {whenfires:>+11.1f}")
+    print(
+        f"\n  {'node_key':<34} {'ph':<5} {'n':>5} {'freq%':>6} {'contrib bb/100':>15} {'when-fires':>11}"
+    )
+    for node, phase, n, freq, contrib, whenfires in rows[: args.top]:
+        print(
+            f"  {node[:34]:<34} {phase[:5]:<5} {n:>5} {freq:>6.1f} {contrib:>+15.2f} {whenfires:>+11.1f}"
+        )
 
     # Rollup by phase and by preflop scenario|position.
     def rollup(keyfn, title):
@@ -574,8 +772,10 @@ def main():
             print(f"     {k:<22} n={n:>6}  {_bb(s/total_n):+.2f} bb/100")
 
     rollup(lambda phase, node: phase, "phase")
-    rollup(lambda phase, node: '|'.join(node.split('|')[:2]) if phase == 'PRE_FLOP' else phase,
-           "preflop scenario|position (postflop folded into phase)")
+    rollup(
+        lambda phase, node: '|'.join(node.split('|')[:2]) if phase == 'PRE_FLOP' else phase,
+        "preflop scenario|position (postflop folded into phase)",
+    )
 
 
 if __name__ == '__main__':

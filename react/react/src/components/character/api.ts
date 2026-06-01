@@ -61,6 +61,80 @@ export interface DossierObservation {
   play_style: string;
 }
 
+/** Tier-2 deep postflop reads (B1) — the long-grind unlocks surfaced past
+ *  ~180 hands. Each field is null until its grind tier (or the informant's
+ *  "Deep postflop read" section) is unlocked, OR until enough of that
+ *  opportunity has been observed to compute it. Rates are 0–1; the equity
+ *  fields are mean win-prob (0–1) the opponent held at that action. */
+export interface DossierDeeperReads {
+  fold_to_cbet: number | null;
+  cbet_attempt_rate: number | null;
+  barrel_frequency: number | null;
+  third_barrel_frequency: number | null;
+  all_in_frequency: number | null;
+  aggression_factor_postflop: number | null;
+  equity_when_betting: number | null;
+  equity_when_raising: number | null;
+  equity_when_calling: number | null;
+  lifetime?: boolean;
+}
+
+/** B2 "the read" — one piece of exploit advice from the tiered-bot
+ *  exploitation detectors. `intensity` (0–1, or null) is how strongly the
+ *  pattern matches, for phrasing emphasis. */
+export interface DossierReadTip {
+  pattern: string;
+  text: string;
+  intensity: number | null;
+}
+
+/** Coarse opponent archetype badge (B2). Null until the archetype tier is
+ *  unlocked, or when the opponent doesn't match a surfaced archetype. */
+export interface DossierArchetype {
+  id: string;
+  label: string;
+}
+
+/** B3 emotional read — how they handle pressure. `tilt_score`/`tilt_label`
+ *  present only with enough pressure history; `poise` (tilt resistance) and
+ *  `expressiveness` (readability) are 0–1 personality anchors. `lines` are the
+ *  one-line tells. */
+export interface DossierTemperament {
+  tilt_score: number | null;
+  tilt_label: string | null;
+  poise: number | null;
+  expressiveness: number | null;
+  lines: string[];
+}
+
+/** B4 — where the opponent sits in the LLM field for VPIP / aggression. */
+export interface DossierFieldPosition {
+  vpip_pct?: number;
+  vpip_label?: string;
+  af_pct?: number;
+  af_label?: string;
+}
+
+/** One relationship-event tally (clash or banter). */
+export interface DossierHistoryEvent {
+  event: string;
+  label: string;
+  count: number;
+}
+
+/** "The history" — the rivalry read between the human and this opponent. */
+export interface DossierRelationshipHistory {
+  line: string;
+  defining: {
+    event: string;
+    label: string;
+    impact_score: number;
+    narrative: string;
+  } | null;
+  clash: DossierHistoryEvent[];
+  banter: DossierHistoryEvent[];
+}
+
 export interface DossierPressureSummary {
   total_events?: number;
   wins?: number;
@@ -104,11 +178,58 @@ export interface DossierStakeSummary {
   };
 }
 
+/** Phase 2 scouting gate state. Present only in a Circuit context (a
+ *  sandbox + observer); absent when the dossier is ungated. Earnable reads
+ *  are stripped from the payload until unlocked — this descriptor tells the
+ *  client what's locked and the progress toward each unlock. */
+export interface DossierScoutingLock {
+  id: string;
+  label: string;
+  /** Hand-count floor for this read (always present). */
+  unlocks_at: number;
+  /** Tier-2 opportunity gate (present only for sample-gated reads): the read
+   *  also needs `samples_observed` to reach `sample_min` of `sample_noun`
+   *  (e.g. "c-bets faced") before it unlocks. */
+  sample_min?: number;
+  samples_observed?: number;
+  sample_noun?: string;
+}
+
+/** A still-buyable informant section (Phase 3): pay `price` chips to
+ *  reveal it. */
+export interface DossierInformantOffer {
+  id: string;
+  label: string;
+  price: number;
+}
+
+export interface DossierScouting {
+  hands_observed: number;
+  floor: number;
+  floor_met: boolean;
+  unlocked: string[];
+  locked: DossierScoutingLock[];
+  informant_offers?: DossierInformantOffer[];
+}
+
 export interface DossierResponse {
   personality_id: string;
   personality: DossierPersonality | null;
   emotion: string | null;
   observation: DossierObservation | null;
+  /** Tier-2 deep postflop reads. Null when ungated/no data; individual
+   *  fields null when their grind tier is still locked. */
+  deeper_reads?: DossierDeeperReads | null;
+  /** B2 "the read": exploit advice lines. Empty when locked/no read. */
+  the_read?: DossierReadTip[];
+  /** B2 archetype badge. Null when locked or unmatched. */
+  archetype?: DossierArchetype | null;
+  /** B3 emotional read (tilt / poise / readability). Null when locked. */
+  temperament?: DossierTemperament | null;
+  /** B4 field-relative standing. Null when locked. */
+  field_position?: DossierFieldPosition | null;
+  /** "The history" — rivalry read. Null when locked / no shared history. */
+  relationship_history?: DossierRelationshipHistory | null;
   pressure_summary: DossierPressureSummary | null;
   /** AI's off-table bankroll (chips), projected through regen.
    *  Null when no bankroll row exists yet (AI never sat down). */
@@ -120,6 +241,12 @@ export interface DossierResponse {
   cash_pair_stats: DossierCashPairStats | null;
   memorable_hands: DossierMemorableHand[];
   note: string | null;
+  /** Scouting gate state (Phase 2). Null/absent when the dossier is
+   *  ungated (no Circuit sandbox context). */
+  scouting?: DossierScouting | null;
+  /** The viewer's own bankroll (chips) — lets the informant UI disable
+   *  unlocks they can't afford. Null when no bankroll row / no observer. */
+  player_bankroll?: number | null;
 }
 
 /**
@@ -141,6 +268,26 @@ export async function fetchNicknameOverrides(): Promise<Record<string, string>> 
 export async function fetchCharacterDossier(identifier: string): Promise<DossierResponse> {
   const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/dossier`, {
     credentials: 'include',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Pay the informant to reveal a still-locked dossier section (Phase 3).
+ *  Returns the updated scouting state + the player's new bankroll. Throws
+ *  with the server's error message on 4xx (e.g. insufficient bankroll). */
+export async function buyInformantUnlock(
+  identifier: string,
+  sectionId: string
+): Promise<{ scouting: DossierScouting; bankroll: number; section_id: string; price: number }> {
+  const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/informant`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ section_id: sectionId }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));

@@ -49,30 +49,39 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
         self.app.testing = True
-        # The shared limiter accumulates state across tests in the suite;
-        # disable it here so the duplicate-name validation actually runs
-        # rather than 429-ing on the third invocation in a row.
-        self.app.config['RATELIMIT_ENABLED'] = False
+        # The rate limiter is a single module-global bound across every
+        # create_app(), and PRH-41 keys authenticated users per-id — so neither
+        # flipping RATELIMIT_ENABLED here nor a unique REMOTE_ADDR escapes the
+        # `user:test-user-1` bucket that sibling suites in the run already
+        # filled (→ 429 instead of the 400 we're asserting). Reset the shared
+        # storage so each test starts with an empty quota.
+        from flask_app.extensions import limiter
+
+        with self.app.app_context():
+            try:
+                limiter.reset()
+            except Exception:
+                pass
         self.client = self.app.test_client()
 
         # Patch game_routes module-level repo globals to this test's fresh repos.
         # game_routes imports these by value at module import time, so without this
         # tests can hit stale/closed repo objects from other test modules.
         self._route_patchers = [
-            patch('flask_app.routes.game_routes.game_repo', repos['game_repo']),
-            patch('flask_app.routes.game_routes.user_repo', repos['user_repo']),
-            patch('flask_app.routes.game_routes.prompt_preset_repo', repos['prompt_preset_repo']),
-            patch('flask_app.routes.game_routes.guest_tracking_repo', repos['guest_tracking_repo']),
-            patch('flask_app.routes.game_routes.hand_history_repo', repos['hand_history_repo']),
-            patch('flask_app.routes.game_routes.tournament_repo', repos['tournament_repo']),
-            patch('flask_app.routes.game_routes.llm_repo', repos['llm_repo']),
+            patch('flask_app.extensions.game_repo', repos['game_repo']),
+            patch('flask_app.extensions.user_repo', repos['user_repo']),
+            patch('flask_app.extensions.prompt_preset_repo', repos['prompt_preset_repo']),
+            patch('flask_app.extensions.guest_tracking_repo', repos['guest_tracking_repo']),
+            patch('flask_app.extensions.hand_history_repo', repos['hand_history_repo']),
+            patch('flask_app.extensions.tournament_repo', repos['tournament_repo']),
+            patch('flask_app.extensions.llm_repo', repos['llm_repo']),
             patch(
-                'flask_app.routes.game_routes.decision_analysis_repo',
+                'flask_app.extensions.decision_analysis_repo',
                 repos['decision_analysis_repo'],
             ),
-            patch('flask_app.routes.game_routes.capture_label_repo', repos['capture_label_repo']),
-            patch('flask_app.routes.game_routes.coach_repo', repos['coach_repo']),
-            patch('flask_app.routes.game_routes.persistence_db_path', repos['db_path']),
+            patch('flask_app.extensions.capture_label_repo', repos['capture_label_repo']),
+            patch('flask_app.extensions.coach_repo', repos['coach_repo']),
+            patch('flask_app.extensions.persistence_db_path', repos['db_path']),
         ]
         for patcher in self._route_patchers:
             patcher.start()
@@ -84,10 +93,21 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
         os.unlink(self.test_db.name)
 
     def _mock_auth(self):
-        """Return a patch that provides a fake authenticated user."""
+        """Return a patch that provides a fake authenticated user.
+
+        The user id is unique per test: PRH-41 keys the rate limiter per
+        authenticated user, so a shared id would let sibling suites in an xdist
+        worker fill the `user:<id>` new-game bucket (10/hr) and this test would
+        429 instead of asserting its real status. A per-test id gives each test
+        its own empty bucket (the unique REMOTE_ADDR below covers the IP fallback,
+        and setUp also resets the limiter — this is the belt-and-suspenders that
+        survives an unreliable reset under xdist)."""
         mock_auth = unittest.mock.MagicMock()
-        mock_auth.get_current_user.return_value = {'id': 'test-user-1', 'name': 'TestUser'}
-        return patch('flask_app.routes.game_routes.auth_manager', mock_auth)
+        mock_auth.get_current_user.return_value = {
+            'id': f'test-user-{self.id()}',
+            'name': 'TestUser',
+        }
+        return patch('flask_app.extensions.auth_manager', mock_auth)
 
     def test_duplicate_player_name_returns_400(self):
         """POST /api/new-game with player name matching an AI personality returns 400."""

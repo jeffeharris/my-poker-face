@@ -123,6 +123,7 @@ class XAIProvider(LLMProvider):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         """Make a chat completion request."""
         kwargs = {
@@ -144,6 +145,11 @@ class XAIProvider(LLMProvider):
             kwargs["tools"] = tools
             if tool_choice:
                 kwargs["tool_choice"] = tool_choice
+
+        # PRH-18: per-call timeout override; short for in-game/ticker calls
+        # so a stalled provider fails fast instead of hanging under a lock.
+        if timeout is not None:
+            kwargs["timeout"] = timeout
 
         return self._client.chat.completions.create(**kwargs)
 

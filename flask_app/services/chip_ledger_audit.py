@@ -127,6 +127,16 @@ def compute_audit(
         list_game_ids_fn,
         get_game_fn,
     )
+    # PRH-6: a seated human's own seat chips were captured by no surface
+    # (the AI sum filters humans out, persisted seats are AI-only), so the
+    # buy-in debit from player_bankrolls read as negative drift and masked
+    # real leaks. Count the human's non-borrowed seat chips; the borrowed
+    # portion stays in active_loans_principal (no double-count — see helper).
+    live_session_human_stacks, live_session_human_error = _sum_live_session_human_stacks(
+        list_game_ids_fn,
+        get_game_fn,
+        stake_repo,
+    )
 
     actual_outstanding = (
         player_bankrolls
@@ -134,6 +144,7 @@ def compute_audit(
         + cash_table_seats_ai
         + active_loans_principal
         + live_session_ai_stacks
+        + live_session_human_stacks
     )
     # Uncommitted regen — the gap between what AIs currently
     # read as (projected) and what they have stored. Informative
@@ -178,6 +189,16 @@ def compute_audit(
     errors: Dict[str, str] = {}
     if live_session_error is not None:
         errors['live_session_ai_stacks'] = live_session_error
+    if live_session_human_error is not None:
+        errors['live_session_human_stacks'] = live_session_human_error
+
+    # PRH-6 gating condition: the live-session stacks are an in-memory
+    # surface, so a read failure (or a post-restart memory miss) means
+    # `actual_outstanding` is understated and `drift` would look spuriously
+    # positive. Flag when the live source couldn't be read so a consumer
+    # (admin UI / alert) treats non-zero drift as actionable only when the
+    # inputs were complete.
+    drift_reliable = live_session_error is None and live_session_human_error is None
 
     return {
         'ledger_totals': {
@@ -193,9 +214,11 @@ def compute_audit(
             'cash_table_seats_ai': cash_table_seats_ai,
             'active_loans_principal': active_loans_principal,
             'live_session_ai_stacks': live_session_ai_stacks,
+            'live_session_human_stacks': live_session_human_stacks,
             'actual_outstanding': actual_outstanding,
         },
         'drift': ledger_outstanding - actual_outstanding,
+        'drift_reliable': drift_reliable,
         'bank_pool': bank_pool,
         'by_reason': by_reason,
         'by_reason_window_24h': by_reason_window_24h,
@@ -386,4 +409,66 @@ def _sum_live_session_ai_stacks(list_game_ids_fn, get_game_fn):
     except Exception as e:
         logger.warning("chip-ledger audit: live-session sum failed: %s", e)
         return 0, f"live-session iteration failed: {e}"
+    return total, None
+
+
+def _sum_live_session_human_stacks(list_game_ids_fn, get_game_fn, stake_repo):
+    """Sum the human's own seat chips across in-memory active cash sessions.
+
+    PRH-6: the human's live seat stack is captured by no other surface —
+    `_sum_live_session_ai_stacks` filters humans out and persisted
+    `cash_table` seats are AI-only — so a seated human's buy-in (debited
+    from `player_bankrolls`) read as negative drift and masked real leaks.
+
+    To avoid double-counting `active_loans_principal` (which already counts
+    the *borrowed* principal+match on a staked human's seat), we subtract
+    the human's active stake from their seat stack and count only the
+    remainder: self-funded chips plus any winnings. For a self-funded
+    human the full seat is counted; for a staked human the borrowed portion
+    stays in `active_loans_principal`, so the two terms compose to the full
+    seat with no overlap. Human-borrower stakes key on
+    `borrower_id == owner_id` (cash_routes sponsor-offer accept), so the
+    per-session lookup is exact.
+
+    Returns `(total, error_message_or_None)` — same contract as the AI
+    helper, so a degraded read surfaces in the audit's `errors`.
+    """
+    if list_game_ids_fn is None or get_game_fn is None:
+        return 0, None
+    from cash_mode.stakes import BORROWER_KIND_HUMAN
+
+    total = 0
+    try:
+        for game_id in list_game_ids_fn():
+            if not isinstance(game_id, str) or not game_id.startswith('cash-'):
+                continue
+            game_data = get_game_fn(game_id)
+            if not game_data:
+                continue
+            state_machine = game_data.get('state_machine')
+            if state_machine is None:
+                continue
+            try:
+                players = state_machine.game_state.players
+            except AttributeError:
+                continue
+            human_seat = sum(
+                int(getattr(p, 'stack', 0) or 0) for p in players if getattr(p, 'is_human', False)
+            )
+            if human_seat <= 0:
+                continue
+            # Borrowed portion already counted by active_loans_principal.
+            borrowed = 0
+            owner_id = game_data.get('owner_id')
+            if owner_id and stake_repo is not None:
+                try:
+                    stake = stake_repo.load_active_for_borrower(owner_id, BORROWER_KIND_HUMAN)
+                    if stake is not None:
+                        borrowed = int(stake.principal or 0) + int(stake.match_amount or 0)
+                except Exception:
+                    borrowed = 0
+            total += max(0, human_seat - borrowed)
+    except Exception as e:
+        logger.warning("chip-ledger audit: live-session human sum failed: %s", e)
+        return 0, f"live-session human iteration failed: {e}"
     return total, None

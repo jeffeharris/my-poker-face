@@ -16,6 +16,15 @@ games: Dict[str, dict] = {}
 game_locks: Dict[str, threading.Lock] = {}
 _game_locks_lock = threading.Lock()
 
+# Per-sandbox locks serialize cash-mode seat mutations. The human sit /
+# sponsor-sit routes and the world ticker's `refresh_unseated_tables` both
+# read-modify-write the same `cash_tables` seats JSON blob; without a shared
+# lock a human claim can clobber a just-placed live-fill AI (stranding its
+# already-debited buy-in). Per-sandbox granularity matches the ticker, which
+# advances one sandbox at a time.
+sandbox_locks: Dict[str, threading.Lock] = {}
+_sandbox_locks_lock = threading.Lock()
+
 # TTL-based eviction for stale games
 game_last_access: Dict[str, datetime] = {}
 GAME_TTL_HOURS = 2
@@ -27,15 +36,36 @@ _cleanup_timer_lock = threading.RLock()
 
 
 def _cleanup_stale_games():
-    """Remove games not accessed within GAME_TTL_HOURS."""
+    """Remove games not accessed within GAME_TTL_HOURS.
+
+    PRH-23: mutate `game_locks` under `_game_locks_lock` (the lock it's created
+    under in `get_game_lock`) and **never evict a game whose lock is currently
+    held** — popping a held lock would let the next `get_game_lock` mint a fresh
+    one, so two requests could progress the same game concurrently. Staleness is
+    re-checked inside the lock so a game touched between the snapshot and the
+    pop isn't evicted. A held-or-freshly-touched stale game is simply skipped
+    this cycle and collected next time (games are persisted, so an over-eager
+    eviction would only force a cold-load anyway).
+    """
     cutoff = datetime.now() - timedelta(hours=GAME_TTL_HOURS)
     stale_keys = [k for k, t in game_last_access.items() if t < cutoff]
-    for key in stale_keys:
-        games.pop(key, None)
-        game_locks.pop(key, None)
-        game_last_access.pop(key, None)
-    if stale_keys:
-        logger.info(f"[TTL] Evicted {len(stale_keys)} stale game(s): {stale_keys}")
+    if not stale_keys:
+        return
+    evicted = []
+    with _game_locks_lock:
+        for key in stale_keys:
+            last = game_last_access.get(key)
+            if last is None or last >= cutoff:
+                continue  # re-accessed since the snapshot — not stale anymore
+            lock = game_locks.get(key)
+            if lock is not None and lock.locked():
+                continue  # in-flight request holds it — don't evict under the lock
+            games.pop(key, None)
+            game_locks.pop(key, None)
+            game_last_access.pop(key, None)
+            evicted.append(key)
+    if evicted:
+        logger.info(f"[TTL] Evicted {len(evicted)} stale game(s): {evicted}")
 
 
 def _schedule_cleanup():
@@ -94,6 +124,12 @@ def set_game(game_id: str, game_data: dict) -> None:
         game_id: The game identifier
         game_data: The game data dictionary
     """
+    # Stamp the game's own id into its data (PRH-9). Several consumers need
+    # it from the dict alone — e.g. build_cash_mode_payload's active_loan
+    # lookup keys on game_data['game_id'], which no builder set, so staked
+    # players never saw their leave-breakdown panel. Doing it here is the
+    # single point every warm/cold/tournament builder funnels through.
+    game_data['game_id'] = game_id
     games[game_id] = game_data
     game_last_access[game_id] = datetime.now()
 
@@ -136,6 +172,24 @@ def get_game_lock(game_id: str) -> threading.Lock:
         if game_id not in game_locks:
             game_locks[game_id] = threading.Lock()
         return game_locks[game_id]
+
+
+def get_sandbox_lock(sandbox_id: str) -> threading.Lock:
+    """Get or create the per-sandbox seat-mutation lock.
+
+    Held around any read-modify-write of a sandbox's `cash_tables` seats
+    — the human sit / sponsor-sit seat claims and the world ticker's
+    `refresh_unseated_tables` — so they serialize instead of clobbering
+    each other's last-write-wins seat blob. See `sandbox_locks`.
+
+    `sandbox_id` may be None for legacy/unscoped callers; they share a
+    single lock keyed on "" (still correct, just coarser).
+    """
+    key = sandbox_id or ""
+    with _sandbox_locks_lock:
+        if key not in sandbox_locks:
+            sandbox_locks[key] = threading.Lock()
+        return sandbox_locks[key]
 
 
 def get_game_owner_info(game_id: str) -> tuple:

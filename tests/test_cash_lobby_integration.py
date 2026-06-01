@@ -74,6 +74,7 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                         'heat_ceiling': 1.0,  # never ceiling-ed out
                     },
                 },
+                circulating=True,
             )
             cls.bankroll_repo.save_ai_bankroll(
                 AIBankrollState(
@@ -120,9 +121,10 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
-        # Rebind module-level repo capture in game_routes (see commit 6
+        # game_routes reads these repos live via `extensions.X`, so pin the
+        # canonical extensions bindings to OUR tempdb repos (see commit 6
         # commit message for context on this flake).
-        import flask_app.routes.game_routes as _gr
+        import flask_app.extensions as _ext
 
         for key in (
             'prompt_preset_repo',
@@ -139,7 +141,7 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
             'personality_repo',
         ):
             if key in repos:
-                setattr(_gr, key, repos[key])
+                setattr(_ext, key, repos[key])
 
         # Pin the player's default sandbox to the seeded TEST_SANDBOX_ID
         # ("test-sandbox-1") so the routes' `_resolve_sandbox_id` resolves
@@ -242,6 +244,7 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
                     'heat_ceiling': 1.0,
                 },
             },
+            circulating=True,
         )
         self.bankroll_repo.save_ai_bankroll(
             AIBankrollState(

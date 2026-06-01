@@ -130,7 +130,7 @@ class TestEmitLastStandEvents(unittest.TestCase):
 
     def test_records_event_with_predator_message(self):
         _emit_last_stand_events(
-            candidates={"p-napoleon": ("cash-table-50-001", "$50")},
+            candidates={"p-napoleon": ("cash-table-50-001", "$50", "The Lodge")},
             personality_repo=self.repo,
             now=self.now,
             sandbox_id="sbx",
@@ -144,10 +144,12 @@ class TestEmitLastStandEvents(unittest.TestCase):
         self.assertEqual(evt.reason, "")
         self.assertIn("Napoleon", evt.message)
         self.assertIn("$50", evt.message)
+        # Familiar table name surfaces with the stake in brackets.
+        self.assertIn("The Lodge [$50]", evt.message)
 
     def test_unknown_personality_is_skipped(self):
         _emit_last_stand_events(
-            candidates={"p-ghost": ("cash-table-50-001", "$50")},
+            candidates={"p-ghost": ("cash-table-50-001", "$50", "The Lodge")},
             personality_repo=self.repo,
             now=self.now,
             sandbox_id="sbx",

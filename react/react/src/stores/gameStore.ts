@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Player } from '../types/player';
 import type { GameState, BettingContext, CashModeInfo } from '../types/game';
 import type { LobbyEvent } from '../components/cash/types';
+import type { RunoutSchedule } from '../types/runout';
 
 // Stable references to avoid creating new objects on every selectGameState call
 const EMPTY_MESSAGES: never[] = [];
@@ -47,13 +48,42 @@ interface GameStore {
   worldEvents: BufferedWorldEvent[];
   /** Every AI seat resolves with zero LLM calls → nothing to fast-forward. */
   aiInstant: boolean;
+  /** Owner's game speed is 'always' (fast-forward every turn) → FF button hidden. */
+  alwaysFastForward: boolean;
+  // Run-out reveal director (mobile, all-in run-outs). The backend emits the
+  // per-card reaction schedule once at reveal; `useRunoutDirector` walks it to
+  // play per-card avatar reactions on a client-owned beat. `runoutDirectorActive`
+  // marks that the director owns reactions right now — the socket layer drops
+  // the backend's street-level `is_reaction` avatar updates while it's true so
+  // they don't clobber the finer per-card faces (desktop, which has no director,
+  // leaves it false and keeps the backend reactions).
+  runoutSchedule: RunoutSchedule | null;
+  runoutDirectorActive: boolean;
+  // Optimistic-action rollback snapshot. When the human commits a chip action
+  // we move chips to the pot immediately (before the server confirms) for
+  // responsiveness; this holds the pre-action slices so we can revert if the
+  // action is rejected. Cleared as soon as authoritative state arrives.
+  optimisticSnapshot: OptimisticSnapshot | null;
 
   // Actions
   applyGameState: (state: GameState) => void;
   updatePlayers: (updater: (prev: Player[] | null) => Player[] | null) => void;
   updatePlayerOptions: (options: string[]) => void;
   pushWorldEvent: (event: LobbyEvent) => void;
+  setRunoutSchedule: (schedule: RunoutSchedule | null) => void;
+  setRunoutDirectorActive: (active: boolean) => void;
+  /** Optimistically move chips to the pot for the acting player's commit. */
+  applyOptimisticAction: (action: string, amount: number | undefined) => void;
+  /** Revert the last optimistic action (used when the server rejects it). */
+  rollbackOptimisticAction: () => void;
   reset: () => void;
+}
+
+/** Pre-action snapshot of the chip-bearing slices, for optimistic rollback. */
+interface OptimisticSnapshot {
+  players: Player[] | null;
+  pot: { total: number } | null;
+  highestBet: number;
 }
 
 const initialState = {
@@ -79,6 +109,10 @@ const initialState = {
   fastForward: false,
   worldEvents: [] as BufferedWorldEvent[],
   aiInstant: false,
+  alwaysFastForward: false,
+  runoutSchedule: null as RunoutSchedule | null,
+  runoutDirectorActive: false,
+  optimisticSnapshot: null as OptimisticSnapshot | null,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -150,9 +184,25 @@ export const useGameStore = create<GameStore>((set) => ({
       // Structural sharing: reuse Player references when data hasn't changed
       let players = state.players;
       if (prev.players && state.players) {
+        const directing = prev.runoutDirectorActive;
         players = state.players.map((incoming) => {
           const existing = prev.players!.find((p) => p.name === incoming.name);
-          return existing && arePlayersEqual(existing, incoming) ? existing : incoming;
+          // While the run-out director owns faces, keep the director-set
+          // emotion/avatar even as fresh game state arrives. A full state push
+          // carries the backend's display emotion (a street-level override, or
+          // the baseline once overrides clear at hand end) — applying it would
+          // clobber the per-card reaction, making the face flicker back a beat
+          // after it changed. Suppressing the avatar_update socket channel isn't
+          // enough; this is the full-push seam (RUNOUT_REVEAL_DIRECTOR.md §C.1).
+          const candidate =
+            directing && existing
+              ? {
+                  ...incoming,
+                  avatar_emotion: existing.avatar_emotion,
+                  avatar_url: existing.avatar_url,
+                }
+              : incoming;
+          return existing && arePlayersEqual(existing, candidate) ? existing : candidate;
         });
       }
 
@@ -178,6 +228,10 @@ export const useGameStore = create<GameStore>((set) => ({
         cashMode: state.cash_mode ?? null,
         fastForward: state.fast_forward ?? false,
         aiInstant: state.ai_instant ?? false,
+        alwaysFastForward: state.always_fast_forward ?? false,
+        // Authoritative state supersedes any optimistic guess — drop the
+        // rollback snapshot so a later, unrelated action can't revert to it.
+        optimisticSnapshot: null,
       };
     });
   },
@@ -190,6 +244,78 @@ export const useGameStore = create<GameStore>((set) => ({
 
   updatePlayerOptions: (options) => {
     set({ playerOptions: options });
+  },
+
+  setRunoutSchedule: (schedule) => {
+    set({ runoutSchedule: schedule });
+  },
+
+  setRunoutDirectorActive: (active) => {
+    set({ runoutDirectorActive: active });
+  },
+
+  applyOptimisticAction: (action, amount) => {
+    set((prev) => {
+      if (!prev.players) return {};
+      const idx = prev.currentPlayerIdx;
+      const player = prev.players[idx];
+      if (!player) return {};
+
+      // Chips this commit moves to the pot. Mirrors the backend's place_bet:
+      // stack↓, bet↑ and pot.total↑ all move by the same delta (pot.total
+      // already includes current-street bets). check/fold move nothing.
+      let delta = 0;
+      if (action === 'call') {
+        delta = prev.highestBet - player.bet;
+      } else if (action === 'raise' || action === 'bet' || action === 'all_in') {
+        // amount is a "raise TO" total bet; the delta is the top-up from the
+        // player's current bet. all_in floors to the whole stack via the clamp.
+        delta = (amount ?? 0) - player.bet;
+      }
+      delta = Math.min(Math.max(0, delta), player.stack);
+      if (delta <= 0) return {}; // nothing to move — no visual change, no snapshot
+
+      // Snapshot once per pending action so a rollback restores the true
+      // pre-action state even if applyOptimisticAction were called twice.
+      const snapshot: OptimisticSnapshot = prev.optimisticSnapshot ?? {
+        players: prev.players,
+        pot: prev.pot,
+        highestBet: prev.highestBet,
+      };
+
+      const newBet = player.bet + delta;
+      const newStack = player.stack - delta;
+      const players = prev.players.map((p, i) =>
+        i === idx
+          ? {
+              ...p,
+              stack: newStack,
+              bet: newBet,
+              is_all_in: p.is_all_in || newStack === 0,
+              last_action: action as Player['last_action'],
+            }
+          : p
+      );
+
+      return {
+        players,
+        pot: { ...(prev.pot ?? { total: 0 }), total: (prev.pot?.total ?? 0) + delta },
+        highestBet: Math.max(prev.highestBet, newBet),
+        optimisticSnapshot: snapshot,
+      };
+    });
+  },
+
+  rollbackOptimisticAction: () => {
+    set((prev) => {
+      if (!prev.optimisticSnapshot) return {};
+      return {
+        players: prev.optimisticSnapshot.players,
+        pot: prev.optimisticSnapshot.pot,
+        highestBet: prev.optimisticSnapshot.highestBet,
+        optimisticSnapshot: null,
+      };
+    });
   },
 
   pushWorldEvent: (event: LobbyEvent) => {

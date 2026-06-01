@@ -27,6 +27,7 @@ from ..config import (
     OPPONENT_SUMMARY_TOKENS,
 )
 from .relationship_events import (
+    AxisShift,
     RelationshipEvent,
     actor_shift,
     mirror_shift,
@@ -889,200 +890,115 @@ class OpponentTendencies:
 
         return ", ".join(parts)
 
+    # Canonical (de)serialization registry: one (attr_name, default)
+    # entry per persisted scalar field. `to_dict` reads each attr;
+    # `from_dict` restores it via `data.get(attr, default)`. Adding a
+    # new persisted scalar field means adding ONE entry here — both
+    # directions pick it up automatically.
+    #
+    # CRITICAL: every default below is the migration-era default that
+    # old persisted rows rely on — do NOT change any value. The
+    # `_recent_postflop_events` sliding window is NOT in this registry;
+    # it needs bespoke list/tuple/deque handling (see to_dict/from_dict).
+    _SERIAL_FIELDS: Tuple[Tuple[str, Any], ...] = (
+        ('hands_observed', 0),
+        ('hands_dealt', 0),
+        ('vpip', 0.5),
+        ('pfr', 0.5),
+        ('aggression_factor', 1.0),
+        ('fold_to_cbet', 0.5),
+        ('cbet_attempt_rate', 0.5),
+        ('barrel_frequency', 0.5),
+        ('third_barrel_frequency', 0.5),
+        ('bluff_frequency', 0.3),
+        ('showdown_win_rate', 0.5),
+        ('all_in_frequency', 0.0),
+        # Phase 7.5 derived stats
+        ('aggression_factor_postflop', 1.0),
+        ('all_in_per_facing_bet', 0.0),
+        ('postflop_jam_open_rate', 0.0),
+        # Opportunity-normalized preflop stats (neutral prior 0.5)
+        ('pfr_per_open_opportunity', 0.5),
+        ('vpip_per_voluntary_opportunity', 0.5),
+        ('recent_trend', 'stable'),
+        ('_vpip_count', 0),
+        ('_pfr_count', 0),
+        ('_bet_raise_count', 0),
+        ('_call_count', 0),
+        ('_all_in_count', 0),
+        ('_fold_to_cbet_count', 0),
+        ('_cbet_faced_count', 0),
+        # Phase 8.1a counters
+        ('_cbet_attempt_count', 0),
+        ('_postflop_seen_as_pfr_count', 0),
+        # Phase B Item 1 counters
+        ('_barrel_count', 0),
+        ('_barrel_opportunity_count', 0),
+        ('_third_barrel_count', 0),
+        ('_third_barrel_opportunity_count', 0),
+        ('_showdowns', 0),
+        ('_showdowns_won', 0),
+        # Phase 7.5 counters
+        ('_postflop_bet_raise_count', 0),
+        ('_postflop_call_count', 0),
+        ('_facing_bet_opportunities', 0),
+        ('_all_ins_facing_bet', 0),
+        ('_postflop_open_opportunities', 0),
+        ('_postflop_jam_opens', 0),
+        # Opportunity-normalized preflop counters
+        ('_preflop_voluntary_opportunities', 0),
+        ('_preflop_open_opportunities', 0),
+        ('_preflop_open_raise_count', 0),
+        ('_preflop_voluntary_action_count', 0),
+        # Polarization Phase A: equity-at-action fields
+        ('equity_when_betting_postflop', 0.5),
+        ('equity_when_raising_postflop', 0.5),
+        ('equity_when_calling_postflop', 0.5),
+        ('_equity_betting_sum', 0.0),
+        ('_equity_raising_sum', 0.0),
+        ('_equity_calling_sum', 0.0),
+        ('_equity_betting_count', 0),
+        ('_equity_raising_count', 0),
+        ('_equity_calling_count', 0),
+        # Sizing-aware Phase A: size-binned equity + fold-to-big-bet
+        ('equity_when_betting_big', 0.5),
+        ('equity_when_betting_small', 0.5),
+        ('sizing_polarization_score', 0.0),
+        ('fold_to_big_bet', 0.5),
+        ('_equity_betting_big_sum', 0.0),
+        ('_equity_betting_small_sum', 0.0),
+        ('_equity_betting_big_count', 0),
+        ('_equity_betting_small_count', 0),
+        ('_fold_to_big_bet_count', 0),
+        ('_big_bet_faced_count', 0),
+    )
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            'hands_observed': self.hands_observed,
-            'hands_dealt': self.hands_dealt,
-            'vpip': self.vpip,
-            'pfr': self.pfr,
-            'aggression_factor': self.aggression_factor,
-            'fold_to_cbet': self.fold_to_cbet,
-            'cbet_attempt_rate': self.cbet_attempt_rate,
-            'barrel_frequency': self.barrel_frequency,
-            'third_barrel_frequency': self.third_barrel_frequency,
-            'bluff_frequency': self.bluff_frequency,
-            'showdown_win_rate': self.showdown_win_rate,
-            'all_in_frequency': self.all_in_frequency,
-            # Phase 7.5 derived stats
-            'aggression_factor_postflop': self.aggression_factor_postflop,
-            'all_in_per_facing_bet': self.all_in_per_facing_bet,
-            'postflop_jam_open_rate': self.postflop_jam_open_rate,
-            # Opportunity-normalized preflop stats
-            'pfr_per_open_opportunity': self.pfr_per_open_opportunity,
-            'vpip_per_voluntary_opportunity': self.vpip_per_voluntary_opportunity,
-            'recent_trend': self.recent_trend,
-            '_vpip_count': self._vpip_count,
-            '_pfr_count': self._pfr_count,
-            '_bet_raise_count': self._bet_raise_count,
-            '_call_count': self._call_count,
-            '_all_in_count': self._all_in_count,
-            '_fold_to_cbet_count': self._fold_to_cbet_count,
-            '_cbet_faced_count': self._cbet_faced_count,
-            # Phase 8.1a counters
-            '_cbet_attempt_count': self._cbet_attempt_count,
-            '_postflop_seen_as_pfr_count': self._postflop_seen_as_pfr_count,
-            # Phase B Item 1 counters
-            '_barrel_count': self._barrel_count,
-            '_barrel_opportunity_count': self._barrel_opportunity_count,
-            '_third_barrel_count': self._third_barrel_count,
-            '_third_barrel_opportunity_count': self._third_barrel_opportunity_count,
-            '_showdowns': self._showdowns,
-            '_showdowns_won': self._showdowns_won,
-            # Phase 7.5 counters
-            '_postflop_bet_raise_count': self._postflop_bet_raise_count,
-            '_postflop_call_count': self._postflop_call_count,
-            '_facing_bet_opportunities': self._facing_bet_opportunities,
-            '_all_ins_facing_bet': self._all_ins_facing_bet,
-            '_postflop_open_opportunities': self._postflop_open_opportunities,
-            '_postflop_jam_opens': self._postflop_jam_opens,
-            # Opportunity-normalized preflop counters
-            '_preflop_voluntary_opportunities': self._preflop_voluntary_opportunities,
-            '_preflop_open_opportunities': self._preflop_open_opportunities,
-            '_preflop_open_raise_count': self._preflop_open_raise_count,
-            '_preflop_voluntary_action_count': self._preflop_voluntary_action_count,
-            # Polarization Phase A: equity-at-action fields
-            'equity_when_betting_postflop': self.equity_when_betting_postflop,
-            'equity_when_raising_postflop': self.equity_when_raising_postflop,
-            'equity_when_calling_postflop': self.equity_when_calling_postflop,
-            '_equity_betting_sum': self._equity_betting_sum,
-            '_equity_raising_sum': self._equity_raising_sum,
-            '_equity_calling_sum': self._equity_calling_sum,
-            '_equity_betting_count': self._equity_betting_count,
-            '_equity_raising_count': self._equity_raising_count,
-            '_equity_calling_count': self._equity_calling_count,
-            # Sizing-aware Phase A: size-binned equity + fold-to-big-bet
-            'equity_when_betting_big': self.equity_when_betting_big,
-            'equity_when_betting_small': self.equity_when_betting_small,
-            'sizing_polarization_score': self.sizing_polarization_score,
-            'fold_to_big_bet': self.fold_to_big_bet,
-            '_equity_betting_big_sum': self._equity_betting_big_sum,
-            '_equity_betting_small_sum': self._equity_betting_small_sum,
-            '_equity_betting_big_count': self._equity_betting_big_count,
-            '_equity_betting_small_count': self._equity_betting_small_count,
-            '_fold_to_big_bet_count': self._fold_to_big_bet_count,
-            '_big_bet_faced_count': self._big_bet_faced_count,
-            # Phase 7.5 Item 2b: sliding-window events (list-serialized)
-            '_recent_postflop_events': list(self._recent_postflop_events),
-        }
+        out: Dict[str, Any] = {attr: getattr(self, attr) for attr, _ in self._SERIAL_FIELDS}
+        # Phase 7.5 Item 2b: sliding-window events (list-serialized).
+        out['_recent_postflop_events'] = list(self._recent_postflop_events)
+        return out
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'OpponentTendencies':
-        """Deserialize from dict. Missing Phase 7.5 fields default to 0 /
-        0.0 — older records that predate Phase 7.5 just lose their
-        accumulated history for the new axes, which is the intended
-        behavior (data wasn't captured before)."""
-        tendencies = cls(
-            hands_observed=data.get('hands_observed', 0),
-            hands_dealt=data.get('hands_dealt', 0),
-            vpip=data.get('vpip', 0.5),
-            pfr=data.get('pfr', 0.5),
-            aggression_factor=data.get('aggression_factor', 1.0),
-            fold_to_cbet=data.get('fold_to_cbet', 0.5),
-            cbet_attempt_rate=data.get('cbet_attempt_rate', 0.5),
-            barrel_frequency=data.get('barrel_frequency', 0.5),
-            third_barrel_frequency=data.get('third_barrel_frequency', 0.5),
-            bluff_frequency=data.get('bluff_frequency', 0.3),
-            showdown_win_rate=data.get('showdown_win_rate', 0.5),
-            all_in_frequency=data.get('all_in_frequency', 0.0),
-            # Phase 7.5 derived defaults (0.0 / 1.0 — neutral)
-            aggression_factor_postflop=data.get('aggression_factor_postflop', 1.0),
-            all_in_per_facing_bet=data.get('all_in_per_facing_bet', 0.0),
-            postflop_jam_open_rate=data.get('postflop_jam_open_rate', 0.0),
-            # Opportunity-normalized preflop stats (neutral prior 0.5).
-            pfr_per_open_opportunity=data.get('pfr_per_open_opportunity', 0.5),
-            vpip_per_voluntary_opportunity=data.get(
-                'vpip_per_voluntary_opportunity',
-                0.5,
-            ),
-            recent_trend=data.get('recent_trend', 'stable'),
-        )
-        tendencies._vpip_count = data.get('_vpip_count', 0)
-        tendencies._pfr_count = data.get('_pfr_count', 0)
-        tendencies._bet_raise_count = data.get('_bet_raise_count', 0)
-        tendencies._call_count = data.get('_call_count', 0)
-        tendencies._all_in_count = data.get('_all_in_count', 0)
-        tendencies._fold_to_cbet_count = data.get('_fold_to_cbet_count', 0)
-        tendencies._cbet_faced_count = data.get('_cbet_faced_count', 0)
-        # Phase 8.1a counters — default 0 for migration tolerance.
-        tendencies._cbet_attempt_count = data.get('_cbet_attempt_count', 0)
-        tendencies._postflop_seen_as_pfr_count = data.get('_postflop_seen_as_pfr_count', 0)
-        # Phase B Item 1 counters — default 0 for migration tolerance.
-        tendencies._barrel_count = data.get('_barrel_count', 0)
-        tendencies._barrel_opportunity_count = data.get('_barrel_opportunity_count', 0)
-        tendencies._third_barrel_count = data.get('_third_barrel_count', 0)
-        tendencies._third_barrel_opportunity_count = data.get(
-            '_third_barrel_opportunity_count',
-            0,
-        )
-        tendencies._showdowns = data.get('_showdowns', 0)
-        tendencies._showdowns_won = data.get('_showdowns_won', 0)
-        # Phase 7.5 counter defaults (0 — missing-field tolerance)
-        tendencies._postflop_bet_raise_count = data.get('_postflop_bet_raise_count', 0)
-        tendencies._postflop_call_count = data.get('_postflop_call_count', 0)
-        tendencies._facing_bet_opportunities = data.get('_facing_bet_opportunities', 0)
-        tendencies._all_ins_facing_bet = data.get('_all_ins_facing_bet', 0)
-        tendencies._postflop_open_opportunities = data.get('_postflop_open_opportunities', 0)
-        tendencies._postflop_jam_opens = data.get('_postflop_jam_opens', 0)
-        # Opportunity-normalized preflop counter defaults (missing-field tolerance).
-        tendencies._preflop_voluntary_opportunities = data.get(
-            '_preflop_voluntary_opportunities',
-            0,
-        )
-        tendencies._preflop_open_opportunities = data.get(
-            '_preflop_open_opportunities',
-            0,
-        )
-        tendencies._preflop_open_raise_count = data.get(
-            '_preflop_open_raise_count',
-            0,
-        )
-        tendencies._preflop_voluntary_action_count = data.get(
-            '_preflop_voluntary_action_count',
-            0,
-        )
-        # Polarization Phase A: equity-at-action fields. Default to
-        # neutral 0.5 mean and 0 count/sum so legacy records pre-Phase A
-        # restore cleanly with no observed equity history.
-        tendencies.equity_when_betting_postflop = data.get(
-            'equity_when_betting_postflop',
-            0.5,
-        )
-        tendencies.equity_when_raising_postflop = data.get(
-            'equity_when_raising_postflop',
-            0.5,
-        )
-        tendencies.equity_when_calling_postflop = data.get(
-            'equity_when_calling_postflop',
-            0.5,
-        )
-        tendencies._equity_betting_sum = data.get('_equity_betting_sum', 0.0)
-        tendencies._equity_raising_sum = data.get('_equity_raising_sum', 0.0)
-        tendencies._equity_calling_sum = data.get('_equity_calling_sum', 0.0)
-        tendencies._equity_betting_count = data.get('_equity_betting_count', 0)
-        tendencies._equity_raising_count = data.get('_equity_raising_count', 0)
-        tendencies._equity_calling_count = data.get('_equity_calling_count', 0)
-        # Sizing-aware Phase A: size-binned equity + fold-to-big-bet. Missing
-        # fields (older records) default to the neutral priors — they just lose
-        # accumulated sizing history, which is the intended migration behavior.
-        tendencies.equity_when_betting_big = data.get('equity_when_betting_big', 0.5)
-        tendencies.equity_when_betting_small = data.get('equity_when_betting_small', 0.5)
-        tendencies.sizing_polarization_score = data.get('sizing_polarization_score', 0.0)
-        tendencies.fold_to_big_bet = data.get('fold_to_big_bet', 0.5)
-        tendencies._equity_betting_big_sum = data.get('_equity_betting_big_sum', 0.0)
-        tendencies._equity_betting_small_sum = data.get('_equity_betting_small_sum', 0.0)
-        tendencies._equity_betting_big_count = data.get('_equity_betting_big_count', 0)
-        tendencies._equity_betting_small_count = data.get('_equity_betting_small_count', 0)
-        tendencies._fold_to_big_bet_count = data.get('_fold_to_big_bet_count', 0)
-        tendencies._big_bet_faced_count = data.get('_big_bet_faced_count', 0)
+        """Deserialize from dict. Missing fields fall back to the
+        migration-era defaults in `_SERIAL_FIELDS` — older records that
+        predate a field just lose their accumulated history for the new
+        axis, which is the intended behavior (data wasn't captured
+        before)."""
+        tendencies = cls()
+        for attr, default in cls._SERIAL_FIELDS:
+            setattr(tendencies, attr, data.get(attr, default))
         # Phase 7.5 Item 2b: restore sliding-window events. Old records
         # without this field get an empty window — the tier-decay logic
         # treats sub-threshold windows as "no recent data," falling back
         # to cumulative tier, which is the right behavior for migrated
         # records (no recent samples to overrule cumulative).
-        recent_events_raw = data.get('_recent_postflop_events', [])
+        #
         # Coerce dicts/lists back into tuples; deque maxlen comes from
         # the current config so a saved record + new config combine
         # correctly.
+        recent_events_raw = data.get('_recent_postflop_events', [])
         recent_events = [(action, bool(facing)) for action, facing in recent_events_raw]
         tendencies._recent_postflop_events = deque(
             recent_events,
@@ -1561,95 +1477,30 @@ def _build_aggregate_from_single(t: OpponentTendencies):
 def _build_aggregate_from_multi(tendencies_list):
     """Build AggregatedOpponentStats by aggregating multiple tendencies.
 
-    Float rate fields use equal-weight average across the list. Sample
+    Float rate fields use EQUAL-weight average across the list. Sample
     counters (hands_observed, cbet_faced_count, facing_bet_opportunities,
-    postflop_open_opportunities) use MIN — the limiting factor for
+    postflop_open_opportunities, …) use MIN — the limiting factor for
     exploit confidence. Matches the 6.7a aggregator's policy explicitly
     (see plan §"aggregation policy").
+
+    Equal-weight here is INTENTIONALLY different from the spot-aware
+    `aggregate_from_spots`, which stake-weights by committed_this_hand.
+    Both share the `_aggregate_stats` core; this path converts each
+    tendencies object to its derived AggregatedOpponentStats first
+    (via `_build_aggregate_from_single`) and then blends with no weights
+    (equal weight).
     """
-    from poker.strategy.exploitation import AggregatedOpponentStats
+    from poker.strategy.exploitation import (
+        AggregatedOpponentStats,
+        _aggregate_stats,
+    )
 
     if not tendencies_list:
         return AggregatedOpponentStats()
 
-    n = len(tendencies_list)
-    avg_vpip = sum(t.vpip for t in tendencies_list) / n
-    avg_pfr = sum(t.pfr for t in tendencies_list) / n
-    avg_af = sum(t.aggression_factor for t in tendencies_list) / n
-    avg_all_in = sum(t.all_in_frequency for t in tendencies_list) / n
-    avg_fold_to_cbet = sum(t.fold_to_cbet for t in tendencies_list) / n
-    min_hands = min(t.hands_observed for t in tendencies_list)
-    min_cbet_faced = min(t._cbet_faced_count for t in tendencies_list)
-
-    # Phase 8.1a c-bet attempt fields — rates average, counter MIN.
-    avg_cbet_attempt_rate = sum(t.cbet_attempt_rate for t in tendencies_list) / n
-    min_pfr_seen = min(t._postflop_seen_as_pfr_count for t in tendencies_list)
-    # Phase B Item 1 barrel fields — same policy.
-    avg_barrel_freq = sum(t.barrel_frequency for t in tendencies_list) / n
-    min_barrel_opps = min(t._barrel_opportunity_count for t in tendencies_list)
-    avg_third_barrel_freq = sum(t.third_barrel_frequency for t in tendencies_list) / n
-    min_third_barrel_opps = min(t._third_barrel_opportunity_count for t in tendencies_list)
-    # Phase B Item 4 flop-check-then-barrel fields — same policy.
-    avg_flop_check_barrel_rate = sum(t.flop_check_then_barrel_rate for t in tendencies_list) / n
-    min_flop_check_barrel_opps = min(
-        t._flop_check_barrel_opportunity_count for t in tendencies_list
-    )
-
-    # Phase 7.5 Step 0 fields
-    avg_af_postflop = sum(t.aggression_factor_postflop for t in tendencies_list) / n
-    avg_all_in_pfb = sum(t.all_in_per_facing_bet for t in tendencies_list) / n
-    avg_jam_open = sum(t.postflop_jam_open_rate for t in tendencies_list) / n
-    min_facing_bet_opps = min(t._facing_bet_opportunities for t in tendencies_list)
-    min_open_opps = min(t._postflop_open_opportunities for t in tendencies_list)
-
-    # Opportunity-normalized preflop fields — same policy as Phase 7.5:
-    # rates average, counters MIN (limiting factor for confidence).
-    avg_pfr_per_open = sum(t.pfr_per_open_opportunity for t in tendencies_list) / n
-    avg_vpip_per_vol = sum(t.vpip_per_voluntary_opportunity for t in tendencies_list) / n
-    min_pre_open_opps = min(t._preflop_open_opportunities for t in tendencies_list)
-    min_pre_vol_opps = min(t._preflop_voluntary_opportunities for t in tendencies_list)
-
-    # Polarization Phase A equity-at-action fields — same policy:
-    # rates average across the list (legacy equal-weight path; the
-    # spot-aware aggregate_from_spots stake-weights), counters MIN.
-    avg_eq_betting = sum(t.equity_when_betting_postflop for t in tendencies_list) / n
-    avg_eq_raising = sum(t.equity_when_raising_postflop for t in tendencies_list) / n
-    avg_eq_calling = sum(t.equity_when_calling_postflop for t in tendencies_list) / n
-    min_eq_betting_count = min(t._equity_betting_count for t in tendencies_list)
-    min_eq_raising_count = min(t._equity_raising_count for t in tendencies_list)
-    min_eq_calling_count = min(t._equity_calling_count for t in tendencies_list)
-
-    return AggregatedOpponentStats(
-        hands_observed=min_hands,
-        vpip=avg_vpip,
-        pfr=avg_pfr,
-        aggression_factor=avg_af,
-        all_in_frequency=avg_all_in,
-        fold_to_cbet=avg_fold_to_cbet,
-        cbet_faced_count=min_cbet_faced,
-        cbet_attempt_rate=avg_cbet_attempt_rate,
-        postflop_seen_as_pfr_count=min_pfr_seen,
-        barrel_frequency=avg_barrel_freq,
-        barrel_opportunities=min_barrel_opps,
-        third_barrel_frequency=avg_third_barrel_freq,
-        third_barrel_opportunities=min_third_barrel_opps,
-        flop_check_then_barrel_rate=avg_flop_check_barrel_rate,
-        flop_check_barrel_opportunities=min_flop_check_barrel_opps,
-        aggression_factor_postflop=avg_af_postflop,
-        all_in_per_facing_bet=avg_all_in_pfb,
-        facing_bet_opportunities=min_facing_bet_opps,
-        postflop_jam_open_rate=avg_jam_open,
-        postflop_open_opportunities=min_open_opps,
-        pfr_per_open_opportunity=avg_pfr_per_open,
-        vpip_per_voluntary_opportunity=avg_vpip_per_vol,
-        preflop_open_opportunities=min_pre_open_opps,
-        preflop_voluntary_opportunities=min_pre_vol_opps,
-        equity_when_betting_postflop=avg_eq_betting,
-        equity_when_raising_postflop=avg_eq_raising,
-        equity_when_calling_postflop=avg_eq_calling,
-        _equity_betting_count=min_eq_betting_count,
-        _equity_raising_count=min_eq_raising_count,
-        _equity_calling_count=min_eq_calling_count,
+    return _aggregate_stats(
+        [_build_aggregate_from_single(t) for t in tendencies_list],
+        weights=None,
     )
 
 
@@ -2053,6 +1904,7 @@ class OpponentModelManager:
         narrative: str = "",
         hand_summary: str = "",
         hand_id: Optional[int] = None,
+        mirror_shift_override: Optional[AxisShift] = None,
         now: Optional[datetime] = None,
     ) -> None:
         """Single entry point for all RelationshipState axis mutations.
@@ -2087,6 +1939,16 @@ class OpponentModelManager:
              relationship axis update still persists; the memorable
              hand entry is skipped silently. The relationship state is
              the load-bearing surface here.
+
+        `mirror_shift_override`, when provided, replaces the mirror
+        (target's-POV) shift only — the actor side always uses the
+        neutral `actor_shift(event)`. It is the seam for recipient
+        temperament: the chat dispatch resolves the target's social
+        disposition and passes a reshaped needle reception (see
+        `temperament_adjusted_mirror_shift`). It is still scaled by
+        `context_multiplier` like the neutral shift, so intensity
+        composes on top. Hand-outcome / staking callers leave it None
+        and get the unchanged mirror table.
 
         Does NOT mutate anything outside RelationshipState and (best-
         effort) MemorableHand. Decay reads, cash-session state,
@@ -2123,7 +1985,7 @@ class OpponentModelManager:
         self._apply_one_side(
             observer_id=target_id,
             other_id=actor_id,
-            shift=mirror_shift(event),
+            shift=mirror_shift_override if mirror_shift_override is not None else mirror_shift(event),
             context_multiplier=context_multiplier,
             now=now,
         )

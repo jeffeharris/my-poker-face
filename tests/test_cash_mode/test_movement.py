@@ -123,20 +123,26 @@ class TestForcedLeave:
 
 class TestPressureFormula:
     def test_neutral_no_pressure(self):
-        ctx = _neutral_ctx(energy=0.7)
+        # Genuinely neutral: bankroll == max buy-in, so the wealth-driven
+        # stake_up climb (wealth_over_tier) reads 0 too. (The default
+        # _neutral_ctx is 2× over-rolled, which now carries a tiny climb
+        # signal — covered separately below.)
+        ctx = _neutral_ctx(energy=0.7, projected_bankroll=2500, max_buy_in=2500)
         p = compute_leave_pressure(ctx)
         assert p["stake_up"] == 0.0
         assert p["short"] == 0.0
         assert p["detached"] == 0.0
         assert p["tenure"] == 0.0
+        assert p["dead"] == 0.0
 
     def test_stake_up_pressure_scales_with_max_buy_in(self):
-        # stack = 2x max → stake_up_raw = 1.0
-        ctx = _neutral_ctx(ai_chips=5000, max_buy_in=2500)
+        # Isolate the SEAT-stack stake_up source (bankroll == max so the
+        # wealth climb term contributes 0). stack = 2x max → stake_up_raw = 1.0
+        ctx = _neutral_ctx(ai_chips=5000, max_buy_in=2500, projected_bankroll=2500)
         p = compute_leave_pressure(ctx)
         assert p["stake_up"] == W_STAKE_UP * 1.0
         # At exactly max, no stake_up pressure.
-        ctx2 = _neutral_ctx(ai_chips=2500, max_buy_in=2500)
+        ctx2 = _neutral_ctx(ai_chips=2500, max_buy_in=2500, projected_bankroll=2500)
         assert compute_leave_pressure(ctx2)["stake_up"] == 0.0
 
     def test_short_pressure_scales_with_min_buy_in(self):
@@ -778,6 +784,34 @@ class TestRefreshLiveFill:
         # The constant exposed as the default must match the per-hand rate.
         assert DEFAULT_LIVE_FILL_PROB == 0.05
 
+    def test_enable_live_fill_false_skips_fill(self):
+        # Same setup as test_live_fill_at_per_hand_default (roll 0.0 WOULD
+        # fill), but enable_live_fill=False → Step 2 is skipped entirely:
+        # no fresh-seated, seat stays open, no bankroll/idle changes. (The
+        # loop-inversion path fills globally in the lobby instead.)
+        seats = [open_slot()] * 6
+        table = _make_table(seats)
+        rng = _force_rng([0.0] + [0.99] * 5)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
+            seated_globally=set(),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+            enable_live_fill=False,
+        )
+        assert result.freshly_seated_personality_ids == []
+        assert result.new_table.seats[0]["kind"] == "open"
+        assert result.bankroll_changes == []
+        assert result.idle_changes == []
+
     def test_cooldown_skips_recent_leaver_at_same_table(self):
         seats = [open_slot()] * 6
         table = _make_table(seats)
@@ -802,6 +836,57 @@ class TestRefreshLiveFill:
         )
         # Napoleon was in cooldown → no fill, no fresh-seated event.
         assert result.freshly_seated_personality_ids == []
+
+
+class TestDeadTablePush:
+    """refresh_table_roster computes per-table deadness and feeds it into
+    each AI's MovementContext so the Phase B `dead` term fires — a casino
+    that's lost its fish pushes its grinders to go find action."""
+
+    def _grinder_seats(self):
+        # Two grinders (mid stack → no short / no seat stake_up), rest open.
+        return [ai_slot("g1", 600), ai_slot("g2", 600)] + [open_slot() for _ in range(4)]
+
+    def _run(self, table_type):
+        table = CashTableState(
+            table_id=f"cash-{table_type}",
+            stake_label="$10",
+            seats=self._grinder_seats(),
+            table_type=table_type,
+        )
+        # Per leaving grinder: a leave roll (0.05 < the dead-driven leave
+        # prob → leaves) then a cooldown roll. Two grinders → 4 values.
+        # Modest bankroll keeps the wealth climb silent (inside SLUM_DEADZONE)
+        # so `dead` is the only pressure. (Lobby control consumes none — its
+        # total pressure is 0, so evaluate returns stay before any roll.)
+        rng = _force_rng([0.05, 0.5, 0.05, 0.5])
+        return refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"g1", "g2"},
+            bankroll_lookup=_bankroll_lookup_factory({"g1": 5000, "g2": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 29, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+            enable_live_fill=False,
+        )
+
+    def test_fishless_casino_pushes_grinders_off(self):
+        result = self._run("casino")
+        assert result.decisions["g1"] == "bored_move"
+        assert result.decisions["g2"] == "bored_move"
+
+    def test_fishless_lobby_does_not_push(self):
+        # A lobby table isn't "dead" — grinders playing each other is the
+        # game, so no dead pressure → they stay.
+        result = self._run("lobby")
+        assert result.decisions["g1"] == "stay"
+        assert result.decisions["g2"] == "stay"
 
 
 class TestRefreshHumanSeatPreserved:
@@ -1014,8 +1099,12 @@ def _tenure_leaver_table():
 
 def _exhausted_psych(_pid: str):
     # energy=0 → tenure pressure only → bored_move on a leave roll.
-    return {"energy": 0.0, "zone": "neutral", "hands_in_detached_zone": 0,
-            "emotional_intensity": 0.0}
+    return {
+        "energy": 0.0,
+        "zone": "neutral",
+        "hands_in_detached_zone": 0,
+        "emotional_intensity": 0.0,
+    }
 
 
 def _run_leave(vice_prob):
@@ -1028,7 +1117,12 @@ def _run_leave(vice_prob):
         idle_pool=[],
         eligible_candidates=[],
         seated_globally={"whale"},
-        bankroll_lookup=_bankroll_lookup_factory({"whale": 900_000}),
+        # Bankroll kept inside the slum deadzone (≤ ~21× the 1000 max
+        # buy-in) so the wealth-driven stake_up climb stays silent and the
+        # leave is the pure tenure→bored_move this test exercises for vice
+        # interception. A genuinely slumming bankroll would (correctly)
+        # route to stake_up instead, which vice does not intercept.
+        bankroll_lookup=_bankroll_lookup_factory({"whale": 20_000}),
         buy_in_lookup=_buy_in_lookup_factory(400),
         rng=rng,
         now=datetime(2026, 5, 27, 12, 0, 0),
@@ -1051,7 +1145,8 @@ class TestViceOnLeave:
         # Seat chips returned to bankroll so the lobby sizes vice on the
         # whole bankroll.
         from_seat = [
-            bc for bc in result.bankroll_changes
+            bc
+            for bc in result.bankroll_changes
             if bc.personality_id == "whale" and bc.direction == "from_seat"
         ]
         assert from_seat and from_seat[0].amount == 500
@@ -1074,7 +1169,9 @@ class TestViceOnLeave:
             idle_pool=[],
             eligible_candidates=[],
             seated_globally={"whale"},
-            bankroll_lookup=_bankroll_lookup_factory({"whale": 900_000}),
+            # Inside the slum deadzone so the leave is pure tenure→bored_move
+            # (see _run_leave note); a slumming bankroll would route to stake_up.
+            bankroll_lookup=_bankroll_lookup_factory({"whale": 20_000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 27, 12, 0, 0),

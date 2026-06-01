@@ -96,6 +96,17 @@ AI-resilience retries, and Flask route tests building `create_app()` per test. T
 are what the `simulation` / `integration` / `flask` markers now gate out of the quick
 loop.
 
+Review follow-ups applied (Codex second-opinion, 2026-05-28):
+- `_db_is_empty()` now counts ANY user schema object (not just tables), so a migration
+  test preparing only a view/trigger/index can't be silently seeded over.
+- `tests/test_schema_template_fastpath.py` pins two invariants: a seeded DB is
+  schema-identical to a real migration build, and a non-empty DB is never seeded.
+- `make test-repos` now also runs the root `tests/test_schema_migration_v*.py` tests
+  (the bucket map always claimed them; the target had omitted them).
+- Caveat: a test that asserts on the migration *process* (not just end-state) should set
+  `POKER_TEST_SCHEMA_TEMPLATE=0` so it exercises a real first build. End-state schema
+  tests need no change (seeded == built).
+
 What shipped:
 - `poker/repositories/schema_manager.py` — env-gated schema-template fast path.
 - `tests/conftest.py` — sets `POKER_TEST_SCHEMA_TEMPLATE=1`; `pytest_collection_modifyitems`
@@ -130,6 +141,61 @@ independent of the schema-build fast path (which only changes how a DB is *built
 teardown). **A/B confirms it is pre-existing:** the same quick selection with the fast
 path OFF produced the warning **6 times** vs **1** with it on — faster teardown actually
 shrinks the race window. Candidate for the same daemon-lifecycle cleanup in Phase 3.
+
+### Root cause of the xdist pollution (investigated 2026-05-28)
+
+Bisected with serial pairwise runs: `pytest tests/test_websocket_auth.py
+tests/test_fast_forward.py::...::test_404_when_game_missing` reproduces it deterministically.
+
+The mechanism is **import-time copies of `extensions` globals**, not a leaked fixture:
+
+- Every route module does `from ..extensions import (limiter, game_repo, auth_manager, …)`
+  at module scope — *copies* the references at import time.
+- `flask_app/routes/__init__.py` imports **all 20 route modules eagerly**, so importing
+  any one (e.g. `game_routes`) imports the whole package.
+- Route modules decorate views at import with `@limiter.limit(...)` (28×) and
+  `@limiter.exempt` (8×).
+- `test_websocket_auth`'s autouse fixture sets `ext.limiter = MagicMock()` and (being a
+  pure unit test) can be the **first** thing on an xdist worker to import the routes
+  package — while `ext.limiter`/`ext.game_repo`/… are still uninitialised. That freezes
+  bad copies **process-wide on that worker**:
+  - `limiter` → a bare `MagicMock`, so `@limiter.limit/exempt` *replace* each view with a
+    `MagicMock`; the next `create_app()` then dies in `register_blueprint` reading
+    `view_func.__name__` → **every** Flask test on that worker errors.
+  - `game_repo` → `None`, so route handlers calling `game_repo.get_game_owner_info(...)`
+    raise → **500 instead of the expected 404** for tests that survive blueprint registration.
+
+So it is **a class of failures with one root**, scheduling-dependent under `-n auto`
+(hence 16 → 1 as setup timing shifted), and *not* a product bug. Per-symbol mock patches
+are whack-a-mole — fixing `limiter` just surfaces the `game_repo` layer next.
+
+**Recommended fix (the real Phase 3 work, needs care across ~20 files):**
+1. Make `extensions.limiter` a real app-less `Limiter(key_func=…)` at module scope and
+   call `limiter.init_app(app)` in `init_extensions` — so `@limiter.*` always works at
+   import regardless of test state (removes the blueprint-poisoning vector entirely).
+2. Have route handlers reference mutable globals **live** (`extensions.game_repo`) instead
+   of import-time copies (`from ..extensions import game_repo`) — so per-test rebinding
+   via `init_persistence` is honoured no matter when the module was first imported.
+
+A time-boxed attempt confirmed a partial mock fix only relocates the failure; the proper
+fix is the refactor above, scoped as its own task. Until then the failure is rare and
+order-dependent (passes in isolation); it does not block the speedup work that shipped.
+
+**Status (2026-05-28): BOTH halves SHIPPED — Phase 3 complete.**
+- `91fafd9d` makes `extensions.limiter` a real app-less `Limiter` bound via
+  `limiter.init_app(app)` (step 1). This **eliminated the blueprint-poisoning vector**
+  (no more `create_app()` `AttributeError: __name__`) and fixed a latent prod bug (the
+  old per-`create_app` reassignment orphaned the view decorators).
+- The **repo half (step 2, live `extensions.X` lookup) is DONE** — done in an isolated
+  worktree by an agent (16 route modules + 16 test files converted), then merged into
+  `development` (`dea7fbf1`). A diagnostic confirmed the failure was a *stale* import
+  copy (`game_routes.game_repo` pinned to a torn-down DB while `extensions.game_repo`
+  was correct), so live lookup is the right fix. Bounded stop-gaps (per-test sync
+  fixture, `--dist loadscope`) had been tried and rejected first. The full `-n auto`
+  suite is now **reliably green** (JUnit: 0 failures/0 errors across runs);
+  `test_fast_forward::test_404` no longer flakes.
+- Note: the merge also surfaced/fixed a pre-existing career-mode enum-drift test
+  (`chat_props`, `ae64d1b5`) — unrelated to the route refactor.
 
 This matters directly for compartmentalization: **a bucket can only be trusted in
 isolation if it does not depend on (or get corrupted by) global state from other
@@ -225,9 +291,10 @@ Ordered by leverage and safety.
 - **Phase 2 — Split CI into parallel jobs** (see [CI structure](#ci-structure)) so PR
   feedback arrives in tiers. *Not started.* (Less urgent now the suite is ~3 min, but
   still worth it for categorized signal.)
-- **Phase 3 — Isolation hardening.** Fix/quarantine the order-dependent failure(s);
-  audit fixtures that mutate shared files/DBs so `-n auto` is deterministic; only then
-  lean on narrow buckets as a *trusted* merge signal. *Not started.*
+- **Phase 3 — Isolation hardening ✅ DONE.** Root-caused the order-dependent failure to
+  import-time copies of mutable `extensions` globals in route modules; converted route
+  handlers to live `extensions.X` lookup (merged `dea7fbf1`). Full `-n auto` suite is
+  now reliably green (0 failures across runs); narrow buckets are trustworthy.
 
 ## Proposed Make targets
 
@@ -308,8 +375,8 @@ Do not require simulation validation for Flask, repository, frontend, or doc cha
   backfill done; `flask`/`integration` completeness is remaining Phase 0 work.*
 - [ ] CI runs tiered jobs for fast feedback while a full-coverage job remains the gate.
   *(Phase 2.)*
-- [ ] The order-dependent failure(s) are fixed or quarantined, so narrow buckets can be
-  trusted in isolation. *(Phase 3.)*
+- [x] The order-dependent failure(s) are fixed (route handlers read `extensions.X` live,
+  merged `dea7fbf1`), so narrow buckets can be trusted in isolation. *(Phase 3 done.)*
 
 ## Appendix — measurement commands
 

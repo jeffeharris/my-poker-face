@@ -65,7 +65,8 @@ export function IdleStakablePanel({ refreshKey, onStake, onOpenDossier }: IdleSt
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('Failed to load stakable AI:', msg);
-      // This panel refetches on every lobby poll tick (~8s). A
+      // This panel refetches on every lobby poll tick (~25s, the
+      // LOBBY_REFRESH_INTERVAL_MS fallback cadence). A
       // transient failure on a background refresh — e.g. a one-off
       // 429 — shouldn't wipe out the candidates we already have.
       // Only surface a hard error on the *initial* load, when there's

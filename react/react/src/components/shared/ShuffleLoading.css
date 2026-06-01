@@ -147,13 +147,15 @@
   display: contents;
 }
 
-/* interhand: fill the screen and split it 40 / 20 / 40 (the 2fr / 1fr / 2fr
-   ratio), but never let the middle band fall below the deck's reserved height
-   — on short screens the top/bottom bands give up space first so the cards
-   always have their full 80×112 box and never squish. */
+/* interhand: fill the screen and split it ~30 / 20 / 50 (the 1.5fr / 1fr /
+   2.5fr ratio) — the bottom activity band gets the largest share so the world
+   ticker has room to show full, wrapping lines. Never let the middle band fall
+   below the deck's reserved height — on short screens the top/bottom bands give
+   up space first so the cards always have their full 80×112 box and never
+   squish. */
 .shuffle-loading-content.shuffle-loading-content--bands {
   display: grid;
-  grid-template-rows: minmax(0, 2fr) minmax(150px, 1fr) minmax(0, 2fr);
+  grid-template-rows: minmax(0, 1.5fr) minmax(150px, 1fr) minmax(0, 2.5fr);
   align-items: stretch;
   justify-items: stretch;
   width: 100%;
@@ -192,10 +194,12 @@
 }
 
 /* Activity: anchor to the top of the bottom band so ticker rows streaming in
-   (0 → 3) fill downward without nudging the rows already on screen. */
+   (0 → 3) fill downward without nudging the rows already on screen. The
+   padding-top sits the events a little further down the page, clear of the
+   deck above. */
 .shuffle-loading-content--bands .shuffle-loading-band--activity {
   justify-content: flex-start;
-  padding-top: 20px;
+  padding-top: 88px;
   overflow: hidden;
 }
 
@@ -481,11 +485,12 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  max-width: 340px;
-  padding: 10px 18px;
-  background: rgba(212, 165, 116, 0.06);
-  border: 1px solid rgba(212, 165, 116, 0.12);
-  border-radius: var(--radius-xl);
+  /* No container chrome — the events read as plain text directly on the
+     shuffle background, so the activity area never looks like an empty or
+     resizing panel. The narrower width keeps the text column tight so lines
+     wrap rather than running the full screen; content is sized to the rows
+     and anchored to the top of the band. */
+  width: min(82vw, 280px);
   animation: shuffleLoadingBadgeFadeIn 0.6s ease-out 0.3s both;
 }
 
@@ -496,6 +501,9 @@
   letter-spacing: var(--letter-spacing-wider);
   text-transform: uppercase;
   color: var(--color-text-tertiary);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 2px 10px rgba(0, 0, 0, 0.75);
 }
 
 .shuffle-loading-ticker-list {
@@ -505,24 +513,36 @@
   margin: 0;
   padding: 0;
   list-style: none;
+  /* Span the box so wrapped rows align left at a predictable width rather
+     than each item shrinking to its own content (a ragged centred block). */
+  width: 100%;
 }
 
 .shuffle-loading-ticker-item {
   display: flex;
-  align-items: center;
+  /* Top-align so the glyph sits with the FIRST line of a wrapped message
+     rather than floating to its vertical centre. */
+  align-items: flex-start;
   gap: 8px;
   font-family: var(--font-body);
   font-size: 13px;
   line-height: 1.3;
   color: var(--color-text-secondary);
   text-align: left;
+  /* No panel behind the rows now — a soft shadow keeps the text legible
+     against the shuffle background. */
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 2px 10px rgba(0, 0, 0, 0.75);
 }
 
 .shuffle-loading-ticker-message {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 280px;
+  /* Wrap long lines in full rather than truncating — the world ticker should
+     read completely on the shuffle screen. The box (.shuffle-loading-ticker)
+     caps the width; rows can be 1-2 lines tall, which the roomier activity
+     band accommodates. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* The reused event glyphs (from ActivityTicker.renderEventIcon) carry the
@@ -530,11 +550,15 @@
    though CashMode.css isn't loaded on the game page. */
 .shuffle-loading-ticker .lobby-ticker__icon {
   flex: 0 0 auto;
+  /* Optically centre the glyph on the first text line (line-box ≈17px). */
+  margin-top: 1px;
   color: var(--color-gold-light);
 }
 
 .shuffle-loading-ticker .lobby-ticker__dot {
   flex: 0 0 auto;
+  /* Drop the small dot onto the first text line (items are top-aligned). */
+  margin-top: 6px;
   width: 5px;
   height: 5px;
   border-radius: 50%;

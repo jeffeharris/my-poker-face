@@ -24,11 +24,25 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 # Guest limit constants — overridable via environment variables
 GUEST_MAX_HANDS = _int_env('GUEST_MAX_HANDS', 50)
 GUEST_MAX_ACTIVE_GAMES = _int_env('GUEST_MAX_ACTIVE_GAMES', 1)
 GUEST_MAX_OPPONENTS = _int_env('GUEST_MAX_OPPONENTS', 3)
 GUEST_MAX_MESSAGES_PER_ACTION = _int_env('GUEST_MAX_MESSAGES_PER_ACTION', 1)
+
+# Free-text chat is sign-in-gated for guests by default (PRH-27): arbitrary
+# typed chat is appended verbatim into the AI's prompt, so anonymous users are
+# the prompt-injection / offensive-output / token-cost surface. Structured
+# quick-chat (a bounded tone vocabulary) stays allowed. Set
+# GUEST_FREE_CHAT_ENABLED=true to open free chat back up to guests.
+GUEST_FREE_CHAT_ENABLED = _bool_env('GUEST_FREE_CHAT_ENABLED', False)
 
 # Disabled in dev mode by default
 GUEST_LIMITS_ENABLED = not is_development_mode()
@@ -110,3 +124,24 @@ def check_guest_message_limit(
     if messages_this_action >= GUEST_MAX_MESSAGES_PER_ACTION:
         return (False, 'Chat available next turn. Sign in with Google for unlimited chat.')
     return (True, None)
+
+
+def check_guest_free_chat(
+    user: Optional[Dict[str, Any]], has_structured_tone: bool
+) -> Tuple[bool, Optional[str]]:
+    """Gate free-text (typed) chat for guests (PRH-27).
+
+    Free typed text reaches the AI prompt verbatim, so guests — the
+    anonymous, trivially-reset population — are blocked from it by default.
+    Structured quick-chat (a recognized tone from the bounded vocabulary,
+    `has_structured_tone=True`) is NOT free text and stays allowed.
+
+    Returns (True, None) when allowed, or (False, error_msg) when blocked.
+    Always allows non-guests, dev mode, structured quick-chat, and the
+    `GUEST_FREE_CHAT_ENABLED` opt-in escape hatch.
+    """
+    if not _should_enforce(user):
+        return (True, None)
+    if GUEST_FREE_CHAT_ENABLED or has_structured_tone:
+        return (True, None)
+    return (False, 'Free chat is for signed-in players. Sign in with Google to chat.')

@@ -40,11 +40,15 @@ ssh ${SERVER} "cd ${APP_DIR} && for svc in backend frontend; do
   fi
 done"
 
-echo "==> Backing up database..."
+echo "==> Backing up database (WAL-safe, PRH-29)..."
+# Use the SQLite online backup API (consistent snapshot of a live WAL DB) +
+# integrity_check + retention, instead of a torn plain `cp`. Off-box shipping is
+# the cron's job (set BACKUP_REMOTE_CMD on the box); deploy-time backup is the
+# on-box safety net before a build. A failed/ corrupt backup aborts the deploy.
 ssh ${SERVER} "cd ${APP_DIR} && if [ -f data/poker_games.db ]; then
-  cp data/poker_games.db data/poker_games.db.bak.\$(date +%Y%m%d-%H%M%S)
-  ls -t data/poker_games.db.bak.* 2>/dev/null | tail -n +6 | xargs rm -f
-  echo 'Database backed up (keeping last 5)'
+  python3 scripts/backup_db.py data/poker_games.db --keep 7
+else
+  echo 'No database to back up (first deploy?)'
 fi"
 
 echo "==> Building and starting containers..."
@@ -54,7 +58,7 @@ echo "==> Waiting for services to start..."
 sleep 15
 
 echo "==> Running database migrations..."
-ssh ${SERVER} "cd ${APP_DIR} && ${COMPOSE} run --rm backend python scripts/migrate_avatars_to_db.py"
+ssh ${SERVER} "cd ${APP_DIR} && ${COMPOSE} run --rm backend python -m poker.migrations.migrate_avatars_to_db"
 
 echo "==> Checking health..."
 if ! ssh ${SERVER} "curl -sf http://localhost/health"; then

@@ -128,9 +128,7 @@ class TestSelectRejoinExcludesOffGrid(unittest.TestCase):
         game_data, game_state = self._game()
         with patch.multiple('flask_app.extensions', **repos):
             picks = game_handler.select_rejoin_candidates(game_data, game_state, limit=2)
-        self.assertEqual(
-            {p['personality_id'] for p in picks}, {'zeus', 'batman'}
-        )
+        self.assertEqual({p['personality_id'] for p in picks}, {'zeus', 'batman'})
 
 
 if __name__ == '__main__':

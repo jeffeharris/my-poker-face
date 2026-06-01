@@ -17,8 +17,10 @@ from functools import wraps
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from .. import config
-from ..extensions import auth_manager, limiter
+from core.moderation import moderate_text
+
+from .. import config, extensions
+from ..extensions import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ def _auth_required(f):
 
     @wraps(f)
     def wrapped(*args, **kwargs):
-        user = auth_manager.get_current_user() if auth_manager else None
+        user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         if not user:
             return jsonify({'success': False, 'error': 'Not authenticated'}), 401
         g.profile_user = user
@@ -51,18 +53,37 @@ def _too_large() -> bool:
     return bool(request.content_length and request.content_length > MAX_AVATAR_UPLOAD_BYTES)
 
 
+def _moderation_error(text: str):
+    """Return a (response, 400) tuple if `text` is flagged, else None (PRH-27).
+
+    The bio is AI-visible and shown to the table; the avatar prompt drives image
+    generation. Both are user free text, so screen them. Fail-open: a moderation
+    outage doesn't block the save (see core.moderation).
+    """
+    if moderate_text(text).flagged:
+        return jsonify(
+            {
+                'success': False,
+                'error': 'That text was flagged by our content filter. Please rephrase.',
+                'code': 'MODERATION_REJECTED',
+            }
+        ), 400
+    return None
+
+
 @profile_bp.route('/api/profile', methods=['GET'])
 @_auth_required
 def get_profile():
     """Return the current user's avatar URL and bio."""
-    from ..extensions import user_avatar_service, user_prefs_repo
 
     user_id = g.profile_user['id']
     return jsonify(
         {
             'success': True,
-            'avatar_url': user_avatar_service.get_avatar_url(user_id),
-            'bio': user_prefs_repo.get_bio(user_id),
+            'avatar_url': extensions.user_avatar_service.get_avatar_url(user_id),
+            'bio': extensions.user_prefs_repo.get_bio(user_id),
+            'game_speed': extensions.user_prefs_repo.get_game_speed(user_id),
+            'coach_default_mode': extensions.user_prefs_repo.get_coach_default_mode(user_id),
         }
     )
 
@@ -71,15 +92,49 @@ def get_profile():
 @_auth_required
 def set_bio():
     """Set (or clear) the current user's AI-visible self-description."""
-    from ..extensions import user_prefs_repo
 
     data = request.get_json(silent=True) or {}
     bio = data.get('bio', '')
     if not isinstance(bio, str):
         return jsonify({'success': False, 'error': 'bio must be a string'}), 400
 
-    stored = user_prefs_repo.set_bio(g.profile_user['id'], bio)
+    flagged = _moderation_error(bio)
+    if flagged:
+        return flagged
+
+    stored = extensions.user_prefs_repo.set_bio(g.profile_user['id'], bio)
     return jsonify({'success': True, 'bio': stored})
+
+
+@profile_bp.route('/api/profile/game-speed', methods=['PUT'])
+@_auth_required
+def set_game_speed():
+    """Set game speed: 'standard' / 'after_fold' / 'always' (sticky per-user).
+
+    'after_fold' fast-forwards the orbit once the human folds; 'always' fast-
+    forwards every AI turn. Fast-forward = no-LLM tiered decisions (no AI table
+    talk). See game_handler's _resolve_game_speed / handle_ai_action.
+    """
+    data = request.get_json(silent=True) or {}
+    speed = data.get('speed')
+    try:
+        stored = extensions.user_prefs_repo.set_game_speed(g.profile_user['id'], speed)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, 'game_speed': stored})
+
+
+@profile_bp.route('/api/profile/coach-default', methods=['PUT'])
+@_auth_required
+def set_coach_default_mode():
+    """Set the default coaching mode new games start in (off/reactive/proactive)."""
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode')
+    try:
+        stored = extensions.user_prefs_repo.set_coach_default_mode(g.profile_user['id'], mode)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, 'coach_default_mode': stored})
 
 
 @profile_bp.route('/api/profile/avatar/upload', methods=['POST'])
@@ -93,8 +148,6 @@ def upload_avatar():
     """
     from poker.user_avatar_service import UserAvatarError
 
-    from ..extensions import user_avatar_service
-
     if _too_large():
         return jsonify({'success': False, 'error': 'Image is too large (max 8 MB)'}), 413
 
@@ -102,12 +155,12 @@ def upload_avatar():
     try:
         if 'file' in request.files and request.files['file'].filename:
             image_bytes = request.files['file'].read()
-            avatar_url = user_avatar_service.store_from_bytes(user_id, image_bytes)
+            avatar_url = extensions.user_avatar_service.store_from_bytes(user_id, image_bytes)
         else:
             url = (request.get_json(silent=True) or {}).get('url')
             if not url:
                 return jsonify({'success': False, 'error': 'No image file or URL provided'}), 400
-            avatar_url = user_avatar_service.store_from_url(user_id, url)
+            avatar_url = extensions.user_avatar_service.store_from_url(user_id, url)
         return jsonify({'success': True, 'avatar_url': avatar_url})
     except UserAvatarError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -123,12 +176,13 @@ def generate_avatar():
     """Generate an avatar from a text description."""
     from poker.user_avatar_service import UserAvatarError
 
-    from ..extensions import user_avatar_service
-
     user_id = g.profile_user['id']
     prompt = (request.get_json(silent=True) or {}).get('prompt', '')
+    flagged = _moderation_error(prompt)
+    if flagged:
+        return flagged
     try:
-        avatar_url = user_avatar_service.generate_from_prompt(user_id, prompt)
+        avatar_url = extensions.user_avatar_service.generate_from_prompt(user_id, prompt)
         return jsonify({'success': True, 'avatar_url': avatar_url})
     except UserAvatarError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -144,8 +198,6 @@ def generate_avatar_from_photo():
     """Generate an avatar by stylizing an uploaded photo (img2img)."""
     from poker.user_avatar_service import UserAvatarError
 
-    from ..extensions import user_avatar_service
-
     if _too_large():
         return jsonify({'success': False, 'error': 'Image is too large (max 8 MB)'}), 413
     if 'file' not in request.files or not request.files['file'].filename:
@@ -154,13 +206,17 @@ def generate_avatar_from_photo():
     user_id = g.profile_user['id']
     photo_bytes = request.files['file'].read()
     prompt = request.form.get('prompt') or None
+    if prompt:
+        flagged = _moderation_error(prompt)
+        if flagged:
+            return flagged
     try:
         strength = float(request.form.get('strength', 0.6))
     except (TypeError, ValueError):
         strength = 0.6
 
     try:
-        avatar_url = user_avatar_service.generate_from_photo(
+        avatar_url = extensions.user_avatar_service.generate_from_photo(
             user_id, photo_bytes, prompt=prompt, strength=strength
         )
         return jsonify({'success': True, 'avatar_url': avatar_url})
@@ -175,9 +231,8 @@ def generate_avatar_from_photo():
 @_auth_required
 def delete_avatar():
     """Remove the current user's custom avatar."""
-    from ..extensions import user_avatar_service
 
-    user_avatar_service.delete(g.profile_user['id'])
+    extensions.user_avatar_service.delete(g.profile_user['id'])
     return jsonify({'success': True})
 
 
@@ -196,9 +251,7 @@ def serve_user_avatar_full(public_id: str):
 
 
 def _serve(public_id: str, *, full: bool):
-    from ..extensions import user_avatar_repo
-
-    record = user_avatar_repo.get_image_by_public_id(public_id, full=full)
+    record = extensions.user_avatar_repo.get_image_by_public_id(public_id, full=full)
     if not record:
         return jsonify({'error': 'Avatar not found'}), 404
     return Response(

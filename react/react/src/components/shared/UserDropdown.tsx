@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, LogOut, Settings, Home, GraduationCap, UserCircle } from 'lucide-react';
+import { ChevronDown, LogOut, Settings, Home, GraduationCap, Wrench } from 'lucide-react';
 import { config } from '../../config';
 import './UserDropdown.css';
 
@@ -51,7 +51,9 @@ export function UserDropdown({
   const initial = user.name.charAt(0).toUpperCase();
 
   // Prefer the custom profile avatar (relative path) over the Google picture.
-  const avatarSrc = user.avatar_url ? `${config.API_URL}${user.avatar_url}` : (user.picture ?? null);
+  const avatarSrc = user.avatar_url
+    ? `${config.API_URL}${user.avatar_url}`
+    : (user.picture ?? null);
 
   // Close dropdown when clicking outside
   const handleClickOutside = useCallback((event: MouseEvent) => {
@@ -153,12 +155,12 @@ export function UserDropdown({
             className="user-dropdown__menu-item"
             onClick={() => {
               setIsOpen(false);
-              navigate('/profile');
+              navigate('/settings');
             }}
             role="menuitem"
           >
-            <UserCircle size={16} />
-            <span>Profile</span>
+            <Settings size={16} />
+            <span>Settings</span>
           </button>
 
           {onMainMenu && (
@@ -184,7 +186,7 @@ export function UserDropdown({
               }}
               role="menuitem"
             >
-              <Settings size={16} />
+              <Wrench size={16} />
               <span>Admin Tools</span>
             </button>
           )}

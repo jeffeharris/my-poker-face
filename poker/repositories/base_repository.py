@@ -9,12 +9,42 @@ import logging
 import sqlite3
 import threading
 import time
+import weakref
 from contextlib import contextmanager
 from typing import Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
 F = TypeVar('F', bound=Callable)
+
+# PRH-34: registry of all live repositories so a request/socket-event teardown
+# can close the connections opened *in the current thread/greenlet*. Without
+# this, the thread-local connection cache (see BaseRepository) holds a WAL
+# reader + fd per (thread, repo) forever — under a gevent worker that recycles
+# greenlets across requests, fds accumulate until the process hits its limit.
+_repo_registry: "weakref.WeakSet[BaseRepository]" = weakref.WeakSet()
+_registry_lock = threading.Lock()
+
+
+def close_all_thread_connections() -> int:
+    """Close the current thread/greenlet's connection on every live repository.
+
+    Wired to a Flask ``teardown_appcontext`` hook (PRH-34): connections are
+    still reused across all DB ops *within* a request/socket event (the cache
+    isn't disabled), but they're released at the end of it instead of leaking.
+    Returns the number of connections closed. Best-effort — never raises.
+    """
+    with _registry_lock:
+        repos = list(_repo_registry)
+    closed = 0
+    for repo in repos:
+        try:
+            if getattr(repo._local, 'connection', None) is not None:
+                repo.close()
+                closed += 1
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug(f"Error closing thread connection during teardown: {e}")
+    return closed
 
 
 def retry_on_lock(max_retries: int = 3, base_delay: float = 0.1) -> Callable[[F], F]:
@@ -75,6 +105,10 @@ class BaseRepository:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
+        # PRH-34: track this repo so the teardown hook can close its
+        # per-thread connection at the end of a request/socket event.
+        with _registry_lock:
+            _repo_registry.add(self)
 
     @contextmanager
     def _get_connection(self):

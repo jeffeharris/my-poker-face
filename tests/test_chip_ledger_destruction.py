@@ -162,14 +162,10 @@ class TestNoCapClampOnCredit:
 
 
 class TestDestructionHelpers:
-    def test_cap_clamp_helper_no_op_when_overflow_zero(self, ledger_repo):
-        result = chip_ledger.record_cap_clamp(
-            ledger_repo,
-            personality_id="zeus",
-            overflow=0,
-        )
-        assert result is None
-        assert ledger_repo.recent_entries() == []
+    # NOTE: `record_cap_clamp` was removed (dead code — the cap-to-ceiling
+    # concept was retired when starting_bankroll became a regen target). The
+    # `'cap_clamp'` reason string stays in LEDGER_REASONS so the audit can still
+    # query historical entries.
 
     def test_house_stake_settle_helper_no_op_when_amount_zero(self, ledger_repo):
         result = chip_ledger.record_house_stake_settle(

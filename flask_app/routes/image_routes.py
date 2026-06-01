@@ -10,6 +10,7 @@ from pathlib import Path
 from flask import Blueprint, Response, jsonify, request, send_from_directory
 
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
+from poker.authorization import require_permission
 from poker.character_images import (
     EMOTIONS,
     generate_character_images,
@@ -22,13 +23,18 @@ from poker.character_images import (
 )
 from poker.image_processing import detect_image_mimetype
 
-from .. import config
-from ..extensions import auth_manager, limiter, persistence_db_path, personality_repo
+from .. import config, extensions
+from ..extensions import limiter
 from ..handlers.avatar_handler import PRIORITY_EMOTIONS, start_single_emotion_generation
 
 logger = logging.getLogger(__name__)
 
 image_bp = Blueprint('image', __name__)
+
+# PRH-1: per-route admin guard for the two paid image-*generation* POST routes.
+# The blueprint as a whole must stay open — its GET routes serve avatars/grids
+# in-game — so we cannot register_admin_guard(image_bp). Guard the spenders only.
+_admin_only = require_permission('can_access_admin_tools')
 
 
 def _detect_image_mimetype(image_data: bytes) -> str:
@@ -347,6 +353,7 @@ def list_emotions():
 
 @image_bp.route('/api/avatar/<personality_name>/regenerate', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_REGENERATE_AVATAR)
+@_admin_only
 def regenerate_avatar(personality_name: str):
     """Regenerate avatar images for specific emotions.
 
@@ -370,6 +377,12 @@ def regenerate_avatar(personality_name: str):
         # Clamp to valid range
         strength = max(0.0, min(1.0, float(strength)))
 
+        # Admin user's id — attributes the paid spend so the per-owner budget
+        # gate (PRH-2) can bind this call. `_admin_only` guarantees the user is
+        # present, but use .get() to stay defensive against test mocks.
+        admin_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+        owner_id = admin_user.get('id') if admin_user else None
+
         logger.info(
             f"Regenerate avatar request for {personality_name}: emotions={emotions}, reference_image_id={reference_image_id}, strength={strength}"
         )
@@ -383,9 +396,11 @@ def regenerate_avatar(personality_name: str):
             ), 400
 
         # Validate personality exists before expensive API calls
-        from ..extensions import personality_generator
 
-        if personality_generator and not personality_generator.get_personality(personality_name):
+        if (
+            extensions.personality_generator
+            and not extensions.personality_generator.get_personality(personality_name)
+        ):
             return jsonify(
                 {'success': False, 'error': f'Personality {personality_name} not found'}
             ), 404
@@ -422,6 +437,7 @@ def regenerate_avatar(personality_name: str):
                 seed_image_url=seed_image_url,
                 strength=strength,
                 reference_image_id=reference_image_id,
+                owner_id=owner_id,
             )
             results.append(
                 {
@@ -436,11 +452,10 @@ def regenerate_avatar(personality_name: str):
                 error_count += 1
 
         # Get the current avatar_description (may have been auto-generated during regeneration)
-        from ..extensions import personality_generator
 
         avatar_description = (
-            personality_generator.get_avatar_description(personality_name)
-            if personality_generator
+            extensions.personality_generator.get_avatar_description(personality_name)
+            if extensions.personality_generator
             else None
         )
 
@@ -473,7 +488,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
     import sqlite3
 
     try:
-        with sqlite3.connect(persistence_db_path) as conn:
+        with sqlite3.connect(extensions.persistence_db_path) as conn:
             cursor = conn.execute(
                 "SELECT image_data, content_type FROM reference_images WHERE id = ?",
                 (reference_id,),
@@ -494,7 +509,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
 def get_avatar_stats():
     """Get statistics about avatar images in the database."""
     try:
-        stats = personality_repo.get_avatar_stats()
+        stats = extensions.personality_repo.get_avatar_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Error getting avatar stats: {e}")
@@ -503,9 +518,10 @@ def get_avatar_stats():
 
 @image_bp.route('/api/generate-character-images/<personality_name>', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_GENERATE_IMAGES)
+@_admin_only
 def generate_character_images_endpoint(personality_name):
     """Generate images for a personality on-demand."""
-    user = auth_manager.get_current_user() if auth_manager else None
+    user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
     if not user or not user.get('id'):
         return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 
@@ -513,6 +529,10 @@ def generate_character_images_endpoint(personality_name):
         data = request.get_json() or {}
         emotions = data.get('emotions')
         api_key = data.get('api_key')
+
+        # Admin user's id — see regenerate_avatar for rationale.
+        admin_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+        owner_id = admin_user.get('id') if admin_user else None
 
         if has_character_images(personality_name):
             return jsonify(
@@ -524,7 +544,9 @@ def generate_character_images_endpoint(personality_name):
             )
 
         logger.info(f"Starting on-demand image generation for {personality_name}")
-        result = generate_character_images(personality_name, emotions=emotions, api_key=api_key)
+        result = generate_character_images(
+            personality_name, emotions=emotions, api_key=api_key, owner_id=owner_id
+        )
 
         if result.get('success'):
             return jsonify(

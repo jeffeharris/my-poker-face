@@ -64,9 +64,7 @@ def fake_registry(monkeypatch):
 
 class TestLiveCashSeatedPids:
     def test_collects_opponents_for_matching_sandbox(self, fake_registry):
-        fake_registry["cash-abc"] = _cash_game(
-            "sb-1", {"Blackbeard": "blackbeard", "Zeus": "zeus"}
-        )
+        fake_registry["cash-abc"] = _cash_game("sb-1", {"Blackbeard": "blackbeard", "Zeus": "zeus"})
         assert game_handler.live_cash_seated_pids("sb-1") == {"blackbeard", "zeus"}
 
     def test_filters_by_sandbox(self, fake_registry):
@@ -107,8 +105,9 @@ def _insert_personality(db_path: str, personality_id: str, *, name: str, bankrol
     config = {"bankroll_knobs": bankroll_knobs}
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id, visibility) "
-            "VALUES (?, ?, ?, 'public')",
+            "INSERT INTO personalities "
+            "(name, config_json, personality_id, visibility, circulating) "
+            "VALUES (?, ?, ?, 'public', 1)",
             (name, json.dumps(config), personality_id),
         )
         conn.commit()
@@ -152,14 +151,14 @@ def chip_ledger_repo(db_path):
 @pytest.mark.integration
 class TestRefreshHonorsLiveSeated:
     """Set up one $2 world table with all seats open and `blackbeard` as the
-    only eligible candidate, then force live-fill (`live_fill_prob=1.0`; one
-    burst hand runs but it's a no-op on the empty table). Without the param
-    the world seats him (the corruption precondition); with the param it must
-    not."""
+    only eligible candidate, then force the global fill (`seek_rate=1.0`; one
+    burst hand runs but it's a no-op on the empty table). Without the
+    live_seated param the world seats him (the corruption precondition); with
+    it he's treated as occupied and must not be seated."""
 
     SANDBOX = "sb-live-seated"
 
-    def _setup(self, db_path, cash_table_repo):
+    def _setup(self, db_path, cash_table_repo, bankroll_repo):
         _insert_personality(
             db_path,
             "blackbeard",
@@ -170,6 +169,17 @@ class TestRefreshHonorsLiveSeated:
                 "buy_in_multiplier": 1.0,
                 "stake_comfort_zone": "$2",
             },
+        )
+        # Seed the bankroll row production writes at boot
+        # (ensure_ai_bankrolls_seeded). Without it the global greedy fill
+        # correctly refuses to seat — it can't fund the buy-in from a
+        # missing row (the inversion never mints chips onto an open seat,
+        # unlike the old per-seat fill which seated regardless).
+        from cash_mode.bankroll import AIBankrollState
+
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(personality_id="blackbeard", chips=100_000, last_regen_tick=None),
+            sandbox_id=self.SANDBOX,
         )
         table = CashTableState(
             table_id="cash-table-2-001",
@@ -187,11 +197,12 @@ class TestRefreshHonorsLiveSeated:
             sandbox_id=self.SANDBOX,
             now=datetime.utcnow(),
             rng=random.Random(0),
-            # >0 so one (no-op, empty-table) hand burst runs — live-fill
-            # only fires inside the burst loop. live_fill_prob=1.0 forces
-            # the open seat to fill.
+            # >0 so one (no-op, empty-table) hand burst runs, then the
+            # global greedy fill seats the candidate. seek_rate=1.0 forces
+            # every eligible AI to go room-hunting (the inversion replaced
+            # the per-seat live_fill_prob with a per-refresh seek-rate).
             hand_sim_prob=1.0,
-            live_fill_prob=1.0,
+            seek_rate=1.0,
             chip_ledger_repo=chip_ledger_repo,
             live_seated_pids=live,
         )
@@ -208,7 +219,7 @@ class TestRefreshHonorsLiveSeated:
         # Establishes the precondition: with the only eligible candidate and
         # a forced fill, the world DOES seat blackbeard. If this regresses,
         # the protection test below would pass vacuously.
-        self._setup(db_path, cash_table_repo)
+        self._setup(db_path, cash_table_repo, bankroll_repo)
         self._run(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
@@ -221,7 +232,7 @@ class TestRefreshHonorsLiveSeated:
     def test_live_seated_blackbeard_is_not_seated(
         self, db_path, cash_table_repo, personality_repo, bankroll_repo, chip_ledger_repo
     ):
-        self._setup(db_path, cash_table_repo)
+        self._setup(db_path, cash_table_repo, bankroll_repo)
         self._run(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
@@ -230,6 +241,216 @@ class TestRefreshHonorsLiveSeated:
             live={"blackbeard"},
         )
         assert "blackbeard" not in self._seated_pids(cash_table_repo)
+
+
+# ============================================================
+# _restore_cash_table_binding — cold-load seat-orphan self-heal
+# ============================================================
+
+
+class _FakeSession:
+    def __init__(self, cash_table_id, cash_seat_index):
+        self.cash_table_id = cash_table_id
+        self.cash_seat_index = cash_seat_index
+
+
+class _FakeSessionRepo:
+    def __init__(self, session):
+        self._session = session
+        self.loaded_with = None
+
+    def load(self, game_id):
+        self.loaded_with = game_id
+        return self._session
+
+
+class TestRestoreCashTableBinding:
+    """Regression: a cold-loaded cash game loses `cash_table_id` (it's
+    memory-only, not in `game_state_json`). When the hand-boundary refresh
+    early-returns on the missing id, the human seat is never re-stamped into
+    the `cash_tables` row, `refresh_unseated_tables` then treats the table as
+    empty and refills the human's seat with AIs — the "my seat got taken,
+    Resume shows different players" split-brain. `_restore_cash_table_binding`
+    re-attaches the binding from the durable `cash_sessions` row so the
+    refresh keeps the seat protected across cold-loads.
+    """
+
+    def _patch_repo(self, monkeypatch, session):
+        repo = _FakeSessionRepo(session)
+        import flask_app.extensions as ext
+
+        monkeypatch.setattr(ext, "cash_session_repo", repo, raising=False)
+        saved: dict = {}
+        monkeypatch.setattr(
+            game_state_service,
+            "set_game",
+            lambda gid, data: saved.update({"gid": gid, "data": data}),
+        )
+        return repo, saved
+
+    def test_present_binding_is_returned_untouched(self, monkeypatch):
+        repo, saved = self._patch_repo(monkeypatch, _FakeSession("cash-table-2-001", 4))
+        game_data = {"cash_table_id": "already-here", "cash_seat_index": 2}
+        out = game_handler._restore_cash_table_binding("cash-x", game_data)
+        assert out == "already-here"
+        # No session lookup, no write-back when the binding is already present.
+        assert repo.loaded_with is None
+        assert saved == {}
+
+    def test_recovers_binding_from_session_and_writes_back(self, monkeypatch):
+        repo, saved = self._patch_repo(monkeypatch, _FakeSession("cash-table-2-001", 4))
+        game_data = {}
+        out = game_handler._restore_cash_table_binding("cash-P3lh", game_data)
+        assert out == "cash-table-2-001"
+        assert repo.loaded_with == "cash-P3lh"
+        # Re-stamped onto game_data so subsequent refreshes + leave see it.
+        assert game_data["cash_table_id"] == "cash-table-2-001"
+        assert game_data["cash_seat_index"] == 4
+        assert saved["gid"] == "cash-P3lh"
+
+    def test_no_session_row_returns_none(self, monkeypatch):
+        _repo, saved = self._patch_repo(monkeypatch, None)
+        game_data = {}
+        out = game_handler._restore_cash_table_binding("cash-legacy", game_data)
+        # Legacy /api/cash/start games never had a binding — nothing to heal.
+        assert out is None
+        assert "cash_table_id" not in game_data
+        assert saved == {}
+
+    def test_session_without_table_id_returns_none(self, monkeypatch):
+        _repo, _saved = self._patch_repo(monkeypatch, _FakeSession(None, None))
+        game_data = {}
+        out = game_handler._restore_cash_table_binding("cash-coldstart", game_data)
+        assert out is None
+        assert "cash_table_id" not in game_data
+
+
+# ============================================================
+# _ensure_cash_mode — cold-load cash-metadata rehydration
+# ============================================================
+
+
+class _FakePlayer:
+    def __init__(self, name, is_human=False):
+        self.name = name
+        self.is_human = is_human
+
+
+class _FakeGameState:
+    def __init__(self, players, current_ante=2):
+        self.players = players
+        self.current_ante = current_ante
+
+
+class _FakeStateMachine:
+    def __init__(self, game_state):
+        self.game_state = game_state
+
+
+class _FakePersonalityRepo:
+    def __init__(self, mapping):
+        self._m = mapping
+
+    def resolve_name_to_personality_id(self, name):
+        return self._m.get(name)
+
+
+class _FakeMemoryManager:
+    def __init__(self):
+        self.cap = None
+
+    def set_table_max_buy_in(self, value):
+        self.cap = value
+
+
+class TestEnsureCashMode:
+    """Regression for the cold-load ghost-seat split-brain: the cash-mode
+    memory fields (`cash_mode`, `cash_table_id`, `cash_personality_ids`, …)
+    aren't in `game_state_json`, so a *background* hand advance that
+    cold-loads a game (world ticker / socket, bypassing the /api/game-state
+    restore block) comes back with `cash_mode` falsy. The hand-end cash flow
+    — refill, bust-detect, lobby refresh + the binding self-heal inside it —
+    is all gated on that flag, so it silently skips and the human seat
+    orphans. `_ensure_cash_mode` rebuilds the dropped fields from the durable
+    `cash_sessions` row + live players so the flow runs.
+    """
+
+    def _patch(self, monkeypatch, session, name_to_pid):
+        import flask_app.extensions as ext
+
+        monkeypatch.setattr(ext, "cash_session_repo", _FakeSessionRepo(session), raising=False)
+        monkeypatch.setattr(
+            ext, "personality_repo", _FakePersonalityRepo(name_to_pid), raising=False
+        )
+        saved: dict = {}
+        monkeypatch.setattr(
+            game_state_service,
+            "set_game",
+            lambda gid, data: saved.update({"gid": gid, "data": data}),
+        )
+        return saved
+
+    def test_warm_game_is_noop(self, monkeypatch):
+        saved = self._patch(monkeypatch, _FakeSession("cash-table-2-001", 1), {})
+        game_data = {"cash_mode": True}
+        assert game_handler._ensure_cash_mode("cash-x", game_data) is True
+        # Already hydrated — no rebuild, no write-back.
+        assert saved == {}
+
+    def test_non_cash_game_returns_false(self, monkeypatch):
+        saved = self._patch(monkeypatch, _FakeSession("cash-table-2-001", 1), {})
+        game_data = {}
+        assert game_handler._ensure_cash_mode("regular-game-id", game_data) is False
+        assert "cash_mode" not in game_data
+        assert saved == {}
+
+    def test_cold_loaded_cash_game_rehydrates(self, monkeypatch):
+        saved = self._patch(
+            monkeypatch,
+            _FakeSession("cash-casino-2-001", 1),
+            {"Sherlock Holmes": "sherlock_holmes", "Lizzo": "lizzo"},
+        )
+        players = [
+            _FakePlayer("Jeff", is_human=True),
+            _FakePlayer("Sherlock Holmes"),
+            _FakePlayer("Lizzo"),
+        ]
+        mm = _FakeMemoryManager()
+        game_data = {
+            "state_machine": _FakeStateMachine(_FakeGameState(players, current_ante=2)),
+            "memory_manager": mm,
+            "owner_id": "guest_jeff",
+        }
+
+        assert game_handler._ensure_cash_mode("cash-GNu7", game_data) is True
+
+        # Flag + binding recovered from the durable session row.
+        assert game_data["cash_mode"] is True
+        assert game_data["cash_table_id"] == "cash-casino-2-001"
+        assert game_data["cash_seat_index"] == 1
+        # Stake label + table cap resolved from the big blind ($2 → bb 2).
+        assert game_data["cash_stake_label"] == "$2"
+        assert mm.cap is not None and mm.cap > 0
+        # Personality ids rebuilt from the live opponents only (human excluded).
+        assert game_data["cash_personality_ids"] == {
+            "Sherlock Holmes": "sherlock_holmes",
+            "Lizzo": "lizzo",
+        }
+        # Persisted so the in-loop refresh + downstream cash steps see it.
+        assert saved["gid"] == "cash-GNu7"
+
+    def test_legacy_cash_game_without_binding_still_enables_flow(self, monkeypatch):
+        # /api/cash/start games never had a cash_sessions binding. We still
+        # want cash_mode on (so refill/bust-detect run); the lobby refresh
+        # self-heal will just early-return on the absent table id.
+        self._patch(monkeypatch, None, {})
+        players = [_FakePlayer("Jeff", is_human=True), _FakePlayer("Buddha")]
+        game_data = {
+            "state_machine": _FakeStateMachine(_FakeGameState(players, current_ante=10)),
+        }
+        assert game_handler._ensure_cash_mode("cash-legacy", game_data) is True
+        assert game_data["cash_mode"] is True
+        assert game_data.get("cash_table_id") is None
 
 
 if __name__ == "__main__":

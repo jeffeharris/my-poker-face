@@ -116,7 +116,7 @@ class AIPokerPlayer(PokerPlayer):
 
         # Store and extract LLM configuration
         self.llm_config = llm_config or {}
-        from core.llm.config import DEFAULT_REASONING_EFFORT
+        from core.llm.config import DEFAULT_REASONING_EFFORT, INGAME_LLM_TIMEOUT_SECONDS
 
         provider = self.llm_config.get("provider", "openai")
         model = self.llm_config.get("model")  # Let provider use its default if None
@@ -135,6 +135,10 @@ class AIPokerPlayer(PokerPlayer):
             player_name=name,
             game_id=game_id,
             owner_id=owner_id,
+            # PRH-18: bound the in-game decision call so a stalled provider can't
+            # hang the hand under the per-game lock (falls back to the
+            # deterministic engine instead).
+            default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
         )
 
         # Hand strategy persistence

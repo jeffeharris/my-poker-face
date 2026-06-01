@@ -6,7 +6,11 @@ import unittest
 
 import pytest
 
-from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
+from flask_app.services.coach_progression import (
+    CoachProgressionService,
+    SessionMemory,
+    restore_session_memory,
+)
 from flask_app.services.situation_classifier import SituationClassification
 from flask_app.services.skill_definitions import ALL_SKILLS
 from flask_app.services.skill_evaluator import SkillEvaluation
@@ -1686,6 +1690,92 @@ class TestUpdatePlayerLevel(unittest.TestCase):
 
         after = self.coach_repo.load_skill_state(self.user_id, skill_id)
         self.assertEqual(after.state, SkillState.AUTOMATIC)
+
+
+class TestSessionEvaluationPersistence(unittest.TestCase):
+    """PRH-15: per-game coach review history survives restart / TTL-eviction."""
+
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix='.db')
+        repos = create_repos(self.db_path)
+        self.coach_repo = repos['coach_repo']
+        self.game_id = 'cash-coach-1'
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+
+    @staticmethod
+    def _eval(skill_id, evaluation='correct'):
+        return SkillEvaluation(
+            skill_id=skill_id,
+            action_taken='call',
+            evaluation=evaluation,
+            confidence=0.9,
+            reasoning=f'{skill_id} was {evaluation}',
+        )
+
+    def _memory_with_history(self):
+        sm = SessionMemory()
+        sm.record_hand_evaluation(1, self._eval('pot_odds', 'correct'))
+        sm.record_hand_evaluation(1, self._eval('position', 'incorrect'))
+        sm.record_hand_evaluation(2, self._eval('aggression', 'marginal'))
+        return sm
+
+    def test_save_load_round_trip(self):
+        """save_session_evaluations → load_session_evaluations →
+        from_evaluations_json restores the full per-hand history."""
+        sm = self._memory_with_history()
+        self.coach_repo.save_session_evaluations(self.game_id, 'user-1', sm.to_evaluations_json())
+
+        raw = self.coach_repo.load_session_evaluations(self.game_id)
+        self.assertIsNotNone(raw)
+        restored = SessionMemory.from_evaluations_json(raw)
+
+        h1 = restored.get_hand_evaluations(1)
+        self.assertEqual({e.skill_id for e in h1}, {'pot_odds', 'position'})
+        self.assertEqual(len(restored.get_hand_evaluations(2)), 1)
+        self.assertEqual(restored.get_hand_evaluations(2)[0].skill_id, 'aggression')
+
+    def test_load_missing_game_returns_none(self):
+        self.assertIsNone(self.coach_repo.load_session_evaluations('nope'))
+
+    def test_save_upserts_latest_snapshot(self):
+        """A second save for the same game overwrites (one row per game)."""
+        self.coach_repo.save_session_evaluations(
+            self.game_id, 'user-1', self._memory_with_history().to_evaluations_json()
+        )
+        sm2 = SessionMemory()
+        sm2.record_hand_evaluation(3, self._eval('bet_sizing', 'correct'))
+        self.coach_repo.save_session_evaluations(self.game_id, 'user-1', sm2.to_evaluations_json())
+        restored = SessionMemory.from_evaluations_json(
+            self.coach_repo.load_session_evaluations(self.game_id)
+        )
+        self.assertEqual(restored.get_hand_evaluations(1), [])  # clobbered by snapshot 2
+        self.assertEqual(len(restored.get_hand_evaluations(3)), 1)
+
+    def test_restore_session_memory_rebuilds_on_miss(self):
+        """restore_session_memory rebuilds history from the repo when game_data
+        has no in-memory SessionMemory (cold-load / restart)."""
+        self.coach_repo.save_session_evaluations(
+            self.game_id, 'user-1', self._memory_with_history().to_evaluations_json()
+        )
+        game_data = {}  # memory miss
+        sm = restore_session_memory(self.game_id, game_data, self.coach_repo)
+        self.assertEqual({e.skill_id for e in sm.get_hand_evaluations(1)}, {'pot_odds', 'position'})
+        # And it re-attaches so subsequent reads hit memory.
+        self.assertIs(game_data['coach_session_memory'], sm)
+
+    def test_restore_session_memory_prefers_in_memory(self):
+        """An existing in-memory SessionMemory is returned as-is (not reloaded)."""
+        existing = SessionMemory()
+        game_data = {'coach_session_memory': existing}
+        sm = restore_session_memory(self.game_id, game_data, self.coach_repo)
+        self.assertIs(sm, existing)
+
+    def test_restore_session_memory_fresh_when_nothing_persisted(self):
+        sm = restore_session_memory(self.game_id, {}, self.coach_repo)
+        self.assertEqual(sm.get_hand_evaluations(1), [])
 
 
 if __name__ == '__main__':

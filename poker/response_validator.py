@@ -68,6 +68,7 @@ def llm_normalize_beats(
     llm_client,
     game_id: Optional[str] = None,
     player_name: Optional[str] = None,
+    owner_id: Optional[str] = None,
 ) -> List[str]:
     """Ask a fast-tier LLM to clean dramatic_sequence beats.
 
@@ -118,6 +119,7 @@ def llm_normalize_beats(
             json_format=True,
             call_type=CallType.NARRATION_CLEANUP,
             game_id=game_id,
+            owner_id=owner_id,
             player_name=player_name,
             prompt_template='beat_normalizer',
         )

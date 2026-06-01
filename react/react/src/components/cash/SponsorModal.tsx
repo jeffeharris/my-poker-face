@@ -63,6 +63,9 @@ export function SponsorModal({
 }: SponsorModalProps) {
   const navigate = useNavigate();
   const [offers, setOffers] = useState<SponsorOffer[] | null>(null);
+  // Player-prestige hook 2: when true, the player is too reviled for named-AI
+  // backing — only house offers show, and we explain why.
+  const [backingRestricted, setBackingRestricted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,6 +75,7 @@ export function SponsorModal({
   useEffect(() => {
     if (!isOpen || !stakeLabel) {
       setOffers(null);
+      setBackingRestricted(false);
       setLoadError(null);
       setSubmitError(null);
       setConfirmingKey(null);
@@ -84,6 +88,7 @@ export function SponsorModal({
         if (cancelled) return;
         if (response.eligible) {
           setOffers(response.offers);
+          setBackingRestricted(response.backing_restricted ?? false);
         } else {
           setLoadError(
             `Not eligible for sponsorship at ${stakeLabel}. ` +
@@ -131,7 +136,7 @@ export function SponsorModal({
         setConfirmingKey(null);
       }
     },
-    [stakeLabel, busy, confirmingKey, navigate]
+    [stakeLabel, busy, confirmingKey, navigate, origin]
   );
 
   if (!isOpen) return null;
@@ -171,6 +176,14 @@ export function SponsorModal({
           )}
 
           {!offers && !loadError && <div className="sponsor-modal__loading">Finding sponsors…</div>}
+
+          {backingRestricted && offers && (
+            <div className="sponsor-modal__restricted" role="note">
+              Your reputation precedes you. No one here will personally back a
+              player like you right now — only the house will deal. Win back the
+              room's regard and the named backers return.
+            </div>
+          )}
 
           {offers?.map((offer) => {
             const key = offerKey(offer);

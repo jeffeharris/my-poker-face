@@ -7,6 +7,7 @@ decision quality and difficulty metrics without storing full prompts.
 
 import json
 import logging
+import os
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, List, Optional, Tuple
@@ -148,6 +149,9 @@ class DecisionAnalysis:
     board_texture_json: Optional[str] = None  # Board texture dict from analyze_board_texture()
     player_hand_canonical: Optional[str] = None  # "AKo", "Q7o", etc.
     player_hand_in_range: Optional[bool] = None  # Is hand in standard range for position?
+    # Exact solver-chart node "scenario|position|opener|hand" captured at decision
+    # time (PRE_FLOP only) for chart-graded coach leaks. None when not preflop.
+    preflop_node_key: Optional[str] = None
     player_hand_tier: Optional[str] = None  # "premium", "strong", ..., "trash"
     standard_range_pct: Optional[float] = None  # Expected range % for position (e.g., 15)
 
@@ -967,9 +971,21 @@ class DecisionAnalyzer:
 _analyzer_instance: Optional[DecisionAnalyzer] = None
 
 
-def get_analyzer(iterations: int = 2000) -> DecisionAnalyzer:
-    """Get or create the singleton analyzer instance."""
+def get_analyzer(iterations: Optional[int] = None) -> DecisionAnalyzer:
+    """Get or create the singleton analyzer instance.
+
+    This singleton drives the **in-game, per-AI-decision** equity Monte Carlo
+    (decision-quality analytics — not the bot's actual decision). It runs
+    synchronously and GIL-bound on the single worker, so the iteration count is
+    the per-decision CPU lever (PRH-30): lower it in prod via
+    ``DECISION_ANALYSIS_ITERATIONS`` to raise the concurrent-hands ceiling. The
+    default stays 2000 (≈20ms) so behavior is unchanged unless an operator opts
+    in. Coaching and other on-demand analyses construct their own analyzers and
+    are unaffected.
+    """
     global _analyzer_instance
     if _analyzer_instance is None:
+        if iterations is None:
+            iterations = int(os.environ.get("DECISION_ANALYSIS_ITERATIONS", "2000"))
         _analyzer_instance = DecisionAnalyzer(iterations)
     return _analyzer_instance

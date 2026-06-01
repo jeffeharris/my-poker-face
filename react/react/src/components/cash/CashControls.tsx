@@ -8,7 +8,7 @@
  * games).
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { config } from '../../config';
@@ -133,7 +133,7 @@ export function CashControls({
     } finally {
       setBusy(false);
     }
-  }, [canTopUp, topUpAmount]);
+  }, [canTopUp, topUpAmount, navigate]);
 
   const handleLeave = useCallback(async () => {
     // Two-tap confirm: first click flips the button to a red
@@ -172,6 +172,16 @@ export function CashControls({
       setBusy(false);
     }
   }, [confirmLeave, navigate]);
+
+  // Auto-cancel the armed "Confirm leave" state after a few seconds.
+  // Mobile resets it on sheet close; desktop CashControls is always
+  // mounted with no close event, so without this the button stays
+  // latched indefinitely and a stray later tap would abandon the table.
+  useEffect(() => {
+    if (!confirmLeave) return;
+    const t = setTimeout(() => setConfirmLeave(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmLeave]);
 
   return (
     <div className="cash-controls glass">

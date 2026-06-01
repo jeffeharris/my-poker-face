@@ -416,6 +416,47 @@ def test_human_bio_block_absent_when_empty(context, prompt_manager):
     assert 'in their own words' not in user
 
 
+def test_reputation_tone_block_appears_when_populated(context, prompt_manager):
+    """When `human_reputation_tone` is set (hook 3 of the prestige system), the
+    hint lands in the user prompt as a suffix so the AI's table talk skews by
+    the human's room reputation."""
+    from cash_mode.prestige import QUADRANT_INFAMOUS_VILLAIN, reputation_chat_tone
+
+    ctx = ExpressionContext(
+        action_taken='raise',
+        raise_to=600,
+        hand_cards=['As', 'Ah'],
+        community_cards=[],
+        phase='pre_flop',
+        pot_size=300,
+        opponent_count=2,
+        personality_name='Batman',
+        play_style='analytical',
+        default_attitude='thoughtful',
+        human_reputation_tone=reputation_chat_tone(QUADRANT_INFAMOUS_VILLAIN),
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(ctx)
+
+    _, user = _capture_messages(mock_llm)
+    assert 'TABLE REPUTATION' in user
+    assert 'notorious' in user
+
+
+def test_reputation_tone_block_absent_when_empty(context, prompt_manager):
+    """Default empty `human_reputation_tone` produces no block."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(context)  # default ctx — no reputation tone
+
+    _, user = _capture_messages(mock_llm)
+    assert 'TABLE REPUTATION' not in user
+
+
 def test_addressing_field_passes_through(context, prompt_manager):
     """LLM-declared addressing names are preserved through parse."""
     mock_llm = MagicMock()

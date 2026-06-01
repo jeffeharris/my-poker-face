@@ -70,7 +70,9 @@
   color: #9aa4b6;
   font-size: 0.9rem;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .profile-dropzone:hover {
@@ -136,7 +138,9 @@
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 0.15s, opacity 0.15s;
+  transition:
+    filter 0.15s,
+    opacity 0.15s;
 }
 
 .profile-btn:hover:not(:disabled) {

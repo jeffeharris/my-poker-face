@@ -40,7 +40,7 @@ def assert_seats_match(loaded_seats, expected_seats):
     exactly.
     """
     assert len(loaded_seats) == len(expected_seats)
-    for got, orig in zip(loaded_seats, expected_seats):
+    for got, orig in zip(loaded_seats, expected_seats, strict=False):
         if orig.get("kind") == "ai":
             assert got.get("seated_at"), f"AI seat not stamped: {got!r}"
             assert {k: v for k, v in got.items() if k != "seated_at"} == orig
@@ -222,9 +222,8 @@ class TestSeatedAtStamp:
         repo.save_table(state, sandbox_id=SANDBOX_ID, now=t0)
 
         later = t0 + timedelta(hours=1)
-        moved = (
-            CashTableState(table_id="t1", stake_label="$10")
-            .with_seat(2, ai_slot("napoleon", 1000))
+        moved = CashTableState(table_id="t1", stake_label="$10").with_seat(
+            2, ai_slot("napoleon", 1000)
         )
         repo.save_table(moved, sandbox_id=SANDBOX_ID, now=later)
 

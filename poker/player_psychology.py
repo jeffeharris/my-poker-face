@@ -132,6 +132,68 @@ from .zone_effects import (  # noqa: F401
     _should_inject_thoughts,
 )
 
+# Axis impacts per pressure event. Hoisted to module level so the table is
+# built once at import time rather than rebuilt on every _get_pressure_impacts
+# call. Treat as read-only — callers only read via .get().
+_PRESSURE_IMPACTS: Dict[str, Dict[str, float]] = {
+    # Outcomes (pick ONE via resolve_hand_events)
+    'win': {'confidence': 0.02, 'energy': 0.02},
+    'loss': {'confidence': -0.02, 'energy': -0.02},
+    'big_win': {'confidence': 0.12, 'composure': 0.02, 'energy': 0.08},
+    'big_loss': {'confidence': -0.15, 'composure': -0.05, 'energy': -0.08},
+    'headsup_win': {'confidence': 0.06, 'composure': 0.02, 'energy': 0.05},
+    'headsup_loss': {'confidence': -0.06, 'composure': -0.02, 'energy': -0.05},
+    # Ego/Agency (at most ONE, scaled 50% via resolve_hand_events)
+    'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.05},
+    'bluff_called': {'confidence': -0.25, 'composure': -0.10, 'energy': -0.05},
+    'nemesis_win': {'confidence': 0.18, 'composure': 0.05, 'energy': 0.05},
+    'nemesis_loss': {'confidence': -0.18, 'composure': -0.05, 'energy': -0.05},
+    # Equity Shock (at most ONE, composure+energy only — no confidence)
+    'bad_beat': {'composure': -0.35, 'energy': -0.10},
+    'cooler': {'composure': -0.20, 'energy': -0.05},
+    'suckout': {'composure': 0.10, 'energy': 0.05},
+    'got_sucked_out': {'composure': -0.30, 'energy': -0.15},
+    # Streaks (additive)
+    'winning_streak': {'confidence': 0.10, 'composure': -0.05, 'energy': 0.05},
+    'losing_streak': {'confidence': -0.12, 'composure': -0.20, 'energy': -0.10},
+    # Pressure/Fatigue (additive, no confidence)
+    'big_pot_involved': {'composure': -0.05, 'energy': -0.05},
+    'all_in_moment': {'composure': -0.08, 'energy': -0.08},
+    'card_dead_5': {'confidence': -0.03, 'composure': 0.03, 'energy': -0.10},
+    'consecutive_folds_3': {'composure': -0.05, 'energy': -0.08},
+    'not_in_hand': {'energy': -0.02},
+    'disciplined_fold': {'confidence': -0.06, 'composure': 0.12, 'energy': -0.02},
+    'short_stack_survival': {'confidence': -0.04, 'composure': 0.06, 'energy': -0.05},
+    # Desperation (additive)
+    'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
+    'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
+    'fold_under_pressure': {'confidence': -0.10, 'composure': 0.05},
+    # Social stimuli (human quick-chat -> target AI). Disposition is
+    # chosen in react_to_social_stimulus; these are the per-disposition
+    # outcomes. Composure/confidence still ride the ego/poise filter in
+    # apply_pressure_event, which reinforces the disposition (a low-poise
+    # "stung" char takes the hit hard; a high-poise "energized" char's
+    # composure nudge shrinks to noise while the energy bump lands full).
+    'social_jab_stung': {'composure': -0.10, 'confidence': -0.04},
+    'social_jab_energized': {'composure': 0.02, 'energy': 0.06},
+    'social_jab_stoic': {'composure': -0.02},
+    'social_praise_warmed': {'confidence': 0.06, 'energy': 0.04},
+    'social_praise_stoic': {'energy': 0.02},
+    # Flattery (insincere/excessive praise). Valence flips by vanity:
+    # the vain eat it up (confidence/energy), the perceptive catch the
+    # ploy and bristle (composure dip). 'unmoved' never fires an event.
+    'social_flattery_vain': {'confidence': 0.08, 'energy': 0.05},
+    'social_flattery_seen_through': {'composure': -0.03},
+    # Player-prestige hook 4 (AI demeanor): sitting at a high-renown
+    # human's table, applied once per hand. The villain press is
+    # composure-led, so the (1-poise) filter in apply_pressure_event
+    # makes low-poise opponents rattle/tilt (the exploitable edge)
+    # while high-poise ones shrug it off; the legend lift is a light
+    # confidence/energy bump (looser, friendlier).
+    'reputation_villain_intimidation': {'composure': -0.06, 'confidence': -0.03},
+    'reputation_legend_warmth': {'confidence': 0.04, 'energy': 0.05},
+}
+
 
 @dataclass
 class PlayerPsychology:
@@ -294,7 +356,12 @@ class PlayerPsychology:
 
     # === UNIFIED EVENT HANDLING ===
 
-    def apply_pressure_event(self, event_name: str, opponent: Optional[str] = None) -> None:
+    def apply_pressure_event(
+        self,
+        event_name: str,
+        opponent: Optional[str] = None,
+        multiplier: float = 1.0,
+    ) -> None:
         """
         Single entry point for pressure events.
 
@@ -307,6 +374,10 @@ class PlayerPsychology:
         - Minor events: floor=0.20 (routine gameplay)
         - Normal events: floor=0.30 (standard stakes)
         - Major events: floor=0.40 (high-impact moments)
+
+        `multiplier` scales every axis delta uniformly (after sensitivity).
+        It lets a caller dial intensity without inventing new events — the
+        quick-chat chill/spicy lever rides this for social stimuli.
         """
         pressure_impacts = self._get_pressure_impacts(event_name)
         floor = _get_severity_floor(event_name)
@@ -317,16 +388,16 @@ class PlayerPsychology:
 
         if 'confidence' in pressure_impacts:
             sensitivity = _calculate_sensitivity(self.anchors.ego, floor)
-            delta = pressure_impacts['confidence'] * sensitivity
+            delta = pressure_impacts['confidence'] * sensitivity * multiplier
             new_conf = self.axes.confidence + delta
 
         if 'composure' in pressure_impacts:
             sensitivity = _calculate_sensitivity(1.0 - self.anchors.poise, floor)
-            delta = pressure_impacts['composure'] * sensitivity
+            delta = pressure_impacts['composure'] * sensitivity * multiplier
             new_comp = self.axes.composure + delta
 
         if 'energy' in pressure_impacts:
-            delta = pressure_impacts['energy']
+            delta = pressure_impacts['energy'] * multiplier
             new_energy = self.axes.energy + delta
 
         self.axes = self.axes.update(
@@ -343,6 +414,155 @@ class PlayerPsychology:
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}, "
             f"Energy={self.energy:.2f}, Quadrant={self.quadrant.value}"
         )
+
+    # === SOCIAL STIMULUS REACTION ===
+
+    # Disposition thresholds over existing anchors (ego/poise/expressiveness/
+    # baseline_aggression) — no new schema. Validated against all 62 seed
+    # personalities: proud tyrants -> stung, wits & charmers -> energized,
+    # sages & bots -> stoic.
+    _SOCIAL_STUNG_POISE_CEILING = 0.40
+    _SOCIAL_PROUD_EGO_FLOOR = 0.60
+    _SOCIAL_EXPRESSIVE_FLOOR = 0.55
+    _SOCIAL_COMPOSED_POISE_FLOOR = 0.60
+
+    # Player-prestige hook 4: max fraction a feared villain's per-hand
+    # intimidation may press composure/confidence BELOW the character's own
+    # baseline. The press is floored at `(1 - this) x baseline`, so a villain
+    # rattles opponents into a sustained on-edge band (≈40% down) and *holds*
+    # them there — it can't drain a low-poise/low-recovery character toward
+    # zero over a long sit (the failure mode without a floor). Recovery still
+    # pulls them back to baseline once the villain leaves.
+    _REPUTATION_DEMEANOR_MAX_DROP = 0.40
+    _SOCIAL_AGGRESSIVE_FLOOR = 0.60
+
+    def _classify_social_disposition(self) -> str:
+        """Map this character's anchors to how it takes a verbal jab.
+
+        Returns 'stung' | 'energized' | 'stoic'. Pure function of the static
+        anchors, so a character always reacts in-character.
+
+        - Low poise -> can't hold composure, so any needle rattles them.
+        - Proud (high ego): verbal/playful pride (high expressiveness) volleys
+          back and enjoys it; martial/reserved pride takes the wound instead.
+        - Otherwise composed + outgoing -> relishes the spar; composed +
+          reserved -> shrugs it off.
+        """
+        a = self.anchors
+        if a.poise <= self._SOCIAL_STUNG_POISE_CEILING:
+            return 'stung'
+        if a.ego >= self._SOCIAL_PROUD_EGO_FLOOR:
+            return 'energized' if a.expressiveness >= self._SOCIAL_EXPRESSIVE_FLOOR else 'stung'
+        if a.poise >= self._SOCIAL_COMPOSED_POISE_FLOOR and (
+            a.expressiveness >= self._SOCIAL_EXPRESSIVE_FLOOR
+            or a.baseline_aggression >= self._SOCIAL_AGGRESSIVE_FLOOR
+        ):
+            return 'energized'
+        return 'stoic'
+
+    # Flattery rides a different axis than teasing. Vanity (ego) makes
+    # flattery land even when transparent; opponent-reading (adaptation_bias)
+    # catches the ploy. Validated against the roster: proud -> vain (flattered),
+    # perceptive readers -> sees_through, the rest -> unmoved.
+    _FLATTERY_VAIN_EGO_FLOOR = 0.60
+    _FLATTERY_PERCEPTIVE_ADAPT_FLOOR = 0.50
+
+    def _classify_flattery_disposition(self) -> str:
+        """Map this character's anchors to how it takes flattery (insincere or
+        over-the-top praise).
+
+        Returns 'vain' | 'sees_through' | 'unmoved'. Independent of the
+        jab/praise disposition — the same character can be stung by a needle
+        yet eat up flattery (high ego), or shrug a needle yet resent a
+        transparent buttering-up (high adaptation_bias). Vanity is checked
+        first: a proud reader still wants to believe the praise.
+        """
+        a = self.anchors
+        if a.ego >= self._FLATTERY_VAIN_EGO_FLOOR:
+            return 'vain'
+        if a.adaptation_bias >= self._FLATTERY_PERCEPTIVE_ADAPT_FLOOR:
+            return 'sees_through'
+        return 'unmoved'
+
+    def react_to_social_stimulus(
+        self,
+        stimulus: str,
+        opponent: Optional[str] = None,
+        multiplier: float = 1.0,
+    ) -> None:
+        """Move the emotional axes in response to a verbal stimulus.
+
+        `stimulus` is a coarse category, deliberately decoupled from the
+        relationship layer's event vocabulary so this module stays free of
+        memory-layer imports:
+          - 'jab'     : hostile needle / trash talk / taunt
+          - 'praise'  : sincere compliment / friendly banter
+          - 'flatter' : insincere / over-the-top praise (valence flips by vanity)
+
+        The character's disposition (from its anchors) selects which pressure
+        event fires, producing the valence split: the same jab stings a proud
+        hothead, fires up a charmer, and barely grazes a sage; flattery is
+        lapped up by the vain and seen through by the perceptive. Unknown
+        stimuli (and 'unmoved' flattery dispositions) are a no-op.
+        """
+        if stimulus == 'jab':
+            event_name = f'social_jab_{self._classify_social_disposition()}'
+        elif stimulus == 'praise':
+            # Anyone who'd react to a jab also warms to praise; the truly
+            # detached ('stoic') just notes it.
+            disposition = self._classify_social_disposition()
+            event_name = 'social_praise_stoic' if disposition == 'stoic' else 'social_praise_warmed'
+        elif stimulus == 'flatter':
+            vanity = self._classify_flattery_disposition()
+            if vanity == 'vain':
+                event_name = 'social_flattery_vain'
+            elif vanity == 'sees_through':
+                event_name = 'social_flattery_seen_through'
+            else:
+                return  # unmoved — flattery washes over them
+        else:
+            return
+        self.apply_pressure_event(event_name, opponent=opponent, multiplier=multiplier)
+
+    def react_to_table_reputation(self, stimulus: str, multiplier: float = 1.0) -> None:
+        """Move the axes for sitting at a high-renown human's table (hook 4).
+
+        `stimulus` is a coarse category, deliberately decoupled from the
+        prestige layer's quadrant vocabulary (mirrors `react_to_social_stimulus`
+        so this module stays free of cash-mode imports):
+          - 'intimidating' : a feared Infamous Villain's table → a composure
+            press. The (1−poise) sensitivity filter in `apply_pressure_event`
+            makes low-poise opponents rattle/tilt (the exploitable edge) while
+            the composed shrug it off. The press is FLOORED at
+            `(1 − _REPUTATION_DEMEANOR_MAX_DROP) × baseline` per axis, so a long
+            sit holds opponents in an on-edge band (~40% down) instead of
+            draining them toward zero; recovery restores baseline once the
+            villain leaves.
+          - 'reassuring'   : a Beloved Legend's table → a light confidence /
+            energy lift (looser, friendlier play).
+
+        Unknown stimuli are a no-op. Gated upstream by
+        `economy_flags.REPUTATION_DEMEANOR_ENABLED`; this method itself is the
+        pure axis-application and stays callable for tests regardless.
+        """
+        if stimulus == 'intimidating':
+            # Floor the press at (1 - MAX_DROP) x baseline so a long villain
+            # sit rattles opponents into a sustained on-edge band rather than
+            # draining low-poise characters toward zero hand after hand. The
+            # floor is per-axis (composure + confidence); the lift needs none.
+            keep = 1.0 - self._REPUTATION_DEMEANOR_MAX_DROP
+            comp_floor = keep * self._baseline_composure
+            conf_floor = keep * self._baseline_confidence
+            self.apply_pressure_event('reputation_villain_intimidation', multiplier=multiplier)
+            if self.axes.composure < comp_floor or self.axes.confidence < conf_floor:
+                self.axes = self.axes.update(
+                    composure=max(self.axes.composure, comp_floor),
+                    confidence=max(self.axes.confidence, conf_floor),
+                )
+        elif stimulus == 'reassuring':
+            self.apply_pressure_event('reputation_legend_warmth', multiplier=multiplier)
+        else:
+            return
 
     # === EVENT RESOLUTION CONSTANTS ===
 
@@ -370,42 +590,7 @@ class PlayerPsychology:
 
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
         """Get axis impacts for a pressure event."""
-        pressure_events = {
-            # Outcomes (pick ONE via resolve_hand_events)
-            'win': {'confidence': 0.02, 'energy': 0.02},
-            'loss': {'confidence': -0.02, 'energy': -0.02},
-            'big_win': {'confidence': 0.12, 'composure': 0.02, 'energy': 0.08},
-            'big_loss': {'confidence': -0.15, 'composure': -0.05, 'energy': -0.08},
-            'headsup_win': {'confidence': 0.06, 'composure': 0.02, 'energy': 0.05},
-            'headsup_loss': {'confidence': -0.06, 'composure': -0.02, 'energy': -0.05},
-            # Ego/Agency (at most ONE, scaled 50% via resolve_hand_events)
-            'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.05},
-            'bluff_called': {'confidence': -0.25, 'composure': -0.10, 'energy': -0.05},
-            'nemesis_win': {'confidence': 0.18, 'composure': 0.05, 'energy': 0.05},
-            'nemesis_loss': {'confidence': -0.18, 'composure': -0.05, 'energy': -0.05},
-            # Equity Shock (at most ONE, composure+energy only — no confidence)
-            'bad_beat': {'composure': -0.35, 'energy': -0.10},
-            'cooler': {'composure': -0.20, 'energy': -0.05},
-            'suckout': {'composure': 0.10, 'energy': 0.05},
-            'got_sucked_out': {'composure': -0.30, 'energy': -0.15},
-            # Streaks (additive)
-            'winning_streak': {'confidence': 0.10, 'composure': -0.05, 'energy': 0.05},
-            'losing_streak': {'confidence': -0.12, 'composure': -0.20, 'energy': -0.10},
-            # Pressure/Fatigue (additive, no confidence)
-            'big_pot_involved': {'composure': -0.05, 'energy': -0.05},
-            'all_in_moment': {'composure': -0.08, 'energy': -0.08},
-            'card_dead_5': {'confidence': -0.03, 'composure': 0.03, 'energy': -0.10},
-            'consecutive_folds_3': {'composure': -0.05, 'energy': -0.08},
-            'not_in_hand': {'energy': -0.02},
-            'disciplined_fold': {'confidence': -0.06, 'composure': 0.12, 'energy': -0.02},
-            'short_stack_survival': {'confidence': -0.04, 'composure': 0.06, 'energy': -0.05},
-            # Desperation (additive)
-            'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
-            'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
-            'fold_under_pressure': {'confidence': -0.10, 'composure': 0.05},
-        }
-
-        return pressure_events.get(event_name, {})
+        return _PRESSURE_IMPACTS.get(event_name, {})
 
     def resolve_hand_events(
         self,
@@ -612,6 +797,59 @@ class PlayerPsychology:
             f"Quadrant={self.quadrant.value}, "
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}"
         )
+
+    def update_composure_only(
+        self,
+        outcome: str,
+        amount: int,
+        opponent: Optional[str] = None,
+        was_bad_beat: bool = False,
+        was_bluff_called: bool = False,
+        big_blind: int = 100,
+    ) -> None:
+        """Synchronous half of on_hand_complete: composure + axes only, no LLM.
+
+        Split out so the post-hand pipeline can update the play-affecting state
+        (composure → zone effects → bounded-options window shift) inline while
+        deferring the slower emotional narration (prose only) to a background
+        task. See generate_narration and PsychologyPipeline._update_composure.
+        """
+        self.composure_state = self.composure_state.update_from_hand(
+            outcome=outcome,
+            amount=amount,
+            opponent=opponent,
+            was_bad_beat=was_bad_beat,
+            was_bluff_called=was_bluff_called,
+            big_blind=big_blind,
+        )
+        self.hand_count += 1
+        self._mark_updated()
+
+    def generate_narration(
+        self,
+        outcome: str,
+        amount: int,
+        opponent: Optional[str] = None,
+        key_moment: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+        big_blind: int = 100,
+    ) -> None:
+        """Async half of on_hand_complete: the LLM emotional narration only.
+
+        Produces narrative / inner_voice for the next decision prompt (chaos /
+        hybrid) and the heads-up opponent panel. Assumes composure was already
+        advanced via update_composure_only this hand, so it does NOT touch
+        composure or hand_count.
+        """
+        self._generate_emotional_state(
+            outcome=outcome,
+            amount=amount,
+            opponent=opponent,
+            key_moment=key_moment,
+            session_context=session_context or {},
+            big_blind=big_blind,
+        )
+        self._mark_updated()
 
     def recover(self, recovery_rate: Optional[float] = None) -> Dict[str, Any]:
         """

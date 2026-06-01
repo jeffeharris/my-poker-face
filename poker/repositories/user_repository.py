@@ -285,8 +285,12 @@ class UserRepository(BaseRepository):
             ValueError: If user_id doesn't exist in database (for non-guest users)
         """
         if group_name == 'admin' and user_id.startswith('guest_'):
+            # PRH-38: in production a guest can NEVER be admin — not even the
+            # configured INITIAL_ADMIN_EMAIL. The guest-namespace exception is a
+            # dev-only convenience for stable local admin access.
             initial_admin = os.environ.get('INITIAL_ADMIN_EMAIL', '')
-            if user_id != initial_admin:
+            is_production = os.environ.get('FLASK_ENV') == 'production'
+            if user_id != initial_admin or is_production:
                 raise ValueError("Guest users cannot be assigned to the admin group")
 
         with self._get_connection() as conn:
@@ -413,6 +417,17 @@ class UserRepository(BaseRepository):
             return None
 
         if admin_id.startswith('guest_'):
+            # PRH-38: a guest-namespaced admin is a dev-only convenience. In
+            # production the admin must be a verified Google/OAuth email — refuse
+            # to bootstrap a guest admin rather than tie prod admin to a
+            # forgeable/ephemeral guest identity.
+            if os.environ.get('FLASK_ENV') == 'production':
+                logger.error(
+                    "Refusing INITIAL_ADMIN_EMAIL=%s in production: admin must be a "
+                    "Google/OAuth-backed email, not a guest id (PRH-38).",
+                    admin_id,
+                )
+                return None
             user_id = admin_id
             logger.info(f"INITIAL_ADMIN_EMAIL configured for guest user: {user_id}")
         else:

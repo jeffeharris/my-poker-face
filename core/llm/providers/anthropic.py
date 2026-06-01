@@ -99,6 +99,7 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         """Make a chat completion request.
 
@@ -150,6 +151,11 @@ class AnthropicProvider(LLMProvider):
                 "type": "enabled",
                 "budget_tokens": self._thinking_budget,
             }
+
+        # PRH-18: per-call timeout override; short for in-game/ticker calls
+        # so a stalled provider fails fast instead of hanging under a lock.
+        if timeout is not None:
+            kwargs["timeout"] = timeout
 
         return self._client.messages.create(**kwargs)
 

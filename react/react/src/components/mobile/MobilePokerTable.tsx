@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from 'react';
 import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle, Bot, FastForward } from 'lucide-react';
@@ -34,9 +34,13 @@ import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
+import { useInterhandDirector } from '../../hooks/useInterhandDirector';
+import { useRunoutDirector } from '../../hooks/useRunoutDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
+import { heroCardAnimation } from './heroCardAnimation';
 import { logger } from '../../utils/logger';
 import { gameAPI } from '../../utils/api';
+import { avatarUrlForEmotion } from '../../utils/avatarUrl';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
 import './MobilePokerTable.css';
@@ -146,10 +150,14 @@ export function MobilePokerTable({
   const newlyDealtCount = useGameStore((state) => state.newlyDealtCount);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
+  const runoutSchedule = useGameStore((state) => state.runoutSchedule);
+  const setRunoutDirectorActive = useGameStore((state) => state.setRunoutDirectorActive);
+  const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
   const aiInstant = useGameStore((state) => state.aiInstant);
+  const alwaysFastForward = useGameStore((state) => state.alwaysFastForward);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -179,10 +187,8 @@ export function MobilePokerTable({
     onGameLoadFailed,
   });
 
-  const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(
-    awaitingAction,
-    handleSendMessage
-  );
+  const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } =
+    useGuestChatLimit(awaitingAction, handleSendMessage);
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();
@@ -214,7 +220,56 @@ export function MobilePokerTable({
   const currentPlayer = storePlayers?.[currentPlayerIdx];
   const humanPlayer = storePlayers?.find((p) => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
-  const isInterhandPhase = phase === 'EVALUATING_HAND' || phase === 'HAND_OVER';
+
+  // Client-owned between-hand timeline. The winner overlay owns the "result"
+  // beat (and calls handleResultComplete when its hold elapses or the player
+  // taps Continue); the director owns the "shuffle" beat that follows. The two
+  // are never on screen at once — shuffle starts only once the winner is
+  // cleared — which kills the old overlap/flash where both ran on independent
+  // clocks driven by the backend phase string.
+  const { isShuffling, beginShuffle } = useInterhandDirector({
+    hasWinner: !!winnerInfo,
+    handNumber,
+  });
+
+  // Run-out reaction director (mobile, all-in run-outs). Plays the backend's
+  // per-card reaction schedule on a client-owned beat so faces change card-by-
+  // card during the board run-out, instead of one lumped street reaction. The
+  // board itself stays backend-paced (option B); this only re-times reactions.
+  const applyRunoutReaction = useCallback(
+    (playerName: string, emotion: string) => {
+      updateStorePlayers((prev) => {
+        if (!prev) return prev;
+        return prev.map((p) =>
+          p.name === playerName
+            ? { ...p, avatar_emotion: emotion, avatar_url: avatarUrlForEmotion(p.avatar_url, emotion) }
+            : p
+        );
+      });
+    },
+    [updateStorePlayers]
+  );
+
+  const { heroCommitted, heroRetreating } = useRunoutDirector({
+    schedule: runoutSchedule,
+    runItOut,
+    revealed: !!revealedCards,
+    heroFolded: !!humanPlayer?.is_folded,
+    communityCardCount: communityCards?.length ?? 0,
+    handNumber,
+    fastForward,
+    applyReaction: applyRunoutReaction,
+    setActive: setRunoutDirectorActive,
+  });
+
+  const handleResultComplete = useCallback(() => {
+    // No shuffle beat on the tournament's final hand — there's no next hand to
+    // deal, and TournamentComplete takes over once the winner is cleared.
+    if (!winnerInfo?.is_final_hand) {
+      beginShuffle();
+    }
+    clearWinnerInfo();
+  }, [winnerInfo, beginShuffle, clearWinnerInfo]);
 
   // Pick a flavor quote for the interhand shuffle. Memoized by handNumber so
   // it stays stable across re-renders during a single shuffle and changes
@@ -222,6 +277,9 @@ export function MobilePokerTable({
   const interhandQuote = useMemo(() => {
     const q = pickQuote('between_hands');
     return q ? { text: q.text, attribution: q.attribution } : undefined;
+    // handNumber is an intentional recompute key (not read inside): it re-picks
+    // the random quote each new hand while staying stable on re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handNumber]);
 
   // Cash/career mode: turn the interhand pause into a "meanwhile, elsewhere"
@@ -317,6 +375,22 @@ export function MobilePokerTable({
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
 
+  // Run-out reveal cascade order: each revealed opponent reveals after the
+  // previous one finishes (and within an opponent, card 2 after card 1). The
+  // index is the opponent's position among revealed opponents in render order;
+  // the CSS turns it into a per-opponent animation-delay (var --reveal-index).
+  const revealOrder = useMemo(() => {
+    const order = new Map<string, number>();
+    const cards = revealedCards?.players_cards;
+    if (!cards) return order;
+    const rendered = isInShowdown ? activeOpponents : opponents;
+    let idx = 0;
+    for (const p of rendered) {
+      if (cards[p.name]) order.set(p.name, idx++);
+    }
+    return order;
+  }, [revealedCards, isInShowdown, activeOpponents, opponents]);
+
   // Map of player name → avatar URL for FloatingChat. Accumulated across the
   // whole session (never pruned): a player who busts/leaves drops out of
   // `storePlayers`, but a chat message they sent right before going still
@@ -341,9 +415,11 @@ export function MobilePokerTable({
   const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
   const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
 
-  // For non-showdown hands (walks/fold-outs), capture the winner line into local
-  // state and immediately dismiss winnerInfo so MobileWinnerAnnouncement never mounts.
-  // Split into message (name + verb) and submessage (amount) for better layout.
+  // Fold-out (walk) wins are intentionally uneventful: no winner overlay, just
+  // the shuffle screen with the winner line in place of "Shuffling". Capture
+  // that line, hand straight off to the director's shuffle beat (whose minimum
+  // floor keeps it from flashing), and clear winnerInfo so the showdown overlay
+  // never mounts for a walk.
   const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
   const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
 
@@ -365,14 +441,21 @@ export function MobilePokerTable({
     }
     const names =
       winnerInfo.winners.length > 1 ? winnerInfo.winners.join(' & ') : winnerInfo.winners[0];
-    const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
-    setInterhandMessage(`${names} ${verb}`);
-    setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
+    const verb = winnerInfo.winners.length > 1 ? 'SPLIT' : 'WON';
+    // Name on its own line (the hero); the amount drops to the line below as
+    // "WON $X" — no animated dots, since the hand is finished, not loading.
+    setInterhandMessage(names);
+    setInterhandSubmessage(
+      netProfit != null && netProfit > 0 ? `${verb} $${netProfit.toLocaleString()}` : verb
+    );
 
+    if (!winnerInfo.is_final_hand) {
+      beginShuffle();
+    }
     clearWinnerInfo();
-  }, [winnerInfo, clearWinnerInfo]);
+  }, [winnerInfo, clearWinnerInfo, beginShuffle]);
 
-  // Clear when the next hand starts
+  // Clear the walk message once the next hand starts.
   useEffect(() => {
     setInterhandMessage(null);
     setInterhandSubmessage(undefined);
@@ -613,13 +696,9 @@ export function MobilePokerTable({
                 // rewrite the same default avatar shows the whole hand
                 // even though the player object exposes avatar_emotion.
                 const isAiThinking = isCurrentPlayer && aiThinking && !opponent.is_human;
-                const avatarUrl =
-                  isAiThinking && opponent.avatar_url
-                    ? opponent.avatar_url.replace(
-                        /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
-                        '/api/avatar/$1/thinking$2'
-                      )
-                    : opponent.avatar_url;
+                const avatarUrl = isAiThinking
+                  ? avatarUrlForEmotion(opponent.avatar_url, 'thinking')
+                  : opponent.avatar_url;
                 const avatarEmotion = isAiThinking
                   ? 'thinking'
                   : opponent.avatar_emotion || 'avatar';
@@ -718,7 +797,12 @@ export function MobilePokerTable({
                     {opponent.bet > 0 && <div className="opponent-bet">${opponent.bet}</div>}
                     {/* Revealed hole cards during run-it-out showdown */}
                     {revealedCards?.players_cards[opponent.name] && (
-                      <div className="opponent-revealed-cards">
+                      <div
+                        className="opponent-revealed-cards"
+                        style={
+                          { '--reveal-index': revealOrder.get(opponent.name) ?? 0 } as CSSProperties
+                        }
+                      >
                         {revealedCards.players_cards[opponent.name].map((card, i) => (
                           <Card key={i} card={card} faceDown={false} size="large" />
                         ))}
@@ -822,7 +906,7 @@ export function MobilePokerTable({
               <div className="hero-bet">${humanPlayer.bet}</div>
             )}
             <div
-              className="hero-cards"
+              className={`hero-cards${heroCommitted ? ' hero-cards--committed' : ''}`}
               data-testid="hero-cards"
               style={{
                 gap: `${cardTransforms.gap}px`,
@@ -878,9 +962,15 @@ export function MobilePokerTable({
                         transform: `rotate(${cardTransforms.card1.rotation}deg) translateX(${cardTransforms.card1.offsetX}px) translateY(${cardTransforms.card1.offsetY}px)`,
                         transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                         cursor: 'pointer',
-                        animation: isDealing
-                          ? `dealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both`
-                          : 'none',
+                        // Run-out matchup: throw the left card up to present over
+                        // the board and HOLD it there; pull it back down only once
+                        // the run-out starts dealing (heroRetreating), so the board
+                        // is clear. Same easing as the deal-in — reads smooth.
+                        animation: heroCardAnimation('Left', {
+                          heroRetreating,
+                          heroCommitted,
+                          isDealing,
+                        }),
                         opacity: humanPlayer?.is_folded ? 0.5 : 1,
                         '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
                         '--deal-start-rotation': `${cardTransforms.card1.startRotation}deg`,
@@ -903,9 +993,12 @@ export function MobilePokerTable({
                         transform: `rotate(${cardTransforms.card2.rotation}deg) translateX(${cardTransforms.card2.offsetX}px) translateY(${cardTransforms.card2.offsetY}px)`,
                         transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                         cursor: 'pointer',
-                        animation: isDealing
-                          ? `dealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both`
-                          : 'none',
+                        // ...then, a beat later, the right card up beside it.
+                        animation: heroCardAnimation('Right', {
+                          heroRetreating,
+                          heroCommitted,
+                          isDealing,
+                        }),
                         opacity: humanPlayer?.is_folded ? 0.5 : 1,
                         '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
                         '--deal-start-rotation': `${cardTransforms.card2.startRotation}deg`,
@@ -933,7 +1026,7 @@ export function MobilePokerTable({
 
           {/* Action Buttons - Always visible area */}
           <div className="mobile-action-area">
-            {showActionButtons && currentPlayer ? (
+            {showActionButtons && currentPlayer && !winnerInfo && !isShuffling ? (
               <MobileActionButtons
                 playerOptions={playerOptions}
                 currentPlayerStack={currentPlayer.stack}
@@ -994,7 +1087,8 @@ export function MobilePokerTable({
                   humanPlayer &&
                   currentPlayer &&
                   !currentPlayer.is_human &&
-                  !aiInstant && (
+                  !aiInstant &&
+                  !alwaysFastForward && (
                     <button
                       className={`action-btn ff-btn ${fastForward ? 'queued' : ''}`}
                       data-testid="action-btn-ff"
@@ -1029,12 +1123,15 @@ export function MobilePokerTable({
             )}
           </div>
 
-          {/* Winner Announcement — non-showdown wins are handled by the interhand
-          message inside ShuffleLoading, so only mount for showdown wins. */}
-          {!(winnerInfo && !winnerInfo.showdown) && (
+          {/* Winner Announcement — the "result" beat for showdown wins only.
+          Fold-out walks stay uneventful (their winner line shows in the shuffle
+          screen below). When the overlay's hold elapses or the player taps
+          Continue, handleResultComplete hands off to the shuffle beat and clears
+          the winner, so the overlay and shuffle never overlap. */}
+          {winnerInfo && winnerInfo.showdown && (
             <MobileWinnerAnnouncement
               winnerInfo={winnerInfo}
-              onComplete={clearWinnerInfo}
+              onComplete={handleResultComplete}
               gameId={gameId || ''}
               playerName={playerName || ''}
               onSendMessage={wrappedSendMessage}
@@ -1054,16 +1151,20 @@ export function MobilePokerTable({
             />
           )}
 
-          {/* Shuffle animation during end-of-hand phases. For non-showdown wins the
-          shuffle message shows who won instead of "Shuffling". */}
+          {/* Shuffle beat — owned by the director. For showdowns it follows the
+          winner overlay; for fold-out walks it IS the result (the winner line
+          shows in place of "Shuffling"). Either way it holds a client minimum so
+          it can't flash, and covers the wait for the backend to deal the next
+          hand. */}
           <ShuffleLoading
-            isVisible={isInterhandPhase}
+            isVisible={isShuffling}
             message={interhandMessage || 'Shuffling'}
             submessage={interhandSubmessage}
             handNumber={cashMode ? undefined : handNumber}
             ticker={interhandTicker}
             quote={interhandQuote}
             variant="interhand"
+            showDots={!interhandMessage}
           />
 
           {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}
@@ -1076,7 +1177,7 @@ export function MobilePokerTable({
             playerName={playerName || 'Player'}
             players={storePlayers || []}
             guestChatDisabled={guestChatDisabled}
-            isGuest={isGuest}
+            guestFreeChatLocked={guestFreeChatLocked}
             initialTarget={chatInitialTarget}
           />
 

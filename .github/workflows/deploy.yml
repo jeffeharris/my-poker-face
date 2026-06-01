@@ -204,10 +204,13 @@ jobs:
       - name: Backup database before deploy
         working-directory: /opt/poker
         run: |
+          # WAL-safe backup (SQLite online-backup API + integrity_check), NOT a
+          # torn plain `cp` of a live-WAL .db. This is the only safety net before
+          # the one-time destructive cash-mode migrations, so a corrupt snapshot
+          # must abort the deploy: backup_db.py exits non-zero on failure/integrity
+          # error and `set -e` (default) fails the step. Mirrors deploy.sh (PRH-29).
           if [ -f data/poker_games.db ]; then
-            cp data/poker_games.db "data/poker_games.db.bak.$(date +%Y%m%d-%H%M%S)"
-            ls -t data/poker_games.db.bak.* 2>/dev/null | tail -n +6 | xargs -r rm -f
-            echo "Database backed up (keeping last 5)"
+            python3 scripts/backup_db.py data/poker_games.db --keep 7
           else
             echo "No database file found, skipping backup"
           fi

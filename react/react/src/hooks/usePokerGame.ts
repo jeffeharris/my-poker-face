@@ -4,10 +4,36 @@ import toast from 'react-hot-toast';
 import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
 import type { CashBustEvent, LobbyEvent } from '../components/cash/types';
+import type { RunoutSchedule } from '../types/runout';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
+
+interface SkillEvaluationFeedback {
+  skill_id: string;
+  skill_name: string;
+  verdict: 'correct' | 'incorrect' | 'marginal';
+  reasoning: string;
+  confidence: number;
+}
+
+// Training mode returns a per-action coach verdict in the action response.
+// Surface it as a brief, calm toast (single id so rapid actions replace rather
+// than stack). Other modes never include this field.
+function showCoachFeedback(ev: SkillEvaluationFeedback): void {
+  const mark = ev.verdict === 'correct' ? '✓' : ev.verdict === 'incorrect' ? '✗' : '•';
+  const message = `${mark} ${ev.skill_name} — ${ev.reasoning}`;
+  const opts = { id: 'coach-feedback', duration: 4500 } as const;
+  if (ev.verdict === 'correct') {
+    toast.success(message, opts);
+  } else if (ev.verdict === 'incorrect') {
+    toast.error(message, opts);
+  } else {
+    toast(message, { ...opts, icon: '🧐' });
+  }
+}
+
 interface UsePokerGameOptions {
   gameId: string | null;
   playerName?: string;
@@ -16,7 +42,7 @@ interface UsePokerGameOptions {
   onGameLoadFailed?: () => void;
 }
 
-type QueuedAction = 'check_fold' | null;
+export type QueuedAction = 'check_fold' | null;
 
 // State buffer for card animation gating
 enum BufferState {
@@ -95,6 +121,9 @@ export function usePokerGame({
   const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const updateStorePlayerOptions = useGameStore((state) => state.updatePlayerOptions);
   const pushWorldEvent = useGameStore((state) => state.pushWorldEvent);
+  const setRunoutSchedule = useGameStore((state) => state.setRunoutSchedule);
+  const applyOptimisticAction = useGameStore((state) => state.applyOptimisticAction);
+  const rollbackOptimisticAction = useGameStore((state) => state.rollbackOptimisticAction);
   const gameState = useGameStore(useShallow(selectGameState));
 
   const [loading, setLoading] = useState(true);
@@ -522,6 +551,13 @@ export function usePokerGame({
         setRevealedCards(data);
       });
 
+      // Per-card run-out reaction schedule (mobile director, Phase 2). Emitted
+      // once at the all-in hole-card reveal; carries reactions + timing only (no
+      // board cards). The mobile `useRunoutDirector` walks it; desktop ignores it.
+      socket.on('runout_schedule', (data: RunoutSchedule) => {
+        setRunoutSchedule(data);
+      });
+
       socket.on('player_eliminated', (data: EliminationEvent) => {
         setEliminationEvents((prev) => [...prev, data]);
       });
@@ -555,6 +591,16 @@ export function usePokerGame({
         toast.error(data.message);
       });
 
+      // PRH-31: the backend emits `reload_required` when a socket action hits a
+      // game that was evicted from memory (server restart / TTL) — the action
+      // path can't cold-load, only GET /api/game-state can. Self-heal by
+      // re-fetching state, which rehydrates the game from persistence.
+      socket.on('reload_required', (_data: { game_id?: string; code?: string }) => {
+        logger.warn('[RESILIENCE] reload_required from server — refreshing game state');
+        const gId = gameIdRef.current;
+        if (gId) refreshGameStateRef.current(gId, true);
+      });
+
       // Cash mode: server-driven bust detection. `cash_rebuy_needed`
       // fires when the human's stack hits 0 but bankroll can still
       // afford a rebuy at this table; `cash_bust` fires when bankroll
@@ -583,8 +629,21 @@ export function usePokerGame({
       // - The generated emotion matches what the player is currently showing
       socket.on(
         'avatar_update',
-        (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
+        (data: {
+          player_name: string;
+          avatar_url: string;
+          avatar_emotion: string;
+          is_reaction?: boolean;
+        }) => {
           logger.debug(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
+          // While the mobile run-out director owns reactions, drop the backend's
+          // street-level reaction emits — the director plays finer per-card faces
+          // and a late street-level emit would clobber them. Generation arrivals
+          // (no is_reaction flag) still pass through. Desktop never sets the flag,
+          // so it keeps the backend reactions (it has no director).
+          if (data.is_reaction && useGameStore.getState().runoutDirectorActive) {
+            return;
+          }
           // Always cache — prevents losing URLs when emotions change during generation
           if (!avatarCacheRef.current[data.player_name]) {
             avatarCacheRef.current[data.player_name] = {};
@@ -594,6 +653,21 @@ export function usePokerGame({
             if (!prev) return prev;
             return prev.map((player) => {
               if (player.name !== data.player_name) return player;
+              // Run-out reactions are authoritative: apply the emotion AND url
+              // immediately so the face changes on its own beat. Without this the
+              // emotion would only arrive on the next full game-state push (one
+              // street later), which is what made reactions feel "off a beat" and
+              // let the showdown face get cut off by the hand-over screen.
+              // The branches below are for async avatar-image generation arriving
+              // after the displayed emotion may have moved on — there we must NOT
+              // clobber the current emotion.
+              if (data.is_reaction) {
+                return {
+                  ...player,
+                  avatar_url: data.avatar_url,
+                  avatar_emotion: data.avatar_emotion,
+                };
+              }
               // Always apply if player has no avatar yet
               if (!player.avatar_url) {
                 return {
@@ -623,6 +697,7 @@ export function usePokerGame({
       updateStorePlayers,
       updateStorePlayerOptions,
       pushWorldEvent,
+      setRunoutSchedule,
       resetBuffer,
       processStateUpdate,
     ]
@@ -652,12 +727,26 @@ export function usePokerGame({
         // Reset buffer on full refresh to prevent stale queued state
         resetBuffer();
 
-        const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+        // Fetch with a bounded retry on 404. A cash session that's
+        // only in the DB (server restarted mid-session) rehydrates on
+        // the first GET via the cold-load path — but a transient miss
+        // right at navigation time (session/auth not ready yet, a
+        // cold-load race) can 404 before the row is back. Retrying a
+        // couple times with short backoff removes the "two error toasts
+        // then it loaded" flap on resume, without masking a genuinely
+        // gone game (after the retries exhaust we still declare it gone).
+        const MAX_404_RETRIES = 2;
+        let res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+        for (let attempt = 0; res.status === 404 && attempt < MAX_404_RETRIES; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+          if (gameGoneRef.current) return false;
+          res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+        }
         if (res.status === 404) {
           // Game is gone from the backend (cash sessions don't survive
-          // a backend restart; tournament games could be evicted from
-          // memory). Stop trying.
-          logger.warn(`Game ${gId} not found — backend has no record`);
+          // a backend restart if the row can't be loaded; tournament
+          // games could be evicted from memory). Stop trying.
+          logger.warn(`Game ${gId} not found after retries — backend has no record`);
           handleGameGone();
           return false;
         }
@@ -856,6 +945,11 @@ export function usePokerGame({
       setQueuedAction(null);
       setAiThinking(true);
 
+      // Optimistic UI: move the chips to the pot immediately so the tap feels
+      // responsive instead of "submitting…". The authoritative game_state push
+      // reconciles (and clears the rollback snapshot); we revert only on reject.
+      applyOptimisticAction(action, amount);
+
       // Safety net: if no socket event clears aiThinking within 30s, auto-refresh state
       clearAiThinkingTimeout();
       aiThinkingTimeoutRef.current = setTimeout(async () => {
@@ -870,8 +964,8 @@ export function usePokerGame({
         }
       }, 30000);
 
-      try {
-        const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
+      const postAction = () =>
+        fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -882,16 +976,51 @@ export function usePokerGame({
           }),
         });
 
+      try {
+        let response = await postAction();
+
+        // PRH-31: the action path can't cold-load — it returns 409
+        // RELOAD_REQUIRED when the game was evicted from memory (restart / TTL).
+        // Self-heal: re-fetch state (which rehydrates it via the GET cold-load
+        // path) and retry the action once, so a tap right after a reconnect/
+        // eviction isn't a silently-dropped dead button.
+        if (response.status === 409) {
+          let code: string | undefined;
+          try {
+            code = (await response.clone().json())?.code;
+          } catch {
+            code = undefined;
+          }
+          if (code === 'RELOAD_REQUIRED') {
+            logger.warn('[RESILIENCE] action got RELOAD_REQUIRED — reloading state and retrying');
+            await refreshGameState(gameId, true);
+            response = await postAction();
+          }
+        }
+
         if (!response.ok) {
           throw new Error('Action failed');
         }
+
+        // Training mode includes a per-action coach verdict — show it inline.
+        try {
+          const body = await response.json();
+          if (body?.skill_evaluation) {
+            showCoachFeedback(body.skill_evaluation as SkillEvaluationFeedback);
+          }
+        } catch {
+          // Non-JSON / empty body (non-training games) — nothing to surface.
+        }
       } catch (error) {
         logger.error('Failed to send action:', error);
+        // The server didn't accept the action — undo the optimistic chip move
+        // so the table doesn't show money in a pot it never reached.
+        rollbackOptimisticAction();
         setAiThinking(false);
         clearAiThinkingTimeout();
       }
     },
-    [gameId, clearAiThinkingTimeout, refreshGameState]
+    [gameId, clearAiThinkingTimeout, refreshGameState, applyOptimisticAction, rollbackOptimisticAction]
   );
 
   // Keep ref in sync for socket callback access (update synchronously)

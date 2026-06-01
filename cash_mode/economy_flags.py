@@ -49,6 +49,21 @@ override via a startup hook if/when we want runtime control.
 
 from __future__ import annotations
 
+import os
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    """Read a boolean toggle from the environment, falling back to `default`.
+
+    Lets an operator opt a flag on/off per-deployment (e.g. enable the Presence
+    shadow on dev without flipping the committed default — which would also flip
+    production on the next deploy). Truthy: 1/true/yes/on (case-insensitive)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 # --- Faucet ---------------------------------------------------------------
 
 # Passive regen retired per CASH_MODE_SIDE_HUSTLE.md — the active side
@@ -97,6 +112,113 @@ RAKE_CAP_BB: int = 4
 # at a listed stake rakes the same, however many there are. Default to
 # the top tier only ($1000) to throttle pool inflow at low stakes.
 RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
+
+
+# --- Player-prestige hook 4: AI demeanor ----------------------------------
+
+# Kill switch for the reputation-driven AI demeanor (player-prestige hook 4).
+# When True (default), AIs seated with a HIGH-renown human get a small,
+# poise-filtered psychology nudge once per hand: a feared **Infamous Villain**
+# rattles low-poise opponents (composure pressure → scared / tilt-prone, an
+# exploitable edge), while a **Beloved Legend** loosens them up (a confidence /
+# energy lift). The nudge drives both decisions (via the emotional-window
+# shift on bounded options) and table-talk demeanor (the expression generator
+# reflects the axes), so it's the one prestige hook that touches the decision
+# path — hence the dedicated switch. Flip to False to fully disable it with
+# zero residual effect (the other prestige hooks — chat tone, backing gating,
+# table pull — are unaffected). See `_apply_reputation_demeanor` in
+# `flask_app/handlers/game_handler.py` and `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
+REPUTATION_DEMEANOR_ENABLED: bool = True
+
+# Number of open seats the live-world greedy fill leaves untouched on
+# each table, so a human browsing the lobby always has a seat to sit/
+# sponsor into. The world ticker fills aggressively (tick≈2s) and a
+# lobby snapshot can be seconds stale, so without headroom the ticker
+# wins the race for the last open seat and the player's tap 409s (read
+# as a dead Sit/Sponsor button). Set 0 to restore full saturation.
+# Passed explicitly as `human_headroom` to `refresh_unseated_tables` by
+# the LIVE call sites only — sims default to 0 so closed-economy runs
+# still fill tables completely.
+LIVE_FILL_HUMAN_HEADROOM: int = 1
+
+
+# --- Opponent dossier scouting gate (Phase 2) -----------------------------
+
+# Kill switch for the dossier scouting meta-game's grind gate. When True
+# (default), the opponent dossier's *earnable* reads (behavioral tendencies,
+# track record, table posture) are gated behind hands observed against that
+# opponent in the active sandbox: below the floor the file is "classified",
+# and individual reads unlock as the sample grows. Identity/standing/notes
+# are never gated. Applies ONLY in a Circuit context (a sandbox + observer
+# with a lifetime observation row); outside the Circuit the dossier is
+# ungated as before. Flip to False to show every read immediately again
+# (zero residual effect — the gate is a pure read-time transform). See
+# `flask_app/services/dossier_scouting.py` and
+# `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+DOSSIER_SCOUTING_GATE_ENABLED: bool = True
+
+
+# --- Presence machine cutover (dual-write shadow phase) -------------------
+
+# Kill switch for the Presence state-machine SHADOW writes. When True, the
+# cash-mode seat / idle / hustle / vice writers ALSO record the corresponding
+# transition into `entity_presence` (the dormant Cut-3 table) *alongside* the
+# existing authoritative stores — a dual-write used to prove the machine tracks
+# reality on live traffic before authority is flipped to it (design Phase 3,
+# CASH_MODE_PRESENCE_MIGRATION.md §Sequencing step 1). Default **False**: every
+# shadow write is a guarded no-op, so the cutover code is inert until an
+# operator opts in. The shadow path is additionally wrapped in try/except
+# (`cash_mode/presence_shadow.py`) so even when enabled it can never break the
+# real seat write — a shadow failure is logged and swallowed. The authoritative
+# stores (`cash_tables`, `cash_idle_pool`, `ai_*_state`) remain the source of
+# truth throughout this phase; only the eventual flip (a separate change) makes
+# `entity_presence` authoritative.
+PRESENCE_SHADOW_WRITE_ENABLED: bool = _env_flag("PRESENCE_SHADOW_WRITE_ENABLED", False)
+
+# Phase 3 — the AUTHORITY flip. When True, `entity_presence` becomes the
+# authoritative record of actor location: the seat-write chokepoint
+# (`CashTableRepository.save_table`) drives presence transitions inside its own
+# transaction (presence + seats commit together), and the old stores
+# (`cash_tables` seat map / `cash_idle_pool` / `ai_*_state`) become projections.
+# Default **False** — every authoritative presence path is a no-op until the
+# operator opts in. This is SEPARATE from the shadow flag above: with authority
+# OFF and shadow ON, presence is mirrored best-effort (validation); with
+# authority ON, presence is the source of truth. Flipping this to True (in
+# `cash_mode/economy_flags.py` or via env) is the single irreversible cut —
+# everything else in the cutover is reversible. See
+# `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md`.
+PRESENCE_AUTHORITY_ENABLED: bool = _env_flag("PRESENCE_AUTHORITY_ENABLED", True)
+
+
+# --- Chip-custody machine cutover (the Presence twin) ---------------------
+
+# Kill switch for the chip-custody ledger transfers — the AI side of what Cut 2
+# did for humans. When True, the two AI bankroll chokepoints
+# (`cash_mode/bankroll.py:debit_bankroll_for_seat` and `credit_ai_cash_out`) ALSO
+# record an `ai ↔ seat` transfer into `chip_ledger_entries` alongside the existing
+# bankroll int move, so an AI's at-table chips become a derivable ledger balance
+# (`seat:ai:<sandbox_id>:<personality_id>`) exactly as a human's are
+# (`seat:<game_id>`). Conservation-neutral: the bankroll int still moves; the
+# transfer just records it, making AI bankroll ledger-derivable (the foundation
+# for D2 / derived bankroll). Stake/carry payoffs (an overloaded second use of
+# `credit_ai_cash_out`) record an `ai → ai` transfer instead — see the
+# `from_seat` discriminator. Default **False** so every custody path is a guarded
+# no-op until an operator opts in (mirror `PRESENCE_AUTHORITY_ENABLED`'s env
+# pattern). See `docs/plans/CASH_MODE_CHIP_CUSTODY_SCOPE.md` +
+# `docs/plans/CASH_MODE_CHIP_CUSTODY_HANDOFF.md`.
+CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
+
+# D2 — ledger-derived bankroll reads. When True, `BankrollRepository.load_*`
+# return the LEDGER-DERIVED chip count (Σ over `chip_ledger_entries`) as the
+# authoritative value, treating the stored int as a cache and logging any
+# divergence. Requires CHIP_CUSTODY_ENABLED (the ledger must be complete) and a
+# backfilled DB, else derived reads return wrong values. Default **False**: the
+# stored int is the read (transaction-consistent within a chokepoint's single
+# save; the ledger row is written immediately after, so a derived read in that
+# sub-millisecond window would be momentarily stale — the int avoids that). Flip
+# on to make the ledger authoritative for reads after validating int==derived
+# via scripts/audit_ledger_completeness.py. See CASH_MODE_CHIP_CUSTODY_SCOPE.md (D2).
+CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 
 
 def compute_rake(pot: int, big_blind: int) -> int:

@@ -41,8 +41,9 @@ class PersonalityRepository(BaseRepository):
         config: Dict[str, Any],
         source: str = 'ai_generated',
         owner_id: Optional[str] = None,
-        visibility: str = 'public',
+        visibility: Optional[str] = None,
         personality_id: Optional[str] = None,
+        circulating: Optional[bool] = None,
     ) -> str:
         """Save a personality configuration to the database.
 
@@ -51,8 +52,20 @@ class PersonalityRepository(BaseRepository):
             config: Personality config dict (may include 'id' as a hint;
                 explicit personality_id parameter wins if both provided)
             source: Provenance label (ai_generated, user_created, etc.)
-            owner_id: Owning user, when applicable
-            visibility: 'public' | 'private' | 'disabled'
+            owner_id: Owning user. ``None`` preserves an existing row's owner
+                on re-save (and stays ``None`` for a new row).
+            visibility: 'public' | 'private' | 'disabled'. ``None`` preserves an
+                existing row's visibility on re-save (PRH-27: editing e.g. an
+                avatar description must not silently publish a private
+                personality); a new row defaults to 'public'.
+            circulating: Whether the persona is auto-seeded into the
+                opponent pool (cash-mode seat-filler). ``None`` preserves
+                an existing row's value on re-save; a NEW row defaults to
+                0 (NOT circulating) — the safe default that stops sim/test/
+                ownerless personas from silently entering everyone's games.
+                Curated seeds set this to 1 explicitly. Distinct from
+                `visibility`: a row can be public (visible/pickable) yet
+                non-circulating (never auto-seated). See migration v123.
             personality_id: Stable identifier (slug-style). If omitted,
                 generated from name via slugify_personality_name. The
                 method preserves an existing row's personality_id when
@@ -76,6 +89,14 @@ class PersonalityRepository(BaseRepository):
             has_elasticity = 'elasticity_config' in columns
             has_ownership = 'owner_id' in columns
             has_personality_id = 'personality_id' in columns
+            has_visibility = 'visibility' in columns
+            has_circulating = 'circulating' in columns
+
+            # Fetch the existing row once so a re-save preserves identity,
+            # ownership, and visibility the caller didn't explicitly set.
+            existing = conn.execute(
+                "SELECT * FROM personalities WHERE name = ?", (name,)
+            ).fetchone()
 
             # Resolve the personality_id to write. Priority:
             #   1. Explicit parameter
@@ -83,13 +104,8 @@ class PersonalityRepository(BaseRepository):
             #   3. Existing row's personality_id (preserve across re-saves)
             #   4. Freshly slugified from name, with collision resolution
             resolved_id = personality_id or config.get('id')
-            if has_personality_id and not resolved_id:
-                existing = conn.execute(
-                    "SELECT personality_id FROM personalities WHERE name = ?",
-                    (name,),
-                ).fetchone()
-                if existing and existing['personality_id']:
-                    resolved_id = existing['personality_id']
+            if has_personality_id and not resolved_id and existing and existing['personality_id']:
+                resolved_id = existing['personality_id']
             if has_personality_id and not resolved_id:
                 base_slug = slugify_personality_name(name)
                 if base_slug:
@@ -109,6 +125,35 @@ class PersonalityRepository(BaseRepository):
                         name,
                     )
 
+            # Preserve owner_id / visibility on a re-save unless the caller
+            # explicitly overrides them. INSERT OR REPLACE rewrites the whole
+            # row, so without this an avatar/visual-identity edit (which passes
+            # neither) would silently orphan + publish a private personality.
+            resolved_owner_id = owner_id
+            if resolved_owner_id is None and existing is not None and has_ownership:
+                resolved_owner_id = existing['owner_id']
+            resolved_visibility = visibility
+            if resolved_visibility is None:
+                if existing is not None and has_visibility and existing['visibility']:
+                    resolved_visibility = existing['visibility']
+                else:
+                    resolved_visibility = 'public'
+
+            # Resolve `circulating` the same way: explicit param wins, else
+            # preserve the existing row's value, else a new row defaults to
+            # 0 (NOT circulating). INSERT OR REPLACE below can't carry a
+            # conditional column cleanly across the four schema branches, so
+            # it's applied as a branch-agnostic follow-up UPDATE once the row
+            # exists. Read here, before the REPLACE rewrites the row.
+            resolved_circulating: Optional[int] = None
+            if has_circulating:
+                if circulating is not None:
+                    resolved_circulating = 1 if circulating else 0
+                elif existing is not None and existing['circulating'] is not None:
+                    resolved_circulating = int(existing['circulating'])
+                else:
+                    resolved_circulating = 0
+
             if has_personality_id and has_elasticity and has_ownership:
                 conn.execute(
                     """
@@ -122,8 +167,8 @@ class PersonalityRepository(BaseRepository):
                         json.dumps(config_without_elasticity),
                         json.dumps(elasticity_config),
                         source,
-                        owner_id,
-                        visibility,
+                        resolved_owner_id,
+                        resolved_visibility,
                         resolved_id,
                     ),
                 )
@@ -139,8 +184,8 @@ class PersonalityRepository(BaseRepository):
                         json.dumps(config_without_elasticity),
                         json.dumps(elasticity_config),
                         source,
-                        owner_id,
-                        visibility,
+                        resolved_owner_id,
+                        resolved_visibility,
                     ),
                 )
             elif has_elasticity:
@@ -165,6 +210,16 @@ class PersonalityRepository(BaseRepository):
                     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                 """,
                     (name, json.dumps(config), source),
+                )
+
+            # INSERT OR REPLACE above either left `circulating` at the column
+            # default (0) for a fresh row or reset it on a re-save; write the
+            # resolved value explicitly so re-saves preserve it and seeds keep
+            # their circulating=1. Branch-agnostic — runs for every path.
+            if has_circulating and resolved_circulating is not None:
+                conn.execute(
+                    "UPDATE personalities SET circulating = ? WHERE name = ?",
+                    (resolved_circulating, name),
                 )
 
         return resolved_id or ""
@@ -296,7 +351,11 @@ class PersonalityRepository(BaseRepository):
             return {row['personality_id']: row['name'] for row in rows if row['personality_id']}
 
     def list_personalities(
-        self, limit: int = 50, user_id: Optional[str] = None, include_disabled: bool = False
+        self,
+        limit: int = 50,
+        user_id: Optional[str] = None,
+        include_disabled: bool = False,
+        circulating_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """List personalities with metadata, filtered by visibility.
 
@@ -304,15 +363,27 @@ class PersonalityRepository(BaseRepository):
             limit: Max number of results
             user_id: If provided, include this user's private personalities
             include_disabled: If True (admin), include disabled and all private personalities
+            circulating_only: If True, the *public* branch is narrowed to
+                circulating personas (v123) — i.e. a public-but-not-circulating
+                persona (a demoted sim/test zombie) is hidden. The user's OWN
+                personas (`owner_id = user_id`) are still included regardless,
+                so this only trims the shared public pool. Use for player-facing
+                surfaces that should mirror the cash circuit — the opponent
+                picker and themed-game roster sampling — while leaving admin/
+                management views (default False) showing everything for curation.
         """
         with self._get_connection() as conn:
             columns = [
                 row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()
             ]
             has_ownership = 'owner_id' in columns
+            has_circulating = 'circulating' in columns
 
             if has_ownership:
-                conditions = ["visibility = 'public'"]
+                public_clause = "visibility = 'public'"
+                if circulating_only and has_circulating:
+                    public_clause = "(visibility = 'public' AND circulating = 1)"
+                conditions = [public_clause]
                 params: list = []
 
                 if user_id:
@@ -325,10 +396,15 @@ class PersonalityRepository(BaseRepository):
 
                 where_clause = "WHERE " + " OR ".join(conditions)
 
+                # `circulating` surfaced (when present) so the management /
+                # curation layer can show and toggle pool membership; it does
+                # NOT filter this list — visibility governs who appears here,
+                # circulating only governs auto-seeding (see v123).
+                circ_col = ", circulating" if has_circulating else ""
                 cursor = conn.execute(
                     f"""
                     SELECT name, source, created_at, updated_at, times_used, is_generated,
-                           owner_id, visibility
+                           owner_id, visibility{circ_col}
                     FROM personalities
                     {where_clause}
                     ORDER BY times_used DESC, updated_at DESC
@@ -360,6 +436,8 @@ class PersonalityRepository(BaseRepository):
                 if has_ownership:
                     entry['owner_id'] = row['owner_id']
                     entry['visibility'] = row['visibility']
+                if has_circulating:
+                    entry['circulating'] = bool(row['circulating'])
                 personalities.append(entry)
 
             return personalities
@@ -377,8 +455,13 @@ class PersonalityRepository(BaseRepository):
         candidate pool by visibility/ownership.
 
         Filter rules:
-          - `visibility = 'public'` always included (the seeded
-            corpus + any user-published personalities).
+          - `visibility = 'public' AND circulating = 1` included (the
+            seeded corpus + any deliberately-published personalities).
+            `circulating` (v123) gates AUTO-seeding: a public-but-not-
+            circulating persona stays visible/pickable but is never
+            auto-seated here, which is how sim/test/ownerless zombies are
+            kept out of the live pool. Pre-v123 schemas (no column) fall
+            back to plain `visibility = 'public'`.
           - `user_id` (if provided) → also include that user's
             'private' personalities. v1 doesn't surface this from
             the cash-mode home UI, but the parameter is here so v2's
@@ -406,6 +489,7 @@ class PersonalityRepository(BaseRepository):
             }
             has_ownership = 'owner_id' in columns
             has_personality_id = 'personality_id' in columns
+            has_circulating = 'circulating' in columns
 
             if not has_personality_id:
                 # Pre-v85 schema — no stable IDs to surface.
@@ -428,7 +512,16 @@ class PersonalityRepository(BaseRepository):
             )
 
             if has_ownership:
-                visibility_clauses = ["visibility = 'public'"]
+                # Public personas auto-seat only when `circulating = 1`
+                # (v123): public governs visibility, circulating governs
+                # auto-seeding. A user's OWN private personas are not gated
+                # by circulating — they explicitly belong to that user.
+                public_clause = (
+                    "(visibility = 'public' AND circulating = 1)"
+                    if has_circulating
+                    else "visibility = 'public'"
+                )
+                visibility_clauses = [public_clause]
                 if user_id:
                     visibility_clauses.append("(owner_id = ? AND visibility = 'private')")
                     params.append(user_id)
@@ -622,6 +715,23 @@ class PersonalityRepository(BaseRepository):
             )
             return cursor.rowcount > 0
 
+    def set_circulating(self, name: str, circulating: bool) -> bool:
+        """Set whether a persona auto-seeds into the opponent pool (v123).
+
+        Distinct from `set_visibility`: this flips ONLY the auto-seeding
+        flag, leaving visibility (who can see/pick the persona) untouched.
+        Promoting a persona into the live circuit — or demoting a leaked
+        sim/test zombie out of it without hiding or deleting it — is this
+        method. Returns True if a row was updated.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE personalities SET circulating = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE name = ?",
+                (1 if circulating else 0, name),
+            )
+            return cursor.rowcount > 0
+
     def set_owner(self, name: str, owner_id: str, visibility: str = 'private') -> bool:
         """Assign an owner to a personality. Returns True if updated."""
         with self._get_connection() as conn:
@@ -712,7 +822,15 @@ class PersonalityRepository(BaseRepository):
                 self.update_personality_config(name, config, source='personalities.json')
                 updated += 1
             else:
-                self.save_personality(name, config, source='personalities.json')
+                # The curated celebrity corpus IS the live pool, so seed it
+                # circulating=1 explicitly. Without this a fresh-install DB
+                # would land every celebrity at the new circulating=0 default
+                # and start with an empty opponent pool. (Re-seeds of an
+                # existing row go through update_personality_config above,
+                # which leaves circulating untouched = preserved.)
+                self.save_personality(
+                    name, config, source='personalities.json', circulating=True
+                )
                 added += 1
 
         logger.info(
