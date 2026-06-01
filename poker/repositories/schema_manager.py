@@ -267,7 +267,13 @@ _test_schema_template_path = None
 #       tournament unification (every game is a TournamentSession; a single game
 #       is a 1-table session). Brute-force cut. Renumbered from v124 (opponent-
 #       observation-lifetime took v124 on development).
-SCHEMA_VERSION = 131
+# v132: Add the tournament real-chip economy columns (buy_in, rake, bank_overlay,
+#       prize_pool, payout_status) to `tournaments`. The funny-money field stays
+#       in session_json; this is the real-chip layer (escrow → overlay → payout)
+#       on top. Existing rows default to payout_status='skipped' so the payout
+#       idempotency guard never fires on pre-economy tournaments. See
+#       `docs/plans/TOURNAMENT_ECONOMY_ON_STATE_MODEL.md` + `P2_BUILD_HANDOFF.md`.
+SCHEMA_VERSION = 132
 
 
 class SchemaManager:
@@ -1290,6 +1296,10 @@ class SchemaManager:
             # 23b. Tournaments (v130) — durable multi-table tournament meta-state
             # (serialized TournamentSession + live game_id + status + resolver_kind),
             # re-enterable across navigation / TTL eviction / restart.
+            # Economy columns (v132): real-chip layer over the funny-money field
+            # — buy-in, rake, bank overlay, prize-pool snapshot, and the
+            # payout_status idempotency guard (skipped|pending|in_progress|
+            # complete). See `docs/plans/TOURNAMENT_ECONOMY_ON_STATE_MODEL.md`.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tournaments (
                     tournament_id TEXT PRIMARY KEY,
@@ -1299,7 +1309,12 @@ class SchemaManager:
                     resolver_kind TEXT NOT NULL DEFAULT 'fake',
                     created_at    TEXT NOT NULL,
                     updated_at    TEXT NOT NULL,
-                    session_json  TEXT NOT NULL
+                    session_json  TEXT NOT NULL,
+                    buy_in        INTEGER NOT NULL DEFAULT 0,
+                    rake          INTEGER NOT NULL DEFAULT 0,
+                    bank_overlay  INTEGER NOT NULL DEFAULT 0,
+                    prize_pool    INTEGER NOT NULL DEFAULT 0,
+                    payout_status TEXT NOT NULL DEFAULT 'skipped'
                 )
             """)
             conn.execute(
@@ -2112,6 +2127,10 @@ class SchemaManager:
             131: (
                 self._migrate_v131_drop_tournament_tracker,
                 "Drop legacy tournament_tracker table — TournamentTracker retired by the unification (every game is a TournamentSession); brute-force cut drops any games that still depended on it (pre-release, no real user data). Renumbered from v124.",
+            ),
+            132: (
+                self._migrate_v132_add_tournament_economy,
+                "Add the tournament real-chip economy columns (buy_in, rake, bank_overlay, prize_pool, payout_status) to `tournaments`. Additive ALTER TABLE; existing rows default to payout_status='skipped' so the payout idempotency guard never fires on pre-economy tournaments.",
             ),
         }
 
@@ -6933,3 +6952,36 @@ class SchemaManager:
         conn.execute("DROP INDEX IF EXISTS idx_tournament_tracker_game")
         conn.execute("DROP TABLE IF EXISTS tournament_tracker")
         logger.info("Migration v131 complete: tournament_tracker dropped (legacy tracker retired)")
+
+    def _migrate_v132_add_tournament_economy(self, conn: sqlite3.Connection) -> None:
+        """Migration v132: add the real-chip economy columns to `tournaments`.
+
+        The funny-money field stays serialized in `session_json`; these columns
+        are the real-chip layer (escrow → overlay → payout) on top:
+
+          | Column | Meaning |
+          |---|---|
+          | `buy_in`        | per-entrant human buy-in (0 = freeroll) |
+          | `rake`          | absolute rake skimmed to the bank pool |
+          | `bank_overlay`  | house contribution beyond buy-ins (the drain dial) |
+          | `prize_pool`    | Σ buy_ins + overlay − rake (display snapshot) |
+          | `payout_status` | skipped \\| pending \\| in_progress \\| complete |
+
+        Additive (`ALTER TABLE ... ADD COLUMN`), each guarded so the migration is
+        idempotent against a DB where _init_db already created the column (fresh
+        DBs build the full table; only older DBs reach the ALTERs). Existing rows
+        default to `payout_status='skipped'` so the payout idempotency guard never
+        fires on a pre-economy tournament.
+        """
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(tournaments)")}
+        additions = (
+            ("buy_in", "INTEGER NOT NULL DEFAULT 0"),
+            ("rake", "INTEGER NOT NULL DEFAULT 0"),
+            ("bank_overlay", "INTEGER NOT NULL DEFAULT 0"),
+            ("prize_pool", "INTEGER NOT NULL DEFAULT 0"),
+            ("payout_status", "TEXT NOT NULL DEFAULT 'skipped'"),
+        )
+        for name, decl in additions:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE tournaments ADD COLUMN {name} {decl}")
+        logger.info("Migration v132 complete: tournament economy columns added")

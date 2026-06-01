@@ -33,6 +33,7 @@ class TournamentSessionRepository(BaseRepository):
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict:
+        keys = row.keys()
         return {
             'tournament_id': row['tournament_id'],
             'owner_id': row['owner_id'],
@@ -42,6 +43,13 @@ class TournamentSessionRepository(BaseRepository):
             'created_at': row['created_at'],
             'updated_at': row['updated_at'],
             'session_json': row['session_json'],
+            # Economy columns (v132). Defensive defaults so a row read from a
+            # pre-v132 schema (or a partial fixture) still has the keys.
+            'buy_in': row['buy_in'] if 'buy_in' in keys else 0,
+            'rake': row['rake'] if 'rake' in keys else 0,
+            'bank_overlay': row['bank_overlay'] if 'bank_overlay' in keys else 0,
+            'prize_pool': row['prize_pool'] if 'prize_pool' in keys else 0,
+            'payout_status': row['payout_status'] if 'payout_status' in keys else 'skipped',
         }
 
     def save(
@@ -131,6 +139,51 @@ class TournamentSessionRepository(BaseRepository):
             conn.execute(
                 "UPDATE tournaments SET game_id = ?, updated_at = ? WHERE tournament_id = ?",
                 (game_id, _utcnow_iso(), tournament_id),
+            )
+
+    def set_economy(
+        self,
+        tournament_id: str,
+        *,
+        buy_in: int,
+        rake: int,
+        bank_overlay: int,
+        prize_pool: int,
+        payout_status: str,
+    ) -> None:
+        """Stamp the real-chip economy fields set at registration (v132).
+
+        Kept separate from `save()` — which runs at every hand boundary — so a
+        routine session persist can never wipe the economy data. Called once at
+        register, after the buy-in/overlay/rake ledger writes."""
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE tournaments
+                   SET buy_in = ?, rake = ?, bank_overlay = ?, prize_pool = ?,
+                       payout_status = ?, updated_at = ?
+                 WHERE tournament_id = ?
+                """,
+                (
+                    int(buy_in),
+                    int(rake),
+                    int(bank_overlay),
+                    int(prize_pool),
+                    payout_status,
+                    _utcnow_iso(),
+                    tournament_id,
+                ),
+            )
+
+    def set_payout_status(self, tournament_id: str, status: str) -> None:
+        """Advance the payout idempotency guard (skipped|pending|in_progress|
+        complete). Written `in_progress` before any bankroll write and `complete`
+        after — a crash leaves `in_progress` for a reconcile pass, never a silent
+        double-pay (the cash double-settle lesson)."""
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE tournaments SET payout_status = ?, updated_at = ? WHERE tournament_id = ?",
+                (status, _utcnow_iso(), tournament_id),
             )
 
     def delete(self, tournament_id: str) -> None:
