@@ -54,11 +54,24 @@ authorities. This is debt reduction so the system is clean to build on.
 
 ### Step A — Presence read-side completion (occupancy)
 Make the seat-occupancy + idle READS derive from `entity_presence` (not
-`cash_tables.seats` / `cash_idle_pool`), then stop writing the occupancy half of
-those caches. Already evidence-gathered + held: `CASH_MODE_PRESENCE_READSIDE_COMPLETION.md`.
-**Unblocks:** `_free_ghost_human_seats`, `_reclaim_zombie_casino_seats`,
-`whereabouts.py` → trivial read, the `_shadow_reconcile_table` / call-site
-`shadow_transition` dead-under-authority code.
+`cash_tables.seats` / `cash_idle_pool`), and add deletion-time presence cleanup so
+the orphan-repair reconcilers become unnecessary. **This step has a full, vetted
+sub-plan: `CASH_MODE_PRESENCE_READSIDE_COMPLETION.md` (the R1–R5 sequence).** That
+doc is authoritative for the *how*; the mapping:
+
+| R-step | What | Risk | Note |
+|---|---|---|---|
+| **R1** | `assert_presence_seat_consistency` checker + downgrade D1 wording | ~zero | read-only invariant monitor |
+| **R2** | `whereabouts` STATUS from presence (keep off-grid from `ai_*_state` — see its caveat) | low | |
+| **R3a** | `delete_game` GO_OFFLINE/open-seat hook (`sandbox_id` param) | low | **chip half already done** (Phase 3 reaper settle) → occupancy-only |
+| **R3b** | `delete_personality` presence sweep | low | **add beside the shipped Phase-5 `settle_ai_bankroll_to_pool_on_delete`** in the same route |
+| **R4** | retire `_free_ghost_human_seats` + `_reclaim_zombie_casino_seats` (after R3 soaks at 0 fires) | low | the actual reconciler deletion |
+| **R5** (opt) | promote off-grid writers to fail-loud `persist_transition` | med | closes the SIDE_HUSTLE/VICE best-effort gap |
+
+**Unblocks:** `_free_ghost_human_seats`, `_reclaim_zombie_casino_seats` (R3→R4),
+`whereabouts.py` → trivial read (R2), the `_shadow_reconcile_table` / call-site
+`shadow_transition` dead-under-authority code (committed-default flip). Low-risk
+high-payoff slice = **R1 → R3 → R4**.
 
 ### Step B — Decide the live-stack ↔ ledger relationship (chips), THEN demote seat chips
 **This is the blocker the original handoff glossed over.** `cash_tables.seats[].chips`
@@ -102,9 +115,9 @@ real split-brain windows while the caches are still written.
 
 | Reconciler | File | Repairs | Retirement gate |
 |---|---|---|---|
-| `_free_ghost_human_seats` | cash_routes.py | human seat survives a deleted game row | **Step A** (presence-backed occupancy read covers it) |
-| `_reclaim_zombie_casino_seats` | casino_provisioning.py | seat holds a deleted/un-stamped persona | **Step A** (+ persona-delete settle now handles the chip half) |
-| `whereabouts.py` | cash_mode/whereabouts.py | unions 4 stores to name `seated_and_idle` etc. | **Step A** → degrades to a trivial `entity_presence` read |
+| `_free_ghost_human_seats` | cash_routes.py | human seat survives a deleted game row | **Step A / R3a→R4** — chip half done (Phase-3 reaper settle); add the `delete_game` presence hook, soak, delete |
+| `_reclaim_zombie_casino_seats` | casino_provisioning.py | seat holds a deleted/un-stamped persona | **Step A / R3b→R4** — chip half done (Phase-5 `settle_ai_bankroll_to_pool_on_delete`); add the `delete_personality` presence sweep beside it, soak, delete |
+| `whereabouts.py` | cash_mode/whereabouts.py | unions 4 stores to name `seated_and_idle` etc. | **Step A / R2** → degrades to a trivial `entity_presence` read (keep off-grid STATUS from `ai_*_state` per the R2 caveat) |
 | `_shadow_reconcile_table` + call-site `shadow_transition` (seat sites) | lobby.py / routes | mirror seats → entity_presence when authority OFF | **dead once `PRESENCE_AUTHORITY_ENABLED` is the committed default** (currently early-return no-ops under authority; kept for the flag-off / prod path) |
 | `_boot_sweep_stale_cash_rows` | lobby.py | GC abandoned `cash-*` rows; now settles seat chips first (Phase 3) | **keep** — it's a legitimate GC/janitor (TTL eviction), not a store-disagreement repair. Not debt. |
 | `_restore_cash_table_binding` | game_handler.py | cold-load lost `cash_table_id` (memory-only field) | **keep until** the binding is persisted in `game_state_json` or read from presence on every load (already prefers presence under authority) |

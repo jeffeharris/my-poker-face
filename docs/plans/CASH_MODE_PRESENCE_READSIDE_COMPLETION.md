@@ -12,9 +12,19 @@ cutover and answers the harder question behind it: **given presence can't subsum
 `cash_tables.seats` and the reconcilers can't be trivially deleted, is there a
 data-architecture problem — and what's the genuinely maintainable target?**
 
-Companion docs: `CASH_MODE_STATE_MODEL.md` (the two-machine design + invariants),
-`CASH_MODE_PRESENCE_PHASE3_FLIP.md` (the authority flip + soak findings),
-`CASH_MODE_CHIP_CUSTODY_SCOPE.md` (the unbuilt second machine).
+Companion docs: `CASH_MODE_TECH_DEBT.md` (**the master paydown ledger — this
+doc's R-steps ARE its "Step A"; read that first for the authority model + the
+full reconciler register**), `CASH_MODE_STATE_MODEL.md` (the two-machine design +
+invariants), `CASH_MODE_PRESENCE_PHASE3_FLIP.md` (the authority flip + soak
+findings), `CASH_MODE_CHIP_CUSTODY_HANDOFF.md` (the second machine — now BUILT +
+flipped on dev, 2026-06-01; this doc was written just before it landed).
+
+> **UPDATE 2026-06-01 (after chip-custody Phases 1-3 + deletion-integrity
+> shipped):** the chip-custody machine referenced below as "deferred / unbuilt"
+> is now BUILT and flipped on dev. That changes two things here: smell #2 is no
+> longer open (see below), and **the chip halves of the R3a/R3b deletion hooks
+> already shipped at the same call sites** — so R3 is now "add the PRESENCE half
+> alongside the existing chip settle," not a from-scratch hook. Details inline.
 
 ## TL;DR
 
@@ -47,9 +57,15 @@ is **three** problems, not one:
    costly full projection.
 2. **Chips are modeled 3–4 ways** (`seats.chips`, the ledger `seat(game_id)`
    balance, the live game `Player.stack`, the bankroll int). This is exactly what
-   the **chip-custody machine** consolidates (ledger-derived chips). **Deferred —
-   it's the separately-scoped second machine** (`CASH_MODE_CHIP_CUSTODY_SCOPE.md`),
-   not part of the presence read side.
+   the **chip-custody machine** consolidates (ledger-derived chips). **NOW
+   ADDRESSED (2026-06-01):** the chip-custody machine is built + flipped on dev —
+   the ledger is the chip authority, the bankroll int is a verified cache, and
+   `seats.chips` is formally accepted as the legitimate *live in-hand stack* cache
+   (per-hand P&L isn't ledgered by design; live stack and ledger `seat:` balance
+   agree only at session boundaries). So smell #2 is resolved *as a custody
+   ownership question*; the only residual is the optional `seats.chips`-as-derived-
+   view storage demotion, which `CASH_MODE_TECH_DEBT.md` §3 Step B/C tracks (B1 =
+   accept-as-cache was chosen). Not part of the presence read side.
 3. **Cross-aggregate deletes leave dangling references** (delete a `games` row or
    a persona → an orphaned `cash_tables` seat → a reconciler sweeps it). This is a
    **referential-integrity** gap, NOT a state-machine gap. The reconcilers are
@@ -95,22 +111,31 @@ by `scripts/audit_presence_divergence.py` and tests.
 ## Reconciler retirement — the two cross-system hooks (the real #3 fix)
 
 The reconcilers fired **0× over a multi-hour authority soak** but are kept because
-they guard deletions presence doesn't see. Add the hooks, soak, then delete:
+they guard deletions presence doesn't see. Add the hooks, soak, then delete.
 
-- **`delete_game` hook** (`poker/repositories/game_repository.py:300`): on cash
-  game-row deletion, emit `GO_OFFLINE` for `player:<owner_id>` + clear the
-  `cash_tables` seat. `delete_game` takes only `game_id` today; add an optional
-  `sandbox_id` (no-op when absent → safe for non-cash deletions); the 6 call
-  sites in `cash_routes.py` have it in scope. → unblocks deleting
-  `_free_ghost_human_seats` (`cash_routes.py:411`).
-- **`delete_personality` sweep**: persona deletion is routed through
-  `flask_app/routes/personality_routes.py:393` (`delete_personality(name)` →
-  `extensions.personality_repo.delete_personality`). Add
-  `cash_mode/presence_sweep.py:sweep_presence_on_persona_delete(pid, *,
-  sandbox_id, repos)` called from that route BEFORE the delete: if the AI is
-  SEATED, `save_table` the seat open (drives `RETURN_TO_POOL`/`GO_OFFLINE`); keep
-  `personality_repository` repo-free. → unblocks deleting
-  `_reclaim_zombie_casino_seats` (`casino_provisioning.py:374`).
+> **The CHIP halves of both hooks already shipped (chip-custody Phases 3 + 5,
+> 2026-06-01)** at the same two sites — so these are now PRESENCE-half-only:
+
+- **`delete_game` — presence half (net-new):** emit `GO_OFFLINE` for
+  `player:<owner_id>` + clear the `cash_tables` seat on cash game-row deletion.
+  `delete_game` (`game_repository.py`) takes only `game_id`; add an optional
+  `sandbox_id` (no-op when absent → safe for non-cash deletions); the cash-route
+  call sites have it in scope. **Chip side already safe:** the Phase-3 reaper
+  (`_settle_orphan_seat_to_bankroll` in `_boot_sweep_stale_cash_rows`) settles seat
+  chips before its delete, and the leave path cashes out explicitly — so this hook
+  is *purely* the occupancy cleanup, no chip-forfeiture risk to design around.
+  → unblocks deleting `_free_ghost_human_seats` (`cash_routes.py:411`).
+- **`delete_personality` — presence half, beside the existing chip settle:**
+  persona deletion routes through `flask_app/routes/personality_routes.py`
+  (`delete_personality(name)`), which ALREADY calls
+  `cash_mode.bankroll.settle_ai_bankroll_to_pool_on_delete(pid, ...)` (Phase 5 —
+  returns the AI's bankroll to the pool). Add
+  `cash_mode/presence_sweep.py:sweep_presence_on_persona_delete(pid, *, sandbox_id,
+  repos)` called from the SAME route BEFORE the delete: if the AI is SEATED,
+  `save_table` the seat open (drives `RETURN_TO_POOL`/`GO_OFFLINE`); keep
+  `personality_repository` repo-free. (The two settles compose: chips → pool,
+  occupancy → open.) → unblocks deleting `_reclaim_zombie_casino_seats`
+  (`casino_provisioning.py:374`).
 - **`_restore_cash_table_binding`** (`game_handler.py:1235`): already presence-
   first under authority — done. Its `cash_sessions` fallback stays until all
   pre-flip games have ended (it's the only game_id→table binding for those).
@@ -169,10 +194,13 @@ required.
 - **R2 — whereabouts presence-first** (2–3 days, low risk): new
   `_build_whereabouts_presence()` gated on the flag; **keep off-grid STATUS from
   `ai_*_state`** per the caveat; test with the flag monkeypatched.
-- **R3a — `delete_game` GO_OFFLINE hook** (low risk): `sandbox_id` param + hook +
-  update 6 call sites + test (delete game → no SEATED presence row).
-- **R3b — `delete_personality` sweep** (low risk): `presence_sweep.py` wired into
-  `personality_routes.py:393` + test (delete seated persona → seat open, no row).
+- **R3a — `delete_game` GO_OFFLINE hook** (low risk): `sandbox_id` param + presence
+  hook + update the cash-route call sites + test (delete game → no SEATED presence
+  row). Chip side already handled (Phase-3 reaper settle) — occupancy only.
+- **R3b — `delete_personality` presence sweep** (low risk): `presence_sweep.py`
+  wired into `personality_routes.py` **right beside the existing Phase-5
+  `settle_ai_bankroll_to_pool_on_delete` call** + test (delete seated persona →
+  seat open, no presence row, chips already returned to pool).
 - **R4 — retire reconcilers** (after R3 soaks at 0 fires): stub → confirm →
   delete `_free_ghost_human_seats` + `_reclaim_zombie_casino_seats`; mark
   `CASH_MODE_STATE_MODEL.md §8` retired.
@@ -198,7 +226,10 @@ DO NOT TOUCH: `emit_presence_transitions_for_save`, `save_table` wiring, `econom
 
 ## Handoff — current state, gotchas, where to look
 
-- **Branch `development`**, pushed through `e0310262` (+ this doc). Tree clean.
+- **Branch `development`** (chip-custody Phases 1-3 + deletion-integrity + the
+  tech-debt ledger pushed through `c5eb57c3` on top of this doc's `e0310262`).
+  Both cutovers (`PRESENCE_AUTHORITY_ENABLED=1`, `CHIP_CUSTODY_ENABLED=1`) are live
+  on dev via `.env`; committed defaults stay `0` (prod untouched).
 - **Dev flip is now DURABLE (resolved 2026-06-01).** `PRESENCE_AUTHORITY_ENABLED=1`
   is in `.env` (gitignored, dev-only) → restarts preserve authority. The committed
   compose default is still `0` and nothing is committed, so **prod is unaffected**;
