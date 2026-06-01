@@ -324,6 +324,36 @@ export function Lobby() {
     setCollapsedTiers(new Set<StakeLabel>(STAKES.filter((s) => s !== target)));
   }, [cardroomTables]);
 
+  // Post-graduation: when Sal points the player at their new home court (the
+  // mentor handoff — the one-shot intro, or the standing mentor stake), bring it
+  // into view rather than leaving it in a collapsed tier below the fold. Switch
+  // to the cardroom venue, expand its tier, and scroll to it. One-shot per table
+  // id so a poll refresh (or the intro clearing once the floater plays) doesn't
+  // keep yanking the scroll. The guard is only armed once the table is actually
+  // in the snapshot, so a first load that beats the table row still scrolls next.
+  const homeCourtTableId = mentorIntro?.table_id ?? mentorStake?.table_id ?? null;
+  const scrolledHomeCourtRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!homeCourtTableId || scrolledHomeCourtRef.current === homeCourtTableId) return;
+    const table = tables.find((t) => t.table_id === homeCourtTableId);
+    if (!table) return;
+    scrolledHomeCourtRef.current = homeCourtTableId;
+    if (table.table_type !== 'casino') setActiveVenue('cardroom');
+    setCollapsedTiers((prev) => {
+      if (!prev.has(table.stake_label)) return prev;
+      const next = new Set(prev);
+      next.delete(table.stake_label);
+      return next;
+    });
+    // Wait for the expand + venue switch to paint before scrolling.
+    const t = setTimeout(() => {
+      document
+        .getElementById(`cash-tier-${table.stake_label}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [homeCourtTableId, tables]);
+
   // Mutable ref so the drawer's `onPayoff` callback can re-fetch the
   // lobby without re-rendering on every interval tick. The interval
   // captures `load` once via the dep-free useEffect below.
@@ -787,6 +817,7 @@ export function Lobby() {
                     return (
                       <div
                         key={stake}
+                        id={`cash-tier-${stake}`}
                         className={`cash-entry__tier cash-entry__tier--${meta.access}${isCollapsed ? ' cash-entry__tier--collapsed' : ''}`}
                       >
                         <button
