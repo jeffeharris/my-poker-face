@@ -1525,13 +1525,22 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
 
     fish_pids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
 
-    def _synced_ai_slot(pid: str, chips: int) -> Dict:
-        return ai_slot_fish(pid, chips) if pid in fish_pids else ai_slot(pid, chips)
+    def _synced_ai_slot(pid: str, chips: int, prev: Optional[Dict] = None) -> Dict:
+        out = ai_slot_fish(pid, chips) if pid in fish_pids else ai_slot(pid, chips)
+        # Carry the per-seat dwell/rebuy counters across this rebuild — the
+        # human-table sync re-creates the slot every hand, so without this
+        # the dwell floor and rebuy-decay counters would reset each hand.
+        if prev is not None:
+            for _k in ("hands_here", "rebuys_here"):
+                if _k in prev:
+                    out[_k] = prev[_k]
+        return out
 
     synced_seats: List[Dict] = []
     for i, slot in enumerate(table.seats):
         if slot["kind"] == "ai":
             if i in reseat_map:
+                # A fresh AI took a busted seat — counters start at 0.
                 new_pid = reseat_map[i]
                 synced_seats.append(_synced_ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
             elif i in leftover_busted:
@@ -1539,7 +1548,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
             else:
                 pid = slot["personality_id"]
                 new_chips = pid_to_chips.get(pid, int(slot.get("chips", 0)))
-                synced_seats.append(_synced_ai_slot(pid, new_chips))
+                synced_seats.append(_synced_ai_slot(pid, new_chips, prev=slot))
         elif slot["kind"] == "human" and human_owner_id:
             synced_seats.append(human_slot(human_owner_id, human_chips))
         else:

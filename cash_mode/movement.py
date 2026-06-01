@@ -86,6 +86,25 @@ LEAVE_K = 2.0  # curve shape: at pressure=1.0, leave prob ≈ 0.33
 # threshold is table-relative and doesn't drift if the AI bought in below max.
 FORCED_LEAVE_RATIO = 0.3
 
+# Dwell floor (medium ramp). A freshly-seated AI's DISCRETIONARY leave
+# pressure (stake_up / dead / tenure / detached) ramps in linearly over this
+# many hands at the table, so it won't bolt the instant it sits down. Busts
+# (forced_leave) and short-stack leaves bypass it. Because leaving is a
+# per-hand roll against the damped probability, the exact hand an AI wanders
+# off varies — no synchronized exodus.
+DWELL_PATIENCE_HANDS = 6.0
+
+# Grinder rebuy-on-bust (non-fish). When a grinder busts but can still afford
+# a reload, it *sometimes* rebuys instead of leaving — but a rebuy means it's
+# losing, so we throttle "stop the bleeding": each prior rebuy at the SAME
+# table decays the next one's odds, and a thin bankroll (only just affordable)
+# pulls back too. When it declines, it `take_break`s (rests, may return) rather
+# than leaving for good. Fish are unaffected (they reload until dry).
+GRINDER_REBUY_BASE_PROB = 0.65       # first reload when comfortably funded
+GRINDER_REBUY_DECAY = 0.5            # ×prob per prior rebuy at this table
+GRINDER_REBUY_CUSHION_BUYINS = 3.0   # full confidence once the bankroll covers
+                                     # this many buy-ins beyond the reload
+
 # Per-hand fill probability per open seat. Replaces the per-poll roll;
 # now ticks once per real or sim hand. With 2 opens this averages ~10
 # hands between fills, which feels like a live cash room rhythm.
@@ -200,6 +219,13 @@ class MovementContext:
     # loop-inversion step; defaults to 0 (neutral) so pre-inversion callers
     # and tests are unchanged.
     table_deadness: float = 0.0
+    # Dwell floor: hands this AI has completed at THIS table. 0 = just sat
+    # (discretionary leave pressure fully damped); ramps to full at
+    # DWELL_PATIENCE_HANDS. Carried on the seat across rebuilds.
+    hands_here: int = 0
+    # Rebuys this AI has done at THIS table — decays the grinder rebuy odds
+    # ("stop the bleeding"). Carried on the seat across rebuilds.
+    rebuys_here: int = 0
 
 
 def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
@@ -231,16 +257,25 @@ def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
     # energy=0 ("exhausted") tenure_raw=1.0. Without this gate, a fresh
     # default-0.5 AI generated ~5% leaves/hand just from tenure.
     tenure_raw = max(0.0, (0.5 - ctx.energy) * 2.0)
+    # Dwell floor: discretionary leave pressure ramps in over the AI's first
+    # few hands at the table (0 when freshly seated → 1 at DWELL_PATIENCE_HANDS),
+    # so it settles in before it'll wander off. `short` is NOT damped — a
+    # genuinely short/broke stack is free to leave or rebuy immediately.
+    dwell_damp = (
+        min(1.0, ctx.hands_here / DWELL_PATIENCE_HANDS)
+        if DWELL_PATIENCE_HANDS > 0
+        else 1.0
+    )
     return {
-        "stake_up": W_STAKE_UP * stake_up_raw,
+        "stake_up": W_STAKE_UP * stake_up_raw * dwell_damp,
         "short": W_SHORT * short_raw,
-        "detached": W_DETACHED * detached_raw,
-        "tenure": W_TENURE * tenure_raw,
+        "detached": W_DETACHED * detached_raw * dwell_damp,
+        "tenure": W_TENURE * tenure_raw * dwell_damp,
         # Dead-table push: 0 at a juicy table, rising toward a dead
         # all-shark one — extra pressure to go find fish. Routes to
         # `bored_move` when dominant (see evaluate_ai_movement). Neutral
         # until the seating path populates ctx.table_deadness (Phase C).
-        "dead": W_DEAD * max(0.0, min(1.0, ctx.table_deadness)),
+        "dead": W_DEAD * max(0.0, min(1.0, ctx.table_deadness)) * dwell_damp,
     }
 
 
@@ -426,6 +461,54 @@ def _coerce_predator_retention(
     if decision == "bored_move":
         return "stay"
     return decision
+
+
+def _grinder_rebuy_cushion(projected_bankroll: int, buy_in: int) -> float:
+    """How freely a grinder reloads given its bankroll cushion, in [0, 1].
+
+    0 when the bankroll only just covers one more reload (don't shove your
+    last reserve into a losing table), ramping to 1 once it covers
+    `GRINDER_REBUY_CUSHION_BUYINS` buy-ins *beyond* the reload. Pure.
+    """
+    if buy_in <= 0:
+        return 1.0
+    extra_buyins_after_reload = projected_bankroll / buy_in - 1.0
+    return max(0.0, min(1.0, extra_buyins_after_reload / GRINDER_REBUY_CUSHION_BUYINS))
+
+
+def _coerce_grinder_rebuy(
+    decision: MovementDecision,
+    ctx: MovementContext,
+    rng: random.Random,
+) -> MovementDecision:
+    """Let a busted non-fish grinder sometimes reload instead of leaving.
+
+    A rebuy means the grinder is *losing*, so this is throttled toward
+    stopping the bleeding:
+      - Hard gate: if the bankroll can't fund a reload, it's a real bust →
+        `forced_leave` stands.
+      - Each prior rebuy at this table decays the odds (`GRINDER_REBUY_DECAY
+        ** rebuys_here`) — chasing fewer reloads each time.
+      - A thin bankroll (only just affordable) pulls the odds down too
+        (`_grinder_rebuy_cushion`).
+      - When it declines, it `take_break`s (rests in the idle pool, may
+        return recovered) rather than leaving for good.
+
+    Only intercepts the hard `forced_leave` (true bust). Short-stack leaves
+    keep their existing leave-vs-rebuy split (`decide_leave_or_rebuy`). Fish
+    are handled by `_coerce_fish_movement` and never reach here.
+    """
+    if decision != "forced_leave":
+        return decision
+    buy_in = max(1, ctx.min_buy_in)
+    if ctx.projected_bankroll < buy_in:
+        return "forced_leave"  # truly busted — nothing left to reload with
+    prob = (
+        GRINDER_REBUY_BASE_PROB
+        * (GRINDER_REBUY_DECAY ** max(0, ctx.rebuys_here))
+        * _grinder_rebuy_cushion(ctx.projected_bankroll, buy_in)
+    )
+    return "rebuy" if rng.random() < prob else "take_break"
 
 
 def resolve_dominant_signal(
@@ -1223,6 +1306,8 @@ def refresh_table_roster(
             hands_in_detached_zone=int(psych.get("hands_in_detached_zone", 0)),
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
             table_deadness=_deadness,
+            hands_here=int(slot.get("hands_here", 0)),
+            rebuys_here=int(slot.get("rebuys_here", 0)),
         )
         if trace_enabled:
             _pressures = compute_leave_pressure(ctx)
@@ -1258,6 +1343,10 @@ def refresh_table_roster(
             decision = _coerce_predator_retention(
                 decision, table_has_fish, ctx.energy, wealth_excess=wealth_excess
             )
+            # Stop-the-bleeding rebuy: a busted grinder with bankroll left may
+            # reload (decaying with prior rebuys + bankroll cushion) instead of
+            # leaving; on decline it takes a break rather than leaving for good.
+            decision = _coerce_grinder_rebuy(decision, ctx, rng)
         # Vice-on-leave: a discretionary leaver who is rich enough goes
         # straight off-grid to a vice instead of the idle pool. Rolling
         # the existing wealth×psych vice probability HERE (at the leave)
@@ -1392,6 +1481,9 @@ def refresh_table_roster(
             continue
 
         if decision == "stay":
+            # Dwell-floor tenure: count this survived hand so the AI's
+            # discretionary leave pressure keeps ramping toward full.
+            new_seats[i] = {**slot, "hands_here": int(slot.get("hands_here", 0)) + 1}
             continue
         if decision == "rebuy":
             # Top up at the same seat. The persisted seat shows the new
@@ -1424,7 +1516,12 @@ def refresh_table_roster(
             # would quietly turn into a wandering grinder holding a deep
             # pool-funded stack. A fish reloads until its bankroll is dry,
             # so this fires often; keep it a fish the whole way down.
-            new_seats[i] = ai_slot_fish(pid, new_chips) if is_fish else ai_slot(pid, new_chips)
+            _reloaded = ai_slot_fish(pid, new_chips) if is_fish else ai_slot(pid, new_chips)
+            # The AI stays at the table through a reload — keep its dwell
+            # tenure, and count the rebuy so the grinder rebuy odds decay.
+            _reloaded["hands_here"] = int(slot.get("hands_here", 0))
+            _reloaded["rebuys_here"] = int(slot.get("rebuys_here", 0)) + 1
+            new_seats[i] = _reloaded
             rebuy_changes.append(
                 RebuyChange(
                     personality_id=pid,
