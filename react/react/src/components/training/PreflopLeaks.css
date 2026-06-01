@@ -166,7 +166,12 @@
   color: #fcd34d;
 }
 .pfl-leak-detail {
-  flex: 1 1 auto;
+  /* flex-basis 0 + min-width 0 so the detail shrinks/wraps internally and keeps
+     the trend column + Drill on the same row; only .pfl-leak-explain (basis
+     100%) drops to the next line. (auto basis would claim max-content and push
+     the right column down.) */
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 0.85rem;
   color: var(--color-text-muted, #cbd5e1);
 }
