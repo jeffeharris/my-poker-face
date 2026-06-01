@@ -221,7 +221,6 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
-  const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
   // Lucky Stack intake (cold open) — gates the lobby for a brand-new career
   // player. Sticky: set true once, only cleared by completing intake (which
   // sits us down). NOT re-derived from every lobby poll — otherwise the poll

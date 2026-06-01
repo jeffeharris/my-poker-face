@@ -184,9 +184,10 @@ export interface LobbyTable {
    *  tables (future) will source their own. */
   table_name?: string | null;
   /** v111: table-type discriminator. `'lobby'` = the Cardroom career
-   *  ladder; `'casino'` = the ephemeral $2 fish floor (own tab). `'private'`
-   *  stays reserved for a future invite-only feature. */
-  table_type?: 'lobby' | 'private' | 'casino';
+   *  ladder; `'casino'` = the ephemeral $2 fish floor (own tab); `'scripted'` =
+   *  a pinned tutorial table (Scene 0). `'private'` stays reserved for a future
+   *  invite-only feature. */
+  table_type?: 'lobby' | 'private' | 'casino' | 'scripted';
   /** v113: hands left before this (casino) table tears down. Present →
    *  the table is in its closing countdown; `null`/absent → active. Drives
    *  the "closing" tag on the card and the Casino tab's closing indicator. */
