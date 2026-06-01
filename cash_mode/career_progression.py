@@ -119,41 +119,16 @@ def make_fish_name(name: str, rng: Optional[random.Random] = None) -> str:
     return f"{rng.choice(bank)} {first}"
 
 
-# Canned fallback one-liners by vibe, used when the LLM is unavailable (intake
-# must never block on the model). Keyed by intensity.
-# What the newcomer "says" when the waitress asks them to tell her something
-# about themselves — keyed by the quick-chat style the player picked. This is
-# their answer, in their chosen voice; it feeds the bio so the room's read of
-# them reflects what they actually said. Kept in sync with the VIBES in
-# react/.../cash/LuckyStackIntake.tsx.
-_INTAKE_ANSWERS = {
-    "befriend": "Aw, I'm just here for a good time and a decent cup of coffee.",
-    "needle": "Honestly? You're lookin' at a natural. I pick things up quick.",
-    "goad": "Came to take everybody's money. Nothin' personal, friend.",
-}
-
-
-def _intake_answer(style: str) -> str:
-    return _INTAKE_ANSWERS.get(style, _INTAKE_ANSWERS["befriend"])
-
-
-# Canned bios if the model is unavailable — warm, never "sucker/mark", and keyed
-# to the vibe rather than the name (a constant can't riff on the name).
-_FALLBACK_BIOS = {
-    "spicy": "Strolled in talkin' big — the regulars are already grinnin'.",
-    "chill": "Wandered in for the coffee, stayed for the company.",
-}
-
-
-def _fallback_bio(intensity: str) -> str:
-    return _FALLBACK_BIOS.get(intensity, _FALLBACK_BIOS["chill"])
+# Canned bio if the model is unavailable — warm, never "sucker/mark" (intake must
+# never block on the model). The player's reply now comes straight from the
+# client, so this is a single neutral line rather than a vibe-keyed table.
+_FALLBACK_BIO = "Wandered in off the street and pulled up a chair like they owned it."
 
 
 def generate_intake_persona(
     name: str,
     *,
-    intensity: str = "chill",
-    style: str = "",
+    answer: str = "",
     owner_id: Optional[str] = None,
     rng: Optional[random.Random] = None,
 ) -> dict:
@@ -162,12 +137,13 @@ def generate_intake_persona(
     The **fish-name is always rule-based** (`make_fish_name`) so it reliably keeps
     the player's own first name and alliterates — the LLM kept dropping the name
     entirely ("Jeff" → "Lost Little Larry"). The LLM is used ONLY for the funny
-    one-line bio, with a canned fallback so intake never blocks on the model.
+    one-line bio, riffing on the name + what the player ACTUALLY said (`answer`),
+    with a canned fallback so intake never blocks on the model.
     """
     name = (name or "").strip() or "Stranger"
     fish_name = make_fish_name(name, rng)  # deterministic, always alliterative
-    answer = _intake_answer(style)  # what they told the waitress, in their voice
-    bio = _fallback_bio(intensity)
+    answer = (answer or "").strip()  # what they told the waitress, verbatim
+    bio = _FALLBACK_BIO
     try:
         import json as _json
 

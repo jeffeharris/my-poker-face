@@ -113,17 +113,19 @@ export interface IntakeResult {
   player_name: string;
   fish_name: string;
   bio: string;
-  intensity: 'chill' | 'spicy';
   /** Seam for generating an avatar from the persona (not fired automatically). */
   avatar_prompt: string;
 }
 
+/** Submit the cold open: the player's name + the reply they picked when the
+ *  waitress asked them to say something about themselves. `reply` is the verbatim
+ *  line (feeds the bio); `replyId` is a stable key for later narrative callbacks. */
 export async function submitIntake(
   name: string,
-  intensity: 'chill' | 'spicy',
-  style: string
+  reply: string,
+  replyId: string
 ): Promise<IntakeResult> {
-  return postJson('/intake', { name, intensity, style });
+  return postJson('/intake', { name, reply, reply_id: replyId });
 }
 
 export async function getState(): Promise<CashStateResponse> {

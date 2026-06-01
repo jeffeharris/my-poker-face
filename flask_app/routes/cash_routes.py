@@ -6364,20 +6364,21 @@ def cash_intake_route():
 
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()[:40] or "Stranger"
-    intensity = body.get("intensity") if body.get("intensity") in ("chill", "spicy") else "chill"
-    style = (body.get("style") or "").strip()[:24]
+    # The verbatim line the player picked when the waitress asked them to say
+    # something about themselves (+ a stable id for later callbacks). Plain
+    # character flavor — no quick-chat / setting mapping.
+    reply = (body.get("reply") or "").strip()[:200]
+    reply_id = (body.get("reply_id") or "").strip()[:40]
 
     progress = career_progress_repo.load(sandbox_id, owner_id)
     if not progress.intake_complete:
-        # LLM-christen a fish-name + a short funny bio from the player's picks
-        # (name + vibe). Robust fallback inside — never blocks on the model.
-        persona = generate_intake_persona(
-            name, intensity=intensity, style=style, owner_id=owner_id
-        )
+        # LLM-christen a fish-name + a short funny bio riffing on the name + what
+        # they actually said. Robust fallback inside — never blocks on the model.
+        persona = generate_intake_persona(name, answer=reply, owner_id=owner_id)
         progress.player_name = name
         progress.fish_name = persona["fish_name"]
-        progress.chat_intensity = intensity
-        progress.chat_style = style
+        progress.intake_reply = reply
+        progress.intake_reply_id = reply_id
         progress.intake_complete = True
         career_progress_repo.save(progress)
         # The generated one-liner becomes the AI-visible bio (Sal/Larry rib it).
@@ -6395,7 +6396,6 @@ def cash_intake_route():
             "player_name": progress.player_name,
             "fish_name": progress.fish_name,
             "bio": bio,
-            "intensity": progress.chat_intensity,
             # Avatar generation seam — the prompt is ready; the client can fire
             # image gen on demand (it's slow, so intake doesn't block on it).
             "avatar_prompt": intake_avatar_prompt(progress.fish_name or "", bio),

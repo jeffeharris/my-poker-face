@@ -4,21 +4,20 @@
  * You stopped at a 50s diner, The Lucky Stack ("good hands served daily"), for
  * coffee; the waitress waves you toward "the back," assumes you're here for the
  * game, and comps you a stack. One snappy screen: give a name, then answer her
- * "tell me something about yourself" by picking one of three quick-chat replies
- * (this is where we introduce the quick-chat mechanic). The room LLM-christens
- * you a tourist fish-name + a one-liner built off your reply. Shown only to a
- * brand-new career player (`intake_needed`).
+ * "tell me something about yourself" by picking one of a few replies. The room
+ * LLM-christens you a tourist fish-name + a one-liner built off your reply, and
+ * the reply is remembered (`intake_reply`) as a hook for later callbacks. Shown
+ * only to a brand-new career player (`intake_needed`).
  *
- * The reply you pick also seeds your quick-chat default (`quickchat_intensity`)
- * and tone, so your in-game table-talk suggestions match how you introduced
- * yourself.
+ * The replies are plain character flavor — they don't map to any setting. The
+ * newcomer doesn't (yet) know they've wandered into a poker room, so the lines
+ * stay innocent: who you are, not how you'll play.
  *
  * Portaled to body (overlay must escape the page header's stacking context).
  */
 
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Flame, Handshake, Zap, type LucideIcon } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { DramaticMessage } from '../shared/DramaticText';
 import { submitIntake, type IntakeResult } from './api';
@@ -43,59 +42,38 @@ const WAITRESS_WELCOME = [
   'Go on, hon. They don’t bite. Much.',
 ].join('\n');
 
-// Three quick-chat replies to the waitress's "tell me something about yourself"
-// — friendly → brutal. The `reply` is what you "say" (it feeds the room's bio of
-// you, kept in sync with _INTAKE_ANSWERS in cash_mode/career_progression.py); the
-// `id` is the quick-chat tone it seeds, `intensity` (chill/spicy) the quick-chat
-// default, and `tone` labels the vibe.
-const VIBES: {
-  id: string;
-  tone: string;
-  reply: string;
-  intensity: 'chill' | 'spicy';
-  icon: LucideIcon;
-}[] = [
+// A few replies to the waitress's "tell me something about yourself." Plain
+// character flavor — no setting maps to them; they're just a line the player
+// picks that the room remembers and can call back to later. The `reply` is the
+// verbatim line they "say" (it feeds the bio); the `id` is a stable callback key.
+// Deliberately INNOCENT of poker: the newcomer doesn't know what game's in back.
+const REPLIES: { id: string; reply: string }[] = [
   {
-    id: 'befriend',
-    tone: 'Friendly',
-    reply: "Aw, I'm just here for a good time and a decent cup of coffee.",
-    intensity: 'chill',
-    icon: Handshake,
+    id: 'coffee',
+    reply: "Honestly? Just followed my nose in for a decent cup of coffee.",
   },
   {
-    id: 'needle',
-    tone: 'Cocky',
-    reply: "Honestly? You're lookin' at a natural. I pick things up quick.",
-    intensity: 'spicy',
-    icon: Zap,
+    id: 'game',
+    reply: "Ah, I'm game for about anything once. Why not, right?",
   },
   {
-    id: 'goad',
-    tone: 'Ruthless',
-    reply: "Came to take everybody's money. Nothin' personal, friend.",
-    intensity: 'spicy',
-    icon: Flame,
+    id: 'hard_to_read',
+    reply: "Folks say I'm hard to read. Never did know what they meant by it.",
   },
 ];
 
 export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
   const [name, setName] = useState('');
-  const [vibeId, setVibeId] = useState<string | null>(null);
+  const [replyId, setReplyId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<IntakeResult | null>(null);
 
   const sitDown = async () => {
-    const vibe = VIBES.find((v) => v.id === vibeId);
-    if (busy || !vibe) return;
+    const choice = REPLIES.find((r) => r.id === replyId);
+    if (busy || !choice) return;
     setBusy(true);
     try {
-      const res = await submitIntake(name.trim() || 'Stranger', vibe.intensity, vibe.id);
-      // Seed the in-game quick-chat default to the vibe they picked here.
-      try {
-        localStorage.setItem('quickchat_intensity', res.intensity);
-      } catch {
-        /* private-mode / storage off — non-fatal */
-      }
+      const res = await submitIntake(name.trim() || 'Stranger', choice.reply, choice.id);
       setResult(res);
     } catch (e) {
       logger.error('intake failed:', e instanceof Error ? e.message : e);
@@ -137,29 +115,19 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
               “And tell me somethin' about yourself, hon.” <em>What do you say?</em>
             </span>
             <div className="lucky__deals">
-              {VIBES.map((opt) => {
-                const Icon = opt.icon;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    className={`lucky__deal${vibeId === opt.id ? ' is-selected' : ''}`}
-                    onClick={() => setVibeId(opt.id)}
-                  >
-                    <span className="lucky__deal-tone">
-                      <Icon size={16} />
-                      {opt.tone}
-                    </span>
-                    <span className="lucky__deal-reply">“{opt.reply}”</span>
-                  </button>
-                );
-              })}
+              {REPLIES.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`lucky__deal${replyId === opt.id ? ' is-selected' : ''}`}
+                  onClick={() => setReplyId(opt.id)}
+                >
+                  <span className="lucky__deal-reply">“{opt.reply}”</span>
+                </button>
+              ))}
             </div>
-            <p className="lucky__hint">
-              Your answer sets your table-talk vibe too — switch it up any hand.
-            </p>
 
-            <button className="lucky__btn" onClick={sitDown} disabled={busy || !vibeId}>
+            <button className="lucky__btn" onClick={sitDown} disabled={busy || !replyId}>
               {busy ? 'Signing you in…' : 'Sit down'}
             </button>
           </>

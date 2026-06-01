@@ -76,7 +76,9 @@ def test_generate_intake_persona_falls_back_when_llm_off(monkeypatch):
         raise RuntimeError("llm off")
 
     monkeypatch.setattr(fc, "get_fast_model", _boom)
-    persona = cp.generate_intake_persona("Jeff", intensity="spicy", style="needle", rng=random.Random(1))
+    persona = cp.generate_intake_persona(
+        "Jeff", answer="Folks say I'm hard to read.", rng=random.Random(1)
+    )
     assert persona["fish_name"].endswith("Jeff")  # rule-based fallback name
     assert persona["bio"]  # a canned line
     assert "Jeff" in cp.intake_avatar_prompt(persona["fish_name"], persona["bio"]) or True

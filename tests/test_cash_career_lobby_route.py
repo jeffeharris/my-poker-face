@@ -225,15 +225,27 @@ class TestCareerKeyringLobby(unittest.TestCase):
         # Brand-new career player → the lobby asks for the intake first.
         first = self.client.get("/api/cash/lobby").get_json()
         assert first["intake_needed"] is True
-        # Submit the cold-open: name + table-talk vibe → christened a handle + bio.
+        # Submit the cold-open: name + the reply they picked → christened a handle
+        # + bio. The reply is plain flavor (no setting mapping); it's remembered as
+        # a callback hook.
         res = self.client.post(
-            "/api/cash/intake", json={"name": "Jeff", "intensity": "spicy", "style": "needle"}
+            "/api/cash/intake",
+            json={
+                "name": "Jeff",
+                "reply": "Folks say I'm hard to read. Never did know what they meant by it.",
+                "reply_id": "hard_to_read",
+            },
         )
         body = res.get_json()
         assert body["player_name"] == "Jeff"
         assert body["fish_name"]  # LLM- or fallback-generated handle
-        assert body["intensity"] == "spicy"
+        assert "intensity" not in body  # decoupled from quick-chat
         assert "avatar_prompt" in body  # the avatar seam is present
+        # The reply is persisted verbatim (+ its id) for later narrative callbacks.
+        sb = self.repos['sandbox_repo'].list_for_owner(PLAYER_OWNER_ID)[0].sandbox_id
+        prog = self.repos['career_progress_repo'].load(sb, PLAYER_OWNER_ID)
+        assert prog.intake_reply_id == "hard_to_read"
+        assert "hard to read" in (prog.intake_reply or "")
         # Intake is now done → the gate clears and the handle is surfaced.
         after = self.client.get("/api/cash/lobby").get_json()
         assert after["intake_needed"] is False

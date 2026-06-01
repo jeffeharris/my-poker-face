@@ -224,13 +224,6 @@
   margin: 0.1rem 0 0.5rem;
 }
 
-.lucky__hint {
-  font-size: 0.74rem;
-  color: #8c7559;
-  text-align: center;
-  margin: 0 0 0.9rem;
-}
-
 .lucky__avatar {
   width: 64px;
   height: 64px;
@@ -271,16 +264,6 @@
   border-color: #e9b06a;
   background: #2a1d10;
   color: #ffe6bf;
-}
-.lucky__deal-tone {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #d8b24a;
 }
 .lucky__deal-reply {
   font-size: 0.9rem;

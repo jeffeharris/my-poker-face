@@ -65,12 +65,13 @@ class CareerProgress:
     intake_complete: bool = False
     player_name: Optional[str] = None
     fish_name: Optional[str] = None
-    # The table-talk vibe the player picked at intake (introduces quick-chat):
-    # `chat_intensity` is 'chill' | 'spicy' (seeds the quick-chat default);
-    # `chat_style` is a quick-chat tone (needle/befriend/…). Both feed the LLM
-    # that writes the fish-name + bio one-liner.
-    chat_intensity: Optional[str] = None
-    chat_style: Optional[str] = None
+    # What the newcomer said when the waitress asked them to tell her something
+    # about themselves. `intake_reply` is the verbatim line (it feeds the bio
+    # one-liner); `intake_reply_id` is a stable key for later narrative callbacks
+    # ('coffee' / 'game' / 'hard_to_read'). Plain character flavor — NOT mapped to
+    # any setting (the old quick-chat coupling was dropped).
+    intake_reply: Optional[str] = None
+    intake_reply_id: Optional[str] = None
     revealed_table_ids: List[str] = field(default_factory=list)
     scene0_seeded: bool = False
     scene0_table_id: Optional[str] = None
@@ -119,8 +120,8 @@ class CareerProgress:
                 "intake_complete": self.intake_complete,
                 "player_name": self.player_name,
                 "fish_name": self.fish_name,
-                "chat_intensity": self.chat_intensity,
-                "chat_style": self.chat_style,
+                "intake_reply": self.intake_reply,
+                "intake_reply_id": self.intake_reply_id,
                 "revealed_table_ids": self.revealed_table_ids,
                 "scene0_seeded": self.scene0_seeded,
                 "scene0_table_id": self.scene0_table_id,
@@ -159,8 +160,8 @@ class CareerProgress:
             intake_complete=bool(blob.get("intake_complete", False)),
             player_name=blob.get("player_name"),
             fish_name=blob.get("fish_name"),
-            chat_intensity=blob.get("chat_intensity"),
-            chat_style=blob.get("chat_style"),
+            intake_reply=blob.get("intake_reply"),
+            intake_reply_id=blob.get("intake_reply_id"),
             revealed_table_ids=list(blob.get("revealed_table_ids") or []),
             scene0_seeded=bool(blob.get("scene0_seeded", False)),
             scene0_table_id=blob.get("scene0_table_id"),
