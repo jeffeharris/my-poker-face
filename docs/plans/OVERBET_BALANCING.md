@@ -306,6 +306,37 @@ moves the tell to smaller sizes). **Verdict: accept ~31% (river_bluff_fraction=1
 as the achievable balance; the residual −7 is structural.** Mechanism kept dormant
 (`air_barrel_target=0.0`) as a documented measured-negative.
 
+## 5f. Gate read VALIDATED against real casino data (2026-06-01)
+
+Reconstructed `fold_to_big_bet` (verbatim `_record_fold_to_big_bet` logic,
+`SIZING_BIG_BET_POT_RATIO=0.75`) across **57,347 real casino hands** (main dev DB),
+58 players with a mature ≥8 big-bet sample.
+
+| group | fold_to_big_bet | trips gate ≥0.6? |
+|---|---|---|
+| explicit stations (CallStation, Cruise Carl, Blackbeard) | 0.00–0.08 | no |
+| behavioral fish (vpip≥0.45, e.g. Bachelorette Brenda vpip 0.91) | mean 0.28 / max 0.39 | no |
+| bulk (Batman, Napoleon, CaseBot, regs) | 0.16–0.44 | no |
+| loosest-folding tail (Ace Ventura 0.56, Tesla 0.54) | ≤0.56 | no |
+| **entire population (58)** | **max 0.56** | **0** |
+
+**Findings:**
+1. **Safety PROVEN** — 0/58 real opponents trip the 0.6 gate; stations sit at the
+   very bottom (0.00–0.08). The river bluff never fires vs the fish → the −7.18
+   caller cost is fully avoided in the real population. Zero spew risk.
+2. **The 0.6 threshold is theoretically self-calibrating, not arbitrary** — it's the
+   breakeven fold rate for a 1.5× bluff (`1.5/2.5 = 0.6`). So the gate fires only
+   when the bluff is +EV by fold equity alone. No AI fish over-folds that much → the
+   bot correctly value-bets them (max-EV vs a caller). The gate is working, not idle.
+3. **Flip side (honest):** at 0.6 the feature is **dormant vs the entire current AI
+   casino** — it activates only vs an opponent who folds >60% to big bets (the
+   intended target: a sizing-reading / nitty HUMAN who over-folds the face-up
+   overbet). The AI population lacks that leak, so the live BENEFIT still can't be
+   measured — only the mechanism + threshold confirmed sound + safe. Read discriminates
+   correctly (stations bottom → fold-happier players up to 0.56). Maturity fine for
+   regulars (1000s of samples); a one-off human stays cold-start (value-only) until
+   ~8 big bets faced. **No code change indicated — 0.6 is the right threshold.**
+
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +
    config flag. Measure vs oracle (−22 → ?) and fish cost. *This is the MVP.*
