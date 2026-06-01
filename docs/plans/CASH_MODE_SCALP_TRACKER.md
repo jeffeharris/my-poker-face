@@ -5,13 +5,28 @@ created: 2026-05-29
 last_updated: 2026-06-01
 ---
 
-> **Status (2026-06-01):** build-sequence **step 2 DONE** — the pure attribution
-> helper `cash_mode/scalps.py` (`eliminations_from_sim` + `eliminations_from_human_hand`)
-> is built and unit-tested (`tests/test_cash_mode/test_scalps.py`). It is
-> deliberately **pure** (no DB, no engine import — a local `HAND_EVENT_BUST`
-> mirror keeps it from dragging in `full_sim` → the LLM stack; a drift-guard
-> test pins the constant). Steps 1 (schema `cash_scalps` + repo) and 3 (wire
-> both capture paths) remain.
+> **Status (2026-06-01):** steps **1, 2, and 3a DONE**; only **3b** remains.
+> - **Step 2** (pure attribution helper) — `cash_mode/scalps.py`
+>   (`eliminations_from_sim` + `eliminations_from_human_hand`), unit-tested,
+>   deliberately pure (local `HAND_EVENT_BUST` mirror + drift-guard test).
+> - **Step 1** (durable counter) — schema **v132** `cash_scalps` +
+>   `CashScalpsRepository` (record / record_many / total_for /
+>   list_for_eliminator / victims_of), registered in `create_repos` +
+>   `extensions`; 7 repo tests + schema-chain tests green.
+> - **Step 3a** (AI-vs-AI world-sim path) — wired in
+>   `cash_mode/lobby.py::refresh_unseated_tables`: each sim hand's
+>   `eliminations_from_sim` is recorded via a lazily-resolved
+>   `cash_scalps_repo` (mirrors the entity-presence getter), best-effort so a
+>   write failure never breaks the world tick. 42 lobby tests green.
+> - **Step 3b (REMAINING)** — the human's own table. Integration point found:
+>   `flask_app/handlers/game_handler.py::_refill_cash_seats` derives
+>   `busted_indices` (AIs at stack 0) between hands, but does **not** know the
+>   hand's headline winner — attribution needs that winner threaded in from the
+>   evaluating-hand/award step (the eliminator is the headline pot winner, per
+>   §3). Lower value (one human entity's villain renown vs the constant world
+>   tick) and higher risk (live human flow), so deferred as a clean follow-up.
+> The counter now accrues from the world sim; the Renown-v2 scalp driver that
+> *reads* it lands with the broader v2 build (step 4).
 
 # Cash Scalp Tracker — attributed bust counting
 
