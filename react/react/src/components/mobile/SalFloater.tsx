@@ -16,9 +16,10 @@
  * enough to know "Sal is speaking."
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { ChatMessage } from '../../types';
-import { parseMessageInline } from '../../utils/messages';
+import { DramaticMessage } from '../shared/DramaticText';
+import { calculateDuration, splitSentences } from '../../utils/chatBeats';
 import './SalFloater.css';
 
 // Sal's bubble is STATIC text (no char-by-char typing), and his lines are
@@ -46,9 +47,17 @@ interface SalFloaterProps {
 export function SalFloater({ queue, onShown }: SalFloaterProps) {
   const current = queue.length > 0 ? queue[0] : null;
   const currentId = current?.id ?? null;
+  // Beat-ify his line: each sentence on its own line so the print-style renderer
+  // types it out with a pause after every sentence (Sal speaks in measured beats).
+  const beatText = useMemo(
+    () => (current ? splitSentences(current.message) : ''),
+    [current]
+  );
   // Tied to currentId: only changes when the head line changes, so the timer
-  // isn't reset by unrelated queue churn while a line is showing.
-  const showMs = current ? readMs(current.message) : 0;
+  // isn't reset by unrelated queue churn while a line is showing. The bubble must
+  // outlast the full type-out + pauses, so floor the generous read budget at the
+  // animation's own duration.
+  const showMs = current ? Math.max(readMs(current.message), calculateDuration(beatText)) : 0;
 
   useEffect(() => {
     if (!currentId) return undefined;
@@ -68,7 +77,7 @@ export function SalFloater({ queue, onShown }: SalFloaterProps) {
       <img className="sal-floater__img" src="/sal.png" alt="Sal Monroe" />
       <div className="sal-floater__bubble">
         <span className="sal-floater__name">Sal</span>
-        {parseMessageInline(current.message)}
+        <DramaticMessage text={beatText} />
       </div>
     </div>
   );

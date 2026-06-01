@@ -52,11 +52,48 @@
   border-color: transparent #14181a transparent transparent;
 }
 
-/* Inline beats (the shared dramatic_sequence renderer): action asides italic +
-   dimmed, speech plain. */
+/* Print-style beats (the shared DramaticText renderer): action asides FADE in
+   (dimmed italic), speech TYPES out with a blinking cursor. */
+.sal-floater__bubble .beat {
+  margin-bottom: 3px;
+}
+.sal-floater__bubble .beat:last-child {
+  margin-bottom: 0;
+}
+.sal-floater__bubble .beat.action {
+  color: #c8beb4;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.4s ease-out,
+    transform 0.4s ease-out;
+}
+.sal-floater__bubble .beat.action.visible {
+  opacity: 0.85;
+  transform: none;
+}
 .sal-floater__bubble .beat.action em {
   font-style: italic;
-  opacity: 0.82;
+}
+.sal-floater__bubble .beat.speech {
+  color: #efe6da;
+}
+.sal-floater__bubble .typing-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: #f0c674;
+  font-weight: 300;
+  animation: sal-blink 0.8s infinite;
+}
+@keyframes sal-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .sal-floater__name {

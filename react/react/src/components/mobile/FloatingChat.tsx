@@ -2,14 +2,16 @@ import { memo, useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
 import type { ChatMessage } from '../../types';
-import {
-  TYPING_SPEED_MS,
-  ACTION_FADE_DURATION_MS,
-  BEAT_DELAY_MS,
-  QUEUED_MESSAGE_BONUS_MS,
-} from '../../config/timing';
-import { parseBeats, calculateDuration } from '../../utils/chatBeats';
+import { QUEUED_MESSAGE_BONUS_MS } from '../../config/timing';
+import { calculateDuration } from '../../utils/chatBeats';
 import './FloatingChat.css';
+
+// The dramatic "print style" beat renderer now lives in a shared module (it's
+// used by the seat bubble, Sal's floater, and the Lucky Stack intake too).
+// Imported for local use below and re-exported so existing importers (e.g.
+// SeatSpeechBubble) keep working.
+import { DramaticMessage } from '../shared/DramaticText';
+export { DramaticMessage };
 
 // Swipe-to-dismiss thresholds. The opacity ramp is anchored to the
 // trailing edge's screen position (see useTransform below); these
@@ -36,94 +38,6 @@ interface FloatingChatProps {
   message: ChatMessage | null;
   onDismiss: () => void;
   playerAvatars?: Map<string, string>;
-}
-
-// Action beat component - fades in
-function ActionBeat({ text, delay }: { text: string; delay: number }) {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setVisible(true), delay);
-    return () => clearTimeout(timer);
-  }, [delay]);
-
-  return (
-    <div className={`beat action ${visible ? 'visible' : ''}`}>
-      <em>{text}</em>
-    </div>
-  );
-}
-
-// Speech beat component - types out character by character
-function SpeechBeat({ text, delay }: { text: string; delay: number }) {
-  const [displayedText, setDisplayedText] = useState('');
-  const [started, setStarted] = useState(false);
-
-  useEffect(() => {
-    const startTimer = setTimeout(() => setStarted(true), delay);
-    return () => clearTimeout(startTimer);
-  }, [delay]);
-
-  useEffect(() => {
-    if (!started) return;
-
-    let charIndex = 0;
-    const interval = setInterval(() => {
-      if (charIndex < text.length) {
-        setDisplayedText(text.slice(0, charIndex + 1));
-        charIndex++;
-      } else {
-        clearInterval(interval);
-      }
-    }, TYPING_SPEED_MS);
-
-    return () => clearInterval(interval);
-  }, [started, text]);
-
-  if (!started) return null;
-
-  return (
-    <div className="beat speech">
-      {displayedText}
-      {displayedText.length < text.length && <span className="typing-cursor">|</span>}
-    </div>
-  );
-}
-
-// Dramatic message component - orchestrates beat animations
-export function DramaticMessage({ text }: { text: string }) {
-  const beats = parseBeats(text);
-
-  if (beats.length === 0) {
-    return <>{text}</>;
-  }
-
-  // Calculate cumulative delays for each beat
-  let cumulativeDelay = 0;
-  const beatsWithDelay = beats.map((beat, i) => {
-    const delay = cumulativeDelay;
-
-    // Calculate how long this beat takes
-    if (beat.type === 'action') {
-      cumulativeDelay += ACTION_FADE_DURATION_MS + BEAT_DELAY_MS;
-    } else {
-      cumulativeDelay += beat.text.length * TYPING_SPEED_MS + BEAT_DELAY_MS;
-    }
-
-    return { ...beat, delay, index: i };
-  });
-
-  return (
-    <>
-      {beatsWithDelay.map((beat) =>
-        beat.type === 'action' ? (
-          <ActionBeat key={beat.index} text={beat.text} delay={beat.delay} />
-        ) : (
-          <SpeechBeat key={beat.index} text={beat.text} delay={beat.delay} />
-        )
-      )}
-    </>
-  );
 }
 
 // Message component — swipe horizontally to dismiss, or wait for the

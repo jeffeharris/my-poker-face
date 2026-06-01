@@ -20,12 +20,28 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Flame, Handshake, Zap, type LucideIcon } from 'lucide-react';
 import { logger } from '../../utils/logger';
+import { DramaticMessage } from '../shared/DramaticText';
 import { submitIntake, type IntakeResult } from './api';
 import './LuckyStackIntake.css';
 
 interface LuckyStackIntakeProps {
   onDone: () => void;
 }
+
+// The waitress's lines, written as print-style BEATS (one per line): *asterisk*
+// lines are stage directions that FADE in; the rest is speech that TYPES out.
+const WAITRESS_INTRO = [
+  "Mornin', hon. You here for the biscuits and gravy, or the game in the back?",
+  '*She doesn’t wait for an answer — already sliding you a rack of chips.*',
+  'House comps the first sit. What do I put in the book?',
+].join('\n');
+
+const WAITRESS_SCRIBBLE = '*She scribbles on her pad and hollers toward the back:*';
+
+const WAITRESS_WELCOME = [
+  '*She tips her head toward a near-empty back table — a couple regulars in it: some old-timer yappin’ over his coffee, and a wide-eyed fella across from him.*',
+  'Go on, hon. They don’t bite. Much.',
+].join('\n');
 
 // Three quick-chat replies to the waitress's "tell me something about yourself"
 // — friendly → brutal. The `reply` is what you "say" (it feeds the room's bio of
@@ -89,19 +105,21 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
 
   return createPortal(
     <div className="lucky__overlay" role="dialog" aria-modal="true" aria-label="The Lucky Stack">
+      {/* The waitress floats above the card, leaning in over the top edge as she
+          talks — her speech types out in the bubble below. */}
+      <img
+        className="lucky__floater"
+        src="/waitress.png"
+        alt="The Lucky Stack waitress"
+      />
       <div className="lucky__card">
         <div className="lucky__sign">The Lucky Stack</div>
         <div className="lucky__sub">good hands served daily</div>
 
         {result === null ? (
           <>
-            <div className="lucky__waitress">
-              <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
-              <p className="lucky__line">
-                “Mornin', hon. You here for the biscuits and gravy, or the game in the
-                back?” <em>She doesn't wait for an answer — already sliding you a rack of
-                chips.</em> “House comps the first sit. What do I put in the book?”
-              </p>
+            <div className="lucky__speech">
+              <DramaticMessage key="intro" text={WAITRESS_INTRO} />
             </div>
 
             <label className="lucky__label" htmlFor="lucky-name">Name</label>
@@ -147,23 +165,14 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
           </>
         ) : (
           <div className="lucky__reveal">
-            <div className="lucky__waitress">
-              <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
-              <p className="lucky__line">
-                <em>She scribbles on her pad and hollers toward the back:</em>
-              </p>
+            <div className="lucky__speech">
+              <DramaticMessage key="scribble" text={WAITRESS_SCRIBBLE} />
             </div>
             <p className="lucky__fishname">“Fresh fish — {result.fish_name}!”</p>
             <div className="lucky__avatar" aria-hidden="true">🐟</div>
             {result.bio && <p className="lucky__bio">“{result.bio}”</p>}
-            <div className="lucky__waitress">
-              <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
-              <p className="lucky__line lucky__welcome">
-                She tips her head toward a near-empty back table — plenty of open
-                chairs, just a couple regulars in it: some old-timer yappin' away
-                over his coffee, and a wide-eyed fella across from him.
-                <em> “Go on, hon. They don't bite. Much.”</em>
-              </p>
+            <div className="lucky__speech lucky__speech--welcome">
+              <DramaticMessage key="welcome" text={WAITRESS_WELCOME} />
             </div>
             <button className="lucky__btn" onClick={onDone}>
               Take the seat

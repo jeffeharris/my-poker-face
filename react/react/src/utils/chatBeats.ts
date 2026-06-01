@@ -30,6 +30,25 @@ export function parseBeats(text: string): ParsedBeat[] {
   });
 }
 
+/** Put each sentence of a plain-speech line on its own line, so the DramaticText
+ *  beat/pause cadence lands after every sentence without hand-authoring the
+ *  newlines. Action (*...*) lines are kept whole; existing newlines are respected. */
+export function splitSentences(text: string): string {
+  return (text || '')
+    .split('\n')
+    .flatMap((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return [];
+      if (/^\*.*\*$/.test(trimmed)) return [trimmed]; // an action aside — keep whole
+      // Split after sentence-ending punctuation followed by whitespace.
+      return trimmed
+        .split(/(?<=[.!?])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    })
+    .join('\n');
+}
+
 /** How long a bubble should stay up, scaled to typing + reading time. */
 export function calculateDuration(message: string, action?: string): number {
   const trimmedMessage = message.trim();
