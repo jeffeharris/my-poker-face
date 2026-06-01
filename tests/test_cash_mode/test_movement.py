@@ -82,6 +82,11 @@ def _neutral_ctx(**overrides) -> MovementContext:
         zone="neutral",
         hands_in_detached_zone=0,
         emotional_intensity=0.0,
+        # Settled in: past the dwell floor (DWELL_PATIENCE_HANDS=6) so the
+        # discretionary-pressure dwell_damp is 1.0 and these formula/routing
+        # tests see undamped pressure. Tests that exercise the dwell ramp
+        # override this explicitly.
+        hands_here=20,
     )
     base.update(overrides)
     return MovementContext(**base)
@@ -682,15 +687,17 @@ class TestRefreshForcedLeave:
             open_slot(),
         ]
         table = _make_table(seats)
-        # Napoleon forced_leave (no roll consumed); zeus stay (no roll).
-        # 5 open seats → 5 live-fill rolls (high to avoid fill).
+        # Napoleon is TRULY busted — chips 0 AND bankroll < min_buy_in, so the
+        # grinder self-rebuy hard-gate leaves forced_leave standing (no roll
+        # consumed); zeus stay (no roll). 5 open seats → 5 live-fill rolls
+        # (high to avoid fill).
         rng = _force_rng([0.99] * 5)
         result = refresh_table_roster(
             table,
             idle_pool=[],
             eligible_candidates=[],
             seated_globally={"napoleon", "zeus"},
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000, "zeus": 5000}),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 0, "zeus": 5000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
@@ -843,8 +850,13 @@ class TestDeadTablePush:
     that's lost its fish pushes its grinders to go find action."""
 
     def _grinder_seats(self):
-        # Two grinders (mid stack → no short / no seat stake_up), rest open.
-        return [ai_slot("g1", 600), ai_slot("g2", 600)] + [open_slot() for _ in range(4)]
+        # Two grinders (mid stack → no short / no seat stake_up), settled past
+        # the dwell floor (hands_here ≥ DWELL_PATIENCE_HANDS) so the dead-table
+        # pressure isn't damped to zero; rest open.
+        return [
+            {**ai_slot("g1", 600), "hands_here": 20},
+            {**ai_slot("g2", 600), "hands_here": 20},
+        ] + [open_slot() for _ in range(4)]
 
     def _run(self, table_type):
         table = CashTableState(
@@ -905,7 +917,9 @@ class TestRefreshHumanSeatPreserved:
             idle_pool=[],
             eligible_candidates=[],
             seated_globally={"napoleon"},
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
+            # Truly broke (bankroll < min_buy_in) so the grinder self-rebuy
+            # gate leaves forced_leave standing and draws no rebuy roll.
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 0}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
@@ -942,7 +956,9 @@ class TestRefreshDeferFreshlyVacated:
                 {"personality_id": "zeus", "name": "Zeus"},
             ],
             seated_globally={"napoleon"},
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000, "zeus": 5000}),
+            # napoleon truly broke so it forced_leaves (vacates) rather than
+            # drawing a self-rebuy roll off the 0.0 fill sequence.
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 0, "zeus": 5000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
@@ -1091,8 +1107,9 @@ def _rng_seq(values, default=0.99):
 def _tenure_leaver_table():
     # One AI with a comfortable stack (not short, not stake-up-able) at a
     # near-empty table; low energy gives it a small tenure leave-pressure
-    # so it rolls a discretionary bored_move.
-    seats = [ai_slot("whale", 500)] + [open_slot() for _ in range(5)]
+    # so it rolls a discretionary bored_move. Settled past the dwell floor
+    # (hands_here ≥ DWELL_PATIENCE_HANDS) so that tenure pressure isn't damped.
+    seats = [{**ai_slot("whale", 500), "hands_here": 20}] + [open_slot() for _ in range(5)]
     return _make_table(seats)
 
 
