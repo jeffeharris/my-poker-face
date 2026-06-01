@@ -23,11 +23,13 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from cash_mode.bankroll import PlayerBankrollState
+from datetime import datetime
+
+from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from core.economy import economy_signal
 from core.economy import ledger as chip_ledger
 from core.economy.economy_signal import FundingPlan
-from core.economy.ledger import player, tournament
+from core.economy.ledger import ai, player, tournament
 from tournament.economy import compute_payout_schedule
 
 logger = logging.getLogger(__name__)
@@ -162,19 +164,24 @@ def apply_payout_on_complete(
     bankroll_repo,
     ledger_repo,
     session_repo,
+    real_persona_ids=frozenset(),
     payout_curve=None,
 ) -> bool:
     """Distribute the escrow per the payout split — an I6 idempotent terminal
     transition. Safe to call from every completion path (boundary, advance,
     play-out): the `payout_status` guard makes a second call a no-op.
 
-    v1 (synthetic AI field): the human seat (`session.human_id`, only when
-    `human_owner_id` is set — i.e. a real human registered) is paid for real;
-    every other finisher is a synthetic field entrant with no persistent
-    bankroll, so its share is swept back to the bank pool (`tournament_return`),
-    keeping the escrow at 0 and restoring the overlay it cancels to reserves.
-    The configured rake is skimmed separately (`table_rake`). When real-persona
-    fields ship, the synthetic branch becomes a real `ai:<pid>` payout.
+    Three kinds of finisher:
+      - **the human** (`session.human_id`, only when `human_owner_id` is set —
+        a real human registered) → credited to the global player bankroll.
+      - **a real AI persona** (`pid in real_persona_ids`) → credited to its
+        `ai:<pid>` sandbox bankroll. This is the actual redistribution: an
+        overlay-funded pool flows from the bank into real persona bankrolls,
+        which then cycle back through the cash tables.
+      - **a synthetic seat** (P01-style, neither of the above) → no bankroll to
+        credit, so its share is swept to the bank pool (`tournament_return`),
+        keeping the escrow at 0 and restoring the overlay it cancels.
+    The configured rake is skimmed separately (`table_rake`).
 
     Returns True iff a distribution ran (i.e. status advanced pending→complete).
     Caller holds `get_sandbox_lock(sandbox_id)`. Never raises — a mid-flight
@@ -234,7 +241,31 @@ def apply_payout_on_complete(
                     context={'site': 'payout', 'finishing_position': entry['finishing_position']},
                     sandbox_id=sandbox_id,
                 )
-            # else: synthetic AI finisher — left in escrow, swept below.
+            elif pid in real_persona_ids:
+                # Real AI persona → credit its sandbox bankroll. The escrow→ai
+                # transfer is the authoritative chip move (drift-invisible); the
+                # cached int is bumped to match WITHOUT a ledger repo, so the
+                # auto-ai_seed first-write path can't double-count the prize.
+                chip_ledger.record_tournament_payout(
+                    ledger_repo,
+                    sink=ai(pid),
+                    tournament_id=tournament_id,
+                    amount=amount,
+                    context={'site': 'payout', 'finishing_position': entry['finishing_position']},
+                    sandbox_id=sandbox_id,
+                )
+                existing = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+                base = existing.chips if existing else 0
+                anchor = existing.last_regen_tick if existing else datetime.utcnow()
+                bankroll_repo.save_ai_bankroll(
+                    AIBankrollState(
+                        personality_id=pid,
+                        chips=base + amount,
+                        last_regen_tick=anchor,
+                    ),
+                    sandbox_id=sandbox_id,
+                )
+            # else: synthetic seat — no bankroll to credit, swept below.
 
         # Skim the configured rake (escrow → bank pool: the refill lever).
         rake = int(row.get('rake') or 0)
