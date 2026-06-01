@@ -206,7 +206,15 @@ def api_playground_captures():
             date_to=request.args.get('date_to'),
         )
 
-        stats = extensions.prompt_capture_repo.get_playground_capture_stats()
+        # Stats are a full-table aggregation that blocks the list. Callers can
+        # pass include_stats=false to get the list fast and fetch
+        # /api/playground/stats separately. Defaults true for back-compat.
+        include_stats = request.args.get('include_stats', 'true').lower() != 'false'
+        stats = (
+            extensions.prompt_capture_repo.get_playground_capture_stats()
+            if include_stats
+            else None
+        )
 
         return jsonify(
             {

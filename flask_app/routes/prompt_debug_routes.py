@@ -192,15 +192,22 @@ def list_captures():
     else:
         result = extensions.prompt_capture_repo.list_prompt_captures(**filters)
 
-    # Also get stats (pass call_type filter to ensure stats match the filtered view)
-    stats = extensions.prompt_capture_repo.get_prompt_capture_stats(
-        game_id=filters.get('game_id'), call_type=filters.get('call_type')
-    )
-
-    # Also get label stats
-    label_stats = extensions.capture_label_repo.get_label_stats(
-        game_id=filters.get('game_id'), call_type=filters.get('call_type')
-    )
+    # Stats are expensive (full-table aggregations) and block the list response.
+    # Callers that want the list to paint fast can pass include_stats=false and
+    # fetch /stats + /label-stats separately (lazy load). Defaults to true for
+    # backwards compatibility.
+    include_stats = request.args.get('include_stats', 'true').lower() != 'false'
+    if include_stats:
+        # Pass call_type filter to ensure stats match the filtered view
+        stats = extensions.prompt_capture_repo.get_prompt_capture_stats(
+            game_id=filters.get('game_id'), call_type=filters.get('call_type')
+        )
+        label_stats = extensions.capture_label_repo.get_label_stats(
+            game_id=filters.get('game_id'), call_type=filters.get('call_type')
+        )
+    else:
+        stats = None
+        label_stats = None
 
     return jsonify(
         {

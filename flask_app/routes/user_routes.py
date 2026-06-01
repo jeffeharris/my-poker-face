@@ -27,9 +27,17 @@ def list_users():
     try:
         users = extensions.user_repo.get_all_users()
 
-        # Enrich with stats
+        # Enrich with stats. Batched in two GROUP BY queries instead of 4
+        # aggregations per user (was N+1 over api_usage/games).
+        stats_by_id = extensions.user_repo.get_all_user_stats()
+        empty_stats = {
+            'total_cost': 0,
+            'hands_played': 0,
+            'games_completed': 0,
+            'last_active': None,
+        }
         for user in users:
-            user['stats'] = extensions.user_repo.get_user_stats(user['id'])
+            user['stats'] = stats_by_id.get(user['id'], empty_stats)
 
         return jsonify({'success': True, 'users': users})
     except Exception as e:
