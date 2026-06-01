@@ -269,6 +269,14 @@ class OpponentTendencies:
     fold_to_big_bet: float = 0.5
     _fold_to_big_bet_count: int = 0
     _big_bet_faced_count: int = 0
+    # (3) stab_frequency — bet rate when CHECKED TO postflop (the capped-checking
+    #     dual of fold_to_big_bet). High ⇒ a frequent stabber → gates the
+    #     stab-defense (OVERBET_BALANCING §5j: call wider vs its bets into our
+    #     checked range). Prior 0.3 (below the 0.5 gate) so cold-start = no
+    #     defense; matures via update_stab once _stab_opp_count is sufficient.
+    stab_frequency: float = 0.3
+    _stab_count: int = 0
+    _stab_opp_count: int = 0
 
     # Per-hand opportunity flags (reset on new hand, mirror _vpip_this_hand /
     # _pfr_this_hand).
@@ -702,6 +710,16 @@ class OpponentTendencies:
             self._fold_to_big_bet_count += 1
         self.fold_to_big_bet = self._fold_to_big_bet_count / self._big_bet_faced_count
 
+    def update_stab(self, stabbed: bool) -> None:
+        """Live record of how often this opponent BETS when CHECKED TO postflop
+        (a stab) — the capped-checking dual of fold_to_big_bet. High ⇒ a frequent
+        stabber → gate the stab-defense (OVERBET_BALANCING §5j). Mirrors
+        update_fold_to_big_bet's shape."""
+        self._stab_opp_count += 1
+        if stabbed:
+            self._stab_count += 1
+        self.stab_frequency = self._stab_count / self._stab_opp_count
+
     def _recalculate_stats(self):
         """Recalculate derived statistics.
 
@@ -993,6 +1011,10 @@ class OpponentTendencies:
         ('_equity_betting_small_count', 0),
         ('_fold_to_big_bet_count', 0),
         ('_big_bet_faced_count', 0),
+        # §5j: stab frequency (bet-when-checked-to rate)
+        ('stab_frequency', 0.3),
+        ('_stab_count', 0),
+        ('_stab_opp_count', 0),
     )
 
     def to_dict(self) -> Dict[str, Any]:

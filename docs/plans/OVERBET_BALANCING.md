@@ -274,11 +274,222 @@ Resolver `_resolve_river_bluff_ftbb` unit-verified end-to-end (reader fires, cal
 immature/multiway/cold-start → value-only, override wins). 148 overbet/tiered +
 full strategy suites green.
 
-**Residual −7 needs MORE river air** (barrel more air to turn/river so more reaches
-a checked-to river) — a bigger supply build, not a higher fraction. Other caveats
+**Residual −7:** see §5e — the obvious "barrel more air to the river" supply build
+was built + measured and is a NO-OP (the residual is structural). Other caveats
 unchanged: the live read's real-world accuracy is untested (false-positive cost vs a
 misclassified caller grows with fraction — ~−7 bb/100 at 0.5 in the sweep); dial
 `river_bluff_fraction` down if the read proves noisy in production.
+
+## 5e. River-air SUPPLY build — TRIED + REJECTED (no-op, 2026-06-01)
+
+Hypothesis: T2's ~31% bluff-share cap is because the bot gives up air on the turn,
+so little reaches the river. Fix: barrel turn air (gated turn `air_no_draw` barrel
+in `multistreet_context`, same reader gate + HU + turn-only) so more air survives to
+the checked-to river for T2. Built OFF-by-default (`air_barrel_target`), measured.
+
+**Result (HU vs jeff, mode on, river_bluff=1.0, reader):**
+
+| air-barrel | river overbet bluff% | promote count | bb/100 |
+|---|---|---|---|
+| OFF | 25% | 205 | +94.0 |
+| ON (0.5) | 25% | 199 | +94.9 |
+
+**NO-OP** (barrel confirmed firing — turn air-bet share shifted, e.g. xs 50%→73%).
+**Why the premise was wrong:** give-up air ALREADY reaches a checked-to river — air
+dies from *folding to a bet*, not from *checking* the turn. So barreling turn air a
+street earlier adds zero river bluff candidates (and air raised off the turn slightly
+*reduces* supply: 205→199). The ~31% cap is **structural** — set by the natural
+air:value ratio in the river range — not a turn-give-up problem. The only levers that
+move it are unattractive (float air to the river → faces a bet → not an unopened node
+→ T2 can't fire; or relabel less value to the overbet → dilutes the +EV value bet,
+moves the tell to smaller sizes). **Verdict: accept ~31% (river_bluff_fraction=1.0)
+as the achievable balance; the residual −7 is structural.** Mechanism kept dormant
+(`air_barrel_target=0.0`) as a documented measured-negative.
+
+## 5f. Gate read VALIDATED against real casino data (2026-06-01)
+
+Reconstructed `fold_to_big_bet` (verbatim `_record_fold_to_big_bet` logic,
+`SIZING_BIG_BET_POT_RATIO=0.75`) across **57,347 real casino hands** (main dev DB),
+58 players with a mature ≥8 big-bet sample.
+
+| group | fold_to_big_bet | trips gate ≥0.6? |
+|---|---|---|
+| explicit stations (CallStation, Cruise Carl, Blackbeard) | 0.00–0.08 | no |
+| behavioral fish (vpip≥0.45, e.g. Bachelorette Brenda vpip 0.91) | mean 0.28 / max 0.39 | no |
+| bulk (Batman, Napoleon, CaseBot, regs) | 0.16–0.44 | no |
+| loosest-folding tail (Ace Ventura 0.56, Tesla 0.54) | ≤0.56 | no |
+| **entire population (58)** | **max 0.56** | **0** |
+
+**Findings:**
+1. **Safety PROVEN** — 0/58 real opponents trip the 0.6 gate; stations sit at the
+   very bottom (0.00–0.08). The river bluff never fires vs the fish → the −7.18
+   caller cost is fully avoided in the real population. Zero spew risk.
+2. **The 0.6 threshold is theoretically self-calibrating, not arbitrary** — it's the
+   breakeven fold rate for a 1.5× bluff (`1.5/2.5 = 0.6`). So the gate fires only
+   when the bluff is +EV by fold equity alone. No AI fish over-folds that much → the
+   bot correctly value-bets them (max-EV vs a caller). The gate is working, not idle.
+3. **Flip side (honest):** at 0.6 the feature is **dormant vs the entire current AI
+   casino** — it activates only vs an opponent who folds >60% to big bets (the
+   intended target: a sizing-reading / nitty HUMAN who over-folds the face-up
+   overbet). The AI population lacks that leak, so the live BENEFIT still can't be
+   measured — only the mechanism + threshold confirmed sound + safe. Read discriminates
+   correctly (stations bottom → fold-happier players up to 0.56). Maturity fine for
+   regulars (1000s of samples); a one-off human stays cold-start (value-only) until
+   ~8 big bets faced. **No code change indicated — 0.6 is the right threshold.**
+
+## 5g. Live benefit measured with an ADAPTIVE best-responder (2026-06-01)
+
+Built the "missing instrument" (BETTER_BOT_HANDOFF §2/§7): `AdaptiveReaderState` +
+`build_adaptive_reader_strategy` (`poker/human_clone.py`) — a competent reg that
+OBSERVES the hero's revealed overbet hands (perfect observation = strongest
+realistic reader), estimates the hero's overbet bluff freq, and best-responds its
+fold frequency (over-fold a face-up bot, call a balanced one). Unlike the fixed
+oracle (folds unconditionally → only shows bluff-through), it can in principle show
+"value gets paid when balanced". Wired into `measure_passivity` (`ADAPTIVE_READER=1`,
+feeds the hero's river-overbet classes each hand).
+
+**Result (HU, 4000h × 3 seeds, vs the adaptive reader):**
+
+| arm | reader learned bluff_freq | bb/100 mean |
+|---|---|---|
+| A: face-up overbet (river_bluff=0) | 0.02 | +17.4 |
+| B: balanced overbet (river_bluff=1.0, gate fires) | 0.14 | +19.6 |
+
+**Live benefit = +2.2 bb/100, identical every seed (+2.3/+2.3/+2.2).** Proves: (1)
+the reader genuinely learns + discriminates (0.02 vs 0.14) — it adapts, not a
+hard-coded fold; (2) balancing helps even vs a thinking, adapting opponent.
+**Nuance:** the observed bluff freq in B (0.14, bluff/all-overbets) is still below
+the reader's call-threshold (~0.375 for 1.5×), so it correctly keeps over-folding →
+the +2.2 is bluffs-through, NOT value-getting-paid. Forcing the latter needs ~37.5%
+balance, blocked by the structural supply cap (§5e). So the adaptive reader
+independently re-derives the same ceiling the tell map + oracle found, via a
+different mechanism. **Caveat:** still a rule-class best-responder (perfect
+observation), not a real human — confirms the mechanism + a positive live benefit
+vs a strong reader; a creative human could attack other dimensions.
+
+## 5h. The dual instrument — adaptive bluff-RAISER (defense vs aggression)
+
+Tests whether the bot bleeds to a human bluff-raising it ("10× air-raises in a
+row"). `AdaptiveAggressorState` + `build_adaptive_aggressor_strategy`
+(`poker/human_clone.py`): a reg that bluff-raises its junk facing a hero bet, learns
+the hero's fold-to-raise from the VISIBLE response (no perfect observation needed),
+and escalates while profitable. `measure_passivity ADAPTIVE_AGGRESSOR=1`
+(`AGGRESSOR_BLUFF=0` control; `AGGRESSOR_THRESHOLD=0` = relentless maniac).
+
+**Result (HU 4000h × 3): NO leak — the bot is robust vs bluff-raising.**
+
+| opponent | bot bb/100 | hero fold-to-raise |
+|---|---|---|
+| static reg | +24.4 | 0.23 |
+| adaptive bluff-raiser | +24.7 (self-corrects → stops) | 0.23 |
+| relentless maniac | +31.3 (donates +6.9) | 0.22 |
+
+The bot folds to raises only ~22% (< the ~50% a pot-raise bluff needs) → a rational
+bluff-raiser learns the bot calls down and stops; a relentless one gets snapped off
+and donates. The bot's sticky calling defends it vs aggression. **No defense build
+indicated.** The sensors to detect a bluffer (AF, `compute_aggression_polarization`)
+exist but don't need wiring for THIS purpose — the call-down already handles it.
+(Mirror exposure: over-paying a thin value-raiser — ordinary poker, not a run-over.)
+
+## 5i. Capped checking ranges — a REAL but small leak (2026-06-01)
+
+The dual of the river-overbet leak: when the bot CHECKS, is its range capped (no
+strong hands → a reader stabs it)? Built a check-range composition map
+(`measure_passivity --tell-map` "CHECK-RANGE COMPOSITION") + an adaptive STABBER
+(`build_adaptive_stabber_strategy`, `ADAPTIVE_STABBER=1`): bets junk at a half-pot
+size when the bot checks to it, learns fold-to-stab, escalates.
+
+**Check-range composition (HU vs jeff):** FLOP **5% strong → CAPPED**; TURN 9%
+(borderline); RIVER **29% strong → PROTECTED** (the bot checks back / slowplays
+strong rivers). So the capped range is the FLOP, not the river I worried about.
+
+**Stab A/B (HU 4000h × 3):**
+
+| arm | bot bb/100 | hero fold-to-stab |
+|---|---|---|
+| no stabbing (control) | +24.4 | 0.41 |
+| half-pot stabber (adaptive == relentless) | **+23.2 (−1.2)** | 0.41 |
+
+**A genuine leak — the first one (bluff-raising donated; this costs −1.2).** The bot
+folds **41%** to half-pot stabs (vs 22% to raises — confirming the directional
+hypothesis: after checking, its weaker range folds more), above the half-pot MDF
+(~33%). But it's **small** (ceiling −1.2; adaptive==relentless because 0.41 already
+clears the stab's breakeven), **flop-concentrated**, and the **river is protected**.
+Much of the 41% fold is irreducible (a capped-weak range genuinely can't continue
+67%). Real-world: the **fish don't stab** (they bet value / check), so the production
+leak is ~0.
+
+**Fix option (not built — owner's cost/benefit call):** a *gated stab-defense*
+symmetric to the river-bluff gate — widen the bot's defense facing a bet ONLY when
+it checked into the spot AND the opponent reads as a frequent stabber → low fish
+cost, captures the −1.2 vs an actual stabber. Real build (new stab-frequency read +
+defense layer) for a −1.2 ceiling that's ~0 vs the real pool. Per this session's
+pattern (defensive discipline tends to cost more vs the value-betting pool than it
+saves), recommend against unless a human is shown to stab-exploit in practice.
+
+## 5j. Gated stab-defense — BUILT + measured; works but unfavorable asymmetry
+
+(The "cost vs the pool" objection in §5i was wrong — a GATED defense, like the
+river-bluff gate, fires only vs a detected stabber and so costs ~0 vs the fish. Built
+it to measure properly.) `apply_stab_defense` (`poker/strategy/stab_defense.py`):
+shifts fold→call facing a postflop bet, gated on an opponent stab-frequency read.
+Controller `stab_defense_intensity` (OFF=0 default), `_resolve_stabber_read`
+(override in eval; **production read NOT yet wired** — resolver returns None →
+dormant). `measure_passivity STAB_DEFENSE=intensity`.
+
+**Recovery vs the adaptive stabber (HU 4000h × 3):**
+
+| intensity | hero fold-to-stab | bot bb/100 |
+|---|---|---|
+| 0 (off) | 0.41 | +23.2 (leak) |
+| 0.3 | 0.31 (≈ MDF) | +23.2 (no recovery) |
+| 0.5 | 0.23 | **+24.2 (recovers ~+1.0)** |
+
+**It works** (not inert, unlike the prior maniac-defense). Key insight: recovery
+needs OVER-calling *past* MDF (0.31 = MDF didn't recover; 0.23 did) — a relentless
+stabber over-bluffs, so the max-EV counter is to over-call, not hit MDF.
+
+**But the asymmetry is unfavorable (the decisive number):** false-positive cost vs
+jeff (a caller wrongly defended) = **−2.5** (+43.9 → +41.4 with intensity 0.5
+forced) > the **+1.0** true-positive gain. Because recovery *requires* over-calling,
+and over-calling bleeds to value-bettors, the defense is net-positive ONLY if the
+stab-read almost never misfires — and stabbers are rare, callers common. So it needs
+(a) a production stab-frequency read built + validated to the river-bluff standard,
+and (b) even then it's marginal (+1.0 upside, −2.5 misfire downside). **Verdict: keep
+DORMANT (intensity 0, no read wired); the mechanism is proven + measured both ways,
+but the asymmetry makes it low-priority — ship only with a high-precision validated
+stab read.** Mechanism kept as a ready, measured, gated lever.
+
+## 5k. Stab-frequency read BUILT + VALIDATED + ENABLED (2026-06-01)
+
+Built the production gate the §5j defense needed. `stab_frequency` on
+`OpponentTendencies` (+ `update_stab` + `_record_stab_frequency` in memory_manager —
+replays each hand, counts bet-vs-check when the player is CHECKED TO postflop, i.e.
+not first-to-act with nothing to call; mirrors `_record_fold_to_big_bet`).
+`_resolve_stabber_read` now reads it (HU, matures at `_stab_opp_count >= 12`).
+
+**Validated on 57,347 casino hands** (reconstructed verbatim), 47 players with ≥20
+checked-to spots:
+
+| group | stab_frequency |
+|---|---|
+| CallStation | 0.00 |
+| calling stations / regs (Napoleon, CaseBot, Batman, Bob Ross) | 0.07–0.20 |
+| genuine stabbers (Triumph 0.55, ManiacBot 0.70, Blackbeard 0.88) | 0.55–0.88 |
+| population | min 0.00 / median 0.15 / max 0.88 |
+
+**High precision, large margin:** the false-positive opponents (callers/value-bettors,
+the −2.5 risk) cluster at 0.00–0.20 — a **0.30+ gap** below the 0.6 gate. Only 2/47
+(Blackbeard, ManiacBot) trip 0.6. So the unfavorable asymmetry (−2.5 misfire vs +1.0
+gain) is **managed by the read's precision** — a noisy read still won't flip a 0.20
+station to >0.6.
+
+**ENABLED:** `stab_defense_intensity=0.5`, `stab_defense_min=0.6` (production
+`__init__` defaults). Fires only vs the clearest stabbers (recovers ~+1.0), dormant
+vs the pool. Production read path = same as `fold_to_big_bet` (validated); eval
+harnesses bypass `__init__` so they're unaffected. Cold-start / immature → value-only.
+Residual: a small, rare-firing benefit (genuine stabbers are ~4% of the pool),
+enabled because the read validated safe; dial-back via `stab_defense_intensity`.
 
 ## 6. Build sequence
 1. **T1 turn overbet-bluffs** (reroute existing air/draw mass) + the gate (§3.3) +

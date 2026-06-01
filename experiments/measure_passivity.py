@@ -243,6 +243,12 @@ class PassivityStats:
     # Diagnostic: overbet_context trace outcomes (fired effect / no-op reason).
     overbet_outcomes: Counter = field(default_factory=Counter)
 
+    # Check-range composition (the capped-checking-range dual of the tell map):
+    # (street) -> Counter(hand_class) for the hero's UNOPENED checks. If the river
+    # check range has ~0% nuts/strong (they all bet), it's capped → a reader can
+    # stab it; the question is whether the bot then over-folds (the stabber test).
+    check_strength: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
+
     # Preflop instrumentation — the 100bb-ranges-at-short-stacks leak is likely
     # mostly preflop (ranges too loose, raises too small, missed jams), which
     # the postflop surface can't see. Captures the hero's preflop decisions by
@@ -327,6 +333,8 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
     for k, v in src.size_frac_sum.items():
         into.size_frac_sum[k] += v
     into.overbet_outcomes.update(src.overbet_outcomes)
+    for k, c in src.check_strength.items():
+        into.check_strength[k].update(c)
     into.pf_decisions += src.pf_decisions
     into.pf_action.update(src.pf_action)
     for sc, c in src.pf_scenario_action.items():
@@ -352,7 +360,16 @@ def _apply_mode(controller, mode: str):
     controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
 
 
-def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, hero_trace=None):
+def run_passivity_hand(
+    sm,
+    controllers,
+    hero_name: str,
+    stats: PassivityStats,
+    hero_trace=None,
+    hero_overbet_obs=None,
+    hero_faced_raise_obs=None,
+    hero_faced_bet_obs=None,
+):
     """Drive one hand; instrument the hero's postflop decisions.
 
     Mirrors simulate_bb100.run_hand's action driving (run_until, run_it_out,
@@ -464,6 +481,19 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                 hand_strength = snap.get('hand_strength', '')
                 active_count = sum(1 for p in gs.players if not p.is_folded)
                 stats.postflop_active_count[active_count] += 1
+                # Feed the adaptive bluff-raiser: when the hero faces a raise (HU
+                # → from the aggressor), record whether the hero folded so the
+                # aggressor learns the hero's fold-to-raise and escalates/backs off.
+                if hero_faced_raise_obs is not None and action_context == 'facing_raise':
+                    hero_faced_raise_obs.append(action == 'fold')
+                # Check-range composition: when the hero CHECKS unopened, what
+                # class is it? (the capped-checking-range readability fact).
+                if action == 'check' and action_context == 'unopened':
+                    stats.check_strength[phase_name][hand_strength] += 1
+                # Feed the adaptive stabber: when the hero faces a bet (HU → a
+                # stab into its checked/capped range), did it fold?
+                if hero_faced_bet_obs is not None and action_context == 'facing_bet':
+                    hero_faced_bet_obs.append(action == 'fold')
                 sig = derive_signals(controller, phase_name.lower())
                 if action_context == 'unopened':
                     stats.unopened_decisions += 1
@@ -515,6 +545,15 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
                         key = (phase_name, ctx_tag, bucket)
                         stats.size_strength[key][hand_strength] += 1
                         stats.size_frac_sum[key] += frac
+                        # Feed the adaptive sizing-reader: record the hero's
+                        # RIVER overbet (>=1.2x) class so the BR (perfect
+                        # observation) learns the hero's overbet bluff freq.
+                        if (
+                            hero_overbet_obs is not None
+                            and phase_name == 'RIVER'
+                            and frac >= 1.2
+                        ):
+                            hero_overbet_obs.append(hand_strength)
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
                 state['hero_reached_river'] = True
@@ -633,6 +672,55 @@ def run_passivity_matchup(
     config_arch = ARCHETYPES[hero_archetype]
     opp_configs = [ARCHETYPES[o] for o in opponents]
 
+    # Adaptive sizing-reader best-responder (OVERBET_BALANCING.md §5g): the
+    # "missing instrument" — an opponent that OBSERVES the hero's overbet hands
+    # and best-responds its fold freq (over-folds a face-up bot, calls a balanced
+    # one). Override every opponent seat with it; feed it the hero's river overbet
+    # classes after each hand. Per-process state (each seed learns within its run).
+    adaptive_reader_state = None
+    if os.environ.get('ADAPTIVE_READER'):
+        from poker.human_clone import load_profile_from_file, register_adaptive_reader
+
+        profile = load_profile_from_file(PUNISHER_CLONE_PROFILE)  # competent-reg base
+        # Fresh registration per matchup so each starts cold.
+        adaptive_reader_state = register_adaptive_reader('clone_adaptive_reader', profile)
+        ARCHETYPES['AdaptiveReader'] = {'kind': 'rule_bot', 'strategy': 'clone_adaptive_reader'}
+        opp_configs = [ARCHETYPES['AdaptiveReader']] * len(opponent_seats)
+
+    # Adaptive bluff-raiser (OVERBET_BALANCING.md §5h / DEFENSE_VS_AGGRESSION): the
+    # dual of the reader — tests whether the bot bleeds to escalating bluff-raises.
+    # AGGRESSOR_BLUFF=0 = static-reg control (no bluff-raising) for the A/B.
+    adaptive_aggressor_state = None
+    if os.environ.get('ADAPTIVE_AGGRESSOR'):
+        from poker.human_clone import load_profile_from_file, register_adaptive_aggressor
+
+        profile = load_profile_from_file(PUNISHER_CLONE_PROFILE)
+        bluff_on = os.environ.get('AGGRESSOR_BLUFF', '1') != '0'
+        _thr = float(os.environ.get('AGGRESSOR_THRESHOLD', '0.5'))  # 0 = relentless maniac
+        adaptive_aggressor_state = register_adaptive_aggressor(
+            'clone_adaptive_aggressor', profile, bluff_raise=bluff_on, threshold=_thr
+        )
+        ARCHETYPES['AdaptiveAggressor'] = {
+            'kind': 'rule_bot',
+            'strategy': 'clone_adaptive_aggressor',
+        }
+        opp_configs = [ARCHETYPES['AdaptiveAggressor']] * len(opponent_seats)
+
+    # Adaptive stabber (OVERBET_BALANCING.md §5i): the capped-checking-range test —
+    # bets junk when the bot checks to it, learns fold-to-stab, escalates.
+    adaptive_stabber_state = None
+    if os.environ.get('ADAPTIVE_STABBER'):
+        from poker.human_clone import load_profile_from_file, register_adaptive_stabber
+
+        profile = load_profile_from_file(PUNISHER_CLONE_PROFILE)
+        stab_on = os.environ.get('STABBER_BLUFF', '1') != '0'
+        _sthr = float(os.environ.get('STABBER_THRESHOLD', '0.34'))  # half-pot breakeven; 0 = relentless
+        adaptive_stabber_state = register_adaptive_stabber(
+            'clone_adaptive_stabber', profile, bluff_stab=stab_on, threshold=_sthr
+        )
+        ARCHETYPES['AdaptiveStabber'] = {'kind': 'rule_bot', 'strategy': 'clone_adaptive_stabber'}
+        opp_configs = [ARCHETYPES['AdaptiveStabber']] * len(opponent_seats)
+
     stats = PassivityStats()
     deltas: List[float] = []
 
@@ -690,6 +778,19 @@ def run_passivity_matchup(
             _ftbb = os.environ.get('RIVER_BLUFF_FTBB')
             if _ftbb:
                 controllers[0].river_bluff_ftbb_override = float(_ftbb)
+            # River-air SUPPLY build: barrel turn air so more reaches the river.
+            # Fires inside multistreet_context → needs --mode on/h1 to be active.
+            _abt = os.environ.get('AIR_BARREL_TARGET')
+            if _abt:
+                controllers[0].air_barrel_target = float(_abt)
+        # Gated stab-defense (§5j) validation knob (independent of river bluff):
+        # STAB_DEFENSE=intensity, STAB_DEFENSE_READ=synthetic stab-freq (default 1.0
+        # = simulate a detected stabber, trips the 0.5 gate). Measured vs the
+        # adaptive stabber (does it recover the −1.2?) + vs static (false-pos cost).
+        _sd = os.environ.get('STAB_DEFENSE')
+        if _sd:
+            controllers[0].stab_defense_intensity = float(_sd)
+            controllers[0].stab_defense_override = float(os.environ.get('STAB_DEFENSE_READ', '1.0'))
         # Range-aware prototype: turn on equity-vs-range for the hero and feed it
         # perfect-read field stats (uniform-field assumption: all opponents share
         # the first opponent archetype's stats). Concept-test ceiling.
@@ -706,16 +807,50 @@ def run_passivity_matchup(
                 )
             )
 
+        hero_overbet_obs = [] if adaptive_reader_state is not None else None
+        hero_faced_raise_obs = [] if adaptive_aggressor_state is not None else None
+        hero_faced_bet_obs = [] if adaptive_stabber_state is not None else None
         final_stacks, callcall_river = run_passivity_hand(
             sm,
             controllers,
             hero_name,
             stats,
+            hero_overbet_obs=hero_overbet_obs,
+            hero_faced_raise_obs=hero_faced_raise_obs,
+            hero_faced_bet_obs=hero_faced_bet_obs,
         )
+        if adaptive_reader_state is not None and hero_overbet_obs:
+            for hs in hero_overbet_obs:
+                adaptive_reader_state.observe(hs in _BLUFF_CLASSES)
+        if adaptive_aggressor_state is not None and hero_faced_raise_obs:
+            for folded in hero_faced_raise_obs:
+                adaptive_aggressor_state.observe(folded)
+        if adaptive_stabber_state is not None and hero_faced_bet_obs:
+            for folded in hero_faced_bet_obs:
+                adaptive_stabber_state.observe(folded)
         delta = final_stacks.get(hero_name, starting_stack) - starting_stack
         deltas.append(delta)
         if callcall_river and delta < 0:
             stats.payoff_loss += 1
+
+    if adaptive_reader_state is not None:
+        s = adaptive_reader_state
+        print(
+            f"[ADAPTIVE_READER seed={base_seed}] learned overbet bluff_freq="
+            f"{s.bluff_freq():.2f} (value={s.value_obs} bluff={s.bluff_obs})"
+        )
+    if adaptive_aggressor_state is not None:
+        a = adaptive_aggressor_state
+        print(
+            f"[ADAPTIVE_AGGRESSOR seed={base_seed}] hero fold_to_raise="
+            f"{a.fold_to_raise():.2f} (raises_faced={a.raises_made} folds={a.folds_induced})"
+        )
+    if adaptive_stabber_state is not None:
+        st = adaptive_stabber_state
+        print(
+            f"[ADAPTIVE_STABBER seed={base_seed}] hero fold_to_stab="
+            f"{st.fold_to_raise():.2f} (stabs_faced={st.raises_made} folds={st.folds_induced})"
+        )
 
     return deltas, stats
 
@@ -869,6 +1004,30 @@ def print_tell_map(stats: PassivityStats, min_n: int = 15):
         "  (read=FACE-UP: big size, ~0% bluffs → a reader folds to it for free;\n"
         "   thin: under-bluffed but not pure-value. Rank fixes by gap × n.)"
     )
+    if stats.check_strength:
+        print("\n── CHECK-RANGE COMPOSITION (the capped-checking-range dual) ──")
+        print(
+            f"  {'street':<6} {'n':>5}  {'nuts':>5} {'strg':>5} {'med':>5} "
+            f"{'weak':>5} {'air':>5} | {'strong%':>7}  read"
+        )
+        for street in ('FLOP', 'TURN', 'RIVER'):
+            counter = stats.check_strength.get(street)
+            n = sum(counter.values()) if counter else 0
+            if n < 15:
+                continue
+
+            def _cp(*classes):
+                return 100.0 * sum(counter[c] for c in classes) / n
+
+            strong = _cp('nuts', 'strong_made')
+            read = 'CAPPED' if strong < 8 else ''
+            print(
+                f"  {street:<6} {n:>5}  {_cp('nuts'):>5.0f} {_cp('strong_made'):>5.0f} "
+                f"{_cp('medium_made'):>5.0f} {_cp('weak_made'):>5.0f} "
+                f"{_cp('air', 'air_no_draw', 'air_strong_draw'):>5.0f} | {strong:>6.0f}%  {read}"
+            )
+        print("  (CAPPED: <8% strong → the check range has no strong hands a stab must fear.)")
+
     if stats.overbet_outcomes:
         print("\n  overbet_context outcomes (diagnostic):")
         for tag, n in stats.overbet_outcomes.most_common(12):
