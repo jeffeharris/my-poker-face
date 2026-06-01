@@ -2,8 +2,16 @@
 purpose: Spec for a durable, attributed "who busted whom" (scalp) counter in cash mode — the shared prerequisite for renown-weighted scalps and the bounty/double_knockout achievements, for the human and AIs alike.
 type: spec
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-06-01
 ---
+
+> **Status (2026-06-01):** build-sequence **step 2 DONE** — the pure attribution
+> helper `cash_mode/scalps.py` (`eliminations_from_sim` + `eliminations_from_human_hand`)
+> is built and unit-tested (`tests/test_cash_mode/test_scalps.py`). It is
+> deliberately **pure** (no DB, no engine import — a local `HAND_EVENT_BUST`
+> mirror keeps it from dragging in `full_sim` → the LLM stack; a drift-guard
+> test pins the constant). Steps 1 (schema `cash_scalps` + repo) and 3 (wire
+> both capture paths) remain.
 
 # Cash Scalp Tracker — attributed bust counting
 

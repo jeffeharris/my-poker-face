@@ -178,3 +178,25 @@ implement the economy change — it's out of scope for a read-side balance pass
 and needs the sim. Flagged with evidence; whether near-universal staking is a
 bug or intended chip-cycling is a product call, not mine to assume
 (verify-the-premise discipline).
+
+## 2026-06-01 — scalp attribution helper (scalp-tracker step 2)
+
+Built `cash_mode/scalps.py` — the pure "who busted whom" rule (headline-winner
+heuristic): `eliminations_from_sim(result)` for the AI-vs-AI world sim and
+`eliminations_from_human_hand(human_id, busted)` for the human path. Shared
+prerequisite for both the Rung-3 sim sweep (so the villain/scalp route is
+exercised) and workstream A's durable counter. Verified the real shapes first
+(`HandSimResult.winner_pid`, `HandEvent.type/personality_id`,
+`HAND_EVENT_BUST="bust"`) rather than guessing — and noticed the bust event
+already carries `opponent_pid = winner_pid`, so the headline-winner rule is
+consistent with what the engine emits.
+
+Gotcha worth keeping: my first cut imported `HAND_EVENT_BUST` from `full_sim`
+for a single source of truth — but `full_sim` transitively imports the poker
+engine → `core.llm` → `anthropic`, so the "pure, testable" helper suddenly
+needed the whole runtime (and failed to import on a bare host). Fixed by
+keeping a LOCAL `HAND_EVENT_BUST = "bust"` mirror + an integration-marked
+drift-guard test pinning it equal to full_sim's (runs in CI/Docker, skipped by
+`--quick`). Purity restored: the 11 logic tests need no engine. Validated all
+11 by direct execution on the host (bare pytest is unsupported here and engine
+deps aren't installed locally; the real pytest run is a Docker job).
