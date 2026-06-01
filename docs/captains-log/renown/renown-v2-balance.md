@@ -351,3 +351,17 @@ Net: the durable counter is live and accruing from the world sim. The renown
 driver that READS it is step 4 (lands with the broader v2 build). Validated each
 step in Docker (poker/cash_mode/flask_app mounted live; tests/ mounted per-run)
 — no rebuilds needed after the first image.
+
+Then finished 3b (no pause, per Jeff). First corrected my own integration point:
+I'd flagged `_refill_cash_seats`, but that's the next-hand step — the winner
+isn't in scope. The right point is `handle_evaluating_hand_phase`, right after
+`award_pot_winnings` (stacks final) where `winning_player_names` is known. Added
+`_record_cash_scalps`: headline winner (human owner_id or AI personality_id via
+`cash_personality_ids`) credited for each non-human busted to 0. Recorded
+AI-vs-AI busts at the human's table too (consistent with 3a's headline-winner
+rule) and excluded the human-as-victim. Best-effort wrapped; 5 wiring tests +
+clean game_handler import. Asked whether this was a workflow candidate — no, it's
+a single serial edit, nothing to fan out; workflows fit step 4 (parallel design
++ adversarial verify) or a cross-file review, not this. **Workstream A (the
+scalp tracker) is complete through step 3; step 4 (renown reads scalps) is the
+v2 build.**

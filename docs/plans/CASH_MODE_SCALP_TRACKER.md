@@ -5,7 +5,9 @@ created: 2026-05-29
 last_updated: 2026-06-01
 ---
 
-> **Status (2026-06-01):** steps **1, 2, and 3a DONE**; only **3b** remains.
+> **Status (2026-06-01): scalp tracker COMPLETE** — steps 1, 2, 3a, 3b all
+> done; only step 4 (the renown driver that *reads* the counter) remains, and
+> it belongs to the broader Renown-v2 build, not this tracker.
 > - **Step 2** (pure attribution helper) — `cash_mode/scalps.py`
 >   (`eliminations_from_sim` + `eliminations_from_human_hand`), unit-tested,
 >   deliberately pure (local `HAND_EVENT_BUST` mirror + drift-guard test).
@@ -18,15 +20,16 @@ last_updated: 2026-06-01
 >   `eliminations_from_sim` is recorded via a lazily-resolved
 >   `cash_scalps_repo` (mirrors the entity-presence getter), best-effort so a
 >   write failure never breaks the world tick. 42 lobby tests green.
-> - **Step 3b (REMAINING)** — the human's own table. Integration point found:
->   `flask_app/handlers/game_handler.py::_refill_cash_seats` derives
->   `busted_indices` (AIs at stack 0) between hands, but does **not** know the
->   hand's headline winner — attribution needs that winner threaded in from the
->   evaluating-hand/award step (the eliminator is the headline pot winner, per
->   §3). Lower value (one human entity's villain renown vs the constant world
->   tick) and higher risk (live human flow), so deferred as a clean follow-up.
-> The counter now accrues from the world sim; the Renown-v2 scalp driver that
-> *reads* it lands with the broader v2 build (step 4).
+> - **Step 3b** (human's own table) — wired in
+>   `game_handler.handle_evaluating_hand_phase` via `_record_cash_scalps`: after
+>   the pot award (stacks final), the headline winner (`winning_player_names[0]`
+>   → `owner_id` if human else the AI's `personality_id` via
+>   `cash_personality_ids`) is credited for each non-human player busted to 0.
+>   Headline-winner rule, consistent with 3a; AI-vs-AI busts at the human's
+>   table are recorded too; the human-as-victim is excluded (they leave, don't
+>   bust). Best-effort; 5 wiring tests green.
+> The counter now accrues from **both** the world sim and human tables; the
+> Renown-v2 scalp driver that *reads* it lands with the broader v2 build (step 4).
 
 # Cash Scalp Tracker — attributed bust counting
 
