@@ -340,7 +340,16 @@ def _build_winner_summary(
         amount = _fmt_amount(w.amount_won, big_blind)
         cards = recorded_hand.hole_cards.get(w.name) if recorded_hand.was_showdown else None
         cards_part = f" with [{', '.join(cards)}]" if cards else ""
-        hand_part = f" — {w.hand_name}" if w.hand_name else ""
+        # Only attach a made-hand label when the pot was actually contested to
+        # showdown. On an uncontested win the recorded `hand_name` is a
+        # meaningless best-5 of an incomplete board (e.g. pocket fives that won
+        # preflop get labeled "High Card") — surfacing it invites the coach to
+        # hallucinate a hand that never existed ("play your set of fives"). Say
+        # plainly that nobody showed down instead.
+        if recorded_hand.was_showdown:
+            hand_part = f" — {w.hand_name}" if w.hand_name else ""
+        else:
+            hand_part = " (uncontested — no showdown)"
         lines.append(f"WINNER: {name} won {amount}{cards_part}{hand_part}")
     return lines
 

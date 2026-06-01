@@ -26,6 +26,26 @@ from .session_memory import SessionMemory
 
 logger = logging.getLogger(__name__)
 
+# Async equity telemetry (live only). The showdown equity-at-action recording is
+# best-effort enrichment that writes only to in-memory opponent models — it has
+# no bearing on the hand result, so in a LIVE game it can run off the
+# hand-completion path. A single worker serializes the writes (no telemetry-vs-
+# telemetry races); main-thread reads of the maturing models are benign-racy and
+# enrichment-only. Default OFF so SIMS/TESTS stay synchronous + deterministic
+# (the economy sim uses this same AIMemoryManager); the live app flips it on.
+ASYNC_EQUITY_TELEMETRY = False
+_EQUITY_TELEMETRY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix='equity-telemetry'
+)
+
+
+def enable_async_equity_telemetry() -> None:
+    """Call once at LIVE app startup to move showdown equity recording off the
+    hand-completion critical path. Never call from sims/tests (keeps them
+    deterministic)."""
+    global ASYNC_EQUITY_TELEMETRY
+    ASYNC_EQUITY_TELEMETRY = True
+
 
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
@@ -120,6 +140,16 @@ class AIMemoryManager:
 
         # Persistence layer (set externally to avoid circular imports)
         self._persistence = None
+
+    @property
+    def sandbox_id(self) -> Optional[str]:
+        """The sandbox this game is bound to, or None for non-sandbox games.
+
+        Set by `set_relationship_repo(cash_mode=True, sandbox_id=...)` for
+        Circuit games. Read by the dossier observation fold to gate
+        per-sandbox lifetime accrual (non-Circuit games stay None → no fold).
+        """
+        return self._sandbox_id
 
     def set_hand_history_repo(self, hand_history_repo) -> None:
         """Set the hand history repository for saving hand history.
@@ -711,10 +741,28 @@ class AIMemoryManager:
             # If eval7 is unavailable or the cards/board can't be parsed
             # for any reason, fall through silently so the rest of the
             # showdown path stays unaffected.
-            try:
-                self._record_showdown_equity_at_actions(recorded_hand)
-            except Exception as e:
-                logger.warning(f"Polarization Phase A equity recording failed: {e}")
+            def _record(rh=recorded_hand):
+                try:
+                    self._record_showdown_equity_at_actions(rh)
+                except Exception as e:
+                    logger.warning(f"Polarization Phase A equity recording failed: {e}")
+
+            if ASYNC_EQUITY_TELEMETRY:
+                # Live: off the hand-completion path (best-effort enrichment).
+                try:
+                    _EQUITY_TELEMETRY_EXECUTOR.submit(_record)
+                except Exception:
+                    _record()  # executor unavailable → fall back to sync
+            else:
+                _record()  # sims/tests: synchronous + deterministic
+
+        # Sizing-aware Phase A: fold_to_big_bet is NOT showdown-gated — every
+        # hand where someone faces a large postflop bet teaches us whether they
+        # over-fold to it (the Phase C attack trigger). Runs on all hands.
+        try:
+            self._record_fold_to_big_bet(recorded_hand)
+        except Exception as e:
+            logger.warning(f"Sizing-aware fold_to_big_bet recording failed: {e}")
 
         # Phase 3: relationship event detection + dispatch. Runs only
         # when a relationship_repo is wired; tournament-only games
@@ -1120,6 +1168,11 @@ class AIMemoryManager:
             if len(community) >= 5:
                 phase_boards['RIVER'] = community[:5]
 
+        # Sizing-aware Phase A: how big was each aggressive action relative to
+        # the pot-before? Keyed by id(action); used to bin bet/raise equity into
+        # big vs small for the per-opponent sizing_polarization_score.
+        bet_fractions = recorded_hand.bet_fraction_by_action()
+
         # Walk each revealed player's postflop actions
         for player_name in revealed_players:
             hole_cards = recorded_hand.hole_cards.get(player_name)
@@ -1162,6 +1215,57 @@ class AIMemoryManager:
                         continue
                     model = self.opponent_model_manager.get_model(observer, player_name)
                     model.tendencies.update_equity_at_action(action.action, equity)
+                    # Sizing-aware Phase A: also bin this bet/raise's equity by
+                    # how big it was — the bettor's size↔strength tell.
+                    bet_fraction = bet_fractions.get(id(action))
+                    if bet_fraction is not None and action.action in ('bet', 'raise'):
+                        model.tendencies.update_equity_at_bet_size(equity, bet_fraction)
+
+    def _record_fold_to_big_bet(self, recorded_hand) -> None:
+        """Sizing-aware Phase A: live (all-hands) fold_to_big_bet tracking.
+
+        Replays the hand in action order, tracking each player's committed chips
+        and the running pot, to detect when a player FACES a large postflop bet
+        (`cost_to_call / pot_before_the_bet >= SIZING_BIG_BET_POT_RATIO`) and
+        records whether they folded. This is the offensive read for Phase C
+        (attack measured over-folders with wider overbets) and, unlike the
+        showdown-gated polarization score, it fires on every hand a big bet is
+        faced — far better sample coverage. Preflop is excluded: a preflop
+        "big bet" is a 3-bet/4-bet, a distinct signal from postflop sizing.
+        """
+        from .opponent_model import SIZING_BIG_BET_POT_RATIO
+
+        committed: Dict[tuple, int] = {}  # (player, phase) -> chips in this round
+        current_level: Dict[str, int] = {}  # phase -> highest bet-to level
+        running_pot = 0
+        for action in recorded_hand.actions:
+            phase = action.phase
+            name = action.player_name
+            level = current_level.get(phase, 0)
+            prior = committed.get((name, phase), 0)
+            cost_to_call = level - prior
+
+            if (
+                phase in ('FLOP', 'TURN', 'RIVER')
+                and cost_to_call > 0
+                and action.action in ('fold', 'call', 'raise', 'all_in')
+            ):
+                pot_before = running_pot - cost_to_call
+                if pot_before > 0 and cost_to_call / pot_before >= SIZING_BIG_BET_POT_RATIO:
+                    folded = action.action == 'fold'
+                    for observer in self.initialized_players:
+                        if observer != name:
+                            model = self.opponent_model_manager.get_model(observer, name)
+                            model.tendencies.update_fold_to_big_bet(folded)
+
+            # Advance the replay state past this action.
+            if action.action in ('bet', 'raise'):
+                current_level[phase] = max(level, action.amount)
+                committed[(name, phase)] = max(prior, action.amount)
+            elif action.action in ('call', 'all_in'):
+                committed[(name, phase)] = prior + max(0, action.amount)
+                current_level[phase] = max(level, committed[(name, phase)])
+            running_pot = action.pot_after
 
     def _count_non_folded_per_phase(self, recorded_hand) -> Dict[str, int]:
         """For each postflop phase, count players who hadn't folded yet

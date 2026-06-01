@@ -606,7 +606,7 @@ class _FakeCashSessionRepo:
         return True
 
 
-def _session(session_id, ended_at=None):
+def _session(session_id, ended_at=None, session_state="active"):
     return SimpleNamespace(
         session_id=session_id,
         ended_at=ended_at,
@@ -614,6 +614,7 @@ def _session(session_id, ended_at=None):
         hands_played=0,
         hands_won=0,
         biggest_pot_won=0,
+        session_state=session_state,
     )
 
 
@@ -626,13 +627,22 @@ def _row_aged(game_id, age_seconds, *, now, owner_id="u1"):
 
 
 class TestKillAllCashSessionsBootSweep:
-    """T2.2: abandoned cash-* rows (untouched past the TTL) are swept;
-    fresh rows are preserved so resume-on-reboot keeps working."""
+    """T2.2 + freeze-forever (CASH_MODE_STATE_MODEL.md §5.4, §10 Cut 1):
+    the boot sweep GCs genuinely-dead cash-* rows (closed/broken/sessionless)
+    but NEVER a resumable (active/paused/abandoning) session — that's the
+    player's frozen table and zeroing it was the silent-forfeiture bug.
+    Fresh rows are also preserved so resume-on-reboot keeps working."""
 
-    def test_sweeps_stale_orphan_row(self):
+    def test_preserves_stale_active_session(self):
+        """Freeze-forever: even a long-cold ACTIVE session is the player's
+        resumable frozen table — never swept, finalised, or deleted. This is
+        the boot-path regression test for the silent-forfeiture bug.
+        """
         now = datetime(2026, 5, 28, 12, 0, 0)
-        repo = _FakeGameRepo([_row_aged("cash-stale-1", 7200, now=now)])  # 2h old
-        sessions = _FakeCashSessionRepo({"cash-stale-1": _session("cash-stale-1")})
+        repo = _FakeGameRepo([_row_aged("cash-frozen", 7200, now=now)])  # 2h old
+        sessions = _FakeCashSessionRepo(
+            {"cash-frozen": _session("cash-frozen", session_state="active")}
+        )
 
         kill_all_cash_sessions(
             game_state_service=_FakeGameStateService(),
@@ -642,8 +652,31 @@ class TestKillAllCashSessionsBootSweep:
             now=now,
         )
 
-        assert "cash-stale-1" in repo.deleted, "stale orphan games row not deleted"
-        assert ("cash-stale-1", "boot_swept") in sessions.finalised
+        assert repo.deleted == [], "swept a resumable frozen table — the forfeiture bug"
+        assert sessions.finalised == []
+
+    def test_sweeps_dead_closed_orphan_row(self):
+        """A genuinely-dead row (closed session, already finalised) lingering
+        past the TTL is GC'd — it carries no live chips. ended_at is set, so
+        no re-finalise; just the row delete.
+        """
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("cash-dead", 7200, now=now)])  # 2h old
+        sessions = _FakeCashSessionRepo(
+            {"cash-dead": _session("cash-dead", session_state="closed", ended_at=now)}
+        )
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=repo,
+            cash_session_repo=sessions,
+            stale_ttl_seconds=1800,
+            now=now,
+        )
+
+        assert "cash-dead" in repo.deleted, "dead closed orphan row not GC'd"
+        # Already finalised (ended_at set) → no second finalise.
+        assert sessions.finalised == []
 
     def test_preserves_fresh_orphan_row(self):
         now = datetime(2026, 5, 28, 12, 0, 0)
@@ -710,12 +743,16 @@ class TestKillAllCashSessionsBootSweep:
 
     def test_sweep_proceeds_when_not_in_memory_at_recheck(self):
         """Counterpart: with a game_state_service that reports the game
-        absent, the lock-recheck passes and the stale row is swept."""
+        absent AND a genuinely-dead (broken) session, the lock-recheck
+        passes and the dead row is swept. (An active session would be
+        preserved regardless — see test_preserves_stale_active_session.)"""
         from cash_mode.lobby import _boot_sweep_stale_cash_rows
 
         now = datetime(2026, 5, 28, 12, 0, 0)
         repo = _FakeGameRepo([_row_aged("cash-cold", 7200, now=now)])
-        sessions = _FakeCashSessionRepo({"cash-cold": _session("cash-cold")})
+        sessions = _FakeCashSessionRepo(
+            {"cash-cold": _session("cash-cold", session_state="broken")}
+        )
         gss = _FakeGameStateService({})  # not in memory
 
         swept = _boot_sweep_stale_cash_rows(
@@ -748,7 +785,9 @@ class TestKillAllCashSessionsBootSweep:
                 self.broken = []
 
             def load(self, sid):
-                return _session(sid)
+                # Non-blocking (broken) so the sweep proceeds past the
+                # freeze-forever guard and reaches the finalise that fails.
+                return _session(sid, session_state="broken")
 
             def finalise(self, *a, **k):
                 raise RuntimeError("simulated convergence failure")

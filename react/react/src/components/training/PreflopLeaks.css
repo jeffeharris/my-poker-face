@@ -1,0 +1,407 @@
+/* Preflop leak review — your real preflop play vs a reference. */
+
+.pfl-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 2rem auto;
+  max-width: 30rem;
+  text-align: center;
+  color: var(--color-text-muted, #9ca3af);
+  line-height: 1.5;
+}
+.pfl-error {
+  color: #f87171;
+}
+
+.pfl-intro {
+  margin: 0 0 1.25rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.pfl-scale-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.pfl-positions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1.75rem;
+}
+
+.pfl-pos {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr auto auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pfl-pos-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text, #e5e7eb);
+}
+
+.pfl-pos-bar-wrap {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: visible;
+}
+.pfl-pos-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 6px;
+  background: var(--color-emerald, #34d399);
+  opacity: 0.85;
+}
+/* Reference marker — a thin line showing the standard opening frequency. */
+.pfl-pos-ref {
+  position: absolute;
+  top: -2px;
+  height: 16px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.65);
+  transform: translateX(-1px);
+}
+
+.pfl-pos-vpip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  min-width: 3.5rem;
+}
+.pfl-pos-ref-label {
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.pfl-pos-n {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #9ca3af);
+  min-width: 4rem;
+  text-align: right;
+}
+
+/* Narrow screens: give the bar more room — shrink the name column and drop the
+   hand-count (it's secondary; the % + bar carry the read). */
+@media (max-width: 480px) {
+  .pfl-pos {
+    grid-template-columns: 5.5rem 1fr auto;
+    gap: 0.5rem;
+  }
+  .pfl-pos-name {
+    font-size: 0.78rem;
+  }
+  .pfl-pos-n {
+    display: none;
+  }
+}
+
+.pfl-leaks-head {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text, #e5e7eb);
+}
+
+.pfl-clean {
+  font-size: 0.9rem;
+  color: #6ee7b7;
+}
+
+.pfl-leaks {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.pfl-leak {
+  display: flex;
+  flex-wrap: wrap; /* lets the tapped explanation drop to a full-width line */
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.5rem; /* uniform card height across rows */
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.18);
+}
+/* Tap-to-reveal explanation under a row (mobile-friendly; hover/title can't be
+   reached on touch). flex-basis 100% forces it onto its own line. */
+.pfl-leak-explain {
+  flex-basis: 100%;
+  margin: 0.15rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--color-text-muted, #cbd5e1);
+}
+/* Watch-items read softer than confirmed leaks (amber, not red). */
+.pfl-leak--watch {
+  background: rgba(234, 179, 8, 0.07);
+  border-color: rgba(234, 179, 8, 0.18);
+}
+.pfl-leak-hand {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #fca5a5;
+  min-width: 2.5rem;
+}
+.pfl-leak--watch .pfl-leak-hand {
+  color: #fcd34d;
+}
+.pfl-leak-detail {
+  /* flex-basis 0 + min-width 0 so the detail shrinks/wraps internally and keeps
+     the trend column + Drill on the same row; only .pfl-leak-explain (basis
+     100%) drops to the next line. (auto basis would claim max-content and push
+     the right column down.) */
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #cbd5e1);
+}
+/* Trend column: sparkline stacked over its label, to save horizontal width
+   (the row no longer carries a redundant leak/watching pill — the row's
+   red/amber tint already conveys confirmed vs watching). */
+.pfl-leak-trend {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+}
+/* Recent-vs-all-time trend chip — a tappable button (tap reveals the inline
+   explanation; hover shows it as a title on desktop). */
+.pfl-trend {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0.12rem 0.5rem;
+  border: none;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pfl-trend--shrinking {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+.pfl-trend--cleared {
+  background: rgba(52, 211, 153, 0.1);
+  color: rgba(110, 231, 183, 0.75);
+}
+.pfl-trend--persistent {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-muted, #9ca3af);
+}
+.pfl-trend--worsening {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
+}
+.pfl-trend--insufficient {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(156, 163, 175, 0.7);
+}
+.pfl-trend--emerging {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fcd34d;
+}
+
+/* Emerging (recent-only) leaks — amber, like watch-items. */
+.pfl-emerging {
+  margin-bottom: 1.25rem;
+}
+.pfl-emerging-head {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fcd34d;
+}
+.pfl-leak--emerging {
+  background: rgba(234, 179, 8, 0.07);
+  border-color: rgba(234, 179, 8, 0.18);
+}
+.pfl-leak--emerging .pfl-leak-hand {
+  color: #fcd34d;
+}
+
+/* Per-leak gap trajectory — a tiny inline sparkline next to the trend chip. */
+.pfl-leak-spark {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 64px;
+  height: 24px;
+}
+
+/* Stack-depth scope — segmented toggle above the leak list. */
+.pfl-depth {
+  margin-bottom: 1rem;
+}
+.pfl-depth-toggle {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+}
+.pfl-depth-btn {
+  padding: 0.35rem 0.75rem;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: var(--color-text-muted, #9ca3af);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.pfl-depth-btn:last-child {
+  border-right: none;
+}
+.pfl-depth-btn:hover:not(:disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text, #e5e7eb);
+}
+.pfl-depth-btn.active {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+.pfl-depth-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pfl-depth-count {
+  font-weight: 500;
+  opacity: 0.8;
+}
+.pfl-depth-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.pfl-leak-drill {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  border-radius: 8px;
+  background: rgba(52, 211, 153, 0.12);
+  color: #6ee7b7;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.pfl-leak-drill:hover {
+  filter: brightness(1.12);
+}
+
+.pfl-note--tier {
+  margin-top: 0.5rem;
+}
+
+.pfl-note {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.pfl-effect {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pfl-effect-head {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-emerald, #34d399);
+  margin-bottom: 0.35rem;
+}
+.pfl-effect-lead {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--color-text, #e5e7eb);
+}
+.pfl-effect-kinds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.pfl-ask {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.25rem;
+  padding: 0.7rem 1.1rem;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-emerald, #10b981);
+  color: #04150f;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.pfl-ask:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.pfl-ask:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.pfl-feedback {
+  margin-top: 1rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: 12px;
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+.pfl-feedback-label {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-emerald, #34d399);
+}
+.pfl-feedback p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--color-text, #e5e7eb);
+}

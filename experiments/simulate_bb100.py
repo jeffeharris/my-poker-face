@@ -132,6 +132,23 @@ ARCHETYPES = {
             recovery_rate=0.1,
         ),
     },
+    # Validation twin of Maniac WITH over_bluff (maniac_overbluff profile), to
+    # confirm over_bluff fires + shifts EV on an aggressive base (the control for
+    # its inertness on the passive station base). Compare vs 'Maniac'.
+    'ManiacOverBluff': {
+        'profile': 'maniac_overbluff',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.9,
+            baseline_looseness=0.85,
+            ego=0.7,
+            poise=0.3,
+            expressiveness=0.8,
+            risk_identity=0.8,
+            adaptation_bias=0.3,
+            baseline_energy=0.8,
+            recovery_rate=0.1,
+        ),
+    },
     # Weakest realistic fish (the $2-tier trickle): loose-passive anchors + the
     # weak_fish profile (weak_station table + can't-fold + sticky/over_bluff).
     'WeakFish': {
@@ -148,10 +165,63 @@ ARCHETYPES = {
             recovery_rate=0.15,
         ),
     },
+    # Balanced defender: the apex anti-aggression reg (balanced_defender profile —
+    # calls down to catch bluffs + traps + 3-bets back, without over-folding).
+    # Disciplined anchors (high poise, high adaptation_bias). The control for
+    # "does competent defense neutralize the maniac, or is aggression structurally
+    # +EV in this engine?"
+    'Defender': {
+        'profile': 'balanced_defender',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.6,
+            baseline_looseness=0.35,
+            ego=0.5,
+            poise=0.85,
+            expressiveness=0.3,
+            risk_identity=0.45,
+            adaptation_bias=0.6,
+            baseline_energy=0.5,
+            recovery_rate=0.2,
+        ),
+    },
+    # Spewy aggressive fish: the loose-aggressive donator who bluffs off his
+    # stack (spewy_fish profile — loose table + over_bluff + sticky). Loose +
+    # tilty anchors (low poise, high ego/risk) so psychology amplifies the spew.
+    'SpewyFish': {
+        'profile': 'spewy_fish',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.85,
+            baseline_looseness=0.85,
+            ego=0.75,
+            poise=0.25,
+            expressiveness=0.7,
+            risk_identity=0.8,
+            adaptation_bias=0.2,
+            baseline_energy=0.7,
+            recovery_rate=0.1,
+        ),
+    },
     # Isolation: calling_station + position_blind only (station table), to price
     # position-blindness alone vs plain Calling Station + test depth-independence.
     'StationPBlind': {
         'profile': 'calling_station_pblind',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.3,
+            baseline_looseness=0.75,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.4,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        ),
+    },
+    # Isolation: calling_station + over_bluff only (station table), to price the
+    # over-bluff (spew) lever ALONE vs the punisher clone (the honest cost of
+    # bluffing into a competent folder-and-barreler). Mirrors StationPBlind.
+    'StationOverBluff': {
+        'profile': 'calling_station_overbluff',
         'anchors': PersonalityAnchors(
             baseline_aggression=0.3,
             baseline_looseness=0.75,
@@ -203,6 +273,58 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'case_based',
     },
+    'CaseBotV2': {
+        'kind': 'rule_bot',
+        'strategy': 'case_based_v2',
+    },
+    # Range-AWARE CaseBotV2 (adaptive prototype): same value strategy, but its
+    # postflop equity is computed vs the opponents' estimated RANGE instead of
+    # vs-random. `use_range_equity` is honored by the harness, which feeds
+    # perfect-read field stats (ARCHETYPE_STATS) so we can test the concept
+    # ceiling before building real opponent modeling.
+    'CaseBotRange': {
+        'kind': 'rule_bot',
+        'strategy': 'case_based_v2',
+        'use_range_equity': True,
+    },
+    'Reg': {
+        'kind': 'rule_bot',
+        'strategy': 'reg',
+    },
+    # Reg+ — the competent yardstick (keystone). Value-extracts like CaseBotV2 but
+    # FOLDS to polarized big bets instead of paying them off, and never bluffs a
+    # caller. Built to beat/neutralize CaseBotV2 so robustness becomes measurable.
+    'RegPlus': {
+        'kind': 'rule_bot',
+        'strategy': 'reg_plus',
+    },
+    # PolarValueBot — maximally face-up value bettor (sizing-aware §B leak probe).
+    'PolarValue': {
+        'kind': 'rule_bot',
+        'strategy': 'polar_value',
+    },
+    # TrickyReg — eval instrument that overbet-BLUFFS to punish RegPlus's residual
+    # over-fold-to-overbets leak (the §3 yardstick). Not a production bot.
+    'TrickyReg': {
+        'kind': 'rule_bot',
+        'strategy': 'tricky_reg',
+    },
+    # TrickyAggro — sharper attacker: seizes initiative (wide 3-bets) + overbet-
+    # barrels polarized, to stress-test RegPlus's fold-to-overbet rule. Eval-only.
+    'TrickyAggro': {
+        'kind': 'rule_bot',
+        'strategy': 'tricky_aggro',
+    },
+    # Exploiter — best-responder that punishes a face-up/never-bluff bot's tells.
+    # bb/100 of this vs a candidate = the candidate's human-exploitability proxy.
+    'Exploiter': {
+        'kind': 'rule_bot',
+        'strategy': 'exploiter',
+    },
+    'RegVsManiac': {
+        'kind': 'rule_bot',
+        'strategy': 'reg_vs_maniac',
+    },
     'CallStation': {
         'kind': 'rule_bot',
         'strategy': 'always_call',
@@ -234,6 +356,24 @@ ARCHETYPES = {
         'strategy': 'fish',
         'fish_leak': 'sticky_then_pops',
     },
+}
+
+# Perfect-read opponent stats per archetype (measured VPIP/PFR + estimated AF),
+# for the range-aware prototype (CaseBotRange). Lets the bot's range estimator
+# "know" the field's looseness without waiting for opponent modeling — the
+# concept-test ceiling. Production would feed real observed stats instead.
+ARCHETYPE_STATS = {
+    'Maniac': {'vpip': 0.56, 'pfr': 0.48, 'aggression_factor': 3.0, 'hands_observed': 100},
+    'LAG': {'vpip': 0.37, 'pfr': 0.30, 'aggression_factor': 2.2, 'hands_observed': 100},
+    'TAG': {'vpip': 0.24, 'pfr': 0.20, 'aggression_factor': 2.0, 'hands_observed': 100},
+    'Rock': {'vpip': 0.19, 'pfr': 0.12, 'aggression_factor': 1.5, 'hands_observed': 100},
+    'Nit': {'vpip': 0.15, 'pfr': 0.10, 'aggression_factor': 1.2, 'hands_observed': 100},
+    'Calling Station': {'vpip': 0.45, 'pfr': 0.15, 'aggression_factor': 0.3, 'hands_observed': 100},
+    'WeakFish': {'vpip': 0.50, 'pfr': 0.10, 'aggression_factor': 0.4, 'hands_observed': 100},
+    'Jeff_clone': {'vpip': 0.39, 'pfr': 0.15, 'aggression_factor': 0.6, 'hands_observed': 100},
+    'Punisher_clone': {'vpip': 0.25, 'pfr': 0.22, 'aggression_factor': 2.5, 'hands_observed': 100},
+    'CaseBot': {'vpip': 0.95, 'pfr': 0.05, 'aggression_factor': 0.8, 'hands_observed': 100},
+    'CaseBotV2': {'vpip': 0.95, 'pfr': 0.20, 'aggression_factor': 1.5, 'hands_observed': 100},
 }
 
 TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}

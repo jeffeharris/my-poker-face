@@ -4,15 +4,11 @@ import type { PanInfo } from 'framer-motion';
 import type { ChatMessage } from '../../types';
 import {
   TYPING_SPEED_MS,
-  READING_BUFFER_MS,
   ACTION_FADE_DURATION_MS,
   BEAT_DELAY_MS,
   QUEUED_MESSAGE_BONUS_MS,
-  MESSAGE_BASE_DURATION_MS,
-  MESSAGE_MIN_DURATION_MS,
-  MESSAGE_MAX_DURATION_MS,
 } from '../../config/timing';
-import { parseBeats } from '../../utils/messages';
+import { parseBeats, calculateDuration } from '../../utils/chatBeats';
 import './FloatingChat.css';
 
 // Swipe-to-dismiss thresholds. The opacity ramp is anchored to the
@@ -40,34 +36,6 @@ interface FloatingChatProps {
   message: ChatMessage | null;
   onDismiss: () => void;
   playerAvatars?: Map<string, string>;
-}
-
-
-// Calculate display duration based on message content and timing
-function calculateDuration(message: string, action?: string): number {
-  const trimmedMessage = message.trim();
-  const trimmedAction = action?.trim() ?? '';
-  const text = trimmedMessage.length > 0 ? trimmedMessage : trimmedAction;
-
-  if (!text) return MESSAGE_MIN_DURATION_MS;
-
-  const beats = parseBeats(text);
-  let animationTime = 0;
-
-  beats.forEach((beat, i) => {
-    // Add beat delay (except for first beat)
-    if (i > 0) animationTime += BEAT_DELAY_MS;
-
-    if (beat.type === 'action') {
-      animationTime += ACTION_FADE_DURATION_MS + beat.text.length * READING_BUFFER_MS;
-    } else {
-      // Typing time for speech + reading buffer
-      animationTime += beat.text.length * (TYPING_SPEED_MS + READING_BUFFER_MS);
-    }
-  });
-
-  const calculated = animationTime + MESSAGE_BASE_DURATION_MS;
-  return Math.min(MESSAGE_MAX_DURATION_MS, Math.max(MESSAGE_MIN_DURATION_MS, calculated));
 }
 
 // Action beat component - fades in
@@ -123,7 +91,7 @@ function SpeechBeat({ text, delay }: { text: string; delay: number }) {
 }
 
 // Dramatic message component - orchestrates beat animations
-function DramaticMessage({ text }: { text: string }) {
+export function DramaticMessage({ text }: { text: string }) {
   const beats = parseBeats(text);
 
   if (beats.length === 0) {

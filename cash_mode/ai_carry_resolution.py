@@ -694,6 +694,15 @@ def try_ai_voluntary_payoff(
             sandbox_id=sandbox_id,
         )
 
+    # Chip-custody: the borrower→staker payoff is a pure bankroll transfer
+    # (no seat). The borrower debit (save above) and the staker credit (below)
+    # are each unledgered today — record ONE `stake_payoff` transfer so both
+    # sides stay derivable. The staker-credit helper is told `from_seat=False`
+    # so it does NOT also emit a seat `ai_cash_out` (which would double-count).
+    from cash_mode import economy_flags
+    from core.economy import ledger as chip_ledger
+
+    _custody = chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED
     if target.staker_kind == STAKER_KIND_HUMAN:
         # Route the credit to player_bankroll_state. credit_ai_cash_out
         # would write into a phantom AI bankroll keyed by the human's
@@ -707,6 +716,15 @@ def try_ai_voluntary_payoff(
                 starting_bankroll=human_staker_bankroll.starting_bankroll,
             ),
         )
+        if _custody:
+            chip_ledger.record_stake_payoff(
+                chip_ledger_repo,
+                source=chip_ledger.ai(personality_id),
+                sink=chip_ledger.player(human_staker_bankroll.player_id),
+                amount=payment,
+                context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
+                sandbox_id=sandbox_id,
+            )
     else:
         credit_ai_cash_out(
             bankroll_repo,
@@ -720,7 +738,17 @@ def try_ai_voluntary_payoff(
                 'site': 'ai_voluntary_payoff',
                 'partial': not clears_carry,
             },
+            from_seat=False,
         )
+        if _custody:
+            chip_ledger.record_stake_payoff(
+                chip_ledger_repo,
+                source=chip_ledger.ai(personality_id),
+                sink=chip_ledger.ai(target.staker_id),
+                amount=payment,
+                context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
+                sandbox_id=sandbox_id,
+            )
 
     # Settlement transitions on full clear; partial just decrements
     # carry_amount and leaves status='carry'. Status-flip side effects

@@ -1287,21 +1287,53 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
             e,
         )
         return None
-    if cs is None or cs.cash_table_id is None:
+    if cs is None:
         return None
-    game_data['cash_table_id'] = cs.cash_table_id
+    # Read-side migration: prefer the AUTHORITATIVE entity_presence row when the
+    # flip is on — it's updated on every save_table (the live seat), whereas the
+    # cash_sessions binding is the sit-time seat (stale if the player ever moved
+    # seats). Falls back to cash_sessions when authority is off or presence has
+    # no SEATED row. Best-effort: a presence lookup failure never blocks the
+    # cash_sessions recovery below.
+    resolved_table_id = cs.cash_table_id
+    resolved_seat = cs.cash_seat_index
+    from cash_mode import economy_flags as _ef
+
+    if _ef.PRESENCE_AUTHORITY_ENABLED:
+        try:
+            from flask_app.extensions import entity_presence_repo as _epr
+            from cash_mode.presence import Presence, player_entity_id
+
+            if _epr is not None:
+                st = _epr.load(player_entity_id(cs.owner_id), cs.sandbox_id)
+                if st.state is Presence.SEATED and st.table_id is not None:
+                    if st.table_id != cs.cash_table_id or st.seat_index != cs.cash_seat_index:
+                        logger.info(
+                            "[CASH][PRESENCE] cold-load binding from presence %r:%s "
+                            "(cash_sessions had %r:%s) for %r",
+                            st.table_id, st.seat_index,
+                            cs.cash_table_id, cs.cash_seat_index, game_id,
+                        )
+                    resolved_table_id, resolved_seat = st.table_id, st.seat_index
+        except Exception as e:  # noqa: BLE001 — presence read must not block recovery
+            logger.warning(
+                "[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e
+            )
+    if resolved_table_id is None:
+        return None
+    game_data['cash_table_id'] = resolved_table_id
     if game_data.get('cash_seat_index') is None:
-        game_data['cash_seat_index'] = cs.cash_seat_index
+        game_data['cash_seat_index'] = resolved_seat
     from flask_app.services import game_state_service
 
     game_state_service.set_game(game_id, game_data)
     logger.info(
         "[CASH][LOBBY] restored cash-table binding %r:%s for orphaned cash game %r",
-        cs.cash_table_id,
-        cs.cash_seat_index,
+        resolved_table_id,
+        resolved_seat,
         game_id,
     )
-    return cs.cash_table_id
+    return resolved_table_id
 
 
 def _ensure_cash_mode(game_id: str, game_data: dict) -> bool:
@@ -3392,12 +3424,21 @@ def _apply_player_table_rake(
     # Resolve the ledger source string. For AI seats we use the
     # cash-mode personality map; for the human seat we use owner_id.
     cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
+    sandbox_id = _sandbox_id_for(game_data)
+    from cash_mode import economy_flags
+
+    custody = economy_flags.CHIP_CUSTODY_ENABLED
     if winner_player.is_human:
         owner_id = game_data.get('owner_id')
         if not owner_id:
             logger.warning(f"[Game {game_id}] rake skipped: human winner with no owner_id")
             return game_state
-        source = chip_ledger.player(owner_id)
+        # Rake comes off the winner's at-table STACK (deducted above), not the
+        # bankroll. Under chip custody those chips live in the seat account
+        # (`seat:<game_id>` for humans, `seat:ai:...` for AI — Cut 2 / Phase 1),
+        # so sourcing the rake there keeps the ledger-derived bankroll in step
+        # with the stored int. Reason stays `table_rake` (pool depth unchanged).
+        source = chip_ledger.seat(game_id) if custody else chip_ledger.player(owner_id)
     else:
         pid = cash_pids.get(headline_name)
         if not pid:
@@ -3405,9 +3446,11 @@ def _apply_player_table_rake(
                 f"[Game {game_id}] rake skipped: no personality_id for AI winner {headline_name!r}"
             )
             return game_state
-        source = chip_ledger.ai(pid)
-
-    sandbox_id = _sandbox_id_for(game_data)
+        source = (
+            chip_ledger.ai_seat(sandbox_id, pid)
+            if (custody and sandbox_id)
+            else chip_ledger.ai(pid)
+        )
     ctx = {
         'site': 'handle_evaluating_hand_phase',
         'game_id': game_id,
@@ -4006,6 +4049,17 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
     if 'ai_controllers' in game_data:
         elasticity_data = format_elasticity_data(game_data['ai_controllers'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
+
+    # Prefetch the proactive coach tip now, off the critical path, so the LLM
+    # call overlaps the player's thinking time instead of starting only after
+    # the client round-trips. No-op unless coach mode is 'proactive'; the /ask
+    # path serves this cached result (one LLM call per decision). Best-effort.
+    try:
+        from flask_app.services.coach_prefetch import prefetch_proactive_tip
+
+        socketio.start_background_task(prefetch_proactive_tip, game_id)
+    except Exception as e:
+        logger.debug(f"[COACH_PREFETCH] failed to schedule for {game_id}: {e}")
 
 
 def recover_stuck_runout(state_machine) -> bool:

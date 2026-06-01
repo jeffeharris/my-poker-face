@@ -193,3 +193,23 @@
     display: none;
   }
 }
+
+/* Coach toggle — lit gold when the coach is active. */
+.game-header__coach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.6));
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.game-header__coach-btn:hover {
+  color: var(--color-text-primary, #fff);
+}
+
+.game-header__coach-btn.is-active {
+  color: var(--color-gold, #d4a574);
+  background: rgba(212, 165, 116, 0.14);
+}

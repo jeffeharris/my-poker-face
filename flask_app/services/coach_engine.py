@@ -380,6 +380,34 @@ def _get_style_label(vpip: float, aggression: float) -> str:
         return 'loose-passive'
 
 
+# Detection-layer archetype labels → coach-friendly phrasing. The classifier
+# only returns a label past its sample-size gate (≥15 hands), so a fresh table
+# stays silent rather than guessing.
+_ARCHETYPE_COACH_LABELS = {
+    'pure_station': 'calling station (calls too much, rarely raises)',
+    'hyper_aggressive': 'maniac (over-aggressive — bets/raises relentlessly)',
+    'sticky_jammer': 'sticky jammer (calls light, then jams)',
+}
+
+
+def _classify_opp_archetype(tendencies) -> Optional[str]:
+    """Coach-friendly opponent archetype from the tiered bots' detection layer.
+
+    Reuses the exact classifier the AI uses to exploit opponents, so the coach's
+    read matches the table's reality. Best-effort: returns None on any issue or
+    below the classifier's sample gate.
+    """
+    try:
+        from poker.memory.opponent_model import _build_aggregate_from_single
+        from poker.strategy.exploitation import classify_opponent_archetype
+
+        label = classify_opponent_archetype(_build_aggregate_from_single(tendencies))
+        return _ARCHETYPE_COACH_LABELS.get(label) if label else None
+    except Exception as e:
+        logger.debug(f"_classify_opp_archetype failed: {e}")
+        return None
+
+
 def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
     """Extract opponent stats from memory manager, including stack and all-in status.
 
@@ -464,6 +492,11 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
                             'aggression': round(tendencies.aggression_factor, 1),
                             'style': tendencies.get_play_style_label(),
                             'hands_observed': tendencies.hands_observed,
+                            # Detection-layer archetype — the same read the
+                            # tiered bots exploit. A diagnosis ("calling
+                            # station") is far more actionable for the coach
+                            # than raw VPIP/PFR/AF. None below the sample gate.
+                            'archetype': _classify_opp_archetype(tendencies),
                         }
                     )
                 except (AttributeError, KeyError) as e:
@@ -826,10 +859,78 @@ def compute_coaching_data(
             position_key = _position_label_to_key(position)
             range_analysis = is_hand_in_standard_range(hand_strs[0], hand_strs[1], position_key)
             result['player_range_analysis'] = range_analysis
+
+            # Live leak recall: if THIS hand+position is one of the player's
+            # recurring preflop leaks (from their own history), flag it so the
+            # proactive coach can give a Socratic reminder in the moment. Only
+            # preflop; the leak set is loaded once per session and cached.
+            if result.get('phase') == 'PRE_FLOP':
+                _annotate_known_preflop_leak(
+                    result, game_data, game_state, player_idx, range_analysis
+                )
         except Exception as e:
             logger.warning(f"Player range analysis failed: {e}")
 
     return result
+
+
+def _annotate_known_preflop_leak(result, game_data, game_state, player_idx, range_analysis) -> None:
+    """Set result['known_preflop_leak'] when the CURRENT preflop spot matches one
+    of the player's recurring chart leaks (graded vs the bots' solver charts).
+
+    Two tiers: prefer a specific (scenario, position, hand) match, fall back to
+    the (scenario, position) tendency (e.g. open-limping from the SB). Live
+    nudges are confirmed-only and throttled to once per matched key per session,
+    so the coach reminds without nagging. Best-effort; never raises.
+    """
+    try:
+        from flask_app import extensions
+
+        from poker.strategy.preflop_classifier import build_preflop_node
+
+        from .coach_chart_data import get_owner_chart_leak_set
+
+        owner_id = game_data.get('owner_id')
+        canon = (range_analysis or {}).get('canonical_hand')
+        if not (owner_id and canon):
+            return
+
+        node = build_preflop_node(game_state, player_idx, canon)
+        scenario, position = node.scenario, node.position
+
+        if '_chart_leak_set' not in game_data:
+            game_data['_chart_leak_set'] = get_owner_chart_leak_set(
+                extensions.persistence_db_path, owner_id
+            )
+        leak_set = game_data['_chart_leak_set']
+
+        # Specific-hand match wins over the spot-tendency match.
+        info = leak_set['by_hand'].get((scenario, position, canon))
+        granularity, hand = ('hand', canon) if info else ('spot', '')
+        if info is None:
+            info = leak_set['by_spot'].get((scenario, position))
+        if info is None:
+            return
+
+        # Throttle: nudge each matched key at most once per session.
+        nudged = game_data.setdefault('_chart_leak_nudged', set())
+        key = (granularity, scenario, position, hand)
+        if key in nudged:
+            return
+        nudged.add(key)
+
+        result['known_preflop_leak'] = {
+            'scenario': scenario,
+            'position': position,
+            'hand': hand,
+            'kind': info['kind'],
+            'status': info['status'],  # confirmed (live is confirmed-only)
+            'your_freq': info['your_freq'],
+            'chart_freq': info['chart_freq'],
+            'granularity': granularity,
+        }
+    except Exception as e:
+        logger.debug(f"known-leak annotation failed: {e}")
 
 
 def compute_coaching_data_with_progression(

@@ -351,7 +351,11 @@ class PersonalityRepository(BaseRepository):
             return {row['personality_id']: row['name'] for row in rows if row['personality_id']}
 
     def list_personalities(
-        self, limit: int = 50, user_id: Optional[str] = None, include_disabled: bool = False
+        self,
+        limit: int = 50,
+        user_id: Optional[str] = None,
+        include_disabled: bool = False,
+        circulating_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """List personalities with metadata, filtered by visibility.
 
@@ -359,6 +363,14 @@ class PersonalityRepository(BaseRepository):
             limit: Max number of results
             user_id: If provided, include this user's private personalities
             include_disabled: If True (admin), include disabled and all private personalities
+            circulating_only: If True, the *public* branch is narrowed to
+                circulating personas (v123) — i.e. a public-but-not-circulating
+                persona (a demoted sim/test zombie) is hidden. The user's OWN
+                personas (`owner_id = user_id`) are still included regardless,
+                so this only trims the shared public pool. Use for player-facing
+                surfaces that should mirror the cash circuit — the opponent
+                picker and themed-game roster sampling — while leaving admin/
+                management views (default False) showing everything for curation.
         """
         with self._get_connection() as conn:
             columns = [
@@ -368,7 +380,10 @@ class PersonalityRepository(BaseRepository):
             has_circulating = 'circulating' in columns
 
             if has_ownership:
-                conditions = ["visibility = 'public'"]
+                public_clause = "visibility = 'public'"
+                if circulating_only and has_circulating:
+                    public_clause = "(visibility = 'public' AND circulating = 1)"
+                conditions = [public_clause]
                 params: list = []
 
                 if user_id:

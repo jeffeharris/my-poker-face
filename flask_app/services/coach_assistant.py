@@ -10,7 +10,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional, TypedDict
 
 from core.llm.assistant import Assistant
-from core.llm.settings import get_default_model, get_default_provider
+from core.llm.settings import get_assistant_model, get_assistant_provider
 from core.llm.tracking import CallType
 from poker.hand_narrator import abbreviate_position, format_action_phrase
 
@@ -23,11 +23,14 @@ You are a professional poker coach helping a player in real-time during a game.
 
 Rules:
 - I will provide pre-calculated statistics. Reference them directly - do not recalculate.
+- NEVER describe the player's hand as something the cards don't support. If no community cards are shown, the hand ended pre-flop — do not reference a flop/turn/river or any board-made hand (set, flush, straight, two pair). Use only the hand facts given ("Hand:", "Your cards:", "Board:").
 - CRITICAL: Only recommend actions from the "Available actions" list. If raise/bet is not listed, don't suggest it (e.g., when all opponents are all-in, you can only call or fold).
 - Consider position when giving advice: early position requires tighter ranges, late position allows wider opening ranges.
 - Note opponent stack sizes and all-in status — this affects what actions make sense.
 - Be concise and actionable. For proactive tips: 1-2 sentences max. For questions: 2-3 short paragraphs.
 - Explain the math simply (e.g., "You need 22% equity to call, and you have 45% — easy call")
+- A "Recommended action" (computed from the math) may be provided. Default to it. If you advise something different, you MUST say why in one phrase (e.g. a teaching point or a read) — never silently contradict the equity/pot-odds.
+- When an opponent archetype is given (e.g. "calling station", "maniac"), use it: say how to exploit it (value-bet thin vs a station; don't bluff a station; trap a maniac).
 - Mention opponent tendencies when relevant
 - Be encouraging but honest about mistakes
 - Use poker terminology naturally but explain concepts for beginners when asked
@@ -67,10 +70,13 @@ You are in REVIEW mode. Analyze what just happened.
 """
 
 PROACTIVE_TIP_PROMPT = """\
-Given these stats, provide a brief 1-2 sentence coaching tip for the player's current situation. \
-If a SKILL FOCUS is listed, your tip MUST teach or reinforce that specific concept using the current hand as an example. \
-Start with the key action or insight — no preamble, no filler words, no greeting. \
-Be direct and actionable.\
+Given these stats, give the player a brief 1-2 sentence nudge that helps them THINK — \
+point out the single most important factor (their position, the price they're getting, an opponent's tendency, their hand's relative strength) or pose a short guiding question. \
+Do NOT tell them which action to take and do NOT name fold/check/call/raise — the whole point is that THEY decide. Set "action" to null. \
+If a KNOWN LEAK (confirmed) is shown, this is the priority: gently remind them this is a spot where they tend to make this specific mistake (name the spot, and the hand if one is shown), and nudge them toward the solver line — raise-or-fold instead of limping, continuing instead of over-folding, or raising instead of just calling — without naming the action outright. Do not lecture, just the nudge. \
+If a WATCHING item is shown instead, give an even softer heads-up — frame it as something you've noticed a couple of times, not a settled habit ("I've seen this from you here once or twice — worth a thought?"). \
+Otherwise, if a SKILL FOCUS is listed, aim the nudge at that concept using the current hand. \
+No preamble, no greeting.\
 """
 
 HAND_REVIEW_PROMPT = """\
@@ -89,6 +95,17 @@ If SKILL EVALUATIONS FOR THIS HAND are provided above, reference them:
 If the player provided an explanation, acknowledge their reasoning and compare it with the stats.
 
 Be honest — if they played well, say so briefly. If they made an error, explain what the better play was and why (use pot odds/equity math if relevant). Don't sugarcoat, but don't be harsh either.\
+"""
+
+
+LEAK_FEEDBACK_PROMPT = """\
+Given this preflop profile, give the player concise, prioritized feedback (3-5 sentences):
+- Name their single biggest preflop leak first, and why it costs chips.
+- Quantify it using ONLY the EXACT numbers shown in the profile — the percentages, the solver comparison, and the sample count ("seen N×"). Do not use any hand, position, percentage, or number that is not in the profile.
+- Respect the CONFIRMED vs WATCHING split: state confirmed leaks plainly, but frame WATCHING items as small-sample tendencies you're keeping an eye on — not settled mistakes.
+- Give one concrete fix that matches the leak — e.g. raise-or-fold instead of limping, open tighter from a position, or defend/3-bet more when facing raises.
+- If the profile shows their play tracks the charts, acknowledge it briefly rather than inventing a leak.
+Name ONLY hands and positions that appear in the profile above — do not invent or add examples of your own, do not invent stats, and do not reference postflop play. Set "action" to null.\
 """
 
 
@@ -196,10 +213,17 @@ class CoachAssistant:
             system_prompt += f"\n\n{_MODE_PROMPTS[mode]}"
         if skill_context:
             system_prompt += f"\n\n{skill_context}"
+        # Coaching runs on the Assistant tier, not the Default tier. The Default
+        # tier is a cheap, fast model (8B-class) tuned for in-game flavor/
+        # commentary — fine for chatter, but it hallucinates hand facts and
+        # gives incoherent strategy when asked to coach (observed: "play your
+        # set of fives" on a hand that never saw a flop). Coaching needs a model
+        # that can actually reason about the spot, so it uses the Assistant
+        # endpoint (the same tier as experiment design/analysis).
         self._assistant = Assistant(
             system_prompt=system_prompt,
-            provider=get_default_provider(),
-            model=get_default_model(),
+            provider=get_assistant_provider(),
+            model=get_assistant_model(),
             call_type=CallType.COACHING,
             game_id=game_id,
             owner_id=owner_id,
@@ -224,6 +248,21 @@ class CoachAssistant:
         message = f"Current stats:\n{stats_text}\n\n{PROACTIVE_TIP_PROMPT}"
         response = self._assistant.chat(message, json_format=True)
         return _parse_coach_response(response, coaching_data)
+
+    def review_preflop_leaks(self, profile_text: str) -> str:
+        """Interpret a player's preflop PROFILE into prioritized feedback.
+
+        Grounded: the coach explains the supplied profile (which is computed from
+        real data) — it must not invent hands or stats. Returns the advice text.
+        """
+        message = f"{profile_text}\n\n{LEAK_FEEDBACK_PROMPT}"
+        response = self._assistant.chat(message, json_format=True)
+        try:
+            data = json.loads(response)
+            return data.get('advice') or response.strip()
+        except json.JSONDecodeError as e:
+            logger.warning(f"Coach leak feedback JSON parse failed: {e}, raw: {response[:200]}")
+            return response.strip()
 
     def review_hand(self, hand_context_text: str) -> str:
         """Generate a post-hand review.
@@ -371,6 +410,29 @@ def _format_stats_for_prompt(data: Dict) -> str:
     if rec:
         lines.append(f"Recommended action: {rec}")
 
+    # Live recall of one of THIS player's recurring preflop leaks, graded vs the
+    # solver charts — the proactive prompt turns this into a Socratic reminder.
+    leak = data.get('known_preflop_leak')
+    if leak:
+        spot = {
+            'rfi': 'opening from',
+            'vs_open': 'facing a raise in',
+            'vs_3bet': 'facing a 3-bet in',
+        }.get(leak.get('scenario'), leak.get('scenario', ''))
+        subject = f"{leak['hand']} {spot} {leak['position']}" if leak.get('hand') else f"{spot} {leak['position']}"
+        kind_desc = {
+            'limp': "they tend to OPEN-LIMP here — the solver raises or folds, never limps",
+            'too_loose': "they tend to PLAY hands the solver folds here",
+            'over_fold': "they tend to OVER-FOLD hands the solver continues with here",
+            'too_passive': "they tend to just CALL where the solver raises",
+        }.get(leak.get('kind'), "their play diverges from the solver here")
+        tag = (
+            'KNOWN LEAK (confirmed)'
+            if leak.get('status') == 'confirmed'
+            else 'WATCHING (small sample)'
+        )
+        lines.append(f"{tag}: {subject} — {kind_desc}.")
+
     opponents = data.get('opponent_stats', [])
     if opponents:
         lines.append("Opponents:")
@@ -393,7 +455,12 @@ def _format_stats_for_prompt(data: Dict) -> str:
                 else:
                     parts.append(f"${stack}")
 
-            if opp.get('style') and opp['style'] != 'unknown':
+            # Lead with the detection-layer archetype when we have one — it's a
+            # diagnosis the player can act on ("exploit the calling station by
+            # value-betting thin"). Fall back to the looser style label.
+            if opp.get('archetype'):
+                parts.append(opp['archetype'])
+            elif opp.get('style') and opp['style'] != 'unknown':
                 parts.append(opp['style'])
 
             # Compact VPIP/PFR/AF triple — the standard read-trio.

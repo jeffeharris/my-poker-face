@@ -30,6 +30,7 @@ import type {
   StakerForgiveResponse,
   WhereaboutsResponse,
   WorldPace,
+  FileCabinetResponse,
 } from './types';
 
 const BASE = `${config.API_URL}/api/cash`;
@@ -202,6 +203,13 @@ export async function setWorldPace(pace: WorldPace): Promise<{ world_pace: World
  *  server-side to met personas; safe to poll while the drawer is open. */
 export async function getWhereabouts(): Promise<WhereaboutsResponse> {
   return getJson('/whereabouts');
+}
+
+/** The file cabinet (dossier Phase 4): the roster of everyone you've
+ *  accumulated scouting on in this sandbox, with headline stats + the
+ *  "people met / dossiers unlocked" counts. Sorting is client-side. */
+export async function getFileCabinet(): Promise<FileCabinetResponse> {
+  return getJson('/file-cabinet');
 }
 
 // --- Net Worth (Phase 3) ---

@@ -67,6 +67,49 @@ class ChipLedgerRepository(BaseRepository):
             )
             return cursor.lastrowid
 
+    def balance_of(
+        self,
+        account: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> int:
+        """Ledger-derived balance for one account: Σ(amount where sink=account)
+        − Σ(amount where source=account). This is the D2 substrate — bankroll
+        as the sum of its ledger parcels rather than a bare mutable int.
+
+        Scope (resolves the storage asymmetry — see CASH_MODE_CHIP_CUSTODY):
+          * `sandbox_id` given  → sum only rows stamped that sandbox. Use for AI
+            (`ai_bankroll_state` is per-(pid, sandbox)): the chips an AI holds in
+            ONE save-file.
+          * `sandbox_id=None`   → sum across ALL sandboxes. Use for humans
+            (`player_bankroll_state` is GLOBAL, no sandbox_id): a player's
+            bankroll is shared across their sandboxes by design (D6 — one human
+            per sandbox, but the bankroll roams with them).
+
+        Single aggregate query so it's cheap enough to call on a read path or in
+        a consistency check. Returns 0 for an unknown account.
+        """
+        # Param order matches the SQL: two CASE clauses (sink, source) then the
+        # WHERE (source, sink) and an optional sandbox filter.
+        params: List[Any] = [account, account, account, account]
+        where = "(source = ? OR sink = ?)"
+        if sandbox_id is not None:
+            where += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        with self._get_connection() as conn:
+            row = conn.execute(
+                f"""
+                SELECT
+                  COALESCE(SUM(CASE WHEN sink = ? THEN amount ELSE 0 END), 0)
+                  - COALESCE(SUM(CASE WHEN source = ? THEN amount ELSE 0 END), 0)
+                  AS bal
+                FROM chip_ledger_entries
+                WHERE {where}
+                """,
+                params,
+            ).fetchone()
+        return int(row["bal"] or 0)
+
     def sum_creations_by_reason(
         self,
         since_iso: Optional[str] = None,

@@ -105,11 +105,25 @@ def test_fish_is_tiered_calling_station_on_both_paths(mock_fish):
 @patch('poker.rule_bot_controller.RuleBotController')
 def test_casebot_alias_maps_before_else_branch_on_restore(mock_rulebot):
     """A recognised rule alias ('casebot') maps via _RULE_BOT_STRATEGY_MAP to
-    'case_based' -- it must hit the explicit branch, not the default_strategy
-    else-branch that would pass the raw 'casebot' string through as a strategy."""
+    'case_based_v2' (promoted from v1: value-extraction beats v1 4-12x vs clones)
+    -- it must hit the explicit branch, not the default_strategy else-branch that
+    would pass the raw 'casebot' string through as a strategy."""
     mock_rulebot.return_value = MagicMock()
 
     _build('casebot', default_strategy='casebot')
 
     _, kwargs = mock_rulebot.call_args
-    assert kwargs['strategy'] == 'case_based'
+    assert kwargs['strategy'] == 'case_based_v2'
+
+
+@patch('poker.rule_bot_controller.RuleBotController')
+def test_regplus_alias_maps_before_else_branch_on_restore(mock_rulebot):
+    """'regplus' maps via _RULE_BOT_STRATEGY_MAP to 'reg_plus' -- a disciplined
+    value-extractor exposed as a production bot type. Same contract as casebot:
+    it must hit the explicit rule-bot branch, not the default_strategy else."""
+    mock_rulebot.return_value = MagicMock()
+
+    _build('regplus', default_strategy='regplus')
+
+    _, kwargs = mock_rulebot.call_args
+    assert kwargs['strategy'] == 'reg_plus'

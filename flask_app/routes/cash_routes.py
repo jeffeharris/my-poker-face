@@ -275,83 +275,6 @@ def _resolve_emotion_from_blob(blob: str, personality_id: str) -> str:
         return "confident"
 
 
-def cleanup_orphan_cash_games() -> int:
-    """**Deprecated** (v1.5): use `cash_mode.lobby.kill_all_cash_sessions`.
-
-    Subsumed by the lobby boot hook. Kept temporarily in case external
-    code calls it directly. Per handoff §"Locked decisions" (3): the
-    v1.5 deploy kills every in-flight cash session at boot, then seeds
-    the persistent lobby. The new pass is more aggressive (drops every
-    cash-* row, not just per-owner duplicates) but safe because v1.5
-    moves persistent table state to `cash_tables`, not `games`.
-
-    Original docstring below:
-
-    Enforce one cash session per owner; delete older duplicates.
-
-    The user's mental model is "back arrow freezes the game, leave
-    table cashes out." Persistence makes the frozen-game path survive
-    Flask reloads — `_find_active_cash_game_id` falls back to the DB
-    on a memory miss, and `/api/game-state/<id>` cold-loads with cash
-    flags restored.
-
-    Invariant we have to enforce on every entry point: at most one
-    `cash-*` row per owner at a time. Otherwise a clean leave (which
-    deletes only the current row) can still leave a *different* stale
-    row that `_find_active_cash_game_id` surfaces as an "active
-    session" — the original free-money exploit. Two enforcement
-    points keep this tight:
-
-      - `_purge_other_cash_rows` runs from `_build_cash_game` so a
-        new sit-down nukes any leftover row for this owner before
-        creating its own.
-      - This boot-time pass keeps the **most recent** row per owner
-        (it's the legit frozen session the player is expected to
-        resume) and drops any older duplicates left over from prior
-        unclean shutdowns or pre-fix data.
-
-    Returns the count of rows deleted so the caller can log it.
-    """
-    from flask_app.extensions import game_repo
-
-    try:
-        rows = game_repo.list_games(owner_id=None, limit=1000, offset=0)
-    except Exception as e:
-        logger.warning("[CASH] orphan cleanup: list_games failed: %s", e)
-        return 0
-
-    # list_games already orders by updated_at DESC, so the first cash
-    # row per owner is the freshest and stays; everything after is a
-    # stale duplicate.
-    seen_owners: set[str] = set()
-    to_delete: list[str] = []
-    for row in rows:
-        if not row.game_id.startswith("cash-"):
-            continue
-        owner = row.owner_id or ""
-        if owner in seen_owners:
-            to_delete.append(row.game_id)
-        else:
-            seen_owners.add(owner)
-
-    for gid in to_delete:
-        try:
-            game_repo.delete_game(gid)
-        except Exception as e:
-            logger.warning(
-                "[CASH] orphan cleanup: delete_game(%r) failed: %s",
-                gid,
-                e,
-            )
-    if to_delete:
-        logger.info(
-            "[CASH] orphan cleanup: deleted %d stale duplicate cash row(s): %s",
-            len(to_delete),
-            to_delete,
-        )
-    return len(to_delete)
-
-
 def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) -> int:
     """Delete every `cash-*` row this owner has (except the named one).
 
@@ -430,6 +353,14 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
 def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
     """Reset any cash_tables human OR reserved seat owned by `owner_id` to open.
 
+    PRESENCE CUTOVER — RETIRE CANDIDATE (confirmed quiet, not yet removable).
+    Under the authority flip this reconciler's save_table already drives presence,
+    and a clean human lifecycle leaves no ghost — it fired 0× over a multi-hour
+    authority soak. But it still guards a CROSS-system case presence can't prevent
+    (the cash-* game row purged/deleted while the persisted seat survives). Keep
+    as cheap insurance until that case is covered by a presence-backed read; see
+    docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md "Reconciler retirement".
+
     Used by the memory-miss leave path and the boot reconcile to catch
     the case where the cash-* game row is gone (purged or deleted) but
     the persisted seat survives. Without this, the lobby renders the
@@ -461,9 +392,11 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
         return 0
 
     freed = 0
+    ghost_human_freed = 0  # 'human' clears — the orphan R3a now prevents at source
     for table in tables:
         for idx, slot in enumerate(table.seats):
-            if slot.get("kind") not in ("human", "reserved"):
+            kind = slot.get("kind")
+            if kind not in ("human", "reserved"):
                 continue
             if slot.get("personality_id") != owner_id:
                 continue
@@ -473,12 +406,12 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
                     sandbox_id=sandbox_id,
                 )
                 logger.info(
-                    "[CASH] _free_ghost_human_seats: freed table=%r seat=%d owner=%r",
-                    table.table_id,
-                    idx,
-                    owner_id,
+                    "[CASH] _free_ghost_human_seats: freed %s table=%r seat=%d owner=%r",
+                    kind, table.table_id, idx, owner_id,
                 )
                 freed += 1
+                if kind == "human":
+                    ghost_human_freed += 1
             except Exception as e:
                 logger.warning(
                     "[CASH] _free_ghost_human_seats: save_table failed " "for %r:%d: %s",
@@ -486,6 +419,18 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
                     idx,
                     e,
                 )
+    # RETIREMENT MONITOR (R4): clearing a 'reserved' hold is normal UX (abandoned
+    # SponsorModal). Clearing a 'human' ghost seat is the orphan R3a now prevents
+    # at the deletion source — so a non-zero count here post-R3 means a deletion
+    # path slipped past the sweep. Alert on it; once this stays 0 over a soak the
+    # ghost-seat half of this reconciler is dead (see CASH_MODE_TECH_DEBT.md §5 / R4).
+    if ghost_human_freed:
+        logger.warning(
+            "[CASH LIFECYCLE] _free_ghost_human_seats cleared %d HUMAN ghost seat(s) "
+            "for owner=%r — R3a should have freed these at the delete source; "
+            "investigate the deletion path that bypassed the sweep",
+            ghost_human_freed, owner_id,
+        )
     return freed
 
 
@@ -634,11 +579,35 @@ def _record_cash_session_start(**kwargs) -> None:
 
 
 def _increment_cash_session_buy_in(game_id: str, amount: int) -> None:
-    """Thin wrapper — see `cash_mode.cash_session_persistence.increment_cash_session_buy_in`."""
+    """Thin wrapper — see `cash_mode.cash_session_persistence.increment_cash_session_buy_in`.
+
+    Also emits the Cut-2 human chip statement: a rebuy / top-up is the
+    same bankroll -> seat movement as the initial buy-in, so it gets a
+    paired `player_buy_in` transfer row. owner_id + sandbox_id are read
+    off the session (the only place they're reliably in scope from both
+    the rebuy and top-up call sites). Conservation-neutral; best-effort.
+    """
     from cash_mode.cash_session_persistence import increment_cash_session_buy_in
-    from flask_app.extensions import cash_session_repo
+    from flask_app.extensions import cash_session_repo, chip_ledger_repo
 
     increment_cash_session_buy_in(cash_session_repo, game_id, amount)
+
+    if chip_ledger_repo is None or amount <= 0 or cash_session_repo is None:
+        return
+    try:
+        session = cash_session_repo.load(game_id)
+    except Exception:
+        session = None
+    if session is None:
+        return
+    chip_ledger.record_player_buy_in(
+        chip_ledger_repo,
+        owner_id=session.owner_id,
+        game_id=game_id,
+        amount=amount,
+        context={'site': 'cash_rebuy_or_topup'},
+        sandbox_id=session.sandbox_id,
+    )
 
 
 def _load_human_stake_or_404(stake_id: str, owner_id: str):
@@ -1426,8 +1395,45 @@ def sit_at_table():
                     }
                 ), 409
             seat_index = alt
+        # Presence-authoritative occupancy guard (read-side migration): when
+        # entity_presence is the authority, trust IT for "is this seat free",
+        # not just the cash_tables cache. Catches a cache↔authority disagreement
+        # (a ghost in the cache that presence knows is occupied) at the point of
+        # sit — preventing a double-book the cache alone would allow. Gated:
+        # authority-off keeps the pure cash_tables check unchanged.
+        from cash_mode import economy_flags as _ef
+        if _ef.PRESENCE_AUTHORITY_ENABLED:
+            from flask_app.extensions import entity_presence_repo as _epr
+            from cash_mode.presence import player_entity_id as _peid
+            if _epr is not None:
+                _me = _peid(owner_id)
+
+                def _presence_free(idx: int) -> bool:
+                    occ = _epr.seat_occupant(sandbox_id, table_id, idx)
+                    return occ is None or occ.entity_id == _me
+
+                if not _presence_free(seat_index):
+                    alt = next(
+                        (i for i, s in enumerate(table.seats)
+                         if s.get("kind") == "open" and _presence_free(i)),
+                        None,
+                    )
+                    if alt is None:
+                        return jsonify(
+                            {"error": "Table is full", "seat_kind": "presence_occupied"}
+                        ), 409
+                    seat_index = alt
         claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
         cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
+        # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
+        # human SIT into entity_presence. The human path was NOT shadow-wired
+        # in Phase 1 (only AI writers were) — without this a human seat is
+        # invisible to the Presence machine. Reusing the lobby reconcile-diff
+        # also clears any stale occupant of this seat so the human's SIT can't
+        # collide in the partial-unique index. Inside the sandbox lock per the
+        # §6.1 atomicity contract.
+        from cash_mode.lobby import _shadow_reconcile_table
+        _shadow_reconcile_table(claimed_table, sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
     # counts, sourced via the shared preselected-builder.
@@ -1473,6 +1479,23 @@ def sit_at_table():
             chips=player_bankroll.chips - buy_in,
             starting_bankroll=player_bankroll.starting_bankroll,
         )
+    )
+
+    # Human chip statement (Cut 2): record the initial self-funded buy-in
+    # as a transfer player -> seat, paired with the leave-time cash-out.
+    # Conservation-neutral; best-effort, never blocks the sit. (Rebuy /
+    # top-up emit their own buy-in rows via _increment_cash_session_buy_in.
+    # Staked sit-downs put up 0 of the player's own chips on a pure stake,
+    # so they have no self-funded buy-in to record here.)
+    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+
+    chip_ledger.record_player_buy_in(
+        _chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=buy_in,
+        context={'site': 'cash_sit', 'stake_label': stake_label},
+        sandbox_id=sandbox_id,
     )
 
     # Stash the table_id + seat_index on the game_data so /api/cash/leave
@@ -2342,6 +2365,10 @@ def sponsor_and_sit():
                 human_slot(owner_id, offer_amount),
             )
             cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
+            # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
+            # sponsored human SIT, same rationale as the self-funded sit path.
+            from cash_mode.lobby import _shadow_reconcile_table
+            _shadow_reconcile_table(claimed_table, sandbox_id)
         preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
             claimed_table=claimed_table,
             seat_index=seat_index,
@@ -3102,7 +3129,25 @@ def payoff_stake(stake_id: str):
             'stake_id': stake_id,
             'site': 'voluntary_payoff',
         },
+        from_seat=False,
     )
+    # Chip-custody: the player→staker carry payoff is a bankroll transfer with
+    # no seat. The player debit (save above) and the staker credit are each
+    # unledgered; record ONE `stake_payoff` transfer so both stay derivable.
+    # `from_seat=False` above suppresses the seat `ai_cash_out` double-count.
+    from cash_mode import economy_flags as _economy_flags_payoff
+
+    if chip_ledger_repo is not None and _economy_flags_payoff.CHIP_CUSTODY_ENABLED:
+        from core.economy import ledger as _chip_ledger
+
+        _chip_ledger.record_stake_payoff(
+            chip_ledger_repo,
+            source=_chip_ledger.player(owner_id),
+            sink=_chip_ledger.ai(stake.staker_id),
+            amount=carry_amount,
+            context={'stake_id': stake_id, 'site': 'voluntary_payoff'},
+            sandbox_id=sandbox_id,
+        )
 
     stake_repo.update_carry_amount(stake_id, 0)
 
@@ -4957,6 +5002,24 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 starting_bankroll=bankroll.starting_bankroll,
             )
         )
+        returned_chips = chips_at_table
+
+    # Human chip statement (Cut 2): record the take-home as a transfer
+    # seat -> player. `returned_chips` is the take-home in both branches
+    # (borrower_credit when staked, chips_at_table when self-funded). A
+    # 0-take-home bust writes no row — the buy_in with no matching
+    # cash_out IS the record that the seat busted. Conservation-neutral;
+    # best-effort, never blocks the leave.
+    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+
+    chip_ledger.record_player_cash_out(
+        _chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=returned_chips,
+        context={'site': 'cash_leave', 'sponsor_repaid': sponsor_repaid},
+        sandbox_id=sandbox_id,
+    )
 
     # Now that settlement is done we know `sponsor_repaid` (chips the
     # staker pulled off the top) and `returned_chips` (what actually
@@ -5092,6 +5155,21 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 closing_hand_countdown=table.closing_hand_countdown,
             )
             cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
+            # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
+            # human cash-out as GO_OFFLINE — a human leaves the sandbox entirely
+            # (design §5.1: IDLE is the AI idle-pool concept; a cashed-out human
+            # is OFFLINE). The busted/vacated AI seats freed above are reconciled
+            # by the refresh_unseated_tables pass below (its own shadow wiring),
+            # so only the human needs an explicit transition here. GO_OFFLINE is
+            # legal from SEATED/IDLE/POOL; from an absent (already-offline) row it
+            # is illegal and swallowed — fine, the human is already gone.
+            from cash_mode import presence_shadow
+            from cash_mode.presence import PresenceEvent, player_entity_id
+            presence_shadow.shadow_transition(
+                entity_id=player_entity_id(owner_id),
+                sandbox_id=sandbox_id,
+                event=PresenceEvent.GO_OFFLINE,
+            )
             logger.info(
                 "[CASH][LOBBY] freed seat %r:%s and persisted final chip counts",
                 cash_table_id,
@@ -6435,6 +6513,43 @@ def get_whereabouts():
             },
         }
     )
+
+
+@cash_bp.route("/api/cash/file-cabinet", methods=["GET"])
+def get_file_cabinet():
+    """GET /api/cash/file-cabinet — the dossier roster (Phase 4).
+
+    Everyone the player has accumulated scouting on in their sandbox, with
+    the headline stats the UI sorts by and the "People met / Dossiers
+    unlocked" header counts. Sorting is client-side. Circuit-only (it reads
+    the per-sandbox lifetime store); returns an empty roster for a player
+    who hasn't played any Circuit hands yet.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from datetime import datetime
+
+    from flask_app.extensions import game_repo, personality_repo, relationship_repo
+    from flask_app.services.file_cabinet import build_file_cabinet
+
+    try:
+        data = build_file_cabinet(
+            sandbox_id=sandbox_id,
+            observer_id=owner_id,
+            game_repo=game_repo,
+            relationship_repo=relationship_repo,
+            personality_repo=personality_repo,
+            now=datetime.utcnow(),
+        )
+    except Exception as e:
+        logger.warning("[CASH][FILE_CABINET] build failed: %s", e)
+        return jsonify({"people": [], "people_met": 0, "dossiers_unlocked": 0})
+
+    return jsonify(data)
 
 
 @cash_bp.route("/api/cash/world-pace", methods=["PUT"])

@@ -85,6 +85,60 @@ LEDGER_REASONS = frozenset(
         # straight to the pool to preserve drift==0.
         # Annotation (amount=0, audit reconciliation only)
         'forgive_balance',  # borrower left short of principal on a house stake
+        'informant_unlock',  # player → bank pool: chips spent buying a dossier
+        # section from the informant (the scouting meta-game
+        # chip sink). Recyclable (see BANK_POOL_DEPOSIT_REASONS)
+        # so scouting fees refill the AI-funding pool. See
+        # OPPONENT_DOSSIER_PROGRESSION.md.
+        # Transfers (NO central_bank side) — pure movement between two
+        # non-bank surfaces. These DO NOT change the size of the
+        # universe, so they are invisible to the creation/destruction
+        # drift math (`sum_creations/destructions_by_reason` filter on
+        # `central_bank`). They exist solely as a human-readable
+        # transaction history / statement (Cut 2 of CASH_MODE_STATE_MODEL.md):
+        # the audit-trail the silent-forfeiture bug exposed as missing.
+        # Written via `record_transfer` (NOT `record`, which rejects
+        # bank-less rows by design).
+        'player_buy_in',  # player:<id> → seat:<game_id>: chips committed to a
+        # cash seat at sit-down. Conservation-neutral (both
+        # player_bankrolls and the live human seat stack are
+        # already counted by the audit).
+        'player_cash_out',  # seat:<game_id> → player:<id>: chips returned to
+        # bankroll at leave/cash-out (the take-home).
+        'ai_buy_in',  # ai:<pid> → seat:ai:<sandbox>:<pid>: the AI analog of
+        # player_buy_in — chips committed to a cash seat at
+        # sit-down. The custody-machine transfer that makes an
+        # AI's at-table chips a derivable ledger balance.
+        # Conservation-neutral (ai_bankroll_state drops, the
+        # live AI seat stack rises; both already audit-counted).
+        'ai_cash_out',  # seat:ai:<sandbox>:<pid> → ai:<pid>: the AI analog of
+        # player_cash_out — the AI's full table stack folded
+        # back into bankroll at leave/bust. Net of winnings:
+        # the per-hand P&L nets inside the seat balance and
+        # settles here, so the table conserves internally
+        # between seat accounts (winners' seats go negative,
+        # losers' positive; they sum to ~0 across a table).
+        'stake_payoff',  # <staker-funded source> → ai:<staker>: a stake/carry
+        # payoff routed through `credit_ai_cash_out`'s second
+        # (non-seat) use. Source is the borrower (ai:<borrower>)
+        # or the funding player (player:<owner>). A single
+        # transfer reconciles both the borrower debit and the
+        # staker credit; no seat is involved.
+    }
+)
+
+# Transfer reasons — entries with NO central_bank side (see the
+# "Transfers" note in LEDGER_REASONS). `record()` rejects these; they
+# must go through `record_transfer`, and the audit's creation/destruction
+# sums ignore them. Kept as a set so a consumer can cleanly exclude
+# transfer rows from any bank-oriented view.
+TRANSFER_REASONS = frozenset(
+    {
+        'player_buy_in',
+        'player_cash_out',
+        'ai_buy_in',
+        'ai_cash_out',
+        'stake_payoff',
     }
 )
 
@@ -108,6 +162,7 @@ BANK_POOL_DEPOSIT_REASONS = frozenset(
         'vice_spending',
         'casino_seat_return',
         'table_rake',
+        'informant_unlock',
     }
 )
 
@@ -146,6 +201,85 @@ def ai(personality_id: str) -> str:
     if not personality_id:
         raise ValueError("ai() requires a non-empty personality_id")
     return f"ai:{personality_id}"
+
+
+def seat(game_id: str) -> str:
+    """Format `game_id` into the canonical `seat:<game_id>` form.
+
+    A `seat:` entity is the chips physically at a player's cash seat for
+    one session. It is a *transfer* counterparty only (player_buy_in /
+    player_cash_out) — never a creation/destruction side — so it never
+    enters the conservation drift math. It exists so the human chip
+    statement reads as a balanced pair (bankroll → seat at sit-down,
+    seat → bankroll at leave).
+    """
+    if not game_id:
+        raise ValueError("seat() requires a non-empty game_id")
+    return f"seat:{game_id}"
+
+
+def ai_seat(sandbox_id: str, personality_id: str) -> str:
+    """Format the canonical AI seat-account string.
+
+    The AI analog of `seat(game_id)`. Humans key their seat account by
+    `game_id` (one live game per human session); world/sim AIs churn
+    `cash_tables` with no per-AI live game_id, so the AI seat account is
+    keyed by `(sandbox_id, personality_id)` instead —
+    `seat:ai:<sandbox_id>:<personality_id>`. Because an AI is seated at most
+    one cash seat per sandbox (single-presence; cash mode is single-player),
+    this balance is exactly one AI's at-table chips, not a pooled table.
+
+    The buy-in/cash-out pair for one session uses this same account, so the
+    AI's at-table chips become a derivable ledger balance — the custody
+    substrate the seats-as-view phase (D1) and derived bankroll (D2) build on.
+    """
+    if not sandbox_id:
+        raise ValueError("ai_seat() requires a non-empty sandbox_id")
+    if not personality_id:
+        raise ValueError("ai_seat() requires a non-empty personality_id")
+    return f"seat:ai:{sandbox_id}:{personality_id}"
+
+
+# --- D2: ledger-derived bankroll (the int becomes a cache of these) ---------
+#
+# `balance_of` (on the repo) is the substrate; these name the two entity
+# scopes so call sites read intention-first. The storage asymmetry is
+# resolved here, in ONE place: AI bankroll is per-sandbox, player bankroll
+# is global (summed across sandboxes). See CASH_MODE_CHIP_CUSTODY_SCOPE.md.
+
+
+def derive_ai_balance(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    sandbox_id: str,
+) -> Optional[int]:
+    """Ledger-derived AI bankroll for one (pid, sandbox), or None if no repo.
+
+    The chips an AI holds in ONE save-file: `balance_of(ai(pid))` scoped to the
+    sandbox. After chip-custody Phase 1 this equals the stored
+    `ai_bankroll_state.chips` (at-table chips live in the seat account, not
+    here) — so it is the authoritative value the int caches.
+    """
+    if repo is None:
+        return None
+    return repo.balance_of(ai(personality_id), sandbox_id=sandbox_id)
+
+
+def derive_player_balance(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+) -> Optional[int]:
+    """Ledger-derived player bankroll, summed ACROSS sandboxes, or None.
+
+    `player_bankroll_state` is GLOBAL (no sandbox_id) — a human's bankroll
+    roams with them across save-files (D6: one human per sandbox). So the
+    derivation sums `player:<id>` rows over every sandbox (`sandbox_id=None`).
+    """
+    if repo is None:
+        return None
+    return repo.balance_of(player(owner_id), sandbox_id=None)
 
 
 def record(
@@ -252,6 +386,242 @@ def record(
         return None
 
 
+def record_transfer(
+    repo: ChipLedgerRepository,
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    reason: str,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """Write one TRANSFER ledger entry — a move between two non-bank
+    surfaces that does NOT change the size of the universe.
+
+    Distinct from `record()`, which rejects rows with no `central_bank`
+    side (its job is creations/destructions only). Transfers are the
+    human transaction-history rows (`player_buy_in` / `player_cash_out`):
+    conservation-neutral (both surfaces are already counted by the
+    audit), so they are deliberately invisible to the drift math. This
+    helper exists so that invariant is explicit at the one write point
+    rather than smuggled through `record()`.
+
+    Validation: `reason` must be in `TRANSFER_REASONS`; `amount` a
+    non-negative int; NEITHER side may be the central bank (a transfer
+    that touched the bank would be a real creation/destruction and
+    belongs in `record()`). Failures log and return None — never take
+    down a chip-moving path for a best-effort history row.
+    """
+    if reason not in TRANSFER_REASONS:
+        logger.warning(
+            "chip ledger: rejecting record_transfer() with non-transfer "
+            "reason=%r (use record() for creations/destructions)",
+            reason,
+        )
+        return None
+    try:
+        amount_int = int(amount)
+    except (TypeError, ValueError):
+        logger.warning(
+            "chip ledger: rejecting record_transfer() with non-int amount=%r "
+            "(reason=%s)",
+            amount,
+            reason,
+        )
+        return None
+    if amount_int < 0:
+        logger.warning(
+            "chip ledger: rejecting record_transfer() with negative amount=%d "
+            "(reason=%s); flip source/sink instead",
+            amount_int,
+            reason,
+        )
+        return None
+    if source == CENTRAL_BANK or sink == CENTRAL_BANK:
+        logger.warning(
+            "chip ledger: rejecting record_transfer() that touches central_bank "
+            "(source=%s sink=%s reason=%s); use record() for bank-side flows",
+            source,
+            sink,
+            reason,
+        )
+        return None
+    try:
+        return repo.record(
+            source=source,
+            sink=sink,
+            amount=amount_int,
+            reason=reason,
+            context=context,
+            sandbox_id=sandbox_id,
+        )
+    except Exception as e:
+        # Best-effort: a missing history row is a forensics gap, not a
+        # conservation problem (the move is bank-neutral). Log, don't raise.
+        logger.error(
+            "[LEDGER] transfer record failed (reason=%s amount=%d source=%s "
+            "sink=%s): %s",
+            reason,
+            amount_int,
+            source,
+            sink,
+            e,
+        )
+        return None
+
+
+def record_player_buy_in(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    game_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """player:<owner_id> → seat:<game_id> — chips committed at sit-down.
+
+    The human-statement counterpart of the bankroll debit. Conservation-
+    neutral (player_bankrolls drops, the live human seat stack rises;
+    both already counted by the audit). No-op when `repo` is None or
+    `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=player(owner_id),
+        sink=seat(game_id),
+        amount=amount,
+        reason='player_buy_in',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_player_cash_out(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    game_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """seat:<game_id> → player:<owner_id> — take-home chips at leave.
+
+    The human-statement counterpart of the bankroll credit on leave /
+    cash-out. Conservation-neutral. No-op when `repo` is None or
+    `amount <= 0` (a bust-out leave with 0 take-home writes no row —
+    the absence of a cash_out paired with a buy_in IS the record that
+    the seat busted).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=seat(game_id),
+        sink=player(owner_id),
+        amount=amount,
+        reason='player_cash_out',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_ai_buy_in(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    sandbox_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """ai:<pid> → seat:ai:<sandbox>:<pid> — chips committed at AI sit-down.
+
+    The AI counterpart of `record_player_buy_in` (the chip-custody machine's
+    parity wiring). Conservation-neutral (ai_bankroll_state drops, the live
+    AI seat stack rises; both already counted by the audit). Makes the AI's
+    at-table chips a derivable ledger balance. No-op when `repo` is None or
+    `amount <= 0`. `sandbox_id` is required (it keys the seat account).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=ai(personality_id),
+        sink=ai_seat(sandbox_id, personality_id),
+        amount=amount,
+        reason='ai_buy_in',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_ai_cash_out(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    sandbox_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    """seat:ai:<sandbox>:<pid> → ai:<pid> — the AI's table stack at leave/bust.
+
+    The AI counterpart of `record_player_cash_out`. `amount` is the AI's full
+    table stack folded back into bankroll (net of winnings — the per-hand P&L
+    nets inside the seat balance and settles here). Conservation-neutral. No-op
+    when `repo` is None or `amount <= 0` (a bust with 0 take-home writes no row
+    — the absent cash_out paired with a buy_in IS the bust record, same
+    convention as humans). `sandbox_id` is required (it keys the seat account).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=ai_seat(sandbox_id, personality_id),
+        sink=ai(personality_id),
+        amount=amount,
+        reason='ai_cash_out',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_stake_payoff(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """<borrower/funding source> → <staker sink> — a stake/carry payoff (non-seat).
+
+    `credit_ai_cash_out` is overloaded: besides real seat cash-outs it also
+    credits a STAKER's bankroll when a borrower pays off a carry. That credit
+    has no seat behind it — the chips come from the borrower (ai:<borrower>) or
+    a funding player (player:<owner>), and land on the staker (ai:<staker> or
+    player:<staker>). A single `source → sink` transfer reconciles both the
+    debit and the credit so neither side drifts from its stored bankroll.
+    Both `source` and `sink` are canonical entity strings the caller builds
+    (use `ai()` / `player()`). No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='stake_payoff',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
 # --- Reason-specific helpers ---
 #
 # Thin sugar over `record()`. They exist so call sites read as
@@ -281,6 +651,33 @@ def record_player_seed(
         sink=player(owner_id),
         amount=amount,
         reason='player_seed',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_informant_unlock(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    owner_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """Dossier informant purchase: player → bank pool (a recyclable sink).
+
+    The scouting meta-game's chip sink — the player pays to reveal a dossier
+    section. Accepts repo=None (no-op). Mirrors the vice-spending direction
+    (destruction into the recyclable pool), just sourced from the player.
+    """
+    if repo is None:
+        return None
+    return record(
+        repo,
+        source=player(owner_id),
+        sink=bank(),
+        amount=amount,
+        reason='informant_unlock',
         context=context,
         sandbox_id=sandbox_id,
     )
@@ -371,33 +768,6 @@ def record_house_stake_issue(
         sink=player(owner_id),
         amount=amount,
         reason='house_stake_issue',
-        context=context,
-        sandbox_id=sandbox_id,
-    )
-
-
-def record_cap_clamp(
-    repo: Optional[ChipLedgerRepository],
-    *,
-    personality_id: str,
-    overflow: int,
-    context: Optional[Dict[str, Any]] = None,
-    sandbox_id: Optional[str] = None,
-) -> Optional[int]:
-    """ai → central_bank for chips that would push past `starting_bankroll`.
-
-    Fired by `credit_ai_cash_out` when the AI's table stack would
-    push the bankroll past its cap; the excess effectively evaporates
-    back into the bank. No-op when `overflow <= 0`.
-    """
-    if repo is None or overflow <= 0:
-        return None
-    return record(
-        repo,
-        source=ai(personality_id),
-        sink=bank(),
-        amount=overflow,
-        reason='cap_clamp',
         context=context,
         sandbox_id=sandbox_id,
     )
@@ -559,7 +929,7 @@ def record_vice_spending(
     `BANK_POOL_DEPOSIT_REASONS` so the pool depth accounting picks
     these up the same way it picks up `bank_pool_deposit`.
 
-    Mirrors `record_cap_clamp`'s shape (single-personality destruction).
+    A single-personality destruction (ai → central_bank).
     """
     if repo is None or amount <= 0:
         return None
