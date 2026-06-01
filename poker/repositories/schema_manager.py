@@ -258,6 +258,42 @@ _test_schema_template_path = None
 #       EXISTS, non-destructive, idempotent. See
 #       `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6) and
 #       `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`.
+# v130: Add `preflop_node_key` to player_decision_analysis — the exact
+#       solver-chart node (scenario|position|opener|hand) captured at decision
+#       time so the chart-graded coach leak finder grades the precise spot.
+#       Nullable; old rows fall back to reconstruction. Renumbered from v123 on
+#       the training-room→development merge (circulating took v123).
+# v131: Create `coach_tips` — proactive in-decision coach tip log (and which
+#       leak nudge fired) so the coach's effect on play can be measured by
+#       joining to player_decision_analysis. Pure instrumentation. Renumbered
+#       from v124 on the training-room→development merge.
+# v132: Add `limp_count` to `opponent_observation_lifetime` — the numerator for
+#       the new `OpponentTendencies.limp_rate` (times an opponent limped preflop
+#       in an open spot). Its denominator (`preflop_open_opportunities`) is
+#       already folded (v127-era), so this is a single additive column; the rate
+#       derives on read via OpponentTendencies. Guarded ALTER, idempotent.
+# v133: Add the sizing-aware count/sum columns to `opponent_observation_lifetime`
+#       (equity_betting_big/small sums+counts, fold_to_big_bet/big_bet_faced
+#       counts) so the sizing tells — `sizing_polarization_score` (bets bigger
+#       with stronger hands) and `fold_to_big_bet` (over-folds to overbets) —
+#       accumulate cross-game and derive on read, same store-counts-derive-rates
+#       principle as v126. 4 INTEGER + 2 REAL columns. Guarded ALTER, idempotent.
+# v134: Add the postflop aggression-axis counters to
+#       `opponent_observation_lifetime` (facing_bet_opportunities,
+#       all_ins_facing_bet, postflop_open_opportunities, postflop_jam_opens) so
+#       the response-aggression (`all_in_per_facing_bet`) and open-aggression
+#       (`postflop_jam_open_rate`) tells accumulate cross-game and surface in the
+#       dossier + coach. Player/coach-facing read only — the live AI clamp reads
+#       per-game models, not this store (v124 separation), so AI behavior is
+#       unchanged. 4 INTEGER columns. Guarded ALTER, idempotent.
+# v135: Add the flop-check-then-barrel counters to `opponent_observation_lifetime`
+#       (flop_check_barrel_count, flop_check_barrel_opportunity_count) so the
+#       trap read `flop_check_then_barrel_rate` (checks flop OOP then bets turn
+#       after a check-through) accumulates cross-game and surfaces in the
+#       dossier + coach. Required adding the two counters (+ the rate) to
+#       OpponentTendencies._SERIAL_FIELDS first so they serialize per-game.
+#       Player/coach-facing read only. 2 INTEGER columns. Guarded ALTER,
+#       idempotent.
 SCHEMA_VERSION = 136
 
 
@@ -1218,6 +1254,7 @@ class SchemaManager:
                     menu_num_options INTEGER,
                     intervention_trace_json TEXT,
                     strategy_pipeline_snapshot_json TEXT,
+                    preflop_node_key TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
@@ -2056,6 +2093,30 @@ class SchemaManager:
                 self._migrate_v129_create_cash_idle_metadata,
                 "Create cash_idle_metadata — satellite for the idle-pool routing payload (reason/target_stake/left_at) that entity_presence's pure machine deliberately doesn't carry. At the Presence authority flip, entity_presence owns the IDLE state and this table carries the movement metadata. Additive; cash_idle_pool stays a written cache (view-conversion deferred).",
             ),
+            130: (
+                self._migrate_v130_add_preflop_node_key,
+                "Add preflop_node_key to player_decision_analysis — exact solver-chart node (scenario|position|opener|hand) captured at decision time for chart-graded coach leaks",
+            ),
+            131: (
+                self._migrate_v131_create_coach_tips,
+                "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
+            ),
+            132: (
+                self._migrate_v132_add_limp_lifetime_count,
+                "Add limp_count to opponent_observation_lifetime — numerator for OpponentTendencies.limp_rate (limps preflop in an open spot); denominator preflop_open_opportunities already folded, rate derives on read",
+            ),
+            133: (
+                self._migrate_v133_add_sizing_aware_lifetime_counts,
+                "Add sizing-aware count/sum columns to opponent_observation_lifetime (equity_betting_big/small sums+counts, fold_to_big_bet/big_bet_faced counts) so sizing_polarization_score + fold_to_big_bet accumulate cross-game; rates derive on read",
+            ),
+            134: (
+                self._migrate_v134_add_postflop_axis_lifetime_counts,
+                "Add postflop aggression-axis counters to opponent_observation_lifetime (facing_bet_opportunities, all_ins_facing_bet, postflop_open_opportunities, postflop_jam_opens) so all_in_per_facing_bet + postflop_jam_open_rate accumulate cross-game; rates derive on read",
+            ),
+            135: (
+                self._migrate_v135_add_flop_check_barrel_lifetime_counts,
+                "Add flop-check-then-barrel counters to opponent_observation_lifetime (flop_check_barrel_count, flop_check_barrel_opportunity_count) so flop_check_then_barrel_rate accumulates cross-game; rate derives on read",
+            ),
             136: (
                 self._migrate_v136_drop_4d_emotion,
                 "Retire the deprecated 4D emotion model: DROP the emotional_state table (consolidated into controller_state.psychology_json) and the valence/arousal/control/focus columns on player_decision_analysis. Emotion is now the quadrant model (trait-aware family x quadrant). NOTE: numbered 136 (not 130) because this branch (polish, schema v129) diverged before development reached v135; 130-135 belong to development and are skipped here if absent.",
@@ -2063,6 +2124,34 @@ class SchemaManager:
         }
 
         with self._get_connection() as conn:
+            # Renumber-collision self-heal. A DB migrated on the `training-room`
+            # branch recorded v123/v124 as the coach migrations (renumbered to
+            # v130/v131 on the development merge), so its version counter skipped
+            # development's real v123 (`circulating`) and v124
+            # (`opponent_observation_lifetime`). Re-assert those two effects
+            # idempotently before the forward loop — otherwise the v126/v127
+            # ALTERs against `opponent_observation_lifetime` crash on the missing
+            # table. No-op on clean DBs (both methods are existence-guarded) and
+            # only reachable while migrations are still pending.
+            collision = (
+                current_version >= 124
+                and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='opponent_observation_lifetime'"
+                ).fetchone()
+                is None
+            )
+            if collision:
+                logger.warning(
+                    "Detected training-room renumber collision (version %d but "
+                    "opponent_observation_lifetime missing) — re-asserting the "
+                    "skipped v123/v124 development migrations idempotently",
+                    current_version,
+                )
+                self._migrate_v123_add_personality_circulating(conn)
+                self._migrate_v124_create_opponent_observation_lifetime(conn)
+                conn.commit()
+
             for version in range(current_version + 1, SCHEMA_VERSION + 1):
                 if version in migrations:
                     migrate_func, description = migrations[version]
@@ -6831,4 +6920,240 @@ class SchemaManager:
         logger.info(
             "Migration v136 complete: dropped emotional_state table and 4D "
             "(valence/arousal/control/focus) columns from player_decision_analysis"
+        )
+
+    def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
+        """Migration v130: add `preflop_node_key` to player_decision_analysis.
+
+        The exact solver-chart node — ``scenario|position|opener|hand`` — captured
+        at decision time (via the tiered bot's `build_preflop_node`) so the
+        chart-graded coach leak finder can grade against the precise spot,
+        including the exact opener and `vs_3bet` scenarios that backfill
+        reconstruction can only approximate. Nullable; old rows fall back to
+        reconstruction. Non-destructive, idempotent.
+
+        Renumbered from v123 on the training-room→development merge (collision:
+        circulating took v123 on development).
+        """
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'preflop_node_key' not in columns:
+            conn.execute(
+                "ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT"
+            )
+            logger.info("Added preflop_node_key column to player_decision_analysis")
+        logger.info("Migration v130 complete: preflop_node_key added")
+
+    def _migrate_v131_create_coach_tips(self, conn: sqlite3.Connection) -> None:
+        """Migration v131: create `coach_tips` — proactive in-decision tip log.
+
+        One row per proactive coach tip actually served to the player. Records
+        the spot (game/hand/phase/position) and, when a recurring chart leak was
+        recalled in that moment, which leak nudge fired (scenario/position/kind/
+        status/granularity). Joins to `player_decision_analysis` on
+        (game_id, hand_number, player_name, PRE_FLOP) so we can measure whether a
+        leak nudge actually moved the player's next decision toward the solver
+        line — the measurement prerequisite for "is the coach helping?".
+
+        Pure instrumentation: nothing here feeds AI decisions. Non-destructive,
+        idempotent.
+
+        Renumbered from v124 on the training-room→development merge (collision:
+        opponent_observation_lifetime took v124 on development).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS coach_tips (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id               TEXT,
+                owner_id              TEXT,
+                player_name           TEXT,
+                hand_number           INTEGER,
+                phase                 TEXT,
+                tip_text              TEXT,
+                leak_fired            INTEGER NOT NULL DEFAULT 0,
+                leak_scenario         TEXT,
+                leak_position         TEXT,
+                leak_kind             TEXT,
+                leak_status           TEXT,
+                leak_granularity      TEXT,
+                player_hand_canonical TEXT,
+                player_position       TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_coach_tips_join
+                ON coach_tips(game_id, hand_number, player_name)
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
+        )
+        logger.info("Migration v131 complete: coach_tips table created")
+
+    def _migrate_v132_add_limp_lifetime_count(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v132: add `limp_count` to `opponent_observation_lifetime`.
+
+        The numerator for `OpponentTendencies.limp_rate` — how often an
+        opponent limps preflop (voluntarily CALLS in an open spot, i.e. with
+        no live raise above the blind in front of them). The denominator,
+        `preflop_open_opportunities`, was already added (v127-era), so the
+        rate `limp_count / preflop_open_opportunities` derives on read through
+        the canonical `OpponentTendencies._recalculate_stats()` — same
+        store-counts-derive-rates principle as v126/v127. A single additive
+        column.
+
+        Guarded ALTER, additive, idempotent.
+        """
+        new_columns = ['limp_count']
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v132 complete: %d column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v133_add_sizing_aware_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v133: persist the sizing-aware counters/sums.
+
+        The sizing tells were tracked live on `OpponentTendencies` but never
+        folded into the durable store, so they reset every game. This adds the
+        raw counts (and the big/small equity SUMS) so they accumulate
+        cross-game and the two derived reads come back on read through the
+        canonical `OpponentTendencies`:
+
+          - `sizing_polarization_score` = equity_when_betting_big −
+            equity_when_betting_small (bets bigger with stronger hands), from
+            the big/small equity sum+count bins.
+          - `fold_to_big_bet` = fold_to_big_bet_count / big_bet_faced_count
+            (over-folds to large/jam bets).
+
+        Same store-counts-derive-rates principle as v126. Guarded ALTER,
+        additive, idempotent.
+        """
+        # (column, sql_type) — integer counts, then the REAL equity sums.
+        new_columns = [
+            ('equity_betting_big_count', 'INTEGER'),
+            ('equity_betting_small_count', 'INTEGER'),
+            ('fold_to_big_bet_count', 'INTEGER'),
+            ('big_bet_faced_count', 'INTEGER'),
+            ('equity_betting_big_sum', 'REAL'),
+            ('equity_betting_small_sum', 'REAL'),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col, sql_type in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} {sql_type} NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v133 complete: %d sizing-aware column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v134_add_postflop_axis_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v134: persist the postflop aggression-axis counters.
+
+        These four counters were tracked live on `OpponentTendencies` but never
+        folded, so the two derived reads reset every game. Persisting the raw
+        counts lets them accumulate cross-game and the rates come back on read
+        through the canonical `OpponentTendencies._recalculate_postflop_stats`:
+
+          - `all_in_per_facing_bet` = all_ins_facing_bet / facing_bet_opportunities
+            (response aggression — jams into a bet).
+          - `postflop_jam_open_rate` = postflop_jam_opens / postflop_open_opportunities
+            (open aggression — donk-jams a no-bet pot).
+
+        Player/coach-facing read only: the live exploitation clamp reads the
+        per-game model, not this store, so AI behavior is unchanged. Same
+        store-counts-derive-rates principle as v126. Guarded ALTER, additive,
+        idempotent.
+        """
+        new_columns = [
+            'facing_bet_opportunities',
+            'all_ins_facing_bet',
+            'postflop_open_opportunities',
+            'postflop_jam_opens',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v134 complete: %d postflop-axis column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v135_add_flop_check_barrel_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v135: persist the flop-check-then-barrel counters.
+
+        `flop_check_then_barrel_rate` (checks flop OOP, then bets turn after a
+        check-through — a delayed-cbet / trap pattern) was tracked live but
+        never folded, so it reset every game. Persisting the count +
+        opportunity lets it accumulate cross-game and derive on read through
+        the canonical `OpponentTendencies._recalculate_stats`. The two counters
+        (and the rate) were added to `_SERIAL_FIELDS` in the same change so
+        they serialize per-game and the fold can read them.
+
+        Player/coach-facing read only. Same store-counts-derive-rates principle
+        as v126. Guarded ALTER, additive, idempotent.
+        """
+        new_columns = [
+            'flop_check_barrel_count',
+            'flop_check_barrel_opportunity_count',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v135 complete: %d flop-check-barrel column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
         )

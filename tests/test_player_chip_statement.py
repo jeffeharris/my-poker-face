@@ -122,7 +122,16 @@ def test_transfer_reasons_excluded_from_bank_reason_sets():
         TRANSFER_REASONS,
     )
 
-    assert TRANSFER_REASONS == {"player_buy_in", "player_cash_out"}
+    # Human buy-in/cash-out plus the chip-custody Phase 1 AI ledger-parity
+    # transfers (ai_buy_in/ai_cash_out) and stake payoffs — all seat<->player
+    # moves that must stay invisible to bank-pool depth math.
+    assert TRANSFER_REASONS == {
+        "player_buy_in",
+        "player_cash_out",
+        "ai_buy_in",
+        "ai_cash_out",
+        "stake_payoff",
+    }
     assert TRANSFER_REASONS.isdisjoint(BANK_POOL_DEPOSIT_REASONS)
     assert TRANSFER_REASONS.isdisjoint(BANK_POOL_DRAW_REASONS)
 

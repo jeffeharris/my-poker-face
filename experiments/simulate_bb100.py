@@ -303,6 +303,13 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'polar_value',
     },
+    # LooseFaceUp — loose recreational face-up bettor: value-bets big with a WIDE
+    # range (medium+), OFTEN, never bluffs. The "loose human" §B regime where
+    # folding-to-big-bets actually pays (vs PolarValue's rare nuts-only big bet).
+    'LooseFaceUp': {
+        'kind': 'rule_bot',
+        'strategy': 'loose_value',
+    },
     # TrickyReg — eval instrument that overbet-BLUFFS to punish RegPlus's residual
     # over-fold-to-overbets leak (the §3 yardstick). Not a production bot.
     'TrickyReg': {
@@ -415,6 +422,10 @@ class MatchupStats:
 
 _HU_TABLE_CACHE: Optional[StrategyTable] = None
 _HU_TABLE_CACHED: bool = False
+
+# Phase B sizing-defense eval config, set by --sizing-defense in main(). None →
+# layer off (byte-identical). When set: {'polar': forced read, 'mult': call mult}.
+_SIZING_DEFENSE_CFG: Optional[dict] = None
 
 
 def _get_hu_table() -> Optional[StrategyTable]:
@@ -556,6 +567,17 @@ def make_controller(
             controller.disable_rules = disable_rules
         if game_id is not None:
             controller.game_id = game_id
+        # Phase B sizing defense (SIZING_AWARE_OPPONENT_MODELING.md §B) eval hook.
+        # __init__ is bypassed here, so the flags default to absent → off. When the
+        # CLI sets --sizing-defense, enable the layer on the tiered hero + force the
+        # face-up read via the override (the sim has no matured opponent model);
+        # this measures the EV ceiling of folding to a known face-up big bettor.
+        if _SIZING_DEFENSE_CFG is not None:
+            controller.sizing_defense_enabled = True
+            controller.sizing_defense_min_polar = 0.15
+            controller.sizing_defense_call_multiplier = _SIZING_DEFENSE_CFG['mult']
+            controller.sizing_defense_min_bet_ratio = 0.75
+            controller.sizing_defense_polar_override = _SIZING_DEFENSE_CFG['polar']
 
     return controller
 
@@ -1749,7 +1771,42 @@ def main():
         '(e.g. --clone-profile experiments/clone_profiles/jeff.json '
         '--opponents "Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot").',
     )
+    parser.add_argument(
+        '--sizing-defense',
+        action='store_true',
+        help='Phase B (SIZING_AWARE_OPPONENT_MODELING.md §B): enable the tiered '
+        'hero\'s fold-more-vs-face-up-big-bettor layer + force the face-up read '
+        '(via the polar override) so its EV ceiling is measurable vs a face-up '
+        'opponent like LooseFaceUp. Off → byte-identical. A/B by running once '
+        'without and once with this flag vs the same opponents/seed.',
+    )
+    parser.add_argument(
+        '--sizing-defense-polar',
+        type=float,
+        default=0.3,
+        help='Forced sizing_polarization_score for the hero\'s read when '
+        '--sizing-defense is set (default 0.3, clearly face-up). Lower it to '
+        'probe the threshold sensitivity.',
+    )
+    parser.add_argument(
+        '--sizing-defense-mult',
+        type=float,
+        default=0.55,
+        help='Call-retention multiplier for the sizing-defense layer (default '
+        '0.55 — retain ~55%% of baseline calls vs a face-up big bet).',
+    )
     args = parser.parse_args()
+
+    if args.sizing_defense:
+        global _SIZING_DEFENSE_CFG
+        _SIZING_DEFENSE_CFG = {
+            'polar': args.sizing_defense_polar,
+            'mult': args.sizing_defense_mult,
+        }
+        print(
+            f"Phase B sizing-defense ON (hero): forced polar="
+            f"{args.sizing_defense_polar:+.2f}, call_mult={args.sizing_defense_mult:.2f}"
+        )
 
     # Register any clone opponents the user requested. Do this before
     # ARCHETYPES is read by the matchup runners so the new entries are

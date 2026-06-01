@@ -323,6 +323,21 @@ def analyze_player_decision(
                     player_name=player_name,
                 )
 
+        # Capture the EXACT solver-chart node (scenario|position|opener|hand) from
+        # the pre-action state, so chart-graded coach leaks can grade against the
+        # precise spot (exact opener, vs_3bet) instead of backfill reconstruction.
+        # PRE_FLOP only; best-effort — old rows / failures fall back to reconstruction.
+        phase_name = state_machine.current_phase.name if state_machine.current_phase else None
+        if phase_name == 'PRE_FLOP' and analysis.player_hand_canonical:
+            try:
+                from poker.strategy.preflop_classifier import build_preflop_node
+
+                player_idx = game_state.players.index(player)
+                node = build_preflop_node(game_state, player_idx, analysis.player_hand_canonical)
+                analysis.preflop_node_key = node.key
+            except Exception:
+                logger.debug("preflop node capture skipped", exc_info=True)
+
         extensions.decision_analysis_repo.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(
@@ -335,14 +350,20 @@ def analyze_player_decision(
 
 def _evaluate_coach_progression(
     game_id: str, player_name: str, action: str, amount: int, game_data: dict, pre_action_state
-) -> None:
+) -> Optional[dict]:
     """Post-action hook: evaluate the human player's action against skill targets.
 
     Uses a broad try/except intentionally: this entire function is a non-critical
     post-action hook. Any failure must not disrupt the game flow. The phases
     (data loading, classification/evaluation, feedback prompt generation) are kept
     in one block to avoid partial state from early failures.
+
+    Returns a serialized "inline feedback" dict for the primary evaluated skill
+    ({skill_id, skill_name, verdict, reasoning, confidence}) when there's a
+    coachable verdict, else None. Training mode surfaces this in the action
+    response; other modes ignore the return value. Never raises.
     """
+    feedback: Optional[dict] = None
     try:
         from flask_app.services.coach_engine import compute_coaching_data
         from flask_app.services.coach_progression import (
@@ -419,6 +440,24 @@ def _evaluate_coach_progression(
                 for ev in evaluations:
                     session_memory.record_hand_evaluation(hand_number, ev)
 
+                # Build inline feedback for the primary skill (the one the
+                # classifier prioritized), falling back to the first eval.
+                # Only surface a coachable verdict — skip not_applicable so the
+                # training UI doesn't flash a badge on every irrelevant action.
+                from flask_app.services.skill_definitions import get_skill_by_id
+
+                primary = classification.primary_skill
+                chosen = next((e for e in evaluations if e.skill_id == primary), evaluations[0])
+                if chosen.evaluation in ('correct', 'incorrect', 'marginal'):
+                    sd = get_skill_by_id(chosen.skill_id)
+                    feedback = {
+                        'skill_id': chosen.skill_id,
+                        'skill_name': sd.name if sd else chosen.skill_id,
+                        'verdict': chosen.evaluation,
+                        'reasoning': chosen.reasoning,
+                        'confidence': chosen.confidence,
+                    }
+
                 # PRH-15: persist the per-hand evaluations so the review
                 # history survives a restart / TTL-eviction. Best-effort —
                 # a persistence hiccup must never break the action path.
@@ -437,6 +476,7 @@ def _evaluate_coach_progression(
             f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",
             exc_info=True,
         )
+    return feedback
 
 
 def generate_game_id() -> str:
@@ -499,10 +539,14 @@ def list_games():
     else:
         saved_games = []
 
-    # Filter out cash games — they're session-only and don't belong
-    # in the "continue games" list. Identified by the "cash-" game_id
-    # prefix that /api/cash/start uses.
-    saved_games = [g for g in saved_games if not g.game_id.startswith("cash-")]
+    # Filter out cash + training games — they're session-only and don't belong
+    # in the "continue games" list. Identified by the "cash-" / "train-"
+    # game_id prefixes that /api/cash/start and /api/training/start use.
+    saved_games = [
+        g
+        for g in saved_games
+        if not g.game_id.startswith("cash-") and not g.game_id.startswith("train-")
+    ]
 
     games_data = []
     for game in saved_games:
@@ -634,6 +678,15 @@ def api_game_state(game_id):
                         # stored in the saved JSON; we reconstruct it
                         # from the game_id prefix + current_ante.)
                         is_cash_game = game_id.startswith("cash-")
+                        # Training games (train- prefix) are a non-counting
+                        # sibling like cash. game_data flags aren't persisted,
+                        # so mode is re-derived from the prefix here. A training
+                        # game must NOT wire a relationship repo (relationship_states
+                        # is not cash_mode-gated) and must NOT get a tournament
+                        # tracker — otherwise an evicted train- game would leak
+                        # relationship rows and rebuild as a tournament. See
+                        # docs/plans/TRAINING_MODE.md and training_routes.py.
+                        is_training_game = game_id.startswith("train-")
 
                         # v109: cash_pair_stats writes need a sandbox_id so the
                         # admin Chip Economy panel can scope Won/Lost/Net. For
@@ -780,7 +833,10 @@ def api_game_state(game_id):
                                         game_id,
                                         exc,
                                     )
-                        if not suppress_for_casino:
+                        # Training games never wire a relationship repo:
+                        # relationship_states writes for ANY wired repo (not
+                        # just cash_mode), so this is the only safe suppression.
+                        if not suppress_for_casino and not is_training_game:
                             memory_manager.set_relationship_repo(
                                 extensions.relationship_repo,
                                 cash_mode=is_cash_game,
@@ -838,7 +894,7 @@ def api_game_state(game_id):
                         # New cash games (/api/cash/start) omit it; the cold-load
                         # path used to rebuild it for everyone, which is the bug.
                         tournament_tracker = None
-                        if not is_cash_game:
+                        if not is_cash_game and not is_training_game:
                             # Try to load tournament tracker from database, or create new one
                             tracker_data = extensions.game_repo.load_tournament_tracker(game_id)
                             if tracker_data:
@@ -894,6 +950,13 @@ def api_game_state(game_id):
                         # mirror the warm cash builder, which omits it for cash.
                         if tournament_tracker is not None:
                             current_game_data['tournament_tracker'] = tournament_tracker
+
+                        # Re-derive the training flag from the prefix (not
+                        # persisted in game_data) so the non-counting,
+                        # auto-coach session survives eviction. Coach mode is
+                        # persisted on the games row, so it reloads on its own.
+                        if is_training_game:
+                            current_game_data['training_mode'] = True
 
                         # Cash-mode metadata. STAKES_LADDER is the
                         # source of truth for stake_label ↔ big_blind;
@@ -1815,9 +1878,11 @@ def api_player_action(game_id):
             ai_controllers=current_game_data.get('ai_controllers'),
         )
 
-        # Coach progression: evaluate human player actions against skill targets
+        # Coach progression: evaluate human player actions against skill targets.
+        # In training mode the verdict is surfaced inline (see the response below).
+        skill_feedback = None
         if current_player.is_human:
-            _evaluate_coach_progression(
+            skill_feedback = _evaluate_coach_progression(
                 game_id, current_player.name, action, amount, current_game_data, pre_action_state
             )
 
@@ -1875,7 +1940,12 @@ def api_player_action(game_id):
 
         progress_game(game_id)
 
-        return jsonify({'success': True})
+        # Training mode surfaces the coach's per-action skill verdict inline so
+        # every decision gets immediate feedback (other modes evaluate silently).
+        response_body = {'success': True}
+        if current_game_data.get('training_mode') and skill_feedback:
+            response_body['skill_evaluation'] = skill_feedback
+        return jsonify(response_body)
     except Exception as e:
         logger.error(f"Error processing action for game {game_id}: {e}", exc_info=True)
         return jsonify({'error': 'Failed to process action'}), 500

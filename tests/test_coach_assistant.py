@@ -8,9 +8,125 @@ from unittest.mock import patch
 
 from flask_app.services.coach_assistant import (
     CoachResponse,
+    _format_stats_for_prompt,
     _normalize_action,
     _parse_coach_response,
 )
+
+
+class TestKnownLeakSurfacing(unittest.TestCase):
+    """The live chart-leak flag must reach the coach prompt as a KNOWN LEAK line."""
+
+    def _leak(self, kind, status, **over):
+        base = {
+            'scenario': 'rfi',
+            'position': 'SB',
+            'hand': '',
+            'kind': kind,
+            'status': status,
+            'your_freq': {'fold': 0.5, 'call': 0.3, 'raise': 0.2},
+            'chart_freq': {'fold': 0.5, 'call': 0.0, 'raise': 0.5},
+            'granularity': 'spot',
+        }
+        base.update(over)
+        return base
+
+    def test_confirmed_spot_leak_surfaced(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'SB',
+             'known_preflop_leak': self._leak('limp', 'confirmed')}
+        )
+        self.assertIn('KNOWN LEAK', text)
+        self.assertIn('opening from SB', text)
+        self.assertIn('LIMP', text.upper())
+
+    def test_faced_raise_overfold_described(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'BB',
+             'known_preflop_leak': self._leak('over_fold', 'confirmed',
+                                              scenario='vs_open', position='BB')}
+        )
+        self.assertIn('facing a raise in BB', text)
+        self.assertIn('OVER-FOLD', text.upper())
+
+    def test_hand_specific_leak_names_the_hand(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'CO',
+             'known_preflop_leak': self._leak('too_loose', 'confirmed',
+                                              position='CO', hand='Q7o', granularity='hand')}
+        )
+        self.assertIn('Q7o', text)
+
+    def test_watching_leak_surfaced_softly(self):
+        text = _format_stats_for_prompt(
+            {'phase': 'PRE_FLOP', 'position': 'SB',
+             'known_preflop_leak': self._leak('limp', 'watching')}
+        )
+        self.assertIn('WATCHING', text)
+        self.assertNotIn('KNOWN LEAK', text)  # hedged, not asserted as a leak
+
+    def test_no_leak_no_line(self):
+        text = _format_stats_for_prompt({'phase': 'PRE_FLOP', 'position': 'Big Blind'})
+        self.assertNotIn('KNOWN LEAK', text)
+        self.assertNotIn('WATCHING', text)
+
+
+class TestOpponentDeepReadsInPrompt(unittest.TestCase):
+    """The opponent deep-reads block must reach the coach prompt as a tells line,
+    surfacing only the reads we have a sample for."""
+
+    def _opp(self, deep_reads):
+        return {
+            'phase': 'FLOP', 'position': 'BTN',
+            'opponent_stats': [{
+                'name': 'Greg', 'position': 'SB', 'stack': 1000,
+                'vpip': 0.4, 'pfr': 0.2, 'aggression': 1.5,
+                'style': 'loose-passive', 'hands_observed': 50,
+                'deep_reads': deep_reads,
+            }],
+        }
+
+    def test_tells_line_surfaces_observed_reads(self):
+        text = _format_stats_for_prompt(self._opp({
+            'fold_to_cbet': 0.7, 'barrel_frequency': 0.3,
+            'limp_rate': 0.25, 'showdown_win_rate': 0.55,
+            'fold_to_big_bet': 0.68, 'sizing_polarization_score': 0.3,
+            'all_in_per_facing_bet': 0.35,
+            'flop_check_then_barrel_rate': 0.7,
+            'cbet_attempt_rate': None, 'aggression_factor_postflop': None,
+        }))
+        self.assertIn('tells:', text)
+        self.assertIn('folds to c-bet 70%', text)
+        self.assertIn('barrels turn 30%', text)
+        self.assertIn('limps 25% of open spots', text)
+        self.assertIn('wins 55% at showdown', text)
+        self.assertIn('folds to big bets 68%', text)
+        self.assertIn('bet size telegraphs strength', text)
+        self.assertIn('jams into bets 35%', text)
+        self.assertIn('checks flop then barrels turn 70%', text)
+
+    def test_balanced_sizing_not_called_a_tell(self):
+        # A small/zero polarization score must NOT be reported as a sizing tell.
+        text = _format_stats_for_prompt(self._opp({
+            'fold_to_cbet': 0.5, 'sizing_polarization_score': 0.05,
+        }))
+        self.assertNotIn('bet size telegraphs', text)
+
+    def test_none_reads_are_omitted(self):
+        text = _format_stats_for_prompt(self._opp({
+            'fold_to_cbet': 0.7,
+            'cbet_attempt_rate': None, 'barrel_frequency': None,
+            'aggression_factor_postflop': None, 'limp_rate': None,
+            'showdown_win_rate': None,
+        }))
+        self.assertIn('folds to c-bet 70%', text)
+        self.assertNotIn('c-bets flop', text)
+        self.assertNotIn('limps', text)
+
+    def test_no_deep_reads_no_tells_line(self):
+        opp = self._opp(None)
+        text = _format_stats_for_prompt(opp)
+        self.assertNotIn('tells:', text)
 
 
 class TestNormalizeAction(unittest.TestCase):

@@ -43,6 +43,13 @@ _SAMPLE_COLS = (
     'postflop_bet_raise_count', 'postflop_call_count',
     'barrel_opportunity_count', 'equity_betting_count',
     'equity_raising_count', 'equity_calling_count',
+    # Sample gates for the deeper reads added since (limp v132, showdown,
+    # sizing v133, jam axes v134, trap line v135) — a fully-unlocked dossier
+    # must clear every tier's opportunity gate, not just the original B1 set.
+    'preflop_open_opportunities', 'showdowns_seen',
+    'big_bet_faced_count', 'equity_betting_big_count',
+    'equity_betting_small_count', 'facing_bet_opportunities',
+    'postflop_open_opportunities', 'flop_check_barrel_opportunity_count',
 )
 _FULL_SAMPLES = {c: 100 for c in _SAMPLE_COLS}
 

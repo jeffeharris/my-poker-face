@@ -28,6 +28,8 @@ export interface SparklineProps {
   width?: number;
   height?: number;
   className?: string;
+  /** Accessible label for the chart. Defaults to the bankroll context. */
+  label?: string;
 }
 
 const TONE_COLORS: Record<'up' | 'down' | 'flat', string> = {
@@ -60,6 +62,7 @@ export function Sparkline({
   width = 240,
   height = 48,
   className = '',
+  label = 'Net worth trend',
 }: SparklineProps) {
   const gradientId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -123,7 +126,7 @@ export function Sparkline({
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label="Net worth trend"
+        aria-label={label}
       >
         <defs>
           <linearGradient id={`spark-fill-${gradientId}`} x1="0" y1="0" x2="0" y2="1">

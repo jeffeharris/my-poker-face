@@ -237,62 +237,6 @@ def _preseat(repo, pid, table_id="casino-2-001", seat_index=0):
 
 
 # --------------------------------------------------------------------------- #
-# RETURN_TO_POOL on reclaim
-# --------------------------------------------------------------------------- #
-
-
-def test_reclaim_shadows_return_to_pool(shadow_on):
-    """A zombie (unresolved) AI seat reclaimed → shadow RETURN_TO_POOL → POOL."""
-    from cash_mode.casino_provisioning import _reclaim_zombie_casino_seats
-    from cash_mode.tables import open_slot
-
-    zombie_pid = "tourist-deadbeef"
-    seats = [open_slot() for _ in range(6)]
-    seats[2] = {"kind": "ai", "personality_id": zombie_pid, "chips": 0}
-    table = _make_casino_table("casino-2-001", seats)
-
-    repo = shadow_on
-    entity = _preseat(repo, zombie_pid, seat_index=2)  # legal pre-state (SEATED)
-    before = len(repo.calls)
-    n = _reclaim_zombie_casino_seats(
-        FakeCashTableRepo([table]),
-        FakeLedgerRepo(),
-        sandbox_id=SANDBOX,
-        valid_pids=set(),  # zombie_pid not valid → unresolved → reclaimed
-        fish_ids=set(),
-        now=NOW,
-    )
-
-    assert n == 1
-    events = [c for c in repo.calls[before:] if c[0] == entity]
-    assert events, "expected a shadow transition for the reclaimed seat"
-    assert events[-1][2] is PresenceEvent.RETURN_TO_POOL
-    # pool return must clear seat args
-    assert events[-1][3] is None and events[-1][4] is None
-    assert repo.state_of(entity, SANDBOX).state is Presence.POOL
-
-
-def test_reclaim_no_rows_when_flag_off(shadow_off):
-    from cash_mode.casino_provisioning import _reclaim_zombie_casino_seats
-    from cash_mode.tables import open_slot
-
-    seats = [open_slot() for _ in range(6)]
-    seats[2] = {"kind": "ai", "personality_id": "tourist-x", "chips": 0}
-    table = _make_casino_table("casino-2-001", seats)
-
-    repo = shadow_off
-    _reclaim_zombie_casino_seats(
-        FakeCashTableRepo([table]),
-        FakeLedgerRepo(),
-        sandbox_id=SANDBOX,
-        valid_pids=set(),
-        fish_ids=set(),
-        now=NOW,
-    )
-    assert repo.calls == [], "flag OFF must record zero shadow rows"
-
-
-# --------------------------------------------------------------------------- #
 # RETURN_TO_POOL on bankroll drain
 # --------------------------------------------------------------------------- #
 

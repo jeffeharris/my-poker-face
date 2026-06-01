@@ -1,4 +1,4 @@
-import { Coins, Trophy, ChevronRight } from 'lucide-react';
+import { Coins, Trophy, GraduationCap, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import menuBanner from '../../assets/menu-banner.webp';
@@ -8,6 +8,7 @@ interface HomeMenuProps {
   playerName: string;
   onCashMode: () => void;
   onTournament: () => void;
+  onTraining: () => void;
   onAdminDashboard?: () => void;
 }
 
@@ -15,6 +16,7 @@ export function HomeMenu({
   playerName,
   onCashMode,
   onTournament,
+  onTraining,
   onAdminDashboard,
 }: HomeMenuProps) {
   const { isDesktop } = useViewport();
@@ -62,6 +64,19 @@ export function HomeMenu({
             <div className="mode-card__content">
               <h2 className="mode-card__title">Tournaments</h2>
               <p className="mode-card__description">Single table, winner takes all</p>
+            </div>
+            <ChevronRight className="mode-card__arrow" size={22} />
+          </button>
+
+          <button className="mode-card" onClick={onTraining}>
+            <div className="mode-card__icon-wrap">
+              <GraduationCap className="mode-card__icon" size={64} strokeWidth={1.5} />
+            </div>
+            <div className="mode-card__content">
+              <h2 className="mode-card__title">Practice</h2>
+              <p className="mode-card__description">
+                Learn with a coach — easy or hard, nothing counts
+              </p>
             </div>
             <ChevronRight className="mode-card__arrow" size={22} />
           </button>

@@ -1447,7 +1447,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from cash_mode.movement import refresh_table_roster
     from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
-    from cash_mode.tables import ai_slot, human_slot, open_slot
+    from cash_mode.tables import ai_slot, ai_slot_fish, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
 
     sandbox_id = _sandbox_id_for(game_data)
@@ -1507,18 +1507,42 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     leftover_busted = busted_slot_indices[len(fresh_pids_needing_slot) :]
 
     # 2. Sync: rewrite each persisted slot using game-state truth.
+    # Fish identity is intrinsic to the persona (config archetype='fish'),
+    # but a *seat* only carries the `archetype='fish'` stamp when it's built
+    # via `ai_slot_fish`. Rebuilding fish seats through plain `ai_slot` here
+    # stripped that stamp every hand on the human's table — so the casino
+    # read as fishless, the `dead` push fired on everyone, and the fish lost
+    # their `_coerce_fish_movement` pin. Re-derive fish-ness from the persona
+    # (not the seat) so the rebuild re-stamps it — self-healing for seats a
+    # prior hand already stripped.
+    from cash_mode.closed_economy import load_fish_ids
+
+    fish_pids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+
+    def _synced_ai_slot(pid: str, chips: int, prev: Optional[Dict] = None) -> Dict:
+        out = ai_slot_fish(pid, chips) if pid in fish_pids else ai_slot(pid, chips)
+        # Carry the per-seat dwell/rebuy counters across this rebuild — the
+        # human-table sync re-creates the slot every hand, so without this
+        # the dwell floor and rebuy-decay counters would reset each hand.
+        if prev is not None:
+            for _k in ("hands_here", "rebuys_here"):
+                if _k in prev:
+                    out[_k] = prev[_k]
+        return out
+
     synced_seats: List[Dict] = []
     for i, slot in enumerate(table.seats):
         if slot["kind"] == "ai":
             if i in reseat_map:
+                # A fresh AI took a busted seat — counters start at 0.
                 new_pid = reseat_map[i]
-                synced_seats.append(ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
+                synced_seats.append(_synced_ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
             elif i in leftover_busted:
                 synced_seats.append(open_slot())
             else:
                 pid = slot["personality_id"]
                 new_chips = pid_to_chips.get(pid, int(slot.get("chips", 0)))
-                synced_seats.append(ai_slot(pid, new_chips))
+                synced_seats.append(_synced_ai_slot(pid, new_chips, prev=slot))
         elif slot["kind"] == "human" and human_owner_id:
             synced_seats.append(human_slot(human_owner_id, human_chips))
         else:
@@ -1664,6 +1688,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         next_tier_min_buy_in=next_tier_min_buy_in,
         defer_freshly_vacated_live_fill=True,
         psych_lookup=_psych_lookup,
+        # Robust fish detection by persona identity (re-uses the set we
+        # built for the seat re-stamp above) so a missing `archetype='fish'`
+        # stamp can't spuriously fire the dead-push or drop a fish's rebuy.
+        fish_ids=fish_pids,
     )
 
     # Apply rebuy decisions: debit each AI's bankroll for the top-up
@@ -3603,6 +3631,17 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
     if 'ai_controllers' in game_data:
         elasticity_data = format_elasticity_data(game_data['ai_controllers'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
+
+    # Prefetch the proactive coach tip now, off the critical path, so the LLM
+    # call overlaps the player's thinking time instead of starting only after
+    # the client round-trips. No-op unless coach mode is 'proactive'; the /ask
+    # path serves this cached result (one LLM call per decision). Best-effort.
+    try:
+        from flask_app.services.coach_prefetch import prefetch_proactive_tip
+
+        socketio.start_background_task(prefetch_proactive_tip, game_id)
+    except Exception as e:
+        logger.debug(f"[COACH_PREFETCH] failed to schedule for {game_id}: {e}")
 
 
 def recover_stuck_runout(state_machine) -> bool:

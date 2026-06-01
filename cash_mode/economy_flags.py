@@ -187,7 +187,7 @@ PRESENCE_SHADOW_WRITE_ENABLED: bool = _env_flag("PRESENCE_SHADOW_WRITE_ENABLED",
 # `cash_mode/economy_flags.py` or via env) is the single irreversible cut —
 # everything else in the cutover is reversible. See
 # `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md`.
-PRESENCE_AUTHORITY_ENABLED: bool = _env_flag("PRESENCE_AUTHORITY_ENABLED", False)
+PRESENCE_AUTHORITY_ENABLED: bool = _env_flag("PRESENCE_AUTHORITY_ENABLED", True)
 
 
 # --- Chip-custody machine cutover (the Presence twin) ---------------------
