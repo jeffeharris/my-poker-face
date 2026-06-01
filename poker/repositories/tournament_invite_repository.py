@@ -112,6 +112,17 @@ class TournamentInviteRepository(BaseRepository):
             ).fetchall()
             return [self._row_to_dict(r) for r in rows]
 
+    def last_created_at(self, owner_id: str) -> Optional[str]:
+        """The `created_at` of the owner's most recent invite of ANY status — the
+        cooldown anchor for the offer policy. None if they've never had one."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT created_at FROM tournament_invites WHERE owner_id = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (owner_id,),
+            ).fetchone()
+            return row['created_at'] if row else None
+
     def resolve(
         self,
         invite_id: str,

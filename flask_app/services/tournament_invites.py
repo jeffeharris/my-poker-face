@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
+from core.economy import economy_signal
 from flask_app.services import tournament_spawn
 from poker.repositories.tournament_invite_repository import (
     STATUS_ACCEPTED,
@@ -84,6 +85,65 @@ def offer(
         expires_at=expires_at,
     )
     return invite_repo.load(invite_id)
+
+
+def _cooldown_elapsed(last_created_at_iso: Optional[str], now: datetime, cooldown_seconds: int) -> bool:
+    if not last_created_at_iso:
+        return True
+    try:
+        last = datetime.fromisoformat(last_created_at_iso)
+    except ValueError:
+        return True
+    return now - last >= timedelta(seconds=cooldown_seconds)
+
+
+def maybe_offer_main_event(
+    *,
+    invite_repo,
+    session_repo,
+    ledger_repo,
+    owner_id: str,
+    sandbox_id: str,
+    now: Optional[datetime] = None,
+    cooldown_seconds: int = economy_signal.MAIN_EVENT_COOLDOWN_SECONDS,
+    expiry_seconds: Optional[int] = None,
+    spec: economy_signal.EventSpec = economy_signal.DEFAULT_MAIN_EVENT,
+) -> Optional[dict]:
+    """The chairman-driven trigger: offer a Main Event iff the bank is FLUSH and
+    the cooldown has elapsed (`economy_signal.should_offer_event`). This is what
+    *decides there should be a tournament* — the same signal that sizes the
+    overlay also gates whether an event runs at all. Returns the new invite, or
+    None (not flush / on cooldown / one already open / a tournament active).
+
+    Run on the world tick or lobby load. `expiry_seconds` sets the invite's
+    `expires_at` window (None = no auto-expiry; the player decides when present).
+    """
+    if invite_repo is None or ledger_repo is None:
+        return None
+    now = now or datetime.utcnow()
+    cooldown_ok = _cooldown_elapsed(
+        invite_repo.last_created_at(owner_id), now, cooldown_seconds
+    )
+    state = economy_signal.signal(ledger_repo, sandbox_id=sandbox_id)
+    event = economy_signal.should_offer_event(state, cooldown_elapsed=cooldown_ok, spec=spec)
+    if event is None:
+        return None
+
+    expires_at = None
+    if expiry_seconds is not None:
+        expires_at = (now + timedelta(seconds=expiry_seconds)).isoformat()
+
+    return offer(
+        invite_repo=invite_repo,
+        session_repo=session_repo,
+        owner_id=owner_id,
+        sandbox_id=sandbox_id,
+        buy_in=event.buy_in,
+        field_size=event.field_size,
+        table_size=event.table_size,
+        starting_stack=event.starting_stack,
+        expires_at=expires_at,
+    )
 
 
 def accept(

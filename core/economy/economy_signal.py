@@ -197,6 +197,63 @@ def tournament_funding(
     )
 
 
+# --- When to run a tournament: the chairman decides cadence, not a calendar ---
+#
+# The thermostat thesis: a FLUSH bank is the economic signal that it's time to
+# run a redistribution event (drain reserves into the field). So the chairman
+# owns BOTH "how big is the pool" (`tournament_funding`) AND "should there be an
+# event at all" (`should_offer_event`). v1 runs the simplest version of the
+# policy; the richer cases (graduated size by how-far-above-setpoint, the
+# EMPTY-regime rake/"wealth-tax" refill event, a tiered daily+Main-Event slate,
+# scheduled human-friendly windows) are future branches of THIS one function —
+# additions, not a rearchitecture.
+
+
+@dataclass(frozen=True)
+class EventSpec:
+    """The shape of a tournament the chairman decides to offer. Buy-in 0 (a
+    freeroll) for the v1 flush event — the prize pool is the bank's overlay, so
+    the human joins free to compete for distributed reserves; the field is
+    funded bank → field. Kept tunable so a future tier/slate sets different
+    specs per regime."""
+
+    field_size: int
+    table_size: int
+    starting_stack: int
+    buy_in: int
+
+
+DEFAULT_MAIN_EVENT = EventSpec(field_size=18, table_size=6, starting_stack=10_000, buy_in=0)
+
+# Minimum spacing between offers, as a belt-and-suspenders over the regime's own
+# self-limiting (a successful overlay drains reserves below the setpoint, so the
+# next signal isn't FLUSH). Guards the case where one event doesn't fully drain.
+# Sim-tunable; wall-clock seconds compared against the last offer's timestamp.
+MAIN_EVENT_COOLDOWN_SECONDS: int = 1800
+
+
+def should_offer_event(
+    state: EconomyState,
+    *,
+    cooldown_elapsed: bool,
+    spec: EventSpec = DEFAULT_MAIN_EVENT,
+) -> Optional[EventSpec]:
+    """Pure policy: should the circuit offer a Main Event right now?
+
+    v1 rule: **offer when the bank is FLUSH and the cooldown has elapsed** — the
+    chairman's "time to distribute" signal. NEUTRAL/EMPTY → no event in v1 (the
+    EMPTY-regime refill/wealth-tax event is a future branch here). Returns the
+    `EventSpec` to offer, or None.
+
+    Time is kept OUT of this function (it takes `cooldown_elapsed` as a bool) so
+    it stays pure and testable; the caller computes elapsedness from the last
+    offer's timestamp against `MAIN_EVENT_COOLDOWN_SECONDS`.
+    """
+    if state.regime == FLUSH and cooldown_elapsed:
+        return spec
+    return None
+
+
 # --- Lever 2: cash-table rake schedule (signal lives here, WIRING in cash mode) ---
 
 
