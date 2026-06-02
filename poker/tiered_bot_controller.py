@@ -25,6 +25,7 @@ from .stack_utils import big_blind_of, effective_stack_bb
 from .strategy.action_mapper import resolve_postflop_sizing, resolve_preflop_sizing
 from .strategy.deviation_profiles import DeviationProfile, select_deviation_profile
 from .strategy.exploitation import (
+    DEFAULT_MAX_TOTAL_SHIFT,
     GATING_FLOOR,
     AggregatedOpponentStats,
     DecisionContext,
@@ -62,6 +63,7 @@ from .strategy.value_override import (
     BLUFF_CATCH_TRIGGER_CLASSES,
     HandStrengthClass,
     compute_bluff_catch_strategy,
+    compute_sizing_defense_strategy,
     compute_value_override_strategy,
     should_apply_bluff_catch_override,
     should_apply_value_override,
@@ -394,6 +396,29 @@ class TieredBotController(AIPlayerController):
         # vs a reader). _override forces the read in eval/tests (no model mgr).
         self.river_bluff_min_ftbb: float = 0.6
         self.river_bluff_ftbb_override: Optional[float] = None
+        # Phase B — sizing defense (SIZING_AWARE_OPPONENT_MODELING.md §B). The dual
+        # of the river bluff: FOLD MORE marginal bluff-catchers to a detected
+        # FACE-UP value bettor's big bet (one whose big bets are never bluffs).
+        # Fires at the DEFAULT clamp tier (the EXTREME bluff-catch gate is vpip/AF-
+        # driven and would re-trap the effect in the sizing dead zone; the sizing
+        # read is orthogonal to aggression frequency). Gated on a MATURED, face-up
+        # `sizing_polarization_score` of the bettor + a big (>= 0.75 pot) bet.
+        # Default OFF → byte-identical. _override forces the read in eval/tests
+        # (no model manager). The §B leverage is concentrated vs a loose human who
+        # value-bets big OFTEN (modest in the AI pool — see the LooseFaceUp probe).
+        self.sizing_defense_enabled: bool = False
+        self.sizing_defense_min_polar: float = 0.15  # face-up gate: big − small bet eq
+        # PROPORTIONAL dampener: the call-retention multiplier scales with HOW
+        # face-up the read is — 1.0 (no change) at the min_polar threshold, ramping
+        # down to `call_multiplier` (the most-aggressive floor) at `full_polar`.
+        # A barely-face-up read barely folds; a blatantly face-up one folds hard.
+        # This bounds the misfire cost on weak/false-positive reads (a tiny sample
+        # rarely scores high) and shrinks the surface an adapting adversary can
+        # exploit. Set call_multiplier=full_polar-equal to recover flat behavior.
+        self.sizing_defense_call_multiplier: float = 0.55  # retain at FULL face-up
+        self.sizing_defense_full_polar: float = 0.40  # score at which the floor applies
+        self.sizing_defense_min_bet_ratio: float = 0.75  # only vs a "big bet"
+        self.sizing_defense_polar_override: Optional[float] = None
         # River-air SUPPLY build (OVERBET_BALANCING.md §5e): T2's bluff supply is
         # capped at ~31% because little air survives to the river. This barrels a
         # fraction of TURN air (air_no_draw) so more reaches the checked-to river
@@ -431,6 +456,14 @@ class TieredBotController(AIPlayerController):
         _pcfg = getattr(getattr(self, 'psychology', None), 'personality_config', None)
         if isinstance(_pcfg, dict) and 'adaptive_overbet' in _pcfg:
             self.adaptive_overbet = bool(_pcfg['adaptive_overbet'])
+        # Per-personality opt-in for Phase B sizing defense (the "skill" of folding
+        # to a face-up bettor's big bets). A character carries `"sizing_defense":
+        # true` in personalities.json to enable it. Default OFF — measured ~+4.27
+        # bb/100 [−8.20, +16.74] vs a maximally face-up bot (real but marginal, CI
+        # spans 0), so it ships opt-in per persona, not as a global default. Same
+        # bypassed-__init__ caveat as adaptive_overbet: only affects the live path.
+        if isinstance(_pcfg, dict) and 'sizing_defense' in _pcfg:
+            self.sizing_defense_enabled = bool(_pcfg['sizing_defense'])
 
         # Per-personality skill tier (PLAYER_SKILL_SPECTRUM.md): a character can
         # carry `"skill": "reg"` (etc.) in its config to set its sharpness across
@@ -1190,6 +1223,26 @@ class TieredBotController(AIPlayerController):
             self._last_intervention_trace,
         )
         self._last_intervention_trace.append(bluff_catch_trace)
+
+        # 6a.5b.1b Phase B sizing defense (SIZING_AWARE_OPPONENT_MODELING.md §B).
+        # Behind sizing_defense_enabled (default off → byte-identical). Folds more
+        # marginal bluff-catchers to a detected FACE-UP value bettor's big bet, at
+        # the DEFAULT clamp tier. Defers when bluff_catch already fired so the two
+        # facing-bet rules don't compound on the same decision.
+        modified_strategy, sizing_defense_trace = self._apply_sizing_defense(
+            modified_strategy,
+            game_state,
+            player_idx,
+            valid_actions,
+            anchors,
+            hand_strength=hand_strength,
+            prior_layer_fired=bluff_catch_trace.fired,
+        )
+        sizing_defense_trace = _fill_prior_action_source(
+            sizing_defense_trace,
+            self._last_intervention_trace,
+        )
+        self._last_intervention_trace.append(sizing_defense_trace)
 
         # 6a.5b.2 Multi-street context (STRUCTURAL_PASSIVITY_PLAN.md).
         # Behind enable_multistreet_context (default off). Reads hero's-own-
@@ -2607,6 +2660,90 @@ class TieredBotController(AIPlayerController):
 
         return override, trace
 
+    def _apply_sizing_defense(
+        self,
+        strategy,
+        game_state,
+        player_idx,
+        valid_actions,
+        anchors,
+        hand_strength,
+        prior_layer_fired: bool,
+    ) -> Tuple['StrategyProfile', InterventionTrace]:
+        """Phase B (SIZING_AWARE_OPPONENT_MODELING.md §B): fold MORE marginal
+        bluff-catchers to a detected FACE-UP value bettor's big bet.
+
+        The dual of bluff_catch — but gated on the bettor's matured, face-up
+        `sizing_polarization_score` at the DEFAULT clamp tier, NOT the vpip/AF-
+        driven EXTREME tier (which would re-trap the effect in the sizing dead
+        zone — the read is orthogonal to aggression frequency). Default OFF
+        (`sizing_defense_enabled`) → emits a no-op trace, byte-identical.
+
+        Defers (no-op) when an earlier facing-bet override already replaced the
+        distribution (`prior_layer_fired`) so the two don't compound.
+        """
+        from .strategy.intervention_trace import is_rule_disabled, make_disabled_trace
+
+        if is_rule_disabled(
+            getattr(self, "disable_rules", frozenset()), 'sizing_defense', 'default'
+        ):
+            return strategy, make_disabled_trace(
+                layer='sizing_defense',
+                rule_id='default',
+                layer_order=layer_order_for('sizing_defense'),
+            )
+
+        def _noop(reason: str):
+            return strategy, make_no_op_trace(
+                layer='sizing_defense',
+                rule_id='default',
+                layer_order=layer_order_for('sizing_defense'),
+                reason_code=reason,
+            )
+
+        if not getattr(self, 'sizing_defense_enabled', False):
+            return _noop('disabled')
+        if prior_layer_fired:
+            return _noop('prior_layer_fired')
+        if anchors is None:
+            return _noop('manager_unavailable')
+        # Cheap gate first: only marginal made hands bluff-catch.
+        if hand_strength not in BLUFF_CATCH_TRIGGER_CLASSES:
+            return _noop('hand_class_not_eligible')
+
+        decision_context = self._build_decision_context(game_state, player_idx)
+        bet_ratio = getattr(decision_context, 'bet_size_pot_ratio', 0.0) or 0.0
+        if bet_ratio < getattr(self, 'sizing_defense_min_bet_ratio', 0.75):
+            return _noop('not_a_big_bet')
+
+        polar = self._resolve_sizing_defense_polar(game_state)
+        if polar is None:
+            return _noop('no_mature_read')
+        if polar < getattr(self, 'sizing_defense_min_polar', 0.15):
+            return _noop('not_face_up')
+
+        override, trace = compute_sizing_defense_strategy(
+            strategy,
+            polar_score=polar,
+            min_polar=getattr(self, 'sizing_defense_min_polar', 0.15),
+            full_polar=getattr(self, 'sizing_defense_full_polar', 0.40),
+            call_multiplier_floor=getattr(self, 'sizing_defense_call_multiplier', 0.55),
+            bet_ratio=bet_ratio,
+            hand_strength=hand_strength,
+            max_total_shift=DEFAULT_MAX_TOTAL_SHIFT,
+            legal_actions=valid_actions,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+
+        if self.debug_logging:
+            logger.info(
+                f"[TIERED_BOT] {self.player_name}: SIZING-DEFENSE {hand_strength} "
+                f"vs face-up bettor (polar={polar:+.2f}) @ bet_ratio={bet_ratio:.2f} "
+                f"→ {dict(override.action_probabilities)}"
+            )
+
+        return override, trace
+
     def _tally_playstyle_rule_event(self):
         """Diagnostic counters for the playstyle-gated value_vs_station rule.
 
@@ -3137,12 +3274,44 @@ class TieredBotController(AIPlayerController):
             return None  # immature read → value-only
         return tendencies.fold_to_big_bet
 
+    def _resolve_sizing_defense_polar(self, game_state) -> Optional[float]:
+        """Resolve the bettor's `sizing_polarization_score` that gates Phase B
+        (SIZING_AWARE_OPPONENT_MODELING.md §B). Returns the score when there is a
+        single MATURED read of the player who made the bet hero is facing, else
+        None (no defense, the safe default — call/fold per the base policy).
+
+        - `sizing_defense_polar_override` (eval/tests, no model manager) wins.
+        - Production: requires BOTH size bins matured (>= SIZING_MIN_BIN_SAMPLE) —
+          the score is big_bet_eq minus small_bet_eq, meaningless until each bin
+          has a sample — so a cold start stays neutral, not folding on a prior.
+        """
+        override = getattr(self, 'sizing_defense_polar_override', None)
+        if override is not None:
+            return override
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return None
+        aggressor = self._identify_recent_aggressor(game_state)
+        if not aggressor:
+            return None
+        try:
+            tendencies = manager.get_model(self.player_name, aggressor).tendencies
+        except Exception:  # noqa: BLE001 — no model yet -> cold start
+            return None
+        from .memory.opponent_model import SIZING_MIN_BIN_SAMPLE
+
+        big_n = getattr(tendencies, '_equity_betting_big_count', 0)
+        small_n = getattr(tendencies, '_equity_betting_small_count', 0)
+        if big_n < SIZING_MIN_BIN_SAMPLE or small_n < SIZING_MIN_BIN_SAMPLE:
+            return None  # immature read -> no defense
+        return tendencies.sizing_polarization_score
+
     def _resolve_stabber_read(self, game_state) -> Optional[float]:
         """Resolve the opponent read that gates the stab-defense (OVERBET_BALANCING
         §5j): the opponent's stab frequency (how often it bets when checked to).
         `stab_defense_override` (eval/tests) wins. Production read is not yet
         tracked on OpponentTendencies — until it is, returns the override or None
-        (→ no stab-defense, the safe value-only default)."""
+        (no stab-defense, the safe value-only default)."""
         override = getattr(self, 'stab_defense_override', None)
         if override is not None:
             return override
@@ -3158,10 +3327,10 @@ class TieredBotController(AIPlayerController):
             return None
         try:
             tendencies = manager.get_model(self.player_name, opps[0]).tendencies
-        except Exception:  # noqa: BLE001 — no model yet → cold start
+        except Exception:  # noqa: BLE001 — no model yet -> cold start
             return None
         if getattr(tendencies, '_stab_opp_count', 0) < 12:
-            return None  # immature read → no stab-defense (value-only)
+            return None  # immature read -> no stab-defense (value-only)
         return tendencies.stab_frequency
 
     def _select_exploitation_stats(

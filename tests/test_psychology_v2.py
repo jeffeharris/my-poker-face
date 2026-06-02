@@ -154,7 +154,9 @@ class TestPersonalityAnchors:
         data = anchors.to_dict()
         assert data['baseline_aggression'] == 0.5
         assert data['poise'] == 0.7
-        assert len(data) == 9  # All 9 anchors
+        # 9 core anchors + self_belief (added as the bravado/overconfidence dial)
+        assert len(data) == 10
+        assert data['self_belief'] == 0.5  # neutral default when unspecified
 
 
 class TestEmotionalAxes:
@@ -1170,18 +1172,23 @@ class TestExpressionFiltering:
         """Test that high visibility shows true emotion."""
         from poker.expression_filter import dampen_emotion
 
-        # High visibility (>0.6) shows true emotion
+        # High visibility (>=0.5) shows true emotion
         assert dampen_emotion('angry', 0.7) == 'angry'
         assert dampen_emotion('shocked', 0.8) == 'shocked'
 
     def test_dampen_emotion_medium_visibility(self):
-        """Test that medium visibility shows dampened emotion."""
+        """Medium visibility: high-arousal softens a step, low-arousal keeps flavor."""
         from poker.expression_filter import dampen_emotion
 
-        # Medium visibility (0.3-0.6) shows dampened emotion
+        # Medium visibility (0.3-0.5): high-arousal emotions soften one step
         assert dampen_emotion('angry', 0.45) == 'frustrated'
-        assert dampen_emotion('shocked', 0.5) == 'nervous'
+        assert dampen_emotion('shocked', 0.4) == 'nervous'
         assert dampen_emotion('smug', 0.4) == 'confident'
+        assert dampen_emotion('giddy', 0.4) == 'gleeful'
+        # Low-arousal emotions keep their flavor (no longer flattened to 'thinking')
+        assert dampen_emotion('happy', 0.4) == 'happy'
+        assert dampen_emotion('nervous', 0.4) == 'nervous'
+        assert dampen_emotion('sheepish', 0.4) == 'sheepish'
 
     def test_dampen_emotion_low_visibility_deterministic(self):
         """Test that low visibility shows poker_face in deterministic mode."""
@@ -1208,8 +1215,10 @@ class TestExpressionFiltering:
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
 
-        # Set low energy (visibility = 0.7*0.2 + 0.3*0.2 = 0.20)
-        psych.axes = psych.axes.update(energy=0.2)
+        # Force OVERHEATED + low energy. A stoic (low-expressiveness) persona
+        # reads 'thinking' here — a real emotion to dampen — while visibility
+        # = 0.7*0.2 + 0.3*0.2 = 0.20 stays in low-visibility territory.
+        psych.axes = psych.axes.update(confidence=0.7, composure=0.3, energy=0.2)
 
         # Without filtering, would show true emotion based on quadrant
         true_emotion = psych.get_display_emotion(use_expression_filter=False)
@@ -1721,15 +1730,16 @@ class TestPokerFaceZoneIntegration:
 
     def test_display_emotion_bypasses_quadrant_in_zone(self):
         """Test that players in zone show poker_face regardless of quadrant."""
-        # Create player who would normally show 'confident' (COMMANDING quadrant)
-        # but is inside the poker face zone
+        # Create player who would normally show a real emotion (fun-lover in
+        # the COMMANDING quadrant reads 'happy') but is inside the poker face
+        # zone, so the filtered display must collapse to poker_face.
         config = {
             'anchors': {
                 'baseline_aggression': 0.6,
                 'baseline_looseness': 0.5,
-                'ego': 0.3,  # Low ego = large zone
+                'ego': 0.3,  # Low ego -> fun-lover family (and large zone)
                 'poise': 0.85,  # High poise = large zone
-                'expressiveness': 0.3,  # Low expressiveness = large zone
+                'expressiveness': 0.4,  # Expressive enough to surface a true emotion
                 'risk_identity': 0.5,
                 'adaptation_bias': 0.5,
                 'baseline_energy': 0.4,  # Near zone center

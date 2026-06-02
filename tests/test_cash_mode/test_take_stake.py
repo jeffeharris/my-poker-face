@@ -487,7 +487,11 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             "idle_pool": [],
             "eligible_candidates": [],
             "seated_globally": set(),
-            "bankroll_lookup": lambda pid: 5_000,
+            # bust_ai is TRULY broke (bankroll < min_buy_in) so the grinder
+            # self-rebuy hard-gate doesn't intercept its forced_leave — only a
+            # genuine bust reaches the peer-stake / forced_leave path these
+            # tests exercise. Peers (the staker) stay funded.
+            "bankroll_lookup": lambda pid: 5 if pid == "bust_ai" else 5_000,
             "buy_in_lookup": lambda pid: 80,
             "rng": random.Random(1),
             "now": ANCHOR,
