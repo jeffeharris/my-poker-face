@@ -278,11 +278,24 @@ display unless noted, and each should ship behind its own flag.
 - **B3 — Whereabouts.** Augment the off-table cards
   (`cash_mode/whereabouts.py`) with the AI's quadrant ("Deadpool — Infamous
   Villain, 47 renown").
-- **B4 — Prestige-seeking behavior (the one behavioral extension).** Extend
-  Hook 1 (`_reputation_order_refill_pool`) and/or movement so high-renown AIs
-  gravitate toward marquee tables / rivals. **This is a real chip-flow &
-  movement change → sim-validate**, separate flag, its own mini-plan. Don't fold
-  it into A.
+- **B4 — Prestige-seeking behavior. ✅ BUILT (`a6ef0c70`), flag OFF, sim-gate
+  pending.** Realizes the spec's long-deferred occupant/marquee attractiveness
+  layer (`CASH_MODE_TABLE_ATTRACTIVENESS.md`), unblocked by the renown stat: the
+  greedy seat-fill adds `W_MARQUEE · occ_prestige(table) · status_appetite(ai)`
+  to base attractiveness, so a status-seeker is pulled toward tables seating
+  high-renown players. `status_appetite` is a per-AI **extensible composite
+  rank** (own renown percentile ⊕ glory trait) — easy to add factors to.
+  Reuses the persisted `victim_percentile`; both inputs default 0 → inert
+  without data. Flag `PRESTIGE_SEEKING_ENABLED` (default OFF, implies
+  `RENOWN_V2_PERSIST_AI`). Pure mechanic + repo unit-tested; 48 lobby
+  regressions green.
+  **GATE before flipping (a real chip-flow/movement change):** the economy sim
+  A/B — same-seed paired probe, flag on vs off, measuring (1) high-appetite AIs'
+  table-routing concentration toward marquee tables, (2) `audit_drift` stays ~0
+  (no seat path mints chips), (3) no degenerate clustering that starves fish
+  tables — via `cash_mode/sim_runner.py::run_sim` (thread the prestige repo +
+  seed renown). Plus a positive end-to-end lobby test. Same gated pattern as
+  Stage A's stress gate.
 
 ---
 

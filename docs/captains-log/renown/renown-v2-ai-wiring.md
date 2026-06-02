@@ -120,3 +120,37 @@ The faithful evidence is the **same-DB control** on the live DB: presence
 what proves covering removes ~185ms. End-to-end live confirmation waits for the
 migration to run on the live DB. Lesson: a fresh DB copy is the wrong instrument
 for an I/O-bound optimization; use a same-DB covering-vs-noncovering control.
+
+## 2026-06-02 (later) — Stage B surfaces (B1 dossier, B4 prestige-seeking)
+
+**B1 — dossier badge (`d7692491`).** First consumption surface. The dossier route
+reads the AI's persisted standing (`load_latest entity_kind='ai'`) into a
+`reputation` block; the card renders a quadrant badge under the name. Read-only,
+degrade-safe. 12 route tests green. Live visual verification pending real
+renown data (flag + migration + a ticker cycle).
+
+**B4 — prestige-seeking (`a6ef0c70`).** The interesting one. This turned out to
+be the realization of a spec layer that had been *deferred for exactly this*:
+`CASH_MODE_TABLE_ATTRACTIVENESS.md` shelved the occupant/"marquee" term in v1
+with the note "when we build it, give it its own first-class `renown` stat" —
+which is precisely what Renown-v2 now provides. So B4 wasn't a new invention, it
+was plugging the renown stat into the slot the spec left open:
+`base_attractor += W_MARQUEE · occ_prestige(table) · status_appetite(ai)`.
+
+The one design fork — what makes an AI a status-seeker (its own renown? showman
+traits?) — I put to the user. Their steer was sharper than the binary: make it a
+per-AI **rank composed of factors**, layered onto the attractiveness system that
+already takes per-AI inputs. So `status_appetite` is an extensible composite
+(own-renown percentile ⊕ glory trait), not a hard-coded single driver — new
+factors slot in by extending the blend.
+
+Both `occ_prestige` and the renown factor reuse the already-persisted
+`victim_percentile` ([0,1], field-relative) — no new normalization, and both
+default 0 so the whole term vanishes without renown data or with the flag off.
+Kept the greedy core pure (it just takes two scalars); the lobby computes them
+behind `PRESTIGE_SEEKING_ENABLED`, loading glory anchors lazily for only the
+handful of actual seekers per tick.
+
+Committed flag-OFF with pure + repo unit tests + 48 lobby regressions green. The
+economy sim A/B (routing concentration + audit_drift, same-seed paired probe) is
+the gate before flipping — deferred, same as Stage A's stress gate.
