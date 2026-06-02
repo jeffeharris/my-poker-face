@@ -385,9 +385,18 @@ class TournamentSession:
 
     def _apply_result(self, table, result: dict[str, int]) -> None:
         """Fold an externally-played hand result for one table into the field
-        (used for the human's live table). Validates the resolver contract."""
+        (used for the human's live table). Validates the resolver contract.
+
+        A seat present in `table.players` but absent from `field.stacks` is a
+        desync (a player the live game still seats but this session already
+        busted — possible if the live game and session cold-load from slightly
+        different save points after a mid-hand restart/eviction). `.get(pid, 0)`
+        treats such a seat as out (stack 0) so the hand boundary does NOT KeyError
+        and PERMANENTLY freeze the human's live game; the guard then reconciles
+        against the live result. The deeper fix is atomic game+session persistence
+        + a cold-load reconcile (see the live-table hardening follow-up)."""
         seat_order = table.players
-        stacks = {pid: self.field.stacks[pid] for pid in seat_order}
+        stacks = {pid: self.field.stacks.get(pid, 0) for pid in seat_order}
         self._guard_table_result(stacks, result)
         for pid, new_stack in result.items():
             self.field.stacks[pid] = new_stack

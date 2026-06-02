@@ -116,11 +116,24 @@ def reconcile_live_table(
     `make_controller(name, state_machine) -> controller` builds a controller for
     a newly-arrived seat. Returns (added_names, removed_names).
     """
+    from flask_app import extensions
+    from flask_app.handlers.tournament_game_builder import persona_display_name
     from poker.poker_game import Player
 
     desired = list(seat_specs)
     new_players = tuple(
-        Player(name=s.player_id, stack=s.stack, is_human=s.is_human) for s in desired
+        Player(
+            name=s.player_id,
+            stack=s.stack,
+            is_human=s.is_human,
+            # Relocation has no owner_name in scope; the human seat falls back to
+            # "You" (they recognize their own seat). AI seats get their persona name.
+            nickname=persona_display_name(
+                s.player_id, is_human=s.is_human, owner_name='You',
+                personality_repo=getattr(extensions, 'personality_repo', None),
+            ),
+        )
+        for s in desired
     )
     dealer_idx = next((i for i, s in enumerate(desired) if s.is_button), 0)
 

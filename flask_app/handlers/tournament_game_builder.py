@@ -45,6 +45,23 @@ def make_tournament_ai_controller(name: str, state_machine, *, game_id: str, own
     )
 
 
+def persona_display_name(player_id: str, *, is_human: bool, owner_name: str, personality_repo) -> str:
+    """The human-readable name to show for a tournament seat. The seat's `name`
+    is the field id (`personality_id`) for the MTT bridge; this is its display
+    `nickname`. Human → owner_name; AI → the persona's real name (or a humanized
+    id like `sun_tzu` → "Sun Tzu" / a synthetic `p17` → "P17" when no persona)."""
+    if is_human:
+        return owner_name or 'You'
+    if personality_repo is not None:
+        try:
+            p = personality_repo.load_personality_by_id(player_id)
+            if p and p.get('name'):
+                return p['name']
+        except Exception:  # noqa: BLE001 — display is best-effort; fall back below
+            logger.debug("persona name lookup failed for %s", player_id)
+    return player_id.replace('_', ' ').title()
+
+
 def build_tournament_game(
     session: TournamentSession,
     *,
@@ -69,7 +86,16 @@ def build_tournament_game(
     specs = human_table_seat_specs(session)
     big_blind = session.current_level().big_blind
     players = tuple(
-        Player(name=s.player_id, stack=s.stack, is_human=s.is_human) for s in specs
+        Player(
+            name=s.player_id,
+            stack=s.stack,
+            is_human=s.is_human,
+            nickname=persona_display_name(
+                s.player_id, is_human=s.is_human, owner_name=owner_name,
+                personality_repo=extensions.personality_repo,
+            ),
+        )
+        for s in specs
     )
     dealer_idx = next((i for i, s in enumerate(specs) if s.is_button), 0)
     deck_seed = session.config.seed * 100_003 + session.rounds
@@ -222,8 +248,7 @@ def _apply_tournament_payout(game_data: dict) -> None:
             sandbox_repo,
             tournament_session_repo,
         )
-        from flask_app.services import game_state_service
-        from flask_app.services import tournament_economy_service as econ
+        from flask_app.services import game_state_service, tournament_economy_service as econ
         from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
         owner_id = game_data.get("owner_id")

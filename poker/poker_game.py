@@ -53,10 +53,18 @@ class Player:
     is_folded: bool = False
     has_acted: bool = False
     last_action: Optional[str] = None
+    # Optional display name shown in the UI when `name` is an internal identity
+    # rather than a human-readable name. The frontend's `useDisplayNickname`
+    # prefers `nickname` over `name`. Used by the tournament live table, whose
+    # seat `name` is the field id (`personality_id`) for the MTT bridge — so the
+    # nickname carries the persona's real display name. None elsewhere (cash /
+    # regular games already name seats by their display name).
+    nickname: Optional[str] = None
 
     def to_dict(self):
         return {
             'name': self.name,
+            'nickname': self.nickname,
             'stack': self.stack,
             'is_human': self.is_human,
             'is_all_in': self.is_all_in,
