@@ -51,9 +51,11 @@ class TestRenownV2Wiring(unittest.TestCase):
         extensions.relationship_repo = self.repos["relationship_repo"]
         extensions.cash_session_repo = self.repos["cash_session_repo"]
         self._flag = economy_flags.RENOWN_V2_ENABLED
+        self._persist_ai_flag = economy_flags.RENOWN_V2_PERSIST_AI
 
     def tearDown(self):
         economy_flags.RENOWN_V2_ENABLED = self._flag
+        economy_flags.RENOWN_V2_PERSIST_AI = self._persist_ai_flag
         for k, v in self._saved.items():
             setattr(extensions, k, v)
         try:
@@ -133,6 +135,42 @@ class TestRenownV2Wiring(unittest.TestCase):
         payload = _reputation_payload_from_snapshot(snap)
         self.assertEqual(payload["formula_version"], "v1")
         self.assertNotIn("renown_v2", payload)
+
+    # --- per-AI fan-out (RENOWN_V2_PERSIST_AI, Stage A) ---------------------
+
+    def test_no_ai_rows_when_persist_flag_off(self):
+        # RENOWN_V2_ENABLED on, PERSIST_AI off → human dict carries no ai_rows.
+        economy_flags.RENOWN_V2_ENABLED = True
+        economy_flags.RENOWN_V2_PERSIST_AI = False
+        out = ticker_service._maybe_v2_overlay(
+            HUMAN, SB, self._v1_score(), datetime(2026, 6, 1, 12, 0, 0))
+        self.assertNotIn("ai_rows", out)
+
+    def test_ai_rows_built_and_persist_round_trip(self):
+        # Both flags on → the overlay returns one ai_row per non-human field
+        # entity (the two rivals), and record_ai_many persists them so each is
+        # readable under entity_kind='ai' while the human read is unaffected.
+        economy_flags.RENOWN_V2_ENABLED = True
+        economy_flags.RENOWN_V2_PERSIST_AI = True
+        now = datetime(2026, 6, 1, 12, 0, 0)
+        out = ticker_service._maybe_v2_overlay(HUMAN, SB, self._v1_score(), now)
+        ai_rows = out["ai_rows"]
+        self.assertEqual({r["owner_id"] for r in ai_rows}, {"rivalA", "rivalB"})
+        for r in ai_rows:
+            self.assertIn(r["quadrant"], (
+                "Beloved Legend", "Infamous Villain",
+                "Up-and-comer", "Disliked Nobody"))
+            self.assertIn("breadth", r["components"])
+
+        repo = self.repos["prestige_snapshots_repo"]
+        n = repo.record_ai_many(sandbox_id=SB, captured_at="2026-06-01T12:00:00Z",
+                                rows=ai_rows)
+        self.assertEqual(n, 2)
+        snap = repo.load_latest(SB, "rivalA", entity_kind="ai")
+        self.assertEqual(snap["entity_kind"], "ai")
+        self.assertEqual(snap["formula_version"], "v2")
+        # The human read (default 'player') never sees the AI row.
+        self.assertIsNone(repo.load_latest(SB, "rivalA"))
 
 
 if __name__ == "__main__":

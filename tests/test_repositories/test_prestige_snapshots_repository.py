@@ -174,6 +174,109 @@ class TestPrestigeSnapshotsRepository(unittest.TestCase):
         self.assertAlmostEqual(self.repo.load_renown_v2_peak(SB, OWNER), 58.0)
         self.assertEqual(self.repo.load_renown_v2_peak(OTHER_SB, OWNER), 0.0)
 
+    # --- v2 AI-entity persistence (schema v139, Stage A) --------------------
+
+    def test_record_ai_many_round_trip(self):
+        n = self.repo.record_ai_many(
+            sandbox_id=SB,
+            captured_at="2026-06-02T12:00:00Z",
+            rows=[
+                {"owner_id": "napoleon", "renown_v2": 41.2, "regard": -0.5,
+                 "quadrant": "Infamous Villain", "victim_percentile": 0.91,
+                 "high_cut": 30.0, "components": {"scalps": 18.0}, "field_size": 12},
+                {"owner_id": "deadpool", "renown_v2": 12.0, "regard": 0.3,
+                 "quadrant": "Up-and-comer", "victim_percentile": 0.4,
+                 "high_cut": 30.0, "components": {"breadth": 6.0}, "field_size": 12},
+            ],
+        )
+        self.assertEqual(n, 2)
+        row = self.repo.load_latest(SB, "napoleon", entity_kind="ai")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["entity_kind"], "ai")
+        self.assertEqual(row["formula_version"], "v2")
+        self.assertAlmostEqual(row["renown_v2"], 41.2)
+        self.assertAlmostEqual(row["regard"], -0.5)
+        self.assertEqual(row["quadrant"], "Infamous Villain")
+        self.assertEqual(row["field_size"], 12)
+        # AI rows are v2-native: the v1 capped renown column is 0, not the v2 value.
+        self.assertAlmostEqual(row["renown"], 0.0)
+        import json
+        self.assertEqual(json.loads(row["renown_v2_components"]), {"scalps": 18.0})
+
+    def test_record_ai_many_empty_is_noop(self):
+        self.assertEqual(
+            self.repo.record_ai_many(sandbox_id=SB, captured_at="x", rows=[]), 0)
+
+    def test_human_load_latest_never_matches_ai_rows(self):
+        # The owner_id-as-subject invariant: a human read (default 'player')
+        # must never return an AI row, even in the same sandbox.
+        self._record(at="2026-06-02T12:00:00Z", renown=0.3, quadrant="Up-and-comer")
+        self.repo.record_ai_many(
+            sandbox_id=SB, captured_at="2026-06-02T12:00:00Z",
+            rows=[{"owner_id": "napoleon", "renown_v2": 41.2,
+                   "quadrant": "Infamous Villain"}],
+        )
+        # Human row is the human's, unaffected.
+        self.assertEqual(self.repo.load_latest(SB, OWNER)["quadrant"], "Up-and-comer")
+        # An AI personality is invisible to the default ('player') read...
+        self.assertIsNone(self.repo.load_latest(SB, "napoleon"))
+        # ...but present under its own kind.
+        self.assertEqual(
+            self.repo.load_latest(SB, "napoleon", entity_kind="ai")["quadrant"],
+            "Infamous Villain")
+
+    def test_load_renown_v2_peaks_batched_ratchet(self):
+        # Two AIs, each captured twice with a dip — the batched read returns the
+        # MAX per entity, scoped to 'ai', omitting the human.
+        self._record(at="2026-06-02T09:00:00Z", renown=0.9)  # a human v1 row
+        self.repo.record_ai_many(
+            sandbox_id=SB, captured_at="2026-06-02T10:00:00Z",
+            rows=[{"owner_id": "napoleon", "renown_v2": 40.0, "quadrant": "x"},
+                  {"owner_id": "deadpool", "renown_v2": 10.0, "quadrant": "x"}],
+        )
+        self.repo.record_ai_many(
+            sandbox_id=SB, captured_at="2026-06-02T11:00:00Z",
+            rows=[{"owner_id": "napoleon", "renown_v2": 33.0, "quadrant": "x"},  # dip
+                  {"owner_id": "deadpool", "renown_v2": 12.0, "quadrant": "x"}],
+        )
+        peaks = self.repo.load_renown_v2_peaks(SB, "ai")
+        self.assertEqual(set(peaks), {"napoleon", "deadpool"})
+        self.assertAlmostEqual(peaks["napoleon"], 40.0)
+        self.assertAlmostEqual(peaks["deadpool"], 12.0)
+        # Sandbox-scoped, kind-scoped.
+        self.assertEqual(self.repo.load_renown_v2_peaks(OTHER_SB, "ai"), {})
+
+    def test_load_latest_field_percentiles(self):
+        # The latest cycle's victim_percentile for every entity (AI + human),
+        # keyed by raw id — the B4 marquee read.
+        self.assertEqual(self.repo.load_latest_field_percentiles(SB), {})
+        # Human row (v2) + two AI rows at the same capture timestamp.
+        self.repo.record(
+            captured_at="2026-06-02T10:00:00Z", sandbox_id=SB, owner_id=OWNER,
+            score=_Score(renown=0.5), formula_version="v2", renown_v2=60.0,
+            victim_percentile=0.95,
+        )
+        self.repo.record_ai_many(
+            sandbox_id=SB, captured_at="2026-06-02T10:00:00Z",
+            rows=[{"owner_id": "napoleon", "renown_v2": 40.0, "quadrant": "x",
+                   "victim_percentile": 0.7},
+                  {"owner_id": "deadpool", "renown_v2": 10.0, "quadrant": "x",
+                   "victim_percentile": 0.3}],
+        )
+        pcts = self.repo.load_latest_field_percentiles(SB)
+        self.assertEqual(set(pcts), {OWNER, "napoleon", "deadpool"})
+        self.assertAlmostEqual(pcts[OWNER], 0.95)
+        self.assertAlmostEqual(pcts["napoleon"], 0.7)
+        # A newer cycle supersedes the old percentiles (latest captured_at wins).
+        self.repo.record_ai_many(
+            sandbox_id=SB, captured_at="2026-06-02T11:00:00Z",
+            rows=[{"owner_id": "napoleon", "renown_v2": 55.0, "quadrant": "x",
+                   "victim_percentile": 0.88}],
+        )
+        pcts2 = self.repo.load_latest_field_percentiles(SB)
+        self.assertEqual(set(pcts2), {"napoleon"})  # only the newest cycle's rows
+        self.assertAlmostEqual(pcts2["napoleon"], 0.88)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,7 +35,10 @@ from cash_mode.attractiveness import (
     FillableTable,
     SeatSeeker,
     assign_seats_greedy,
+    glory_appetite,
+    occ_prestige,
     seeker_buy_in,
+    status_appetite,
 )
 from cash_mode.bankroll import (
     AIBankrollState,
@@ -778,6 +781,7 @@ def _process_global_greedy_fills(
     rng,
     seek_rate: float = DEFAULT_SEEK_RATE,
     human_headroom: int = 0,
+    renown_percentiles: Optional[Dict[str, float]] = None,
 ) -> None:
     """The loop inversion (CASH_MODE_TABLE_ATTRACTIVENESS.md §2).
 
@@ -827,8 +831,18 @@ def _process_global_greedy_fills(
             continue
         is_lobby = tbl.table_type == "lobby"
         grinders = fish_chips = whale_chips = 0
+        occ_pcts: List[float] = []  # seated entities' renown percentiles (B4 marquee)
         for s in tbl.seats:
-            if s.get("kind") != "ai":
+            kind = s.get("kind")
+            # Marquee (Renown-v2 B4): collect every seated entity's field-renown
+            # percentile — AIs by personality_id, the human by owner/user id —
+            # so a famous occupant makes the table a draw. occ_prestige ignores
+            # missing/zero, so this is inert until renown is persisted.
+            if renown_percentiles is not None and kind in ("ai", "human"):
+                sid = s.get("personality_id") or s.get("owner_id") or s.get("user_id")
+                if sid:
+                    occ_pcts.append(renown_percentiles.get(sid, 0.0))
+            if kind != "ai":
                 continue
             if s.get("personality_id") in fish_ids:
                 # A fish at a lobby table IS the whale (regular fish are
@@ -854,6 +868,7 @@ def _process_global_greedy_fills(
             # baseline, but the fish draw rides over it and it stays a valid
             # open-to-all fallback (CASINO_VENUE_APPEAL).
             venue_appeal=CASINO_VENUE_APPEAL if tbl.table_type == "casino" else 1.0,
+            marquee_prestige=occ_prestige(occ_pcts) if renown_percentiles is not None else 0.0,
         )
         fill_indices[tid] = usable
     if not tables_state:
@@ -865,6 +880,25 @@ def _process_global_greedy_fills(
         if pid not in _knobs_cache:
             _knobs_cache[pid] = bankroll_repo.load_personality_knobs(pid)
         return _knobs_cache[pid]
+
+    # B4 prestige-seeking: the showman trait factor for `status_appetite`,
+    # from the personality's expressiveness + ego anchors (neutral 0.5 on any
+    # miss). Loaded only for actual seekers (a handful per tick) and cached.
+    _glory_cache: Dict[str, float] = {}
+
+    def _glory(pid: str) -> float:
+        if pid not in _glory_cache:
+            expr = ego = 0.5
+            try:
+                cfg = personality_repo.load_personality_by_id(pid) or {}
+                anchors = cfg.get("anchors")
+                if isinstance(anchors, dict):
+                    expr = float(anchors.get("expressiveness", 0.5))
+                    ego = float(anchors.get("ego", 0.5))
+            except Exception:
+                pass  # neutral default on any miss
+            _glory_cache[pid] = glory_appetite(expressiveness=expr, ego=ego)
+        return _glory_cache[pid]
 
     def _recovery_fraction(pid: str, left_at) -> float:
         """Recovery toward baseline for an idle AI (1.0 = fully rested) —
@@ -963,6 +997,17 @@ def _process_global_greedy_fills(
             allowed.add(tid)
         if not allowed:
             continue
+        # B4: this AI's prestige-seeking rank — its own renown percentile
+        # blended with its showman (glory) trait. 0 when prestige-seeking is
+        # off (renown_percentiles is None), making the marquee term inert.
+        appetite = (
+            status_appetite(
+                own_percentile=renown_percentiles.get(pid, 0.0),
+                glory=_glory(pid),
+            )
+            if renown_percentiles is not None
+            else 0.0
+        )
         seekers.append(
             SeatSeeker(
                 personality_id=pid,
@@ -971,6 +1016,7 @@ def _process_global_greedy_fills(
                 comfort_zone=knobs.stake_comfort_zone or STAKES_ORDER[0],
                 allowed_table_ids=frozenset(allowed),
                 buy_in_multiplier=knobs.buy_in_multiplier,
+                status_appetite=appetite,
             )
         )
         if entry is not None:
@@ -1083,6 +1129,12 @@ def refresh_unseated_tables(
     # When None, the side hustle is disabled. Optional for the same
     # back-compat reason as vice_repo. See CASH_MODE_SIDE_HUSTLE.md.
     side_hustle_repo=None,
+    # Renown-v2 B4 (prestige-seeking). When provided AND
+    # PRESTIGE_SEEKING_ENABLED, the global greedy fill adds the marquee term:
+    # status-seeking AIs are pulled toward tables seating high-renown players.
+    # None (or flag off) → no renown read, no marquee effect. Optional for the
+    # back-compat reason as the other repos.
+    prestige_snapshots_repo=None,
     # Vice mode — which vice mechanism (if any) feeds the bank pool this
     # refresh: one of `economy_flags.VICE_MODES` ('real' | 'fake' | 'off'),
     # mutually exclusive by construction. None → use the live default
@@ -2049,6 +2101,20 @@ def refresh_unseated_tables(
     # --- GLOBAL greedy fill (the loop inversion, spec §2) ---
     # Step 1 above ran movement only; now seat idle/eligible AIs across ALL
     # tables at once, each picking its most attractive affordable open table.
+    # B4 prestige-seeking: load the field's renown percentiles once (behind the
+    # flag) so the greedy fill can score marquee tables + status appetite. None
+    # when off / no repo / no data → the marquee term stays inert. Best-effort:
+    # a read failure must never break the world tick.
+    _renown_percentiles: Optional[Dict[str, float]] = None
+    if economy_flags.PRESTIGE_SEEKING_ENABLED and prestige_snapshots_repo is not None and sandbox_id:
+        try:
+            _renown_percentiles = prestige_snapshots_repo.load_latest_field_percentiles(
+                sandbox_id
+            )
+        except Exception:
+            logger.warning("[LOBBY] renown percentile load failed; marquee inert")
+            _renown_percentiles = None
+
     _process_global_greedy_fills(
         fill_ctx=fill_ctx,
         idle_pool=idle_pool,
@@ -2065,6 +2131,7 @@ def refresh_unseated_tables(
         rng=rng,
         seek_rate=seek_rate,
         human_headroom=human_headroom,
+        renown_percentiles=_renown_percentiles,
     )
 
     # Emit the last-stand predator signal for AIs newly committed since

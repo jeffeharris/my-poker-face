@@ -615,7 +615,35 @@ def get_dossier(identifier: str):
         'cash_pair_stats': None,
         'memorable_hands': _build_memorable_hands(game_data, player_name),
         'note': None,
+        'reputation': None,
     }
+
+    # AI renown (Renown-v2, field-relative). Sandbox-scoped and
+    # viewer-agnostic — this AI's own standing in the sandbox's field, not a
+    # per-observer relationship axis — so it's populated before the anonymous
+    # early-return. Present only when the per-AI persist path has run
+    # (RENOWN_V2_PERSIST_AI on + the migration applied + the ticker has scored
+    # the field at least once); null otherwise, so the badge simply doesn't
+    # render. Read-only; never blocks the dossier.
+    if sandbox_id:
+        try:
+            from flask_app.extensions import prestige_snapshots_repo
+
+            snap = prestige_snapshots_repo.load_latest(
+                sandbox_id, personality_id, entity_kind='ai'
+            )
+            if (snap and snap.get('formula_version') == 'v2'
+                    and snap.get('renown_v2') is not None):
+                response['reputation'] = {
+                    'formula_version': 'v2',
+                    'quadrant': snap['quadrant'],
+                    'renown_v2': snap['renown_v2'],
+                    'victim_percentile': snap.get('victim_percentile'),
+                    'high_cut': snap.get('high_cut'),
+                    'field_size': snap.get('field_size'),
+                }
+        except Exception as e:
+            logger.debug("[CHARACTER] reputation load failed: %s", e)
 
     if not observer_id:
         # Anonymous read: relationship-derived sections drop, but
