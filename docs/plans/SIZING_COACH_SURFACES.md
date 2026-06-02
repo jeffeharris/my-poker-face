@@ -2,8 +2,15 @@
 purpose: Design for surfacing size→strength readability in the coach/dossier with progress-and-change-over-time, reusing the existing leak-loop trend engine
 type: design
 created: 2026-06-01
-last_updated: 2026-06-01
+last_updated: 2026-06-02
 ---
+
+> **Status (2026-06-02):** Surface B **backend built** — `flask_app/services/
+> coach_sizing_tells.py` (pure core + owner-scoped DB adapter) + `GET
+> /api/coach/opponent-tells?opponent=` in `coach_routes.py`, 10 unit tests. Validated
+> on the live DB: every production tiered bot reads `balanced` (sizing not face-up —
+> confirms the river-readability work), `face_up`/`mixing` reserved for genuinely
+> readable/adapting opponents. **Frontend dossier card + Surface A still TODO.**
 
 # Sizing coach surfaces — "readability over time"
 

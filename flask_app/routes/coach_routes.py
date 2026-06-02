@@ -368,6 +368,74 @@ def coach_preflop_leaks():
     return jsonify(report)
 
 
+@coach_bp.route('/api/coach/opponent-tells', methods=['GET'])
+@limiter.limit("20/minute")
+@_coach_required
+def coach_opponent_tells():
+    """How readable an opponent's bet SIZING is, with a stability trend.
+
+    Surface B of docs/plans/SIZING_COACH_SURFACES.md. User-scoped: grades the
+    named opponent's postflop bets (in the caller's games) into a size→strength
+    `sizing_polarization_score` over time-blocks, so the dossier shows whether the
+    tell is holding (`stable`) or the opponent is starting to mix (`mixing`). The
+    `stability` axis is the kill-switch signal for the bot's Phase B sizing-defense.
+    """
+    from ..services.coach_sizing_tells import (
+        CONFIRM_MIN_BETS,
+        FACE_UP_THRESHOLD,
+        compute_opponent_sizing_tell,
+        load_opponent_bet_decisions,
+        sizing_label,
+    )
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+    opponent = (request.args.get('opponent') or '').strip()
+    if not opponent:
+        return jsonify({'error': 'opponent query param required', 'code': 'BAD_REQUEST'}), 400
+
+    db_path = extensions.persistence_db_path
+    try:
+        decisions = load_opponent_bet_decisions(db_path, owner_id, opponent)
+        tell = compute_opponent_sizing_tell(decisions)
+    except Exception as e:
+        logger.error(f"opponent-tells failed for {owner_id}/{opponent}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not compute opponent tells'}), 500
+
+    payload = {
+        'opponent': opponent,
+        'face_up_threshold': FACE_UP_THRESHOLD,
+        'confirm_min_bets': CONFIRM_MIN_BETS,
+        'tells': [],
+    }
+    if tell.confidence == 'insufficient':
+        payload['message'] = (
+            f"Not enough of {opponent}'s big bets seen yet to read their sizing — "
+            "keep playing them."
+        )
+        return jsonify(payload)
+
+    payload['tells'].append(
+        {
+            'axis': 'sizing',
+            'label': sizing_label(tell.verdict),
+            'verdict': tell.verdict,
+            'score': tell.score,
+            'big_eq': tell.big_eq,
+            'small_eq': tell.small_eq,
+            'confidence': tell.confidence,
+            'stability': tell.stability,
+            'n_bets': tell.n_bets,
+            'n_big': tell.n_big,
+            'n_small': tell.n_small,
+            'exploit': tell.exploit,
+            'trend': {'series': tell.series},
+        }
+    )
+    return jsonify(payload)
+
+
 @coach_bp.route('/api/coach/preflop-leaks/feedback', methods=['POST'])
 @limiter.limit("10/minute")
 @_coach_required
