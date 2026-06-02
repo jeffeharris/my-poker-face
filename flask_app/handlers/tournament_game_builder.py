@@ -152,7 +152,22 @@ def build_tournament_game(
         "tournament_human_id": session.human_id,
     }
     game_state_service.set_game(game_id, game_data)
-    extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    # Persist the zero-LLM intent so it survives a cold load. The MTT field is
+    # built with `expression_enabled=False` (no table talk, consistent with the
+    # headless field), but that lives only in memory — without it on the games
+    # row, `restore_ai_controllers` defaults `ai_chat` to True and rebuilds every
+    # seat WITH the expression layer, firing a narration LLM call per AI decision
+    # (which 404s on an empty config — see tiered_factory). Stamp `ai_chat=False`
+    # plus each AI seat's `sharp` bot_type (mirrors the cash cold-load contract in
+    # cash_routes). The `tourney-` restore guard in game_routes is the belt; this
+    # is the suspenders, and it keeps the intent legible in the DB.
+    llm_configs = {
+        "ai_chat": False,
+        "bot_types": {name: "sharp" for name in ai_controllers},
+    }
+    extensions.game_repo.save_game(
+        game_id, state_machine._state_machine, owner_id, owner_name, llm_configs=llm_configs
+    )
     return game_id
 
 
@@ -203,6 +218,7 @@ def _apply_tournament_payout(game_data: dict) -> None:
         from flask_app.extensions import (
             bankroll_repo,
             chip_ledger_repo,
+            personality_repo,
             sandbox_repo,
             tournament_session_repo,
         )
@@ -225,6 +241,9 @@ def _apply_tournament_payout(game_data: dict) -> None:
                 bankroll_repo=bankroll_repo,
                 ledger_repo=chip_ledger_repo,
                 session_repo=tournament_session_repo,
+                # Credit real personas in a human-played persona field; synthetic
+                # ids sweep to the pool. (Without this the AIs are never paid.)
+                real_persona_ids=econ.real_persona_ids_for(session, personality_repo),
             )
     except Exception:  # noqa: BLE001 — payout must never crash the live game
         logger.exception("tournament boundary payout failed")

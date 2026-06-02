@@ -125,7 +125,12 @@ def apply_buy_in(
             bankroll_repo.save_player_bankroll(debited_from)
         raise
 
-    # Best-effort ledger rows (never raise out of here).
+    # Escrow ledger rows. Unlike the cash "ledger is best-effort audit" pattern,
+    # the `tournament:<id>` escrow balance IS the source of truth the payout sweep
+    # reads, so these rows are load-bearing. Write them, then VERIFY the escrow
+    # received exactly buy_in + overlay; on a dropped row (record_* swallow DB
+    # failures), re-credit the human and raise so the caller rolls back the whole
+    # registration rather than silently breaking conservation.
     if human_buy_in > 0:
         chip_ledger.record_tournament_buy_in(
             ledger_repo,
@@ -143,6 +148,37 @@ def apply_buy_in(
             context={'site': 'register_tournament'},
             sandbox_id=sandbox_id,
         )
+
+    expected = human_buy_in + plan.bank_overlay
+    if expected > 0 and ledger_repo is not None:
+        actual = ledger_repo.balance_of(tournament(tournament_id), sandbox_id=sandbox_id)
+        if actual != expected:
+            if debited_from is not None:
+                bankroll_repo.save_player_bankroll(debited_from)
+            raise RuntimeError(
+                f"escrow-in mismatch for {tournament_id}: "
+                f"expected {expected}, got {actual} (a ledger row was dropped)"
+            )
+
+
+def real_persona_ids_for(session, personality_repo) -> frozenset:
+    """The field's real-persona ids — non-human entries that are actual
+    personalities, so they're credited to their `ai:<pid>` bankroll at payout.
+
+    Robust for BOTH field kinds and recomputable after cold-load from the
+    rehydrated session: a real-persona field (invite/autonomous) has real
+    `personality_id`s, so they pass `load_personality_by_id`; a synthetic field
+    (the `register` route's `P01..` ids) doesn't, so those are excluded and their
+    prize sweeps to the pool. The human seat is always excluded (it's paid via
+    the `human_owner_id` branch, not as an AI bankroll)."""
+    if personality_repo is None:
+        return frozenset()
+    human = session.human_id
+    return frozenset(
+        pid
+        for pid in session.entries
+        if pid != human and personality_repo.load_personality_by_id(pid) is not None
+    )
 
 
 def _position_to_player(session) -> dict:

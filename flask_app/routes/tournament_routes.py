@@ -125,6 +125,7 @@ def _maybe_payout(rec: dict, owner_id: str, tournament_id: str) -> None:
         from flask_app.extensions import (
             bankroll_repo,
             chip_ledger_repo,
+            personality_repo,
             tournament_session_repo,
         )
         from flask_app.services import game_state_service
@@ -140,6 +141,10 @@ def _maybe_payout(rec: dict, owner_id: str, tournament_id: str) -> None:
                 bankroll_repo=bankroll_repo,
                 ledger_repo=chip_ledger_repo,
                 session_repo=tournament_session_repo,
+                # Real personas in the field are credited; synthetic ids sweep to
+                # the pool. Without this, a human-played persona field never pays
+                # its AIs (the redistribution silently no-ops).
+                real_persona_ids=econ.real_persona_ids_for(session, personality_repo),
             )
     except Exception:  # noqa: BLE001 — payout is best-effort observability here
         logger.exception("tournament payout failed for %s", tournament_id)
@@ -239,6 +244,12 @@ def register_tournament():
 
     sandbox_id = _resolve_sandbox_id(owner_id)
     with game_state_service.get_sandbox_lock(sandbox_id):
+        # Re-check under the lock: the pre-lock guard (above) is a fast path, but
+        # two concurrent registers can both pass it before either registers. The
+        # authoritative check must be inside the lock or both debit the buy-in.
+        existing = registry.find_active_for_owner(owner_id)
+        if existing:
+            return jsonify({'error': 'already_registered', 'tournament_id': existing}), 409
         plan = econ.plan_funding(
             ledger_repo=chip_ledger_repo,
             sandbox_id=sandbox_id,

@@ -149,23 +149,34 @@ def spawn_autonomous_tournament(
             created_at=created_at,
         )
 
-    # Fund from the bank pool off ONE economy snapshot (no human buy-in).
-    plan = econ.plan_funding(
-        ledger_repo=ledger_repo,
-        sandbox_id=sandbox_id,
-        field_size=len(entries),
-        buy_in=0,
-        human_in=False,
-    )
-    econ.apply_buy_in(
-        tournament_id=tournament_id,
-        owner_id=owner_id,
-        sandbox_id=sandbox_id,
-        plan=plan,
-        bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo,
-        session_repo=session_repo,
-    )
+    # Fund from the bank pool off ONE economy snapshot (no human buy-in). If
+    # funding fails, delete the just-written `active` row — otherwise it's an
+    # unfunded orphan that never settles (payout_status NULL) and permanently
+    # trips the one-active-per-owner guard (re-spawned on every lobby load).
+    try:
+        plan = econ.plan_funding(
+            ledger_repo=ledger_repo,
+            sandbox_id=sandbox_id,
+            field_size=len(entries),
+            buy_in=0,
+            human_in=False,
+        )
+        econ.apply_buy_in(
+            tournament_id=tournament_id,
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
+            plan=plan,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+        )
+    except Exception:
+        if session_repo is not None:
+            try:
+                session_repo.delete(tournament_id)
+            except Exception:  # noqa: BLE001 — best-effort cleanup
+                logger.exception("failed to roll back orphan spawn row %s", tournament_id)
+        raise
 
     return {
         'tournament_id': tournament_id,
