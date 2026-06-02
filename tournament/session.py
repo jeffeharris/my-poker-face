@@ -453,10 +453,16 @@ class TournamentSession:
         stored `resolver_kind`). Asserts chip conservation, so a corrupt or
         partial restore fails loudly instead of silently dropping chips."""
         config = TournamentConfig.from_dict(d['config'])
-        # __init__ rebuilds genesis state (deterministic from config) and
-        # validates human_id; we then overwrite the mutable world with the
-        # restored field/seating/counters.
-        session = cls(config, ai_resolver, human_id=d['human_id'])
+        # __init__ rebuilds genesis state and validates human_id against the
+        # field — so it MUST be seeded with the SAVED entries, not left to
+        # regenerate a synthetic P## field. Without this, a real-persona field
+        # (every P3 invite/autonomous tournament, whose human_id is `human:<owner>`
+        # or a real persona id) fails to rehydrate on cold load with
+        # "human_id ... is not in the field". We then overwrite the mutable world
+        # with the fully-restored field/seating/counters.
+        session = cls(
+            config, ai_resolver, human_id=d['human_id'], entries=d['field']['entries']
+        )
         session.field = TournamentField.from_dict(d['field'])
         session.seating = Seating.from_dict(d['seating'])
         session.entries = dict(session.field.entries)

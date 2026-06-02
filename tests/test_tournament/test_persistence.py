@@ -94,6 +94,27 @@ def test_fresh_session_roundtrip_matches_standings():
     restored.field.assert_conservation()
 
 
+def test_real_persona_field_with_human_seat_roundtrips():
+    """Regression: a real-persona field whose human seat is `human:<owner>` (every
+    P3 invite tournament — and a persona-id human for autonomous ones) must survive
+    a `from_dict` cold load. The bug regenerated a synthetic `P##` field from
+    config and couldn't find the saved human seat → "human_id ... is not in the
+    field", crashing cold-load /sit and the autonomous ticker advance after any
+    restart."""
+    entries = {
+        'human:owner-x': 'You', 'einstein': 'Einstein', 'napoleon': 'Napoleon',
+        'batman': 'Batman', 'ada': 'Ada', 'sun_tzu': 'Sun Tzu',
+    }
+    cfg = TournamentConfig(field_size=len(entries), table_size=3, seed=2)
+    s = TournamentSession(cfg, ai_resolver=FakeHandResolver(),
+                          human_id='human:owner-x', entries=entries)
+    restored = _roundtrip(s)  # would raise ValueError before the fix
+    assert restored.human_id == 'human:owner-x'
+    assert 'human:owner-x' in restored.entries
+    assert restored.standings_view() == s.standings_view()
+    restored.field.assert_conservation()
+
+
 def test_midgame_session_roundtrip_matches_standings():
     s = _session(seed=5)
     for _ in range(10):
