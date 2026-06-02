@@ -412,9 +412,13 @@ class PromptCaptureRepository(BaseRepository):
             )
             total = count_cursor.fetchone()[0]
 
+            # created_at is whole-second precision, so many decisions in one hand
+            # share a timestamp. Tie-break on the row id (ABS because the orphan
+            # arm stores -pda.id) so same-second rows order deterministically
+            # newest-first instead of being shuffled arbitrarily by SQLite.
             query = f"""
                 SELECT * FROM ({unified})
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, ABS(id) DESC
                 LIMIT ? OFFSET ?
             """
             cursor = conn.execute(query, unified_params + [limit, offset])
