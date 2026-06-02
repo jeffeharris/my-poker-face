@@ -233,5 +233,11 @@ weakness. Two lessons re-learned: (1) for a decision-gate change, instrument the
 DECISION, not the downstream economy; (2) don't trust a single confounded metric
 enough to draw a tuning conclusion from it — I'd written "too weak" into a code
 comment off the bad signal. The probe is the instrument I should have built
-first. (Calibration is one field/seed so far; a 2nd-seed confirm is a cheap
-follow-up.)
+first.
+
+**3-seed confirm.** Re-ran the probe on seeds 7 and 123 (same deterministic
+famous set, different economic trajectories). The curve is stable in shape on
+all three — monotonic, ~80% saturation by W≥8, baseline pick prestige 0.23-0.26.
+Influence at W=1.5: 28% / 18% / 25% (seed 7 the most conservative). W=1.5 lands
+in the 15-35% band on every seed, so the calibration isn't a seed-42 artifact.
+W_MARQUEE=1.5 stands.

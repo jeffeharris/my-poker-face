@@ -353,10 +353,14 @@ display unless noted, and each should ship behind its own flag.
     read — even W=1 influences 17%; that earlier negative was pure decoherence
     noise.
 
+  - **Confirmed across 3 seeds (42/7/123).** The curve is stable in shape
+    (monotonic, ~80% saturation by W≥8, baseline pick prestige 0.23–0.26).
+    Influence at W=1.5 is 28% / 18% / 25% — **W=1.5 sits in the 15–35% band on
+    every seed** (seed 7 the most conservative trajectory). Calibration holds.
+
   - **Net gate status:** mechanism validated + conservation-safe + **no
-    starvation** + **W calibrated (1.5)**. Remaining before flip: a positive
-    end-to-end lobby test, and ideally a 2nd-seed confirm of the calibration
-    curve (one field/seed so far). Flag stays OFF until then.
+    starvation** + **W calibrated (1.5), 3-seed confirmed**. Remaining before
+    flip: a positive end-to-end lobby test. Flag stays OFF until then.
 
 ---
 
