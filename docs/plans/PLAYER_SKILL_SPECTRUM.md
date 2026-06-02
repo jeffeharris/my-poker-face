@@ -7,6 +7,111 @@ last_updated: 2026-06-01
 
 # Player skill spectrum — scope
 
+## Status
+
+- **Pre-reseed field sim (re-seed gate):** **PASS — re-seed is safe.** A/B cash-economy
+  sim (`scripts/run_economy_sim`, 400 ticks, `hand_sim_prob=1.0`, seed 42) on two fresh
+  seeded DBs — baseline (skill stripped) vs rostered (the new tiers). Both ran the full
+  800 ticks with **zero errors/tracebacks**; chips conserve (audit drift: baseline 269 /
+  rostered **0**, vs ~1.8M chips); macro-health comparable and non-degenerate
+  (Gini_final 0.71 vs 0.75 — slightly more spread, the intended effect of skill
+  differentiation; defaults 0 vs 1; AI count 59 both). NOTE: per-tier *absolute* net
+  chips do NOT cleanly show the ladder (reg looked worst at −17k) — that's the expected
+  **stake/bankroll/volume confound** (regs are higher-bankroll personas at bigger
+  stakes → larger absolute swings; everyone trends negative against the rake sink), NOT
+  a skill inversion. The clean skill→winrate ordering is the fixed-stakes head-to-head
+  evidence (Phase 3 + the exploit sweep); the economy sim's job here was the safety
+  de-risk, which it passes.
+- **Phase 1 (skill model):** done — tier set + decisions finalized (below).
+- **Phase 2 (config + apply seam):** **DONE.** `poker/strategy/skill_tiers.py`
+  (`SKILL_TIERS` + `apply_skill_tier`), wired into `flask_app/handlers/tiered_factory.py`
+  (`build_tiered_controller(skill=…)` + the `'sharp'` branch of `build_controller`),
+  and an eval hook `SKILL_TIER=` in `experiments/measure_passivity.py`. Default tier
+  is the no-op ceiling, so production behavior is unchanged. Tests:
+  `tests/test_strategy/test_skill_tiers.py` (11, green).
+- **Phase 3 (validate monotonicity):** **PASS.** Three independent instruments on
+  `measure_passivity` (hero = Baseline, heads-up, 2000h × seeds 42/142/242) all show a
+  clean monotone skill drop shark→weak_reg→rec:
+  - **Readability (tell map, vs station `jeff`):** shark's river big bet is balanced
+    (34% bluff share vs 37% GTO, gap −3%; 208 river bluffs fired). weak_reg leaks a
+    **face-up 1.0× size** (95% value) while its overbet stays ~balanced. rec drops
+    overbets entirely (`overbet_fraction=0` → no xl size), fires **0 river bluffs**,
+    and its river is **face-up** (98% value). The instruments *see* the skill drop.
+  - **Value extraction (bb/100 vs station):** +59.7 > +49.5 > +32.6 — monotone; the
+    shark pulls ~2× from the same donor (all three still beat the leaky station, as
+    expected — balance under-exploits a fish, BUILD_A_BETTER_BOT.md).
+  - **Stab-defense (vs aggressive reg `punisher`):** fold% facing a bet 24% < 32% <
+    39%; fold% with *air* (the capped check range the stab attacks) 41% < 58% < 71%.
+    rec over-folds its air to the stabber where shark defends — the sensitive direct
+    metric is cleanly monotone. (bb/100 vs the stabber: +25.7 / +19.2 / +21.0 — shark
+    tops; the weak_reg↔rec order is within bb/100 noise, the metric this harness
+    explicitly warns is too insensitive for postflop deltas — the fold% ladder is the
+    authoritative read.)
+  - **`exploitation_strength` axis — MEASURED monotone** (`exploit_bb100`, anchored
+    TAG hero, CallStation×2/FoldyBot×2 backdrop, 4000h × seeds 42/142). The Baseline
+    hero above has `anchors=None` so the layer no-ops there; this run uses an anchored
+    hero. Because `exploitation_strength` and `adaptation_bias` are interchangeable
+    linear factors in the exploitation multiplier, the exposed `--hero-adaptation-bias`
+    sweep measures exactly the tier ladder:
+    `1.0 → +38.5` · `0.7 → +30.3` · `0.4 → +14.8` (all CI-clear positive) ·
+    `0.1 → +2.9` bb/100 (CI spans 0 — `rec` barely exploits, as designed). Clean
+    `38.5 → ~0` decay → the exploitation axis is monotone, not just by the
+    linear-multiplier argument but by measurement.
+- **Phase 4 (author roster):** **DONE.** `skill` is now read per-persona in
+  `TieredBotController.__init__` (mirroring the `adaptive_overbet` read — native to
+  every live build path; the factory `skill=` kwarg still wins as an explicit
+  override, an unknown tier logs + falls back to the ceiling). The roster is authored
+  in `poker/personalities.json` keyed to each character's existing `adaptation_bias`
+  band (the signal already encoding "how sharp is this character"), composing with —
+  not overriding — their aggression/looseness charts:
+  - `adaptation_bias ≥ 0.65 → shark` (6): Socrates, Sherlock Holmes, Sun Tzu,
+    Machiavelli, Cleopatra, Queen Elizabeth I — the deductive/strategic readers.
+  - `0.45–0.64 → reg` (14): Churchill, Napoleon, Louis XIV, Franklin, Twain, Houdini,
+    Wilde, Marie Antoinette, Agatha Christie, Lady Macbeth, Robin Hood, Cheshire Cat,
+    Medusa, The Fortune Teller.
+  - `0.25–0.44 → weak_reg` (23): the broad mediocre middle — incl. the high-aggression
+    maniacs (Blackbeard, Zeus, Queen of Hearts, Honey Badger) who become *aggressive
+    but exploitable* (active chart + weak skill ≠ passive — and ≠ spewy chaos bot).
+  - `≤ 0.2 → rec` (7): Buddha, Bob Ross, Dr. Seuss, Jesus Christ, The Grandmother,
+    The Kindergarten Teacher, the dad-jokes guy — gentle/passive face-up over-folders.
+  - **Excluded (12):** the 9 `archetype=fish` tourist personas (the rule-bot floor
+    *below* the spectrum) + the 3 bot reference personas (CaseBot/GTO-Lite/BaselineSolver).
+  - **Effect is staged, not live:** the field only changes after the DB is re-seeded
+    from the JSON (`seed_personalities_from_json` → `config_json`, which round-trips
+    arbitrary keys). Until then, production is unchanged. Untagged personas default to
+    the no-op ceiling.
+  - Tests: `tests/test_strategy/test_skill_tier_persona_read.py` (5, integration; live
+    persona→tier wiring incl. the unknown-tier fallback).
+
+### Phase-1 decisions (finalized)
+
+1. **Adaptive axis = `exploitation_strength` only.** `adaptation_bias` lives on
+   the frozen `PersonalityAnchors` and already multiplies into the exploitation
+   product alongside `exploitation_strength`; the tier sets only
+   `exploitation_strength` to avoid double-counting that product and to leave each
+   persona's authored personality intact. The `adaptation_bias` column below is
+   therefore *descriptive* of the typical persona, not enforced by the tier. (If
+   Phase 3 shows we need finer top-end control, a controller-level
+   `adaptation_bias` override is a one-line read-site add at
+   `tiered_bot_controller.py:1738`.)
+2. **No `personalities.json` read in Phase 2** — the mechanism ships now; per-persona
+   tier assignment is pure data authoring in Phase 4.
+3. **Default tier is a no-op** — it never writes fields, so post-construction
+   customization (e.g. the fish path's `overbet_fraction` / `_deviation_profile`)
+   is never clobbered.
+
+### Reconciliation with the code (important)
+
+The draft table below assumed today's bot was a `reg` at `exploitation_strength=0.7`
+with a sharper `shark` above it. **The constructor defaults are actually
+`(exploitation 1.0, river_bluff 1.0, stab_defense 0.5, overbet 1.0)` — today's
+production bot is ALREADY at the validated ceiling.** So `shark` *is* today's
+default (no headroom above it — "no sharper than validated"), and
+`reg`/`weak_reg`/`rec` are progressively **weaker new tiers below it**. The
+default/no-op tier is therefore **`shark`**, and the plan's vision of "a long tail
+of regs weaker than the sharks" is realized in Phase 4 as a deliberate, validated
+roster shift — not silently in Phase 2.
+
 ## Goal
 
 Give each tiered (`sharp`) bot a **skill level** so the field has range: some players
@@ -48,30 +153,42 @@ defer.)
 Author as a small set of **named skill tiers**, each a preset bundle (more believable
 + reasonable to hand-assign than a raw 0–1 float). Proposed:
 
-| tier | exploitation_strength | adaptation_bias | river_bluff_fraction | stab_defense_intensity | feel |
-|---|---|---|---|---|---|
-| `shark` | 1.0 | 0.7 | 1.0 | 0.5 | reads, balanced, defends |
-| `reg` (current default) | 0.7 | 0.5 | 1.0 | 0.5 | solid — today's bot |
-| `weak_reg` | 0.4 | 0.3 | 0.5 | 0.25 | half-baked: semi-face-up, soft adapt |
-| `rec` | 0.1 | 0.15 | 0.0 | 0.0 | face-up, over-folds, doesn't adapt |
-| (`fish`) | — rule bot — | | | | existing floor, separate controller |
+As implemented in `SKILL_TIERS` (the tier sets the **bold** columns; `adaptation_bias`
+is descriptive only — see Decision 1):
 
-(Values illustrative — Phase 4 validates/tunes them.) A continuous `skill ∈ [0,1]`
+| tier | **exploitation_strength** | adaptation_bias | **river_bluff_fraction** | **stab_defense_intensity** | **overbet_fraction** | feel |
+|---|---|---|---|---|---|---|
+| `shark` (default / ceiling = today's bot) | 1.0 | ~0.7 | 1.0 | 0.5 | 1.0 | reads, balanced, defends |
+| `reg` | 0.7 | ~0.5 | 1.0 | 0.5 | 1.0 | solid: softer reads |
+| `weak_reg` | 0.4 | ~0.3 | 0.5 | 0.25 | 0.5 | half-baked: semi-face-up, soft adapt |
+| `rec` | 0.1 | ~0.15 | 0.0 | 0.0 | 0.0 | face-up, over-folds, doesn't adapt |
+| (`fish`) | — rule bot — | | | | | existing floor, separate controller |
+
+(Values illustrative — Phase 3 validates/tunes them. `shark` is pinned to the
+constructor defaults; weakening the others is free, so they need no eval.) A continuous `skill ∈ [0,1]`
 that interpolates the bundle is a trivial later add if finer control is wanted.
 
 ## Build seam
 
-- **Config:** add `skill` (tier name) to the per-personality config — same seam
-  `adaptation_bias`/anchors already use (`personalities.json` / archetype config).
-  **Default = `reg`** (today's values) so nothing changes until a tier is assigned.
-- **Apply:** a `apply_skill_tier(controller, tier)` helper sets the intensity fields
-  from the tier table. Call it at build time after construction (production:
-  `game_handler`/`cash_bot_assignment`, which already build via the real `__init__`;
-  eval: the harness already sets these fields, so it can set `skill` too).
-- **adaptation_bias overlap:** it already exists on anchors and scales exploitation.
-  Fold it into the tier (the tier sets it) OR keep it as a finer per-personality
-  override on top of the tier. Decide in Phase 1 — cleanest is *tier sets the
-  baseline, anchors may override*.
+- **Config (Phase 4):** add `skill` (tier name) to the per-personality config —
+  same seam `adaptation_bias`/anchors already use (`personalities.json` / archetype
+  config). **Default = `shark`** (today's ceiling values) so nothing changes until a
+  weaker tier is assigned. (Deferred to Phase 4 per Decision 2 — Phase 2 ships the
+  mechanism + a `skill` kwarg defaulting to the no-op tier.)
+- **Apply (DONE):** `apply_skill_tier(controller, tier)` in
+  `poker/strategy/skill_tiers.py` sets the intensity fields from the tier table.
+  Called at build time after construction — production via
+  `flask_app/handlers/tiered_factory.py` `build_tiered_controller(skill=…)` (the
+  same post-construction seam the fish path uses); eval via the `SKILL_TIER=` env
+  hook in `measure_passivity.py`. The default tier is a no-op so it never clobbers
+  post-construction customization.
+- **adaptation_bias overlap — RESOLVED (Decision 1):** the tier does **not** set
+  `adaptation_bias`. It lives on the frozen `PersonalityAnchors` and already
+  multiplies into the exploitation product alongside `exploitation_strength`, so the
+  tier drives the adaptive axis through `exploitation_strength` alone — no
+  double-count, no anchors mutation, persona personality preserved. (`exploitation_strength=0.1`
+  already drags the whole product near zero for `rec` regardless of the persona's
+  authored bias.)
 
 ## Validation (the part that needs the instruments)
 
@@ -90,16 +207,19 @@ that interpolates the bundle is a trivial later add if finer control is wanted.
 
 ## Phasing
 
-1. **Skill model** — finalize the tier set + knob→tier table + the adaptation_bias
-   overlap decision. (Design only.)
-2. **Config + apply seam** — `skill` field in per-personality config (default `reg`)
-   + `apply_skill_tier` helper + wire at the production build site + eval.
+1. **Skill model — DONE** — tier set + knob→tier table + adaptation_bias decision
+   (Decision 1) finalized. (Design only.)
+2. **Config + apply seam — DONE** — `apply_skill_tier` helper + `skill` kwarg
+   (default = no-op `shark`) wired at the production build site + eval hook. Per-persona
+   `skill` field in `personalities.json` deferred to Phase 4 (Decision 2).
 3. **Validate monotonicity** — the ladder checks above with the existing instruments;
+   the `SKILL_TIER=` env hook on `measure_passivity` drives a tier per run;
    tune the tier values so the ladder is cleanly monotone and the weak tiers visibly
    leak to the reader/stabber.
-4. **Author the roster** — assign tiers to the celebrity personalities coherently
-   (a few sharks, a long tail of regs/weak-regs/recs), composing with their existing
-   charts/anchors.
+4. **Author the roster — DONE** — `skill` read per-persona in
+   `TieredBotController.__init__`; tiers assigned across the 50 non-fish/non-bot
+   celebrities keyed to their `adaptation_bias` band (6 shark / 14 reg / 23 weak_reg /
+   7 rec). Staged in `personalities.json` — takes effect on DB re-seed.
 5. **(Optional, downstream)** stake-scaled fields — low-stakes tables draw weaker
    skill tiers; a casino/career policy, not core.
 

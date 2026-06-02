@@ -791,6 +791,40 @@ def run_passivity_matchup(
         if _sd:
             controllers[0].stab_defense_intensity = float(_sd)
             controllers[0].stab_defense_override = float(os.environ.get('STAB_DEFENSE_READ', '1.0'))
+        # Skill-tier knob (PLAYER_SKILL_SPECTRUM.md Phase 3 monotonicity check):
+        # SKILL_TIER=shark|reg|weak_reg|rec applies the whole tier bundle at once
+        # (exploitation_strength + river_bluff_fraction + stab_defense_intensity +
+        # overbet_fraction). Applied LAST so it's the single high-level lever — it
+        # overrides any manual knob above. make_controller bypasses __init__, so we
+        # also turn the overbet layer ON and inject synthetic opponent reads (so the
+        # gated river-bluff / stab-defense layers actually fire at the tier's
+        # intensity vs a simulated reader/stabber); override the reads via
+        # RIVER_BLUFF_FTBB / STAB_DEFENSE_READ to probe other regimes (e.g. a caller).
+        _skill = os.environ.get('SKILL_TIER')
+        if _skill:
+            from poker.strategy.skill_tiers import SKILL_TIERS
+
+            # Two reasons we read the spec directly rather than calling
+            # apply_skill_tier here:
+            #  1. make_controller bypasses __init__, so every field must be
+            #     materialized explicitly — apply_skill_tier no-ops the default
+            #     `shark` tier by design, which would leave the ceiling
+            #     un-materialized and the ladder incomparable.
+            #  2. This block also wires enable_overbet_context + synthetic
+            #     opponent reads below — harness-only scaffolding the tier spec
+            #     doesn't (and shouldn't) own.
+            _spec = SKILL_TIERS[_skill]
+            controllers[0].exploitation_strength = _spec.exploitation_strength
+            controllers[0].river_bluff_fraction = _spec.river_bluff_fraction
+            controllers[0].stab_defense_intensity = _spec.stab_defense_intensity
+            controllers[0].overbet_fraction = _spec.overbet_fraction
+            controllers[0].enable_overbet_context = True
+            controllers[0].river_bluff_ftbb_override = float(
+                os.environ.get('RIVER_BLUFF_FTBB', '1.0')
+            )
+            controllers[0].stab_defense_override = float(
+                os.environ.get('STAB_DEFENSE_READ', '1.0')
+            )
         # Range-aware prototype: turn on equity-vs-range for the hero and feed it
         # perfect-read field stats (uniform-field assumption: all opponents share
         # the first opponent archetype's stats). Concept-test ceiling.
