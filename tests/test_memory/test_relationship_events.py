@@ -54,6 +54,10 @@ class TestEnumCoverage:
             "stake_forgiveness_refused",
             # Cash-mode table dynamics
             "stack_dominance",
+            "knockout",
+            "rival",
+            "nemesis",
+            "regular",
             # Quarantine
             "_unknown",
         }

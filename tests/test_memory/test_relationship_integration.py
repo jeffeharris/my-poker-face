@@ -383,9 +383,14 @@ class TestStackDominanceWiring:
             sandbox_id="sb-1",
         )
 
-        # Process 5 distinct hand_numbers — dedup is keyed on
-        # hand_number so each fires independently.
-        for hand_number in range(1, 6):
+        # Process 5 firing hands. STACK_DOMINANCE is throttled to once per
+        # STACK_DOMINANCE_COOLDOWN_HANDS per pair, so space the hand_numbers by
+        # the cooldown to get 5 independent drips (consecutive hands would
+        # collapse to one — that throttle is covered by the test below).
+        from poker.memory.hand_outcome_detector import STACK_DOMINANCE_COOLDOWN_HANDS
+
+        fire_hands = [1 + i * STACK_DOMINANCE_COOLDOWN_HANDS for i in range(5)]
+        for hand_number in fire_hands:
             mgr._process_relationship_events(
                 self._hand_with_deep_stack(hand_number=hand_number),
             )
@@ -393,13 +398,42 @@ class TestStackDominanceWiring:
         bob_view = repo.load_raw_relationship_state("bob", "alice")
         assert bob_view is not None
         # At 3× cap, excess = 1.5; per-hand likability shift =
-        # −0.003 × 1.5 = −0.0045. Over 5 hands that's −0.0225.
+        # −0.003 × 1.5 = −0.0045. Over 5 firing hands that's −0.0225.
         # Default likability is 0.5, so expect ~0.4775.
         expected = 0.5 - (0.003 * 1.5 * 5)
         assert bob_view.likability == pytest.approx(expected, abs=1e-6)
         # Respect shifts similarly at −0.002 × 1.5 per hand.
         expected_respect = 0.5 - (0.002 * 1.5 * 5)
         assert bob_view.respect == pytest.approx(expected_respect, abs=1e-6)
+
+    def test_stack_dominance_throttled_to_cooldown(self, repo):
+        # The per-pair cooldown caps STACK_DOMINANCE to one drip per
+        # STACK_DOMINANCE_COOLDOWN_HANDS hands, so a long-seated deep stack
+        # doesn't flood the relationship layer. Firing on every consecutive
+        # hand inside one window must collapse to a single drip.
+        from poker.memory.hand_outcome_detector import STACK_DOMINANCE_COOLDOWN_HANDS
+
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000
+        )
+        repo.apply_cash_pair_pnl(
+            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1"
+        )
+
+        # Consecutive hands within one cooldown window → only the first fires.
+        for hand_number in range(1, STACK_DOMINANCE_COOLDOWN_HANDS + 1):
+            mgr._process_relationship_events(
+                self._hand_with_deep_stack(hand_number=hand_number),
+            )
+
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        assert bob_view is not None
+        # Exactly one drip despite COOLDOWN consecutive hands.
+        assert bob_view.likability == pytest.approx(0.5 - 0.003 * 1.5, abs=1e-6)
+        assert bob_view.respect == pytest.approx(0.5 - 0.002 * 1.5, abs=1e-6)
 
     def test_set_table_max_buy_in_setter_enables_detection(self, repo):
         # Cold-load production path: set_relationship_repo runs BEFORE

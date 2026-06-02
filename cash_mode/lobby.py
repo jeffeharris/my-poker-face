@@ -1735,6 +1735,7 @@ def refresh_unseated_tables(
                 bankroll_repo=bankroll_repo,
                 chip_ledger_repo=chip_ledger_repo,
                 table_id=getattr(table, 'table_id', None),
+                table_max_buy_in=table_max_buy_in,
             )
             if r.delta > 0:
                 table.seats = r.new_seats
