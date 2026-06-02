@@ -45,6 +45,45 @@ def app():
     return application
 
 
+def test_build_persists_zero_llm_intent(app, monkeypatch):
+    """The MTT field is zero-LLM by design (AI seats built with
+    expression_enabled=False). build_tournament_game must persist that intent on
+    the games row so a cold load doesn't default ai_chat=True and rebuild the
+    seats with the (404-prone) expression layer. Guards the regression where the
+    headless field started firing a narration LLM call per AI decision after a
+    server restart."""
+    with app.app_context():
+        _rebind_handler_globals(monkeypatch)
+
+        import flask_app.extensions as _ext
+        from flask_app.handlers.tournament_game_builder import build_tournament_game
+        from flask_app.services import game_state_service
+        from tournament.config import TournamentConfig
+        from tournament.director import FakeHandResolver
+        from tournament.session import TournamentSession
+
+        cfg = TournamentConfig(field_size=4, table_size=4, starting_stack=4000, seed=7)
+        session = TournamentSession(cfg, ai_resolver=FakeHandResolver())
+        game_id = build_tournament_game(
+            session, tournament_id="itest-zero-llm", owner_id="itest-owner", owner_name="Tester"
+        )
+
+        # Persisted intent: ai_chat off, every AI seat stamped sharp.
+        llm_configs = _ext.game_repo.load_llm_configs(game_id)
+        assert llm_configs is not None, "tournament game saved no llm_configs"
+        assert llm_configs.get("ai_chat") is False
+        bot_types = llm_configs.get("bot_types") or {}
+        assert bot_types, "no bot_types persisted for the AI field"
+        assert set(bot_types.values()) == {"sharp"}
+
+        # Live controllers carry no expression layer (zero-LLM field).
+        gd = game_state_service.get_game(game_id)
+        for name, ctrl in gd["ai_controllers"].items():
+            assert getattr(ctrl, "expression_generator", None) is None, (
+                f"AI seat {name} has an expression generator — field is not zero-LLM"
+            )
+
+
 def test_human_plays_real_hands_to_a_terminal_state(app, monkeypatch):
     """Build a small tournament, drive the human (auto check/call/fold) through
     real hands, and assert it reaches a terminal state without looping —

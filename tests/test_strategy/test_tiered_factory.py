@@ -86,10 +86,20 @@ def test_factory_skips_expression_when_disabled(
 @patch('flask_app.handlers.tiered_factory.ExpressionGenerator')
 @patch('flask_app.handlers.tiered_factory.TieredBotController')
 @patch('flask_app.handlers.tiered_factory.load_strategy_table')
+@patch('core.llm.settings.get_default_model', return_value='llama-3.1-8b-instant')
+@patch('core.llm.settings.get_default_provider', return_value='groq')
 def test_factory_handles_missing_llm_config(
-    mock_load_table, mock_controller_cls, mock_expr_cls, mock_llm_cls
+    mock_get_provider,
+    mock_get_model,
+    mock_load_table,
+    mock_controller_cls,
+    mock_expr_cls,
+    mock_llm_cls,
 ):
-    """A None llm_config defaults provider to openai and model to None."""
+    """A None llm_config resolves provider+model from the default tier as a
+    coherent pair — never provider='openai' with model=None, which would let
+    OpenAIProvider fall back to the Groq `llama-3.1-8b-instant` model name and
+    404 against OpenAI."""
     fake_controller = MagicMock(name='controller')
     mock_controller_cls.return_value = fake_controller
 
@@ -103,5 +113,5 @@ def test_factory_handles_missing_llm_config(
     )
 
     mock_llm_cls.assert_called_once_with(
-        provider='openai', model=None, default_timeout=INGAME_LLM_TIMEOUT_SECONDS
+        provider='groq', model='llama-3.1-8b-instant', default_timeout=INGAME_LLM_TIMEOUT_SECONDS
     )

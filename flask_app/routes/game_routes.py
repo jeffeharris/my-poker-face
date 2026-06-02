@@ -653,6 +653,24 @@ def api_game_state(game_id):
                         state_machine = StateMachineAdapter(base_state_machine)
                         # Load per-player LLM configs for proper provider restoration
                         llm_configs = extensions.game_repo.load_llm_configs(game_id) or {}
+                        # Multi-table tournament tables ("tourney-") are a
+                        # zero-LLM field by design — `build_tournament_game`
+                        # wires every AI seat with `expression_enabled=False`
+                        # (no table talk, consistent with the headless field).
+                        # That intent isn't persisted (these games save no
+                        # llm_configs), so on cold load `ai_chat` would default
+                        # to True and rebuild the seats WITH the expression
+                        # layer — firing a narration LLM call per AI decision.
+                        # With an empty llm_config that call resolves to
+                        # provider="openai" + model=None, and OpenAIProvider's
+                        # default model is the Groq `llama-3.1-8b-instant`, so
+                        # every call 404s. Force expression off to match the
+                        # builder and keep the field zero-LLM.
+                        _restore_ai_chat = (
+                            False
+                            if game_id.startswith("tourney-")
+                            else llm_configs.get('ai_chat', True)
+                        )
                         ai_controllers = restore_ai_controllers(
                             game_id,
                             state_machine,
@@ -663,7 +681,7 @@ def api_game_state(game_id):
                             capture_label_repo=extensions.capture_label_repo,
                             decision_analysis_repo=extensions.decision_analysis_repo,
                             bot_types=llm_configs.get('bot_types'),
-                            ai_chat=llm_configs.get('ai_chat', True),
+                            ai_chat=_restore_ai_chat,
                         )
                         db_messages = extensions.game_repo.load_messages(game_id)
 
