@@ -436,6 +436,66 @@ def coach_opponent_tells():
     return jsonify(payload)
 
 
+@coach_bp.route('/api/coach/sizing-readability', methods=['GET'])
+@limiter.limit("20/minute")
+@_coach_required
+def coach_sizing_readability():
+    """How readable YOUR OWN bet sizing is, over time — Surface A.
+
+    Self-coaching twin of /opponent-tells: grades the caller's own postflop bets
+    into a size→strength score (do your big bets always mean strength? → face-up →
+    opponents fold for free) with the same stability trend. Reuses the Surface B
+    grading core (compute_opponent_sizing_tell) pointed at the owner seat.
+    """
+    from ..services.coach_sizing_tells import (
+        CONFIRM_MIN_BETS,
+        FACE_UP_THRESHOLD,
+        compute_opponent_sizing_tell,
+        load_owner_bet_decisions,
+        self_advice,
+        self_label,
+    )
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    db_path = extensions.persistence_db_path
+    try:
+        decisions = load_owner_bet_decisions(db_path, owner_id)
+        tell = compute_opponent_sizing_tell(decisions)
+    except Exception as e:
+        logger.error(f"sizing-readability failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not compute sizing readability'}), 500
+
+    payload = {
+        'face_up_threshold': FACE_UP_THRESHOLD,
+        'confirm_min_bets': CONFIRM_MIN_BETS,
+        'readability': None,
+    }
+    if tell.confidence == 'insufficient':
+        payload['message'] = (
+            "Not enough of your own big bets yet to read your sizing — keep playing."
+        )
+        return jsonify(payload)
+
+    payload['readability'] = {
+        'label': self_label(tell.verdict),
+        'verdict': tell.verdict,
+        'score': tell.score,
+        'big_eq': tell.big_eq,
+        'small_eq': tell.small_eq,
+        'confidence': tell.confidence,
+        'stability': tell.stability,
+        'n_bets': tell.n_bets,
+        'n_big': tell.n_big,
+        'n_small': tell.n_small,
+        'advice': self_advice(tell.verdict),
+        'trend': {'series': tell.series},
+    }
+    return jsonify(payload)
+
+
 @coach_bp.route('/api/coach/preflop-leaks/feedback', methods=['POST'])
 @limiter.limit("10/minute")
 @_coach_required

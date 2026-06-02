@@ -102,12 +102,36 @@ def _exploit_for(verdict: str) -> Optional[str]:
 
 
 def sizing_label(verdict: str) -> str:
-    """Human-facing one-liner for the dossier card."""
+    """Human-facing one-liner for the dossier card (opponent framing)."""
     return {
         'face_up': 'Big bets = strength',
         'reverse': 'Big bets = bluffs',
         'balanced': 'Balanced sizing',
     }.get(verdict, 'Unknown')
+
+
+def self_label(verdict: str) -> str:
+    """Self framing for Surface A (your own sizing readability)."""
+    return {
+        'face_up': 'Your big bets are face-up',
+        'reverse': 'Your big bets skew weak',
+        'balanced': 'Your sizing is balanced',
+    }.get(verdict, 'Unknown')
+
+
+def self_advice(verdict: str) -> Optional[str]:
+    """What to DO about your own sizing read (Surface A). ``balanced`` = no leak."""
+    if verdict == 'face_up':
+        return (
+            "You almost only bet big with strength — observant opponents fold for free. "
+            "Mix some big bluffs in."
+        )
+    if verdict == 'reverse':
+        return (
+            "Your big bets skew weak — you may be over-bluffing big. "
+            "Tighten your big-bet value."
+        )
+    return None
 
 
 def compute_opponent_sizing_tell(
@@ -229,4 +253,54 @@ def load_opponent_bet_decisions(db_path: str, owner_id: str, opponent_name: str)
         logger.warning(
             "load_opponent_bet_decisions failed for %s/%s: %s", owner_id, opponent_name, e
         )
+    return rows
+
+
+def load_owner_bet_decisions(db_path: str, owner_id: str) -> List[dict]:
+    """Load the owner's OWN postflop bet/raise decisions — Surface A (self).
+
+    Mirrors ``coach_leaks.load_owner_preflop_decisions``: scope by owner_id and the
+    games' index, then keep the human seat (player_name == that game's owner_name)
+    in Python (NOT in the WHERE — that makes SQLite nested-loop games × matches).
+    Same ``bet_fraction``/``equity`` semantics as the opponent loader. Read-only.
+    """
+    import sqlite3
+
+    rows: List[dict] = []
+    try:
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            """
+            SELECT pda.equity        AS equity,
+                   pda.pot_total     AS pot_total,
+                   pda.raise_amount  AS raise_amount,
+                   pda.created_at    AS created_at,
+                   pda.hand_number   AS hand_number,
+                   pda.player_name   AS player_name,
+                   g.owner_name      AS owner_name
+            FROM player_decision_analysis pda
+            JOIN games g ON g.game_id = pda.game_id
+            WHERE g.owner_id = ?
+              AND pda.phase IN ('FLOP', 'TURN', 'RIVER')
+              AND pda.action_taken IN ('bet', 'raise', 'all_in')
+              AND pda.equity IS NOT NULL
+              AND pda.pot_total > 0
+              AND pda.raise_amount > 0
+            """,
+            (owner_id,),
+        )
+        rows = [
+            {
+                'equity': r['equity'],
+                'bet_fraction': r['raise_amount'] / r['pot_total'],
+                'created_at': r['created_at'],
+                'hand_number': r['hand_number'],
+            }
+            for r in cur.fetchall()
+            if r['player_name'] == r['owner_name']
+        ]
+        conn.close()
+    except Exception as e:  # noqa: BLE001 — best-effort read, never break the page
+        logger.warning("load_owner_bet_decisions failed for %s: %s", owner_id, e)
     return rows

@@ -109,3 +109,12 @@ class TestLabels:
         assert sizing_label('face_up') == 'Big bets = strength'
         assert sizing_label('reverse') == 'Big bets = bluffs'
         assert sizing_label('balanced') == 'Balanced sizing'
+
+    def test_self_framing(self):
+        from flask_app.services.coach_sizing_tells import self_advice, self_label
+
+        assert self_label('face_up') == 'Your big bets are face-up'
+        assert self_label('balanced') == 'Your sizing is balanced'
+        # face-up is a leak (advice present); balanced is clean (no advice).
+        assert self_advice('face_up') and 'bluff' in self_advice('face_up').lower()
+        assert self_advice('balanced') is None
