@@ -2,7 +2,7 @@
 purpose: Grounded narrative log of building the headless multi-table tournament engine (branch tournaments)
 type: reference
 created: 2026-05-29
-last_updated: 2026-06-01
+last_updated: 2026-06-02
 ---
 
 <!-- newest entries at the bottom -->
@@ -562,3 +562,145 @@ context would have built the wrong thing. Bannered it SUPERSEDED, wrote a single
 version-corrected integration surface, the gotchas), and this entry. P2 is now a
 "hand this one doc to a fresh context and go" package — design complete, substrate
 landed, no code written.
+
+---
+
+## 2026-06-02 — P3.7 world-tick hook + P3.8 React Main Event surface
+
+Picked up the remaining circuit work from `P3_REMAINING_HANDOFF.md` with the P3
+backend already landed and green (239 tests in `tests/test_tournament/`). Two
+pieces left: the world-tick hook that plays a declined Main Event out at world
+pace, and the React card the player Registers/Declines from.
+
+**P3.7 — the autonomous advance hook.** The handoff flagged the one real wrinkle:
+`spawn_autonomous_tournament` writes the durable row + escrow but does NOT
+register in memory and has no live `game_id`, so the ticker has to (a) find the
+owner's autonomous tournament and (b) tell it apart from a *human* tournament
+(player-gated — must never auto-advance). The handoff floated a discriminator
+column. I went the migration-free way instead: an autonomous field simply has no
+`human:<owner>` seat (the human builder always seats one, the autonomous builder
+never does), so `is_autonomous` checks exactly that off the serialized field.
+Given the project's schema-collision scar tissue, skipping a v136 migration felt
+like the right call — and the invariant "one active tournament per owner" means a
+single `find_active_for_owner` + the seat check is enough.
+
+New `flask_app/services/tournament_ticker.py`: `is_autonomous`,
+`beats_to_world_events` (both pure, unit-testable), and `advance_owner_tournament`
+(registry + repos injected). The beats→events step keeps the *structural* subset —
+field-collapse milestones, the bubble, the winner — and drops per-hand knockouts /
+table breaks (the "never every hand" filter the handoff asked for). Each event
+gets a microsecond-staggered `created_at` so two milestones in one tick don't
+collide on the frontend's `created_at|type|personality_id` de-dup key (the empty
+personality_id would otherwise fold them into one).
+
+Wired into `ticker_service._tick_sandbox` as `_maybe_tick_tournament`, behind a new
+`economy_flags.TOURNAMENT_CIRCUIT_ENABLED` (default OFF). It records the beats into
+the activity buffer *before* the existing emit block, so they ride out as
+`world_event`s with no new emit path. One thing I had to be careful about: lock
+ordering. The `/advance` route takes the tournament lock then the sandbox lock; the
+ticker holds the sandbox lock. To avoid an inversion (and a theoretical deadlock if
+someone POSTs `/advance` on their autonomous tid), the ticker relies on the sandbox
+lock alone — no per-tournament registry lock — exactly as the handoff suggested.
+
+**P3.8 — the React card.** `tournamentApi.ts` (separate from `api.ts` since the
+routes live outside `/api/cash`) + `MainEventCard.tsx`/`.css`. Register →
+`acceptInvite` (stands the human up from cash first, server-side) → `sitTournament`
+→ navigate to `/game/<id>`; Decline → `declineInvite` (it runs autonomously). A
+buy-in > 0 asks for an inline confirm and a 402 surfaces the shortfall; v1 Main
+Events are freerolls so that path is mostly latent. Lobby fetches the invite on
+mount + every `lobby_tick` + the fallback poll (the GET also runs the chairman's
+offer/expire sweep, so polling keeps it fresh with no scheduler). The lifecycle
+beats already ride the existing `world_event` socket the lobby subscribes to — I
+just added the three `tournament_*` types to the `LobbyEvent` union and a Trophy
+glyph to `tickerEvents`.
+
+**Verification.** New `test_tournament_ticker.py` (8) + two gating tests in
+`test_ticker_service.py` — the flag-off path is inert, the enabled path records the
+returned events. Full `tests/test_tournament/` still **239 passed**; the two ticker
+files **27 passed**; frontend `tsc --noEmit` + eslint on the touched files clean.
+
+Did NOT flip the flag on. Per §6 of the handoff, EXP_006 tuned a *per-tick* overlay
+but production cadence is *per-tournament*; the economy sim wants a re-run under the
+real cadence before the thermostat goes live. So P3.7 ships dormant — the lobby card
+(P3.8) works today because the invite GET is not flag-gated; only the background
+autonomous advance waits on the flag. Deferred as before: staking into entries,
+the cash-rake thermostat, prestige carry-out (P4).
+
+---
+
+## 2026-06-02 (cont.) — §6 economy re-sim + four concurrency/lifecycle fixes
+
+**Ran the §6 gate the handoff demanded before flipping the economy on.** EXP_006
+had tuned a *per-tick* overlay; production fires *per tournament*. Added a
+`--mode tournament_cadence` to the thermostat harness that calls the REAL
+`should_offer_event` + `tournament_funding` (so it measures the actual production
+cadence, not a re-model) and a `--preload-reserves` knob so the regulated regime
+is reached without the ~1600-tick natural fill. Result was unambiguous across 3
+seeds: the per-tick `0.02 × reserves` overlay does NOT transfer — across the
+30-min cooldown it's ~225× too weak and the bank balloons at ~99 chips/tick (vs a
+130 baseline), barely better than no lever. I'd predicted this from the arithmetic
+(2% of reserves per 225-tick cooldown can't match a steady faucet) and the sim
+confirmed it. The fix — size each event to **drain reserves back to the setpoint**
+(`reserves − FLUSH_SETPOINT × holdings`, capped) — held the band (slope 6.9–12.0,
+178k–245k, conservation-clean). Shipped it into `tournament_funding`, updated the
+pinned tests, wrote up EXP_006 §6. Honest caveat recorded: the modeled-rake faucet
+understates the real vice faucet, so one hands-ON aged-sandbox run is still wanted
+before default-on — but the lever scales with reserves, so a bigger faucet means
+more chips per event, not a band escape. Conservation double-checked by hand:
+`holdings + reserves` was identical (2,470,000) across baseline and cadence
+sandboxes, and the overlay shifted exactly its recorded amount — the lever leaks
+nothing, it was just too small.
+
+**Then four production-readiness fixes Jeff flagged (used investigation agents to
+map each against the real code first, then implemented).** (1) Cross-worker accept
+double-debit: the in-memory sandbox lock doesn't span gunicorn workers, so two
+workers could both charge — fixed with a DB compare-and-swap (`claim()` /
+`revert_to_offered()`), accept claims before charging, and the human-spawn now
+deletes its durable row on buy-in failure so a reverted invite leaves no orphan
+tournament. (2) Payout `in_progress` reconcile: a crash mid-distribute left partial
+credits with no retry (the guard actively BLOCKS re-entry — the "leave in_progress
+for a reconcile pass" comment assumed a reconcile that never existed). Built
+`reconcile_stuck_payout`, ledger-authoritative (pays only `owed − ledger_paid` per
+sink, so never a double credit), driven by a flag-gated ticker watchdog + an admin
+route. Had to reorder the human payout branch ledger-first (the AI branch already
+was) so "ledger row present ⟹ paid" is a uniform invariant — otherwise reconcile
+could double-pay the human. (3) expire_due was sweeping every owner's invites under
+the caller's lock — scoped it to the held-lock sandbox. (4) Backed the
+one-open-invite rule with a v136 partial unique index + a defensive dup-collapse
+pre-step, and made `offer()` turn the lost-race IntegrityError into the open invite
+rather than a 500.
+
+Full `tests/test_tournament/` + ticker suite: **276 passed**. New: a reconcile test
+file (5) + 9 invite tests (CAS, scoping, index). tsc/eslint/ruff clean. Still all
+uncommitted on `tournaments`.
+
+---
+
+## 2026-06-02 (cont.) — second review pass: 8 concurrency/lifecycle hardening items
+
+Jeff ran a deeper review and surfaced 8 issues (one already fixed). Worked each
+against the real code (agents had mapped the first batch; this batch I did
+directly since the files overlapped too much to parallelize). The instructive one
+was #1: I'd discriminated autonomous-vs-human by "no `human:<owner>` seat", which
+broke the legacy `/register` route tests — `/register` builds an all-synthetic
+`P01..PNN` field with `human_id=P01`, so it has no `human:` seat either and got
+misclassified as autonomous (which also meant my P3.7 ticker would have wrongly
+auto-advanced `/register` tournaments). Sharpened `is_autonomous`: an
+all-synthetic field is the legacy human path (player drives P01 via /sit), only a
+real-persona field with no human seat is autonomous. Reads only `session.entries`
+so the existing stub tests still hold.
+
+The rest: routes 409 on autonomous (#1); `settle` only releases the field when the
+payout actually settled, else leaves it active+visible to the reconcile watchdog
+(#2 — the "reconcile pass" the code cited in 5 comments now genuinely exists from
+last batch, and this stops the failed-payout-hidden-forever case); recency-bound
+the double-presence exclusion so an abandoned tournament stops ghost-seating its
+field (#3); `draft_exclusions` now fails CLOSED — a scan error aborts the spawn
+rather than under-excluding a seated persona (#5); atomic `claim_payout` CAS
+replaces the read-check-set guard (#6); decline/expire report success when the
+invite was consumed even if no autonomous field could spawn (#7); persist before
+build_beats so a beat hiccup can't drop the winner beat (#8). #4 (expire_due
+cross-sandbox) was already fixed in the prior batch.
+
+New tests across the three areas (route-rejection, payout/recency/CAS, fail-closed
+spawn, decline marker). Targeted suites green; full run gating. Still uncommitted.
