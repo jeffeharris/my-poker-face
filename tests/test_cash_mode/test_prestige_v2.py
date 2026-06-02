@@ -132,11 +132,20 @@ def test_oracle_parity_high_cut_matches_scorer():
     assert all(fr.high_cut == prod_cut for fr in prod.values())
 
 
-def test_rung1_four_routes_each_reach_high_renown():
+def test_rung1_dominant_routes_reach_high_renown():
     prod = score_renown_field(_archetypes_v2(), WeightsV2())
     cut = next(iter(prod.values())).high_cut
-    for route in ("Grinder", "Whale", "Patron", "Villain"):
+    # The strongest accomplishment routes clear the top-decile figure cut.
+    for route in ("Grinder", "Whale", "Villain"):
         assert prod[route].renown_total >= cut, f"{route} should be high renown"
+    # All four routes (incl. the patron/backer, the weakest) out-rank the passive
+    # control and the volume bogey — the scorer ranks accomplishment over grinding
+    # even when a route sits just outside the figure percentile.
+    control = prod["Up-and-comer"].renown_total
+    bogey = prod["Fast bot (volume bogey)"].renown_total
+    for route in ("Grinder", "Whale", "Patron", "Villain"):
+        assert prod[route].renown_total > control
+        assert prod[route].renown_total > bogey
 
 
 def test_rung1_control_below_cut():
@@ -270,8 +279,9 @@ def test_quadrant_label_relative_returns_same_constants_as_v1():
 
 def test_high_renown_cut_single_entity_does_not_crash():
     # The human-alone case (a future ticker must not crash on a 1-entity field).
+    # Pure top-decile percentile of a 1-element field is that element.
     cut = high_renown_cut([5.0], WeightsV2())
-    assert cut == pytest.approx(max(5.0, 3.0 * 5.0))
+    assert cut == pytest.approx(5.0)
 
 
 def test_high_renown_cut_empty_field():

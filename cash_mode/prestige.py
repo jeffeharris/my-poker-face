@@ -448,8 +448,7 @@ BREADTH_PER_OPP_CAP_HANDS = 200.0   # concavity knee per opponent (hands mode)
 W_STAKES_V2 = 0.4
 W_APEX = 0.4
 APEX_UNIT = 50000.0
-HIGH_RENOWN_TOP_FRACTION = 0.20
-HIGH_RENOWN_MEDIAN_MULTIPLE = 3.0
+HIGH_RENOWN_TOP_FRACTION = 0.10  # "figures" = the top decile of the field by renown
 VOLUME_DENOMINATOR = "wallclock"    # the design ideal (anti-treadmill governor)
 
 # stake tiers low->high for stakes-mastery depth credit (mirror the scorer).
@@ -496,7 +495,6 @@ class WeightsV2:
     apex_unit: float = APEX_UNIT
     volume_denominator: str = VOLUME_DENOMINATOR
     high_renown_top_fraction: float = HIGH_RENOWN_TOP_FRACTION
-    high_renown_median_multiple: float = HIGH_RENOWN_MEDIAN_MULTIPLE
     stake_order: _Tuple[str, ...] = _V2_STAKE_ORDER
 
 
@@ -728,14 +726,18 @@ def percentile_cut(renowns: _List[float], top_fraction: float) -> float:
 
 
 def high_renown_cut(renowns: _List[float], w: WeightsV2 = WeightsV2()) -> float:
-    """Relative 'high renown' threshold = max(top-X% boundary, k×median).
+    """Relative 'high renown' threshold = the top-X% renown boundary.
 
-    Both inputs are field-relative, so the cut self-scales with the field and
-    needs no absolute constant. Verbatim port of
-    `renown_v2_scorer.high_renown_cut`."""
-    pct = percentile_cut(renowns, w.high_renown_top_fraction)
-    floor = w.high_renown_median_multiple * _median_v2(renowns)
-    return max(pct, floor)
+    A pure rank-based percentile, so it self-scales with the field and is robust
+    to the renown scale's SHAPE. Every driver in `compute_components_v2` is
+    concave (sqrt / log1p), so renown is intentionally thin-tailed — on a real
+    field the max sits only ~2.6× the median. The retired `k×median` floor was a
+    MULTIPLICATIVE gate on that additive-concave scale: with k=3 it exceeded the
+    field maximum (no entity ever classified as a figure), and it got HARDER as
+    the field grew more accomplished (the median rose). A percentile has neither
+    failure mode — it always names the top decile, whatever the spread. Verbatim
+    port of `renown_v2_scorer.high_renown_cut`."""
+    return percentile_cut(renowns, w.high_renown_top_fraction)
 
 
 def score_renown_field(
