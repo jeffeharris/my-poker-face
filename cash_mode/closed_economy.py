@@ -73,6 +73,84 @@ FAKE_VICE_FLOOR_PROTECTION = 0.5
 MIN_VICE_AMOUNT = 50
 FAKE_VICE_DEPOSITS_PER_REFRESH = 3
 
+
+# --- Experimental: vice reference mode (env-gated, default off) ----------
+# The vice tax normally measures wealth relative to each AI's OWN
+# starting bankroll (`compute_excess_ratio(bankroll, starting)`), which
+# structurally punishes climbing above your origin. Setting
+# `VICE_REFERENCE_MODE=median` instead measures wealth relative to the
+# field median (× `VICE_MEDIAN_MULT`, floored at `VICE_MEDIAN_FLOOR`), so
+# only AIs genuinely rich *by the field's standard* are taxed and a
+# newcomer can climb toward the median untaxed. Read at call time so a
+# sim/experiment can flip it per-run; default reproduces prior behaviour
+# bit-for-bit.
+def _vice_reference_mode() -> str:
+    import os
+    return os.environ.get('VICE_REFERENCE_MODE', 'starting').strip().lower()
+
+
+def _vice_median_mult() -> float:
+    import os
+    try:
+        return float(os.environ.get('VICE_MEDIAN_MULT', '1.0'))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _vice_median_floor() -> int:
+    import os
+    try:
+        return int(os.environ.get('VICE_MEDIAN_FLOOR', '2000'))
+    except (TypeError, ValueError):
+        return 2000
+
+
+def _vice_top_percentile() -> float:
+    """For `VICE_REFERENCE_MODE=top_percentile`: the cut below which wealth
+    is untaxed. 0.90 → only the top 10% of net worth is taxed."""
+    import os
+    try:
+        return float(os.environ.get('VICE_TOP_PERCENTILE', '0.90'))
+    except (TypeError, ValueError):
+        return 0.90
+
+
+def _seat_chips_by_pid(cash_table_repo, sandbox_id: str) -> Dict[str, int]:
+    """Sum each AI's chips sitting in table seats across the sandbox.
+
+    Net worth = off-table bankroll + these seat stacks. Without this, a
+    seated climber looks broke (their stack is on the felt), so the
+    field-relative tax modes need it to size wealth correctly. Returns {}
+    (→ net worth == bankroll) when no repo is wired or on any read error.
+    """
+    out: Dict[str, int] = {}
+    if cash_table_repo is None:
+        return out
+    try:
+        for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+            for slot in (table.seats or []):
+                if slot.get('kind') != 'ai':
+                    continue
+                pid = slot.get('personality_id')
+                if pid:
+                    out[pid] = out.get(pid, 0) + int(slot.get('chips', 0) or 0)
+    except Exception:
+        return out
+    return out
+
+
+def _percentile_value(sorted_vals: List[int], q: float) -> float:
+    """Linear-interpolated q-percentile of a pre-sorted list."""
+    if not sorted_vals:
+        return 0.0
+    if len(sorted_vals) == 1:
+        return float(sorted_vals[0])
+    pos = q * (len(sorted_vals) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    w = pos - lo
+    return sorted_vals[lo] * (1 - w) + sorted_vals[hi] * w
+
 # Grinder definition — the AIs that come to the casino to farm fish.
 # A "hungry grinder" satisfies all three:
 #   • archetype != 'fish' (fish farm nobody)
@@ -387,6 +465,7 @@ def resolve_fake_vice_deposits(
     rng: random.Random,
     now: datetime,
     fish_ids: Set[str],
+    cash_table_repo=None,
 ) -> List[FakeViceDeposit]:
     """Drain chips from rich non-fish AIs into the bank pool.
 
@@ -404,7 +483,11 @@ def resolve_fake_vice_deposits(
         sandbox_id=sandbox_id,
     )
 
-    rolls: List[tuple] = []  # (pid, state, knobs, projected, amount, excess, prob)
+    # First pass: load every taxable (non-fish) AI's projected bankroll
+    # and seat stacks → net worth. Needed up front so the field-relative
+    # modes can size the tax against the whole field.
+    seat_chips = _seat_chips_by_pid(cash_table_repo, sandbox_id)
+    loaded: List[tuple] = []  # (pid, state, knobs, starting, projected, net_worth)
     for pid in candidates:
         if pid in fish_ids:
             continue
@@ -416,7 +499,44 @@ def resolve_fake_vice_deposits(
         if starting <= 0:
             continue
         projected = project_bankroll(state, starting, knobs.bankroll_rate, now)
-        excess = compute_excess_ratio(projected, starting)
+        net_worth = projected + seat_chips.get(pid, 0)
+        loaded.append((pid, state, knobs, starting, projected, net_worth))
+
+    # Wealth reference, by mode:
+    #   starting        — each AI vs its OWN starting bankroll (default;
+    #                     reproduces prior behaviour exactly). Punishes
+    #                     climbing above your origin.
+    #   median          — vs the field-median NET WORTH × mult (floored).
+    #   top_percentile  — vs the Nth-percentile NET WORTH; only the top
+    #                     (1−pct) slice is taxed (default 0.90 → top 10%).
+    # The field-relative modes measure NET WORTH (bankroll + seat stacks)
+    # so a seated climber isn't mis-read as poor; the drain itself still
+    # comes from off-table bankroll (seat chips can't be touched mid-hand).
+    mode = _vice_reference_mode()
+    field_threshold = None
+    if mode in ('median', 'top_percentile') and loaded:
+        nws = sorted(nw for *_, nw in loaded)
+        if mode == 'median':
+            mid = len(nws) // 2
+            med = nws[mid] if len(nws) % 2 else (nws[mid - 1] + nws[mid]) / 2
+            field_threshold = max(_vice_median_floor(), med * _vice_median_mult())
+        else:
+            field_threshold = _percentile_value(nws, _vice_top_percentile())
+
+    rolls: List[tuple] = []  # (pid, state, knobs, projected, amount, excess, prob)
+    for pid, state, knobs, starting, projected, net_worth in loaded:
+        if mode == 'starting':
+            # Unchanged: bankroll vs own start, with the 1.2× comfort floor.
+            excess = compute_excess_ratio(projected, starting)
+            floor = int(starting * FAKE_VICE_FLOOR_PROTECTION)
+        else:
+            # Net worth vs a shared field threshold; excess = multiples of
+            # the threshold you sit above it (only the rich slice > 0).
+            ref = field_threshold or 0
+            excess = max(0.0, (net_worth - ref) / ref) if ref > 0 else 0.0
+            # Drain comes from bankroll; one event already capped at
+            # FAKE_VICE_MAX_FRACTION of it, so just guard against negative.
+            floor = 0
         if excess <= 0:
             continue
         prob = compute_vice_probability(excess)
@@ -425,8 +545,7 @@ def resolve_fake_vice_deposits(
         amount = compute_vice_amount(projected, excess, rng)
         if amount < MIN_VICE_AMOUNT:
             continue
-        # Floor protection — never drop below 50% of starting in one event.
-        floor = int(starting * FAKE_VICE_FLOOR_PROTECTION)
+        # Floor protection — never drop below `floor` in one event.
         if projected - amount < floor:
             amount = max(0, projected - floor)
             if amount < MIN_VICE_AMOUNT:
@@ -489,6 +608,7 @@ def resolve_closed_economy(
     sandbox_id: str,
     rng: random.Random,
     now: datetime,
+    cash_table_repo=None,
 ) -> ClosedEconomyBatch:
     """One closed-economy resolution tick.
 
@@ -512,6 +632,7 @@ def resolve_closed_economy(
             rng=rng,
             now=now,
             fish_ids=fish_ids,
+            cash_table_repo=cash_table_repo,
         )
     except Exception as exc:  # noqa: BLE001 — best-effort resolution
         logger.warning(
