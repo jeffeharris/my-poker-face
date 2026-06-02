@@ -78,14 +78,18 @@ WEALTH_KNEE = 5.0
 # term). Both inputs are field-relative renown PERCENTILES in [0,1] (persisted
 # `victim_percentile`), so the term is scale-stable and degrades to 0 with no
 # renown data. Gated at the lobby by `PRESTIGE_SEEKING_ENABLED`.
-# strength of the occupant-prestige pull. SIM FINDING (2026-06-02, B4 A/B,
-# grinder-only field): 1.0 is too WEAK — the W_CROWD (-0.5/grinder) term swamps
-# it, so co-location barely moves. W_MARQUEE=8 gave a clear +9.6pp co-location
-# lift (drift=0). The calibrated default lives between, and its upper bound is
-# bounded by fish-table starvation — needs the fish+churn sim before the flag is
-# flipped. Left conservative (no live effect; flag is OFF). See
-# scripts/sim_prestige_seeking_ab.py + RENOWN_V2_AI_WIRING_PLAN.md.
-W_MARQUEE = 1.0
+# strength of the occupant-prestige pull. CALIBRATED 2026-06-02 via the
+# event-level probe (scripts/sim_prestige_probe.py): the marquee bonus is linear
+# in W, so one instrumented run measures, per seat decision, the W at which it
+# swings the pick to a higher-prestige table. Influence rate vs W (238 contested
+# decisions): W=1 -> 17%, W=1.5 -> ~28%, W=2 -> 40%, saturating ~80% by W>=8.
+# The "felt but not domineering" band (~15-35%) centers at W~1.5, which lifts the
+# mean prestige of the chosen table from 0.24 (no marquee) to ~0.45. (The earlier
+# "1.0 too weak" note was an ARTIFACT of the churn A/B's decoherence; the probe
+# is the trustworthy instrument -- see RENOWN_V2_AI_WIRING_PLAN.md.) Fish-table
+# starvation separately ruled out (Hetzner sweep: fish-table grinders stayed
+# 108-131% of baseline at every W). Flag still default OFF.
+W_MARQUEE = 1.5
 P_LINEUP = 0.25   # damped weight on additional notables beyond the top occupant
 # `status_appetite` is a per-AI "how much do I chase prestige" rank — a weighted
 # blend of NAMED factors, deliberately extensible (add a factor + weight here).

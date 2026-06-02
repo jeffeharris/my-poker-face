@@ -332,13 +332,31 @@ display unless noted, and each should ship behind its own flag.
       with the clean movement-only +9.6pp, but the low-W negatives are noise, not
       signal.
 
+  - **Calibration RESOLVED via the event-level probe (`scripts/sim_prestige_probe.py`).**
+    The marquee bonus is linear in W (`score(W) = s0 + W·Δ`), so one instrumented
+    run at W=1 captures `(s0, Δ, occ)` per candidate per seat decision and the
+    argmax at *any* W is computed offline — no decoherence. Influence rate (of
+    238 contested decisions, the share W swings to a higher-prestige table):
+
+    | W | influence | mean occ of pick |
+    |---|---|---|
+    | 0.5 | 10% | 0.30 |
+    | **1** | **17%** | 0.35 |
+    | **1.5** | **~28%** | ~0.45 |
+    | 2 | 40% | 0.53 |
+    | 5 | 70% | 0.78 |
+    | 15 | 82% | 0.87 |
+
+    The "felt but not domineering" band (~15–35%) centers at **W ≈ 1.5** (vs a
+    no-marquee baseline pick prestige of 0.24). **Set `W_MARQUEE = 1.5`**
+    (committed). Note this *corrects* the churn A/B's false "default too weak"
+    read — even W=1 influences 17%; that earlier negative was pure decoherence
+    noise.
+
   - **Net gate status:** mechanism validated + conservation-safe + **no
-    starvation**. The precise `W_MARQUEE` calibration is **methodologically
-    blocked** by churn-decoherence — it needs an **event-level within-run probe**
-    (count fill decisions where ON chose a higher-`occ_prestige` table than the
-    OFF counterfactual on *identical* state), not a final-snapshot economy diff.
-    Until then `W_MARQUEE` stays conservative and the flag stays OFF. Also still
-    owed: a positive end-to-end lobby test.
+    starvation** + **W calibrated (1.5)**. Remaining before flip: a positive
+    end-to-end lobby test, and ideally a 2nd-seed confirm of the calibration
+    curve (one field/seed so far). Flag stays OFF until then.
 
 ---
 

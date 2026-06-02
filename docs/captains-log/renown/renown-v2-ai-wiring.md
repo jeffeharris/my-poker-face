@@ -211,3 +211,27 @@ torn down after). Several scars worth keeping:
   decision to its OFF counterfactual on identical state), which is the right
   next instrument. Flag stays OFF, W_MARQUEE conservative. Box torn down; the
   project had a stray `poker-eval-tax` box (not mine) that also got cleaned up.
+
+## 2026-06-02 (later) — the event-level probe nailed the calibration
+
+Built `scripts/sim_prestige_probe.py`. The trick that made it clean: the marquee
+bonus is **linear in W** (`score(W) = s0 + W·Δ`), so I don't need to re-run per
+W — one instrumented run at W=1 captures `(s0, Δ, occ)` for every candidate at
+every seat decision (monkeypatching the greedy seater, zero prod change), and
+the argmax at *any* W falls out offline. No economy, no decoherence — pure
+decision-point sensitivity.
+
+The curve (238 contested decisions, the ones with a marquee option): influence
+rises 10%→17%→28%→40%→…→82% as W goes 0.5→1→1.5→2→…→15, and the mean prestige of
+the chosen table climbs from the 0.24 no-marquee baseline toward 0.87. The
+"felt but not domineering" band (~15-35%) centers at **W≈1.5** — set that.
+
+The satisfying part: this **corrected my own earlier mistake**. The churn A/B
+had me believing "default 1.0 is too weak." The probe shows W=1 already swings
+17% of contested decisions — the negative churn number was decoherence noise, not
+weakness. Two lessons re-learned: (1) for a decision-gate change, instrument the
+DECISION, not the downstream economy; (2) don't trust a single confounded metric
+enough to draw a tuning conclusion from it — I'd written "too weak" into a code
+comment off the bad signal. The probe is the instrument I should have built
+first. (Calibration is one field/seed so far; a 2nd-seed confirm is a cheap
+follow-up.)
