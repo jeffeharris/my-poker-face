@@ -1,11 +1,12 @@
 """Deletion-time presence/seat sweeps (read-side completion R3).
 
-The reconcilers `_free_ghost_human_seats` / `_reclaim_zombie_casino_seats` exist
-because a game-row or persona delete can leave a seat behind that presence never
-saw freed. These sweeps close that at the SOURCE: on the delete, open the entity's
-seat via `save_table` (which under `PRESENCE_AUTHORITY_ENABLED` atomically drives
-the GO_OFFLINE / RETURN_TO_POOL transition), making the orphan unrepresentable
-instead of swept later. That's what lets the reconcilers retire (R4).
+The reconcilers `_free_ghost_human_seats` / `_reclaim_zombie_casino_seats` used to
+exist because a game-row or persona delete can leave a seat behind that presence
+never saw freed (both were retired 2026-06-01 / R4). These sweeps close that at the
+SOURCE: on the delete, open the entity's seat via `save_table` (which under
+`PRESENCE_AUTHORITY_ENABLED` atomically drives the GO_OFFLINE / RETURN_TO_POOL
+transition), making the orphan unrepresentable instead of swept later. That, plus
+the read-side occupancy projection, is what let the reconcilers retire (R4).
 
 Both are best-effort + gated on authority (a sweep failure must never block the
 delete). They take the `repos` dict so they work from any layer without importing
@@ -49,8 +50,9 @@ def _open_seat(cash_table_repo, *, sandbox_id, table_id, seat_index, expect_id_f
 def free_human_seat_on_delete(*, owner_id: str, sandbox_id: str, repos: Dict[str, Any]) -> int:
     """Open a human's persisted cash seat when their game row is deleted (R3a).
 
-    Mirrors `_free_ghost_human_seats` but fires AT the deletion (reaper / purge)
-    so the ghost seat never persists. Under authority `save_table` also drives the
+    Replaces the retired `_free_ghost_human_seats` sweep: fires AT the deletion
+    (reaper / purge) so the ghost seat never persists. Under authority `save_table`
+    also drives the
     `GO_OFFLINE` presence transition, clearing the stale presence row. Best-effort;
     requires `sandbox_id` (callers have it). Returns the count of seats freed.
     """
@@ -113,10 +115,10 @@ def sweep_presence_on_persona_delete(*, personality_id: str, repos: Dict[str, An
     for st in seated:
         try:
             # Conservation: return the seat's residual chips to the bank pool
-            # BEFORE opening (mirrors _reclaim_zombie_casino_seats — pool-funded
-            # casino chips must not vanish when the persona is deleted). Only
-            # open the seat if the return succeeds (or there were none); a failed
-            # return leaves the seat for the reconciler to retry, never vanishing
+            # BEFORE opening (same pattern the retired _reclaim_zombie_casino_seats
+            # used — pool-funded casino chips must not vanish when the persona is
+            # deleted). Only open the seat if the return succeeds (or there were
+            # none); a failed return leaves the seat to retry, never vanishing
             # chips.
             if not _return_seat_chips_to_pool(
                 cash_table_repo, chip_ledger_repo, personality_id=personality_id, st=st

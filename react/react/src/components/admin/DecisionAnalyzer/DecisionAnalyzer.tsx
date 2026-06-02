@@ -142,6 +142,7 @@ export function DecisionAnalyzer({
   const [selectedCapture, setSelectedCapture] = useState<PromptCapture | null>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<DecisionAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [availableEmotions, setAvailableEmotions] = useState<string[]>([]);
@@ -301,6 +302,9 @@ export function DecisionAnalyzer({
         params.set('max_tilt_level', filters.max_tilt_level.toString());
       if (filters.limit) params.set('limit', filters.limit.toString());
       if (filters.offset) params.set('offset', filters.offset.toString());
+      // Skip the expensive bundled stats so the list paints fast (<1s).
+      // Stats are loaded separately via fetchCaptureStats().
+      params.set('include_stats', 'false');
 
       const response = await fetch(`${config.API_URL}/api/prompt-debug/captures?${params}`, {
         credentials: 'include',
@@ -312,8 +316,6 @@ export function DecisionAnalyzer({
 
       const data = await response.json();
       setCaptures(data.captures || []);
-      setStats(data.stats);
-      setLabelStats(data.label_stats || null);
       setTotal(data.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -321,6 +323,42 @@ export function DecisionAnalyzer({
       setLoading(false);
     }
   }, [filters]);
+
+  // Lazy-load the capture + label stats separately from the list so the list
+  // can paint fast. These run the expensive full-table aggregations.
+  const fetchCaptureStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.game_id) params.set('game_id', filters.game_id);
+      // 'all' matches the bundled stats' behavior (no call_type constraint);
+      // the standalone endpoints otherwise default to 'player_decision'.
+      params.set('call_type', 'all');
+
+      const [statsRes, labelRes] = await Promise.all([
+        fetch(`${config.API_URL}/api/prompt-debug/stats?${params}`, {
+          credentials: 'include',
+        }),
+        fetch(`${config.API_URL}/api/prompt-debug/label-stats?${params}`, {
+          credentials: 'include',
+        }),
+      ]);
+
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setStats(data.stats);
+      }
+      if (labelRes.ok) {
+        const data = await labelRes.json();
+        setLabelStats(data.label_stats || null);
+      }
+    } catch (err) {
+      // Silently ignore - stats are supplementary to the list
+      logger.debug('Failed to fetch capture stats:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [filters.game_id]);
 
   const fetchAnalysisStats = useCallback(async () => {
     try {
@@ -359,9 +397,11 @@ export function DecisionAnalyzer({
   }, []);
 
   useEffect(() => {
+    // List paints fast; the three stats blocks fill in independently after.
     fetchCaptures();
+    fetchCaptureStats();
     fetchAnalysisStats();
-  }, [fetchCaptures, fetchAnalysisStats]);
+  }, [fetchCaptures, fetchCaptureStats, fetchAnalysisStats]);
 
   // Get models for a specific provider (with fallback)
   const getModelsForProviderWithFallback = useCallback(
@@ -871,6 +911,15 @@ export function DecisionAnalyzer({
             </button>
           }
         />
+      )}
+
+      {/* Stats still computing - list is already visible above */}
+      {statsLoading && !analysisStats && !stats && (!isMobile || !showMobileDetail) && (
+        <div className="debugger-stats analysis-stats stats-loading">
+          <div className="stat-item">
+            <span className="stat-label">Loading stats…</span>
+          </div>
+        </div>
       )}
 
       {/* Decision Analysis Stats - hidden on mobile when showing detail */}

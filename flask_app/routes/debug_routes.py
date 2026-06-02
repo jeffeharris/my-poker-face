@@ -231,7 +231,7 @@ def get_psychology_debug(game_id):
 
     Returns combined view of:
     - Elastic personality (current traits, anchor values, pressure levels)
-    - Emotional state (valence, arousal, control, focus, narrative)
+    - Emotional state (quadrant, display_emotion, narrative, inner_voice)
     - Tilt state (level, source, nemesis, streaks)
     """
     game_data = game_state_service.get_game(game_id)
@@ -296,11 +296,8 @@ def get_psychology_debug(game_id):
             player_data['emotional'] = {
                 'narrative': emo.narrative,
                 'inner_voice': emo.inner_voice,
-                # Legacy 4D model (deprecated)
-                'valence': round(emo.valence, 2),
-                'arousal': round(emo.arousal, 2),
-                'control': round(emo.control, 2),
-                'focus': round(emo.focus, 2),
+                'display_emotion': psych.get_display_emotion(),
+                'quadrant': psych.quadrant.value,
             }
 
         # Add composure state details

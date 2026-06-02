@@ -6,6 +6,7 @@ with a poker-coaching system prompt and stat formatting.
 
 import json
 import logging
+import os
 from collections import defaultdict
 from typing import Dict, List, Optional, TypedDict
 
@@ -284,6 +285,21 @@ class CoachAssistant:
             return response.strip()
 
 
+def apply_coach_highlight(stats, coach_action, coach_raise_to) -> None:
+    """Point the UI's recommendation highlight at the coach's pick.
+
+    When `COACH_HIGHLIGHT_SOURCE` is 'coach' (the default) and the coach
+    returned an action, overwrite the bounded-options default highlight in
+    `stats` with the coach's action/raise_to. No-op when the env opts out, the
+    coach gave no action, or there are no stats. Mutates `stats` in place.
+    Shared by the interactive ask route and the background prefetch so the two
+    can't drift.
+    """
+    if stats and coach_action and os.getenv('COACH_HIGHLIGHT_SOURCE', 'coach') == 'coach':
+        stats['recommendation'] = coach_action
+        stats['raise_to'] = coach_raise_to
+
+
 def _format_stats_for_prompt(data: Dict) -> str:
     """Convert coaching data dict into human-readable text for the LLM."""
     lines = []
@@ -478,6 +494,38 @@ def _format_stats_for_prompt(data: Dict) -> str:
             if hands > 0:
                 parts.append(f"{hands} hands")
             lines.append(f"  - {', '.join(parts)}")
+
+            # Tier-2 tells — only reads we actually have a sample for (a None
+            # rate means the spot hasn't been observed, so it's omitted rather
+            # than shown as a misleading default). These give the coach
+            # exploit-grade detail beyond the VPIP/PFR/AF triple.
+            dr = opp.get('deep_reads') or {}
+            tell_parts = []
+            if dr.get('fold_to_cbet') is not None:
+                tell_parts.append(f"folds to c-bet {dr['fold_to_cbet']:.0%}")
+            if dr.get('cbet_attempt_rate') is not None:
+                tell_parts.append(f"c-bets flop {dr['cbet_attempt_rate']:.0%}")
+            if dr.get('barrel_frequency') is not None:
+                tell_parts.append(f"barrels turn {dr['barrel_frequency']:.0%}")
+            if dr.get('aggression_factor_postflop') is not None:
+                tell_parts.append(f"postflop AF {dr['aggression_factor_postflop']:.1f}")
+            if dr.get('limp_rate') is not None:
+                tell_parts.append(f"limps {dr['limp_rate']:.0%} of open spots")
+            if dr.get('showdown_win_rate') is not None:
+                tell_parts.append(f"wins {dr['showdown_win_rate']:.0%} at showdown")
+            if dr.get('fold_to_big_bet') is not None:
+                tell_parts.append(f"folds to big bets {dr['fold_to_big_bet']:.0%}")
+            sp = dr.get('sizing_polarization_score')
+            if sp is not None and sp > 0.15:
+                tell_parts.append("bet size telegraphs strength (big = strong)")
+            jam = dr.get('all_in_per_facing_bet')
+            if jam is not None and jam > 0.15:
+                tell_parts.append(f"jams into bets {jam:.0%} (don't bluff thin)")
+            trap = dr.get('flop_check_then_barrel_rate')
+            if trap is not None and trap > 0.5:
+                tell_parts.append(f"checks flop then barrels turn {trap:.0%} (trap line)")
+            if tell_parts:
+                lines.append(f"      tells: {', '.join(tell_parts)}")
 
             # Cross-session history — surface only when present so the
             # line stays compact in fresh games. Notes are the player's

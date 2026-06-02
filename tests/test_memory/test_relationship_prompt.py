@@ -26,6 +26,23 @@ from poker.repositories.schema_manager import SchemaManager
 NOW = datetime(2026, 5, 20, 12, 0)
 
 
+class _FixedNow(datetime):
+    """`datetime` subclass whose `utcnow()` is pinned to NOW.
+
+    The controller helper (`_append_relationship_context_if_enabled`) calls
+    `build_relationship_context` WITHOUT an explicit `now`, so it projects heat
+    to the real `datetime.utcnow()`. Tests that go through the helper monkeypatch
+    the relationship_prompt module's `datetime` with this so the seeded heat
+    (pinned to NOW) doesn't decay below threshold as wall-clock time advances —
+    otherwise the test rots once "now" drifts past NOW. Subclassing keeps every
+    other datetime behavior intact; only the clock source is fixed.
+    """
+
+    @classmethod
+    def utcnow(cls):
+        return NOW
+
+
 @pytest.fixture
 def repo(tmp_path):
     path = str(tmp_path / "rel.db")
@@ -243,12 +260,18 @@ class TestPromptInjection:
         result = helper(fake_self, "ORIGINAL", fake_state, fake_player)
         assert result == "ORIGINAL"
 
-    def test_helper_appends_block_when_flag_on(self, manager, repo):
+    def test_helper_appends_block_when_flag_on(self, manager, repo, monkeypatch):
         _seed_state(repo, "alice_pid", "bob_pid", heat=0.65)
         from types import SimpleNamespace
 
+        import poker.memory.relationship_prompt as rp
         from poker.controllers import AIPlayerController
         from poker.prompt_config import PromptConfig
+
+        # The helper projects heat to its own utcnow() (no explicit `now`); pin it
+        # to NOW so the seeded heat doesn't decay below the rival threshold as
+        # real wall-clock time advances past NOW.
+        monkeypatch.setattr(rp, "datetime", _FixedNow)
 
         prompt_config = PromptConfig(relationship_context=True)
         fake_self = SimpleNamespace(

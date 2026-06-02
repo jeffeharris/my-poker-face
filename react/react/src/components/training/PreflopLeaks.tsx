@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
 import { Sparkline } from '../cash/Sparkline';
+import { SizingReadability } from './SizingReadability';
 import type { BankrollPoint } from '../cash/types';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
@@ -319,6 +320,11 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
 
         {loading && <div className="pfl-state">Reviewing your hands…</div>}
         {error && <div className="pfl-state pfl-error">{error}</div>}
+
+        {/* Surface A (SIZING_COACH_SURFACES.md): your OWN bet-sizing readability,
+            independent of the preflop review — self-fetches, shows its own
+            "keep playing" note when thin. */}
+        <SizingReadability />
 
         {data && !data.enough_data && (
           <div className="pfl-state">

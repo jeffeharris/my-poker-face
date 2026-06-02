@@ -230,10 +230,6 @@ class TestPsychologySnapshot:
         analysis = DecisionAnalysis(game_id="test", player_name="Hero")
         assert analysis.tilt_level is None
         assert analysis.tilt_source is None
-        assert analysis.valence is None
-        assert analysis.arousal is None
-        assert analysis.control is None
-        assert analysis.focus is None
         assert analysis.display_emotion is None
         assert analysis.elastic_aggression is None
         assert analysis.elastic_bluff_tendency is None
@@ -245,20 +241,12 @@ class TestPsychologySnapshot:
             player_name="Hero",
             tilt_level=0.35,
             tilt_source="bad_beat",
-            valence=-0.4,
-            arousal=0.6,
-            control=0.3,
-            focus=0.5,
             display_emotion="angry",
             elastic_aggression=0.7,
             elastic_bluff_tendency=0.4,
         )
         assert analysis.tilt_level == 0.35
         assert analysis.tilt_source == "bad_beat"
-        assert analysis.valence == -0.4
-        assert analysis.arousal == 0.6
-        assert analysis.control == 0.3
-        assert analysis.focus == 0.5
         assert analysis.display_emotion == "angry"
         assert analysis.elastic_aggression == 0.7
         assert analysis.elastic_bluff_tendency == 0.4
@@ -269,16 +257,14 @@ class TestPsychologySnapshot:
             game_id="test",
             player_name="Hero",
             tilt_level=0.5,
-            valence=-0.2,
             display_emotion="nervous",
         )
         d = analysis.to_dict()
         assert d['tilt_level'] == 0.5
-        assert d['valence'] == -0.2
         assert d['display_emotion'] == "nervous"
         # None fields should also be present
-        assert 'arousal' in d
-        assert d['arousal'] is None
+        assert 'tilt_source' in d
+        assert d['tilt_source'] is None
 
     def test_analyzer_passes_psychology_snapshot(self):
         """DecisionAnalyzer.analyze() applies psychology_snapshot to result."""
@@ -286,10 +272,6 @@ class TestPsychologySnapshot:
         snapshot = {
             'tilt_level': 0.45,
             'tilt_source': 'losing_streak',
-            'valence': -0.3,
-            'arousal': 0.7,
-            'control': 0.4,
-            'focus': 0.6,
             'display_emotion': 'nervous',
             'elastic_aggression': 0.65,
             'elastic_bluff_tendency': 0.3,
@@ -310,10 +292,6 @@ class TestPsychologySnapshot:
         )
         assert analysis.tilt_level == 0.45
         assert analysis.tilt_source == 'losing_streak'
-        assert analysis.valence == -0.3
-        assert analysis.arousal == 0.7
-        assert analysis.control == 0.4
-        assert analysis.focus == 0.6
         assert analysis.display_emotion == 'nervous'
         assert analysis.elastic_aggression == 0.65
         assert analysis.elastic_bluff_tendency == 0.3
@@ -335,7 +313,6 @@ class TestPsychologySnapshot:
             action_taken="call",
         )
         assert analysis.tilt_level is None
-        assert analysis.valence is None
         assert analysis.display_emotion is None
 
 

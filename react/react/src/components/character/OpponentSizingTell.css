@@ -1,0 +1,95 @@
+/* OpponentSizingTell — dossier "sizing tell" card (Surface B). Matches the
+   file-cabinet/parchment dossier aesthetic; verdict drives a left accent rail. */
+
+.sizing-tell {
+  margin: 0.5rem 0 0.25rem;
+  padding: 0.55rem 0.7rem;
+  border-left: 3px solid var(--st-accent, rgba(120, 113, 108, 0.5));
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 0 4px 4px 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.sizing-tell--face_up {
+  --st-accent: #d4a574;
+} /* gold — exploitable */
+.sizing-tell--reverse {
+  --st-accent: #f43f5e;
+} /* ruby — they bluff big, caution */
+.sizing-tell--balanced,
+.sizing-tell--unknown {
+  --st-accent: rgba(120, 113, 108, 0.5);
+}
+
+.sizing-tell__head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.sizing-tell__title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.sizing-tell__pill {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.08rem 0.34rem;
+  border-radius: 3px;
+  color: #1a1a1a;
+  background: var(--st-accent);
+}
+.sizing-tell__pill--balanced,
+.sizing-tell__pill--unknown {
+  color: #d6d3d1;
+  background: rgba(120, 113, 108, 0.35);
+}
+.sizing-tell__meta {
+  margin-left: auto;
+  font-size: 0.68rem;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.sizing-tell__readout {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+.sizing-tell__spark {
+  flex: 0 0 auto;
+}
+.sizing-tell__score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.sizing-tell__score-ref {
+  font-weight: 400;
+  opacity: 0.55;
+  font-size: 0.72rem;
+}
+
+.sizing-tell__exploit {
+  margin: 0.4rem 0 0;
+  opacity: 0.92;
+}
+.sizing-tell__warn {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.76rem;
+  color: #fbbf24;
+}
+
+.sizing-tell--empty {
+  border-left-color: rgba(120, 113, 108, 0.35);
+}
+.sizing-tell__empty-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.76rem;
+  opacity: 0.6;
+  font-style: italic;
+}

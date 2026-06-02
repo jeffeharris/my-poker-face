@@ -267,15 +267,48 @@ _test_schema_template_path = None
 #       leak nudge fired) so the coach's effect on play can be measured by
 #       joining to player_decision_analysis. Pure instrumentation. Renumbered
 #       from v124 on the training-room→development merge.
-# v132: Create `cash_scalps` — durable, sandbox-scoped, attributed "who busted
+# v132: Add `limp_count` to `opponent_observation_lifetime` — the numerator for
+#       the new `OpponentTendencies.limp_rate` (times an opponent limped preflop
+#       in an open spot). Its denominator (`preflop_open_opportunities`) is
+#       already folded (v127-era), so this is a single additive column; the rate
+#       derives on read via OpponentTendencies. Guarded ALTER, idempotent.
+# v133: Add the sizing-aware count/sum columns to `opponent_observation_lifetime`
+#       (equity_betting_big/small sums+counts, fold_to_big_bet/big_bet_faced
+#       counts) so the sizing tells — `sizing_polarization_score` (bets bigger
+#       with stronger hands) and `fold_to_big_bet` (over-folds to overbets) —
+#       accumulate cross-game and derive on read, same store-counts-derive-rates
+#       principle as v126. 4 INTEGER + 2 REAL columns. Guarded ALTER, idempotent.
+# v134: Add the postflop aggression-axis counters to
+#       `opponent_observation_lifetime` (facing_bet_opportunities,
+#       all_ins_facing_bet, postflop_open_opportunities, postflop_jam_opens) so
+#       the response-aggression (`all_in_per_facing_bet`) and open-aggression
+#       (`postflop_jam_open_rate`) tells accumulate cross-game and surface in the
+#       dossier + coach. Player/coach-facing read only — the live AI clamp reads
+#       per-game models, not this store (v124 separation), so AI behavior is
+#       unchanged. 4 INTEGER columns. Guarded ALTER, idempotent.
+# v135: Add the flop-check-then-barrel counters to `opponent_observation_lifetime`
+#       (flop_check_barrel_count, flop_check_barrel_opportunity_count) so the
+#       trap read `flop_check_then_barrel_rate` (checks flop OOP then bets turn
+#       after a check-through) accumulates cross-game and surfaces in the
+#       dossier + coach. Required adding the two counters (+ the rate) to
+#       OpponentTendencies._SERIAL_FIELDS first so they serialize per-game.
+#       Player/coach-facing read only. 2 INTEGER columns. Guarded ALTER,
+#       idempotent.
+# v136: Retire the deprecated 4D emotion model — DROP the emotional_state table
+#       (consolidated into controller_state.psychology_json) and the
+#       valence/arousal/control/focus columns on player_decision_analysis.
+# v137: Create `cash_scalps` — durable, sandbox-scoped, attributed "who busted
 #       whom" counter (per eliminator→victim pair, so renown-weighting can read
 #       the victim's standing). Forward-only; AI-symmetric. The shared
 #       prerequisite for the Renown-v2 scalp driver (villain route) and the
-#       bounty/double_knockout achievements. See CASH_MODE_SCALP_TRACKER.md.
-# v133: extend prestige_snapshots with the Renown-v2 columns (uncapped,
+#       bounty/double_knockout achievements. Renumbered from v132 on the
+#       renown→development merge (development reached v136 first). See
+#       CASH_MODE_SCALP_TRACKER.md.
+# v138: extend prestige_snapshots with the Renown-v2 columns (uncapped,
 #       field-relative score) — additive, computed-but-unconsumed until
-#       RENOWN_V2_ENABLED flips. See CASH_MODE_PLAYER_PRESTIGE.md.
-SCHEMA_VERSION = 133
+#       RENOWN_V2_ENABLED flips. Renumbered from v133 on the renown→development
+#       merge. See CASH_MODE_PLAYER_PRESTIGE.md.
+SCHEMA_VERSION = 138
 
 
 class SchemaManager:
@@ -824,30 +857,9 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_hand_commentary_player_recent ON hand_commentary(game_id, player_name, hand_number DESC)"
             )
 
-            # 12. Emotional state (v3)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS emotional_state (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    game_id TEXT NOT NULL,
-                    player_name TEXT NOT NULL,
-                    valence REAL DEFAULT 0.0,
-                    arousal REAL DEFAULT 0.5,
-                    control REAL DEFAULT 0.5,
-                    focus REAL DEFAULT 0.5,
-                    narrative TEXT,
-                    inner_voice TEXT,
-                    generated_at_hand INTEGER DEFAULT 0,
-                    source_events TEXT,
-                    metadata_json TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id),
-                    UNIQUE(game_id, player_name)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_emotional_state_game ON emotional_state(game_id, player_name)"
-            )
+            # 12. Emotional state table removed in v136 — the deprecated 4D
+            #     model (valence/arousal/control/focus) is gone; emotion is the
+            #     quadrant model and narrative/inner_voice ride on controller_state.
 
             # 13. Controller state (v3, v40 added prompt_config_json,
             #     v83 added psychology_json for v2.1 unified PlayerPsychology)
@@ -1219,10 +1231,6 @@ class SchemaManager:
                     opponent_positions TEXT,
                     tilt_level REAL,
                     tilt_source TEXT,
-                    valence REAL,
-                    arousal REAL,
-                    control REAL,
-                    focus REAL,
                     display_emotion TEXT,
                     elastic_aggression REAL,
                     elastic_bluff_tendency REAL,
@@ -2108,12 +2116,32 @@ class SchemaManager:
                 "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
             ),
             132: (
-                self._migrate_v132_create_cash_scalps,
-                "Create cash_scalps table — durable sandbox-scoped attributed 'who busted whom' counter (per eliminator→victim pair), the shared prerequisite for the Renown-v2 scalp driver and bounty achievements. Forward-only, AI-symmetric.",
+                self._migrate_v132_add_limp_lifetime_count,
+                "Add limp_count to opponent_observation_lifetime — numerator for OpponentTendencies.limp_rate (limps preflop in an open spot); denominator preflop_open_opportunities already folded, rate derives on read",
             ),
             133: (
-                self._migrate_v133_add_prestige_v2_columns,
-                "Extend prestige_snapshots with the Renown-v2 columns (formula_version, uncapped renown_v2, victim_percentile, field-wide high_cut, v2 component JSON, field_size) so the human's field-relative uncapped score persists ADDITIVELY alongside v1. Computed-but-unconsumed until RENOWN_V2_ENABLED flips. Non-destructive ADD COLUMNs.",
+                self._migrate_v133_add_sizing_aware_lifetime_counts,
+                "Add sizing-aware count/sum columns to opponent_observation_lifetime (equity_betting_big/small sums+counts, fold_to_big_bet/big_bet_faced counts) so sizing_polarization_score + fold_to_big_bet accumulate cross-game; rates derive on read",
+            ),
+            134: (
+                self._migrate_v134_add_postflop_axis_lifetime_counts,
+                "Add postflop aggression-axis counters to opponent_observation_lifetime (facing_bet_opportunities, all_ins_facing_bet, postflop_open_opportunities, postflop_jam_opens) so all_in_per_facing_bet + postflop_jam_open_rate accumulate cross-game; rates derive on read",
+            ),
+            135: (
+                self._migrate_v135_add_flop_check_barrel_lifetime_counts,
+                "Add flop-check-then-barrel counters to opponent_observation_lifetime (flop_check_barrel_count, flop_check_barrel_opportunity_count) so flop_check_then_barrel_rate accumulates cross-game; rate derives on read",
+            ),
+            136: (
+                self._migrate_v136_drop_4d_emotion,
+                "Retire the deprecated 4D emotion model: DROP the emotional_state table (consolidated into controller_state.psychology_json) and the valence/arousal/control/focus columns on player_decision_analysis. Emotion is now the quadrant model (trait-aware family x quadrant). NOTE: numbered 136 (not 130) because this branch (polish, schema v129) diverged before development reached v135; 130-135 belong to development and are skipped here if absent.",
+            ),
+            137: (
+                self._migrate_v137_create_cash_scalps,
+                "Create cash_scalps table — durable sandbox-scoped attributed 'who busted whom' counter (per eliminator→victim pair), the shared prerequisite for the Renown-v2 scalp driver and bounty achievements. Forward-only, AI-symmetric. Renumbered from v132 on the renown→development merge.",
+            ),
+            138: (
+                self._migrate_v138_add_prestige_v2_columns,
+                "Extend prestige_snapshots with the Renown-v2 columns (formula_version, uncapped renown_v2, victim_percentile, field-wide high_cut, v2 component JSON, field_size) so the human's field-relative uncapped score persists ADDITIVELY alongside v1. Computed-but-unconsumed until RENOWN_V2_ENABLED flips. Non-destructive ADD COLUMNs. Renumbered from v133 on the renown→development merge.",
             ),
         }
 
@@ -6586,9 +6614,7 @@ class SchemaManager:
             f"marked {updated} public personas circulating"
         )
 
-    def _migrate_v124_create_opponent_observation_lifetime(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v124_create_opponent_observation_lifetime(self, conn: sqlite3.Connection) -> None:
         """Migration v124: create `opponent_observation_lifetime` + add the
         `opponent_models.lifetime_applied_json` high-water mark.
 
@@ -6643,23 +6669,16 @@ class SchemaManager:
         # migration is safe whether or not the column already exists (fresh
         # installs create opponent_models in _init_db without it; a
         # partially-applied DB may already have it).
-        cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(opponent_models)").fetchall()
-        }
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(opponent_models)").fetchall()}
         if "lifetime_applied_json" not in cols:
-            conn.execute(
-                "ALTER TABLE opponent_models ADD COLUMN lifetime_applied_json TEXT"
-            )
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN lifetime_applied_json TEXT")
 
         logger.info(
             "Migration v124 complete: opponent_observation_lifetime created + "
             "opponent_models.lifetime_applied_json added"
         )
 
-    def _migrate_v125_create_dossier_informant_unlocks(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v125_create_dossier_informant_unlocks(self, conn: sqlite3.Connection) -> None:
         """Migration v125: create `dossier_informant_unlocks` (Phase 3).
 
         Records sections the player has paid the informant to reveal on an
@@ -6688,13 +6707,9 @@ class SchemaManager:
             CREATE INDEX IF NOT EXISTS idx_informant_unlocks_pair
                 ON dossier_informant_unlocks(sandbox_id, observer_id, opponent_id)
         """)
-        logger.info(
-            "Migration v125 complete: dossier_informant_unlocks table created"
-        )
+        logger.info("Migration v125 complete: dossier_informant_unlocks table created")
 
-    def _migrate_v126_add_deep_postflop_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v126_add_deep_postflop_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v126: extend `opponent_observation_lifetime` with the deep
         postflop count/sum columns (Tier-2 dossier reads).
 
@@ -6738,9 +6753,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col, sql_type in new_columns:
             if col not in existing:
@@ -6783,9 +6796,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -6902,6 +6913,37 @@ class SchemaManager:
         """)
         logger.info("Migration v129 complete: cash_idle_metadata table created")
 
+    def _migrate_v136_drop_4d_emotion(self, conn: sqlite3.Connection) -> None:
+        """Migration v136: retire the deprecated 4D emotion model.
+
+        The dimensional model (valence/arousal/control/focus) was superseded by
+        the quadrant model (confidence x composure -> EmotionalQuadrant, then a
+        trait-aware family x quadrant matrix picks the display emotion). The 4D
+        scalars had no live readers — they were write-only analytics plus a dead
+        table — so this removal is destructive but behaviourally inert.
+
+        Two parts:
+          1. DROP the `emotional_state` table (never read or written in the
+             current codebase).
+          2. DROP valence/arousal/control/focus from `player_decision_analysis`.
+
+        SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`; each DROP is
+        PRAGMA-guarded so re-running (or hitting a fresh DB that already landed
+        on the post-v136 shape via `_init_db`) is a no-op. Mirrors the v99
+        `active_loan_*` drop.
+        """
+        conn.execute("DROP TABLE IF EXISTS emotional_state")
+
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        cols = {row[1] for row in cursor}
+        for col in ("valence", "arousal", "control", "focus"):
+            if col in cols:
+                conn.execute(f"ALTER TABLE player_decision_analysis DROP COLUMN {col}")
+        logger.info(
+            "Migration v136 complete: dropped emotional_state table and 4D "
+            "(valence/arousal/control/focus) columns from player_decision_analysis"
+        )
+
     def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
         """Migration v130: add `preflop_node_key` to player_decision_analysis.
 
@@ -6970,8 +7012,176 @@ class SchemaManager:
         )
         logger.info("Migration v131 complete: coach_tips table created")
 
-    def _migrate_v132_create_cash_scalps(self, conn: sqlite3.Connection) -> None:
-        """Migration v132: create `cash_scalps` — durable attributed bust counter.
+    def _migrate_v132_add_limp_lifetime_count(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v132: add `limp_count` to `opponent_observation_lifetime`.
+
+        The numerator for `OpponentTendencies.limp_rate` — how often an
+        opponent limps preflop (voluntarily CALLS in an open spot, i.e. with
+        no live raise above the blind in front of them). The denominator,
+        `preflop_open_opportunities`, was already added (v127-era), so the
+        rate `limp_count / preflop_open_opportunities` derives on read through
+        the canonical `OpponentTendencies._recalculate_stats()` — same
+        store-counts-derive-rates principle as v126/v127. A single additive
+        column.
+
+        Guarded ALTER, additive, idempotent.
+        """
+        new_columns = ['limp_count']
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v132 complete: %d column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v133_add_sizing_aware_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v133: persist the sizing-aware counters/sums.
+
+        The sizing tells were tracked live on `OpponentTendencies` but never
+        folded into the durable store, so they reset every game. This adds the
+        raw counts (and the big/small equity SUMS) so they accumulate
+        cross-game and the two derived reads come back on read through the
+        canonical `OpponentTendencies`:
+
+          - `sizing_polarization_score` = equity_when_betting_big −
+            equity_when_betting_small (bets bigger with stronger hands), from
+            the big/small equity sum+count bins.
+          - `fold_to_big_bet` = fold_to_big_bet_count / big_bet_faced_count
+            (over-folds to large/jam bets).
+
+        Same store-counts-derive-rates principle as v126. Guarded ALTER,
+        additive, idempotent.
+        """
+        # (column, sql_type) — integer counts, then the REAL equity sums.
+        new_columns = [
+            ('equity_betting_big_count', 'INTEGER'),
+            ('equity_betting_small_count', 'INTEGER'),
+            ('fold_to_big_bet_count', 'INTEGER'),
+            ('big_bet_faced_count', 'INTEGER'),
+            ('equity_betting_big_sum', 'REAL'),
+            ('equity_betting_small_sum', 'REAL'),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col, sql_type in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} {sql_type} NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v133 complete: %d sizing-aware column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v134_add_postflop_axis_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v134: persist the postflop aggression-axis counters.
+
+        These four counters were tracked live on `OpponentTendencies` but never
+        folded, so the two derived reads reset every game. Persisting the raw
+        counts lets them accumulate cross-game and the rates come back on read
+        through the canonical `OpponentTendencies._recalculate_postflop_stats`:
+
+          - `all_in_per_facing_bet` = all_ins_facing_bet / facing_bet_opportunities
+            (response aggression — jams into a bet).
+          - `postflop_jam_open_rate` = postflop_jam_opens / postflop_open_opportunities
+            (open aggression — donk-jams a no-bet pot).
+
+        Player/coach-facing read only: the live exploitation clamp reads the
+        per-game model, not this store, so AI behavior is unchanged. Same
+        store-counts-derive-rates principle as v126. Guarded ALTER, additive,
+        idempotent.
+        """
+        new_columns = [
+            'facing_bet_opportunities',
+            'all_ins_facing_bet',
+            'postflop_open_opportunities',
+            'postflop_jam_opens',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v134 complete: %d postflop-axis column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v135_add_flop_check_barrel_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v135: persist the flop-check-then-barrel counters.
+
+        `flop_check_then_barrel_rate` (checks flop OOP, then bets turn after a
+        check-through — a delayed-cbet / trap pattern) was tracked live but
+        never folded, so it reset every game. Persisting the count +
+        opportunity lets it accumulate cross-game and derive on read through
+        the canonical `OpponentTendencies._recalculate_stats`. The two counters
+        (and the rate) were added to `_SERIAL_FIELDS` in the same change so
+        they serialize per-game and the fold can read them.
+
+        Player/coach-facing read only. Same store-counts-derive-rates principle
+        as v126. Guarded ALTER, additive, idempotent.
+        """
+        new_columns = [
+            'flop_check_barrel_count',
+            'flop_check_barrel_opportunity_count',
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v135 complete: %d flop-check-barrel column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
+        )
+
+    def _migrate_v137_create_cash_scalps(self, conn: sqlite3.Connection) -> None:
+        """Migration v137: create `cash_scalps` — durable attributed bust counter.
 
         A sandbox-scoped cumulative count of eliminations, keyed per
         (eliminator, victim) pair so renown-weighting can read the *victim's*
@@ -6983,7 +7193,8 @@ class SchemaManager:
         backfilled). Populated by `cash_mode/scalps.py` attribution off the
         world-sim and the human's hand. Non-destructive, idempotent.
 
-        See docs/plans/CASH_MODE_SCALP_TRACKER.md.
+        Renumbered from v132 on the renown→development merge (development
+        reached v136 first). See docs/plans/CASH_MODE_SCALP_TRACKER.md.
         """
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cash_scalps (
@@ -7003,12 +7214,12 @@ class SchemaManager:
             CREATE INDEX IF NOT EXISTS idx_cash_scalps_victim
                 ON cash_scalps(sandbox_id, victim_id)
         """)
-        logger.info("Migration v132 complete: cash_scalps table created")
+        logger.info("Migration v137 complete: cash_scalps table created")
 
-    def _migrate_v133_add_prestige_v2_columns(
+    def _migrate_v138_add_prestige_v2_columns(
         self, conn: sqlite3.Connection
     ) -> None:
-        """Migration v133: extend `prestige_snapshots` with the Renown-v2 columns.
+        """Migration v138: extend `prestige_snapshots` with the Renown-v2 columns.
 
         v1 persisted a CAPPED [0,1] renown with a fixed absolute quadrant cut
         (0.40). v2 is **uncapped, concave, and field-relative** — it scores the
@@ -7040,7 +7251,8 @@ class SchemaManager:
 
         Every ALTER is PRAGMA-guarded so the migration is safe on a partially
         applied DB. Non-destructive, idempotent. Renown stays a read-only
-        scoreboard — nothing here feeds AI decision thresholds. See
+        scoreboard — nothing here feeds AI decision thresholds. Renumbered from
+        v133 on the renown→development merge. See
         docs/plans/CASH_MODE_PLAYER_PRESTIGE.md (Renown v2) and
         docs/plans/RENOWN_V2_HANDOFF.md.
         """
@@ -7069,7 +7281,7 @@ class SchemaManager:
                 )
                 added += 1
         logger.info(
-            "Migration v133 complete: %d Renown-v2 column(s) added to "
+            "Migration v138 complete: %d Renown-v2 column(s) added to "
             "prestige_snapshots",
             added,
         )

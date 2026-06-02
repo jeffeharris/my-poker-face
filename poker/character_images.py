@@ -49,6 +49,9 @@ EMOTIONS = [
     "smug",
     "frustrated",
     "elated",
+    "gleeful",
+    "giddy",
+    "sheepish",
     "poker_face",
 ]
 
@@ -92,6 +95,9 @@ EMOTION_DETAILS = {
     "smug": "smug with a superior knowing smirk, self-satisfied grin, eyes gleaming with confidence,",
     "frustrated": "frustrated with a tense frown, jaw clenched in irritation, visibly annoyed,",
     "elated": "elated with a huge grin, eyes wide with excitement, fist-pumping in celebration,",
+    "gleeful": "gleeful and delighted with a wide mischievous grin, eyes sparkling with playful excitement,",
+    "giddy": "giddy and overexcited, laughing with a goofy ear-to-ear grin, practically bouncing with manic fun,",
+    "sheepish": "sheepish and bashful with an awkward embarrassed half-smile, shrugging, rubbing the back of the neck,",
     "poker_face": "neutral with an expressionless poker face, calm and unreadable, no emotion showing,",
 }
 
