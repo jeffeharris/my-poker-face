@@ -3283,6 +3283,11 @@ class TieredBotController(AIPlayerController):
         small_n = getattr(tendencies, '_equity_betting_small_count', 0)
         if big_n < SIZING_MIN_BIN_SAMPLE or small_n < SIZING_MIN_BIN_SAMPLE:
             return None  # immature read -> no defense
+        # Kill switch (Surface B `stability`): if the face-up tell is going stale
+        # (recent big bets weakening = they've started bluffing big), stop folding
+        # into it rather than feeding an adapting adversary.
+        if hasattr(tendencies, 'sizing_tell_is_mixing') and tendencies.sizing_tell_is_mixing():
+            return None
         return tendencies.sizing_polarization_score
 
     def _resolve_stabber_read(self, game_state) -> Optional[float]:
