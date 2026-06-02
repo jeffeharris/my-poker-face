@@ -84,6 +84,57 @@ def test_build_persists_zero_llm_intent(app, monkeypatch):
             )
 
 
+def test_persona_field_builds_talking_controllers(app, monkeypatch):
+    """P3.9c — a REAL-persona field (autonomous/accept) builds its seats like a
+    cash table: per-persona bot_type + expression layer ON (table talk), and the
+    cold-load contract persists ai_chat=True + per-seat player_llm_configs so the
+    expression layer rebuilds with a valid provider/model (not the 404-prone empty
+    config the synthetic field guards against)."""
+    with app.app_context():
+        _rebind_handler_globals(monkeypatch)
+
+        import flask_app.extensions as _ext
+        from flask_app.handlers.tournament_game_builder import build_tournament_game
+        from flask_app.services import game_state_service
+        from tournament.config import TournamentConfig
+        from tournament.director import FakeHandResolver
+        from tournament.session import TournamentSession
+
+        owner_id = "persona-field-owner"
+        human_id = f"human:{owner_id}"
+        persona_id = _ext.personality_repo.save_personality(
+            'Talking Tess',
+            {'play_style': 'aggressive', 'confidence': 'high', 'attitude': 'chatty'},
+            circulating=True,
+        )
+
+        cfg = TournamentConfig(field_size=2, table_size=2, starting_stack=8000, seed=5)
+        session = TournamentSession(
+            cfg, ai_resolver=FakeHandResolver(),
+            human_id=human_id, entries={human_id: 'LAG', persona_id: 'CaseBot'},
+        )
+        game_id = build_tournament_game(
+            session, tournament_id="itest-persona", owner_id=owner_id, owner_name="Tester",
+        )
+
+        # Cold-load contract: ai_chat on + the persona's real provider/model config.
+        llm_configs = _ext.game_repo.load_llm_configs(game_id)
+        assert llm_configs is not None
+        assert llm_configs.get("ai_chat") is True, "persona field must persist ai_chat=True"
+        assert persona_id in (llm_configs.get("bot_types") or {})
+        per_seat = llm_configs.get("player_llm_configs") or {}
+        assert per_seat.get(persona_id), (
+            "persona seat must persist a non-empty llm_config (provider/model) for cold-load"
+        )
+
+        # The live persona seat carries the expression (table-talk) layer.
+        gd = game_state_service.get_game(game_id)
+        ctrl = gd["ai_controllers"][persona_id]
+        assert getattr(ctrl, "expression_generator", None) is not None, (
+            "persona seat is missing its expression generator — no table talk"
+        )
+
+
 def test_human_plays_real_hands_to_a_terminal_state(app, monkeypatch):
     """Build a small tournament, drive the human (auto check/call/fold) through
     real hands, and assert it reaches a terminal state without looping —

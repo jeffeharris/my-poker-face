@@ -653,21 +653,19 @@ def api_game_state(game_id):
                         state_machine = StateMachineAdapter(base_state_machine)
                         # Load per-player LLM configs for proper provider restoration
                         llm_configs = extensions.game_repo.load_llm_configs(game_id) or {}
-                        # Multi-table tournament tables ("tourney-") are a
-                        # zero-LLM field by design — `build_tournament_game`
-                        # wires every AI seat with `expression_enabled=False`
-                        # (no table talk, consistent with the headless field).
-                        # That intent isn't persisted (these games save no
-                        # llm_configs), so on cold load `ai_chat` would default
-                        # to True and rebuild the seats WITH the expression
-                        # layer — firing a narration LLM call per AI decision.
-                        # With an empty llm_config that call resolves to
-                        # provider="openai" + model=None, and OpenAIProvider's
-                        # default model is the Groq `llama-3.1-8b-instant`, so
-                        # every call 404s. Force expression off to match the
-                        # builder and keep the field zero-LLM.
+                        # Multi-table tournament tables ("tourney-") persist their
+                        # per-seat intent (P3.9c): a SYNTHETIC field saves
+                        # `ai_chat=False` + all-`sharp` (zero-LLM, no table talk);
+                        # a PERSONA field saves `ai_chat=True` + per-seat
+                        # `player_llm_configs` (real provider/model) so each
+                        # persona seat rebuilds WITH table talk and a valid config.
+                        # Honor the persisted flag, but DEFAULT FALSE for tourney-
+                        # rows that saved none (legacy zero-LLM games / a synthetic
+                        # field) — a True default would rebuild seats with the
+                        # expression layer on an empty config and 404 the narration
+                        # call per decision (see tiered_factory).
                         _restore_ai_chat = (
-                            False
+                            bool(llm_configs.get('ai_chat', False))
                             if game_id.startswith("tourney-")
                             else llm_configs.get('ai_chat', True)
                         )

@@ -52,6 +52,77 @@ def make_tournament_ai_controller(name: str, state_machine, *, game_id: str, own
     )
 
 
+def build_tournament_seat_controller(
+    name: str,
+    state_machine,
+    *,
+    game_id: str,
+    owner_id: str,
+    real_persona_ids,
+    bot_types: dict,
+    player_llm_configs: dict,
+    prompt_config=None,
+):
+    """P3.9c — build one AI seat for the human's live table.
+
+    A **real-persona** seat gets the SAME persona-flavored controller cash mode
+    builds: a per-persona `bot_type` from `assign_bot(personality_config)` +
+    `expression_enabled=True`, so the circuit's characters actually play *and talk*
+    like themselves (psychology + the relationship axes wired in P3.9a). A
+    **synthetic** `P##` seat (legacy `/register` field) keeps the zero-LLM tiered
+    solver — no personality config to flavor it. The chosen `bot_type` + llm_config
+    are recorded into the passed dicts so the same intent persists for cold-load
+    (`restore_ai_controllers` rebuilds from `player_llm_configs` + `bot_types`).
+    """
+    from flask_app import extensions
+
+    if name in real_persona_ids:
+        from flask_app.handlers.tiered_factory import build_controller
+        from poker.cash_bot_assignment import assign_bot
+
+        personality_config = extensions.personality_repo.load_personality_by_id(name)
+        rule_strategy = (
+            personality_config.get("rule_strategy")
+            if isinstance(personality_config, dict)
+            else None
+        )
+        # A fish persona (calling-station donor) routes to the rule-based fish
+        # controller, not the poise bucket — mirrors cash. Rare in a tournament
+        # field (fish are non-circulating), but handled so a stray entry behaves.
+        if rule_strategy == "fish":
+            bot_types[name] = "fish"
+            player_llm_configs[name] = {}
+            return build_controller(
+                bot_type="fish",
+                player_name=name,
+                state_machine=state_machine,
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=extensions.capture_label_repo,
+                decision_analysis_repo=extensions.decision_analysis_repo,
+            )
+        assignment = assign_bot(personality_config)
+        bot_types[name] = assignment.bot_type
+        player_llm_configs[name] = assignment.llm_config
+        return build_controller(
+            bot_type=assignment.bot_type,
+            player_name=name,
+            state_machine=state_machine,
+            llm_config=assignment.llm_config,
+            prompt_config=prompt_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=extensions.capture_label_repo,
+            decision_analysis_repo=extensions.decision_analysis_repo,
+            expression_enabled=True,
+        )
+
+    # Synthetic seat — zero-LLM tiered solver (recorded as such for cold-load).
+    bot_types[name] = "sharp"
+    player_llm_configs[name] = {}
+    return make_tournament_ai_controller(name, state_machine, game_id=game_id, owner_id=owner_id)
+
+
 
 
 def build_tournament_game(
@@ -66,7 +137,7 @@ def build_tournament_game(
     the game_id. Advances to the first human action (hole cards dealt)."""
     from flask_app import extensions
     from flask_app.game_adapter import StateMachineAdapter
-    from flask_app.routes.game_routes import generate_game_id
+    from flask_app.routes.game_routes import generate_game_id, load_game_mode_preset
     from flask_app.services import game_state_service, tournament_economy_service as econ
     from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
     from poker.memory import AIMemoryManager
@@ -110,12 +181,31 @@ def build_tournament_game(
     persistence_db_path = extensions.persistence_db_path
     hand_history_repo = extensions.hand_history_repo
 
+    # P3.9c — real persona play on the human's table. A real-persona field
+    # (autonomous/accept) builds its seats like a cash table — per-persona
+    # bot_type + LLM table talk — so the circuit's characters show up to play
+    # YOU. A synthetic `P##` field (legacy /register) stays the zero-LLM tiered
+    # solver. `real_persona_ids` (computed once, reused for the dossier wiring
+    # below) is the gate; fields are homogeneous, so its truthiness == persona
+    # field. The per-seat bot_type + llm_config are recorded for cold-load.
+    real_persona_ids = econ.real_persona_ids_for(session, extensions.personality_repo)
+    is_persona_field = bool(real_persona_ids)
+    seat_prompt_config = load_game_mode_preset("standard") if is_persona_field else None
+    bot_types: dict = {}
+    player_llm_configs: dict = {}
     ai_controllers: dict = {}
     for s in specs:
         if s.is_human:
             continue
-        ai_controllers[s.player_id] = make_tournament_ai_controller(
-            s.player_id, state_machine, game_id=game_id, owner_id=owner_id
+        ai_controllers[s.player_id] = build_tournament_seat_controller(
+            s.player_id,
+            state_machine,
+            game_id=game_id,
+            owner_id=owner_id,
+            real_persona_ids=real_persona_ids,
+            bot_types=bot_types,
+            player_llm_configs=player_llm_configs,
+            prompt_config=seat_prompt_config,
         )
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
@@ -188,25 +278,81 @@ def build_tournament_game(
         "tournament_id": tournament_id,
         "tournament_table_id": session.human_table.table_id,
         "tournament_human_id": session.human_id,
+        # P3.9c — the living per-seat controller intent. The boundary re-persists
+        # these after a table balance adds seats, and `_make` (the reconcile
+        # controller factory) updates them in place so balanced-in personas get
+        # the same flavored build + cold-load contract.
+        "tournament_is_persona_field": is_persona_field,
+        "tournament_bot_types": bot_types,
+        "tournament_player_llm_configs": player_llm_configs,
     }
     game_state_service.set_game(game_id, game_data)
-    # Persist the zero-LLM intent so it survives a cold load. The MTT field is
-    # built with `expression_enabled=False` (no table talk, consistent with the
-    # headless field), but that lives only in memory — without it on the games
-    # row, `restore_ai_controllers` defaults `ai_chat` to True and rebuilds every
-    # seat WITH the expression layer, firing a narration LLM call per AI decision
-    # (which 404s on an empty config — see tiered_factory). Stamp `ai_chat=False`
-    # plus each AI seat's `sharp` bot_type (mirrors the cash cold-load contract in
-    # cash_routes). The `tourney-` restore guard in game_routes is the belt; this
-    # is the suspenders, and it keeps the intent legible in the DB.
-    llm_configs = {
-        "ai_chat": False,
-        "bot_types": {name: "sharp" for name in ai_controllers},
-    }
+    # Persist the per-seat LLM/bot intent so it survives a cold load.
+    #
+    # SYNTHETIC field (legacy /register): a zero-LLM tiered field. Stamp
+    # `ai_chat=False` + every seat `sharp` so `restore_ai_controllers` rebuilds
+    # WITHOUT the expression layer (an empty config would otherwise 404 on the
+    # per-decision narration call — see tiered_factory). The `tourney-` restore
+    # guard in game_routes is the belt; this is the suspenders.
+    #
+    # PERSONA field (P3.9c, autonomous/accept): mirror the cash cold-load
+    # contract exactly — `ai_chat=True` + per-seat `bot_types` + the real
+    # `player_llm_configs` (provider/model) so each persona seat rebuilds WITH
+    # table talk and a valid config. The game_routes `tourney-` guard reads this
+    # persisted `ai_chat` (defaulting False for legacy rows that saved none).
+    llm_configs = _build_seat_llm_configs(is_persona_field, ai_controllers, bot_types, player_llm_configs)
     extensions.game_repo.save_game(
         game_id, state_machine._state_machine, owner_id, owner_name, llm_configs=llm_configs
     )
     return game_id
+
+
+def _build_seat_llm_configs(
+    is_persona_field: bool, ai_controllers: dict, bot_types: dict, player_llm_configs: dict
+) -> dict:
+    """The `llm_configs` blob persisted on the games row for cold-load. Persona
+    fields carry `ai_chat=True` + per-seat bot_types/configs (cash contract);
+    synthetic fields carry `ai_chat=False` + all-`sharp` (zero-LLM contract)."""
+    if is_persona_field:
+        return {
+            "ai_chat": True,
+            "player_llm_configs": dict(player_llm_configs),
+            "default_llm_config": {},
+            "bot_types": dict(bot_types),
+        }
+    return {"ai_chat": False, "bot_types": {name: "sharp" for name in ai_controllers}}
+
+
+def _load_standard_preset():
+    """The default prompt-config preset for persona seats (mirrors cash)."""
+    from flask_app.routes.game_routes import load_game_mode_preset
+
+    return load_game_mode_preset("standard")
+
+
+def _persist_seat_llm_configs(
+    game_id: str, game_data: dict, state_machine, bot_types: dict, player_llm_configs: dict
+) -> None:
+    """Re-save the persona field's per-seat LLM/bot intent after a balance.
+    Best-effort — a miss just means a balanced-in seat falls back to defaults on
+    a cold-load before the next save; never break the live boundary."""
+    try:
+        from flask_app import extensions
+
+        extensions.game_repo.save_game(
+            game_id,
+            state_machine._state_machine,
+            game_data.get("owner_id"),
+            game_data.get("owner_name"),
+            llm_configs={
+                "ai_chat": True,
+                "player_llm_configs": dict(player_llm_configs),
+                "default_llm_config": {},
+                "bot_types": dict(bot_types),
+            },
+        )
+    except Exception:  # noqa: BLE001 — durability only, never break the game
+        logger.exception("tournament seat-config re-persist failed for %s", game_id)
 
 
 def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bool:
@@ -222,10 +368,40 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
 
     owner_id = game_data.get("owner_id")
 
+    # P3.9c — build balanced-in seats (table breaks bring new players mid-event)
+    # with the same flavor as the starting table: a real persona gets the talking
+    # cash-style controller, a synthetic seat the tiered solver. The bot_type +
+    # config are recorded into the live game_data dicts so the boundary re-persist
+    # (below) keeps cold-load correct after a balance. Recompute the persona set
+    # from the (possibly cold-loaded) session — game_data may lack the build-time
+    # cache after a rehydrate.
+    from .tournament_handler import _real_persona_ids_for_session
+
+    session = game_data.get("tournament_session")
+    real_persona_ids = _real_persona_ids_for_session(session) if session is not None else frozenset()
+    is_persona_field = game_data.get("tournament_is_persona_field", bool(real_persona_ids))
+    bot_types = game_data.setdefault("tournament_bot_types", {})
+    player_llm_configs = game_data.setdefault("tournament_player_llm_configs", {})
+    seat_prompt_config = _load_standard_preset() if is_persona_field else None
+
     def _make(name, sm):
-        return make_tournament_ai_controller(name, sm, game_id=game_id, owner_id=owner_id)
+        return build_tournament_seat_controller(
+            name,
+            sm,
+            game_id=game_id,
+            owner_id=owner_id,
+            real_persona_ids=real_persona_ids,
+            bot_types=bot_types,
+            player_llm_configs=player_llm_configs,
+            prompt_config=seat_prompt_config,
+        )
 
     outcome = advance_tournament_after_hand(game_data, state_machine, make_controller=_make)
+    if is_persona_field:
+        # Re-persist the seat intent so a balanced-in persona survives cold-load
+        # with its bot_type + config (the live save path uses COALESCE, so an
+        # llm_configs-less save would otherwise keep the stale pre-balance blob).
+        _persist_seat_llm_configs(game_id, game_data, state_machine, bot_types, player_llm_configs)
     _emit_tournament(game_data, outcome, RELOCATED=RELOCATED, HUMAN_OUT=HUMAN_OUT, COMPLETE=COMPLETE)
     if outcome.kind == COMPLETE:
         # Distribute the prize pool the moment the field locks every finishing

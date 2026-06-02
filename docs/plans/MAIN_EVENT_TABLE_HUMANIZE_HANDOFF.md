@@ -3,7 +3,7 @@ purpose: Single-entry handoff to finish "humanizing" the human Main Event table 
 type: guide
 created: 2026-06-02
 last_updated: 2026-06-02
-status: Identity unification (names + avatars) DONE + pushed on `tournaments`. **P3.9a (dossier/observation wiring) DONE — uncommitted, tests green.** Remaining = avatar caller cleanup (P3.9b) + real persona play (P3.9c, scoped). Circuit is ACTIVATED on dev.
+status: Identity unification (names + avatars) DONE + pushed on `tournaments`. **P3.9a (dossier/observation wiring) committed `790a69e3`. P3.9c (real persona play) DONE — uncommitted, full test_tournament/ 284+2 green.** P3.9b reduced to a prod backfill safety check (code-migration deferred — not worth it; see §P3.9b). Remaining follow-ons: relationship-aware field selection + P4 carry-out. Circuit is ACTIVATED on dev.
 ---
 
 # Humanize the Main Event Table — Remaining Work (START HERE)
@@ -184,9 +184,79 @@ tolerate either `personality_id` OR the legacy `personality_name`. To finish it:
 This is optional for correctness (the tolerant reads already work) — it just
 completes the migration and removes the dual-key surface.
 
+**UPDATE (2026-06-02 — investigated, recommend DEFER the code change).** The
+"small caller swap" framing was wrong. Two findings:
+- **The write path is already canonical.** `save_avatar_image` / `assign_avatar`
+  route through `_resolve_avatar_identity`, which normalizes whatever the caller
+  passes (display name OR pid) into BOTH columns. So changing callers to pass
+  `personality_id` is cosmetic for writes — the storage is already correct.
+- **Dropping the `OR personality_name = ?` fallback is NOT a small change.** The
+  whole avatar *generation* service keys on the display name: `get_avatar_url_with_fallback`
+  → `get_full_avatar_url(player_name)` and, on a miss,
+  `start_single_emotion_generation` → `generate_character_images(personality_name)`
+  → `CharacterImageService.generate_images`, which looks up the persona's
+  appearance BY NAME to build the image prompt. Passing a pid into those callers
+  would break on-demand generation unless pid-resolution is threaded through the
+  entire image service. That's a real refactor for ~zero correctness gain.
+
+So the read-tolerance is doing useful work (it's exactly what lets a tournament
+seat keyed by pid hit the persona's name-keyed cached avatar). **Recommendation:
+keep the dual-key reads; do NOT migrate callers / drop the fallback** unless the
+image service is separately refactored to be pid-first. The ONLY load-bearing
+item from this section is the prod backfill safety check below.
+
+**Prod backfill safety check (still wanted, needs prod access).** Verify v137's
+assumptions hold on prod: `personalities.name` unique, `personality_id` non-null,
+avatar rows have `personality_id` populated, and zero orphan avatar rows
+(`personality_id IS NULL` AND no persona with that `name`). Dev was clean; prod
+may differ (zombie-persona cleanups ran on dev, maybe not prod). Read-only.
+
 ---
 
-## P3.9c — Real persona play on the human's table (the larger piece)
+## P3.9c — Real persona play on the human's table — ✅ DONE (2026-06-02, uncommitted)
+
+**Shipped (Full / mirror-cash).** The human's live tournament table now builds its
+AI seats the way a cash table does — per-persona `bot_type` from
+`assign_bot(personality_config)` + `expression_enabled=True` (table talk) — gated
+to real-persona fields. The relationship axes were already wired in P3.9a, so the
+psychology/relationship half came for free; this added the visible half (varied
+play + table talk). Cost == one cash table per active human tournament (one live
+table ~5 seats; a `CallType.COMMENTARY` narration call per AI decision). The rest
+of the field stays headless `FakeHandResolver` — no added cost there.
+
+What changed (all in `tournament_game_builder.py` + one cold-load line):
+- **`build_tournament_seat_controller(...)`** — new shared seat factory. Real
+  persona → `build_controller(bot_type=assign_bot(...).bot_type,
+  llm_config=..., expression_enabled=True, prompt_config=standard)` (fish persona
+  → fish controller); synthetic `P##` → the old zero-LLM tiered solver. Records
+  the chosen `bot_type` + `llm_config` into dicts for cold-load.
+- **`build_tournament_game`** — computes `real_persona_ids` once (reused by the
+  P3.9a dossier wiring), builds seats via the factory, stores
+  `tournament_is_persona_field` / `tournament_bot_types` /
+  `tournament_player_llm_configs` in game_data, and persists the cash-style
+  `llm_configs` blob (`ai_chat=True` + per-seat configs) for persona fields vs the
+  old `ai_chat=False` + all-`sharp` for synthetic (via `_build_seat_llm_configs`).
+- **`tournament_hand_boundary`** — `_make` (the reconcile factory for balanced-in
+  seats) now uses the same persona factory, so a persona balanced in from a broken
+  table also talks; `_persist_seat_llm_configs` re-saves the blob after a balance
+  so cold-load stays correct (the live save path COALESCEs llm_configs).
+- **`game_routes.py` cold-load** — the `tourney-` guard now HONORS the persisted
+  `ai_chat` (default False for legacy/synthetic rows that saved none) instead of
+  hard-forcing expression off, so a persona field rebuilds WITH table talk + valid
+  per-seat configs and a synthetic field stays zero-LLM.
+- **Tests:** `test_persona_field_builds_talking_controllers` (persona seat has an
+  expression generator; `ai_chat=True` + per-seat `player_llm_configs` persisted)
+  + the existing `test_build_persists_zero_llm_intent` still guards the synthetic
+  side. Full `tests/test_tournament/` = 284 passed.
+
+**Follow-ons (not done):** relationship-aware field selection (draft your nemesis
+into the field) + P4 carry-out (prestige / relationship shifts / settlement). Note
+the FakeHandResolver field still uses funny-money archetypes that don't reflect the
+persona's real play — only the human's live table got the real controllers.
+
+---
+
+## P3.9c — original spec (kept for reference)
 
 Names + avatars + dossiers make the table *look and track* like the circuit. The
 remaining gap is that the AIs **play** like a uniform solver, not like personas:
