@@ -4,7 +4,7 @@ type: experiment
 status: in-progress
 hypothesis_summary: A reserve-driven thermostat (scale cash rake up when the bank is low; distribute a tournament overlay when high) bounds the closed economy to a stable reserve band that the un-thermostatted economy does not hold. **Verdict (single-seed): CONFIRMED — un-thermostatted economy balloons (slope 130 chips/tick → reserves 399k); proportional overlay flattens it (slope 3.78, parks at the 0.08 setpoint, ±2.5% band), conservation-clean. Constants need multi-seed + hands-on validation.**
 created: 2026-05-30
-last_updated: 2026-05-30
+last_updated: 2026-06-02
 ---
 
 # Experiment 006 — Bank-Reserve Thermostat Tuning
@@ -237,6 +237,53 @@ conservation-clean chip moves):
   runs (the unledgered human seed). The lever moves (modeled-rake debits + overlay
   credits, each a real ai_bankroll_state move + matching ledger row) introduced
   **zero** new drift → conservation invariant holds through the thermostat.
+
+### §6 re-validation (2026-06-02): the per-tournament cadence — constants did NOT transfer; fix found
+
+The P2 §6 gate before flipping the thermostat on: EXP_006 above tuned a *per-tick*
+overlay, but production fires the overlay **per tournament** (chairman
+`should_offer_event`: FLUSH + a 30-min cooldown, sized by `tournament_funding`).
+Re-ran the harness with a new `--mode tournament_cadence` that calls the REAL
+production functions (`economy_signal.should_offer_event` for the gate +
+`tournament_funding` for the size) so this measures the actual production cadence,
+not a re-model. All runs 3000 ticks, fresh sandboxes, `--preload-reserves 220000`
+(pre-charge to FLUSH so the regulated regime is exercised without the slow ~1600-
+tick natural fill), `base_rake=130`, on `econ_base.db`.
+
+| Run | Sizing | back-half slope (chips/tick) | reserves band | signal_final | events |
+|---|---|---|---|---|---|
+| baseline (no lever) | — | **130.0** (balloons) | →495k | 0.331 | 0 |
+| per-tick overlay (control) | `pct×reserves` | **5.10** (flat) | 197k–208k | 0.110 | — |
+| cadence, **production sizing** | `min(reserves×0.02, cap)` | **99 / 100 / 98.5** (3 seeds) | →427–440k | 0.25–0.30 | 11 |
+| cadence, **drain-to-setpoint** | `reserves − 0.08×holdings`, cap | **6.9 / 12.0 / 9.4** (3 seeds) | 178k–245k | 0.12–0.13 | 11–12 |
+
+**Finding (decisive):** the per-tick-tuned `0.02 × reserves` overlay **does NOT
+transfer** to the per-tournament cadence. Across the 30-min cooldown a fixed-
+percent draw is ~225× too weak — each event drains ~2% of reserves while the
+faucet accrues ~225 ticks of inflow between events — so the bank balloons at
+~99 chips/tick, barely better than the un-thermostatted 130. **As-is, the
+thermostat must NOT be flipped on.** (Conservation held throughout:
+`holdings + reserves` was identical across baseline and cadence sandboxes —
+2,470,000 — and the overlay shifted exactly its recorded amount from reserves to
+holdings, so the lever leaks nothing; it was simply too small.)
+
+**The fix (validated):** size each discrete event to **drain reserves back to the
+FLUSH setpoint** — `overlay = min(max(0, reserves − FLUSH_SETPOINT × holdings),
+OVERLAY_CAP)` — instead of a fixed fraction. This is a sawtooth controller matched
+to the discrete cadence: reserves climb on the faucet between events, one event
+per FLUSH+cooldown resets them to the setpoint. It held the band across 3 seeds
+(slope 6.9–12.0 vs ~99; reserves 178k–245k; signal parked ~0.12), conservation-
+clean. `EconomyState` already carries `holdings`, so the production
+`tournament_funding` computes it with no new inputs.
+
+**Shipped:** `core/economy/economy_signal.py::tournament_funding` FLUSH branch
+changed from `reserves × OVERLAY_DRAIN_PCT` to drain-to-setpoint (the constant is
+retained, marked legacy/per-tick). Tests updated. Flag stays OFF until a hands-ON
+fidelity run against an aged sandbox confirms the magnitude (the modeled-rake
+faucet understates the real vice-dominated faucet — but the fix scales the overlay
+to whatever the reserves are, so a bigger faucet just means more chips per event,
+not a band escape). Harness: `--mode tournament_cadence --cadence-sizing
+{production,to_setpoint}` in `scripts/sim_experiments/thermostat_sweep.py`.
 
 ## Conclusion
 

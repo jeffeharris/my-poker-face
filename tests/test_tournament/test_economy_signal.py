@@ -96,14 +96,18 @@ class TestSignal:
 
 class TestTournamentFunding:
     def test_flush_overlays_no_rake(self):
+        # Drain-to-setpoint: overlay = reserves − FLUSH_SETPOINT × holdings.
+        # 170k − 0.08×2M = 170k − 160k = 10k.
         st = EconomyState(reserves=170_000, holdings=2_000_000, ratio=0.085, regime=FLUSH)
         plan = tournament_funding(st, field_size=18, seat_price=500, human_in=True)
-        assert plan.bank_overlay == round(170_000 * chair.OVERLAY_DRAIN_PCT)  # 3400
+        assert plan.bank_overlay == 170_000 - round(chair.FLUSH_SETPOINT * 2_000_000)  # 10_000
         assert plan.rake == 0
         assert plan.human_buy_in == 500
         assert plan.prize_pool == 500 + plan.bank_overlay
 
     def test_flush_overlay_capped(self):
+        # A very flush bank's drain-to-setpoint (50M − 0.08×600M < 0? no: 50M −
+        # 48M = 2M) exceeds the cap → capped so one event can't empty the coffers.
         st = EconomyState(reserves=50_000_000, holdings=600_000_000, ratio=0.083, regime=FLUSH)
         plan = tournament_funding(st, field_size=9, seat_price=0, human_in=False)
         assert plan.bank_overlay == chair.OVERLAY_CAP
@@ -130,12 +134,13 @@ class TestTournamentFunding:
         assert plan.prize_pool == 0
 
     def test_ai_only_flush_pool_is_overlay(self):
-        """An AI-only (no human) flush tournament still has a real pool = overlay."""
+        """An AI-only (no human) flush tournament still has a real pool = overlay.
+        Drain-to-setpoint: 100k − 0.08×1M = 100k − 80k = 20k."""
         st = EconomyState(reserves=100_000, holdings=1_000_000, ratio=0.1, regime=FLUSH)
         plan = tournament_funding(st, field_size=18, seat_price=500, human_in=False)
         assert plan.human_buy_in == 0
-        assert plan.bank_overlay == 2_000
-        assert plan.prize_pool == 2_000
+        assert plan.bank_overlay == 20_000
+        assert plan.prize_pool == 20_000
 
     def test_setpoint_boundary_is_flush(self):
         """Exactly at the 0.08 setpoint counts as flush (>= setpoint)."""

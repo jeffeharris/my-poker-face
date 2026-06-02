@@ -52,9 +52,13 @@ FLUSH_SETPOINT: float = 0.08
 # cash-rake sibling's job); a conservative band so the neutral zone is wide.
 EMPTY_SETPOINT: float = 0.02
 
-# Overlay as a fraction of current reserves when flush. EXP_006 ran overlay_pct
-# = 0.02 (per-tick) and held the band; per-tournament cadence re-validation is
-# the P2 §6 gate before prod flip.
+# Overlay as a fraction of current reserves when flush — the PER-TICK control
+# constant EXP_006 originally tuned (held the band at 0.02/tick). It is RETAINED
+# for reference but is NOT the production sizing: EXP_006 §6 re-validation showed
+# that a fixed `pct × reserves` overlay does NOT transfer to the per-*tournament*
+# cadence — the 30-min cooldown makes it ~225× too weak and reserves balloon
+# (slope ~99 vs a baseline 130 chips/tick across 3 seeds). The production overlay
+# uses the drain-to-setpoint law below instead (`tournament_funding`).
 OVERLAY_DRAIN_PCT: float = 0.02
 
 # Hard ceiling on a single overlay so one event can never empty the coffers
@@ -157,10 +161,15 @@ def tournament_funding(
     """Pure policy: turn an `EconomyState` + a seat price into a funding plan.
 
     v1 policy (constants above, all sim-tuned):
-      - **Flush** → overlay = min(reserves × OVERLAY_DRAIN_PCT, OVERLAY_CAP),
-        rake = 0. The bank distributes into the field — the only real source of
-        an AI-only prize pool in v1 (busted AIs' chips are funny money; the real
-        pool is human buy-in + overlay).
+      - **Flush** → overlay = min(max(0, reserves − FLUSH_SETPOINT × holdings),
+        OVERLAY_CAP), rake = 0. Each event **drains the bank back to the
+        setpoint** (a sawtooth: reserves climb on the faucet between events, one
+        event per FLUSH+cooldown resets them to the setpoint). EXP_006 §6 chose
+        this over the per-tick `reserves × OVERLAY_DRAIN_PCT` law: across a
+        per-tournament cooldown a fixed-percent draw is far too weak and the bank
+        balloons; drain-to-setpoint held the band (slope ~6–12 vs ~99 chips/tick,
+        3 seeds), conservation-clean. The overlay is the only real source of an
+        AI-only prize pool in v1 (busted AIs' chips are funny money).
       - **Neutral** → overlay = 0, rake = 0. Seat buy-ins only.
       - **Empty** → overlay = 0, rake = round(gross × REFILL_RAKE_PCT). Refills.
 
@@ -175,8 +184,12 @@ def tournament_funding(
     gross = human_buy_in + ai_buy_in_total
 
     if state.regime == FLUSH:
-        bank_overlay = min(round(state.reserves * OVERLAY_DRAIN_PCT), OVERLAY_CAP)
-        bank_overlay = max(0, bank_overlay)
+        # Drain-to-setpoint (EXP_006 §6): size the overlay to bring reserves back
+        # down to the FLUSH setpoint in this one event, capped so a very flush
+        # bank can't empty into a single tournament. Self-limiting — once reserves
+        # are at the setpoint the next signal isn't FLUSH, so no event fires.
+        target = round(FLUSH_SETPOINT * state.holdings)
+        bank_overlay = min(max(0, state.reserves - target), OVERLAY_CAP)
         rake = 0
     elif state.regime == EMPTY:
         bank_overlay = 0
