@@ -358,9 +358,17 @@ display unless noted, and each should ship behind its own flag.
     Influence at W=1.5 is 28% / 18% / 25% — **W=1.5 sits in the 15–35% band on
     every seed** (seed 7 the most conservative trajectory). Calibration holds.
 
-  - **Net gate status:** mechanism validated + conservation-safe + **no
-    starvation** + **W calibrated (1.5), 3-seed confirmed**. Remaining before
-    flip: a positive end-to-end lobby test. Flag stays OFF until then.
+  - **End-to-end lobby test DONE** (`test_global_greedy_fill.py`): drives
+    `_process_global_greedy_fills` with seeded renown — a glory-hunter seeker
+    routes to the famous table (overriding the id-tiebreak) with renown
+    supplied, and to the plain table (tiebreak) without it. Exercises the real
+    glue the unit/pure tests don't: `occ_prestige` seat-scan, `_glory` anchor
+    load, `status_appetite`, conservation (debit, no mint).
+  - **Net gate status: FULLY VALIDATED** — mechanism + conservation-safe + no
+    starvation + W calibrated (1.5, 3-seed confirmed) + end-to-end lobby test.
+    **The gate is closed; B4 is ready to flip whenever desired** (set
+    `PRESTIGE_SEEKING_ENABLED=1` + `RENOWN_V2_PERSIST_AI=1` on a dev DB with the
+    migration applied). Flag remains default OFF pending that explicit decision.
 
 ---
 
