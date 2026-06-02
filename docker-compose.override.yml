@@ -35,4 +35,4 @@ networks:
   poker-network:
     ipam:
       config:
-        - subnet: 10.123.46.0/24
+        - subnet: 10.123.50.0/24
