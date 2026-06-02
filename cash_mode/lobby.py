@@ -1075,6 +1075,12 @@ def refresh_unseated_tables(
     # `economy_flags.VICE_MODE`. The sim passes 'fake' (real vice needs an
     # LLM call per fire). See economy_flags.VICE_MODE / CASH_MODE_SIDE_HUSTLE.md.
     vice_mode: Optional[str] = None,
+    # When real vice fires, narrate each event with the LLM-backed
+    # narrator (live default). Set False to use the deterministic
+    # templated narrator instead — lets the headless sim run the REAL
+    # vice economics (cast-median concentration) without an LLM call per
+    # fire, so the sim's wealth dynamics match production.
+    vice_use_llm_narration: bool = True,
     # Personas the human is actively playing in a live in-memory hand
     # (from `game_handler.live_cash_seated_pids`). The world sim's
     # `seated_globally` is derived only from the persisted `cash_tables`
@@ -2189,6 +2195,10 @@ def refresh_unseated_tables(
                     personality_repo=personality_repo,
                 )
 
+            # narrate_fn=None → resolve_ai_vice_spending uses its
+            # deterministic templated narrator (no LLM). The headless sim
+            # passes vice_use_llm_narration=False so it can run the real
+            # vice economics without an LLM call per fire.
             vice_starts = resolve_ai_vice_spending(
                 candidates=candidates,
                 vice_repo=vice_repo,
@@ -2197,7 +2207,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
-                narrate_fn=_vice_narrate,
+                narrate_fn=_vice_narrate if vice_use_llm_narration else None,
             )
 
             # Leave-vice commits: AIs whose discretionary leave a vice roll

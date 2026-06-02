@@ -84,6 +84,11 @@ class SimConfig:
     # tourist injection). 0 disables. Drift-safe via the paired ledger
     # rows in `record_bank_pool_sim_seed_pair`.
     initial_bank_pool_seed: int = 0
+    # Vice mechanism the sim drives. Default 'real' so the sim runs the
+    # SAME wealth-tax as production (cast-median concentration, via the
+    # templated narrator — no LLM). Set 'fake' for the LLM-free stub
+    # (own-start / VICE_REFERENCE_MODE testbed) or 'off' to disable.
+    vice_mode: str = 'real'
 
 
 @dataclass(frozen=True)
@@ -227,9 +232,13 @@ def run_sim(
     chip_ledger_repo = repos['chip_ledger_repo']
     # Side-hustle repo (optional in the dict for back-compat). With
     # passive regen retired, the side hustle is the broke-AI recovery
-    # path, so the closed-loop sim drives it. Vice stays sim-faked
-    # (resolve_closed_economy) so no vice_repo is wired here.
+    # path, so the closed-loop sim drives it.
     side_hustle_repo = repos.get('side_hustle_state_repo')
+    # Vice repo: wiring it lets the sim run PRODUCTION's real vice
+    # (cast-median concentration) instead of the fake stub, so the sim's
+    # wealth-tax matches the live game. Real vice runs with the templated
+    # narrator (vice_use_llm_narration=False below) — no LLM in the sim.
+    vice_repo = repos.get('vice_state_repo') if config.vice_mode == 'real' else None
     db_path = repos['db_path']
 
     rng = random.Random(config.rng_seed)
@@ -279,11 +288,12 @@ def run_sim(
             relationship_repo=relationship_repo,
             stake_repo=stake_repo,
             side_hustle_repo=side_hustle_repo,
-            # The sim has no LLM, so real vice (which narrates per fire)
-            # can't run here — force the fake-vice stub as the pool-deposit
-            # source. Mutually exclusive with real vice; live paths default
-            # to economy_flags.VICE_MODE ('real').
-            vice_mode='fake',
+            vice_repo=vice_repo,
+            # Run the SAME vice as production (default 'real' = cast-median
+            # concentration). The sim has no LLM, so real vice runs with the
+            # deterministic templated narrator instead of narrating per fire.
+            vice_mode=config.vice_mode,
+            vice_use_llm_narration=False,
         )
 
         # 2. Metrics capture (every N ticks). The very first and very
