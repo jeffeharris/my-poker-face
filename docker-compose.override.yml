@@ -29,10 +29,12 @@ services:
 # allocator errors with "all predefined address pools have been fully subnetted".
 # Pin this project's network to an explicit, unused 10.x subnet so it never draws
 # from the exhausted default pool.
-# NOTE: the `desktop` worktree pins 10.123.45.0/24; keep each simultaneously-running
-# worktree on a distinct /24 or their networks collide ("pool overlaps").
+# NOTE: keep each simultaneously-running worktree on a distinct /24 or their
+# networks collide ("pool overlaps"). Current allocation across sibling stacks:
+#   .45 desktop | .46 my-poker-face (base) | .47 circuit-progression |
+#   .48 tournaments | .49 polish | .50 renown | .51 release-candidate (this)
 networks:
   poker-network:
     ipam:
       config:
-        - subnet: 10.123.46.0/24
+        - subnet: 10.123.51.0/24
