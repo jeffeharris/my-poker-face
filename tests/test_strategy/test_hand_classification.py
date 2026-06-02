@@ -484,3 +484,158 @@ class TestBoardPlay:
         # board-play guard is inert and normal made-tier logic applies.
         result = classify_hand_full(['Kh', 'Jd'], ['Ks', 'Jc', '5h', '8d'])
         assert result.made_tier == 'strong_made'
+
+
+# ---------------------------------------------------------------------------
+# Board-topped two pair: the board's own pair leads hero's "two pair"
+# ---------------------------------------------------------------------------
+
+
+class TestBoardToppedTwoPair:
+    """Two pair whose *higher* pair is the board's own pair.
+
+    Regression for the TieredBot 150% overbet with 3s 5s on 3h Qd Ks Tc Th:
+    the evaluator calls it "two pair, tens and threes", but the tens are the
+    board's pair (Tc Th) — everyone shares them. Hero's only real edge is the
+    bottom pair of threes, so the hand loses to the whole continuing range. The
+    made-tier path credited *all* two pair as `strong_made`, so the overbet
+    value layer ({'nuts','strong_made'}) fired. It must grade as a bluff-catcher
+    instead. `_board_play_level` does NOT catch this (hero genuinely lifts the
+    board's one pair to two pair via the 3 → `uses_hole`).
+    """
+
+    def test_tens_and_threes_is_bluff_catcher_not_value(self):
+        result = classify_hand_full(['3s', '5s'], ['3h', 'Qd', 'Ks', 'Tc', 'Th'])
+        assert result.made_tier == 'weak_made'
+        assert result.hand_class == 'weak_made'
+        assert result.nut_status == NUT_BLUFF_CATCHER
+
+    def test_underpair_plus_board_pair_is_bluff_catcher(self):
+        # 55 → "tens and fives"; tens are the board's pair, fives an underpair.
+        result = classify_hand_full(['5h', '5d'], ['3h', 'Qd', 'Ks', 'Tc', 'Th'])
+        assert result.made_tier == 'weak_made'
+        assert result.nut_status == NUT_BLUFF_CATCHER
+
+    def test_top_pair_made_with_hole_card_survives(self):
+        # K5 on K-7-7-2-3 → "kings and sevens"; the kings use a hole card, so
+        # this is genuine top-two value, not board-topped.
+        result = classify_hand_full(['Kh', '5d'], ['Ks', '7c', '7d', '2s', '3h'])
+        assert result.made_tier == 'strong_made'
+
+    def test_hole_card_top_two_on_paired_board_survives(self):
+        # KQ on K-Q-7-7-2 → "kings and queens"; both pairs use hole cards and
+        # outrank the board's 77, so it stays strong value.
+        result = classify_hand_full(['Kh', 'Qh'], ['Ks', 'Qd', '7c', '7d', '2s'])
+        assert result.made_tier == 'strong_made'
+
+    def test_board_topped_two_pair_fires_on_paired_flop(self):
+        # Unlike _board_play_level (river-only), the board-shared-pair logic
+        # holds on any street: tens & threes on a paired FLOP is still a
+        # bluff-catcher.
+        result = classify_hand_full(['3s', '5s'], ['Th', 'Tc', '3h'])
+        assert result.made_tier == 'weak_made'
+
+
+# ---------------------------------------------------------------------------
+# Adversarial sweep: "the board is never your private hand"
+# ---------------------------------------------------------------------------
+
+
+def _best_eval(cards):
+    """Black-box hand strength via HandEvaluator (rank + tiebreak values),
+    computed independently of the classifier so the sweep is a true property
+    test, not a tautology against the code under test."""
+    from poker.hand_evaluator import HandEvaluator
+    from poker.strategy.hand_classification import _parse_card
+
+    r = HandEvaluator([_parse_card(c) for c in cards]).evaluate_hand()
+    return r['hand_rank'], tuple(r.get('hand_values') or [])
+
+
+# Curated complete (5-card) boards covering every family where a hand's
+# strength can be supplied by the board rather than the hole cards.
+_SWEEP_BOARDS = [
+    ['3h', 'Qd', 'Ks', 'Tc', 'Th'],   # the bug: paired board (tens)
+    ['Kh', 'Ks', '7c', '7d', '9s'],   # double-paired board
+    ['Qh', 'Qc', '7h', '4h', '2s'],   # paired + 3-flush
+    ['Kh', 'Qh', '7h', '4h', '2h'],   # monotone (board is a flush)
+    ['Th', 'Jc', 'Qd', 'Ks', 'Ah'],   # board is broadway straight
+    ['4h', '5c', '6d', '7s', '8h'],   # board is a low straight
+    ['Ah', 'Ac', 'Ad', '2h', '2c'],   # board is a full house
+    ['9h', '9c', '9d', '2s', '5h'],   # board is trips
+    ['Ks', '9d', '4c', '2h', '7s'],   # dry unpaired control (genuine value OK)
+]
+
+_RANKS = '23456789TJQKA'
+_SUITS = 'shdc'
+_RANK_VAL = {r: i for i, r in enumerate(_RANKS, start=2)}
+_FULL_DECK = [r + s for r in _RANKS for s in _SUITS]
+_VALUE_TIERS = {'nuts', 'strong_made'}
+
+
+def _holes_for_board(board):
+    """All 2-card holes drawable from the deck minus the board (C(47,2))."""
+    remaining = [c for c in _FULL_DECK if c not in board]
+    for i in range(len(remaining)):
+        for j in range(i + 1, len(remaining)):
+            yield [remaining[i], remaining[j]]
+
+
+class TestBoardIsNeverPrivateHand:
+    """Property sweep enforcing the 'board as your private hand' class fix.
+
+    For every curated board archetype and every possible 2-card hole, the
+    classifier must never credit board-supplied strength as value. Two
+    independent invariants, each with its precondition computed directly from
+    HandEvaluator (not from the classifier), so a future regression that
+    rewires the guards is caught:
+
+      1. plays-the-board: hero's best 7-card hand exactly equals the naked
+         board's best 5-card hand → hero contributed nothing everyone doesn't
+         share → must be `air` / bluff-catcher.
+      2. board-topped two pair: hero's best hand is two pair whose *higher*
+         pair is a rank the board pairs by itself → real edge is only the
+         lower pair → must not be `nuts`/`strong_made`.
+    """
+
+    def test_plays_the_board_is_always_air(self):
+        checked = 0
+        for board in _SWEEP_BOARDS:
+            board_key = _best_eval(board)
+            for hole in _holes_for_board(board):
+                if _best_eval(hole + board) != board_key:
+                    continue  # hero genuinely improves on the board
+                checked += 1
+                r = classify_hand_full(hole, board)
+                assert r.made_tier == 'air', (
+                    f'{hole} on {board} ties the naked board but was '
+                    f'classified {r.made_tier!r}'
+                )
+                assert r.nut_status == NUT_BLUFF_CATCHER, (
+                    f'{hole} on {board} plays the board but nut_status={r.nut_status!r}'
+                )
+        assert checked > 0  # guard: the precondition actually fired
+
+    def test_board_topped_two_pair_is_never_value(self):
+        checked = 0
+        for board in _SWEEP_BOARDS:
+            board_pairs = {
+                _RANK_VAL[c[0]]
+                for c in board
+                if [b[0] for b in board].count(c[0]) >= 2
+            }
+            if not board_pairs:
+                continue
+            for hole in _holes_for_board(board):
+                rank, values = _best_eval(hole + board)
+                if rank != 8:  # not two pair
+                    continue
+                if values[0] not in board_pairs:  # top pair isn't the board's
+                    continue
+                checked += 1
+                r = classify_hand_full(hole, board)
+                assert r.made_tier not in _VALUE_TIERS, (
+                    f'{hole} on {board} is two pair topped by the board pair '
+                    f'but was credited {r.made_tier!r} (value)'
+                )
+        assert checked > 0  # guard: the precondition actually fired

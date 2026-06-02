@@ -475,6 +475,34 @@ def _board_play_level(hole_cards: List[str], community_cards: List[str]) -> str:
     return _USES_HOLE
 
 
+def _two_pair_topped_by_board_pair(
+    hand_rank: int,
+    hand_values: List[int],
+    community_cards: List[str],
+) -> bool:
+    """True when hero's two pair is *led* by a pair the board makes by itself.
+
+    On a paired board the evaluator promotes a one-pair holding to "two pair"
+    by folding in the board's own pair. When that board pair is the *higher* of
+    the two (e.g. 3s5s on 3h Qd Ks Tc Th → "tens and threes", where the tens are
+    the board's pair), hero's real edge is only the lower pair — everyone with a
+    card of the board-pair rank already shares the top pair, so the hand is a
+    bluff-catcher, not value. This mirrors the paired-board demotion the
+    one-pair branch of `_classify_nut_status` already applies; the made-tier
+    path otherwise credits *all* two pair as `strong_made` (hand_rank 8),
+    board-blind.
+
+    Hero making the *top* pair with a hole card (e.g. K5 on K-7-7-x → kings &
+    sevens, where the kings use a hole card) is genuine top-two value → False.
+    `_board_play_level` already handles the case where hero contributes nothing.
+    """
+    if hand_rank != 8 or len(hand_values) < 2:
+        return False
+    high_pair_rank = hand_values[0]
+    board_rank_counts = Counter(RANK_VALUES[c[0]] for c in community_cards)
+    return board_rank_counts.get(high_pair_rank, 0) >= 2
+
+
 def classify_hand_full(
     hole_cards: List[str],
     community_cards: List[str],
@@ -532,6 +560,15 @@ def classify_hand_full(
     elif board_play == _KICKER_ONLY:
         # Marginal edge over a shared board hand — call, never value-jam.
         made_tier = _DEMOTE_MADE_TIER[made_tier]
+        nut_status = NUT_BLUFF_CATCHER
+    elif _two_pair_topped_by_board_pair(hand_rank, hand_values, community_cards):
+        # Two pair whose *top* pair is the board's own pair: hero's real edge is
+        # only the lower pair, so grade it as a bluff-catcher (mirrors the
+        # paired-board one-pair demotion) rather than `strong_made` value. This
+        # stops the overbet/value layers from firing a 150% pot bet with a hand
+        # that loses to the whole continuing range. See
+        # _two_pair_topped_by_board_pair.
+        made_tier = 'weak_made'
         nut_status = NUT_BLUFF_CATCHER
 
     hand_class = simplify_hand_class(made_tier, draw_modifier)
