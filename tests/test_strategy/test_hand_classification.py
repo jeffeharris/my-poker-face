@@ -536,6 +536,47 @@ class TestBoardToppedTwoPair:
         assert result.made_tier == 'weak_made'
 
 
+class TestNutHandOnSharedCategoryBoard:
+    """The nut flush / nut straight on a board that shares the category.
+
+    The board-play `kicker_only` demotion (Lucille fix) treats "same made-hand
+    category as the board, better tiebreakers" as a marginal bluff-catcher. That
+    is right for a non-nut flush, but it was burying genuine nuts — the nut
+    flush on a monotone board and the nut straight on a board that already runs
+    four to a straight — where the hole card IS the deciding high card. Those
+    must stay value; only non-nut improvements get demoted.
+    """
+
+    MONOTONE = ['Kh', 'Qh', '7h', '4h', '2h']  # board itself is a K-high flush
+    BOARD_STRAIGHT = ['4h', '5c', '6d', '7s', '8h']  # board is a made 8-high straight
+
+    def test_nut_flush_on_monotone_board_is_value(self):
+        result = classify_hand_full(['Ah', '3c'], self.MONOTONE)
+        assert result.made_tier == 'nuts'
+        assert result.nut_status == NUT_ACTUAL
+
+    def test_nut_straight_on_board_straight_is_value(self):
+        # 9 makes 5-6-7-8-9, the highest straight available — the nuts.
+        result = classify_hand_full(['9c', '2d'], self.BOARD_STRAIGHT)
+        assert result.made_tier == 'nuts'
+        assert result.nut_status == NUT_ACTUAL
+
+    def test_non_nut_flush_still_demoted(self):
+        # J-high flush with the ace live → still a vulnerable shared-board hand.
+        result = classify_hand_full(['Jh', '3c'], self.MONOTONE)
+        assert result.made_tier not in ('nuts', 'strong_made')
+        assert result.nut_status == NUT_BLUFF_CATCHER
+
+    def test_low_flush_still_demoted(self):
+        result = classify_hand_full(['3h', '9c'], self.MONOTONE)
+        assert result.made_tier not in ('nuts', 'strong_made')
+
+    def test_no_flush_card_plays_the_board(self):
+        # No heart → hero plays the board's flush exactly → air.
+        result = classify_hand_full(['Ac', 'Kd'], self.MONOTONE)
+        assert result.made_tier == 'air'
+
+
 # ---------------------------------------------------------------------------
 # Adversarial sweep: "the board is never your private hand"
 # ---------------------------------------------------------------------------

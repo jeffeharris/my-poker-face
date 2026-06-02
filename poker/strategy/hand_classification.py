@@ -557,8 +557,15 @@ def classify_hand_full(
         # Everyone has this — it is air that happens to "make" the board's hand.
         made_tier = 'air'
         nut_status = NUT_BLUFF_CATCHER
-    elif board_play == _KICKER_ONLY:
-        # Marginal edge over a shared board hand — call, never value-jam.
+    elif board_play == _KICKER_ONLY and nut_status not in (NUT_ACTUAL, NUT_NEAR):
+        # Same made-hand category as the naked board, but hero has better
+        # tiebreakers. When those tiebreakers make a genuine nut / near-nut hand
+        # — the nut flush on a monotone board, the nut straight on a board that
+        # already runs four to a straight — the hole card IS the deciding high
+        # card, not a throwaway kicker, so the danger-flag system's `nuts`
+        # verdict stands and we leave it alone. Only the marginal case (a
+        # non-nut flush/straight that barely edges the shared board hand) is the
+        # bluff-catcher Lucille targeted: demote a step and mark bluff_catcher.
         made_tier = _DEMOTE_MADE_TIER[made_tier]
         nut_status = NUT_BLUFF_CATCHER
     elif _two_pair_topped_by_board_pair(hand_rank, hand_values, community_cards):
