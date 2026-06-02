@@ -840,6 +840,22 @@ class PersonalityRepository(BaseRepository):
 
     # --- Avatar CRUD ---
 
+    def _resolve_avatar_identity(self, key: str) -> tuple:
+        """Given an avatar key (a `personality_id` slug OR a display name), return
+        `(personality_id, display_name)` so a write populates BOTH the canonical id
+        column (v137) and the legacy name column. Slugs and display names never
+        collide (different case/spacing). Best-effort: an unknown key (orphan /
+        synthetic seat) yields `(None, key)`."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT personality_id, name FROM personalities "
+                "WHERE personality_id = ? OR name = ? LIMIT 1",
+                (key, key),
+            ).fetchone()
+        if row:
+            return row['personality_id'], row['name']
+        return None, key
+
     def save_avatar_image(
         self,
         personality_name: str,
@@ -852,17 +868,23 @@ class PersonalityRepository(BaseRepository):
         full_width: Optional[int] = None,
         full_height: Optional[int] = None,
     ) -> None:
-        """Save an avatar image to the database."""
+        """Save an avatar image to the database. `personality_name` may be a
+        display name (legacy / cash) or a `personality_id` slug (tournaments) —
+        either is resolved so BOTH the id (v137 canonical key) and the display
+        name are stored; the upsert dedups on `(personality_name, emotion)`."""
+        pid, display = self._resolve_avatar_identity(personality_name)
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO avatar_images
-                (personality_name, emotion, image_data, content_type, width, height, file_size,
+                (personality_name, personality_id, emotion, image_data, content_type,
+                 width, height, file_size,
                  full_image_data, full_width, full_height, full_file_size, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
                 (
-                    personality_name,
+                    display,
+                    pid,
                     emotion,
                     image_data,
                     content_type,
@@ -882,9 +904,9 @@ class PersonalityRepository(BaseRepository):
             cursor = conn.execute(
                 """
                 SELECT image_data FROM avatar_images
-                WHERE personality_name = ? AND emotion = ?
+                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
             """,
-                (personality_name, emotion),
+                (personality_name, personality_name, emotion),
             )
 
             row = cursor.fetchone()
@@ -899,9 +921,9 @@ class PersonalityRepository(BaseRepository):
                 """
                 SELECT image_data, content_type, width, height, file_size
                 FROM avatar_images
-                WHERE personality_name = ? AND emotion = ?
+                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
             """,
-                (personality_name, emotion),
+                (personality_name, personality_name, emotion),
             )
 
             row = cursor.fetchone()
@@ -922,9 +944,9 @@ class PersonalityRepository(BaseRepository):
             cursor = conn.execute(
                 """
                 SELECT full_image_data FROM avatar_images
-                WHERE personality_name = ? AND emotion = ?
+                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
             """,
-                (personality_name, emotion),
+                (personality_name, personality_name, emotion),
             )
 
             row = cursor.fetchone()
@@ -939,9 +961,9 @@ class PersonalityRepository(BaseRepository):
                 """
                 SELECT full_image_data, content_type, full_width, full_height, full_file_size
                 FROM avatar_images
-                WHERE personality_name = ? AND emotion = ?
+                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
             """,
-                (personality_name, emotion),
+                (personality_name, personality_name, emotion),
             )
 
             row = cursor.fetchone()
@@ -962,9 +984,9 @@ class PersonalityRepository(BaseRepository):
             cursor = conn.execute(
                 """
                 SELECT 1 FROM avatar_images
-                WHERE personality_name = ? AND emotion = ? AND full_image_data IS NOT NULL
+                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ? AND full_image_data IS NOT NULL
             """,
-                (personality_name, emotion),
+                (personality_name, personality_name, emotion),
             )
             return cursor.fetchone() is not None
 
@@ -974,9 +996,9 @@ class PersonalityRepository(BaseRepository):
             cursor = conn.execute(
                 """
                 SELECT 1 FROM avatar_images
-                WHERE personality_name = ? AND emotion = ?
+                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
             """,
-                (personality_name, emotion),
+                (personality_name, personality_name, emotion),
             )
             return cursor.fetchone() is not None
 
@@ -986,10 +1008,10 @@ class PersonalityRepository(BaseRepository):
             cursor = conn.execute(
                 """
                 SELECT emotion FROM avatar_images
-                WHERE personality_name = ?
+                WHERE personality_id = ? OR personality_name = ?
                 ORDER BY emotion
             """,
-                (personality_name,),
+                (personality_name, personality_name),
             )
             return [row[0] for row in cursor.fetchall()]
 
@@ -1008,9 +1030,9 @@ class PersonalityRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 """
-                DELETE FROM avatar_images WHERE personality_name = ?
+                DELETE FROM avatar_images WHERE personality_id = ? OR personality_name = ?
             """,
-                (personality_name,),
+                (personality_name, personality_name),
             )
             return cursor.rowcount
 
@@ -1102,13 +1124,17 @@ class PersonalityRepository(BaseRepository):
             return {'image_data': row['image_data'], 'content_type': row['content_type']}
 
     def assign_avatar(self, personality_name: str, emotion: str, image_data: bytes) -> None:
-        """Assign an avatar image to a personality, updating if one already exists."""
+        """Assign an avatar image to a personality, updating if one already exists.
+        `personality_name` may be a display name or a `personality_id` — both
+        columns are populated (v137)."""
+        pid, display = self._resolve_avatar_identity(personality_name)
         with self._get_connection() as conn:
             cursor = conn.execute(
                 """
-                SELECT id FROM avatar_images WHERE personality_name = ? AND emotion = ?
+                SELECT id FROM avatar_images
+                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
             """,
-                (personality_name, emotion),
+                (pid, display, emotion),
             )
 
             existing = cursor.fetchone()
@@ -1116,16 +1142,17 @@ class PersonalityRepository(BaseRepository):
                 conn.execute(
                     """
                     UPDATE avatar_images
-                    SET image_data = ?, content_type = 'image/png', updated_at = CURRENT_TIMESTAMP
+                    SET image_data = ?, personality_id = ?, content_type = 'image/png',
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """,
-                    (image_data, existing['id']),
+                    (image_data, pid, existing['id']),
                 )
             else:
                 conn.execute(
                     """
-                    INSERT INTO avatar_images (personality_name, emotion, image_data, content_type)
-                    VALUES (?, ?, ?, 'image/png')
+                    INSERT INTO avatar_images (personality_name, personality_id, emotion, image_data, content_type)
+                    VALUES (?, ?, ?, ?, 'image/png')
                 """,
-                    (personality_name, emotion, image_data),
+                    (display, pid, emotion, image_data),
                 )

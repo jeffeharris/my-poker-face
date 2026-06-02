@@ -285,7 +285,7 @@ _test_schema_template_path = None
 #       one open invite per owner that they accept (→ play it), decline, or let
 #       expire (→ runs autonomously). Durable so a scheduled window survives
 #       navigation / restart. See `docs/plans/TOURNAMENT_CIRCUIT_SURFACING.md`.
-SCHEMA_VERSION = 136
+SCHEMA_VERSION = 137
 
 
 class SchemaManager:
@@ -945,6 +945,7 @@ class SchemaManager:
                 CREATE TABLE IF NOT EXISTS avatar_images (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     personality_name TEXT NOT NULL,
+                    personality_id TEXT,
                     emotion TEXT NOT NULL,
                     image_data BLOB NOT NULL,
                     content_type TEXT DEFAULT 'image/png',
@@ -963,6 +964,19 @@ class SchemaManager:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_avatar_personality ON avatar_images(personality_name)"
             )
+            # v137: avatars are keyed by the stable `personality_id` (the slug
+            # everything else uses) — `personality_name` (display name) becomes a
+            # legacy/debug column. The id is the lookup key going forward. Guarded
+            # on the column existing: `_init_db` runs BEFORE migrations, so on a
+            # pre-v137 DB the `CREATE TABLE IF NOT EXISTS` above is a no-op and the
+            # existing table has no `personality_id` yet — the v137 migration adds
+            # the column AND this index. On a fresh DB the table was just created
+            # with the column, so the index is built here.
+            avatar_cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+            if 'personality_id' in avatar_cols:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
+                )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)")
 
             # 18. API usage (v6-v17: comprehensive LLM tracking)
@@ -2192,6 +2206,10 @@ class SchemaManager:
             136: (
                 self._migrate_v136_one_open_invite_per_owner,
                 "Enforce one open invite per owner structurally — partial UNIQUE index on tournament_invites(owner_id) WHERE status='offered'. Backs the app-level offer() guard against a cross-worker race. Defensive pre-step collapses any pre-existing duplicate open invites (keep newest, expire the rest) so index creation can't fail on live data.",
+            ),
+            137: (
+                self._migrate_v137_avatar_personality_id,
+                "Re-key avatar_images on the stable `personality_id` (the slug used by bankrolls/ledger/relationships/dossiers/tournaments) instead of `personality_name` (the display name). Adds the column + backfills it by joining personalities on name (names are unique), so existing avatars keep matching while tournaments — which look up by id — stop missing + regenerating. personality_name kept as a legacy/debug column; reads tolerate either key during the transition.",
             ),
         }
 
@@ -7134,6 +7152,45 @@ class SchemaManager:
             "ON tournament_invites(owner_id, status)"
         )
         logger.info("Migration v135 complete: tournament_invites table created")
+
+    def _migrate_v137_avatar_personality_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v137: re-key `avatar_images` on the stable `personality_id`.
+
+        Avatars were the ONE identity surface keyed by the persona's *display
+        name* (`personality_name`, e.g. "Napoleon") while everything else keys on
+        the slug `personality_id` (e.g. "napoleon") — so a lookup by id (every
+        tournament seat) missed and regenerated, and a persona rename orphaned its
+        avatars. Add `personality_id` and backfill it by joining `personalities`
+        on the (unique) display name. `personality_name` is retained as a legacy/
+        debug column; the repo reads tolerate either key during the transition.
+
+        Additive + idempotent (guarded ALTER, backfill only touches NULLs). Rows
+        whose name doesn't match any persona (orphans) keep `personality_id` NULL
+        and are simply unreachable by the new id-keyed path — logged, not deleted."""
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        if 'personality_id' not in existing:
+            conn.execute("ALTER TABLE avatar_images ADD COLUMN personality_id TEXT")
+        # Backfill from the unique display-name join (only fill the NULLs).
+        conn.execute(
+            """
+            UPDATE avatar_images
+               SET personality_id = (
+                   SELECT p.personality_id FROM personalities p
+                    WHERE p.name = avatar_images.personality_name
+               )
+             WHERE personality_id IS NULL
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
+        )
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM avatar_images WHERE personality_id IS NULL"
+        ).fetchone()[0]
+        logger.info(
+            "Migration v137 complete: avatar_images re-keyed on personality_id "
+            "(%d row(s) left unmatched/orphan, reachable only by legacy name)", orphans
+        )
 
     def _migrate_v136_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:
         """Migration v136: structurally enforce one open invite per owner.

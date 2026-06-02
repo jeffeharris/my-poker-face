@@ -161,6 +161,41 @@ def test_load_avatar_not_found(repo):
     assert repo.load_avatar_image("Nobody", "happy") is None
 
 
+def test_avatar_rekeyed_on_personality_id(repo, db_path):
+    """v137: avatars key on the stable `personality_id`. A save (by id OR display
+    name) populates both columns, and a load resolves by EITHER key — so a
+    tournament (looks up by `personality_id`) and a cash game (looks up by display
+    name) both find the SAME avatar instead of the tournament missing+regenerating."""
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO personalities (name, personality_id, config_json, visibility, circulating) "
+        "VALUES ('Napoleon', 'napoleon', '{}', 'public', 1)"
+    )
+    conn.commit()
+    conn.close()
+
+    img = b"\x89PNG" + b"\x00" * 20
+    repo.save_avatar_image("napoleon", "happy", img)  # written by the id (tournament path)
+
+    assert repo.load_avatar_image("napoleon", "happy") == img  # tournament lookup
+    assert repo.load_avatar_image("Napoleon", "happy") == img  # cash lookup (display name)
+    assert repo.has_avatar_image("napoleon", "happy")
+
+    # Both columns are populated regardless of which key the write came in on.
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT personality_name, personality_id FROM avatar_images WHERE emotion='happy'"
+    ).fetchone()
+    conn.close()
+    assert row == ("Napoleon", "napoleon")
+
+    # A save BY DISPLAY NAME resolves to the same id.
+    repo.save_avatar_image("Napoleon", "angry", b"X")
+    assert repo.load_avatar_image("napoleon", "angry") == b"X"
+
+
 def test_load_avatar_with_metadata(repo):
     image_data = b"\x89PNG" + b"\x00" * 50
     repo.save_avatar_image("MetaBot", "confident", image_data, width=128, height=128)
