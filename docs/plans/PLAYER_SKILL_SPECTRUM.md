@@ -34,10 +34,16 @@ last_updated: 2026-06-01
     tops; the weak_reg↔rec order is within bb/100 noise, the metric this harness
     explicitly warns is too insensitive for postflop deltas — the fold% ladder is the
     authoritative read.)
-  - **`exploitation_strength` axis** is NOT exercised here (the Baseline hero has
-    `anchors=None`, so the exploitation layer no-ops). Its endpoints (1.0 vs 0.0) are
-    already validated by `exploit_bb100.py`; the tiers interpolate monotonically
-    (1.0 ≥ 0.7 ≥ 0.4 ≥ 0.1) between them. An anchored-hero re-run is optional.
+  - **`exploitation_strength` axis — MEASURED monotone** (`exploit_bb100`, anchored
+    TAG hero, CallStation×2/FoldyBot×2 backdrop, 4000h × seeds 42/142). The Baseline
+    hero above has `anchors=None` so the layer no-ops there; this run uses an anchored
+    hero. Because `exploitation_strength` and `adaptation_bias` are interchangeable
+    linear factors in the exploitation multiplier, the exposed `--hero-adaptation-bias`
+    sweep measures exactly the tier ladder:
+    `1.0 → +38.5` · `0.7 → +30.3` · `0.4 → +14.8` (all CI-clear positive) ·
+    `0.1 → +2.9` bb/100 (CI spans 0 — `rec` barely exploits, as designed). Clean
+    `38.5 → ~0` decay → the exploitation axis is monotone, not just by the
+    linear-multiplier argument but by measurement.
 - **Phase 4 (author roster):** **DONE.** `skill` is now read per-persona in
   `TieredBotController.__init__` (mirroring the `adaptive_overbet` read — native to
   every live build path; the factory `skill=` kwarg still wins as an explicit
