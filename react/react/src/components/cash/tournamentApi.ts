@@ -79,6 +79,23 @@ export async function getInvite(): Promise<InviteResponse> {
   return res.json();
 }
 
+export interface TournamentLobby {
+  has_active: boolean;
+  active: { tournament_id: string; created_at: string } | null;
+}
+
+/** Whether the owner has a tournament they're currently playing IN, so the lobby
+ *  can show a "Resume Main Event" bar (the offer card vanishes once accepted, so
+ *  without this there's no way back to an in-progress Main Event). */
+export async function getTournamentLobby(): Promise<TournamentLobby> {
+  const res = await fetch(`${BASE}/lobby`, { credentials: 'include' });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 /** Accept the open invite → builds the tournament the human plays IN (and
  *  stands them up from any cash seat first). Throws `InsufficientFundsError` on
  *  402 when a buy-in can't be covered. */

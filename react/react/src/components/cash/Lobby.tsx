@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
 import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
 import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
@@ -33,7 +33,12 @@ import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
 import { MainEventCard } from './MainEventCard';
-import { getInvite, type TournamentInvite } from './tournamentApi';
+import {
+  getInvite,
+  getTournamentLobby,
+  sitTournament,
+  type TournamentInvite,
+} from './tournamentApi';
 import { feedEventKey, renderEventIcon } from './tickerEvents';
 import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
@@ -242,6 +247,11 @@ export function Lobby() {
    *  scheduler. */
   const [mainEventInvite, setMainEventInvite] = useState<TournamentInvite | null>(null);
   const loadInviteRef = useRef<() => Promise<void>>(async () => {});
+  /** The tournament_id of a Main Event the player is currently IN (active), so
+   *  the lobby can show a "Resume Main Event" bar — the offer card vanishes once
+   *  accepted, so without this there's no way back to an in-progress event. */
+  const [activeTournamentId, setActiveTournamentId] = useState<string | null>(null);
+  const loadActiveTournamentRef = useRef<() => Promise<void>>(async () => {});
 
   /** Set of stake labels whose tier section is currently collapsed.
    *  Initialized once per mount: mobile → all collapsed except the
@@ -373,6 +383,24 @@ export function Lobby() {
     };
     loadInviteRef.current = loadInvite;
 
+    // Whether the player is currently IN an active Main Event (for the Resume
+    // bar). Same low cadence as the invite — NOT tick frequency (it changes only
+    // on accept/decline/bust) and the endpoint isn't on the polling rate-limit.
+    const loadActiveTournament = async () => {
+      try {
+        const lobby = await getTournamentLobby();
+        if (cancelled) return;
+        setActiveTournamentId(lobby.has_active ? lobby.active?.tournament_id ?? null : null);
+      } catch (e) {
+        if (cancelled) return;
+        logger.warn(
+          'Failed to load active tournament:',
+          e instanceof Error ? e.message : String(e)
+        );
+      }
+    };
+    loadActiveTournamentRef.current = loadActiveTournament;
+
     // The lobby is an always-browsable hub: we no longer bounce a player
     // with a live session straight back into their game. Instead the
     // `seated_table_id` from the load drives a "you're here" pin on that
@@ -381,11 +409,12 @@ export function Lobby() {
     // (the old auto-redirect only ever "helped" the Career menu button,
     // at the cost of never showing the player which table they were at).
     (async () => {
-      await Promise.all([load(), loadInvite()]);
+      await Promise.all([load(), loadInvite(), loadActiveTournament()]);
       if (cancelled) return;
       interval = setInterval(() => {
         void load();
         void loadInvite();
+        void loadActiveTournament();
       }, LOBBY_REFRESH_INTERVAL_MS);
     })();
 
@@ -618,6 +647,22 @@ export function Lobby() {
     void loadInviteRef.current();
   }, []);
 
+  /** Resume an in-progress Main Event: resolve its live game (sit is idempotent —
+   *  returns the existing game when one's already built) and navigate in. */
+  const handleResumeTournament = useCallback(async () => {
+    if (!activeTournamentId) return;
+    setSittingDown({ submessage: 'Main Event' });
+    try {
+      const { game_id } = await sitTournament(activeTournamentId);
+      navigate(`/game/${game_id}`);
+    } catch (e) {
+      setSittingDown(null);
+      logger.error('Resume Main Event failed:', e instanceof Error ? e.message : String(e));
+      // The tournament likely ended (busted / complete) — clear the bar.
+      void loadActiveTournamentRef.current();
+    }
+  }, [activeTournamentId, navigate]);
+
   // Stake label of the table the player is seated at (for the Resume bar
   // text). Prefer the live lobby snapshot (stays in sync as the session
   // ends); fall back to the server-provided label for a cold session whose
@@ -696,7 +741,19 @@ export function Lobby() {
             </div>
           )}
 
-          {mainEventInvite && mainEventInvite.status === 'offered' && (
+          {activeTournamentId && (
+            <button
+              type="button"
+              className="main-event-resume"
+              onClick={handleResumeTournament}
+            >
+              <Trophy size={18} aria-hidden="true" />
+              <span className="main-event-resume__text">Resume the Main Event</span>
+              <ChevronRight size={18} className="main-event-resume__arrow" aria-hidden="true" />
+            </button>
+          )}
+
+          {!activeTournamentId && mainEventInvite && mainEventInvite.status === 'offered' && (
             <MainEventCard
               invite={mainEventInvite}
               onEnter={handleEnterTournament}
