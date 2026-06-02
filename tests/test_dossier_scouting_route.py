@@ -156,6 +156,35 @@ class TestDossierScoutingRoute(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         return resp.get_json()
 
+    # --- B1: AI renown badge (Renown v2) ------------------------------------
+
+    def test_reputation_absent_when_no_ai_row(self):
+        # No persisted AI renown → reputation is null (badge doesn't render).
+        body = self._dossier()
+        self.assertIn('reputation', body)
+        self.assertIsNone(body['reputation'])
+
+    def test_reputation_present_when_ai_v2_row_exists(self):
+        # Persist a v2-native AI row for this personality in the resolved
+        # sandbox; the dossier surfaces it as the reputation block.
+        self.repos['prestige_snapshots_repo'].record_ai_many(
+            sandbox_id=self.sandbox_id,
+            captured_at="2026-06-02T12:00:00Z",
+            rows=[{
+                'owner_id': PERSONALITY, 'renown_v2': 42.0, 'regard': -0.3,
+                'quadrant': 'Infamous Villain', 'victim_percentile': 0.81,
+                'high_cut': 30.0, 'components': {'scalps': 18.0},
+                'field_size': 12,
+            }],
+        )
+        rep = self._dossier()['reputation']
+        self.assertIsNotNone(rep)
+        self.assertEqual(rep['formula_version'], 'v2')
+        self.assertEqual(rep['quadrant'], 'Infamous Villain')
+        self.assertAlmostEqual(rep['renown_v2'], 42.0)
+        self.assertAlmostEqual(rep['victim_percentile'], 0.81)
+        self.assertEqual(rep['field_size'], 12)
+
     def test_below_floor_classified(self):
         self._fold(10)
         body = self._dossier()

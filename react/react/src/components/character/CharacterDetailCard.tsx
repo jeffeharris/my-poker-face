@@ -141,6 +141,21 @@ function monogram(name: string): string {
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
+/** Map a Renown-v2 quadrant to a badge glyph + modifier class. Unknown
+ *  quadrants fall back to the neutral "up-and-comer" treatment. */
+function renownBadgeStyle(quadrant: string): { glyph: string; mod: string } {
+  switch (quadrant) {
+    case 'Beloved Legend':
+      return { glyph: '★', mod: 'legend' };
+    case 'Infamous Villain':
+      return { glyph: '☠', mod: 'villain' };
+    case 'Disliked Nobody':
+      return { glyph: '·', mod: 'nobody' };
+    default: // "Up-and-comer"
+      return { glyph: '↗', mod: 'comer' };
+  }
+}
+
 /** Tally strip: 10 marks, the first `value*10` filled with hand-drawn ticks. */
 function TallyStrip({ value, label, readout }: { value: number; label: string; readout?: string }) {
   const filled = Math.max(0, Math.min(10, Math.round(value * 10)));
@@ -710,6 +725,9 @@ export function CharacterDetailCard({
       temperament.expressiveness != null);
   const fieldPos = fetched?.field_position ?? null;
   const hasFieldPos = !!fieldPos && (!!fieldPos.vpip_label || !!fieldPos.af_label);
+  // B1 (Renown v2) — field-relative renown standing. Null until the per-AI
+  // persist path has run; the badge then renders under the subject name.
+  const reputation = fetched?.reputation ?? null;
   // "The history" — rivalry read.
   const history = fetched?.relationship_history ?? null;
   const hasHistory =
@@ -962,6 +980,35 @@ export function CharacterDetailCard({
                   return null;
                 })()}
                 {merged.playStyle && <div className="dossier__archetype">{merged.playStyle}</div>}
+                {reputation &&
+                  (() => {
+                    const { glyph, mod } = renownBadgeStyle(reputation.quadrant);
+                    const pct =
+                      reputation.victim_percentile != null
+                        ? Math.round(reputation.victim_percentile * 100)
+                        : null;
+                    return (
+                      <div
+                        className={`dossier__renown dossier__renown--${mod}`}
+                        title={
+                          pct != null
+                            ? `Field-relative renown — ahead of ${pct}% of the field`
+                            : 'Field-relative renown'
+                        }
+                      >
+                        <span className="dossier__renown-glyph" aria-hidden="true">
+                          {glyph}
+                        </span>
+                        <span className="dossier__renown-quadrant">{reputation.quadrant}</span>
+                        <span className="dossier__renown-score">
+                          renown {Math.round(reputation.renown_v2)}
+                        </span>
+                        {pct != null && (
+                          <span className="dossier__renown-pct">ahead of {pct}% of the field</span>
+                        )}
+                      </div>
+                    );
+                  })()}
               </div>
             </section>
 
