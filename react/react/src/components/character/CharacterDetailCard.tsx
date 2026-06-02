@@ -24,6 +24,7 @@ import {
   type DossierScouting,
 } from './api';
 import { useNicknameOverridesStore } from '../../stores/nicknameOverridesStore';
+import { OpponentSizingTell } from './OpponentSizingTell';
 import './CharacterDetailCard.css';
 
 export type RelationshipKind =
@@ -1001,6 +1002,12 @@ export function CharacterDetailCard({
                 </section>
               </>
             )}
+
+            {/* Surface B (SIZING_COACH_SURFACES.md): how readable this opponent's
+                bet sizing is, over time. Self-fetches + self-titles; renders
+                nothing until it has a gradeable read, so it silently no-ops for
+                thin samples (no orphan section header). */}
+            {character.name && <OpponentSizingTell opponent={character.name} />}
 
             {hasStanding && fetched?.relationship && (
               <>
