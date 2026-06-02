@@ -12,13 +12,20 @@ missing kill-switch for the bot's Phase B sizing-defense
 Why not just read the live opponent model? That score
 (``poker/memory/opponent_model.py:sizing_polarization_score``) is a showdown-gated
 *lifetime cumulative mean* — it can't show a trend and it flips off slowly when an
-opponent adapts. This works off the decision analyzer's per-bet ``equity`` (known
-from hole cards, no showdown needed), so it's denser AND can *see a tell decay*
-instead of freezing it in an average.
+opponent adapts.
+
+**Showdown-gated (fairness).** The read is built ONLY from bets in hands that
+reached showdown where the bettor was NOT folded — i.e. hands whose cards a human
+at the table would actually have seen. Using the analyzer's per-bet ``equity`` for
+*mucked* bets (cards never revealed) would hand the player a superhuman read no
+opponent could earn, and cheapen the "scout to learn the tell" grind. So the DB
+adapters join ``hand_history`` (``showdown = 1``) and exclude any bet by a player
+who has a ``fold`` row that hand. The cost is honest sparsity — the same constraint
+a real reader lives under (you only learn what got shown down).
 
 Pure core (``compute_opponent_sizing_tell``) takes decision dicts and returns the
-tell; ``load_opponent_bet_decisions`` is the thin owner-scoped DB adapter. The core
-is DB-free and unit-testable.
+tell; ``load_opponent_bet_decisions`` / ``load_owner_bet_decisions`` are the thin
+owner-scoped DB adapters. The core is DB-free and unit-testable.
 """
 
 from __future__ import annotations
@@ -209,10 +216,11 @@ def load_opponent_bet_decisions(db_path: str, owner_id: str, opponent_name: str)
     """Load an opponent's postflop bet/raise decisions from the owner's games.
 
     Owner-scoped (the coach privacy model: you only read opponents you've played).
+    SHOWDOWN-GATED for fairness: only bets in hands that reached showdown where the
+    bettor wasn't folded (cards a human would have seen) — see module docstring.
     ``bet_fraction`` ≈ ``raise_amount / pot_total`` — a coarse big/small proxy
     (raise-to overstates a re-raise's size, but the big/small bin at 0.75 absorbs
-    that). ``equity`` is the analyzer's equity-vs-random at the bet (hole-card
-    derived, not showdown-gated). Read-only, best-effort.
+    that). ``equity`` is the analyzer's equity-vs-random at the bet. Read-only.
     """
     import sqlite3
 
@@ -220,15 +228,22 @@ def load_opponent_bet_decisions(db_path: str, owner_id: str, opponent_name: str)
     try:
         conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
         conn.row_factory = sqlite3.Row
+        # Candidate revealed bets (in showdown hands). The fold-exclusion is a
+        # SEPARATE indexed query + a Python anti-join — a correlated NOT EXISTS
+        # here ran ~38s on the live DB; this is ~0.05s.
         cur = conn.execute(
             """
             SELECT pda.equity        AS equity,
                    pda.pot_total     AS pot_total,
                    pda.raise_amount  AS raise_amount,
                    pda.created_at    AS created_at,
-                   pda.hand_number   AS hand_number
+                   pda.hand_number   AS hand_number,
+                   pda.game_id       AS game_id
             FROM player_decision_analysis pda
             JOIN games g ON g.game_id = pda.game_id
+            JOIN hand_history hh
+              ON hh.game_id = pda.game_id AND hh.hand_number = pda.hand_number
+             AND hh.showdown = 1
             WHERE g.owner_id = ?
               AND pda.player_name = ?
               AND pda.phase IN ('FLOP', 'TURN', 'RIVER')
@@ -239,6 +254,20 @@ def load_opponent_bet_decisions(db_path: str, owner_id: str, opponent_name: str)
             """,
             (owner_id, opponent_name),
         )
+        candidates = cur.fetchall()
+        # (game, hand) where this player folded → they weren't revealed there.
+        folded = {
+            (r['game_id'], r['hand_number'])
+            for r in conn.execute(
+                """
+                SELECT DISTINCT pda.game_id AS game_id, pda.hand_number AS hand_number
+                FROM player_decision_analysis pda
+                JOIN games g ON g.game_id = pda.game_id
+                WHERE g.owner_id = ? AND pda.player_name = ? AND pda.action_taken = 'fold'
+                """,
+                (owner_id, opponent_name),
+            ).fetchall()
+        }
         rows = [
             {
                 'equity': r['equity'],
@@ -246,7 +275,8 @@ def load_opponent_bet_decisions(db_path: str, owner_id: str, opponent_name: str)
                 'created_at': r['created_at'],
                 'hand_number': r['hand_number'],
             }
-            for r in cur.fetchall()
+            for r in candidates
+            if (r['game_id'], r['hand_number']) not in folded
         ]
         conn.close()
     except Exception as e:  # noqa: BLE001 — best-effort read, never break the page
@@ -262,7 +292,8 @@ def load_owner_bet_decisions(db_path: str, owner_id: str) -> List[dict]:
     Mirrors ``coach_leaks.load_owner_preflop_decisions``: scope by owner_id and the
     games' index, then keep the human seat (player_name == that game's owner_name)
     in Python (NOT in the WHERE — that makes SQLite nested-loop games × matches).
-    Same ``bet_fraction``/``equity`` semantics as the opponent loader. Read-only.
+    SHOWDOWN-GATED like the opponent loader (only revealed bets count). Same
+    ``bet_fraction``/``equity`` semantics. Read-only.
     """
     import sqlite3
 
@@ -270,17 +301,21 @@ def load_owner_bet_decisions(db_path: str, owner_id: str) -> List[dict]:
     try:
         conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
         conn.row_factory = sqlite3.Row
-        cur = conn.execute(
+        candidates = conn.execute(
             """
             SELECT pda.equity        AS equity,
                    pda.pot_total     AS pot_total,
                    pda.raise_amount  AS raise_amount,
                    pda.created_at    AS created_at,
                    pda.hand_number   AS hand_number,
+                   pda.game_id       AS game_id,
                    pda.player_name   AS player_name,
                    g.owner_name      AS owner_name
             FROM player_decision_analysis pda
             JOIN games g ON g.game_id = pda.game_id
+            JOIN hand_history hh
+              ON hh.game_id = pda.game_id AND hh.hand_number = pda.hand_number
+             AND hh.showdown = 1
             WHERE g.owner_id = ?
               AND pda.phase IN ('FLOP', 'TURN', 'RIVER')
               AND pda.action_taken IN ('bet', 'raise', 'all_in')
@@ -289,7 +324,22 @@ def load_owner_bet_decisions(db_path: str, owner_id: str) -> List[dict]:
               AND pda.raise_amount > 0
             """,
             (owner_id,),
-        )
+        ).fetchall()
+        # (game, hand, player) where a player folded → not revealed there. Keyed
+        # by player too since the owner seat is matched in Python below.
+        folded = {
+            (r['game_id'], r['hand_number'], r['player_name'])
+            for r in conn.execute(
+                """
+                SELECT pda.game_id AS game_id, pda.hand_number AS hand_number,
+                       pda.player_name AS player_name
+                FROM player_decision_analysis pda
+                JOIN games g ON g.game_id = pda.game_id
+                WHERE g.owner_id = ? AND pda.action_taken = 'fold'
+                """,
+                (owner_id,),
+            ).fetchall()
+        }
         rows = [
             {
                 'equity': r['equity'],
@@ -297,8 +347,9 @@ def load_owner_bet_decisions(db_path: str, owner_id: str) -> List[dict]:
                 'created_at': r['created_at'],
                 'hand_number': r['hand_number'],
             }
-            for r in cur.fetchall()
+            for r in candidates
             if r['player_name'] == r['owner_name']
+            and (r['game_id'], r['hand_number'], r['player_name']) not in folded
         ]
         conn.close()
     except Exception as e:  # noqa: BLE001 — best-effort read, never break the page

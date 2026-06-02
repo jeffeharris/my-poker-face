@@ -156,13 +156,18 @@ as **read confidence + stability** — is the tell holding, or are they starting
 mix?
 
 - **Scope:** per opponent, recomputed per time-block from *their* rows.
-- **Data:** rich — the AIs have thousands of postflop aggressive decisions.
-- **Bonus — fixes a real blind spot:** the live read is a *lifetime cumulative
+- **Showdown-gated (fairness, 2026-06-02):** only bets in hands that reached
+  showdown where the bettor wasn't folded — the cards a human at the table would
+  actually have seen. Using analyzer equity for *mucked* bets would be a superhuman
+  read no opponent could earn and would cheapen the scouting grind. The loaders
+  join `hand_history (showdown=1)` and anti-join the player's `fold` rows (a Python
+  anti-join, not a correlated `NOT EXISTS` — that ran ~38s on the live DB vs
+  ~0.06s). Cost: honest sparsity (~60–72% of an opponent's bets reach showdown).
+- **Bonus — `stability` over time:** the live bot read is a *lifetime cumulative
   mean* (no decay; and the bot folding to big bets suppresses the showdowns the
   read needs), so it flips off slowly if an adversary adapts. Recomputing
-  per-block from raw rows here **shows the tell decaying** instead of freezing it
-  in an average. The `stability` axis is the **kill-switch signal** for the bot's
-  Phase B sizing-defense.
+  per-block here **shows the tell decaying**. The `stability` axis is the
+  **kill-switch signal** for the bot's Phase B sizing-defense.
 
 **API** — `GET /api/coach/opponent-tells?opponent=Batman`:
 
