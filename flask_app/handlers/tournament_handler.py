@@ -103,6 +103,7 @@ def reconcile_live_table(
     big_blind: int,
     *,
     make_controller,
+    owner_name: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """Mutate the human's live game to match the field's view of their table.
 
@@ -117,8 +118,8 @@ def reconcile_live_table(
     a newly-arrived seat. Returns (added_names, removed_names).
     """
     from flask_app import extensions
-    from flask_app.handlers.tournament_game_builder import persona_display_name
     from poker.poker_game import Player
+    from tournament.identity import resolve_display_name
 
     desired = list(seat_specs)
     new_players = tuple(
@@ -126,10 +127,11 @@ def reconcile_live_table(
             name=s.player_id,
             stack=s.stack,
             is_human=s.is_human,
-            # Relocation has no owner_name in scope; the human seat falls back to
-            # "You" (they recognize their own seat). AI seats get their persona name.
-            nickname=persona_display_name(
-                s.player_id, is_human=s.is_human, owner_name='You',
+            # AI seats get their persona name; the human seat shows `owner_name`
+            # when threaded through (the frontend still renders the human's own
+            # seat as "You"). All seats resolve through the one canonical path.
+            nickname=resolve_display_name(
+                s.player_id, is_human=s.is_human, owner_name=owner_name,
                 personality_repo=getattr(extensions, 'personality_repo', None),
             ),
         )
@@ -195,6 +197,7 @@ def advance_tournament_after_hand(game_data: dict, state_machine, *, make_contro
         specs,
         session.current_level().big_blind,
         make_controller=make_controller,
+        owner_name=game_data.get('owner_name'),
     )
     game_data['tournament_table_id'] = outcome.table_id
     game_data['hand_start_stacks'] = {

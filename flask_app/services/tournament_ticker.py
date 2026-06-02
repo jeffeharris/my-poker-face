@@ -37,6 +37,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 
+from tournament.identity import resolve_display_name
+
 logger = logging.getLogger(__name__)
 
 # Synthetic field-seat ids minted by `build_initial_state` (`P01..PNN`) for the
@@ -75,6 +77,7 @@ def beats_to_world_events(
     winner_name: Optional[str],
     sandbox_id: str,
     complete: bool,
+    winner_id: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> list:
     """Translate the *structural* subset of a beat burst into `LobbyEvent`s for
@@ -136,7 +139,7 @@ def beats_to_world_events(
                 type=activity.EVENT_TOURNAMENT_WINNER,
                 table_id="",
                 stake_label="",
-                personality_id="",
+                personality_id=winner_id or "",
                 name=winner_name,
                 reason="",
                 message=activity.format_tournament_winner_message(winner_name),
@@ -155,6 +158,7 @@ def advance_owner_tournament(
     session_repo,
     bankroll_repo,
     ledger_repo,
+    personality_repo=None,
     rounds_per_tick: int = 1,
     now: Optional[datetime] = None,
 ) -> Optional[dict]:
@@ -224,13 +228,24 @@ def advance_owner_tournament(
 
     complete = session.is_complete()
     winner_name = None
+    winner_id = None
     if complete:
         wid = session.winner()
-        winner_name = session.entries.get(wid, wid) if wid else None
+        if wid:
+            # Resolve the winner's persona name through the canonical resolver —
+            # `session.entries[wid]` is the bot ARCHETYPE, not a display name, so
+            # rendering it left "calling_station" as the Main Event champion.
+            winner_id = wid
+            winner_name = resolve_display_name(
+                wid,
+                is_human=(wid == session.human_id),
+                personality_repo=personality_repo,
+            )
 
     events = beats_to_world_events(
         beats,
         winner_name=winner_name,
+        winner_id=winner_id,
         sandbox_id=sandbox_id,
         complete=complete,
         now=now,

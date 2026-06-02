@@ -40,6 +40,11 @@ class FakePersonalityRepo:
     def list_eligible_for_cash_mode(self, *, user_id=None):
         return [{'personality_id': pid, 'name': pid} for pid in self._ids]
 
+    def load_personality_by_id(self, pid):
+        # The canonical resolver turns a field id into the persona's display
+        # name through this lookup (the same call cash seats use).
+        return {'id': pid, 'name': pid} if pid in self._ids else None
+
 
 @pytest.fixture
 def repos():
@@ -185,6 +190,7 @@ def test_advance_owner_tournament_plays_out_and_surfaces_winner(repos, wired_ses
         result = tournament_ticker.advance_owner_tournament(
             owner_id=OWNER, sandbox_id=SB, registry=tournament_registry,
             session_repo=session_repo, bankroll_repo=bankroll_repo, ledger_repo=ledger_repo,
+            personality_repo=persona_repo,
         )
         assert result is not None, "autonomous tournament should advance"
         all_events.extend(result['events'])
@@ -192,10 +198,15 @@ def test_advance_owner_tournament_plays_out_and_surfaces_winner(repos, wired_ses
         ticks += 1
         assert ticks < 10_000
 
-    # A winner beat surfaced exactly once, naming a real entrant.
+    # A winner beat surfaced exactly once, naming a real entrant by its persona
+    # DISPLAY name (resolved via personality_repo) — NOT the bot archetype that
+    # `session.entries` maps each persona to.
     winner_events = [e for e in all_events if e.type == activity.EVENT_TOURNAMENT_WINNER]
     assert len(winner_events) == 1
-    assert winner_events[0].name in spawned['entries'].values()
+    assert winner_events[0].name in spawned['entries'].keys()
+    assert winner_events[0].name not in spawned['entries'].values()
+    # The winner event also carries the persona's stable id for linking.
+    assert winner_events[0].personality_id in spawned['entries'].keys()
     # At least one field-collapse milestone surfaced along the way.
     assert any(e.type == activity.EVENT_TOURNAMENT_MILESTONE for e in all_events)
     # Settled: the durable row is terminal.

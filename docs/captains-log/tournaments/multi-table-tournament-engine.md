@@ -704,3 +704,59 @@ cross-sandbox) was already fixed in the prior batch.
 
 New tests across the three areas (route-rejection, payout/recency/CAS, fail-closed
 spawn, decline marker). Targeted suites green; full run gating. Still uncommitted.
+
+---
+
+## 2026-06-02 — identity unification: tournaments look up players the way cash does
+
+The recurring tournament display bugs (real names on the live table, persona
+restore on cold-load, the invite-poll fixes) were all symptoms of ONE thing:
+tournaments resolved persona identity their own scattered way, while cash funnels
+everything through `personality_for_seat` → `load_personality_by_id`. So I built
+the tournament analogue — `tournament/identity.py::resolve_display_name` — the
+single path that turns a field id (personality_id slug / synthetic `P##` / human
+seat) into a display name, and routed every surface through it: the live builder,
+the relocation reconcile (which had a hardcoded `'You'` instead of the real owner
+name), the world-event ticker, and the completion standings.
+
+That surfaced two latent leaks the divergence had been hiding. The ticker's
+`winner_name = session.entries.get(wid, wid)` was rendering the bot ARCHETYPE
+("calling_station") as the Main Event champion — `entries` maps id→archetype, not
+id→name. And completion standings emitted the raw `personality_id` slug for MTT
+fields (single-table only worked by accident, because its `entries` are keyed by
+real display name). Both now resolve through the shared resolver.
+
+The honest part: this took THREE corrections, and the test harness caught what
+review and I both initially missed. (1) A code-review agent flagged that I'd
+resolved the standings `player_name` to a display name but left
+`human_player_name` as the raw `human_id` — and `update_career_stats`
+cross-references the standings BY that name, so MTT career stats would silently
+stop recording. (2) Same shape for `eliminated_by` (slug while `player_name`
+became a name) → the repo's knockout count zeroes out. (3) My fix for (1) —
+resolving the human seat to `owner_name` — was itself a wrong turn: it ASSUMED
+`owner_name` equals the human's table name, but single-table `human_id` IS the
+table name and can differ from the account name. Three integration tests
+(`test_completion_integration`, `test_single_table_boundary`) that assert
+`career_name == session.human_id` went red and set me straight. They were also a
+lesson in test hygiene: my "green" reads were `pytest | grep | tail` pipelines
+whose exit code came from `tail`, not pytest — the real "3 failed, 296 passed"
+summary was sitting in a captured line I'd skimmed past.
+
+The right model, finally: humans aren't personas — like cash (where the human's
+identity is `owner_id`, not a persona row), the human seat is NEVER routed through
+the persona resolver. It stays its `human_id` verbatim on every completion
+surface, which keeps `human_player_name` == its standings row (the career
+invariant) AND preserves the pre-change name. Only AI seats resolve. The resolver
+grew a `humanize_fallback` flag: the live felt humanizes a stray slug ("sun_tzu" →
+"Sun Tzu") for a friendlier label, but the completion/standings path passes
+`humanize_fallback=False` so an unresolved AI id stays verbatim — no `.title()`
+mangling of a single-table real name ("McQueen" → "Mcqueen"), and a synthetic
+`P07` stays legible.
+
+Field/session stay keyed on `personality_id` internally (the economic identity) —
+the unification is the LOOKUP path, not the storage key. Touched: new
+`tournament/identity.py`; builder/reconcile/ticker/completion all route through it;
+ticker winner + completion standings now resolve real names. `test_tournament` +
+`test_cash_mode` green (33-test targeted slice green incl. the 3 that caught me);
+new `test_identity.py`; fixed a ticker test that had enshrined the archetype bug.
+Uncommitted.

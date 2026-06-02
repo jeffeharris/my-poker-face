@@ -18,11 +18,18 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from tournament.identity import resolve_display_name
 from tournament.session import TournamentSession
 
 from .tournament_handler import human_table_seat_specs
 
 logger = logging.getLogger(__name__)
+
+# The tournament seat's `name` is its field id (`personality_id` for the MTT
+# bridge); the human-readable `nickname` is resolved through the canonical
+# persona-identity resolver (`tournament.identity`) — the same lookup cash seats
+# use — so the felt, the ticker, and the final standings all render one
+# consistent name.
 
 # One game id per human-tournament; relocation reconciles in place rather than
 # spawning a new game (the id is just a key).
@@ -45,21 +52,6 @@ def make_tournament_ai_controller(name: str, state_machine, *, game_id: str, own
     )
 
 
-def persona_display_name(player_id: str, *, is_human: bool, owner_name: str, personality_repo) -> str:
-    """The human-readable name to show for a tournament seat. The seat's `name`
-    is the field id (`personality_id`) for the MTT bridge; this is its display
-    `nickname`. Human → owner_name; AI → the persona's real name (or a humanized
-    id like `sun_tzu` → "Sun Tzu" / a synthetic `p17` → "P17" when no persona)."""
-    if is_human:
-        return owner_name or 'You'
-    if personality_repo is not None:
-        try:
-            p = personality_repo.load_personality_by_id(player_id)
-            if p and p.get('name'):
-                return p['name']
-        except Exception:  # noqa: BLE001 — display is best-effort; fall back below
-            logger.debug("persona name lookup failed for %s", player_id)
-    return player_id.replace('_', ' ').title()
 
 
 def build_tournament_game(
@@ -90,7 +82,7 @@ def build_tournament_game(
             name=s.player_id,
             stack=s.stack,
             is_human=s.is_human,
-            nickname=persona_display_name(
+            nickname=resolve_display_name(
                 s.player_id, is_human=s.is_human, owner_name=owner_name,
                 personality_repo=extensions.personality_repo,
             ),

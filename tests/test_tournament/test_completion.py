@@ -71,6 +71,38 @@ def test_eliminated_by_attribution_present():
         assert row['eliminated_by'] == elim_by[row['player_name']]
 
 
+class _NameRepo:
+    """Maps every field id to a display name, so a synthetic session stands in
+    for an MTT field whose ids are `personality_id` slugs."""
+
+    def __init__(self, ids):
+        self._names = {pid: pid.replace('_', ' ').title() + ' ★' for pid in ids}
+
+    def load_personality_by_id(self, pid):
+        name = self._names.get(pid)
+        return {'id': pid, 'name': name} if name else None
+
+
+def test_mtt_style_names_resolve_and_eliminated_by_matches_player_name():
+    """When ids resolve to personas (the MTT case), winner/standings/eliminated_by
+    all render the display name — and `eliminated_by` matches the eliminator's own
+    `player_name` row so the repo's knockout count (`eliminated_by == player_name`)
+    still works."""
+    s = _completed_session()
+    # Map only the AI ids — the human seat is not a persona and stays verbatim.
+    repo = _NameRepo([pid for pid in s.entries if pid != s.human_id])
+    r = build_completion_result(s, game_id='g1', personality_repo=repo)
+
+    by_name = {row['player_name']: row for row in r['standings']}
+    # Winner row carries the resolved display name (not the raw slug).
+    assert r['winner_name'] == r['standings'][0]['player_name']
+    assert r['winner_name'].endswith(' ★') or r['standings'][0]['is_human']
+    # Every eliminator is itself a standings row, looked up by player_name.
+    for row in r['standings']:
+        if row['eliminated_by'] is not None:
+            assert row['eliminated_by'] in by_name
+
+
 class _FakeRepo:
     def __init__(self):
         self.saved = []
@@ -109,8 +141,14 @@ def test_finalize_persists_result_and_career_stats(finalize_env):
     gid, result = finalize_env.saved[0]
     assert gid == 'g1' and result['owner_id'] == 'owner-x' and result['biggest_pot'] == 9000
     assert len(finalize_env.career) == 1
-    owner_id, player_name, _ = finalize_env.career[0]
-    assert owner_id == 'owner-x' and player_name == s.human_id
+    owner_id, player_name, career_result = finalize_env.career[0]
+    # The name passed to update_career_stats must equal the human's standings row
+    # (the repo cross-references standings by it). The human seat is not a persona,
+    # so both stay the verbatim human_id.
+    assert owner_id == 'owner-x'
+    assert player_name == s.human_id
+    human_row = next(r for r in career_result['standings'] if r['is_human'])
+    assert human_row['player_name'] == player_name
 
 
 def test_finalize_is_idempotent(finalize_env):
@@ -145,7 +183,9 @@ def test_finalize_fires_when_human_busts_before_field_completes(finalize_env):
     assert did is True
     assert len(finalize_env.career) == 1
     _, player_name, result = finalize_env.career[0]
-    assert player_name == s.human_id
+    assert player_name == s.human_id  # human seat stays verbatim (not a persona)
+    human_row = next(r for r in result['standings'] if r['is_human'])
+    assert human_row['player_name'] == player_name  # matches its standings row
     assert result['winner_name'] is None  # field not finished yet
     assert result['human_finishing_position'] == s.human_rank()
 

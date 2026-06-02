@@ -130,6 +130,7 @@ def single_table_hand_boundary(
         game_id=game_id,
         biggest_pot=game_data.get('tournament_biggest_pot', 0),
         started_at=game_data.get('tournament_started_at'),
+        personality_repo=getattr(extensions, 'personality_repo', None),
     )
     human_pos = result.get('human_finishing_position')
 

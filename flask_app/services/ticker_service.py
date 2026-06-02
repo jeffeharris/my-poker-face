@@ -605,6 +605,7 @@ def _maybe_tick_tournament(owner_id: str, sandbox_id: str) -> None:
                 session_repo=session_repo,
                 bankroll_repo=bankroll_repo,
                 ledger_repo=ledger_repo,
+                personality_repo=personality_repo,
             )
             if result:
                 events = result['events']

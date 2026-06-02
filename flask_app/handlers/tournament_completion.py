@@ -43,21 +43,44 @@ def build_completion_result(
     game_id: str,
     biggest_pot: int = 0,
     started_at: Optional[str] = None,
+    personality_repo=None,
 ) -> dict[str, Any]:
     """Build the tournament-result dict (the shape `tournament_repo` and the
     `tournament_complete` event consume) from a completed `TournamentSession`.
 
     Standings mirror `TournamentTracker.get_standings`: winner first (position
-    1), then eliminations ordered by finishing position. Player ids double as
-    display names (MTT seats are `P01`…; single-table games use real names)."""
+    1), then eliminations ordered by finishing position.
+
+    AI field ids are resolved to the persona's display name through the canonical
+    resolver — the same lookup cash uses — so an MTT field (whose ids are
+    `personality_id` slugs) renders real names instead of `sun_tzu`, while a
+    single-table field (ids already real names) and synthetic `P##` seats pass
+    through verbatim. The HUMAN seat is NOT a persona (its identity is the
+    owner_id, like cash) so it is left as its `human_id` verbatim — that keeps
+    `human_player_name` equal to the human's standings row, which
+    `tournament_repo.update_career_stats` cross-references by name (and uses to
+    count knockouts via `eliminated_by`); resolving only one side would silently
+    break career stats."""
+    from tournament.identity import resolve_display_name
+
     human_id = session.human_id
     winner_id = session.winner()
+
+    def _name(pid: str) -> str:
+        # Human seat stays verbatim (not a persona); AI seats resolve to the
+        # persona name, falling back VERBATIM (no `.title()` mangling of a
+        # single-table real name / a legible `P##` seat) when unresolved.
+        if pid == human_id:
+            return str(pid)
+        return resolve_display_name(
+            pid, personality_repo=personality_repo, humanize_fallback=False
+        )
 
     standings: list[dict[str, Any]] = []
     if winner_id is not None:
         standings.append(
             {
-                'player_name': winner_id,
+                'player_name': _name(winner_id),
                 'is_human': winner_id == human_id,
                 'finishing_position': 1,
                 'eliminated_by': None,
@@ -67,10 +90,13 @@ def build_completion_result(
     for e in session.field.eliminations:
         standings.append(
             {
-                'player_name': e.player_id,
+                'player_name': _name(e.player_id),
                 'is_human': e.player_id == human_id,
                 'finishing_position': e.finishing_position,
-                'eliminated_by': e.eliminator,
+                # Resolve to match `player_name` — the repo counts knockouts by
+                # `eliminated_by == player_name`, so both sides must be the
+                # resolved name (an MTT eliminator is a `personality_id` slug).
+                'eliminated_by': _name(e.eliminator) if e.eliminator else None,
                 'eliminated_at_hand': e.round_index,
             }
         )
@@ -78,11 +104,13 @@ def build_completion_result(
 
     return {
         'game_id': game_id,
-        'winner_name': winner_id,
+        'winner_name': _name(winner_id) if winner_id is not None else None,
         'total_hands': session._hand_counter,
         'biggest_pot': biggest_pot,
         'starting_player_count': session.field.field_size,
-        'human_player_name': human_id,
+        # Verbatim `human_id` — equals the human's standings row (`_name(human_id)`
+        # is also verbatim), the invariant `update_career_stats` relies on.
+        'human_player_name': _name(human_id),
         'human_finishing_position': _ordinal_position(session, human_id),
         'started_at': started_at,
         'standings': standings,
@@ -124,6 +152,7 @@ def finalize_tournament(
         game_id=game_id,
         biggest_pot=game_data.get('tournament_biggest_pot', 0),
         started_at=game_data.get('tournament_started_at'),
+        personality_repo=getattr(extensions, 'personality_repo', None),
     )
 
     try:
