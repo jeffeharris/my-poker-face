@@ -35,6 +35,13 @@ from poker.repositories.tournament_invite_repository import (
 logger = logging.getLogger(__name__)
 
 
+class CannotFieldTournamentError(Exception):
+    """Accept failed because the sandbox couldn't draft enough players for the
+    field (e.g. no circulating personas). The invite IS open and is re-opened —
+    distinct from 'no open invite' so the UI can say "not enough players right
+    now" instead of a misleading not-found."""
+
+
 def _new_invite_id() -> str:
     return "invite_" + secrets.token_urlsafe(10)
 
@@ -206,9 +213,13 @@ def accept(
         invite_repo.revert_to_offered(invite['invite_id'])
         raise
     if built is None:
-        # Couldn't field enough seats — re-open the invite for a later retry.
+        # Couldn't field enough seats — re-open the invite for a later retry and
+        # signal the distinct cause (not "no open invite", which is what a bare
+        # None becomes at the route). The invite stays open.
         invite_repo.revert_to_offered(invite['invite_id'])
-        return None
+        raise CannotFieldTournamentError(
+            "not enough players available to field this Main Event right now"
+        )
 
     # Status is already 'accepted' (the claim); this stamps the tournament_id link.
     invite_repo.resolve(

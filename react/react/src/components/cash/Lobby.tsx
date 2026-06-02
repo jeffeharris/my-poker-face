@@ -415,7 +415,12 @@ export function Lobby() {
       debounce = setTimeout(() => {
         debounce = null;
         void reloadLobbyRef.current();
-        void loadInviteRef.current();
+        // NB: the Main Event invite is intentionally NOT refetched on every tick.
+        // `GET /api/tournament/invite` is an expensive call (sandbox lock + the
+        // chairman's offer/expire sweep) and the offer changes rarely (cooldowns
+        // of minutes, a 10-min window). It refreshes on mount + the slow interval
+        // below, and immediately after a user action (accept/decline). Polling it
+        // at tick frequency once the world ticker is live overran its rate limit.
       }, LOBBY_TICK_DEBOUNCE_MS);
     };
     const onWorldEvent = (event: WorldEvent) => {

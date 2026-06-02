@@ -324,3 +324,20 @@ class TestDeclineSpawnFailure:
         assert result is not None            # not a misleading "no open invite"
         assert result['tournament_id'] is None
         assert kit['invite_repo'].load(result_invite_id(kit))['status'] == 'declined'
+
+
+class TestAcceptCannotField:
+    def test_accept_raises_cannot_field_when_no_personas(self, kit):
+        """Accept with an empty draft pool re-opens the invite and raises
+        CannotFieldTournamentError — distinct from 'no open invite' so the UI can
+        say "not enough players right now" instead of a misleading not-found."""
+        kit['personality_repo'] = FakePersonalityRepo([])  # 0 eligible personas
+        _offer(kit, buy_in=0)
+        with pytest.raises(inv.CannotFieldTournamentError):
+            inv.accept(
+                invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
+                bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
+                session_repo=kit['session_repo'], owner_id=OWNER,
+            )
+        # The invite is still open (re-opened by the revert) for a later retry.
+        assert inv.active_invite(kit['invite_repo'], OWNER) is not None

@@ -56,8 +56,10 @@ async function postJson<T>(path: string): Promise<T> {
     throw new InsufficientFundsError(data.required ?? 0, data.available ?? 0);
   }
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error || `HTTP ${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    // Prefer a human-readable `message` (e.g. cannot_field_tournament's "not
+    // enough players available right now") over the machine `error` code.
+    throw new Error(data.message || data.error || `HTTP ${res.status}`);
   }
   return res.json();
 }
@@ -69,8 +71,10 @@ async function postJson<T>(path: string): Promise<T> {
 export async function getInvite(): Promise<InviteResponse> {
   const res = await fetch(`${BASE}/invite`, { credentials: 'include' });
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error || `HTTP ${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    // Prefer a human-readable `message` (e.g. cannot_field_tournament's "not
+    // enough players available right now") over the machine `error` code.
+    throw new Error(data.message || data.error || `HTTP ${res.status}`);
   }
   return res.json();
 }

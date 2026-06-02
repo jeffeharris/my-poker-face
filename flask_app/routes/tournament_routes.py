@@ -21,6 +21,8 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
+from flask_app import config
+from flask_app.extensions import limiter
 from flask_app.services import tournament_registry as registry
 from poker.authorization import require_permission
 from tournament.beats import build_beats, level_up_beat
@@ -414,6 +416,7 @@ def _invite_view(invite: dict | None) -> dict | None:
 
 
 @tournament_bp.route('/api/tournament/invite', methods=['GET'])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def get_invite():
     """The owner's open Main Event invite (the lobby card). Opportunistically
     lets the chairman offer one (FLUSH + cooldown) and sweeps expired invites to
@@ -518,6 +521,10 @@ def accept_invite():
             return jsonify(
                 {'error': 'insufficient_funds', 'required': exc.required, 'available': exc.available}
             ), 402
+        except invites.CannotFieldTournamentError as exc:
+            # The invite is still open; the field just couldn't be drafted (e.g.
+            # no circulating personas in this sandbox). 409, not a 404 not-found.
+            return jsonify({'error': 'cannot_field_tournament', 'message': str(exc)}), 409
     if result is None:
         return jsonify({'error': 'no_open_invite'}), 404
     return jsonify(
