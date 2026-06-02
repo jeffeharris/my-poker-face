@@ -69,6 +69,27 @@ class TestPrizeMath:
         sched = compute_payout_schedule(field_size=9, prize_pool=1000, payout_curve=(1.0,))
         assert sched == [{'finishing_position': 1, 'amount': 1000}]
 
+    def test_malformed_curve_summing_over_one_stays_conserving(self):
+        """A caller-supplied curve whose front sums to >1.0 must not produce a
+        negative residual / negative 1st-place payout — normalisation keeps the
+        schedule conserving with all-non-negative amounts."""
+        # front sums to 1.5 across 3 entries, field 18 → paid 5 (paid > len(front)).
+        sched = compute_payout_schedule(
+            field_size=18, prize_pool=100_000, payout_curve=(0.9, 0.4, 0.2)
+        )
+        assert sum(e['amount'] for e in sched) == 100_000  # exact, no leakage
+        assert all(e['amount'] >= 0 for e in sched)  # no negative payout
+        # 1st place is still the largest and positive.
+        assert payout_for_position(1, sched) > 0
+        assert payout_for_position(1, sched) >= payout_for_position(2, sched)
+
+    def test_tiny_pool_conserves_even_with_zero_amount_spots(self):
+        """A pool smaller than paid_places floors lower spots to 0 (omitted), with
+        the crumbs going to 1st — conservation still holds exactly."""
+        sched = compute_payout_schedule(field_size=50, prize_pool=2)  # paid=15
+        assert sum(e['amount'] for e in sched) == 2
+        assert payout_for_position(1, sched) == 2
+
 
 # --- Service-level (effectful) -------------------------------------------------
 

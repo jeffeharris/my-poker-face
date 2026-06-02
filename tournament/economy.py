@@ -48,7 +48,15 @@ def _resolve_fractions(paid: int, curve: Optional[Sequence[float]] = None) -> Li
     remainder = max(0.0, 1.0 - sum(front))
     rest_n = paid - len(front)
     each = remainder / rest_n if rest_n else 0.0
-    return front + [each] * rest_n
+    fractions = front + [each] * rest_n
+    # Normalise to sum to exactly 1.0. A caller-supplied curve whose front sums
+    # to >1.0 would otherwise leave `fractions` summing >1.0, making the integer
+    # amounts exceed the prize pool → a NEGATIVE rounding residual → 1st place's
+    # payout goes negative and the escrow over-drains (conservation break). For
+    # the default curve (front sums <1.0, the remainder fills the rest to 1.0)
+    # this is a no-op.
+    total = sum(fractions) or 1.0
+    return [f / total for f in fractions]
 
 
 def compute_payout_schedule(

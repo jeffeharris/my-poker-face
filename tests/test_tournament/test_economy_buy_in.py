@@ -163,3 +163,35 @@ class TestApplyBuyIn:
         # Human re-credited; no orphan escrow row (ledger writes come AFTER set_economy).
         assert bankroll_repo.load_player_bankroll(OWNER).chips == 5_000
         assert ledger_repo.balance_of(tournament(TID), sandbox_id=SB) == 0
+
+    def test_rollback_is_delta_based_preserving_concurrent_change(self, repos):
+        """The rollback reverses only OUR debit against the CURRENT bankroll, so a
+        concurrent (cross-sandbox) credit that lands between the debit and the
+        rollback is preserved — not clobbered by a stale pre-debit snapshot."""
+        ledger_repo, bankroll_repo, _ = repos
+        _seed_player(bankroll_repo, 5_000)
+        plan = econ.plan_funding(
+            ledger_repo=ledger_repo, sandbox_id=SB, field_size=9, buy_in=500, human_in=True
+        )
+
+        class RacingRepo:
+            """set_economy simulates a concurrent +1000 credit, then fails."""
+
+            def set_economy(self, *a, **k):
+                cur = bankroll_repo.load_player_bankroll(OWNER)
+                bankroll_repo.save_player_bankroll(
+                    PlayerBankrollState(
+                        player_id=OWNER, chips=cur.chips + 1_000,
+                        starting_bankroll=cur.starting_bankroll,
+                    )
+                )
+                raise RuntimeError("db down")
+
+        with pytest.raises(RuntimeError):
+            econ.apply_buy_in(
+                tournament_id=TID, owner_id=OWNER, sandbox_id=SB, plan=plan,
+                bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=RacingRepo(),
+            )
+        # 5000 −500 (debit) +1000 (concurrent) +500 (rollback re-credit) = 6000.
+        # A stale-snapshot rollback would wrongly restore 5000, losing the +1000.
+        assert bankroll_repo.load_player_bankroll(OWNER).chips == 6_000
