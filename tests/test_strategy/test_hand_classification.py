@@ -427,3 +427,60 @@ class TestHandClassificationDataclass:
         # No community cards → danger_flags empty
         result = classify_hand_full(['Ah', 'Kd'], [])
         assert result.danger_flags == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# Board-play detection: hole cards must improve on the naked board
+# ---------------------------------------------------------------------------
+
+
+class TestBoardPlay:
+    """Hands whose strength is supplied by the board, not the hole cards.
+
+    Regression for the Lucille Ball jam: 5h Qh on 2h 2c Ad Th As was tagged
+    `nuts` (board two pair AA22 + a dead river 4-flush promoted strong_made →
+    nuts) and the postflop_commit layer jammed it. Both the dead-draw read and
+    the board-play credit are fixed.
+    """
+
+    LUCILLE_HOLE = ['5h', 'Qh']
+    LUCILLE_BOARD = ['2h', '2c', 'Ad', 'Th', 'As']  # board itself is two pair
+
+    def test_lucille_jam_hand_is_air_not_nuts(self):
+        result = classify_hand_full(self.LUCILLE_HOLE, self.LUCILLE_BOARD)
+        assert result.made_tier == 'air'
+        assert result.hand_class == 'air_no_draw'
+        assert result.nut_status == NUT_BLUFF_CATCHER
+
+    def test_river_dead_flush_is_no_draw(self):
+        # The 4-flush (Qh 5h 2h Th) is dead on a complete board — not a draw.
+        _, draw = classify_hand(self.LUCILLE_HOLE, self.LUCILLE_BOARD)
+        assert draw == 'no_draw'
+
+    def test_plays_board_ties_total_air(self):
+        # Q5 contributes nothing the board doesn't already have — same as 34.
+        played = classify_hand_full(self.LUCILLE_HOLE, self.LUCILLE_BOARD)
+        air = classify_hand_full(['3c', '4d'], self.LUCILLE_BOARD)
+        assert played.made_tier == air.made_tier == 'air'
+
+    def test_using_a_hole_card_for_a_full_house_survives(self):
+        # AK pairs the board ace → genuine full house, must stay nuts.
+        result = classify_hand_full(['Ac', 'Kd'], self.LUCILLE_BOARD)
+        assert result.made_tier == 'nuts'
+        assert result.nut_status == NUT_ACTUAL
+
+    def test_real_two_pair_using_both_hole_cards_survives(self):
+        # KJ on an unpaired board makes a genuine two pair — not board-play.
+        result = classify_hand_full(['Kh', 'Jd'], ['Ks', 'Jc', '5h', '8d', '2s'])
+        assert result.made_tier == 'strong_made'
+
+    def test_set_on_paired_board_survives(self):
+        # 77 makes a set the board does not have → uses hole cards.
+        result = classify_hand_full(['7h', '7d'], ['7s', '4c', '2h', '9d', 'Js'])
+        assert result.made_tier == 'nuts'
+
+    def test_board_play_inert_before_river(self):
+        # On the turn the board can't stand alone as a 5-card hand, so the
+        # board-play guard is inert and normal made-tier logic applies.
+        result = classify_hand_full(['Kh', 'Jd'], ['Ks', 'Jc', '5h', '8d'])
+        assert result.made_tier == 'strong_made'

@@ -175,6 +175,14 @@ def _classify_draw_modifier(
     if hand_rank <= 6:
         return 'no_draw'
 
+    # River: the board is complete, so no draw can still be live. A 4-flush or
+    # open-ender here is *dead* (zero equity to improve) and must not be read as
+    # a "strong draw" — that promotion (`strong_made + strong_draw → nuts` in
+    # simplify_hand_class) was crediting finished-board hands with phantom
+    # equity. See test_river_dead_flush_is_no_draw.
+    if len(community_cards) >= 5:
+        return 'no_draw'
+
     all_cards = hole_cards + community_cards
     all_suits = [c[1] for c in all_cards]
     all_ranks = sorted(set(RANK_VALUES[c[0]] for c in all_cards))
@@ -412,6 +420,61 @@ def _apply_made_tier_downgrade(
     return raw_made_tier
 
 
+# --- Board-play detection ------------------------------------------
+#
+# The made-tier path credits a player for the *category* of hand they hold
+# (two pair, a flush, a straight) without asking how much of that strength is
+# theirs versus the board's. On a board that already makes a strong hand by
+# itself — e.g. AA22 two pair on the board — a player who "has two pair" may be
+# playing the board with a kicker that everyone at the table shares. Crediting
+# that as `strong_made`/`nuts` is how Q5 on 2h2cAdThAs got jammed as the nuts.
+#
+# The fix is board-agnostic: evaluate the naked board and compare it to the
+# player's best 7-card hand. Tie → they contributed nothing (`plays_board`);
+# same category but a better kicker → marginal shared-hand edge (`kicker_only`).
+_PLAYS_BOARD = 'plays_board'
+_KICKER_ONLY = 'kicker_only'
+_USES_HOLE = 'uses_hole'
+
+# One-step made-tier demotion for `kicker_only` hands (a real but tiny edge
+# over a shared board hand — can call, must never value-jam).
+_DEMOTE_MADE_TIER = {
+    'nuts': 'medium_made',
+    'strong_made': 'medium_made',
+    'medium_made': 'weak_made',
+    'weak_made': 'weak_made',
+    'air': 'air',
+}
+
+
+def _board_play_level(hole_cards: List[str], community_cards: List[str]) -> str:
+    """How much the hole cards improve on the naked board.
+
+    Only meaningful once the board can stand alone (5 cards); on earlier
+    streets the board isn't a complete hand, so returns `uses_hole`.
+
+    Returns:
+        'plays_board' — hero's best hand ties the board exactly (no edge).
+        'kicker_only' — same made-hand category, hero only has a better kicker.
+        'uses_hole'   — hero genuinely improves the board's hand category.
+    """
+    if len(community_cards) < 5:
+        return _USES_HOLE
+    board_eval = HandEvaluator(
+        [_parse_card(c) for c in community_cards]
+    ).evaluate_hand()
+    hero_eval = HandEvaluator(
+        [_parse_card(c) for c in hole_cards + community_cards]
+    ).evaluate_hand()
+    board_key = (board_eval['hand_rank'], tuple(board_eval.get('hand_values') or []))
+    hero_key = (hero_eval['hand_rank'], tuple(hero_eval.get('hand_values') or []))
+    if hero_key == board_key:
+        return _PLAYS_BOARD
+    if hero_eval['hand_rank'] == board_eval['hand_rank']:
+        return _KICKER_ONLY
+    return _USES_HOLE
+
+
 def classify_hand_full(
     hole_cards: List[str],
     community_cards: List[str],
@@ -457,6 +520,20 @@ def classify_hand_full(
         hole_cards,
         community_cards,
     )
+
+    # Board-play override: a hand whose strength is supplied by the board, not
+    # the hole cards, must not be credited as value. Runs after the made-tier
+    # path so it can override its (board-blind) verdict. See _board_play_level.
+    board_play = _board_play_level(hole_cards, community_cards)
+    if board_play == _PLAYS_BOARD:
+        # Everyone has this — it is air that happens to "make" the board's hand.
+        made_tier = 'air'
+        nut_status = NUT_BLUFF_CATCHER
+    elif board_play == _KICKER_ONLY:
+        # Marginal edge over a shared board hand — call, never value-jam.
+        made_tier = _DEMOTE_MADE_TIER[made_tier]
+        nut_status = NUT_BLUFF_CATCHER
+
     hand_class = simplify_hand_class(made_tier, draw_modifier)
 
     return HandClassification(
