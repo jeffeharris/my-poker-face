@@ -12,12 +12,13 @@ Branch: **`renown`**. Design spec: `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`
 `CASH_MODE_SCALP_TRACKER.md`. Honest narrative of how we got here (wrong turns
 kept): `docs/captains-log/renown/`.
 
-## 2026-06-02 UPDATE — human-only v2 is BUILT (uncommitted), flag still OFF
+## 2026-06-02 UPDATE — human-only v2 is COMMITTED (`b90451e4`), flag still OFF
 
-The **human-only "ship it" path is implemented + tested** (79 green: oracle
-parity, repo, field-loader semantics, + live-wiring integration). It is
-**uncommitted** in the worktree and **`RENOWN_V2_ENABLED` stays default-OFF**
-(kill switch). What changed from the plan below:
+The **human-only "ship it" path is implemented + tested + committed** as
+`b90451e4` (79 green: oracle parity, repo, field-loader semantics, + live-wiring
+integration). The tree is clean — this covers the doc's stages **B-human → C → D**
+for the human — and **`RENOWN_V2_ENABLED` stays default-OFF** (kill switch). What
+changed from the plan below:
 
 - **The denominator decision.** The handoff called the math "locked." The
   mandated pre-flight surfaced that the design `wallclock` denominator is
@@ -43,6 +44,9 @@ parity, repo, field-loader semantics, + live-wiring integration). It is
   `scripts/renown_field_parity.py` (prod loader == oracle, 80/80 on real DB).
 - **Turning it on:** `RENOWN_V2_ENABLED` is now **env-flippable** via `_env_flag`
   (committed default still False). Set `RENOWN_V2_ENABLED=1` in a dev `.env`.
+- **All committed (`b90451e4`).** The tree is clean — nothing in this section is
+  uncommitted any longer. The schema-lineage reconciliation + the deferred
+  AI-field stage (A/B below) are the only renown work left, each its own project.
 - **Visually verified** against the REAL field via a standalone gauge preview
   (`react/react/preview-renown.html` + `src/preview-renown.tsx`, throwaway):
   guest_jeff renders "Infamous Villain", renown **55** vs a 36.7 figure-cut,
