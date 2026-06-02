@@ -318,6 +318,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
             stake_repo=extensions.stake_repo,
             vice_repo=extensions.vice_state_repo,
             side_hustle_repo=extensions.side_hustle_state_repo,
+            prestige_snapshots_repo=extensions.prestige_snapshots_repo,
             live_seated_pids=live_cash_seated_pids(sandbox_id),
             human_headroom=economy_flags.LIVE_FILL_HUMAN_HEADROOM,
         )

@@ -10,6 +10,8 @@ would make the tests brittle without testing anything real.
 
 from __future__ import annotations
 
+import pytest
+
 from cash_mode.attractiveness import (
     AFFORDABLE_BAND_BUYINS,
     FillableTable,
@@ -17,9 +19,12 @@ from cash_mode.attractiveness import (
     _affordable_tier_index,
     assign_seats_greedy,
     base_attractor,
+    glory_appetite,
     hunger,
+    occ_prestige,
     room_prestige,
     stake_fit,
+    status_appetite,
     table_attractiveness,
     table_deadness,
     wealth,
@@ -301,7 +306,7 @@ def test_deadness_rises_with_fishless_casino_crowd():
 # --- assign_seats_greedy (the loop inversion core) ---------------------
 
 
-def _table(tid, *, stake="$10", opens=1, grinders=0, fish=0, whale=0):
+def _table(tid, *, stake="$10", opens=1, grinders=0, fish=0, whale=0, marquee=0.0):
     _, mn, mx = table_buy_in_window(stake)
     return FillableTable(
         table_id=tid,
@@ -312,10 +317,11 @@ def _table(tid, *, stake="$10", opens=1, grinders=0, fish=0, whale=0):
         grinder_count=grinders,
         fish_chips=fish,
         whale_chips=whale,
+        marquee_prestige=marquee,
     )
 
 
-def _seeker(pid, allowed, *, bankroll=5_000, start=START, comfort="$10", mult=1.0):
+def _seeker(pid, allowed, *, bankroll=5_000, start=START, comfort="$10", mult=1.0, appetite=0.0):
     return SeatSeeker(
         personality_id=pid,
         projected_bankroll=bankroll,
@@ -323,6 +329,7 @@ def _seeker(pid, allowed, *, bankroll=5_000, start=START, comfort="$10", mult=1.
         comfort_zone=comfort,
         allowed_table_ids=frozenset(allowed),
         buy_in_multiplier=mult,
+        status_appetite=appetite,
     )
 
 
@@ -377,3 +384,80 @@ def test_greedy_skips_seeker_with_no_candidate():
     out = assign_seats_greedy([_seeker("g", set())], tables)  # empty allowed set
     assert out == []
     assert tables["t"].open_count == 1
+
+
+# --- B4: occupant prestige / status appetite (the marquee pull) -------------
+
+
+def test_occ_prestige_empty_and_zero_is_zero():
+    assert occ_prestige([]) == 0.0
+    assert occ_prestige([0.0, 0.0]) == 0.0
+
+
+def test_occ_prestige_dominated_by_top_with_damped_lineup():
+    # The single biggest name leads; an additional notable adds a damped bonus.
+    solo = occ_prestige([0.9])
+    duo = occ_prestige([0.9, 0.6])
+    assert solo == pytest.approx(0.9)
+    assert duo > solo  # the lineup bonus
+    assert duo <= 1.0  # clamped
+
+
+def test_glory_appetite_blends_and_bounds():
+    assert glory_appetite(expressiveness=0.0, ego=0.0) == 0.0
+    assert glory_appetite(expressiveness=1.0, ego=1.0) == pytest.approx(1.0)
+    assert glory_appetite() == pytest.approx(0.5)  # neutral defaults
+
+
+def test_status_appetite_zero_when_no_factors():
+    assert status_appetite(own_percentile=0.0, glory=0.0) == 0.0
+
+
+def test_status_appetite_rises_with_renown_and_glory():
+    base = status_appetite(own_percentile=0.2, glory=0.2)
+    assert status_appetite(own_percentile=0.9, glory=0.2) > base  # the famous
+    assert status_appetite(own_percentile=0.2, glory=0.9) > base  # the showman
+
+
+def test_marquee_term_inert_when_either_factor_zero():
+    # A famous table pulls nobody who has no appetite, and an eager seeker
+    # feels nothing at a table of nobodies — the term needs BOTH.
+    kw = dict(
+        projected_bankroll=5_000, starting_bankroll=START, comfort_zone="$10",
+        stake_label="$10", fish_chips=0, whale_chips=0, other_grinders=0,
+    )
+    plain = table_attractiveness(**kw)
+    assert table_attractiveness(**kw, marquee_prestige=0.9, status_appetite=0.0) == pytest.approx(plain)
+    assert table_attractiveness(**kw, marquee_prestige=0.0, status_appetite=0.9) == pytest.approx(plain)
+
+
+def test_marquee_term_raises_attractiveness_for_status_seeker():
+    kw = dict(
+        projected_bankroll=5_000, starting_bankroll=START, comfort_zone="$10",
+        stake_label="$10", fish_chips=0, whale_chips=0, other_grinders=0,
+    )
+    plain = table_attractiveness(**kw)
+    famous = table_attractiveness(**kw, marquee_prestige=0.9, status_appetite=0.8)
+    assert famous > plain
+
+
+def test_greedy_status_seeker_prefers_the_marquee_table():
+    # Two otherwise-identical tables; one seats a legend. A high-appetite AI
+    # picks the marquee table; the term tips an otherwise-tied choice.
+    tables = {
+        "plain": _table("plain", opens=1, marquee=0.0),
+        "marquee": _table("marquee", opens=1, marquee=0.9),
+    }
+    out = assign_seats_greedy([_seeker("g", {"plain", "marquee"}, appetite=0.8)], tables)
+    assert out == [("g", "marquee")]
+
+
+def test_greedy_indifferent_seeker_unaffected_by_marquee():
+    # Appetite 0 → the marquee table has no edge; deterministic id tie-break
+    # ('marquee' < 'plain') decides, same as it would with no marquee at all.
+    tables = {
+        "plain": _table("plain", opens=1, marquee=0.0),
+        "marquee": _table("marquee", opens=1, marquee=0.9),
+    }
+    out = assign_seats_greedy([_seeker("g", {"plain", "marquee"}, appetite=0.0)], tables)
+    assert out == [("g", "marquee")]  # tie broken by sorted id, not prestige

@@ -250,6 +250,15 @@ RENOWN_V2_ENABLED: bool = _env_flag("RENOWN_V2_ENABLED", False)
 # docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A).
 RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
 
+# Prestige-seeking movement (Renown-v2 B4). When on, the autonomous seat-fill
+# adds the marquee term to table attractiveness: status-seeking AIs (own renown
+# + showman traits) are pulled toward tables seating high-renown players. Reads
+# persisted per-AI renown, so it IMPLIES RENOWN_V2_PERSIST_AI (no renown data →
+# the term is 0 → no effect). A real chip-flow/movement change → sim-validate
+# before enabling. Own kill switch; default OFF. See
+# docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage B / B4).
+PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
+
 
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.

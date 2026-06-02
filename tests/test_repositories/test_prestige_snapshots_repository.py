@@ -246,6 +246,37 @@ class TestPrestigeSnapshotsRepository(unittest.TestCase):
         # Sandbox-scoped, kind-scoped.
         self.assertEqual(self.repo.load_renown_v2_peaks(OTHER_SB, "ai"), {})
 
+    def test_load_latest_field_percentiles(self):
+        # The latest cycle's victim_percentile for every entity (AI + human),
+        # keyed by raw id — the B4 marquee read.
+        self.assertEqual(self.repo.load_latest_field_percentiles(SB), {})
+        # Human row (v2) + two AI rows at the same capture timestamp.
+        self.repo.record(
+            captured_at="2026-06-02T10:00:00Z", sandbox_id=SB, owner_id=OWNER,
+            score=_Score(renown=0.5), formula_version="v2", renown_v2=60.0,
+            victim_percentile=0.95,
+        )
+        self.repo.record_ai_many(
+            sandbox_id=SB, captured_at="2026-06-02T10:00:00Z",
+            rows=[{"owner_id": "napoleon", "renown_v2": 40.0, "quadrant": "x",
+                   "victim_percentile": 0.7},
+                  {"owner_id": "deadpool", "renown_v2": 10.0, "quadrant": "x",
+                   "victim_percentile": 0.3}],
+        )
+        pcts = self.repo.load_latest_field_percentiles(SB)
+        self.assertEqual(set(pcts), {OWNER, "napoleon", "deadpool"})
+        self.assertAlmostEqual(pcts[OWNER], 0.95)
+        self.assertAlmostEqual(pcts["napoleon"], 0.7)
+        # A newer cycle supersedes the old percentiles (latest captured_at wins).
+        self.repo.record_ai_many(
+            sandbox_id=SB, captured_at="2026-06-02T11:00:00Z",
+            rows=[{"owner_id": "napoleon", "renown_v2": 55.0, "quadrant": "x",
+                   "victim_percentile": 0.88}],
+        )
+        pcts2 = self.repo.load_latest_field_percentiles(SB)
+        self.assertEqual(set(pcts2), {"napoleon"})  # only the newest cycle's rows
+        self.assertAlmostEqual(pcts2["napoleon"], 0.88)
+
 
 if __name__ == "__main__":
     unittest.main()

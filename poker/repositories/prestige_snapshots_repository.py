@@ -287,6 +287,38 @@ class PrestigeSnapshotsRepository(BaseRepository):
             ).fetchall()
         return {r["owner_id"]: float(r["peak"]) for r in rows}
 
+    def load_latest_field_percentiles(
+        self,
+        sandbox_id: str,
+    ) -> Dict[str, float]:
+        """Return ``{owner_id: victim_percentile}`` for the latest captured cycle.
+
+        The field-renown percentile (in [0,1]) of every entity — AI and human
+        alike — from the most recent ticker recompute. Powers the B4 marquee
+        pull (`cash_mode.attractiveness.occ_prestige` + `status_appetite`): one
+        batched read per fill instead of a per-entity lookup.
+
+        The ticker writes the whole field in one recompute, so all rows share a
+        `captured_at`; selecting the sandbox's MAX(captured_at) yields exactly
+        the latest cycle's percentiles. Rows with NULL `victim_percentile`
+        (v1-only) are skipped. Empty dict when nothing's been scored yet.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT owner_id, victim_percentile
+                FROM prestige_snapshots
+                WHERE sandbox_id = ?
+                  AND captured_at = (
+                      SELECT MAX(captured_at) FROM prestige_snapshots
+                      WHERE sandbox_id = ?
+                  )
+                  AND victim_percentile IS NOT NULL
+                """,
+                (sandbox_id, sandbox_id),
+            ).fetchall()
+        return {r["owner_id"]: float(r["victim_percentile"]) for r in rows}
+
     def series_since(
         self,
         since_iso: str,
