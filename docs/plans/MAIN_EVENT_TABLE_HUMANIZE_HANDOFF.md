@@ -3,7 +3,7 @@ purpose: Single-entry handoff to finish "humanizing" the human Main Event table 
 type: guide
 created: 2026-06-02
 last_updated: 2026-06-02
-status: Identity unification (names + avatars) DONE + pushed on `tournaments`. Remaining = dossier/observation wiring (P3.9a, fully specified below) + avatar caller cleanup (P3.9b) + real persona play (P3.9c, scoped). Circuit is ACTIVATED on dev.
+status: Identity unification (names + avatars) DONE + pushed on `tournaments`. **P3.9a (dossier/observation wiring) DONE — uncommitted, tests green.** Remaining = avatar caller cleanup (P3.9b) + real persona play (P3.9c, scoped). Circuit is ACTIVATED on dev.
 ---
 
 # Humanize the Main Event Table — Remaining Work (START HERE)
@@ -35,7 +35,44 @@ What's left is below, in build order.
 
 ---
 
-## P3.9a — Wire tournament hands into the opponent-dossier grind (the named gap)
+## P3.9a — Wire tournament hands into the opponent-dossier grind — ✅ DONE (2026-06-02, uncommitted)
+
+**Shipped.** All three seams wired; both Breaks closed on the fresh-build AND the
+cold-load ("Resume the Main Event") path. Decision on the open question: wired via
+`set_relationship_repo(cash_mode=False, sandbox_id=…)` — the richer v1 path, so
+tournament play ALSO fires relationship events (warmth/respect/heat) at the
+boundary (`on_hand_complete` already runs for tournaments in `game_handler.py`
+before the boundary), while `cash_mode=False` keeps chip-PnL / `cash_pair_stats`
+writes off (chips reset in a tournament).
+
+What changed:
+- **`tournament_game_builder.py::build_tournament_game`** — resolves the owner's
+  default sandbox, calls `set_relationship_repo(relationship_repo,
+  cash_mode=False, sandbox_id=…)` (Break A), and registers each AI seat with
+  `personality_id=s.player_id` gated on `econ.real_persona_ids_for(...)` (Break B).
+- **`tournament_game_builder.py::tournament_hand_boundary`** — new `_fold_observations`
+  helper (save_opponent_models + fold_observations_into_lifetime) runs every
+  boundary, so the hand that finishes on an AI action / the final hand still folds
+  (the per-human-action fold in `game_routes` covers the rest).
+- **`tournament_handler.py::reconcile_live_table`** — new `real_persona_ids` param;
+  balanced-in seats register their pid too (Break B mirror). Fed by
+  `_real_persona_ids_for_session(session)` from `advance_tournament_after_hand`.
+- **`game_routes.py` cold-load** — added `is_tournament_game`; `cold_load_sandbox_id`
+  now resolves for tournaments (Break A on resume) and tournament seats resolve
+  `pid = player.name` (gated on being a real persona) instead of
+  `resolve_name_to_personality_id` (which queries by display name → None for a pid
+  slug = Break B on resume).
+- **Test:** `tests/test_tournament/test_live_play_integration.py::test_tournament_observations_fold_into_dossier`
+  — seeds a real persona, plays heads-up via the real `progress_game` loop, asserts
+  the durable `opponent_observation_lifetime` row exists keyed by
+  `(sandbox, owner_id, persona_id)`. Full `tests/test_tournament/` suite green.
+
+**Outstanding for the next session:** commit this (still uncommitted on
+`tournaments`); the schema is unchanged (no new migration). Then P3.9b → P3.9c.
+
+---
+
+## P3.9a — original spec (kept for reference)
 
 **Problem.** In cash/regular games, as the human plays, their observed-hand count
 of each opponent accrues and unlocks dossier "reads" (the scouting grind). In a

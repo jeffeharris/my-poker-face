@@ -713,14 +713,23 @@ def api_game_state(game_id):
                         # relationship rows and rebuild as a tournament. See
                         # docs/plans/TRAINING_MODE.md and training_routes.py.
                         is_training_game = game_id.startswith("train-")
+                        # Multi-table tournament tables (tourney- prefix) are a
+                        # third non-cash sibling. P3.9a: they wire the dossier
+                        # grind exactly like a Circuit cash game (sandbox_id +
+                        # persona registration) but with cash_mode=False — so the
+                        # same sandbox resolution that cash uses must also fire on
+                        # tournament cold-load, or "Resume the Main Event" silently
+                        # drops the sandbox and stops folding observations.
+                        is_tournament_game = game_id.startswith("tourney-")
 
                         # v109: cash_pair_stats writes need a sandbox_id so the
                         # admin Chip Economy panel can scope Won/Lost/Net. For
                         # cold-loaded cash games the owner's default sandbox is
                         # the right answer — owners are single-sandbox in v1,
-                        # and the same resolver feeds /api/cash/start.
+                        # and the same resolver feeds /api/cash/start. Tournament
+                        # games resolve the same sandbox so the dossier fold lands.
                         cold_load_sandbox_id: Optional[str] = None
-                        if is_cash_game and owner_id is not None:
+                        if (is_cash_game or is_tournament_game) and owner_id is not None:
                             try:
                                 from flask_app.extensions import sandbox_repo as _sandbox_repo
                                 from flask_app.services.sandbox_resolver import (
@@ -733,9 +742,9 @@ def api_game_state(game_id):
                                 )
                             except Exception as e:
                                 logger.warning(
-                                    "[LOAD] sandbox resolve failed for cash "
-                                    "game %s owner %s: %s — cash_pair_stats "
-                                    "writes will be skipped this session",
+                                    "[LOAD] sandbox resolve failed for game "
+                                    "%s owner %s: %s — cash_pair_stats / dossier "
+                                    "fold writes will be skipped this session",
                                     game_id,
                                     owner_id,
                                     e,
@@ -876,9 +885,25 @@ def api_game_state(game_id):
                             # personalities in the DB get a real id; humans
                             # and ad-hoc names get None.
                             try:
-                                pid = extensions.personality_repo.resolve_name_to_personality_id(
-                                    player.name
-                                )
+                                if is_tournament_game:
+                                    # Tournament seat Player.name IS the
+                                    # personality_id (MTT bridge), not a display
+                                    # name — resolve_name_to_personality_id queries
+                                    # by name and would return None (Break B). Use
+                                    # it directly, gated on it being a real persona
+                                    # (side-effect-free lookup) so synthetic P##
+                                    # fields don't register junk lifetime rows.
+                                    pid = (
+                                        player.name
+                                        if extensions.personality_repo.display_names_by_ids(
+                                            [player.name]
+                                        )
+                                        else None
+                                    )
+                                else:
+                                    pid = extensions.personality_repo.resolve_name_to_personality_id(
+                                        player.name
+                                    )
                             except Exception:
                                 pid = None
                             if not player.is_human and player.name in ai_controllers:

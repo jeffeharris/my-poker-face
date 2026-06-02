@@ -163,3 +163,112 @@ def test_human_plays_real_hands_to_a_terminal_state(app, monkeypatch):
         finally:
             if original_speed is not None:
                 cfgmod.ANIMATION_SPEED = original_speed
+
+
+def test_tournament_observations_fold_into_dossier(app, monkeypatch):
+    """P3.9a — playing the human's Main Event table accrues the opponent-dossier
+    grind, keyed on the persona's `personality_id` (the SAME key the cash dossier
+    reads). Drives real hands heads-up vs a seeded real persona, then asserts a
+    durable `opponent_observation_lifetime` row exists for (sandbox, owner_id,
+    persona_id) — proving both seams: the memory_manager carries a sandbox_id
+    (Break A) and the AI seat registered its personality_id (Break B)."""
+    with app.app_context():
+        import flask_app.extensions as _ext
+        import flask_app.handlers.game_handler as _gh
+
+        _rebind_handler_globals(monkeypatch)
+        monkeypatch.setattr(_gh, '_run_async_narration', lambda *a, **k: None, raising=False)
+
+        from flask_app import config as cfgmod
+        from flask_app.handlers.game_handler import progress_game
+        from flask_app.handlers.tournament_game_builder import build_tournament_game
+        from flask_app.services import game_state_service
+        from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+        from poker.poker_game import advance_to_next_active_player, play_turn
+        from tournament.config import TournamentConfig
+        from tournament.director import FakeHandResolver
+        from tournament.session import TournamentSession
+
+        owner_id = "dossier-owner"
+        owner_name = "Dossier Tester"
+        human_id = f"human:{owner_id}"
+
+        # Seed a real persona so it's recognised by real_persona_ids_for (which
+        # gates registration) — a synthetic P## seat would write no lifetime row.
+        persona_id = _ext.personality_repo.save_personality(
+            'Dossier Mark',
+            {'play_style': 'aggressive', 'confidence': 'high', 'attitude': 'friendly'},
+            circulating=True,
+        )
+
+        original_speed = getattr(cfgmod, "ANIMATION_SPEED", None)
+        try:
+            cfgmod.ANIMATION_SPEED = 0
+        except Exception:
+            pass
+
+        try:
+            cfg = TournamentConfig(field_size=2, table_size=2, starting_stack=8000, seed=11)
+            session = TournamentSession(
+                cfg,
+                ai_resolver=FakeHandResolver(),
+                human_id=human_id,
+                entries={human_id: 'LAG', persona_id: 'CaseBot'},
+            )
+            game_id = build_tournament_game(
+                session, tournament_id="itest-dossier",
+                owner_id=owner_id, owner_name=owner_name,
+            )
+
+            # The built memory_manager must carry a sandbox (Break A) and have
+            # registered the persona's id (Break B) so folds land on the shared key.
+            gd = game_state_service.get_game(game_id)
+            mm = gd["memory_manager"]
+            assert mm.sandbox_id, "tournament memory_manager has no sandbox_id (Break A)"
+            # The seat's Player.name IS persona_id (MTT bridge); it must register
+            # under that same id so folds key the shared dossier row (Break B).
+            assert mm.get_opponent_model_manager()._name_to_id.get(persona_id) == persona_id, (
+                "persona seat did not register its personality_id (Break B)"
+            )
+
+            def act_for_human():
+                gd = game_state_service.get_game(game_id)
+                sm = gd["state_machine"]
+                gs = sm.game_state
+                cp = gs.current_player
+                cost = gs.highest_bet - cp.bet
+                action = "check" if cost <= 0 else ("call" if cost <= cp.stack else "fold")
+                ngs = play_turn(gs, action, 0)
+                adv = advance_to_next_active_player(ngs)
+                sm.game_state = adv if adv is not None else ngs
+                gd["state_machine"] = sm
+                game_state_service.set_game(game_id, gd)
+
+            progress_game(game_id)  # drive AIs to the first human action
+
+            for _ in range(2000):
+                if session.is_complete() or session.human_out:
+                    break
+                gd = game_state_service.get_game(game_id)
+                gs = gd["state_machine"].game_state
+                if not (gs.current_player.is_human and gs.awaiting_action):
+                    break
+                act_for_human()
+                progress_game(game_id)
+                if session.rounds >= 3:  # enough boundaries to fold observations
+                    break
+
+            sandbox_id = resolve_default_sandbox_for(owner_id, sandbox_repo=_ext.sandbox_repo)
+            lifetime = _ext.game_repo.load_observation_lifetime(
+                sandbox_id, owner_id, persona_id
+            )
+            assert lifetime is not None, (
+                "no opponent_observation_lifetime row — tournament hands did not "
+                "fold into the dossier grind"
+            )
+            assert lifetime.get('hands_dealt', 0) >= 1, (
+                f"lifetime row exists but recorded no hands dealt: {lifetime}"
+            )
+        finally:
+            if original_speed is not None:
+                cfgmod.ANIMATION_SPEED = original_speed

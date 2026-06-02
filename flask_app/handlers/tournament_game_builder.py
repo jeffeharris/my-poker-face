@@ -67,7 +67,8 @@ def build_tournament_game(
     from flask_app import extensions
     from flask_app.game_adapter import StateMachineAdapter
     from flask_app.routes.game_routes import generate_game_id
-    from flask_app.services import game_state_service
+    from flask_app.services import game_state_service, tournament_economy_service as econ
+    from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
     from poker.memory import AIMemoryManager
     from poker.poker_game import Player, PokerGameState, create_deck
     from poker.poker_state_machine import PokerStateMachine
@@ -119,11 +120,30 @@ def build_tournament_game(
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)
+    # P3.9a — light up the opponent-dossier grind for the human's tournament
+    # table. Two seams unify tournament observations with the cash dossier:
+    #   (a) a sandbox_id so `fold_observations_into_lifetime` is not a no-op, and
+    #   (b) each real-persona AI seat registered under its `personality_id` (which
+    #       IS `Player.name` for the MTT bridge) so folds key the SAME lifetime row
+    #       the cash dossier reads → one running observed-hand count per persona.
+    # `cash_mode=False` keeps chip PnL / cash_pair_stats writes off (chips reset in
+    # a tournament) while still firing relationship events at the boundary — your
+    # nemesis remembers you busted them. Synthetic `P##` fields skip registration
+    # (gated on `real_persona_ids`) so a non-persona field writes no junk rows.
+    sandbox_id = resolve_default_sandbox_for(owner_id, sandbox_repo=extensions.sandbox_repo)
+    if extensions.relationship_repo is not None and sandbox_id:
+        memory_manager.set_relationship_repo(
+            extensions.relationship_repo, cash_mode=False, sandbox_id=sandbox_id
+        )
+    real_persona_ids = econ.real_persona_ids_for(session, extensions.personality_repo)
     for s in specs:
         if s.is_human:
             memory_manager.initialize_human_observer(s.player_id, personality_id=owner_id)
             continue
-        memory_manager.initialize_for_player(s.player_id)
+        memory_manager.initialize_for_player(
+            s.player_id,
+            personality_id=s.player_id if s.player_id in real_persona_ids else None,
+        )
         controller = ai_controllers[s.player_id]
         controller.session_memory = memory_manager.get_session_memory(s.player_id)
         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
@@ -224,8 +244,32 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
         from flask_app.handlers.tournament_completion import finalize_tournament
 
         finalize_tournament(game_id, game_data, emit=(outcome.kind == COMPLETE))
+    _fold_observations(game_id, game_data)
     _persist_boundary(game_id, game_data)
     return outcome.kind in (HUMAN_OUT, COMPLETE)
+
+
+def _fold_observations(game_id: str, game_data: dict) -> None:
+    """P3.9a — persist this hand's opponent observations into the durable
+    lifetime table at the tournament boundary (robustness).
+
+    The per-human-action path in `game_routes.api_process_action` already folds
+    after the human's POST, but a hand that finishes on an AI action (the human
+    folded/checked earlier) — or the final / AI-only progression hand — isn't
+    captured until the next human action that never comes. Mirror the two repo
+    calls here so the completed hand's observations land. No-op unless the
+    memory_manager carries a sandbox_id (set in the builder for real-persona
+    fields); isolated so a fold hiccup never breaks the live game."""
+    try:
+        from flask_app import extensions
+
+        mm = game_data.get("memory_manager")
+        if mm is None or not mm.sandbox_id:
+            return
+        extensions.game_repo.save_opponent_models(game_id, mm.get_opponent_model_manager())
+        extensions.game_repo.fold_observations_into_lifetime(game_id, mm.sandbox_id)
+    except Exception:  # noqa: BLE001 — dossier grind is best-effort
+        logger.exception("tournament boundary observation fold failed for %s", game_id)
 
 
 def _apply_tournament_payout(game_data: dict) -> None:

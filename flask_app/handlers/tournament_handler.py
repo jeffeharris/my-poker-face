@@ -95,6 +95,19 @@ def coordinate_after_human_hand(
     return BoundaryOutcome(kind, table_id, standings, beats)
 
 
+def _real_persona_ids_for_session(session: TournamentSession) -> frozenset:
+    """The field's real-persona ids (recomputed from the rehydrated session), used
+    to gate dossier registration so synthetic `P##` fields write no lifetime rows.
+    Best-effort — an empty set just means no AI seats register (no junk, no crash)."""
+    try:
+        from flask_app import extensions
+        from flask_app.services import tournament_economy_service as econ
+
+        return econ.real_persona_ids_for(session, getattr(extensions, 'personality_repo', None))
+    except Exception:  # noqa: BLE001 — gating helper, never break the boundary
+        return frozenset()
+
+
 def reconcile_live_table(
     state_machine,
     ai_controllers: dict,
@@ -104,6 +117,7 @@ def reconcile_live_table(
     *,
     make_controller,
     owner_name: str | None = None,
+    real_persona_ids: frozenset[str] | set[str] = frozenset(),
 ) -> tuple[list[str], list[str]]:
     """Mutate the human's live game to match the field's view of their table.
 
@@ -163,7 +177,13 @@ def reconcile_live_table(
         added.append(name)
         if memory_manager is not None:
             try:
-                memory_manager.initialize_for_player(name)
+                # P3.9a — register a balanced-in seat's personality_id (== name
+                # for the MTT bridge) so its observations fold into the SAME
+                # lifetime dossier row cash reads. Gated to real personas so a
+                # synthetic `P##` field writes no junk rows. Mirrors the builder.
+                memory_manager.initialize_for_player(
+                    name, personality_id=name if name in real_persona_ids else None
+                )
                 controller.session_memory = memory_manager.get_session_memory(name)
                 controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
                 controller.memory_manager = memory_manager
@@ -198,6 +218,7 @@ def advance_tournament_after_hand(game_data: dict, state_machine, *, make_contro
         session.current_level().big_blind,
         make_controller=make_controller,
         owner_name=game_data.get('owner_name'),
+        real_persona_ids=_real_persona_ids_for_session(session),
     )
     game_data['tournament_table_id'] = outcome.table_id
     game_data['hand_start_stacks'] = {
