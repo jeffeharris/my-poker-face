@@ -9,6 +9,19 @@ last_updated: 2026-06-01
 
 ## Status
 
+- **Pre-reseed field sim (re-seed gate):** **PASS — re-seed is safe.** A/B cash-economy
+  sim (`scripts/run_economy_sim`, 400 ticks, `hand_sim_prob=1.0`, seed 42) on two fresh
+  seeded DBs — baseline (skill stripped) vs rostered (the new tiers). Both ran the full
+  800 ticks with **zero errors/tracebacks**; chips conserve (audit drift: baseline 269 /
+  rostered **0**, vs ~1.8M chips); macro-health comparable and non-degenerate
+  (Gini_final 0.71 vs 0.75 — slightly more spread, the intended effect of skill
+  differentiation; defaults 0 vs 1; AI count 59 both). NOTE: per-tier *absolute* net
+  chips do NOT cleanly show the ladder (reg looked worst at −17k) — that's the expected
+  **stake/bankroll/volume confound** (regs are higher-bankroll personas at bigger
+  stakes → larger absolute swings; everyone trends negative against the rake sink), NOT
+  a skill inversion. The clean skill→winrate ordering is the fixed-stakes head-to-head
+  evidence (Phase 3 + the exploit sweep); the economy sim's job here was the safety
+  de-risk, which it passes.
 - **Phase 1 (skill model):** done — tier set + decisions finalized (below).
 - **Phase 2 (config + apply seam):** **DONE.** `poker/strategy/skill_tiers.py`
   (`SKILL_TIERS` + `apply_skill_tier`), wired into `flask_app/handlers/tiered_factory.py`
