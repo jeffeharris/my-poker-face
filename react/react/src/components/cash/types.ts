@@ -228,7 +228,13 @@ export interface LobbyEvent {
     | 'ai_requests_forgiveness'
     // v121 — the human's reputation quadrant changed (read-only scoreboard
     // beat; `reason` carries the new quadrant label).
-    | 'reputation_shift';
+    | 'reputation_shift'
+    // P3.7 — circuit Main Event lifecycle beats from an autonomous run:
+    // a field-collapse milestone (`reason` = final_table|heads_up|down_to),
+    // the bubble bursting, and the champion.
+    | 'tournament_milestone'
+    | 'tournament_bubble'
+    | 'tournament_winner';
   table_id: string;
   stake_label: string;
   personality_id: string;

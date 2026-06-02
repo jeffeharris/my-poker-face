@@ -32,6 +32,8 @@ import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace }
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
+import { MainEventCard } from './MainEventCard';
+import { getInvite, type TournamentInvite } from './tournamentApi';
 import { feedEventKey, renderEventIcon } from './tickerEvents';
 import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
@@ -234,6 +236,13 @@ export function Lobby() {
     maxBuyIn: number;
   } | null>(null);
 
+  /** The open circuit Main Event invite, or null. Fetched alongside the lobby
+   *  (mount + tick + fallback poll); the GET also lets the chairman offer /
+   *  expire one server-side, so polling keeps the card fresh without a
+   *  scheduler. */
+  const [mainEventInvite, setMainEventInvite] = useState<TournamentInvite | null>(null);
+  const loadInviteRef = useRef<() => Promise<void>>(async () => {});
+
   /** Set of stake labels whose tier section is currently collapsed.
    *  Initialized once per mount: mobile → all collapsed except the
    *  cheapest tier (so the user sees at least one section on first
@@ -346,6 +355,24 @@ export function Lobby() {
     };
     reloadLobbyRef.current = load;
 
+    // The Main Event invite rides its own endpoint (outside /api/cash). Fetched
+    // alongside the lobby; best-effort so a tournament-route hiccup never breaks
+    // the lobby. The GET also runs the chairman's offer/expire sweep server-side.
+    const loadInvite = async () => {
+      try {
+        const { invite } = await getInvite();
+        if (cancelled) return;
+        setMainEventInvite(invite);
+      } catch (e) {
+        if (cancelled) return;
+        logger.warn(
+          'Failed to load Main Event invite:',
+          e instanceof Error ? e.message : String(e)
+        );
+      }
+    };
+    loadInviteRef.current = loadInvite;
+
     // The lobby is an always-browsable hub: we no longer bounce a player
     // with a live session straight back into their game. Instead the
     // `seated_table_id` from the load drives a "you're here" pin on that
@@ -354,9 +381,12 @@ export function Lobby() {
     // (the old auto-redirect only ever "helped" the Career menu button,
     // at the cost of never showing the player which table they were at).
     (async () => {
-      await load();
+      await Promise.all([load(), loadInvite()]);
       if (cancelled) return;
-      interval = setInterval(load, LOBBY_REFRESH_INTERVAL_MS);
+      interval = setInterval(() => {
+        void load();
+        void loadInvite();
+      }, LOBBY_REFRESH_INTERVAL_MS);
     })();
 
     return () => {
@@ -385,6 +415,7 @@ export function Lobby() {
       debounce = setTimeout(() => {
         debounce = null;
         void reloadLobbyRef.current();
+        void loadInviteRef.current();
       }, LOBBY_TICK_DEBOUNCE_MS);
     };
     const onWorldEvent = (event: WorldEvent) => {
@@ -565,6 +596,23 @@ export function Lobby() {
     [tables]
   );
 
+  /** Register accepted → the human's live tournament table is built; route into
+   *  it through the normal game UI (back-nav returns to /tournament). */
+  const handleEnterTournament = useCallback(
+    (gameId: string) => {
+      setSittingDown({ submessage: 'Main Event' });
+      navigate(`/game/${gameId}`);
+    },
+    [navigate]
+  );
+
+  /** The invite was declined (or otherwise resolved) — clear the card and
+   *  refetch so a freshly-spawned autonomous run doesn't leave a stale offer. */
+  const handleInviteResolved = useCallback(() => {
+    setMainEventInvite(null);
+    void loadInviteRef.current();
+  }, []);
+
   // Stake label of the table the player is seated at (for the Resume bar
   // text). Prefer the live lobby snapshot (stays in sync as the session
   // ends); fall back to the server-provided label for a cold session whose
@@ -641,6 +689,14 @@ export function Lobby() {
                 {endingSession ? 'Ending…' : 'End session'}
               </button>
             </div>
+          )}
+
+          {mainEventInvite && mainEventInvite.status === 'offered' && (
+            <MainEventCard
+              invite={mainEventInvite}
+              onEnter={handleEnterTournament}
+              onResolved={handleInviteResolved}
+            />
           )}
 
           <ActivityTicker
