@@ -125,6 +125,55 @@ class TestPrestigeSnapshotsRepository(unittest.TestCase):
         row = self.repo.load_latest(SB, OWNER)
         self.assertEqual(row["captured_at"], "2026-05-29T00:00:00Z")
 
+    # --- v2 (schema v133) ---------------------------------------------------
+
+    def test_record_defaults_to_v1_with_null_v2_columns(self):
+        self._record(at="2026-06-01T12:00:00Z", renown=0.3)
+        row = self.repo.load_latest(SB, OWNER)
+        self.assertEqual(row["formula_version"], "v1")
+        self.assertIsNone(row["renown_v2"])
+        self.assertIsNone(row["high_cut"])
+        self.assertIsNone(row["renown_v2_components"])
+
+    def test_record_v2_fields_round_trip(self):
+        self.repo.record(
+            captured_at="2026-06-01T12:00:00Z",
+            sandbox_id=SB,
+            owner_id=OWNER,
+            score=_Score(renown=0.42, regard=-0.2, quadrant="Infamous Villain"),
+            formula_version="v2",
+            renown_v2=54.9,
+            victim_percentile=0.987,
+            high_cut=36.7,
+            renown_v2_components={"scalps": 21.4, "backing": 12.0},
+            field_size=80,
+        )
+        row = self.repo.load_latest(SB, OWNER)
+        self.assertEqual(row["formula_version"], "v2")
+        self.assertAlmostEqual(row["renown_v2"], 54.9)
+        self.assertAlmostEqual(row["victim_percentile"], 0.987)
+        self.assertAlmostEqual(row["high_cut"], 36.7)
+        self.assertEqual(row["field_size"], 80)
+        # quadrant column is the CONSUMED one (the caller's choice).
+        self.assertEqual(row["quadrant"], "Infamous Villain")
+        # components serialised as JSON.
+        import json
+        self.assertEqual(json.loads(row["renown_v2_components"]),
+                         {"scalps": 21.4, "backing": 12.0})
+
+    def test_load_renown_v2_peak_ratchets_independent_of_v1(self):
+        # v1-only rows are ignored by the v2 peak (NULL renown_v2).
+        self._record(at="2026-06-01T09:00:00Z", renown=0.9)
+        self.assertEqual(self.repo.load_renown_v2_peak(SB, OWNER), 0.0)
+        # v2 rows ratchet on their own scale; a dip can't lower the peak.
+        for at, rv2 in (("10:00", 40.0), ("11:00", 58.0), ("12:00", 50.0)):
+            self.repo.record(
+                captured_at=f"2026-06-01T{at}:00Z", sandbox_id=SB, owner_id=OWNER,
+                score=_Score(renown=0.5), formula_version="v2", renown_v2=rv2,
+            )
+        self.assertAlmostEqual(self.repo.load_renown_v2_peak(SB, OWNER), 58.0)
+        self.assertEqual(self.repo.load_renown_v2_peak(OTHER_SB, OWNER), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

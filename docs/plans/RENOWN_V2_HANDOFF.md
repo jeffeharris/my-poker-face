@@ -2,15 +2,68 @@
 purpose: Cold-start handoff for the Renown-v2 work — what's built/validated/deferred, the run recipes, the gotchas, and the gated next steps.
 type: guide
 created: 2026-06-01
-last_updated: 2026-06-01
+last_updated: 2026-06-02
 ---
 
 # Renown-v2 — Handoff
 
-Branch: **`renown`**. Everything below is committed (no uncommitted work).
-Design spec: `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md` (read the "Renown v2"
-section + the validation subsection). Scalp prereq: `CASH_MODE_SCALP_TRACKER.md`.
-Honest narrative of how we got here (wrong turns kept): `docs/captains-log/renown/`.
+Branch: **`renown`**. Design spec: `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`
+(read the "Renown v2" section + the validation subsection). Scalp prereq:
+`CASH_MODE_SCALP_TRACKER.md`. Honest narrative of how we got here (wrong turns
+kept): `docs/captains-log/renown/`.
+
+## 2026-06-02 UPDATE — human-only v2 is BUILT (uncommitted), flag still OFF
+
+The **human-only "ship it" path is implemented + tested** (79 green: oracle
+parity, repo, field-loader semantics, + live-wiring integration). It is
+**uncommitted** in the worktree and **`RENOWN_V2_ENABLED` stays default-OFF**
+(kill switch). What changed from the plan below:
+
+- **The denominator decision.** The handoff called the math "locked." The
+  mandated pre-flight surfaced that the design `wallclock` denominator is
+  **degenerate on the real field**: the only wall-clock proxy (distinct
+  `holdings_snapshots` ticks) is near-uniform (CV 0.16, median==max), so it
+  flattens the volume drivers, `3×median` exceeds the field max, and **0
+  entities classify as figures** (even the rank-#1 human reads "Disliked
+  Nobody"). The sim can't arbitrate (constant hand-count → degenerate). Under
+  **`hands`** the field behaves (human = Infamous Villain like v1; 2 figures)
+  and the hands-treadmill is **inert** (hands ⊥ performance ρ≈0.05; AI
+  hand-volumes negligible). Decision: production scores under
+  `PROD_VOLUME_DENOMINATOR = "hands"`; the scorer/parity **default stays
+  `wallclock`** so the Rung-1 lever tests stay green (per-call `WeightsV2`).
+- **Architecture that made it cheap.** All 4 hooks + the lobby read the
+  persisted `quadrant` STRING, so the flag flip lives in ONE site (the ticker
+  recompute writes the field-relative quadrant). The field score is ~480ms
+  once per the existing 300s throttle — **not** an O(N²)-per-tick cost.
+- **What got built:** schema v133 (additive `prestige_snapshots` cols), prestige
+  repo v2 (record kwargs + `load_renown_v2_peak` own-scale ratchet),
+  `RenownFieldRepository` (batched oracle port, degrade-to-zero),
+  `ticker_service._maybe_v2_overlay`, lobby payload `formula_version` + v2 block,
+  ReputationPanel v2 branch (uncapped gauge). Parity gate:
+  `scripts/renown_field_parity.py` (prod loader == oracle, 80/80 on real DB).
+- **Turning it on:** `RENOWN_V2_ENABLED` is now **env-flippable** via `_env_flag`
+  (committed default still False). Set `RENOWN_V2_ENABLED=1` in a dev `.env`.
+- **Visually verified** against the REAL field via a standalone gauge preview
+  (`react/react/preview-renown.html` + `src/preview-renown.tsx`, throwaway):
+  guest_jeff renders "Infamous Villain", renown **55** vs a 36.7 figure-cut,
+  "ahead of 100% of the field", ledger led by Breadth 30 / Stakes 16.
+- **Blocker for running the full app on the REAL DB — schema-lineage divergence
+  (NOT just "empty worktree DB").** The real DB is on the `development` lineage
+  at **v136**, whose v132/v133 are *different* migrations (limp_count /
+  sizing-aware columns) than the `renown` branch's (cash_scalps / prestige-v2).
+  So `ensure_schema` on the real DB sees v136 ≥ 133 and applies **nothing** —
+  the v2 columns + cash_scalps never get created. Running on real data first
+  needs the standard **renumber-renown's-migrations-above-v136 + merge
+  development** reconciliation (the schema-collision pattern this project hits
+  on every cross-branch merge). Until then the gauge is verified via the
+  preview, not the live lobby.
+- **Still left:** the lineage reconciliation above (to run live on real data);
+  the **deferred AI-persist + field-wide-ticker stage (A/B below) is
+  unchanged** — still its own project.
+
+---
+
+## Original handoff (2026-06-01) — context below this line
 
 ## TL;DR state
 

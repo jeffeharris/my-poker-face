@@ -306,10 +306,27 @@ export interface ReputationComponents {
   heat: number;
 }
 
+/** v2 renown driver breakdown — UNCAPPED point contributions (sum ≈ renown_v2).
+ *  Present only on `formula_version === 'v2'` rows. Unlike the v1 components
+ *  these have no per-driver cap (renown is uncapped), so the panel shows raw
+ *  points sorted by magnitude. */
+export interface ReputationV2Components {
+  scalps?: number;
+  top1?: number;
+  peak_worth?: number;
+  backing?: number;
+  legendary?: number;
+  tenure?: number;
+  breadth?: number;
+  stakes?: number;
+  apex?: number;
+}
+
 /** The human player's reputation scoreboard. Absent (null) until the world
  *  ticker has captured at least once (~minutes into a new sandbox). */
 export interface ReputationData {
-  /** [0, 1] — fame magnitude; ratchets up, behaviour-agnostic. */
+  /** [0, 1] — v1 fame magnitude; ratchets up, behaviour-agnostic. Stays
+   *  populated as a baseline even on v2 rows (the panel uses `renown_v2`). */
   renown: number;
   /** [-1, 1] — how the room feels; swings, partially decays with heat. */
   regard: number;
@@ -319,6 +336,21 @@ export interface ReputationData {
   /** ISO-8601 UTC of the capture. */
   computed_at: string;
   components: ReputationComponents;
+  /** Which formula wrote the CONSUMED quadrant: 'v1' (absolute [0,1] cut) or
+   *  'v2' (uncapped, field-relative). Drives which gauge the panel renders. */
+  formula_version?: 'v1' | 'v2';
+  /** v2 only — uncapped, field-relative renown points (the magnitude the v2
+   *  gauge shows; no 0–1 ceiling). */
+  renown_v2?: number;
+  /** v2 only — the field-wide "high renown" cut at capture; renown_v2 ≥ this
+   *  means you're a "figure" (a high-renown quadrant). */
+  high_cut?: number;
+  /** v2 only — fraction of the field you out-rank on renown, [0,1]. */
+  victim_percentile?: number;
+  /** v2 only — entities scored that cycle (context for the relative gauge). */
+  field_size?: number;
+  /** v2 only — uncapped driver breakdown (sum ≈ renown_v2). */
+  renown_v2_components?: ReputationV2Components;
 }
 
 export interface LobbyResponse {

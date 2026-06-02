@@ -383,6 +383,63 @@ def _maybe_record_holdings_snapshot(sandbox_id: str) -> None:
         logger.exception("[TICKER] holdings snapshot failed for sandbox=%s", sandbox_id)
 
 
+def _maybe_v2_overlay(owner_id, sandbox_id, v1_score, now):
+    """Field-relative Renown-v2 overlay for the human, or None.
+
+    Returns None when the flag is off, the field repo is unavailable, the
+    human isn't in the scored field, or anything throws — every None path makes
+    the caller persist the v1-only row, so the world tick never breaks.
+
+    When it returns a dict, the renown AXIS is v2 (uncapped, field-relative) and
+    the regard axis stays v1's (orthogonal, unchanged shape) — so the quadrant's
+    warm/hostile split reuses the v1 regard the dial already shows, and only the
+    high/low-renown test becomes field-relative (`renown_v2 >= high_cut`). The
+    v2 renown ratchets via its own peak, mirroring v1's ratchet-then-classify.
+    """
+    try:
+        from cash_mode import economy_flags
+        if not getattr(economy_flags, "RENOWN_V2_ENABLED", False):
+            return None
+        from cash_mode.prestige import (
+            PROD_VOLUME_DENOMINATOR,
+            WeightsV2,
+            quadrant_label_relative,
+            score_renown_field,
+        )
+        from flask_app import extensions
+
+        field_repo = getattr(extensions, "renown_field_repo", None)
+        prestige_repo = getattr(extensions, "prestige_snapshots_repo", None)
+        if field_repo is None or prestige_repo is None:
+            return None
+
+        field = field_repo.build_inputs(sandbox_id, owner_id)
+        if owner_id not in field:
+            return None
+        weights = WeightsV2(volume_denominator=PROD_VOLUME_DENOMINATOR)
+        scored = score_renown_field(field, weights)
+        h = scored.get(owner_id)
+        if h is None:
+            return None
+
+        # Ratchet the v2 renown on its own scale (independent of v1's ratchet),
+        # then classify the (ratcheted) renown against the current field cut.
+        v2_peak = prestige_repo.load_renown_v2_peak(sandbox_id, owner_id)
+        renown_v2 = max(v2_peak, h.renown_total)
+        quadrant = quadrant_label_relative(renown_v2, v1_score.regard, h.high_cut)
+        return {
+            "quadrant": quadrant,
+            "renown_v2": round(renown_v2, 4),
+            "victim_percentile": round(h.victim_percentile, 4),
+            "high_cut": round(h.high_cut, 4),
+            "components": {k: round(v, 4) for k, v in h.components.items()},
+            "field_size": len(field),
+        }
+    except Exception:
+        logger.warning("[TICKER] renown-v2 overlay failed for owner=%s", owner_id)
+        return None
+
+
 def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
     """Recompute + persist the human's prestige for this sandbox, rate-limited.
 
@@ -400,6 +457,7 @@ def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
     if last is not None and (now_mono - last) < PRESTIGE_INTERVAL_SECONDS:
         return
     try:
+        from dataclasses import replace
         from datetime import datetime, timedelta
 
         from cash_mode import activity
@@ -428,12 +486,35 @@ def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
             cash_session_repo=extensions.cash_session_repo,
             renown_peak=peak,
         )
-        repo.record(
-            captured_at=score.computed_at,
-            sandbox_id=sandbox_id,
-            owner_id=owner_id,
-            score=score,
-        )
+
+        # v2 overlay (behind RENOWN_V2_ENABLED): score the human against the
+        # whole field for the uncapped, field-relative renown + quadrant. When
+        # it succeeds, the CONSUMED quadrant column becomes the v2 relative
+        # quadrant (so all 4 hooks + the lobby follow with no hook change) and
+        # the v2 columns are persisted alongside the v1 baseline. Best-effort:
+        # any failure falls back to the v1-only row, never breaking the tick.
+        v2 = _maybe_v2_overlay(owner_id, sandbox_id, score, now)
+        if v2 is not None:
+            score = replace(score, quadrant=v2["quadrant"])
+            repo.record(
+                captured_at=score.computed_at,
+                sandbox_id=sandbox_id,
+                owner_id=owner_id,
+                score=score,
+                formula_version="v2",
+                renown_v2=v2["renown_v2"],
+                victim_percentile=v2["victim_percentile"],
+                high_cut=v2["high_cut"],
+                renown_v2_components=v2["components"],
+                field_size=v2["field_size"],
+            )
+        else:
+            repo.record(
+                captured_at=score.computed_at,
+                sandbox_id=sandbox_id,
+                owner_id=owner_id,
+                score=score,
+            )
         try:
             cutoff = iso_utc(now - timedelta(days=DEFAULT_RETENTION_DAYS))
             repo.prune(cutoff)

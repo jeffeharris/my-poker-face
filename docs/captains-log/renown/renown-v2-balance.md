@@ -423,3 +423,118 @@ spec making the implement phase a safe port rather than a fresh design.
 Step 4's safe slice is DONE; the renown feature now has validated math wired to
 the live scalp counter, dark behind RENOWN_V2_ENABLED. Remaining is the deferred
 persistence/ticker/flip stage — its own (sim-gated) project.
+
+---
+
+## 2026-06-01 (later) — human-only v2 integration, and a degenerate cut on real data
+
+Picked up the handoff. Jeff chose the **human-only "ship it" path** (stages
+B-human → C → D): get the uncapped, field-relative gauge live for the human
+behind the kill switch, skipping the risky AI-persist migration (stage A).
+
+Built the integration foundation, bottom-up, all validated:
+- **Schema v133** — additive `prestige_snapshots` columns (`formula_version`
+  default 'v1', uncapped `renown_v2`, `victim_percentile`, field `high_cut`,
+  v2 component JSON, `field_size`). Non-destructive ADD COLUMNs.
+- **Repo** — `record()` gained optional v2 kwargs (back-compat default = a v1
+  row); `load_renown_v2_peak` MAX-ratchet (v2 has its own scale, never mixes
+  with v1's ratchet).
+- **`RenownFieldRepository`** — production port of the oracle's
+  `renown_v2_rung2.load_field`, batched over one connection (~6 scans, NOT
+  per-entity: `ticks_at_#1` is inherently field-relative), degrade-to-zero per
+  source so a missing table never breaks the ticker.
+
+Two things settled empirically that the handoff feared:
+- **Cost**: the field build+score is **~480ms once per 300s per sandbox** (the
+  recompute is already throttled) — a 0.16% duty cycle, NOT an O(N²)-per-tick
+  cost. The "no O(N²) ticker" promise holds because the field-relative quadrant
+  rides the existing throttle.
+- **One-site flag flip**: all 4 hooks + the lobby read the persisted
+  `snap["quadrant"]` STRING. So writing a field-relative quadrant in the
+  recompute makes every consumer follow with zero hook-code change. Stage C
+  collapses to the recompute.
+
+**Parity PASS**: `scripts/renown_field_parity.py` — the prod loader's
+shared-field inputs byte-match the oracle across all 80 real entities. (scalps
+degrade to 0 on the old main-worktree DB, which predates the v132 table — the
+intended ticker-safe behavior.) The port is faithful.
+
+### The wrong-turn-caught: the "locked" cut is degenerate under the design denom
+
+The handoff said the math is "locked — don't re-litigate; the work left is safe
+integration." I did the mandated pre-flight anyway (end-to-end score on the real
+field) and it surfaced a regime the offline validation never exercised:
+
+- Prod scores with the **design denominator (`wallclock`)**; rung2 had used
+  `hands` explicitly. Under wallclock the field **compresses** (presence-tick
+  counts cluster), so the median rises relative to the max.
+- The locked `HIGH_RENOWN_MEDIAN_MULTIPLE=3.0` floor then gives
+  `3.0×median = 69.1 > field max 59.5` → **0 figures**. The human is the
+  unambiguous **rank #1** (renown 59.5, **2.58× median**) yet classifies as
+  **"Disliked Nobody"** — a regression from v1's "Infamous Villain."
+- The hint was visible in the earlier sweep ("robust figures: none") — I
+  under-weighted it. The `3.0` was tuned on synthetic Rung-1 fixtures with a
+  designed skill gradient; the real field is more compressed.
+
+Key insight that makes this safe to fix: **the cut is orthogonal to the
+validated treadmill/anti-treadmill result** — it only sets the high/low
+*classification* boundary, not renown magnitude or ordering. So re-calibrating
+the floor doesn't re-open the locked math (and the parity tests force scorer +
+prod to move together).
+
+Quantified the fix space on the real wallclock field (figures / is-human-figure):
+`3.0×→0/no`, `2.5×→1/yes`, `2.0×→2/yes`, `1.5×→8/yes`. So k∈[2.0,2.5] gives a
+small, meaningful elite led by the standout.
+
+STOPPED before wiring/flipping to put the calibration to Jeff — it's a genuine
+product call (how exclusive "figure" status is), and changing a deliberately-set
+"locked" constant warrants sign-off. Foundation is built + parity-validated and
+uncommitted, waiting on the cut decision. Lesson reinforced: "the math is
+locked" is itself a premise to verify — the lock covered the validated regime,
+not the one production actually runs in.
+
+---
+
+## 2026-06-02 — human-only v2 BUILT + the denominator decision
+
+Resolved the cut finding by following the data, not the "locked" label. Jeff
+chose "dig into the treadmill first," and the dig flipped my own naive reading:
+
+- The wall-clock **presence proxy is degenerate on real data**: holdings ticks
+  are near-uniform (656 distinct ticks, presence median == max == 656, CV 0.16 —
+  the ticker stamps ~every entity each cycle). So `wallclock` denomination
+  flattens the volume drivers → `3×median` exceeds the field max → **0 figures**.
+- The **sim couldn't arbitrate** (constant 300 hands → DEGENERATE treadmill
+  verdict, 0 figures in all 23 sweep configs, no shark/fish separation). It only
+  confirmed the scalp route is wired (185 scalps, top driver). Exactly the
+  homogeneity the handoff warned about.
+- Under `hands` the real field behaves: human = **Infamous Villain** (matches v1
+  + rung2), 2 figures (human + deadpool the whale-backer). The "hands-treadmill"
+  is **inert**: hand-count ⊥ performance (ρ≈0.05) AND AI hand-volumes are
+  negligible (2–17 hands) — renown is driven by backing/wealth/scalps, not
+  grinding. My preview's rule ("low ρ → treadmill risk") was backwards here.
+
+Decision (Jeff: "ship hands denom"): production scores under **`hands`**
+(`PROD_VOLUME_DENOMINATOR`), while the scorer/parity **default stays `wallclock`**
+so the Rung-1 anti-treadmill lever tests stay green — the per-call WeightsV2
+field exists exactly for this. Documented the divergence + the real-data reason
+in `cash_mode/prestige.py`.
+
+Built the whole human-only slice (stages B-human → C → D), bottom-up:
+- v133 schema (additive), prestige repo v2 (record kwargs + own-scale ratchet),
+  `RenownFieldRepository` (batched oracle port, degrade-to-zero).
+- Ticker `_maybe_v2_overlay` behind `RENOWN_V2_ENABLED`: scores the field once
+  per the existing 300s throttle (~480ms), ratchets v2 renown, writes the
+  field-relative quadrant into the **consumed** `quadrant` column (so all 4
+  hooks + the lobby follow with ZERO hook change) + the v2 columns.
+- Lobby payload `formula_version` + v2 block; ReputationPanel v2 branch
+  (uncapped figure + progress-to-"figure" rail + field percentile + uncapped
+  ledger).
+
+Verified: **79 green** (parity byte-match to the oracle, repo, field-loader
+semantics, + a 4-test live-wiring integration: flag-off→None, flag-on→scores,
+persist+payload round-trip, v1 has no v2 block). tsc + eslint clean. Host
+parity re-confirmed (80/80 entities). **Committed flag stays OFF** (kill switch).
+Remaining: the live flip + a real screenshot need a populated sandbox (this
+worktree's DB is empty); the deferred AI-persist/field-wide-ticker stage (A/B)
+is still its own project.

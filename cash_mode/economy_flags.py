@@ -234,7 +234,9 @@ CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 # to quadrant_label_relative(renown, regard, high_cut) with a zero-residual
 # kill switch. NOW it gates nothing live. See
 # docs/plans/CASH_MODE_PLAYER_PRESTIGE.md ("v2 implemented" note).
-RENOWN_V2_ENABLED: bool = False
+# Env-flippable (committed default stays False so production is unaffected):
+# set RENOWN_V2_ENABLED=1 in a dev .env to turn the field-relative gauge on.
+RENOWN_V2_ENABLED: bool = _env_flag("RENOWN_V2_ENABLED", False)
 
 
 def compute_rake(pot: int, big_blind: int) -> int:

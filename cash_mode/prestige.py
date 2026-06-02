@@ -450,10 +450,27 @@ W_APEX = 0.4
 APEX_UNIT = 50000.0
 HIGH_RENOWN_TOP_FRACTION = 0.20
 HIGH_RENOWN_MEDIAN_MULTIPLE = 3.0
-VOLUME_DENOMINATOR = "wallclock"    # the design (anti-treadmill governor)
+VOLUME_DENOMINATOR = "wallclock"    # the design ideal (anti-treadmill governor)
 
 # stake tiers low->high for stakes-mastery depth credit (mirror the scorer).
 _V2_STAKE_ORDER: _Tuple[str, ...] = ("$2", "$10", "$50", "$200", "$1000")
+
+# Denominator PRODUCTION actually scores under. The design default above is
+# `wallclock` (validated in the Rung-1 sim, where wall-clock had real per-entity
+# variance), and the offline scorer + the parity tests keep that default so the
+# anti-treadmill lever stays proven. But on the REAL field the only wall-clock
+# proxy available — distinct `holdings_snapshots` ticks — is near-uniform
+# (every entity is stamped each tick; CV ~0.16, median == max), so `wallclock`
+# denomination is DEGENERATE there: it flattens the volume drivers, the
+# field-relative `high_cut` then exceeds the field maximum, and NO entity
+# (not even the rank-#1 human) classifies as a "figure" — a regression from v1.
+# `hands` gives correct results (the human reads as Infamous Villain, matching
+# v1; the field shows a small set of figures), and the hands-"treadmill" is
+# inert on real data: hand-count is uncorrelated with performance (ρ≈0.05) AND
+# AI hand-volumes are negligible, so renown is driven by backing / wealth
+# standing / scalps, not grinding. Revisit if a real seat-occupancy time signal
+# ever replaces the presence proxy. See docs/captains-log/renown/ for the data.
+PROD_VOLUME_DENOMINATOR = "hands"
 
 
 @dataclass
