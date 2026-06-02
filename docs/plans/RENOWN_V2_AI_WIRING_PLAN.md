@@ -21,6 +21,14 @@ renown, and decide what consumes it. Spec: `CASH_MODE_PLAYER_PRESTIGE.md`
 
 ---
 
+## Status (2026-06-02)
+
+- **Stage A is BUILT + tested + committed** (`cab24b0d`, branch `renown` at the
+  merged v138 baseline; schema bumped to **v139**). 45 green; flag
+  `RENOWN_V2_PERSIST_AI` default **OFF**, zero live behavior change.
+- **Stress gate RUN** (live 81-entity field, `guest_jeff` sandbox
+  `4db9b9f2-…`). Verdict and the bottleneck it exposed are below under A4.
+
 ## TL;DR
 
 - **The hard part is already done.** The ticker's `_maybe_v2_overlay`
@@ -189,23 +197,43 @@ fallback` posture).
 3. **New wiring test** (`test_renown_v2_wiring.py`): with `RENOWN_V2_PERSIST_AI`
    on, a seeded field persists one AI row per field AI with the relative
    quadrant; off → only the human row (regression).
-4. **Stress gate (mandatory before enabling on a real field).** Time the full
-   recompute under a realistic field (50+ AIs) and confirm it fits the cycle:
-   ```bash
-   docker compose exec backend python3 -c "
-   import time
-   from flask_app import extensions
-   t0=time.monotonic()
-   field = extensions.renown_field_repo.build_inputs('<sandbox_id>','guest_jeff')
-   print(f'build {(time.monotonic()-t0)*1000:.1f}ms / {len(field)} entities')"
-   ```
-   Then measure score+fan-out end-to-end. **Budget: well under
-   `CYCLE_BUDGET_MS=250ms`** (`ticker_service.py:42`) for the whole cycle, which
-   may process several sandboxes. WAL gives one-writer/many-readers with a 5s
-   `busy_timeout`; the single `record_many` transaction is the only added write
-   contention — verify no "database is locked" under burst with the live ticker
-   running. If tight: cap to top-K AIs by renown, or stagger AI persistence to a
-   longer interval than the human's 300s.
+4. **Stress gate — RUN 2026-06-02 (live 81-entity field).** Measured against the
+   real `guest_jeff` sandbox via a directly-instantiated `RenownFieldRepository`
+   (read path) + my v139 repo on a temp DB (write path), 5–8 iterations each:
+
+   | Stage | Median | Max | Notes |
+   |---|---:|---:|---|
+   | `build_inputs` (read) | **523ms** | 650ms | the field read — **pre-existing** |
+   | `score_renown_field` | 2.5ms | 4.3ms | pure |
+   | build AI rows (pure) | 0.5ms | 0.6ms | the fan-out construction |
+   | `load_renown_v2_peaks` | 0.3ms | 2.5ms | one GROUP-BY, 80 AIs |
+   | `record_ai_many` (80 rows) | 1.5ms | 3.8ms | one batched insert; 640-row history |
+
+   **Verdict — fan-out PASSES, but the gate exposed a pre-existing bottleneck:**
+   - **Stage A's marginal cost ≈ 2.3ms** (build-rows 0.5 + peaks 0.3 + write
+     1.5). Negligible; the per-AI write fan-out is **not** a budget risk. WAL
+     one-writer + 5s `busy_timeout` + a single 1.5ms transaction → DB-lock-under-
+     burst is implausible (the 300s throttle means ~one write/5min/sandbox).
+   - **`build_inputs` ≈ 523ms ALREADY exceeds `CYCLE_BUDGET_MS=250ms`**
+     (`ticker_service.py:42`). This is **pre-existing**: the *human-only* overlay
+     (`_maybe_v2_overlay`) calls the same `build_inputs`, so the cost is shipped
+     today, latent behind the default-OFF `RENOWN_V2_ENABLED`. Stage A does not
+     introduce it.
+   - **Impact is bounded, not catastrophic.** The 250ms budget is a *soft
+     early-break* between sandboxes in the 2s cycle (`_run_cycle`), not a hard
+     timeout — a recompute that runs 527ms just defers the cycle's *remaining*
+     sandboxes to the next 2s tick. With the 300s recompute throttle that's ~once
+     per 5min per sandbox. It backs up only if many active sandboxes recompute in
+     the same window.
+
+   **Gate conclusion: the AI fan-out is safe to enable independently. But before
+   flipping `RENOWN_V2_ENABLED` (human OR AI) on a busy multi-sandbox field,
+   `build_inputs` should be optimized or the prestige recompute moved off the
+   `CYCLE_BUDGET_MS`-governed tick** (e.g. its own throttled worker, or amortize
+   the field read). That's a separate task on the *human* v2 path — file it
+   there, don't block Stage A's flag on it. If it ever does get tight on the
+   write side: cap to top-K AIs by renown, or stagger AI persistence to a longer
+   interval than the human's 300s.
 
 ---
 
