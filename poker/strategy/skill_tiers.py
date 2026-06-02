@@ -77,6 +77,42 @@ SKILL_TIERS = {
 DEFAULT_SKILL_TIER = 'shark'
 
 
+# adaptation_bias → tier band cutoffs. The hand-authored roster
+# (personalities.json, PLAYER_SKILL_SPECTRUM.md Phase 4) keyed each persona's
+# `skill` to its `anchors.adaptation_bias`, quantized to four values: shark=0.70,
+# reg=0.50, weak_reg=0.30-0.40, rec=0.15. These cutoffs sit at the midpoints
+# between those bands, so a persona authored at a roster value lands in its
+# roster tier. Centralized here so both the LLM-persona generator
+# (poker/personality_generator.py) and the DB backfill derive `skill` the same
+# way — and a derived skill can never contradict the anchors it came from.
+_ADAPTATION_BIAS_BANDS = (
+    (0.60, 'shark'),
+    (0.45, 'reg'),
+    (0.225, 'weak_reg'),
+)
+
+
+def skill_tier_for_adaptation_bias(adaptation_bias) -> str:
+    """Map a persona's ``anchors.adaptation_bias`` to a named skill tier.
+
+    Mirrors how the authored roster assigned `skill` (see _ADAPTATION_BIAS_BANDS).
+    A higher adaptation_bias (the persona reads/adjusts more) earns a sharper
+    tier. Returns one of the keys in ``SKILL_TIERS``.
+
+    ``None`` (no adaptation_bias on the anchors at all) falls back to
+    ``DEFAULT_SKILL_TIER`` — i.e. today's no-op ceiling, so an info-free persona
+    is never silently weakened. In practice personas always carry anchors (the
+    generator's ``_default_anchors`` sets adaptation_bias=0.50 → ``reg``), so the
+    None branch is purely defensive.
+    """
+    if adaptation_bias is None:
+        return DEFAULT_SKILL_TIER
+    for cutoff, tier in _ADAPTATION_BIAS_BANDS:
+        if adaptation_bias >= cutoff:
+            return tier
+    return 'rec'
+
+
 def apply_skill_tier(controller, tier: str = DEFAULT_SKILL_TIER) -> None:
     """Set the skill-intensity fields on ``controller`` from the named ``tier``.
 

@@ -12,6 +12,7 @@ from poker.strategy.skill_tiers import (
     SKILL_TIERS,
     SkillTier,
     apply_skill_tier,
+    skill_tier_for_adaptation_bias,
 )
 
 # The four intensity fields a tier owns.
@@ -99,3 +100,61 @@ def test_tier_name_matches_key():
     for key, spec in SKILL_TIERS.items():
         assert isinstance(spec, SkillTier)
         assert spec.name == key
+
+
+# --- skill_tier_for_adaptation_bias (roster band map) ---
+
+@pytest.mark.parametrize(
+    "adaptation_bias,expected",
+    [
+        # The four authored-roster band centers land in their own tier.
+        (0.70, 'shark'),
+        (0.50, 'reg'),
+        (0.40, 'weak_reg'),
+        (0.30, 'weak_reg'),
+        (0.15, 'rec'),
+        # Extremes.
+        (1.0, 'shark'),
+        (0.0, 'rec'),
+    ],
+)
+def test_band_map_roster_values(adaptation_bias, expected):
+    assert skill_tier_for_adaptation_bias(adaptation_bias) == expected
+
+
+@pytest.mark.parametrize(
+    "adaptation_bias,expected",
+    [
+        # On/around the cutoffs (>= is the sharper side).
+        (0.60, 'shark'),
+        (0.5999, 'reg'),
+        (0.45, 'reg'),
+        (0.4499, 'weak_reg'),
+        (0.225, 'weak_reg'),
+        (0.2249, 'rec'),
+    ],
+)
+def test_band_map_cutoff_boundaries(adaptation_bias, expected):
+    assert skill_tier_for_adaptation_bias(adaptation_bias) == expected
+
+
+def test_band_map_none_falls_back_to_default_tier():
+    # No information -> today's no-op ceiling, never silently weakened.
+    assert skill_tier_for_adaptation_bias(None) == DEFAULT_SKILL_TIER
+
+
+def test_band_map_always_returns_a_known_tier():
+    for ab in (None, 0.0, 0.1, 0.225, 0.3, 0.45, 0.5, 0.6, 0.7, 1.0):
+        assert skill_tier_for_adaptation_bias(ab) in SKILL_TIERS
+
+
+def test_band_map_is_monotone_non_decreasing_in_strength():
+    # Higher adaptation_bias must never yield a WEAKER tier (lower
+    # exploitation_strength). Walk the range and assert strength is monotone.
+    order = ['rec', 'weak_reg', 'reg', 'shark']  # weakest -> sharpest
+    prev_rank = -1
+    for i in range(0, 101):
+        ab = i / 100.0
+        rank = order.index(skill_tier_for_adaptation_bias(ab))
+        assert rank >= prev_rank, f"tier dropped at adaptation_bias={ab}"
+        prev_rank = rank
