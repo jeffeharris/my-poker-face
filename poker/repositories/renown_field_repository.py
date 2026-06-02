@@ -15,9 +15,12 @@ Why one repo over many tables: the field build is a handful of BATCHED scans
 bucketed in memory (NOT per-entity queries — `ticks_at_#1` is inherently
 field-relative: it needs every entity's net worth per holdings tick, so the
 standing pass can't be sliced per entity). Reading them over one connection
-keeps it to ~6 queries total. It runs on the world ticker's prestige
-recompute, which is throttled to once per `PRESTIGE_INTERVAL_SECONDS` (300s)
-per sandbox — a ~0.5s field build at that cadence is a rounding error.
+keeps it to ~7 queries total. The big one — `holdings_snapshots`, a per-tick
+time series with orders of magnitude more rows than any other source — is
+aggregated IN SQL (peak/presence/time-at-#1 via GROUP BY + a per-tick rank
+window) so we transfer ~one row per entity + one per tick, not every snapshot.
+It runs on the world ticker's prestige recompute, throttled to once per
+`PRESTIGE_INTERVAL_SECONDS` (300s) per sandbox.
 
 Volume is **wall-clock denominated** (the validated anti-treadmill governor):
 an entity's presence = its count of distinct `holdings_snapshots` ticks (a
@@ -90,29 +93,44 @@ class RenownFieldRepository(BaseRepository):
             roster_net[obs] += (pnl or 0)
         entities = set(pair) | {human_id}
 
-        # --- holdings: peak net worth + time-at-#1 (per-tick net-worth rank) +
-        # presence (distinct tick count = the wall-clock proxy). holdings ids
-        # are prefixed ('ai:deadpool'/'player:guest_jeff'); strip to join the
-        # raw-id tables. ---
+        # --- holdings: peak net worth + presence (distinct tick count = the
+        # wall-clock proxy) + time-at-#1 (per-tick net-worth rank). All three
+        # are aggregated IN SQL so we transfer ~one row per entity + one per
+        # tick instead of every snapshot row — holdings_snapshots is the field's
+        # largest table by orders of magnitude (a per-tick time series), and
+        # pulling all of it into a Python loop was the field build's dominant
+        # cost. holdings ids are prefixed ('ai:deadpool'/'player:guest_jeff');
+        # strip to join the raw-id tables. ---
         peak: Dict[str, float] = defaultdict(float)
-        tick_best: Dict[str, tuple] = {}  # captured_at -> (best_net, entity)
-        presence: Dict[str, set] = defaultdict(set)  # entity -> {distinct ticks}
-        for ts, raw_eid, nw in _rows(
-            "SELECT captured_at, entity_id, net_worth FROM holdings_snapshots "
-            "WHERE sandbox_id=?",
+        presence_ticks: Dict[str, int] = defaultdict(int)  # entity -> distinct ticks
+        # peak is floored at 0.0 to match the prior `defaultdict(float)` loop
+        # (an entity whose net worth is never positive reads peak 0, not its
+        # negative MAX). The `max(peak[eid], ...)` fold also merges the
+        # impossible case of two prefixes stripping to the same raw id.
+        for raw_eid, mx, ticks in _rows(
+            "SELECT entity_id, MAX(net_worth) AS peak, "
+            "COUNT(DISTINCT captured_at) AS ticks "
+            "FROM holdings_snapshots WHERE sandbox_id=? GROUP BY entity_id",
             (sandbox_id,),
         ):
             eid = raw_eid.split(":", 1)[-1]
-            nw = nw or 0
-            if nw > peak[eid]:
-                peak[eid] = nw
-            presence[eid].add(ts)
-            cur = tick_best.get(ts)
-            if cur is None or nw > cur[0]:
-                tick_best[ts] = (nw, eid)
+            peak[eid] = max(peak[eid], float(mx or 0.0), 0.0)
+            presence_ticks[eid] += int(ticks or 0)
+        # time-at-#1: one winner per tick (the max-net-worth entity). The window
+        # ORDER BY tie-break (net_worth DESC, entity_id ASC) reproduces the
+        # prior loop's "first row in (entity_id, captured_at) index-scan order
+        # wins a tie" — i.e. smallest prefixed id. On the real field there are
+        # no per-tick ties, so any deterministic argmax matches exactly.
         ticks_at_one: Dict[str, int] = defaultdict(int)
-        for _, eid in tick_best.values():
-            ticks_at_one[eid] += 1
+        for raw_eid, wins in _rows(
+            "SELECT entity_id, COUNT(*) AS wins FROM ("
+            "  SELECT entity_id, ROW_NUMBER() OVER ("
+            "    PARTITION BY captured_at ORDER BY net_worth DESC, entity_id ASC"
+            "  ) AS rn FROM holdings_snapshots WHERE sandbox_id=?"
+            ") WHERE rn=1 GROUP BY entity_id",
+            (sandbox_id,),
+        ):
+            ticks_at_one[raw_eid.split(":", 1)[-1]] += int(wins or 0)
 
         # --- backing (staker perspective): volume + settled profit. NOT
         # sandbox-scoped — mirrors the validated oracle (backing reputation is
@@ -174,7 +192,7 @@ class RenownFieldRepository(BaseRepository):
                 total_hands=total_hands,
                 # presence ticks = wall-clock proxy; fall back to hands when an
                 # entity has no holdings rows (keeps a brand-new entity nonzero).
-                wall_clock_hours=float(len(presence.get(eid, ())) or total_hands),
+                wall_clock_hours=float(presence_ticks.get(eid, 0) or total_hands),
                 roster_net=float(roster_net.get(eid, 0)),
                 peak_net_worth=peak.get(eid, 0.0),
                 ticks_at_number_one=ticks_at_one.get(eid, 0),

@@ -308,11 +308,17 @@ _test_schema_template_path = None
 #       persisted, field-relative renown rows (Stage A of the AI-wiring plan).
 #       Existing rows default to 'player' (the human); AI rows write 'ai'. See
 #       docs/plans/RENOWN_V2_AI_WIRING_PLAN.md.
+# v140: add a covering index on holdings_snapshots(sandbox_id, entity_id,
+#       net_worth) so the Renown-v2 field build's peak-net-worth aggregate
+#       (MAX(net_worth) GROUP BY entity_id) is index-only instead of doing one
+#       table lookup per snapshot row. On the real field that was ~200ms of the
+#       ~520ms field build (the table is a large per-tick time series); covering
+#       it drops it to ~tens of ms. Additive index, idempotent.
 # v138: extend prestige_snapshots with the Renown-v2 columns (uncapped,
 #       field-relative score) — additive, computed-but-unconsumed until
 #       RENOWN_V2_ENABLED flips. Renumbered from v133 on the renown→development
 #       merge. See CASH_MODE_PLAYER_PRESTIGE.md.
-SCHEMA_VERSION = 139
+SCHEMA_VERSION = 140
 
 
 class SchemaManager:
@@ -2150,6 +2156,10 @@ class SchemaManager:
             139: (
                 self._migrate_v139_add_prestige_entity_kind,
                 "Add entity_kind to prestige_snapshots ('player'|'ai', existing rows default 'player') + an (sandbox_id, entity_kind, owner_id, renown_v2) index, so AI entities get their own persisted field-relative renown rows. owner_id is the universal subject id (human owner_id or AI personality_id); entity_kind disambiguates so the human's load_latest never matches AI rows. Stage A of the AI-wiring plan. Non-destructive ADD COLUMN.",
+            ),
+            140: (
+                self._migrate_v140_add_holdings_peak_index,
+                "Add covering index holdings_snapshots(sandbox_id, entity_id, net_worth) so the Renown-v2 field build's MAX(net_worth) GROUP BY entity_id is index-only (no per-row table lookup) — cuts ~200ms off the ~520ms field build on the real field. Additive index, idempotent.",
             ),
         }
 
@@ -7345,3 +7355,31 @@ class SchemaManager:
             "prestige_snapshots",
             added,
         )
+
+    def _migrate_v140_add_holdings_peak_index(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v140: covering index for the Renown-v2 peak-net-worth read.
+
+        The v2 field build (`RenownFieldRepository`) aggregates the per-entity
+        peak net worth as `MAX(net_worth) GROUP BY entity_id` over
+        `holdings_snapshots` — the field's largest table (a per-tick time
+        series). With only `idx_holdings_snap_entity(sandbox_id, entity_id,
+        captured_at)` the grouping is indexed but `net_worth` is fetched per row
+        from the table, so on the real field it cost ~200ms (one random page
+        read per snapshot row). This covering index puts `net_worth` in the
+        index so `MAX` is answered index-only (a single seek per entity group),
+        dropping it to ~tens of ms. The sibling presence read
+        (`COUNT(DISTINCT captured_at)`) is already covered by the entity index;
+        the time-at-#1 window read uses `idx_holdings_snap_scope`.
+
+        Additive index, idempotent. No write-path semantics change — only one
+        extra index maintained on holdings inserts (a periodic ticker write, not
+        the per-hand path). See docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A
+        stress gate) and RENOWN_V2_HANDOFF.md.
+        """
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_holdings_snap_peak
+                ON holdings_snapshots(sandbox_id, entity_id, net_worth)
+        """)
+        logger.info("Migration v140 complete: idx_holdings_snap_peak created")
