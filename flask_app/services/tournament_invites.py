@@ -114,7 +114,7 @@ def maybe_offer_main_event(
     sandbox_id: str,
     now: Optional[datetime] = None,
     cooldown_seconds: int = economy_signal.MAIN_EVENT_COOLDOWN_SECONDS,
-    expiry_seconds: Optional[int] = None,
+    expiry_seconds: Optional[int] = economy_signal.MAIN_EVENT_REGISTRATION_WINDOW_SECONDS,
     spec: economy_signal.EventSpec = economy_signal.DEFAULT_MAIN_EVENT,
 ) -> Optional[dict]:
     """The chairman-driven trigger: offer a Main Event iff the bank is FLUSH and
@@ -124,7 +124,10 @@ def maybe_offer_main_event(
     None (not flush / on cooldown / one already open / a tournament active).
 
     Run on the world tick or lobby load. `expiry_seconds` sets the invite's
-    `expires_at` window (None = no auto-expiry; the player decides when present).
+    `expires_at` registration window — defaults to
+    `MAIN_EVENT_REGISTRATION_WINDOW_SECONDS` so an un-acted offer auto-expires to
+    autonomous play (the "decline by inaction" timer). Pass None to keep an offer
+    open until the player decides; pass a computed value for a scheduled window.
     """
     if invite_repo is None or ledger_repo is None:
         return None

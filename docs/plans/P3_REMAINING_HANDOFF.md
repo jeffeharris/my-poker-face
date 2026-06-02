@@ -236,11 +236,30 @@ setpoint** (`reserves − FLUSH_SETPOINT × holdings`, capped) — a sawtooth ma
 discrete events; held the band across 3 seeds (slope 6.9–12.0, reserves 178k–245k),
 conservation-clean. `core/economy/economy_signal.py::tournament_funding` now uses
 drain-to-setpoint; tests updated; full write-up in
-`docs/experiments/EXP_006_BANK_RESERVE_THERMOSTAT.md` (§6 section). Still wanted
-before default-on: one **hands-ON** fidelity run against an aged sandbox (the
-modeled-rake faucet understates the real vice faucet — but the lever scales with
-reserves, so a bigger faucet just means more chips per event, not a band escape).
-v1 Main Events are **freerolls** (buy_in 0); redistribution is bank → field.
+`docs/experiments/EXP_006_BANK_RESERVE_THERMOSTAT.md` (§6 section).
+
+**Fidelity check (the prod-flip gate):** the only failure mode left is the
+OVERLAY_CAP (250k) binding — if the *real* faucet × the 30-min cooldown exceeds
+the cap, one event can't drain back to the setpoint and reserves climb. EXP_006
+Phase 0 measured the real (vice-dominated) faucet at ~515 chips/tick on a fresh
+sandbox → ~116k per cooldown, **~2× under the 250k cap**, so drain-to-setpoint
+holds with headroom. A clean hands-ON run on an *aged* sandbox is still the
+belt-and-suspenders before the **prod** flip (and a lever: raise OVERLAY_CAP or
+shorten the cooldown if an aged faucet runs hotter). The harness now supports it
+(`thermostat_sweep.py --hands-on`). v1 Main Events are **freerolls** (buy_in 0).
+
+**ACTIVATION STATUS (2026-06-02):**
+- **DEV: ACTIVATED.** `TOURNAMENT_CIRCUIT_ENABLED=1` in the dev `.env`; backend
+  restarted, flag live, health 200. The ticker now offers Main Events (FLUSH +
+  cooldown) and advances declined/expired ones at world pace.
+- **PROD: still gated** — flip after the aged-sandbox hands-on confirmation +
+  a deploy. The economy_flags default stays `False` (prod is off until the env
+  flag is set on the server).
+- **Registration window (the "expire = decline by inaction" timer) shipped** —
+  `MAIN_EVENT_REGISTRATION_WINDOW_SECONDS=600`; `maybe_offer_main_event` defaults
+  `expires_at` to it, so an un-acted offer auto-expires to autonomous play and the
+  card shows a live countdown. (`expiry_seconds=None` opts out; a scheduled
+  "open until 8pm" window is just a computed value — same lifecycle.)
 
 ## 7. Concurrency / lifecycle hardening (2026-06-02 — DONE, uncommitted)
 

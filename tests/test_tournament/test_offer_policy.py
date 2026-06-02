@@ -128,3 +128,28 @@ class TestMaybeOfferMainEvent:
             expiry_seconds=3600,
         )
         assert invite['expires_at'] is not None
+
+    def test_default_offer_gets_registration_window(self, kit):
+        """A chairman offer with no explicit expiry still auto-expires — the
+        default registration window (decline-by-inaction timer)."""
+        _make_flush(kit['ledger_repo'])
+        now = datetime.utcnow()
+        invite = inv.maybe_offer_main_event(
+            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB, now=now,
+        )
+        assert invite['expires_at'] is not None
+        expires = datetime.fromisoformat(invite['expires_at'])
+        # ~MAIN_EVENT_REGISTRATION_WINDOW_SECONDS in the future.
+        delta = (expires - now).total_seconds()
+        assert abs(delta - chair.MAIN_EVENT_REGISTRATION_WINDOW_SECONDS) < 2
+
+    def test_can_keep_offer_open_with_explicit_none(self, kit):
+        """Passing expiry_seconds=None opts out of auto-expiry (wait for player)."""
+        _make_flush(kit['ledger_repo'])
+        invite = inv.maybe_offer_main_event(
+            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            expiry_seconds=None,
+        )
+        assert invite['expires_at'] is None

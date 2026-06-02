@@ -132,6 +132,9 @@ def main() -> int:
                    help="fraction of reserves distributed per tick when fully flush")
     p.add_argument("--rake-max-mult", type=float, default=3.0,
                    help="max rake multiplier when bank is starved")
+    p.add_argument("--hands-on", action="store_true",
+                   help="drive REAL hands (hand_sim_prob=1.0) so the actual rake "
+                        "faucet is generated — the §6 fidelity check (~100x slower)")
     p.add_argument("--preload-reserves", type=int, default=0,
                    help="seed the bank pool to ~N chips at tick 0 (ai→bank), to "
                         "exercise the regulated regime without the slow natural fill")
@@ -186,7 +189,11 @@ def main() -> int:
     for tick in range(args.ticks):
         now = start_at + timedelta(seconds=tick * args.tick_seconds)
 
-        # 1. Advance the real cash world hands-off (vice/casino/side-hustle/movement).
+        # 1. Advance the real cash world. Hands-off by default (vice/casino/side-
+        # hustle/movement exact + fast). `--hands-on` drives REAL hands so the
+        # actual rake faucet (vice-dominated) is generated — the fidelity check
+        # the §6 conclusion wants before the prod flip (set --base-rake 0 so the
+        # modeled faucet doesn't double-count the real one).
         refresh_unseated_tables(
             cash_table_repo=repos["cash_table_repo"],
             personality_repo=repos["personality_repo"],
@@ -194,7 +201,7 @@ def main() -> int:
             sandbox_id=sb,
             now=now,
             rng=rng,
-            hand_sim_prob=0.0,
+            hand_sim_prob=(1.0 if args.hands_on else 0.0),
             live_fill_prob=0.05,
             chip_ledger_repo=chip_ledger_repo,
             relationship_repo=repos["relationship_repo"],

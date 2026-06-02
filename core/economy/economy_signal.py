@@ -244,6 +244,15 @@ DEFAULT_MAIN_EVENT = EventSpec(field_size=18, table_size=6, starting_stack=10_00
 # Sim-tunable; wall-clock seconds compared against the last offer's timestamp.
 MAIN_EVENT_COOLDOWN_SECONDS: int = 1800
 
+# Registration window: how long an offered Main Event stays open before it
+# auto-expires (→ runs autonomously, AI-only). This is the "expire = decline by
+# inaction" timer — without it an offer waits forever for the player. 10 minutes
+# gives the player a real decision window (the card shows a live countdown) while
+# keeping the field moving if they're away. The simplest *predictability skin*
+# (the future "open until 8pm" scheduled window) is just a different value
+# computed per offer; the lifecycle is identical.
+MAIN_EVENT_REGISTRATION_WINDOW_SECONDS: int = 600
+
 
 def should_offer_event(
     state: EconomyState,
