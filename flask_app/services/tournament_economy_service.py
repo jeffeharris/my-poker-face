@@ -21,15 +21,13 @@ its plans.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
-from datetime import datetime
-
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
-from core.economy import economy_signal
-from core.economy import ledger as chip_ledger
+from core.economy import economy_signal, ledger as chip_ledger
 from core.economy.economy_signal import FundingPlan
-from core.economy.ledger import ai, player, tournament
+from core.economy.ledger import ai, bank, player, tournament
 from tournament.economy import compute_payout_schedule
 
 logger = logging.getLogger(__name__)
@@ -120,9 +118,22 @@ def apply_buy_in(
                 payout_status=payout_status,
             )
     except Exception:
-        # Nothing on the ledger yet — undo the only hard move and bail.
-        if debited_from is not None:
-            bankroll_repo.save_player_bankroll(debited_from)
+        # Nothing on the ledger yet — undo the only hard move and bail. Reverse
+        # our DEBIT as a delta against the CURRENT bankroll (re-read), not by
+        # restoring the pre-debit snapshot: player bankroll is global (not under
+        # this sandbox lock), so a concurrent cross-sandbox cash-out that landed
+        # after our debit must not be clobbered by a stale snapshot.
+        if debited_from is not None and human_buy_in > 0:
+            current = bankroll_repo.load_player_bankroll(owner_id)
+            cur_chips = current.chips if current else 0
+            starting = current.starting_bankroll if current else debited_from.starting_bankroll
+            bankroll_repo.save_player_bankroll(
+                PlayerBankrollState(
+                    player_id=owner_id,
+                    chips=cur_chips + human_buy_in,
+                    starting_bankroll=starting,
+                )
+            )
         raise
 
     # Escrow ledger rows. Unlike the cash "ledger is best-effort audit" pattern,
@@ -245,8 +256,12 @@ def apply_payout_on_complete(
         session_repo.set_payout_status(tournament_id, 'skipped')
         return False
 
-    # Narrow the crash window: flag in_progress BEFORE any bankroll write.
-    session_repo.set_payout_status(tournament_id, 'in_progress')
+    # Atomically claim the payout (CAS pending→in_progress). The flag flips BEFORE
+    # any bankroll write (narrow crash window) AND the compare-and-swap is the
+    # authoritative guard against two callers both distributing — belt over the
+    # shared-sandbox-lock discipline (one missed lock would otherwise double-pay).
+    if not session_repo.claim_payout(tournament_id):
+        return False  # another caller already claimed it
     try:
         schedule = compute_payout_schedule(session.field.field_size, prize_pool, payout_curve)
         pos_to_player = _position_to_player(session)
@@ -259,6 +274,20 @@ def apply_payout_on_complete(
             pid = pos_to_player.get(entry['finishing_position'])
             is_real_human = human_owner_id is not None and pid == human_id
             if is_real_human:
+                # Ledger row FIRST, then the cached bankroll int — same order as
+                # the AI branch below. This makes "a `tournament_payout` ledger row
+                # exists for this sink ⟹ the finisher was paid" a uniform invariant
+                # across both branches, so a reconcile of a stuck payout can skip
+                # already-paid sinks by their ledger total WITHOUT risking a double
+                # bankroll credit (the cash double-settle lesson — never re-pay).
+                chip_ledger.record_tournament_payout(
+                    ledger_repo,
+                    sink=player(human_owner_id),
+                    tournament_id=tournament_id,
+                    amount=amount,
+                    context={'site': 'payout', 'finishing_position': entry['finishing_position']},
+                    sandbox_id=sandbox_id,
+                )
                 bankroll = bankroll_repo.load_player_bankroll(human_owner_id)
                 chips = bankroll.chips if bankroll else 0
                 starting = bankroll.starting_bankroll if bankroll else chips
@@ -268,14 +297,6 @@ def apply_payout_on_complete(
                         chips=chips + amount,
                         starting_bankroll=starting,
                     )
-                )
-                chip_ledger.record_tournament_payout(
-                    ledger_repo,
-                    sink=player(human_owner_id),
-                    tournament_id=tournament_id,
-                    amount=amount,
-                    context={'site': 'payout', 'finishing_position': entry['finishing_position']},
-                    sandbox_id=sandbox_id,
                 )
             elif pid in real_persona_ids:
                 # Real AI persona → credit its sandbox bankroll. The escrow→ai
@@ -340,6 +361,161 @@ def apply_payout_on_complete(
         logger.exception(
             "payout failed for %s; status left 'in_progress' for reconcile", tournament_id
         )
+        return False
+
+
+def reconcile_stuck_payout(
+    *,
+    tournament_id: str,
+    session,
+    human_owner_id: Optional[str],
+    sandbox_id: str,
+    bankroll_repo,
+    ledger_repo,
+    session_repo,
+    real_persona_ids=frozenset(),
+    payout_curve=None,
+) -> bool:
+    """Resume a payout wedged at `payout_status='in_progress'` — the retry path
+    `apply_payout_on_complete` deliberately does NOT provide (its `== 'pending'`
+    guard makes a second call a no-op, so a crash mid-distribute would otherwise
+    leave partial credits forever).
+
+    **Ledger-authoritative + idempotent.** The escrow's `tournament_payout` rows
+    (source = `tournament(id)`, grouped by sink) are the source of truth for what
+    each finisher has ALREADY been paid. Reconcile re-derives the full schedule
+    and credits only the *unpaid* remainder per sink (`owed − ledger_paid`), so it
+    can never double-pay (the cash double-settle lesson). Because each finisher is
+    one ledger row of the full amount, `ledger_paid[sink]` is 0 or the full owed —
+    reconcile pays the wholly-unpaid finishers and skips the paid ones. The rake
+    skim and the final sweep are likewise paid-by-remainder / balance-derived, so
+    the whole pass is safe to re-run (a second call pays nothing, re-asserts
+    escrow 0, and re-stamps `complete`).
+
+    Returns True iff it advanced the tournament to `complete`. Never raises (the
+    watchdog must not die on one bad row). Caller holds `get_sandbox_lock`.
+
+    Caveat: if the original crash landed in the one-statement window between a
+    finisher's ledger row and its bankroll-cache bump, that finisher's cached int
+    is short while the ledger (the authority) is complete and the escrow nets 0 —
+    no phantom chips, conservation holds, and the chip-custody int↔derived audit
+    surfaces the cache gap. We accept that over any risk of a double credit."""
+    if session_repo is None:
+        return False
+    try:
+        row = session_repo.load(tournament_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("reconcile: failed to load tournament %s", tournament_id)
+        return False
+    if row is None or row.get('payout_status') != 'in_progress':
+        return False  # only resume a genuinely-stuck payout
+    if not session.is_complete():
+        return False
+
+    try:
+        prize_pool = int(row.get('prize_pool') or 0)
+        schedule = compute_payout_schedule(session.field.field_size, prize_pool, payout_curve)
+        pos_to_player = _position_to_player(session)
+        human_id = session.human_id
+        paid = ledger_repo.payouts_by_sink(
+            tournament(tournament_id), reason='tournament_payout', sandbox_id=sandbox_id
+        )
+
+        for entry in schedule:
+            amount = entry['amount']
+            if amount <= 0:
+                continue
+            pid = pos_to_player.get(entry['finishing_position'])
+            is_real_human = human_owner_id is not None and pid == human_id
+            if is_real_human:
+                sink = player(human_owner_id)
+            elif pid in real_persona_ids:
+                sink = ai(pid)
+            else:
+                continue  # synthetic seat — no bankroll; swept below
+            delta = amount - int(paid.get(sink, 0))
+            if delta <= 0:
+                continue  # this finisher's payout already landed in the ledger
+
+            # Ledger row FIRST (the authority), then bump the cache — same order
+            # as the main loop, so a re-crash here is re-reconcilable.
+            chip_ledger.record_tournament_payout(
+                ledger_repo,
+                sink=sink,
+                tournament_id=tournament_id,
+                amount=delta,
+                context={'site': 'payout_reconcile', 'finishing_position': entry['finishing_position']},
+                sandbox_id=sandbox_id,
+            )
+            if is_real_human:
+                bankroll = bankroll_repo.load_player_bankroll(human_owner_id)
+                chips = bankroll.chips if bankroll else 0
+                starting = bankroll.starting_bankroll if bankroll else chips
+                bankroll_repo.save_player_bankroll(
+                    PlayerBankrollState(
+                        player_id=human_owner_id, chips=chips + delta, starting_bankroll=starting
+                    )
+                )
+            else:
+                existing = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+                base = existing.chips if existing else 0
+                anchor = existing.last_regen_tick if existing else datetime.utcnow()
+                bankroll_repo.save_ai_bankroll(
+                    AIBankrollState(personality_id=pid, chips=base + delta, last_regen_tick=anchor),
+                    sandbox_id=sandbox_id,
+                )
+
+        # Rake — pay only the unpaid remainder (escrow → bank pool).
+        rake_owed = int(row.get('rake') or 0)
+        if rake_owed > 0:
+            rake_paid = int(
+                ledger_repo.payouts_by_sink(
+                    tournament(tournament_id), reason='table_rake', sandbox_id=sandbox_id
+                ).get(bank(), 0)
+            )
+            rake_delta = rake_owed - rake_paid
+            if rake_delta > 0:
+                chip_ledger.record_table_rake(
+                    ledger_repo,
+                    source=tournament(tournament_id),
+                    amount=rake_delta,
+                    context={'site': 'tournament_rake_reconcile', 'tournament_id': tournament_id},
+                    sandbox_id=sandbox_id,
+                )
+
+        # Sweep whatever still sits in escrow (synthetic shares + rounding). Uses
+        # the live balance, so it's naturally idempotent (0 if already swept).
+        remaining = ledger_repo.balance_of(tournament(tournament_id), sandbox_id=sandbox_id)
+        if remaining > 0:
+            chip_ledger.record_tournament_return(
+                ledger_repo,
+                tournament_id=tournament_id,
+                amount=remaining,
+                context={'site': 'payout_reconcile_sweep'},
+                sandbox_id=sandbox_id,
+            )
+
+        final_balance = ledger_repo.balance_of(tournament(tournament_id), sandbox_id=sandbox_id)
+        if final_balance != 0:
+            logger.error(
+                "[TOURNAMENT] reconcile: escrow %s still non-zero (residual=%d) — leaving in_progress",
+                tournament_id,
+                final_balance,
+            )
+            return False  # something's off; leave for a human, don't mark complete
+
+        session_repo.set_payout_status(tournament_id, 'complete')
+        # Now that the escrow is settled, release the field from the double-
+        # presence exclusion (settle left status='active' precisely so this strand
+        # stayed visible until reconciled).
+        try:
+            session_repo.set_status(tournament_id, 'complete')
+        except Exception:  # noqa: BLE001 — release is best-effort
+            logger.exception("reconcile: set_status complete failed for %s", tournament_id)
+        logger.info("[TOURNAMENT] reconciled stuck payout %s → complete", tournament_id)
+        return True
+    except Exception:  # noqa: BLE001 — the watchdog must survive one bad row
+        logger.exception("reconcile: payout for %s failed; left 'in_progress'", tournament_id)
         return False
 
 

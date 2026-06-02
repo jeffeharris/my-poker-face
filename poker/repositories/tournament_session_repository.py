@@ -27,6 +27,14 @@ def _utcnow_iso() -> str:
     return datetime.utcnow().isoformat()
 
 
+# Recency window for the double-presence exclusion: a tournament whose row hasn't
+# been touched within this many hours no longer excludes its field from cash
+# seating, so an abandoned/wedged-active tournament can't ghost-seat its personas
+# forever. Generous — an actively-played tournament re-stamps `updated_at` every
+# hand boundary, so only a genuinely-idle one ages out.
+EXCLUSION_MAX_AGE_HOURS = 6
+
+
 class TournamentSessionRepository(BaseRepository):
     """CRUD for the `tournaments` table. BaseRepository's `_get_connection`
     auto-commits on success and rolls back on error."""
@@ -119,25 +127,38 @@ class TournamentSessionRepository(BaseRepository):
             ).fetchone()
             return self._row_to_dict(row) if row else None
 
-    def active_participant_pids(self, owner_id: str) -> set:
-        """Every entrant id across the owner's currently-ACTIVE tournaments.
+    def active_participant_pids(self, owner_id: str, *, active_since_iso: Optional[str] = None) -> set:
+        """Every entrant id across the owner's currently-ACTIVE, *recently-touched*
+        tournaments.
 
         Derived from the serialized field (single source of truth — no separate
-        participant table to drift), so it's correct as long as a finished
-        tournament's row is moved to status='complete' on settle. Used by the
-        cash seat-filler to keep a persona who is in a tournament OUT of cash
-        seats (the same exclusion vice/side-hustle get) — closing the
-        double-presence / ghost-seat gap. Synthetic (`P01`) / human
-        (`human:<id>`) seat ids are included but inert (they're never cash
-        candidates)."""
+        participant table to drift). Used by the cash seat-filler to keep a persona
+        who is in a tournament OUT of cash seats (the same exclusion vice/side-hustle
+        get) — closing the double-presence / ghost-seat gap. Synthetic (`P01`) /
+        human (`human:<id>`) seat ids are included but inert (never cash candidates).
+
+        **Recency bound (ghost-seat guard):** only tournaments updated within
+        `EXCLUSION_MAX_AGE_HOURS` count. An abandoned human tournament (never
+        completed) or an autonomous one wedged at `max_rounds` would otherwise stay
+        `status='active'` forever and exclude its whole field from cash seating for
+        good. `updated_at` is bumped on every persist (hand boundary / advance), so
+        an actively-played tournament keeps refreshing and stays excluded; only a
+        genuinely-idle one ages out and releases its field. `active_since_iso`
+        overrides the cutoff (for tests / a different policy)."""
         import json
+        from datetime import datetime, timedelta
+
+        if active_since_iso is None:
+            active_since_iso = (
+                datetime.utcnow() - timedelta(hours=EXCLUSION_MAX_AGE_HOURS)
+            ).isoformat()
 
         pids: set = set()
         with self._get_connection() as conn:
             rows = conn.execute(
                 "SELECT session_json FROM tournaments "
-                "WHERE owner_id = ? AND status = 'active'",
-                (owner_id,),
+                "WHERE owner_id = ? AND status = 'active' AND updated_at >= ?",
+                (owner_id, active_since_iso),
             ).fetchall()
         for row in rows:
             try:
@@ -202,6 +223,37 @@ class TournamentSessionRepository(BaseRepository):
                     tournament_id,
                 ),
             )
+
+    def list_stuck_payouts(self, *, older_than_iso: Optional[str] = None) -> list:
+        """Tournaments wedged at `payout_status='in_progress'` — a crash mid-
+        distribute left partial credits with no terminal transition. Drives the
+        payout-reconcile watchdog. `older_than_iso` (compared against
+        `updated_at`) is a grace window so a payout in-flight on another thread
+        isn't reconciled out from under it. Oldest first."""
+        sql = "SELECT * FROM tournaments WHERE payout_status = 'in_progress'"
+        params: list = []
+        if older_than_iso is not None:
+            sql += " AND updated_at < ?"
+            params.append(older_than_iso)
+        sql += " ORDER BY updated_at ASC"
+        with self._get_connection() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+    def claim_payout(self, tournament_id: str) -> bool:
+        """Atomically claim the payout (compare-and-swap `pending` → `in_progress`).
+
+        Returns True iff THIS call won the transition. Replaces the non-atomic
+        read-`payout_status`→check→`set_payout_status('in_progress')` so a missed
+        sandbox lock (or a future cross-worker path) can't let two callers both
+        pass the guard and double-distribute the escrow (the cash double-settle
+        lesson). The distributor proceeds only on True."""
+        with self._get_connection() as conn:
+            return conn.execute(
+                "UPDATE tournaments SET payout_status = 'in_progress', updated_at = ? "
+                "WHERE tournament_id = ? AND payout_status = 'pending'",
+                (_utcnow_iso(), tournament_id),
+            ).rowcount == 1
 
     def set_payout_status(self, tournament_id: str, status: str) -> None:
         """Advance the payout idempotency guard (skipped|pending|in_progress|

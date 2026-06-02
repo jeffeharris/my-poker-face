@@ -285,7 +285,7 @@ _test_schema_template_path = None
 #       one open invite per owner that they accept (→ play it), decline, or let
 #       expire (→ runs autonomously). Durable so a scheduled window survives
 #       navigation / restart. See `docs/plans/TOURNAMENT_CIRCUIT_SURFACING.md`.
-SCHEMA_VERSION = 135
+SCHEMA_VERSION = 136
 
 
 class SchemaManager:
@@ -1362,6 +1362,12 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_tournament_invites_owner "
                 "ON tournament_invites(owner_id, status)"
             )
+            # v136: structurally enforce one OPEN invite per owner (partial unique
+            # index over the 'offered' rows only — resolved invites coexist).
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_invites_one_open "
+                "ON tournament_invites(owner_id) WHERE status = 'offered'"
+            )
 
             # 24. Experiments (v43) - experiment metadata and configuration
             conn.execute("""
@@ -2182,6 +2188,10 @@ class SchemaManager:
             135: (
                 self._migrate_v135_create_tournament_invites,
                 "Create tournament_invites table — the circuit Main Event offer (P3): one open invite per owner, accepted (→ play) / declined / expired (→ autonomous). Durable so a scheduled window survives navigation / restart.",
+            ),
+            136: (
+                self._migrate_v136_one_open_invite_per_owner,
+                "Enforce one open invite per owner structurally — partial UNIQUE index on tournament_invites(owner_id) WHERE status='offered'. Backs the app-level offer() guard against a cross-worker race. Defensive pre-step collapses any pre-existing duplicate open invites (keep newest, expire the rest) so index creation can't fail on live data.",
             ),
         }
 
@@ -7124,6 +7134,45 @@ class SchemaManager:
             "ON tournament_invites(owner_id, status)"
         )
         logger.info("Migration v135 complete: tournament_invites table created")
+
+    def _migrate_v136_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:
+        """Migration v136: structurally enforce one open invite per owner.
+
+        A partial UNIQUE index over `owner_id` WHERE status = 'offered' makes a
+        second OPEN invite for the same owner unrepresentable — backing the
+        application-level guard in `tournament_invites.offer()` against a
+        cross-worker race (the in-memory sandbox lock doesn't span gunicorn
+        workers). Non-'offered' rows are excluded, so any number of resolved
+        invites coexist (`last_created_at()` walks invite history).
+
+        DEFENSIVE pre-step: collapse any pre-existing duplicate open invites (keep
+        the newest by created_at, expire the rest) so the index creation can never
+        fail with UNIQUE constraint on a live DB. The app already prevents dupes,
+        so this is a no-op on clean data. Non-destructive, idempotent.
+        """
+        # Keep the newest 'offered' invite per owner; expire any older duplicates.
+        conn.execute("""
+            UPDATE tournament_invites
+               SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+             WHERE status = 'offered'
+               AND invite_id NOT IN (
+                   SELECT invite_id FROM (
+                       SELECT invite_id,
+                              ROW_NUMBER() OVER (
+                                  PARTITION BY owner_id
+                                  ORDER BY created_at DESC, rowid DESC
+                              ) AS rn
+                         FROM tournament_invites
+                        WHERE status = 'offered'
+                   )
+                   WHERE rn = 1
+               )
+        """)
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_invites_one_open "
+            "ON tournament_invites(owner_id) WHERE status = 'offered'"
+        )
+        logger.info("Migration v136 complete: one-open-invite-per-owner partial unique index")
 
     def _migrate_v130_add_preflop_node_key(self, conn: sqlite3.Connection) -> None:
         """Migration v130: add `preflop_node_key` to player_decision_analysis.

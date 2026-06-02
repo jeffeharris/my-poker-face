@@ -99,17 +99,25 @@ class TournamentInviteRepository(BaseRepository):
             ).fetchone()
             return self._row_to_dict(row) if row else None
 
-    def list_open_due(self, *, now_iso: str) -> list[dict]:
+    def list_open_due(self, *, now_iso: str, sandbox_id: Optional[str] = None) -> list[dict]:
         """All 'offered' invites whose `expires_at` is at/past `now_iso`
-        (expiry sweep). NULL `expires_at` never expires."""
+        (expiry sweep). NULL `expires_at` never expires.
+
+        When `sandbox_id` is given, only that sandbox's invites are returned —
+        the expiry sweep spawns an autonomous tournament in each invite's OWN
+        sandbox, and the caller holds only its sandbox's lock, so an unscoped
+        sweep would mutate another sandbox's escrow without its lock. `None`
+        keeps the global sweep (admin / reconcile)."""
+        sql = """
+            SELECT * FROM tournament_invites
+            WHERE status = ? AND expires_at IS NOT NULL AND expires_at <= ?
+        """
+        params: list = [STATUS_OFFERED, now_iso]
+        if sandbox_id is not None:
+            sql += " AND sandbox_id = ?"
+            params.append(sandbox_id)
         with self._get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM tournament_invites
-                WHERE status = ? AND expires_at IS NOT NULL AND expires_at <= ?
-                """,
-                (STATUS_OFFERED, now_iso),
-            ).fetchall()
+            rows = conn.execute(sql, tuple(params)).fetchall()
             return [self._row_to_dict(r) for r in rows]
 
     def last_created_at(self, owner_id: str) -> Optional[str]:
@@ -122,6 +130,40 @@ class TournamentInviteRepository(BaseRepository):
                 (owner_id,),
             ).fetchone()
             return row['created_at'] if row else None
+
+    def claim(self, invite_id: str, *, to_status: str, owner_id: Optional[str] = None) -> bool:
+        """Atomically claim an OFFERED invite (cross-worker compare-and-swap).
+
+        `UPDATE ... SET status = to_status WHERE invite_id = ? AND status =
+        'offered'` — returns True iff THIS call won the transition (rowcount 1),
+        False if a concurrent worker (or process — the in-memory sandbox lock
+        does not span gunicorn workers) already resolved it. The single point of
+        mutual exclusion for accept/decline/expire that actually holds across
+        workers; the caller must gate the irreversible work (build + buy-in /
+        autonomous spawn) on a True return. `owner_id`, when given, is an extra
+        guard so an accept can only claim its own owner's invite."""
+        sql = "UPDATE tournament_invites SET status = ?, updated_at = ? WHERE invite_id = ? AND status = ?"
+        params: list = [to_status, _utcnow_iso(), invite_id, STATUS_OFFERED]
+        if owner_id is not None:
+            sql += " AND owner_id = ?"
+            params.append(owner_id)
+        with self._get_connection() as conn:
+            return conn.execute(sql, tuple(params)).rowcount == 1
+
+    def revert_to_offered(self, invite_id: str) -> bool:
+        """Undo a claim — re-open an invite the winner claimed but then failed to
+        consume (e.g. accept hit `InsufficientFundsError` before any chips moved,
+        or couldn't field a tournament). Guarded on `status='accepted' AND
+        tournament_id IS NULL` so it can only revert a still-unlinked claim, never
+        clobber a fully-accepted (linked) or terminally-resolved invite. Returns
+        True iff it re-opened. Safe under concurrency: only the claim winner ever
+        reaches a revert, and both accept revert triggers fire before chips move."""
+        with self._get_connection() as conn:
+            return conn.execute(
+                "UPDATE tournament_invites SET status = ?, updated_at = ? "
+                "WHERE invite_id = ? AND status = ? AND tournament_id IS NULL",
+                (STATUS_OFFERED, _utcnow_iso(), invite_id, STATUS_ACCEPTED),
+            ).rowcount == 1
 
     def resolve(
         self,

@@ -183,6 +183,23 @@ the read-only scoreboard's "the room sees you differently now" surface — it
 does not change any AI behaviour. See
 `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`."""
 
+EVENT_TOURNAMENT_MILESTONE = "tournament_milestone"
+"""A circuit Main Event crossed a field-collapse milestone (P3.7). Emitted by
+the world ticker as an *autonomous* (declined / expired, AI-only) Main Event
+plays out at world pace. `reason` carries the milestone kind
+(`final_table` | `heads_up` | `down_to`); `name`/`personality_id` are empty —
+it's a field-wide beat, not one persona. Structural-only by design: per-hand
+knockouts and table breaks are NOT surfaced (the "never every hand" filter). See
+`docs/plans/P3_REMAINING_HANDOFF.md` §P3.7."""
+
+EVENT_TOURNAMENT_BUBBLE = "tournament_bubble"
+"""The Main Event bubble burst (P3.7) — the last finisher before the money is
+out, so everyone left is paid. Companion to EVENT_TOURNAMENT_MILESTONE."""
+
+EVENT_TOURNAMENT_WINNER = "tournament_winner"
+"""A circuit Main Event was won (P3.7). `name` is the champion; emitted once when
+the autonomous field collapses to a winner on the settling tick."""
+
 
 @dataclass(frozen=True)
 class LobbyEvent:
@@ -622,6 +639,25 @@ _REPUTATION_SHIFT_PHRASES = {
 def format_reputation_shift_message(quadrant: str) -> str:
     """Human-readable phrasing for a player reputation-quadrant change."""
     return _REPUTATION_SHIFT_PHRASES.get(quadrant, f"The room now sees you as a {quadrant}")
+
+
+def format_tournament_milestone_message(kind: str, remaining: int) -> str:
+    """Ticker phrasing for a Main Event field-collapse milestone (P3.7)."""
+    if kind == 'final_table':
+        return f"Main Event: down to the final table ({remaining} left)"
+    if kind == 'heads_up':
+        return "Main Event: heads-up for the title"
+    return f"Main Event: field down to {remaining}"
+
+
+def format_tournament_bubble_message(paid_places: int) -> str:
+    """Ticker phrasing for the Main Event bubble bursting (P3.7)."""
+    return f"Main Event: the bubble burst — {paid_places} in the money"
+
+
+def format_tournament_winner_message(name: str) -> str:
+    """Ticker phrasing for a Main Event champion (P3.7)."""
+    return f"Main Event: {name or 'a challenger'} wins the title"
 
 
 def serialize_event(event: LobbyEvent) -> dict:

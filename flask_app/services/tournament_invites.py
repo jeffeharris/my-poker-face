@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -73,17 +74,24 @@ def offer(
         return None  # a tournament is already running
 
     invite_id = _new_invite_id()
-    invite_repo.create(
-        invite_id=invite_id,
-        owner_id=owner_id,
-        sandbox_id=sandbox_id,
-        buy_in=buy_in,
-        field_size=field_size,
-        table_size=table_size,
-        starting_stack=starting_stack,
-        seed=seed,
-        expires_at=expires_at,
-    )
+    try:
+        invite_repo.create(
+            invite_id=invite_id,
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
+            buy_in=buy_in,
+            field_size=field_size,
+            table_size=table_size,
+            starting_stack=starting_stack,
+            seed=seed,
+            expires_at=expires_at,
+        )
+    except sqlite3.IntegrityError:
+        # The one-open-invite-per-owner partial unique index (schema v136) fired:
+        # a concurrent worker won the race between the active_for_owner check above
+        # and this insert. The other offer stands — surface theirs, not an error.
+        logger.info("offer race for owner=%s lost to a concurrent offer; using the open one", owner_id)
+        return invite_repo.active_for_owner(owner_id)
     return invite_repo.load(invite_id)
 
 
@@ -165,25 +173,41 @@ def accept(
     if invite is None or invite['status'] != 'offered' or invite['owner_id'] != owner_id:
         return None
 
-    built = tournament_spawn.create_human_tournament(
-        owner_id=owner_id,
-        sandbox_id=invite['sandbox_id'],
-        personality_repo=personality_repo,
-        bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo,
-        session_repo=session_repo,
-        cash_table_repo=cash_table_repo,
-        buy_in=invite['buy_in'],
-        field_size=invite['field_size'],
-        table_size=invite['table_size'],
-        starting_stack=invite['starting_stack'],
-        seed=invite['seed'],
-        rng_seed=invite['seed'],
-    )
-    if built is None:
-        # Couldn't field enough seats — leave the invite open for a later retry.
+    # Cross-worker compare-and-swap: claim the invite BEFORE the buy-in/build so
+    # two gunicorn workers can't both pass the read-check above and both charge
+    # the human (the in-memory sandbox lock doesn't span worker processes). Only
+    # the worker that flips offered→accepted proceeds; the loser bails.
+    if not invite_repo.claim(invite['invite_id'], to_status=STATUS_ACCEPTED, owner_id=owner_id):
         return None
 
+    try:
+        built = tournament_spawn.create_human_tournament(
+            owner_id=owner_id,
+            sandbox_id=invite['sandbox_id'],
+            personality_repo=personality_repo,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+            cash_table_repo=cash_table_repo,
+            buy_in=invite['buy_in'],
+            field_size=invite['field_size'],
+            table_size=invite['table_size'],
+            starting_stack=invite['starting_stack'],
+            seed=invite['seed'],
+            rng_seed=invite['seed'],
+        )
+    except Exception:
+        # Build/charge failed (e.g. InsufficientFundsError, raised before any
+        # chips move) — re-open the invite so the player can retry (preserves the
+        # "insufficient funds keeps the invite open" semantic), then propagate.
+        invite_repo.revert_to_offered(invite['invite_id'])
+        raise
+    if built is None:
+        # Couldn't field enough seats — re-open the invite for a later retry.
+        invite_repo.revert_to_offered(invite['invite_id'])
+        return None
+
+    # Status is already 'accepted' (the claim); this stamps the tournament_id link.
     invite_repo.resolve(
         invite['invite_id'], status=STATUS_ACCEPTED, tournament_id=built['tournament_id']
     )
@@ -197,7 +221,21 @@ def accept(
 
 def _resolve_autonomously(invite: dict, *, status: str, repos: dict) -> Optional[dict]:
     """Shared decline/expire body: spawn an AI-only tournament from the invite's
-    params and terminal-transition the invite. Returns the spawned dict or None."""
+    params and terminal-transition the invite. Returns the spawned dict or None.
+
+    Claims the invite (offered→`status`) via a cross-worker CAS BEFORE spawning,
+    so a concurrent accept/decline/expire on the same invite can't double-spawn
+    (or spawn an autonomous run after another worker already accepted it into a
+    human tournament). Only the claim winner proceeds; a loser returns None.
+
+    Returns None ONLY when the claim is lost (the invite was already resolved by
+    someone else). When the claim is won the invite IS consumed
+    (declined/expired) — so even if the autonomous tournament can't be fielded
+    (too few personas), this returns a result marker (`tournament_id: None`), not
+    None, so decline/expire report the dismissal as the success it is rather than
+    a misleading 'no open invite'."""
+    if not repos['invite_repo'].claim(invite['invite_id'], to_status=status):
+        return None
     spawned = tournament_spawn.spawn_autonomous_tournament(
         owner_id=invite['owner_id'],
         sandbox_id=invite['sandbox_id'],
@@ -214,7 +252,9 @@ def _resolve_autonomously(invite: dict, *, status: str, repos: dict) -> Optional
     )
     tid = spawned['tournament_id'] if spawned else None
     repos['invite_repo'].resolve(invite['invite_id'], status=status, tournament_id=tid)
-    return spawned
+    if spawned:
+        return spawned
+    return {'tournament_id': None, 'spawned': False}
 
 
 def decline(
@@ -256,15 +296,21 @@ def expire_due(
     session_repo,
     cash_table_repo=None,
     now_iso: Optional[str] = None,
+    sandbox_id: Optional[str] = None,
 ) -> list[dict]:
     """Expire every open invite past its `expires_at` → each starts
     autonomously. Returns the spawned tournaments. The expiry sweep the
-    lobby/ticker calls; an absent player's invite simply waits until this runs."""
+    lobby/ticker calls; an absent player's invite simply waits until this runs.
+
+    `sandbox_id` scopes the sweep to one sandbox — pass the sandbox whose lock the
+    caller holds, so the autonomous spawn (which mutates that invite's OWN
+    sandbox's escrow) never runs un-serialized for a foreign sandbox. None = a
+    global sweep (no caller today; reserved for an admin/reconcile job)."""
     if invite_repo is None:
         return []
     now_iso = now_iso or _utcnow_iso()
     spawned: list[dict] = []
-    for invite in invite_repo.list_open_due(now_iso=now_iso):
+    for invite in invite_repo.list_open_due(now_iso=now_iso, sandbox_id=sandbox_id):
         result = _resolve_autonomously(
             invite,
             status=STATUS_EXPIRED,

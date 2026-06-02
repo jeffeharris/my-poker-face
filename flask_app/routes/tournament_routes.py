@@ -22,6 +22,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 from flask_app.services import tournament_registry as registry
+from poker.authorization import require_permission
 from tournament.beats import build_beats, level_up_beat
 from tournament.config import DEFAULT_FIELD_ARCHETYPES, TournamentConfig
 from tournament.director import FakeHandResolver, build_initial_state
@@ -128,8 +129,7 @@ def _maybe_payout(rec: dict, owner_id: str, tournament_id: str) -> None:
             personality_repo,
             tournament_session_repo,
         )
-        from flask_app.services import game_state_service
-        from flask_app.services import tournament_economy_service as econ
+        from flask_app.services import game_state_service, tournament_economy_service as econ
 
         sandbox_id = _resolve_sandbox_id(owner_id)
         with game_state_service.get_sandbox_lock(sandbox_id):
@@ -158,6 +158,20 @@ def _owned_record(tournament_id: str):
     if rec is None or rec.get('owner_id') != owner_id:
         return None, owner_id
     return rec, owner_id
+
+
+def _is_autonomous_record(rec: dict, owner_id: str) -> bool:
+    """True if this owned tournament is an AUTONOMOUS (declined/expired, AI-only)
+    event. Such tournaments are advanced by the world ticker under the SANDBOX
+    lock; a route mutating the same in-memory session under the per-tournament
+    lock would race it (a double-settle window past the payout guard) and a
+    route-driven settle would misattribute the nominal persona's prize to the
+    human bankroll. So the play/sit routes reject them (409). The discriminator is
+    the field: an autonomous one has no `human:<owner>` seat."""
+    from flask_app.services.tournament_ticker import is_autonomous
+
+    session = rec.get('session')
+    return session is not None and is_autonomous(session, owner_id)
 
 
 @tournament_bp.route('/api/tournament/lobby', methods=['GET'])
@@ -239,8 +253,7 @@ def register_tournament():
     # debit + earmark at the escrow — all under the sandbox lock so the snapshot
     # the plan was computed from is still current when the transfers apply.
     from flask_app.extensions import bankroll_repo, chip_ledger_repo, tournament_session_repo
-    from flask_app.services import game_state_service
-    from flask_app.services import tournament_economy_service as econ
+    from flask_app.services import game_state_service, tournament_economy_service as econ
 
     sandbox_id = _resolve_sandbox_id(owner_id)
     with game_state_service.get_sandbox_lock(sandbox_id):
@@ -342,6 +355,8 @@ def sit_tournament(tournament_id):
         return jsonify({'error': 'unauthorized'}), 401
     if rec is None:
         return jsonify({'error': 'not_found'}), 404
+    if _is_autonomous_record(rec, owner_id):
+        return jsonify({'error': 'autonomous tournament is not joinable'}), 409
 
     session = rec['session']
     if session.is_complete() or session.human_out:
@@ -408,8 +423,7 @@ def get_invite():
         owner_id = _resolve_owner_id()
     except ValueError:
         return jsonify({'error': 'unauthorized'}), 401
-    from flask_app.services import game_state_service
-    from flask_app.services import tournament_invites as invites
+    from flask_app.services import game_state_service, tournament_invites as invites
 
     repos = _economy_repos()
     sandbox_id = _resolve_sandbox_id(owner_id)
@@ -422,6 +436,7 @@ def get_invite():
                 ledger_repo=repos['ledger_repo'],
                 session_repo=repos['session_repo'],
                 cash_table_repo=repos['cash_table_repo'],
+                sandbox_id=sandbox_id,  # only sweep this sandbox (the lock we hold)
             )
             invites.maybe_offer_main_event(
                 invite_repo=repos['invite_repo'],
@@ -470,9 +485,11 @@ def accept_invite():
         owner_id = _resolve_owner_id()
     except ValueError:
         return jsonify({'error': 'unauthorized'}), 401
-    from flask_app.services import game_state_service
-    from flask_app.services import tournament_economy_service as econ
-    from flask_app.services import tournament_invites as invites
+    from flask_app.services import (
+        game_state_service,
+        tournament_economy_service as econ,
+        tournament_invites as invites,
+    )
 
     repos = _economy_repos()
     # Gate on an open invite BEFORE leaving cash, so a no-op accept doesn't
@@ -520,8 +537,7 @@ def decline_invite():
         owner_id = _resolve_owner_id()
     except ValueError:
         return jsonify({'error': 'unauthorized'}), 401
-    from flask_app.services import game_state_service
-    from flask_app.services import tournament_invites as invites
+    from flask_app.services import game_state_service, tournament_invites as invites
 
     repos = _economy_repos()
     sandbox_id = _resolve_sandbox_id(owner_id)
@@ -550,6 +566,10 @@ def advance(tournament_id):
         return jsonify({'error': 'unauthorized'}), 401
     if rec is None:
         return jsonify({'error': 'not_found'}), 404
+    if _is_autonomous_record(rec, owner_id):
+        # The world ticker owns autonomous advancement (under the sandbox lock);
+        # a route advancing it here would race that + misattribute the prize.
+        return jsonify({'error': 'autonomous tournament advances on the world tick'}), 409
 
     session: TournamentSession = rec['session']
     with registry.get_lock(tournament_id):
@@ -579,6 +599,8 @@ def play_out(tournament_id):
         return jsonify({'error': 'unauthorized'}), 401
     if rec is None:
         return jsonify({'error': 'not_found'}), 404
+    if _is_autonomous_record(rec, owner_id):
+        return jsonify({'error': 'autonomous tournament advances on the world tick'}), 409
 
     session: TournamentSession = rec['session']
     with registry.get_lock(tournament_id):
@@ -591,6 +613,43 @@ def play_out(tournament_id):
         _maybe_payout(rec, owner_id, tournament_id)
     _emit_update(owner_id, tournament_id, standings, beats)
     return jsonify(standings)
+
+
+@tournament_bp.route('/api/tournament/admin/reconcile-payouts', methods=['POST'])
+@require_permission('can_access_admin_tools')
+def reconcile_payouts():
+    """Admin: resume every tournament payout wedged at `payout_status=
+    'in_progress'` (a crash mid-distribute). On-demand twin of the ticker's
+    payout-reconcile watchdog — pays only the unpaid remainder per finisher from
+    the ledger (never a double credit), sweeps the escrow to 0, and stamps
+    `complete`. Returns the per-tournament outcomes. Not flag-gated: an operator
+    must be able to clear a wedged payout even with the circuit flag off."""
+    from flask_app import extensions
+    from flask_app.services import game_state_service, tournament_registry, tournament_ticker
+    from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+    session_repo = getattr(extensions, 'tournament_session_repo', None)
+    ledger_repo = getattr(extensions, 'chip_ledger_repo', None)
+    bankroll_repo = getattr(extensions, 'bankroll_repo', None)
+    sandbox_repo = getattr(extensions, 'sandbox_repo', None)
+    if session_repo is None or ledger_repo is None or bankroll_repo is None:
+        return jsonify({'error': 'economy not wired'}), 503
+
+    results = tournament_ticker.reconcile_stuck_payouts(
+        session_repo=session_repo,
+        ledger_repo=ledger_repo,
+        bankroll_repo=bankroll_repo,
+        registry=tournament_registry,
+        resolve_sandbox=lambda owner: resolve_default_sandbox_for(owner, sandbox_repo=sandbox_repo),
+        get_lock=game_state_service.get_sandbox_lock,
+        # No grace window on the manual path — the operator is explicitly asking.
+        older_than_iso=None,
+    )
+    return jsonify({
+        'reconciled': sum(1 for r in results if r.get('reconciled')),
+        'total_stuck': len(results),
+        'results': results,
+    })
 
 
 @tournament_bp.route('/api/tournament/<tournament_id>', methods=['DELETE'])

@@ -41,8 +41,18 @@ def _new_id() -> str:
     return tournament_registry.new_tournament_id()
 
 
+class DraftScanError(Exception):
+    """A seat / active-participant exclusion scan failed. Raised so the spawn
+    ABORTS rather than fielding from an incomplete exclusion set — under-exclusion
+    is the dangerous direction (it would draft a currently-seated persona into a
+    tournament, the double-presence / ghost-seat bug). Fail closed, never open."""
+
+
 def _seated_cash_pids(cash_table_repo, sandbox_id: str) -> set:
-    """Personality ids currently in an AI cash seat in this sandbox."""
+    """Personality ids currently in an AI cash seat in this sandbox. `None` repo
+    (not wired — e.g. unit tests) legitimately means "no cash seats to exclude";
+    a SCAN that throws is a different thing — it raises `DraftScanError` so the
+    caller fails closed rather than under-excluding."""
     if cash_table_repo is None:
         return set()
     try:
@@ -52,23 +62,24 @@ def _seated_cash_pids(cash_table_repo, sandbox_id: str) -> set:
             for slot in tbl.seats
             if slot.get('kind') == 'ai' and slot.get('personality_id')
         }
-    except Exception:  # noqa: BLE001 — exclusion is best-effort; never block a spawn
-        logger.exception("seated-pid scan failed for sandbox %s", sandbox_id)
-        return set()
+    except Exception as e:  # noqa: BLE001
+        raise DraftScanError(f"seated-pid scan failed for sandbox {sandbox_id}") from e
 
 
 def draft_exclusions(*, cash_table_repo, session_repo, owner_id: str, sandbox_id: str) -> set:
     """Personas we must NOT draft into a new tournament field: those currently
     seated at a cash table, plus those already in an active tournament. Keeps a
-    persona in exactly one place — the double-presence / ghost-seat guard. (The
-    cash seat-filler separately excludes active participants for the run's
-    duration; this just prevents drafting a busy one in the first place.)"""
+    persona in exactly one place — the double-presence / ghost-seat guard.
+
+    Fails CLOSED: a scan error raises `DraftScanError` (the spawners catch it and
+    abort) rather than returning a partial set that could let a busy persona be
+    drafted."""
     excl = _seated_cash_pids(cash_table_repo, sandbox_id)
     if session_repo is not None:
         try:
             excl |= session_repo.active_participant_pids(owner_id)
-        except Exception:  # noqa: BLE001
-            logger.exception("active-participant scan failed for owner %s", owner_id)
+        except Exception as e:  # noqa: BLE001
+            raise DraftScanError(f"active-participant scan failed for owner {owner_id}") from e
     return excl
 
 
@@ -101,6 +112,17 @@ def spawn_autonomous_tournament(
     `human_owner_id=None` + `real_persona_ids = entries.keys()`, so every
     finisher is credited as a real `ai:<pid>` bankroll, not a player.
     """
+    try:
+        exclude = draft_exclusions(
+            cash_table_repo=cash_table_repo, session_repo=session_repo,
+            owner_id=owner_id, sandbox_id=sandbox_id,
+        )
+    except DraftScanError:
+        logger.exception(
+            "[TOURNAMENT] autonomous spawn aborted for owner=%s: exclusion scan failed "
+            "(fail-closed — won't risk drafting a seated persona)", owner_id
+        )
+        return None
     entries = select_persona_field(
         personality_repo=personality_repo,
         owner_id=owner_id,
@@ -108,10 +130,7 @@ def spawn_autonomous_tournament(
         archetypes=archetypes,
         rng_seed=rng_seed,
         human_id=None,
-        exclude=draft_exclusions(
-            cash_table_repo=cash_table_repo, session_repo=session_repo,
-            owner_id=owner_id, sandbox_id=sandbox_id,
-        ),
+        exclude=exclude,
     )
     if len(entries) < MIN_FIELD:
         logger.info(
@@ -225,6 +244,17 @@ def create_human_tournament(
     the injected `session_repo` regardless.
     """
     human_id = human_seat_id(owner_id)
+    try:
+        exclude = draft_exclusions(
+            cash_table_repo=cash_table_repo, session_repo=session_repo,
+            owner_id=owner_id, sandbox_id=sandbox_id,
+        )
+    except DraftScanError:
+        logger.exception(
+            "[TOURNAMENT] human tournament aborted for owner=%s: exclusion scan failed "
+            "(fail-closed — won't risk drafting a seated persona)", owner_id
+        )
+        return None
     entries = select_persona_field(
         personality_repo=personality_repo,
         owner_id=owner_id,
@@ -232,10 +262,7 @@ def create_human_tournament(
         archetypes=archetypes,
         rng_seed=rng_seed,
         human_id=human_id,
-        exclude=draft_exclusions(
-            cash_table_repo=cash_table_repo, session_repo=session_repo,
-            owner_id=owner_id, sandbox_id=sandbox_id,
-        ),
+        exclude=exclude,
     )
     if len(entries) < MIN_FIELD:
         logger.info(
@@ -279,15 +306,29 @@ def create_human_tournament(
         buy_in=buy_in,
         human_in=True,
     )
-    econ.apply_buy_in(  # raises InsufficientFundsError if the human can't cover it
-        tournament_id=tournament_id,
-        owner_id=owner_id,
-        sandbox_id=sandbox_id,
-        plan=plan,
-        bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo,
-        session_repo=session_repo,
-    )
+    try:
+        econ.apply_buy_in(  # raises InsufficientFundsError if the human can't cover it
+            tournament_id=tournament_id,
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
+            plan=plan,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+        )
+    except Exception:
+        # Affordability is checked before any chips move, so a raise here means
+        # nothing was debited — but the durable `tournaments` row was already
+        # written above. Delete it so a failed accept leaves NO orphan active
+        # tournament (which would otherwise block re-offer via offer()'s
+        # find_active guard and double up if the player retries). Then re-raise.
+        if session_repo is not None:
+            try:
+                session_repo.delete(tournament_id)
+            except Exception:  # noqa: BLE001 — cleanup is best-effort
+                logger.exception("failed to clean up tournament row %s after buy-in failure",
+                                 tournament_id)
+        raise
 
     if register:
         try:
@@ -383,9 +424,13 @@ def settle_autonomous_tournament(
     every in-the-money finisher is credited to its real `ai:<pid>` bankroll.
     Idempotent (the payout_status guard). Caller holds the sandbox lock.
 
-    Also marks the tournament row 'complete' so its entrants drop out of
-    `active_participant_pids` and are released back to cash seating (the exit
-    half of the double-presence guard)."""
+    Marks the tournament row 'complete' — releasing its entrants from the
+    double-presence exclusion back to cash seating — ONLY once the payout reached
+    a terminal state (`complete` or `skipped`). A payout that THREW leaves
+    `payout_status='in_progress'`; we deliberately leave `status='active'` so the
+    stranded escrow stays visible to the payout-reconcile watchdog (which credits
+    the unpaid finishers and then releases the field). Marking complete on a
+    failed payout would hide the strand forever — the bug this guards."""
     ran = econ.apply_payout_on_complete(
         tournament_id=tournament_id,
         session=session,
@@ -396,11 +441,19 @@ def settle_autonomous_tournament(
         session_repo=session_repo,
         real_persona_ids=frozenset(entries.keys()),
     )
-    # Release the field: once complete, the participants are no longer "in a
-    # tournament" and may re-seat at cash. Safe to set every call (idempotent).
     if session_repo is not None and session.is_complete():
         try:
-            session_repo.set_status(tournament_id, 'complete')
+            # Release the field only if the payout settled (complete/skipped) — NOT
+            # if it's wedged 'in_progress' (let the reconcile watchdog finish it).
+            payout_status = (session_repo.load(tournament_id) or {}).get('payout_status')
+            if payout_status in ('complete', 'skipped'):
+                session_repo.set_status(tournament_id, 'complete')
+            else:
+                logger.warning(
+                    "[TOURNAMENT] %s complete but payout_status=%s — leaving status "
+                    "'active' for the reconcile watchdog (escrow stranded)",
+                    tournament_id, payout_status,
+                )
         except Exception:  # noqa: BLE001 — release is best-effort; never break settle
             logger.exception("set_status complete failed for %s", tournament_id)
     return ran

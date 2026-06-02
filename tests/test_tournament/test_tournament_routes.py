@@ -262,3 +262,31 @@ def test_unauthenticated_is_rejected(app):
         with app.test_client() as c:
             assert c.post('/api/tournament/register', json={}).status_code == 401
             assert c.get('/api/tournament/lobby').status_code == 401
+
+
+def _put_autonomous(owner_id, tid='tourney_auto'):
+    """Put an AUTONOMOUS tournament (no human seat) into the registry."""
+    from tournament.config import TournamentConfig
+    from tournament.director import FakeHandResolver
+    from tournament.session import TournamentSession
+
+    entries = {f'persona_{i}': f'persona_{i}' for i in range(6)}
+    config = TournamentConfig(field_size=6, table_size=3, starting_stack=10_000, seed=1)
+    resolver = FakeHandResolver()
+    # human_id is a nominal persona (NOT human:<owner>) → is_autonomous == True.
+    session = TournamentSession(config, ai_resolver=resolver,
+                               human_id=next(iter(entries)), entries=entries)
+    registry.put(tid, {
+        'session': session, 'owner_id': owner_id, 'created_at': 'now',
+        'resolver': resolver, 'resolver_kind': 'fake', 'game_id': None,
+    })
+    return tid
+
+
+def test_autonomous_tournament_rejected_by_play_routes(client):
+    """The world ticker owns autonomous advancement — /advance, /play-out, /sit
+    must 409 so a route can't race the ticker (data race + prize misattribution)."""
+    tid = _put_autonomous(OWNER['id'])
+    assert client.post(f'/api/tournament/{tid}/advance').status_code == 409
+    assert client.post(f'/api/tournament/{tid}/play-out').status_code == 409
+    assert client.post(f'/api/tournament/{tid}/sit').status_code == 409

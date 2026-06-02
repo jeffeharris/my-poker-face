@@ -221,6 +221,24 @@ CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
 CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 
 
+# --- Tournament circuit world-tick hook (P3.7) ----------------------------
+
+# World-tick hook for the Main Event circuit. When True, the world ticker
+# (`ticker_service._tick_sandbox`) does two extra things per active sandbox:
+#   (a) lets the EconomyChairman offer / expire Main Event invites on the tick
+#       (so an offer surfaces or an un-accepted one lapses without a lobby poll);
+#   (b) advances the owner's *autonomous* (declined / expired, AI-only)
+#       tournament one round per tick so it plays out at world pace — like the
+#       cash tables — surfacing structural beats (final table / bubble / winner)
+#       on the lobby ticker.
+# Default **False**: inert for any sandbox without a live autonomous tournament,
+# and a complete no-op when off — the lobby-poll path
+# (`GET /api/tournament/invite`) still offers/expires invites without it. Flip on
+# only after re-validating the economy sim under the per-tournament overlay
+# cadence (P3_REMAINING_HANDOFF §6). See `docs/plans/P3_REMAINING_HANDOFF.md` §P3.7.
+TOURNAMENT_CIRCUIT_ENABLED: bool = _env_flag("TOURNAMENT_CIRCUIT_ENABLED", False)
+
+
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
 
