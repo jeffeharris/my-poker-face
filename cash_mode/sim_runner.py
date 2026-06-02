@@ -214,6 +214,9 @@ def run_sim(
     # path, so the closed-loop sim drives it. Vice stays sim-faked
     # (resolve_closed_economy) so no vice_repo is wired here.
     side_hustle_repo = repos.get('side_hustle_state_repo')
+    # Renown-v2 B4: only consulted when PRESTIGE_SEEKING_ENABLED is on (else the
+    # marquee term is inert). Optional in the dict for back-compat.
+    prestige_snapshots_repo = repos.get('prestige_snapshots_repo')
     db_path = repos['db_path']
 
     rng = random.Random(config.rng_seed)
@@ -263,6 +266,7 @@ def run_sim(
             relationship_repo=relationship_repo,
             stake_repo=stake_repo,
             side_hustle_repo=side_hustle_repo,
+            prestige_snapshots_repo=prestige_snapshots_repo,
             # The sim has no LLM, so real vice (which narrates per fire)
             # can't run here — force the fake-vice stub as the pool-deposit
             # source. Mutually exclusive with real vice; live paths default

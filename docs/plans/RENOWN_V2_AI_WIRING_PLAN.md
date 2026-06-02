@@ -289,13 +289,24 @@ display unless noted, and each should ship behind its own flag.
   without data. Flag `PRESTIGE_SEEKING_ENABLED` (default OFF, implies
   `RENOWN_V2_PERSIST_AI`). Pure mechanic + repo unit-tested; 48 lobby
   regressions green.
-  **GATE before flipping (a real chip-flow/movement change):** the economy sim
-  A/B — same-seed paired probe, flag on vs off, measuring (1) high-appetite AIs'
-  table-routing concentration toward marquee tables, (2) `audit_drift` stays ~0
-  (no seat path mints chips), (3) no degenerate clustering that starves fish
-  tables — via `cash_mode/sim_runner.py::run_sim` (thread the prestige repo +
-  seed renown). Plus a positive end-to-end lobby test. Same gated pattern as
-  Stage A's stress gate.
+  **GATE before flipping — sim A/B RUN (2026-06-02, partial).**
+  `scripts/sim_prestige_seeking_ab.py` — same-seed paired probe (flag on vs off,
+  identical seeded start), `sim_runner` threaded with the prestige repo, a
+  seeded renown field (4 famous AIs @ percentile 0.9). Findings (movement-only,
+  grinder-only field, 300 ticks):
+  - **Mechanism works + conservation-safe.** At `W_MARQUEE=8` co-location of
+    non-fish grinders with a famous AI rose **20.8% → 30.4% (+9.6pp)** with the
+    flag on; `max|audit_drift| = 0` in BOTH arms (the new seat path mints no
+    chips). The flag demonstrably changes routing.
+  - **The default `W_MARQUEE=1.0` is too weak** — the `W_CROWD` (−0.5/grinder)
+    term swamps it (lift ≈ noise / slightly negative). A genuine tuning finding:
+    the default needs raising to have a perceptible effect. Left conservative
+    for now (flag is OFF, zero live effect).
+  - **Still owed before flip:** (a) re-run WITH a fish economy + real churn
+    (`hand_sim_prob>0`) to calibrate `W_MARQUEE` against the fish draw and
+    confirm marquee clustering doesn't STARVE fish tables (the churn run timed
+    out in the dev box's budget — needs a longer/Hetzner run); (b) a positive
+    end-to-end lobby test. Same gated pattern as Stage A's stress gate.
 
 ---
 

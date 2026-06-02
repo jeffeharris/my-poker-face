@@ -151,6 +151,28 @@ Kept the greedy core pure (it just takes two scalars); the lobby computes them
 behind `PRESTIGE_SEEKING_ENABLED`, loading glory anchors lazily for only the
 handful of actual seekers per tick.
 
-Committed flag-OFF with pure + repo unit tests + 48 lobby regressions green. The
-economy sim A/B (routing concentration + audit_drift, same-seed paired probe) is
-the gate before flipping — deferred, same as Stage A's stress gate.
+Committed flag-OFF with pure + repo unit tests + 48 lobby regressions green.
+
+**B4 sim A/B (`scripts/sim_prestige_seeking_ab.py`, 2026-06-02).** Same-seed
+paired probe: seed one sandbox + a renown field (4 famous AIs), copy it, run the
+economy sim twice (flag OFF vs ON) from the identical start, compare. Findings:
+
+- **It works, and it's conservation-safe.** At `W_MARQUEE=8` co-location of
+  grinders with a famous AI rose 20.8%→30.4% (+9.6pp) with the flag on, and
+  `audit_drift=0` in both arms — the new seat path mints no chips. The flag
+  demonstrably changes routing in the right direction.
+- **But the default `W_MARQUEE=1.0` is too weak.** First run (default) gave a
+  slightly *negative* lift — noise, because `W_CROWD` (−0.5 per seated grinder)
+  swamps a +0.3-ish marquee bonus: once a famous table has a couple of
+  occupants the crowd penalty pushes the next seeker away. Cranking W_MARQUEE
+  is what surfaced the real, intended effect. Classic "the sim found my default
+  was inert" — exactly what the gate is for.
+
+Two honest gaps I couldn't close in the dev box's time budget: (1) the churn run
+(`hand_sim_prob>0`) — needed to calibrate W_MARQUEE against the fish draw and
+prove marquee clustering doesn't STARVE fish tables — timed out at 500 ticks
+(hand sim per table per tick is the cost; wants a longer/Hetzner run); (2) the
+minimal seed had `fish=0`, so the starvation check was N/A this round (a
+grinder-only field is a clean routing isolate, but not the full economy). Left
+W_MARQUEE conservative (flag OFF, no live effect); the calibrated value + the
+starvation bound are the remaining pre-flip work.

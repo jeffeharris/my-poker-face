@@ -78,7 +78,14 @@ WEALTH_KNEE = 5.0
 # term). Both inputs are field-relative renown PERCENTILES in [0,1] (persisted
 # `victim_percentile`), so the term is scale-stable and degrades to 0 with no
 # renown data. Gated at the lobby by `PRESTIGE_SEEKING_ENABLED`.
-W_MARQUEE = 1.0   # strength of the occupant-prestige pull (sim-tunable)
+# strength of the occupant-prestige pull. SIM FINDING (2026-06-02, B4 A/B,
+# grinder-only field): 1.0 is too WEAK — the W_CROWD (-0.5/grinder) term swamps
+# it, so co-location barely moves. W_MARQUEE=8 gave a clear +9.6pp co-location
+# lift (drift=0). The calibrated default lives between, and its upper bound is
+# bounded by fish-table starvation — needs the fish+churn sim before the flag is
+# flipped. Left conservative (no live effect; flag is OFF). See
+# scripts/sim_prestige_seeking_ab.py + RENOWN_V2_AI_WIRING_PLAN.md.
+W_MARQUEE = 1.0
 P_LINEUP = 0.25   # damped weight on additional notables beyond the top occupant
 # `status_appetite` is a per-AI "how much do I chase prestige" rank — a weighted
 # blend of NAMED factors, deliberately extensible (add a factor + weight here).
