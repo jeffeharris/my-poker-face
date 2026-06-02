@@ -11,7 +11,39 @@ from flask_app.services.dossier_scouting import (
     SCOUTING_SCHEDULE,
     apply_scouting_gate,
     compute_scouting,
+    is_read_unlocked,
 )
+
+
+# The sizing tell tier gates the coach's over-time card (Surface B): 260 hands +
+# 8 summed sized-showdown samples across both bins.
+_SIZING_OK = {
+    'hands_observed': 300,
+    'equity_betting_big_count': 5,
+    'equity_betting_small_count': 5,
+}
+
+
+def test_is_read_unlocked_gates_sizing_tell():
+    # Enough hands + samples → unlocked.
+    assert is_read_unlocked(_SIZING_OK, 'sizing_polarization') is True
+    # Hands met but the showdown-sample opportunity gate not → locked.
+    assert is_read_unlocked(
+        {'hands_observed': 300, 'equity_betting_big_count': 1,
+         'equity_betting_small_count': 1},
+        'sizing_polarization',
+    ) is False
+    # Below the hand floor → locked.
+    assert is_read_unlocked({'hands_observed': 50}, 'sizing_polarization') is False
+
+
+def test_is_read_unlocked_honors_informant_purchase():
+    # The informant section that contains the sizing read unlocks it below floor.
+    section = next(
+        sid for sid, cfg in INFORMANT_SECTIONS.items()
+        if 'sizing_polarization' in cfg['items']
+    )
+    assert is_read_unlocked({'hands_observed': 0}, 'sizing_polarization', {section}) is True
 
 
 def _full_response():

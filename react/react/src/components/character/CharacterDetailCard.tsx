@@ -1005,9 +1005,18 @@ export function CharacterDetailCard({
 
             {/* Surface B (SIZING_COACH_SURFACES.md): how readable this opponent's
                 bet sizing is, over time. Self-fetches + self-titles; renders
-                nothing until it has a gradeable read, so it silently no-ops for
-                thin samples (no orphan section header). */}
-            {character.name && <OpponentSizingTell opponent={character.name} />}
+                nothing until it has a gradeable read (no orphan section header).
+                Reconciled with the scouting economy: shown only when the
+                `sizing_polarization` read is unlocked (grind OR informant) — the
+                dossier computes that authoritatively server-side. Outside the
+                Circuit there's no scouting block, so it's ungated (as the rest of
+                the dossier is). When locked, the scouting strip's "Sizing tell"
+                teaser already advertises it as earnable. */}
+            {character.name &&
+              (!fetched?.scouting ||
+                fetched.scouting.unlocked.includes('sizing_polarization')) && (
+                <OpponentSizingTell opponent={character.name} />
+              )}
 
             {hasStanding && fetched?.relationship && (
               <>

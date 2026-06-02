@@ -19,9 +19,17 @@ last_updated: 2026-06-02
 >   page. Sparse on real human data (busiest owner-seat = 6 bets) → coarse blocks +
 >   "keep playing" the common state, as designed.
 >
-> Remaining: scouting-economy reconciliation for the dossier card (currently un-gated);
-> per-street breakdown + a sizing drill (both volume-gated); recency-weighting the
-> underlying read (the full counter-adaptation fix — bigger memory-layer change).
+ > - **Scouting-economy reconciliation (DONE)** — the over-time sizing tell is gated
+>   behind the same `sizing_polarization` read the dossier sells. Frontend: the card
+>   renders only when `scouting.unlocked` includes it (reusing the dossier's
+>   server-authoritative gate; ungated outside the Circuit). Backend: `/api/coach/
+>   opponent-tells` runs the same `is_read_unlocked` check (Circuit-only, fail-open)
+>   and returns a `locked` status instead of intel. Surface A (your own stats) is
+>   never gated.
+>
+> Remaining: per-street breakdown + a sizing drill (both volume-gated); recency-
+> weighting the underlying read (the full counter-adaptation fix — bigger memory-
+> layer change).
 
 # Sizing coach surfaces — "readability over time"
 

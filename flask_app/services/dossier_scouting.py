@@ -290,6 +290,14 @@ def compute_scouting(observed, purchased_sections=None) -> Dict[str, Any]:
     }
 
 
+def is_read_unlocked(observed, item_id: str, purchased_sections=None) -> bool:
+    """True when `item_id`'s scouting read is unlocked for these observed counts +
+    informant purchases. Single-read convenience over `compute_scouting`, for
+    surfaces that gate ONE read on a tier (e.g. the coach's over-time sizing tell
+    reusing the `sizing_polarization` tier) without rebuilding the whole strip."""
+    return item_id in compute_scouting(observed, purchased_sections)['unlocked']
+
+
 def _strip_observation_field(response: Dict[str, Any], field: str) -> None:
     obs = response.get('observation')
     if isinstance(obs, dict) and obs.get(field) is not None:

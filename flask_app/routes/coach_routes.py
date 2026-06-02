@@ -368,6 +368,40 @@ def coach_preflop_leaks():
     return jsonify(report)
 
 
+def _sizing_tell_locked(observer_id: str, opponent: str) -> bool:
+    """Scouting-economy gate for the over-time sizing tell, reconciled with the
+    dossier's paid `sizing_polarization` tier.
+
+    Fails OPEN (returns False = ungated) outside the Circuit, when the gate flag
+    is off, or on any error — mirroring the dossier route, which only gates when a
+    sandbox is in play. Inside the Circuit it returns True until the player has
+    ground the read open (or bought it from the informant), so the coach surface
+    can't hand out intel the dossier still charges for.
+    """
+    try:
+        from cash_mode import economy_flags
+
+        if not economy_flags.DOSSIER_SCOUTING_GATE_ENABLED:
+            return False
+        from flask_app.extensions import game_repo, sandbox_repo
+        from flask_app.services.dossier_scouting import is_read_unlocked
+        from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+        from .character_routes import _resolve_personality_id
+
+        personality_id = _resolve_personality_id(opponent)
+        sandbox_id = resolve_default_sandbox_for(observer_id, sandbox_repo=sandbox_repo)
+        if not personality_id or not sandbox_id:
+            return False  # not a Circuit-scouted opponent → ungated
+        life = game_repo.load_observation_lifetime(sandbox_id, observer_id, personality_id) or {}
+        purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
+        return not is_read_unlocked(life, 'sizing_polarization', purchased)
+    except Exception as e:  # noqa: BLE001 — gate must never break the coach surface
+        logger.debug("sizing-tell scouting gate failed (fail-open) for %s/%s: %s",
+                     observer_id, opponent, e)
+        return False
+
+
 @coach_bp.route('/api/coach/opponent-tells', methods=['GET'])
 @limiter.limit("20/minute")
 @_coach_required
@@ -394,6 +428,21 @@ def coach_opponent_tells():
     opponent = (request.args.get('opponent') or '').strip()
     if not opponent:
         return jsonify({'error': 'opponent query param required', 'code': 'BAD_REQUEST'}), 400
+
+    # Reconcile with the scouting economy: in the Circuit, the over-time sizing
+    # tell is gated behind the same `sizing_polarization` read the dossier sells.
+    # Locked → return the lock status (no intel), never the computed tell.
+    if _sizing_tell_locked(owner_id, opponent):
+        return jsonify(
+            {
+                'opponent': opponent,
+                'locked': True,
+                'unlock_read': 'sizing_polarization',
+                'tells': [],
+                'message': f"{opponent}'s sizing tell is locked — scout them more (or "
+                "ask your informant) to read it.",
+            }
+        )
 
     db_path = extensions.persistence_db_path
     try:
