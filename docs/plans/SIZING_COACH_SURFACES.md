@@ -5,12 +5,23 @@ created: 2026-06-01
 last_updated: 2026-06-02
 ---
 
-> **Status (2026-06-02):** Surface B **backend built** — `flask_app/services/
-> coach_sizing_tells.py` (pure core + owner-scoped DB adapter) + `GET
-> /api/coach/opponent-tells?opponent=` in `coach_routes.py`, 10 unit tests. Validated
-> on the live DB: every production tiered bot reads `balanced` (sizing not face-up —
-> confirms the river-readability work), `face_up`/`mixing` reserved for genuinely
-> readable/adapting opponents. **Frontend dossier card + Surface A still TODO.**
+> **Status (2026-06-02): BOTH SURFACES + KILL SWITCH BUILT.**
+> - **Surface B** — backend (`coach_sizing_tells.py` + `GET /api/coach/opponent-tells`)
+>   + `OpponentSizingTell` dossier card (mounted in `CharacterDetailCard`). Validated
+>   on live DB: production tiered bots all read `balanced` (sizing not face-up —
+>   confirms the river-readability work); `face_up`/`mixing` reserved for genuinely
+>   readable/adapting opponents.
+> - **Kill switch** — `OpponentTendencies.sizing_tell_is_mixing()` (recency window) +
+>   `_resolve_sizing_defense_polar` pauses the bot's sizing-defense on a `mixing` read.
+>   Honest limit: only updates on the opponent's big bets that reach *showdown*.
+> - **Surface A** — `load_owner_bet_decisions` + `GET /api/coach/sizing-readability`
+>   (reuses B's core, self-framed) + `SizingReadability` card on the Preflop Game coach
+>   page. Sparse on real human data (busiest owner-seat = 6 bets) → coarse blocks +
+>   "keep playing" the common state, as designed.
+>
+> Remaining: scouting-economy reconciliation for the dossier card (currently un-gated);
+> per-street breakdown + a sizing drill (both volume-gated); recency-weighting the
+> underlying read (the full counter-adaptation fix — bigger memory-layer change).
 
 # Sizing coach surfaces — "readability over time"
 
