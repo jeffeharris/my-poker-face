@@ -263,10 +263,13 @@ fallback` posture).
 None of these are required by A; pick per product value. Each is read-only
 display unless noted, and each should ship behind its own flag.
 
-- **B1 — Dossier quadrant badge.** Surface an AI's persisted `quadrant` +
-  `renown_v2` on the character dossier (the natural home; today it carries zero
-  renown). Read `load_latest(sandbox, personality_id, entity_kind='ai')`.
-  *Lowest-risk, highest-legibility first surface.*
+- **B1 — Dossier quadrant badge. ✅ BUILT (`d7692491`).** The dossier route reads
+  `load_latest(sandbox, personality_id, entity_kind='ai')` into a `reputation`
+  block; the dossier card renders a quadrant badge (glyph + quadrant + renown +
+  "ahead of N% of the field") under the subject name, styled per quadrant.
+  Read-only, degrade-safe (null → no badge). 12 route tests green (incl. 2 new),
+  tsc + eslint clean. *Live visual verification pending real AI-renown data
+  (flag + migration + a ticker cycle).*
 - **B2 — Lobby seat / table marquee.** Add `reputation_quadrant` (+ maybe a
   `renown_v2` rank) to the AI seat payload (`cash_routes.py` ~5596–5673) so a
   Beloved Legend / Infamous Villain at a table renders a badge and makes that
