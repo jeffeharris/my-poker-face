@@ -238,15 +238,16 @@ conservation-clean. `core/economy/economy_signal.py::tournament_funding` now use
 drain-to-setpoint; tests updated; full write-up in
 `docs/experiments/EXP_006_BANK_RESERVE_THERMOSTAT.md` (§6 section).
 
-**Fidelity check (the prod-flip gate):** the only failure mode left is the
+**Fidelity check — PASS (2026-06-02).** The only failure mode left is the
 OVERLAY_CAP (250k) binding — if the *real* faucet × the 30-min cooldown exceeds
-the cap, one event can't drain back to the setpoint and reserves climb. EXP_006
-Phase 0 measured the real (vice-dominated) faucet at ~515 chips/tick on a fresh
-sandbox → ~116k per cooldown, **~2× under the 250k cap**, so drain-to-setpoint
-holds with headroom. A clean hands-ON run on an *aged* sandbox is still the
-belt-and-suspenders before the **prod** flip (and a lever: raise OVERLAY_CAP or
-shorten the cooldown if an aged faucet runs hotter). The harness now supports it
-(`thermostat_sweep.py --hands-on`). v1 Main Events are **freerolls** (buy_in 0).
+the cap, one event can't drain back to the setpoint and reserves climb. Measured
+the real faucet with a hands-ON run (`--hands-on --base-rake 0` → pure real
+rake + vice + casino), 100 ticks: **665.6 chips/tick → ~150k per cooldown, ~1.67×
+under the 250k cap.** So drain-to-setpoint fully resets reserves each event and the
+band holds under the real faucet. The cap only binds above ~1100 chips/tick;
+levers if an aged sandbox ever runs that hot: raise OVERLAY_CAP or shorten the
+cooldown. **The economy gate is satisfied.** v1 Main Events are **freerolls**
+(buy_in 0). Full numbers in `EXP_006 §"Hands-ON fidelity check"`.
 
 **ACTIVATION STATUS (2026-06-02):**
 - **DEV: ACTIVATED.** `TOURNAMENT_CIRCUIT_ENABLED=1` in the dev `.env`; backend

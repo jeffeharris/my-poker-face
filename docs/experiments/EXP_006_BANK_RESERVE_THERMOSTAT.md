@@ -278,12 +278,36 @@ clean. `EconomyState` already carries `holdings`, so the production
 
 **Shipped:** `core/economy/economy_signal.py::tournament_funding` FLUSH branch
 changed from `reserves × OVERLAY_DRAIN_PCT` to drain-to-setpoint (the constant is
-retained, marked legacy/per-tick). Tests updated. Flag stays OFF until a hands-ON
-fidelity run against an aged sandbox confirms the magnitude (the modeled-rake
-faucet understates the real vice-dominated faucet — but the fix scales the overlay
-to whatever the reserves are, so a bigger faucet just means more chips per event,
-not a band escape). Harness: `--mode tournament_cadence --cadence-sizing
-{production,to_setpoint}` in `scripts/sim_experiments/thermostat_sweep.py`.
+retained, marked legacy/per-tick). Tests updated. Harness:
+`--mode tournament_cadence --cadence-sizing {production,to_setpoint}` in
+`scripts/sim_experiments/thermostat_sweep.py`.
+
+### Hands-ON fidelity check (2026-06-02): the cap does NOT bind — PASS
+
+Drain-to-setpoint is faucet-agnostic by construction (it drains reserves back to
+the setpoint *each event*), so the ONLY residual failure mode is the
+`OVERLAY_CAP` (250k) binding: if the *real* faucet × the 30-min cooldown exceeds
+the cap, one event can't fully reset reserves and the band escapes upward. Measured
+the real faucet with a hands-ON run (`--hands-on --mode baseline --base-rake 0`, so
+NO modeled faucet — pure real rake + fake-vice + casino, the production inflow),
+100 ticks, seed 7:
+
+| metric | value |
+|---|---|
+| back-half faucet slope | **665.6 chips/tick** |
+| per 30-min cooldown (×225 ticks) | **~150k** |
+| OVERLAY_CAP | 250k |
+| headroom | **~1.67×** (cap does not bind) |
+
+So the real faucet (665.6/tick — higher than EXP_006 Phase 0's ~515 fresh-sandbox
+estimate, as expected with real hands) drains ~150k into the bank per cooldown,
+comfortably under the 250k cap → **drain-to-setpoint fully resets reserves each
+event and the band holds.** The §6 gate is satisfied. Levers if an *aged*
+production sandbox ever runs hotter than ~1100 chips/tick (the point the cap would
+bind): raise `OVERLAY_CAP` or shorten `MAIN_EVENT_COOLDOWN_SECONDS`.
+
+**Activation:** circuit flipped ON in **dev** (`TOURNAMENT_CIRCUIT_ENABLED=1`);
+prod flip is now economy-justified, pending a deploy.
 
 ## Conclusion
 
