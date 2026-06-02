@@ -1,20 +1,25 @@
-"""B4 prestige-seeking economy A/B gate.
+"""B4 prestige-seeking economy A/B + W_MARQUEE calibration sweep.
 
 Same-seed paired probe for `PRESTIGE_SEEKING_ENABLED`: seed one sandbox + a
-renown field, copy it, run the economy sim twice (flag OFF vs ON) from the
-identical start, and compare:
+renown field, copy it per arm, run the FULL economy sim (casinos + fish +
+churn) from the identical start, and compare flag-OFF vs flag-ON across a sweep
+of `W_MARQUEE` values. Per arm we report:
 
-  1. ROUTING — do non-fish grinders co-locate with the famous AIs more when the
-     marquee pull is on? (the feature's whole point)
-  2. CONSERVATION — does `audit_drift` stay ~0 in BOTH arms? (the new seat path
-     must not mint/destroy chips)
-  3. NO STARVATION — do fish tables still draw grinders when the flag is on?
-     (the marquee shouldn't drain the EV economy)
+  1. ROUTING — co-location of non-fish, non-famous grinders with a famous AI
+     (the marquee pull's whole point). ON should rise above OFF.
+  2. CONSERVATION — `audit_drift` must stay ~0 (the new seat path must not
+     mint/destroy chips).
+  3. STARVATION — grinders still seated at fish (casino) tables. The marquee
+     must NOT drain the EV economy. The calibrated W_MARQUEE is the largest
+     pull that lifts routing WITHOUT collapsing this.
 
-Run in Docker (needs the app deps):
+Fish/casinos spawn over ticks from the seeded bank pool, so this needs
+`hand_sim_prob > 0` and enough ticks. Long sweeps want a detached box
+(docs/EVAL_RUNNER.md) — the bash cap kills multi-arm churn runs locally.
 
     docker compose run --rm --no-deps -v "$PWD/scripts:/app/scripts" backend \
-        python3 scripts/sim_prestige_seeking_ab.py --ticks 300 --hand-sim-prob 0.0
+        python3 scripts/sim_prestige_seeking_ab.py \
+        --ticks 500 --hand-sim-prob 0.5 --w-sweep 1,3,5,8
 
 scripts/ is gitignored — force-add to keep it.
 """
@@ -23,8 +28,8 @@ from __future__ import annotations
 import argparse
 import shutil
 import sqlite3
+import sys
 import tempfile
-from collections import Counter
 from datetime import datetime
 
 from cash_mode import economy_flags
@@ -32,21 +37,16 @@ from cash_mode.closed_economy import load_fish_ids
 from cash_mode.sim_runner import SimConfig, run_sim
 from poker.repositories import create_repos
 
-# Local import (scripts/ is mounted, not on the package path by default).
-import sys
 sys.path.insert(0, "/app/scripts")
 from seed_sim_sandbox import seed_sim_sandbox  # noqa: E402
 
 
 def _seed_renown(db_path, sandbox_id, owner_id, n_famous):
-    """Seed a victim_percentile field: the top `n_famous` non-fish personas are
-    'famous' (0.90), everyone else gets a modest 0.15. Returns the famous set."""
     repos = create_repos(db_path)
     eligible = repos["personality_repo"].list_eligible_for_cash_mode(user_id=owner_id)
     fish = load_fish_ids(repos["bankroll_repo"], sandbox_id=sandbox_id)
-    pids = [p["personality_id"] for p in eligible
-            if p.get("personality_id") and p["personality_id"] not in fish]
-    pids.sort()  # deterministic
+    pids = sorted(p["personality_id"] for p in eligible
+                  if p.get("personality_id") and p["personality_id"] not in fish)
     famous = set(pids[:n_famous])
     rows = [{
         "owner_id": pid,
@@ -57,9 +57,8 @@ def _seed_renown(db_path, sandbox_id, owner_id, n_famous):
         "high_cut": 30.0, "components": {"breadth": 1.0}, "field_size": len(pids),
     } for pid in pids]
     repos["prestige_snapshots_repo"].record_ai_many(
-        sandbox_id=sandbox_id, captured_at="2026-06-02T00:00:00Z", rows=rows,
-    )
-    return famous, fish
+        sandbox_id=sandbox_id, captured_at="2026-06-02T00:00:00Z", rows=rows)
+    return famous
 
 
 def _checkpoint(db_path):
@@ -68,26 +67,28 @@ def _checkpoint(db_path):
     conn.close()
 
 
-def _run_arm(db_path, sandbox_id, *, enabled, ticks, seed, hand_sim_prob):
+def _run_arm(db_path, sandbox_id, *, enabled, w_marquee, ticks, seed, hand_sim_prob, bank_pool):
     economy_flags.PRESTIGE_SEEKING_ENABLED = enabled
+    if w_marquee is not None:
+        import cash_mode.attractiveness as _attr
+        _attr.W_MARQUEE = w_marquee
     repos = create_repos(db_path)
     result = run_sim(
         SimConfig(
             sandbox_id=sandbox_id, num_ticks=ticks, rng_seed=seed,
             start_at=datetime(2026, 6, 2, 12, 0, 0), hand_sim_prob=hand_sim_prob,
-            audit_every=25, progress_every=0,
+            initial_bank_pool_seed=bank_pool, audit_every=25, progress_every=0,
         ),
         repos=repos,
     )
-    # Final seating snapshot.
     tables = repos["cash_table_repo"].list_all_tables(sandbox_id=sandbox_id)
+    fish = load_fish_ids(repos["bankroll_repo"], sandbox_id=sandbox_id)  # post-run
     drifts = [abs(m.audit_drift) for m in result.metrics if m.audit_drift is not None]
-    return tables, (max(drifts) if drifts else 0), result
+    return tables, fish, (max(drifts) if drifts else 0)
 
 
-def _routing_metrics(tables, famous, fish):
-    """Co-location of non-fish, non-famous grinders with a famous occupant."""
-    grinder_seats = marquee_seats = fish_table_grinders = 0
+def _metrics(tables, famous, fish):
+    grinder = marquee = fish_table = 0
     for t in tables:
         occ = [s.get("personality_id") for s in t.seats if s.get("kind") == "ai"]
         has_famous = any(p in famous for p in occ)
@@ -95,74 +96,67 @@ def _routing_metrics(tables, famous, fish):
         for p in occ:
             if p in fish or p in famous:
                 continue
-            grinder_seats += 1
-            if has_famous:
-                marquee_seats += 1
-            if has_fish:
-                fish_table_grinders += 1
-    rate = (marquee_seats / grinder_seats) if grinder_seats else 0.0
+            grinder += 1
+            marquee += 1 if has_famous else 0
+            fish_table += 1 if has_fish else 0
     return {
-        "grinder_seats": grinder_seats,
-        "at_marquee": marquee_seats,
-        "co_location_rate": rate,
-        "at_fish_tables": fish_table_grinders,
+        "grinders": grinder,
+        "co_location": (marquee / grinder) if grinder else 0.0,
+        "at_fish": fish_table,
     }
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--ticks", type=int, default=300)
+    ap.add_argument("--ticks", type=int, default=500)
     ap.add_argument("--rng-seed", type=int, default=42)
-    ap.add_argument("--hand-sim-prob", type=float, default=0.0,
-                    help="0.0 = movement-only (cleanest routing attribution)")
+    ap.add_argument("--hand-sim-prob", type=float, default=0.5)
     ap.add_argument("--famous", type=int, default=4)
-    ap.add_argument("--w-marquee", type=float, default=None,
-                    help="Override attractiveness.W_MARQUEE (sim-tune the pull)")
+    ap.add_argument("--bank-pool", type=int, default=3_000_000)
+    ap.add_argument("--w-sweep", default="1,3,5,8",
+                    help="Comma list of W_MARQUEE values to test (ON arms)")
     args = ap.parse_args()
-
-    if args.w_marquee is not None:
-        import cash_mode.attractiveness as _attr
-        _attr.W_MARQUEE = args.w_marquee
-        print(f"(W_MARQUEE overridden to {args.w_marquee})")
+    w_values = [float(x) for x in args.w_sweep.split(",")]
 
     tmp = tempfile.mkdtemp(prefix="b4ab_")
     base = f"{tmp}/base.db"
     sandbox_id = seed_sim_sandbox(name="b4-ab", owner_id="sim-bot", db_path=base)
-    famous, fish = _seed_renown(base, sandbox_id, "sim-bot", args.famous)
+    famous = _seed_renown(base, sandbox_id, "sim-bot", args.famous)
     _checkpoint(base)
-    off_db, on_db = f"{tmp}/off.db", f"{tmp}/on.db"
-    shutil.copy(base, off_db)
-    shutil.copy(base, on_db)
 
-    print(f"sandbox={sandbox_id}  famous={sorted(famous)}  fish={len(fish)}  "
-          f"ticks={args.ticks} seed={args.rng_seed} hand_sim_prob={args.hand_sim_prob}")
-    print("-" * 72)
-    out = {}
-    for arm, db, enabled in (("OFF", off_db, False), ("ON", on_db, True)):
-        tables, max_drift, _ = _run_arm(
-            db, sandbox_id, enabled=enabled, ticks=args.ticks,
-            seed=args.rng_seed, hand_sim_prob=args.hand_sim_prob)
-        m = _routing_metrics(tables, famous, fish)
-        out[arm] = (m, max_drift)
-        print(f"[{arm:3s}] co-location {m['co_location_rate']*100:5.1f}%  "
-              f"({m['at_marquee']}/{m['grinder_seats']} grinder seats at a "
-              f"famous table)  fish-table grinders={m['at_fish_tables']}  "
-              f"max|audit_drift|={max_drift}")
-    print("-" * 72)
-    off_m, off_d = out["OFF"]; on_m, on_d = out["ON"]
-    lift = on_m["co_location_rate"] - off_m["co_location_rate"]
-    print(f"ROUTING lift (ON − OFF): {lift*100:+.1f} pp co-location")
-    print(f"CONSERVATION: max|drift| OFF={off_d} ON={on_d} "
-          f"({'OK' if off_d == 0 and on_d == 0 else 'CHECK'})")
-    if fish:
-        starv_ok = on_m["at_fish_tables"] > 0
-        print(f"STARVATION: fish-table grinders OFF={off_m['at_fish_tables']} "
-              f"ON={on_m['at_fish_tables']} ({'OK' if starv_ok else 'STARVED'})")
-    else:
-        starv_ok = True  # no fish seeded → starvation check N/A (clean isolate)
-        print("STARVATION: N/A (no fish seeded — grinder-only routing isolate)")
-    verdict = "PASS" if (lift > 0.0 and off_d == 0 and on_d == 0 and starv_ok) else "REVIEW"
-    print(f"VERDICT: {verdict}")
+    print(f"sandbox={sandbox_id} famous={sorted(famous)} ticks={args.ticks} "
+          f"seed={args.rng_seed} hand_sim_prob={args.hand_sim_prob} "
+          f"bank_pool={args.bank_pool} w_sweep={w_values}")
+    print("=" * 78)
+
+    def arm(label, enabled, w):
+        db = f"{tmp}/{label}.db"
+        shutil.copy(base, db)
+        tables, fish, drift = _run_arm(
+            db, sandbox_id, enabled=enabled, w_marquee=w, ticks=args.ticks,
+            seed=args.rng_seed, hand_sim_prob=args.hand_sim_prob, bank_pool=args.bank_pool)
+        m = _metrics(tables, famous, fish)
+        print(f"[{label:10s}] co-loc {m['co_location']*100:5.1f}%  "
+              f"grinders={m['grinders']:3d}  at-fish={m['at_fish']:3d}  "
+              f"fish_seen={len(fish):2d}  max|drift|={drift}")
+        return m, drift
+
+    off_m, off_d = arm("OFF", False, None)
+    print("-" * 78)
+    for w in w_values:
+        on_m, on_d = arm(f"ON_w{w:g}", True, w)
+        lift = (on_m["co_location"] - off_m["co_location"]) * 100
+        fish_keep = (on_m["at_fish"] / off_m["at_fish"]) if off_m["at_fish"] else 1.0
+        flags = []
+        flags.append("route+" if lift > 1.0 else "route~")
+        flags.append("drift!" if on_d != 0 else "drift0")
+        flags.append("STARVE" if fish_keep < 0.6 else "fishOK")
+        print(f"    └─ W={w:g}: routing {lift:+.1f}pp | fish-table grinders "
+              f"{on_m['at_fish']} vs {off_m['at_fish']} ({fish_keep*100:.0f}%) | "
+              f"{' '.join(flags)}")
+    print("=" * 78)
+    print(f"CONSERVATION: OFF drift={off_d} (must be 0 across all arms above)")
+    print("Calibration target: the largest W with routing+ AND fishOK AND drift0.")
 
 
 if __name__ == "__main__":
