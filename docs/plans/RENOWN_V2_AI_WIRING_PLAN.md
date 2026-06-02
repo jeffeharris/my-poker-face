@@ -302,11 +302,43 @@ display unless noted, and each should ship behind its own flag.
     term swamps it (lift ≈ noise / slightly negative). A genuine tuning finding:
     the default needs raising to have a perceptible effect. Left conservative
     for now (flag is OFF, zero live effect).
-  - **Still owed before flip:** (a) re-run WITH a fish economy + real churn
-    (`hand_sim_prob>0`) to calibrate `W_MARQUEE` against the fish draw and
-    confirm marquee clustering doesn't STARVE fish tables (the churn run timed
-    out in the dev box's budget — needs a longer/Hetzner run); (b) a positive
-    end-to-end lobby test. Same gated pattern as Stage A's stress gate.
+  - **Fish + churn sweep RUN on Hetzner (2026-06-02, `cpx32`, torn down).**
+    Full economy (9 fish, 3 casinos spawned from a seeded bank pool), 400 ticks,
+    `hand_sim_prob=0.5`, OFF baseline + `W_MARQUEE ∈ {1,3,5,8}`:
+
+    | arm | co-loc | Δ vs OFF | fish-table grinders | drift |
+    |---|---|---|---|---|
+    | OFF | 22.0% | — | 13 | 0 |
+    | w1 | 17.8% | −4.2 | 16 (123%) | 0 |
+    | w3 | 8.9% | −13.1 | 17 (131%) | 932 |
+    | w5 | 20.5% | −1.5 | 14 (108%) | 4265 |
+    | w8 | 28.6% | **+6.6** | 15 (115%) | 125 |
+
+    Reads:
+    - **NO STARVATION (clean).** Fish-table grinders stayed 108–131% of OFF at
+      *every* W — the marquee never drained the EV economy. The strongest
+      result of the run.
+    - **Conservation: the B4 seat path is clean.** The churn `drift` is erratic
+      and **non-monotonic in W** (932→4265→125) — a chip-minting bug would scale
+      with the feature; this doesn't. It's the pre-existing sim-economy audit
+      artifact (vice/hustle) reshuffled by different seating. Proof the seat path
+      itself conserves: the **movement-only** probe is drift=0 in ALL arms incl
+      W=8.
+    - **Routing under churn is CONFOUNDED.** With `hand_sim_prob>0` the same-seed
+      paired probe decoheres immediately (seating diverges → different hands →
+      different bankrolls → different movement), so final-snapshot co-location is
+      noise — exactly the "same-seed cash A/B is RNG-desync noise for
+      decision-gate changes" caveat. w8's +6.6pp is *directionally* consistent
+      with the clean movement-only +9.6pp, but the low-W negatives are noise, not
+      signal.
+
+  - **Net gate status:** mechanism validated + conservation-safe + **no
+    starvation**. The precise `W_MARQUEE` calibration is **methodologically
+    blocked** by churn-decoherence — it needs an **event-level within-run probe**
+    (count fill decisions where ON chose a higher-`occ_prestige` table than the
+    OFF counterfactual on *identical* state), not a final-snapshot economy diff.
+    Until then `W_MARQUEE` stays conservative and the flag stays OFF. Also still
+    owed: a positive end-to-end lobby test.
 
 ---
 

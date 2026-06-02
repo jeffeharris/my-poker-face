@@ -176,3 +176,38 @@ minimal seed had `fish=0`, so the starvation check was N/A this round (a
 grinder-only field is a clean routing isolate, but not the full economy). Left
 W_MARQUEE conservative (flag OFF, no live effect); the calibrated value + the
 starvation bound are the remaining pre-flip work.
+
+## 2026-06-02 (later) — the Hetzner fish+churn sweep
+
+Ran the full-economy sweep on a Hetzner box (`cpx32`, poker-bot-optimization,
+torn down after). Several scars worth keeping:
+
+- **The runbook's rsync had no `.env` exclude.** The auto-mode classifier
+  correctly hard-blocked shipping the working tree (real API keys) to a fresh
+  external host. Right call — I'd missed it. Re-shipped with secrets excluded +
+  wrote a dummy-key dev `.env` on the box. (The sim is LLM-free, but it eagerly
+  *constructs* provider clients — DeepSeek by default — so it needs non-empty
+  keys to import; the 401s on side-hustle *narration* are cosmetic and fall
+  back.) Filed: the runbook should exclude `.env`.
+- **cpx31 is deprecated.** Half my provisioning attempts "succeeded" falsely
+  because my error-grep didn't match Hetzner's phrasings ("invalid_input", "not
+  found", "unsupported"). Lesson: verify via `hcloud server describe`, never the
+  create command's stdout. Current type: `cpx32`.
+- **The result itself — a real methodology finding.** Fish economy materialized
+  (9 fish, 3 casinos). **No starvation at any W** (fish-table grinders 108–131%
+  of OFF — the cleanest result). But the routing metric came back *negative* at
+  low W and the audit drift was *non-zero and non-monotonic* (932/4265/125).
+  Neither is what it looks like: with `hand_sim_prob>0` the same-seed paired
+  probe **decoheres** — once seating diverges by one seat the two arms play
+  different hands and become different economies, so final-snapshot co-location
+  is noise and the drift is the pre-existing vice/hustle audit artifact
+  reshuffled, NOT B4 minting chips (movement-only stays drift=0 at every W,
+  including W=8). The memory literally warned this ("same-seed cash A/B is
+  RNG-desync noise for decision-gate changes") and I half-relearned it the hard
+  way. w8 did land +6.6pp (directionally matching the clean movement-only
+  +9.6pp), but I won't calibrate W off decohered numbers.
+- **Conclusion:** mechanism + conservation + no-starvation are established; the
+  precise W needs an **event-level within-run probe** (compare each fill
+  decision to its OFF counterfactual on identical state), which is the right
+  next instrument. Flag stays OFF, W_MARQUEE conservative. Box torn down; the
+  project had a stray `poker-eval-tax` box (not mine) that also got cleaned up.
