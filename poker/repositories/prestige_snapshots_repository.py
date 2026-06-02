@@ -20,6 +20,7 @@ this class only touches data. See
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +41,12 @@ class PrestigeSnapshotsRepository(BaseRepository):
         sandbox_id: str,
         owner_id: str,
         score: Any,  # cash_mode.prestige.ReputationScore (duck-typed to avoid an import cycle)
+        formula_version: str = "v1",
+        renown_v2: Optional[float] = None,
+        victim_percentile: Optional[float] = None,
+        high_cut: Optional[float] = None,
+        renown_v2_components: Optional[Dict[str, float]] = None,
+        field_size: Optional[int] = None,
     ) -> None:
         """Insert one prestige capture for (sandbox, owner).
 
@@ -47,6 +54,16 @@ class PrestigeSnapshotsRepository(BaseRepository):
         be the ratcheted value (the recorder reads `load_renown_peak` and
         passes the peak into `compute_prestige`, which takes the max). This
         method just persists — it does not enforce the ratchet itself.
+
+        The v2 fields (``formula_version`` … ``field_size``) are the v133
+        ADDITIVE columns. They default to a v1 row (``formula_version='v1'``,
+        the rest NULL) so every existing caller is unchanged. When the ticker
+        computes the field-relative v2 layer (behind ``RENOWN_V2_ENABLED``) it
+        passes ``formula_version='v2'`` plus the uncapped ``renown_v2``, the
+        field ``high_cut``, the human's ``victim_percentile``, the v2 component
+        breakdown (JSON-serialised here), and the ``field_size``. The CONSUMED
+        ``score.quadrant`` is whichever formula's quadrant the caller chose —
+        ``formula_version`` only records which one, for the panel's gauge.
         """
         with self._get_connection() as conn:
             conn.execute(
@@ -57,8 +74,10 @@ class PrestigeSnapshotsRepository(BaseRepository):
                     renown_breadth, renown_tenure, renown_stake_tier,
                     renown_beat_respected, renown_high_stakes,
                     regard_likability, regard_respect, regard_heat,
-                    opponent_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    opponent_count,
+                    formula_version, renown_v2, victim_percentile,
+                    high_cut, renown_v2_components, field_size
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     captured_at,
@@ -76,6 +95,13 @@ class PrestigeSnapshotsRepository(BaseRepository):
                     float(score.regard_respect),
                     float(score.regard_heat),
                     int(score.opponent_count),
+                    formula_version,
+                    None if renown_v2 is None else float(renown_v2),
+                    None if victim_percentile is None else float(victim_percentile),
+                    None if high_cut is None else float(high_cut),
+                    None if renown_v2_components is None
+                    else json.dumps(renown_v2_components, sort_keys=True),
+                    None if field_size is None else int(field_size),
                 ),
             )
 
@@ -118,6 +144,32 @@ class PrestigeSnapshotsRepository(BaseRepository):
             row = conn.execute(
                 """
                 SELECT MAX(renown) AS peak
+                FROM prestige_snapshots
+                WHERE sandbox_id = ? AND owner_id = ?
+                """,
+                (sandbox_id, owner_id),
+            ).fetchone()
+        return float(row["peak"]) if row and row["peak"] is not None else 0.0
+
+    def load_renown_v2_peak(
+        self,
+        sandbox_id: str,
+        owner_id: str,
+    ) -> float:
+        """Return the historical max **v2** renown for (sandbox, owner), or 0.0.
+
+        The v2 layer is uncapped and on a different scale than v1, so it keeps
+        its OWN ratchet — the recorder reads this and passes it into the v2
+        compute, which takes the max, so a downswing (or a field that inflated
+        around the human) can't erase the v2 career record. Rows written before
+        v133 (or any v1-only row) have NULL `renown_v2` and are ignored by the
+        MAX. Independent of `load_renown_peak` (the v1 ratchet); the two never
+        mix scales.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT MAX(renown_v2) AS peak
                 FROM prestige_snapshots
                 WHERE sandbox_id = ? AND owner_id = ?
                 """,

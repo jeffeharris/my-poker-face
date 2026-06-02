@@ -47,6 +47,7 @@ from cash_mode.full_sim import (
     hand_burst_count,
     play_one_hand,
 )
+from cash_mode.scalps import eliminations_from_sim
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
     RESEAT_RECOVERY_FLOOR,
@@ -134,6 +135,19 @@ def _shadow_repo():
 
         return getattr(extensions, "entity_presence_repo", None)
     except Exception:  # noqa: BLE001 — never let shadow plumbing break the real path
+        return None
+
+
+def _cash_scalps_repo():
+    """Lazily resolve the durable scalp counter from extensions (mirrors the
+    entity-presence getter so the lobby stays import-light / Flask-free in
+    tests). Returns None when unwired (sim / cold boot / tests) — scalp
+    recording then degrades to a no-op, never breaking the world tick."""
+    try:
+        from flask_app import extensions
+
+        return getattr(extensions, "cash_scalps_repo", None)
+    except Exception:  # noqa: BLE001 — scalp recording must never break the tick
         return None
 
 
@@ -1691,6 +1705,12 @@ def refresh_unseated_tables(
         agg_stake_creations = []
         agg_leave_signals: Dict[str, str] = {}
         agg_vice_bound: List[str] = []
+        # Scalp attribution (Renown-v2 / CASH_MODE_SCALP_TRACKER.md §3a): record
+        # AI-vs-AI eliminations from each sim hand. This is the full-sim world
+        # path, so busts are real. Resolved once; best-effort — a scalp-write
+        # failure must never break the world tick.
+        scalps_repo = _cash_scalps_repo()
+        scalp_now = now.isoformat() if now is not None else None
         for _ in range(burst_n):
             # Rotate the dealer button to the next occupied seat for
             # this hand. Matters for seat-choice UX — when a player
@@ -1728,6 +1748,16 @@ def refresh_unseated_tables(
             if r.dealer_seat_idx is not None:
                 table.dealer_idx = r.dealer_seat_idx
             sim_results.append(r)
+
+            # Record scalps for this hand (rare — only hands with a bust emit
+            # any). Best-effort: never let it break the tick.
+            if scalps_repo is not None and sandbox_id:
+                hand_scalps = eliminations_from_sim(r)
+                if hand_scalps:
+                    try:
+                        scalps_repo.record_many(sandbox_id, hand_scalps, now=scalp_now)
+                    except Exception:  # noqa: BLE001
+                        logger.debug("scalp record failed (non-fatal)", exc_info=True)
 
             # (The casino closing countdown is no longer decremented here.
             # A casino only enters closing once it's empty of fish, so it

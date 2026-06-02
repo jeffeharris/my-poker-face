@@ -3068,6 +3068,51 @@ def _apply_player_table_rake(
     return game_state
 
 
+def _record_cash_scalps(game_data: dict, game_state, winner_name: str) -> None:
+    """Record this hand's eliminations at a human-occupied cash table (scalp
+    tracker §3b). Eliminator = the headline pot winner (the human's `owner_id`
+    or an AI `personality_id`); victims = non-human players busted (stack 0) by
+    the just-applied award. Headline-winner rule, consistent with the world-sim
+    path. Pure best-effort — the caller wraps it; this also self-guards so a
+    missing repo / unmapped id degrades to a no-op."""
+    from flask_app import extensions
+
+    repo = getattr(extensions, "cash_scalps_repo", None)
+    if repo is None:
+        return
+    sandbox_id = _sandbox_id_for(game_data)
+    if not sandbox_id:
+        return
+    cash_pids = game_data.get("cash_personality_ids") or {}  # display name -> pid
+
+    winner_player = next((p for p in game_state.players if p.name == winner_name), None)
+    if winner_player is None:
+        return
+    eliminator_id = (
+        game_data.get("owner_id")
+        if getattr(winner_player, "is_human", False)
+        else cash_pids.get(winner_name)
+    )
+    if not eliminator_id:
+        return
+
+    victim_ids = [
+        cash_pids[p.name]
+        for p in game_state.players
+        if not getattr(p, "is_human", False) and p.stack == 0 and p.name in cash_pids
+    ]
+    if not victim_ids:
+        return
+
+    from datetime import datetime
+
+    from cash_mode.scalps import eliminations_from_human_hand
+
+    scalps = eliminations_from_human_hand(eliminator_id, victim_ids)
+    if scalps:
+        repo.record_many(sandbox_id, scalps, now=datetime.now().isoformat())
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -3104,6 +3149,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if not winning_player_names:
         logger.error(f"[Game {game_id}] No winning player names found in pot_breakdown")
         return game_state, False
+
+    # Scalp attribution (CASH_MODE_SCALP_TRACKER.md §3b): record eliminations at
+    # the human's table now that the award is applied (stacks final). Best-effort
+    # — never let scalp recording taint the hand flow.
+    if game_data.get('cash_mode'):
+        try:
+            _record_cash_scalps(game_data, game_state, winning_player_names[0])
+        except Exception:
+            logger.debug("[CASH] scalp record failed (non-fatal)", exc_info=True)
 
     # Prepare winner announcement data
     winning_players_string = (

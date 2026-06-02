@@ -2,7 +2,7 @@
 purpose: Design for a human-facing prestige/reputation system — an earned, persistent status axis with two poles (beloved legend ↔ infamous villain) that the world responds to, giving cash mode a career spine and sandbox replayability.
 type: design
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-06-01
 ---
 
 # Player Prestige & Reputation
@@ -182,6 +182,245 @@ the load-bearing one for symmetry; the achievement bridge is a human-side bonus.
   yet. Wiring it serves both renown (scalps) and the `bounty`/`double_knockout`
   achievements, for the human **and** AIs. Lower priority than shipping the
   metric, per the product call. **Full spec: `CASH_MODE_SCALP_TRACKER.md`.**
+
+### Pre-build balance validation (offline scorer) — Rung 1 done 2026-06-01
+
+Because renown is a **read-side projection** over data the game already
+produces, the formula's *balance* can be validated offline — against fixtures,
+then the real DB, then a frozen sim log — with **zero production code** (no
+migration, ticker, hooks, or UI). The plan is a four-rung ladder, cheapest
+first, each a go/no-go gate:
+
+1. **Rung 1 — synthetic archetype probe** (fixtures, no DB, no sim): do the
+   four ★ routes *each* reach high renown, and does a volume bot dominate?
+2. **Rung 2 — score the real field** (read-only DB snapshot): do the top names
+   match intuition? (baseline-first sanity check)
+3. **Rung 3 — weight sweep over a frozen sim log**: re-score one fixed log
+   under a grid of weights; watch rank-order stability + the treadmill
+   correlation. (Re-scoring a frozen log is a *perfectly paired* A/B — no RNG
+   desync, unlike same-seed re-runs.)
+4. **Rung 4 — build** A→B→C against the validated formula.
+
+The instrument lives at `scripts/renown_v2_scorer.py` (pure stdlib, throwaway;
+becomes the spec for the real `compute_prestige` v2 and the oracle for its
+unit tests).
+
+**Rung 1 result: PASS** — all four routes (grinder/whale/patron/villain) reach
+high renown via *their own* signature driver, the control up-and-comer stays
+low, and no single driver carries >85% of any score. The probe **failed twice
+first**, and each failure is a design rule now baked into the spec:
+
+- **Uncapping breaks any term that multiplies by another entity's renown.**
+  v1's scalp weight `base + 1.6·victim_renown` was safe at `[0,1]` but explodes
+  once renown is unbounded (one legend-scalp ≈ 70 pts; the villain hit 212 vs a
+  ~30 field). **Rule: weight by the victim's *field percentile*, not raw
+  renown** — bounded, outlier-robust, and "busting a big name" is correctly
+  *relative* fame.
+- **Pure top-X% gating manufactures fake stars** from a tourist-heavy field
+  (top-30% labelled the up-and-comer and even the volume bot "high renown").
+  **Rule: high renown = top-X% *AND* ≥ k×field-median.** The percentile caps
+  *how many* figures exist (no star-inflation as renown ratchets up forever);
+  the median multiple is a *self-scaling quality floor* (a weak field can't
+  mint stars). Both inputs are field-relative — **no absolute constant**, which
+  is precisely v1's `RENOWN_HIGH_THRESHOLD = 0.40` trap, now avoided.
+- **Wall-clock denomination of volume drivers, quantified:** the same fixtures
+  put the volume bot at #1 under hand-count, #6 under wall-clock. The
+  anti-treadmill claim is no longer just an assertion.
+
+Settled formula choices (spec-ready): uncapped lifetime ledger with every
+driver **concave** (sqrt/log1p — unbounded but can't explode); scalp quality
+`= base + scale·victim_field_percentile` with `log1p(count)` per victim (can't
+farm one bot); the victim-percentile circularity resolved as **one refinement
+pass over last-tick percentile** (verified not to need fixed-point iteration);
+"high renown" `= max(top-20% boundary, 3×median)`.
+
+**Rung 2 result (real field, 80-entity sandbox, `scripts/renown_v2_rung2.py`,
+read-only `immutable=1`): structure validated, two weight issues flagged.** The
+scaffolding holds on real data — cross-table ids join (after stripping the
+`ai:`/`player:` prefix `holdings_snapshots` uses but `cash_pair_stats`/`stakes`
+don't — a recurring trap), regard reproduces v1 exactly (the human reads
+"Infamous Villain", regard −0.25 vs v1's −0.247), and quadrants are sensible
+(warm high-renown AIs → Beloved Legend). Two balance findings that **fixtures
+could not surface**, deferred to Rung 3's sweep (not hand-patched, to avoid
+overfitting one sandbox):
+
+- **Volume drivers let the most-active entity run away.** Hands-denominated,
+  the human is #1 at 2.7× the #2, 71% from breadth alone. Confirms the
+  wall-clock denomination / tighter breadth cap is load-bearing on real data,
+  not just against the synthetic bot.
+- **`w_backing` is too hot.** Real AI-to-AI staking volume dwarfs the Rung-1
+  fixtures, so ~all AIs are 50–80% backing-driven — the AI field collapses to a
+  single route. Scalps + legendary are absent on static data (no `cash_scalps`
+  table / nugget log yet), so the villain/legendary routes can't be assessed
+  until workstream A ships — reinforcing that the scalp tracker is the
+  shippable prerequisite.
+
+**Offline structural pass (2026-06-01) — both findings treated, and a deeper
+root cause exposed.** Rather than hand-tune weights (overfitting one sandbox),
+applied the Rung-1 rule — *uncapped → field-relative* — to the two heavy
+drivers: backing and breadth now contribute `w · log1p(raw / field_median)`
+instead of an absolute log. A median-relative log self-scales (median entity →
+0.69, 10× → 2.4), and the raw/median *ratio* is ~denominator-robust, so the
+hands-denominated offline read proxies the wall-clock design. Result: Rung 1
+still PASSES (4 routes, no >85% dominance, anti-treadmill intact), and on the
+real field the **human runaway halves** (84→54 renown; gap to #2 2.7×→1.26×)
+and the **backing monoculture breaks** (backing shares 80–94% → 42–65%; the
+field is now ~half breadth-led, half backing-led, with the one genuine outlier
+patron still correctly backing-led). Lives in `renown_v2_scorer.py`
+(`_relative` + `FieldContext`).
+
+But the relativisation only treats the *scoring* symptom. The DB shows the
+**backing economy itself is running hot**: top backers stake nearly the whole
+field (deadpool 107 of ~113 borrowers; tyler_durden 96; ace_ventura 94), and
+stakes are extended even at **default-neutral affinity**. Root cause is the
+sponsor tier floors in `cash_mode/sponsor_offers.py` (`TIER_FLOORS`):
+`premium = {lik 0.0, resp 0.0}` and `standard = {lik 0.4, resp 0.5}`, while a
+stranger defaults to `0.5/0.5` — so a stranger clears both tiers and *anyone
+backs anyone*. **Raising those affinity floors is a separate, sim-validated
+backing-economy change** (it alters real chip flows + AI behaviour, not just a
+read-side score), but it's the more fundamental fix: it slows the economy *and*
+makes backing selective, so backing renown becomes a meaningful patron signal
+rather than noise. Whether near-universal staking is a bug or intended
+chip-cycling flavour is a product call — flagged with evidence, not assumed.
+
+**Rung 3 harness built (2026-06-01) — machinery validated, real verdict pends a
+sim capture.** Two-part, matching the "frozen log → paired re-scoring" design:
+- `scripts/renown_v3_capture.py` produces a frozen-log JSON of every entity's
+  renown inputs. `--from-db` (host, read-only) snapshots the real field;
+  `--from-sim` (Docker) runs the rule-based cash sim (`full_sim.play_one_hand`,
+  no LLM, no DB writes) over the sandbox's AI field, derives **scalps** via
+  `cash_mode/scalps.eliminations_from_sim`, and overlays the play-derived
+  drivers (scalps, volume, breadth, time-at-#1, peak stack) onto the DB field's
+  economy/social drivers — the first log where the villain/scalp route is
+  populated.
+- `scripts/renown_v3_sweep.py` (pure) re-scores the frozen log under a 23-config
+  weight grid and reports **(Q1) rank stability** — mean pairwise Spearman of
+  the ranking + Jaccard of the figure set — and **(Q2) the treadmill
+  correlation** — Spearman(renown, hand_count) vs Spearman(renown,
+  performance_drivers).
+
+Validated on a `--from-db` log: **Q1 strong** (mean rankρ=0.997 across all
+perturbations — the ranking is robust to weights; only the gate knobs
+`cut_median`/`w_breadth`/`w_backing` move the figure *set*, as designed). **Q2
+correctly returns N/A** on a scalp-less log (the performance proxy is gutted
+without scalps — which itself confirms scalps are load-bearing for the
+anti-treadmill property). The real Q2 verdict needs the `--from-sim` capture
+(Docker), where scalps are populated:
+`docker compose run --rm --no-deps -v $PWD/scripts:/app/scripts backend python3 scripts/renown_v3_capture.py --from-sim --hands 350 -o /app/data/renown_log_sim.json`
+then `python3 scripts/renown_v3_sweep.py data/renown_log_sim.json`.
+
+**Sim capture RAN (2026-06-01, Docker) — harness end-to-end-validated, but the
+synthetic field is too homogeneous for a real treadmill verdict.** The
+`--from-sim` path works: it runs the rule-based engine with **zero LLM calls**
+(seeded from real `personalities.json` names so the engine resolves existing
+configs instead of LLM-generating them — the `bot_NN` synthetic path triggered
+a paid DeepSeek call per id, fixed), no DB writes, and derives scalps via the
+helper (207 scalps over ~2,800 hands). Q1 rank stability is strong (mean
+rankρ=0.998). **But Q2 is DEGENERATE and the harness now says so** rather than
+printing the trivial PASS: every bot played exactly 350 hands (rebuy-in-place →
+**zero variance on the volume axis**, so renown can only track performance by
+construction), and the fish/shark archetype split produced **no skill gradient**
+(fish 3.71 scalps/3.71 busts ≈ sharks 4.92/4.92 — the fake-`bankroll_repo`
+`'fish'` archetype isn't meaningfully weaker than the default TieredBot in
+self-play). A flat field also yields **0 "figures"** (nobody reaches 3×median).
+
+A scalp-driven verdict needs a **skill-tiered** field, and a premise check
+killed that path: the real sandbox's personas are **not** skill-tiered —
+`personalities.config_json` carries an `archetype`/`rule_strategy` for only
+**2 of 80** entities (the rest default TieredBot). So a self-play sim can't
+manufacture a skill→scalp gradient with the real `bankroll_repo` either; the
+scalp/villain route is genuinely untestable on this field without authoring
+tiered opponents. (Checking the data first avoided building a DB-extract
+pipeline that would have produced the same flat result.)
+
+**But the real DB field already has the heterogeneity the treadmill question
+needs** — real *volume* (`total_hands`) and real *performance* (chips won,
+net worth) from months of play. Running the sweep there (`--from-db` log) gives
+the first honest, non-degenerate verdict:
+
+- `Spearman(renown, hand_count)` = **+0.66** (volume)
+- `Spearman(renown, peak_net_worth)` = **+0.59** (wealth standing)
+- `Spearman(renown, chips_won_vs_field)` = **+0.02** (barely)
+- **VOLUME-LEAN ⚠️** — renown tracks raw volume *more* than real performance.
+
+So v2's current weights reward **out-grinding over out-performing**: breadth +
+tenure + backing dominate, and actually *winning* barely registers. Rank
+stability is otherwise strong (mean rankρ=0.997). The designed fix —
+**wall-clock denomination** of the volume drivers — turned out to be testable
+offline after all: `holdings_snapshots` per-entity **distinct-tick counts**
+vary (271–637, spread 0.61), giving a *presence/lifespan* proxy for wall-clock
+that's independent of how many hands an entity crammed into those ticks. The
+`--from-db` loader now sets `wall_clock_hours` from that proxy, and with
+`volume_denominator='wallclock'` the lean **flips to a clean PASS**:
+
+| metric | hands-denominated | wall-clock (presence) proxy |
+|---|---|---|
+| renown ↔ hand_count (volume) | +0.66 | **+0.38** |
+| renown ↔ net_worth (performance) | +0.59 | **+0.72** |
+| verdict | VOLUME-LEAN ⚠️ | **PASS ✅** |
+
+So the core anti-treadmill lever is **validated on real data**: wall-clock
+denomination makes renown track wealth-standing (0.72) well above raw volume
+(0.38). Caveat: the proxy is *ticks-tracked-in-sandbox* (presence/lifespan),
+not active-table minutes — directionally right, magnitude indicative.
+(Confound was clean: `hand_count ↔ net_worth = +0.05`, so the axes are
+genuinely separable — the lean was a formula artifact, not collinear data.) The
+blunt alternative — down-weighting breadth/tenure ~0.75× — also flips it
+(`renown_v3_rebalance.py`), but wall-clock denomination is the principled fix.
+
+**Live-play needed to settle the balance: zero.** The presence proxy let the
+last untestable-looking lever (wall-clock denomination) be validated offline.
+What still needs a live/authored run is only the *shipped feature*'s end-to-end
+behaviour and the **scalp/villain route** (which needs a skill-tiered field —
+absent here, 2 of 80 personas tiered).
+
+(A `hand_count` CV<0.05 guard blocks degenerate PASSes; the verdict uses
+formula-independent ground-truth signals, not renown's own driver split.)
+
+### v2 implemented (read-side, additive) — 2026-06-01
+
+The validated offline scorer (`scripts/renown_v2_scorer.py`) is **ported into
+production** as a NEW, additive, field-aware layer in `cash_mode/prestige.py`,
+running **alongside** the unchanged v1 `compute_prestige` (still the live human
+path). The math is a faithful, oracle-tested port (the new
+`tests/test_cash_mode/test_prestige_v2.py` imports the scorer and asserts
+**bit-for-bit parity** — max renown diff 0.0 — on the Rung-1 archetype field,
+including the verdicts: 4 routes ≥ cut, control below, volume bogey not high
+under wall-clock, bogey tops the board under `'hands'`).
+
+Landed NOW (safe / pure / no schema / no ticker surgery):
+- `RenownInputsV2` / `WeightsV2` / `FieldContextV2` / `FieldRenown` dataclasses;
+  concave helpers `_v2_sqrt` / `_v2_log1p` / `_v2_relative`; `compute_components_v2`;
+  the isolated `renown_scalp_points` driver (scalp quality = `base + quality ·
+  victim_field_percentile`, `log1p(count)` per victim).
+- `score_renown_field(entities, weights)` — the **pure, field-wide, AI-symmetric**
+  entry point (two-pass victim-percentile; field medians + the relative
+  `high_renown_cut = max(top-20%, 3×median)` computed once over the whole field).
+- `quadrant_label_relative(renown, regard, high_cut)` — returns the **same 4
+  `QUADRANT_*` strings** v1 does, so the 4 world hooks keep working unchanged
+  (they switch on the quadrant string, never the numeric threshold). v1's
+  absolute `quadrant_label` (0.40) is kept byte-for-byte for v1 callers.
+- `build_renown_inputs_from_repos(...)` — repo-injected, **degrade-to-zero**
+  builder over the same sources rung2 used (cash_pair_stats, sessions, inbound
+  edges, the already-live `cash_scalps` counter; holdings/stake surfaces are
+  tolerant of an absent repo/method — those are part of the deferred stage).
+- `ReputationScore` gains **optional v2 fields with defaults** (`renown_v2`, the
+  6 v2 components, `high_renown_cut`, `formula_version`) appended AFTER every v1
+  field, so the frozen dataclass and the positional `repo.record()` are
+  unaffected (covered by a must-stay-green construction test).
+- `economy_flags.RENOWN_V2_ENABLED = False` — the kill switch / seam the
+  deferred stage flips; gates nothing live now.
+
+**DEFERRED** (risky / irreversible — NOT in this slice, intentionally):
+(A) the `prestige_snapshots` schema change to persist AI renown (v122 table,
+`load_renown_peak` MAX ratchet — must be sim-validated); (B) ticker surgery to
+compute the whole field every cycle and persist the human's v2 columns
+(`CYCLE_BUDGET_MS=250ms`, O(N) DB-read-heavy with 50+ AIs — must be docker-exec
+stress-validated); (C) flipping `RENOWN_V2_ENABLED` so the hooks read
+`quadrant_label_relative`; (D) the frontend `ReputationPanel` branch on
+`formula_version` for the uncapped gauge. **Legibility guardrail preserved**: no
+v2 renown value ever enters `generate_bounded_options` / `OptionProfile` / any
+controller decision path — v2 is side-channel-only, exactly like v1.
 
 ## Renown as a live competition — world speed & keeping pace
 

@@ -501,8 +501,11 @@
   color: var(--rep-hostile);
 }
 
-/* Regard rows are label + signed value (no bar / cap). */
-.rep-panel__group--regard .rep-panel__driver {
+/* Regard rows — and the v2 renown ledger, which is numbers-only (no bar) — are
+   label + value. Share the same 2-col grid so the figures align across both
+   groups (the default 3-col grid would strand the number in the bar column). */
+.rep-panel__group--regard .rep-panel__driver,
+.rep-panel__group--bare .rep-panel__driver {
   grid-template-columns: 1fr 36px;
 }
 

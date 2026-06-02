@@ -294,7 +294,21 @@ _test_schema_template_path = None
 #       OpponentTendencies._SERIAL_FIELDS first so they serialize per-game.
 #       Player/coach-facing read only. 2 INTEGER columns. Guarded ALTER,
 #       idempotent.
-SCHEMA_VERSION = 136
+# v136: Retire the deprecated 4D emotion model — DROP the emotional_state table
+#       (consolidated into controller_state.psychology_json) and the
+#       valence/arousal/control/focus columns on player_decision_analysis.
+# v137: Create `cash_scalps` — durable, sandbox-scoped, attributed "who busted
+#       whom" counter (per eliminator→victim pair, so renown-weighting can read
+#       the victim's standing). Forward-only; AI-symmetric. The shared
+#       prerequisite for the Renown-v2 scalp driver (villain route) and the
+#       bounty/double_knockout achievements. Renumbered from v132 on the
+#       renown→development merge (development reached v136 first). See
+#       CASH_MODE_SCALP_TRACKER.md.
+# v138: extend prestige_snapshots with the Renown-v2 columns (uncapped,
+#       field-relative score) — additive, computed-but-unconsumed until
+#       RENOWN_V2_ENABLED flips. Renumbered from v133 on the renown→development
+#       merge. See CASH_MODE_PLAYER_PRESTIGE.md.
+SCHEMA_VERSION = 138
 
 
 class SchemaManager:
@@ -2120,6 +2134,14 @@ class SchemaManager:
             136: (
                 self._migrate_v136_drop_4d_emotion,
                 "Retire the deprecated 4D emotion model: DROP the emotional_state table (consolidated into controller_state.psychology_json) and the valence/arousal/control/focus columns on player_decision_analysis. Emotion is now the quadrant model (trait-aware family x quadrant). NOTE: numbered 136 (not 130) because this branch (polish, schema v129) diverged before development reached v135; 130-135 belong to development and are skipped here if absent.",
+            ),
+            137: (
+                self._migrate_v137_create_cash_scalps,
+                "Create cash_scalps table — durable sandbox-scoped attributed 'who busted whom' counter (per eliminator→victim pair), the shared prerequisite for the Renown-v2 scalp driver and bounty achievements. Forward-only, AI-symmetric. Renumbered from v132 on the renown→development merge.",
+            ),
+            138: (
+                self._migrate_v138_add_prestige_v2_columns,
+                "Extend prestige_snapshots with the Renown-v2 columns (formula_version, uncapped renown_v2, victim_percentile, field-wide high_cut, v2 component JSON, field_size) so the human's field-relative uncapped score persists ADDITIVELY alongside v1. Computed-but-unconsumed until RENOWN_V2_ENABLED flips. Non-destructive ADD COLUMNs. Renumbered from v133 on the renown→development merge.",
             ),
         }
 
@@ -7156,4 +7178,110 @@ class SchemaManager:
             "Migration v135 complete: %d flop-check-barrel column(s) added to "
             "opponent_observation_lifetime",
             len(new_columns),
+        )
+
+    def _migrate_v137_create_cash_scalps(self, conn: sqlite3.Connection) -> None:
+        """Migration v137: create `cash_scalps` — durable attributed bust counter.
+
+        A sandbox-scoped cumulative count of eliminations, keyed per
+        (eliminator, victim) pair so renown-weighting can read the *victim's*
+        standing (busting a legend ≫ a nobody) rather than just a flat count.
+
+        Ids are raw (no `player:`/`ai:` prefix), mirroring `cash_pair_stats`:
+        `owner_id` for the human, `personality_id` for AIs. AI-symmetric (the
+        eliminator may be an AI) and forward-only (counts start at 0; nothing
+        backfilled). Populated by `cash_mode/scalps.py` attribution off the
+        world-sim and the human's hand. Non-destructive, idempotent.
+
+        Renumbered from v132 on the renown→development merge (development
+        reached v136 first). See docs/plans/CASH_MODE_SCALP_TRACKER.md.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_scalps (
+                sandbox_id     TEXT NOT NULL,
+                eliminator_id  TEXT NOT NULL,
+                victim_id      TEXT NOT NULL,
+                count          INTEGER NOT NULL DEFAULT 0,
+                last_at        TIMESTAMP,
+                PRIMARY KEY (sandbox_id, eliminator_id, victim_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_scalps_eliminator
+                ON cash_scalps(sandbox_id, eliminator_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_scalps_victim
+                ON cash_scalps(sandbox_id, victim_id)
+        """)
+        logger.info("Migration v137 complete: cash_scalps table created")
+
+    def _migrate_v138_add_prestige_v2_columns(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v138: extend `prestige_snapshots` with the Renown-v2 columns.
+
+        v1 persisted a CAPPED [0,1] renown with a fixed absolute quadrant cut
+        (0.40). v2 is **uncapped, concave, and field-relative** — it scores the
+        human against the whole field and classifies the quadrant by a
+        self-scaling cut (`max(top-X%, k×median)`) instead of a constant. The
+        validated v2 math already lives in `cash_mode/prestige.py`
+        (`score_renown_field` et al.) behind the default-OFF `RENOWN_V2_ENABLED`
+        flag; this migration gives it somewhere to land.
+
+        The columns are ADDITIVE and nullable/defaulted so the v1 columns stay
+        the stable baseline:
+          - `formula_version` — which formula wrote the CONSUMED columns
+            (`quadrant`, etc.) for this row: 'v1' (absolute) or 'v2' (relative).
+            The 4 reputation hooks + the lobby read the `quadrant` STRING
+            unchanged; `formula_version` only tells the panel which gauge to
+            render. Existing rows default to 'v1'.
+          - `renown_v2` — the uncapped lifetime renown points (NULL on v1 rows).
+            Ratchets via its own `MAX(renown_v2)` peak load (the v1 `renown`
+            column keeps its own independent ratchet; the two scales never mix).
+          - `victim_percentile` — the human's own field renown percentile [0,1].
+          - `high_cut` — the field-wide high-renown cut at capture time (same
+            for every entity that cycle; persisted so the panel can show the
+            gap to "figure" status).
+          - `renown_v2_components` — JSON of the v2 driver breakdown (scalps,
+            top1, peak_worth, backing, legendary, tenure, breadth, stakes,
+            apex), the v2 analogue of the renown_*/regard_* columns.
+          - `field_size` — entities scored that cycle (context for the panel and
+            for debugging the relative cut).
+
+        Every ALTER is PRAGMA-guarded so the migration is safe on a partially
+        applied DB. Non-destructive, idempotent. Renown stays a read-only
+        scoreboard — nothing here feeds AI decision thresholds. Renumbered from
+        v133 on the renown→development merge. See
+        docs/plans/CASH_MODE_PLAYER_PRESTIGE.md (Renown v2) and
+        docs/plans/RENOWN_V2_HANDOFF.md.
+        """
+        # (column, sql_type, default_clause) — all nullable except the version
+        # tag, which defaults to 'v1' so historical rows read as the old formula.
+        new_columns = [
+            ("formula_version", "TEXT", "NOT NULL DEFAULT 'v1'"),
+            ("renown_v2", "REAL", ""),
+            ("victim_percentile", "REAL", ""),
+            ("high_cut", "REAL", ""),
+            ("renown_v2_components", "TEXT", ""),
+            ("field_size", "INTEGER", ""),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(prestige_snapshots)"
+            ).fetchall()
+        }
+        added = 0
+        for col, sql_type, default_clause in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE prestige_snapshots "
+                    f"ADD COLUMN {col} {sql_type} {default_clause}".rstrip()
+                )
+                added += 1
+        logger.info(
+            "Migration v138 complete: %d Renown-v2 column(s) added to "
+            "prestige_snapshots",
+            added,
         )

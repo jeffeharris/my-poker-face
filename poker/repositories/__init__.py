@@ -21,6 +21,8 @@ from .guest_tracking_repository import GuestTrackingRepository
 from .hand_history_repository import HandHistoryRepository
 from .holdings_snapshots_repository import HoldingsSnapshotsRepository
 from .prestige_snapshots_repository import PrestigeSnapshotsRepository
+from .cash_scalps_repository import CashScalpsRepository
+from .renown_field_repository import RenownFieldRepository
 from .llm_repository import LLMRepository
 from .personality_repository import PersonalityRepository
 from .prompt_capture_repository import PromptCaptureRepository
@@ -88,6 +90,8 @@ def create_repos(db_path: str) -> dict:
         'user_avatar_repo': UserAvatarRepository(db_path),
         'holdings_snapshots_repo': HoldingsSnapshotsRepository(db_path),
         'prestige_snapshots_repo': PrestigeSnapshotsRepository(db_path),
+        'cash_scalps_repo': CashScalpsRepository(db_path),
+        'renown_field_repo': RenownFieldRepository(db_path),
         'entity_presence_repo': EntityPresenceRepository(db_path),
         'db_path': db_path,
     }
@@ -109,6 +113,8 @@ __all__ = [
     'HandHistoryRepository',
     'HoldingsSnapshotsRepository',
     'PrestigeSnapshotsRepository',
+    'CashScalpsRepository',
+    'RenownFieldRepository',
     'LLMRepository',
     'PersonalityRepository',
     'PressureEventRepository',
