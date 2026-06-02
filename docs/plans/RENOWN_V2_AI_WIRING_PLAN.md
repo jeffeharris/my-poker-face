@@ -28,6 +28,9 @@ renown, and decide what consumes it. Spec: `CASH_MODE_PLAYER_PRESTIGE.md`
   `RENOWN_V2_PERSIST_AI` default **OFF**, zero live behavior change.
 - **Stress gate RUN** (live 81-entity field, `guest_jeff` sandbox
   `4db9b9f2-…`). Verdict and the bottleneck it exposed are below under A4.
+- **`build_inputs` OPTIMIZED** (`4ff4b087`): the ~523ms field read the gate
+  exposed is now ~185ms (SQL-aggregate the holdings read + v140 covering index).
+  Parity preserved. Details under A4.
 
 ## TL;DR
 
@@ -226,14 +229,32 @@ fallback` posture).
      per 5min per sandbox. It backs up only if many active sandboxes recompute in
      the same window.
 
-   **Gate conclusion: the AI fan-out is safe to enable independently. But before
-   flipping `RENOWN_V2_ENABLED` (human OR AI) on a busy multi-sandbox field,
-   `build_inputs` should be optimized or the prestige recompute moved off the
-   `CYCLE_BUDGET_MS`-governed tick** (e.g. its own throttled worker, or amortize
-   the field read). That's a separate task on the *human* v2 path — file it
-   there, don't block Stage A's flag on it. If it ever does get tight on the
-   write side: cap to top-K AIs by renown, or stagger AI persistence to a longer
-   interval than the human's 300s.
+   **Gate conclusion: the AI fan-out is safe to enable independently. The
+   ~523ms `build_inputs` it exposed is now OPTIMIZED to ~185ms** (`4ff4b087`):
+   - **SQL-aggregate the holdings read** (the field's largest table). It fetched
+     all 87K snapshot rows and derived three aggregates in a Python loop;
+     now peak + presence are a GROUP BY and time-at-#1 is a per-tick rank window
+     — ~one row per entity + one per tick transferred. **523ms → 368ms**
+     (measured live). Byte-parity preserved (`renown_field_parity.py` PASS, 0
+     mismatches): peak floored at 0.0 to match the old loop, window tie-break
+     `net_worth DESC, entity_id ASC` reproduces the old scan-order first-wins, 0
+     per-tick ties on the real field.
+   - **v140 covering index** `holdings_snapshots(sandbox_id, entity_id,
+     net_worth)` so `MAX(net_worth) GROUP BY entity_id` is index-only. On the
+     live DB the non-covering MAX cost ~200ms (a table lookup per row); the
+     covering sibling `COUNT(DISTINCT captured_at)` over the same rows is ~18ms,
+     so covering drops peak ~200ms→~15ms → build ≈ **~185ms**, under the 250ms
+     cycle budget. (The end-to-end live number lands once the migration runs on
+     the live DB; a fresh-copy timing isn't faithful — warm sequential pages
+     don't reproduce the live DB's cold scattered ones, which is the exact cost
+     the index removes. Evidence: the covering plan + the same-DB
+     presence-vs-peak control.)
+
+   Remaining holdings cost is the time-at-#1 window (~91ms); a second covering
+   index `(sandbox_id, captured_at, net_worth, entity_id)` would make it
+   index-only too, but ~185ms already clears the budget so it's not worth a
+   second index on a ticker-written table. If the write side ever gets tight:
+   cap to top-K AIs by renown, or stagger AI persistence beyond the human's 300s.
 
 ---
 

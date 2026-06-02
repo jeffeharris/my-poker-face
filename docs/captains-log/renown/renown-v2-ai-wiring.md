@@ -79,3 +79,44 @@ at all, not Stage A specifically.
   a wave of FAILED/ERROR in `test_leave_*`/`test_offer_stake_atomicity`. Red
   herring — confirmed passing under `docker compose run`. Nothing in
   prestige/renown/schema failed.
+
+## 2026-06-02 (later) — optimizing build_inputs (the real blocker)
+
+The stress gate said the live blocker is the ~523ms `build_inputs`, not the AI
+fan-out. Optimized it (`4ff4b087`).
+
+Profiled the 6 queries against the live DB: **holdings_snapshots was the whole
+cost** — 261ms to fetch 87K rows, then a Python loop over all of them to derive
+three aggregates (peak net worth, distinct-tick presence, per-tick #1). The
+others summed to ~25ms.
+
+**Fix 1 — aggregate in SQL.** peak + presence via GROUP BY, time-at-#1 via a
+per-tick `ROW_NUMBER` window. Transfers ~1K rows, not 87K. 523→368ms. The parity
+worry was the per-tick #1 tie-break (the prod loader must stay byte-identical to
+the oracle's Python loop). Checked first: **0 ties across all 681 ticks** on the
+real field, so any deterministic argmax matches. Matched the old tie-break
+(`net_worth DESC, entity_id ASC` = smallest prefixed id, the old index-scan
+order) as insurance. Also had to floor peak at 0.0 to match the old
+`defaultdict(float)` loop (a never-positive entity reads 0, not its negative
+MAX). `renown_field_parity.py`: PASS, 0 mismatches.
+
+**Fix 2 — covering index (v140).** 368 was still over the 250ms budget.
+Profiled the new queries: surprise — the bottleneck was `MAX(net_worth)` (200ms),
+NOT the window (99ms). The MAX did a table lookup per row; the sibling
+`COUNT(DISTINCT captured_at)` over the same rows was 18ms because it's covered by
+the existing index. Added `holdings_snapshots(sandbox_id, entity_id, net_worth)`
+→ MAX is index-only. Build ≈ ~185ms.
+
+**The instrument trap (kept honest).** Tried to measure the index win end-to-end
+on a 5GB copy. First copy was **malformed** — I used an `immutable=1` source,
+which ignores the 9.1M WAL and copies a mid-transaction main file (the exact
+WAL-backup trap in the project memory). Redid it from a WAL-aware connection +
+`integrity_check=ok`. But the copy STILL wasn't faithful: it timed 391ms *with*
+the index — because a fresh sequential backup has warm, contiguous pages, so the
+non-covering MAX never pays the cold-scattered-page penalty that made it 200ms on
+the live DB. The copy literally can't show an optimization that targets disk I/O.
+The faithful evidence is the **same-DB control** on the live DB: presence
+(covering) 18ms vs peak (non-covering) 200ms over the identical 87K rows — that's
+what proves covering removes ~185ms. End-to-end live confirmation waits for the
+migration to run on the live DB. Lesson: a fresh DB copy is the wrong instrument
+for an I/O-bound optimization; use a same-DB covering-vs-noncovering control.
