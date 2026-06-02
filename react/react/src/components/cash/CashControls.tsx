@@ -32,7 +32,6 @@ interface CashControlsProps {
   cashMode: CashModeInfo;
   playerStack: number;
   handInProgress: boolean;
-  playerFolded: boolean;
 }
 
 interface LeaveBreakdownPanelProps {
@@ -87,11 +86,11 @@ export function CashControls({
   cashMode,
   playerStack,
   handInProgress,
-  playerFolded,
 }: CashControlsProps) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [leaveResult, setLeaveResult] = useState<LeaveResponse | null>(null);
 
@@ -100,16 +99,18 @@ export function CashControls({
   // disabled (no legal top-up).
   const headroom = Math.max(0, cashMode.max_buy_in - playerStack);
   const topUpAmount = Math.min(headroom, cashMode.bankroll);
-  // Mid-hand top-up is allowed once the human has folded — they're
-  // out of the betting for this hand, so adding chips to the stack
-  // just stages them for the next deal.
-  const topUpBlocked = handInProgress && !playerFolded;
-  const canTopUp = !busy && !topUpBlocked && topUpAmount > 0;
+  // A mid-hand top-up no longer fails: the backend stages it and the
+  // chips land at the start of the next hand. So the only hard block is
+  // having no headroom / no bankroll. `willStage` only drives the copy —
+  // when the hand is live (folded or not) the chips arrive next deal.
+  const willStage = handInProgress;
+  const canTopUp = !busy && topUpAmount > 0;
 
   const handleTopUp = useCallback(async () => {
     if (!canTopUp) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(`${config.API_URL}/api/cash/topup`, {
         method: 'POST',
@@ -117,15 +118,20 @@ export function CashControls({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: topUpAmount }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         if (res.status === 404 && data.error === 'No active cash session') {
           navigate('/cash');
           return;
         }
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      // State refresh comes via the SocketIO emit triggered by the route.
+      // Staged top-ups land next hand, so the SocketIO state refresh
+      // won't show the chips yet — surface a note so the click doesn't
+      // feel like a no-op. Immediate top-ups just reflect via the emit.
+      if (data.staged) {
+        setNotice(`+$${topUpAmount.toLocaleString()} added at the start of your next hand`);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('Top up failed:', msg);
@@ -183,6 +189,14 @@ export function CashControls({
     return () => clearTimeout(t);
   }, [confirmLeave]);
 
+  // Auto-dismiss the "added next hand" note so it doesn't linger past the
+  // deal it refers to.
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   return (
     <div className="cash-controls glass">
       <div className="cash-controls__row">
@@ -200,16 +214,21 @@ export function CashControls({
           disabled={!canTopUp}
           className="cash-controls__topup"
           title={
-            topUpBlocked
-              ? 'Top up between hands (or after you fold)'
-              : cashMode.bankroll === 0
-                ? 'No bankroll left to top up'
+            cashMode.bankroll === 0
+              ? 'No bankroll left to top up'
+              : willStage
+                ? `Adds $${topUpAmount.toLocaleString()} at the start of your next hand`
                 : `Top up $${topUpAmount.toLocaleString()}`
           }
         >
-          {busy && !confirmLeave ? 'Topping up…' : `Top up +$${topUpAmount.toLocaleString()}`}
+          {busy && !confirmLeave
+            ? 'Topping up…'
+            : willStage
+              ? `Top up next hand +$${topUpAmount.toLocaleString()}`
+              : `Top up +$${topUpAmount.toLocaleString()}`}
         </button>
       )}
+      {notice && <div className="cash-controls__notice">{notice}</div>}
       {confirmLeave && cashMode.active_loan && (
         <LeaveBreakdownPanel stack={playerStack} loan={cashMode.active_loan} />
       )}

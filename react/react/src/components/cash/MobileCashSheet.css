@@ -269,6 +269,14 @@
   font-size: 0.8125rem;
 }
 
+.mobile-cash-sheet__notice {
+  padding: 0.5rem 0.75rem;
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+
 .mobile-cash-sheet__breakdown {
   margin-top: 0.5rem;
   padding: 0.625rem 0.75rem;

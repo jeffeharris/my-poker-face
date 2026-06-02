@@ -3616,6 +3616,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     try:
         state_machine.run_until_player_action()
+        # Flush any top-up the human staged mid-hand now that the fresh
+        # stack exists. Done before set_game/emit so the credited stack is
+        # what gets persisted and shown for the new hand.
+        _flush_pending_topup(game_id, game_data, state_machine)
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
@@ -3667,6 +3671,96 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         return state_machine.game_state, True
 
     return state_machine.game_state, False
+
+
+def _flush_pending_topup(game_id: str, game_data: dict, state_machine) -> None:
+    """Apply a cash top-up the human staged mid-hand, at the next deal.
+
+    A human who clicks "Top up" mid-hand (folded or still in the pot)
+    can't have their live stack touched, so ``/api/cash/topup`` parks the
+    amount in ``game_data['pending_topup']`` instead of racing the
+    auto-dealt next hand (which used to make the request hang on the game
+    lock and then 400). This runs right after the next hand is dealt: it
+    debits the bankroll and credits the fresh stack.
+
+    Debiting *here* — not at request time — is deliberate: until the
+    chips actually land on the stack no money has left the bankroll, so a
+    leave / bust / session-drop before this point can't strand committed
+    chips. The bankroll debit is persisted before the stack credit so a
+    failure can't mint chips; on any error the stage is left intact and
+    retried at the following deal. Best-effort: never raises into the
+    hand-progression flow.
+    """
+    try:
+        pending = int(game_data.get('pending_topup', 0) or 0)
+    except (TypeError, ValueError):
+        pending = 0
+    if pending <= 0:
+        return
+
+    human_idx = next(
+        (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
+        None,
+    )
+    if human_idx is None:
+        # Human isn't seated this deal (e.g. just left). Nothing was
+        # debited, so no chips are at risk — leave the stage parked.
+        return
+
+    try:
+        from cash_mode.bankroll import PlayerBankrollState
+        from flask_app.extensions import bankroll_repo
+
+        if bankroll_repo is None:
+            return
+        owner_id, _owner_name = game_state_service.get_game_owner_info(game_id)
+        bankroll = bankroll_repo.load_player_bankroll(owner_id)
+        if bankroll is None or bankroll.chips <= 0:
+            # No bankroll to draw from — drop the stale stage so it can't
+            # silently apply later.
+            game_data.pop('pending_topup', None)
+            return
+
+        applied = min(pending, bankroll.chips)
+        # Debit the persistent side first; only credit the live stack once
+        # the debit is committed.
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=bankroll.chips - applied,
+                starting_bankroll=bankroll.starting_bankroll,
+            )
+        )
+        new_stack = state_machine.game_state.players[human_idx].stack + applied
+        state_machine.game_state = state_machine.game_state.update_player(
+            human_idx, stack=new_stack
+        )
+        game_data.pop('pending_topup', None)
+    except Exception as e:
+        logger.error(
+            "[CASH] Failed to flush staged top-up game_id=%r: %s",
+            game_id, e, exc_info=True,
+        )
+        return
+
+    # Mirror the immediate top-up path: count it toward leave-time P&L and
+    # emit the paired buy-in ledger row. Best-effort — the chips are
+    # already on the stack, so accounting hiccups must not unwind them.
+    try:
+        from flask_app.routes.cash_routes import _increment_cash_session_buy_in
+
+        _increment_cash_session_buy_in(game_id, applied)
+    except Exception as e:
+        logger.error(
+            "[CASH] Staged top-up buy-in accounting failed game_id=%r: %s",
+            game_id, e, exc_info=True,
+        )
+
+    logger.info(
+        "[CASH] Flushed staged top-up game_id=%r applied=%d new_stack=%d",
+        game_id, applied, new_stack,
+    )
+    send_message(game_id, "Table", f"You topped up ${applied:,}.", "table")
 
 
 def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:

@@ -628,7 +628,6 @@ export function PokerTable({
                     gameState.phase !== 'HAND_OVER' &&
                     gameState.phase !== 'EVALUATING_HAND'
                   }
-                  playerFolded={!!humanPlayer.is_folded}
                 />
               )}
               <StatsPanel
