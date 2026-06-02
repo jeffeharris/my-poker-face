@@ -304,11 +304,15 @@ _test_schema_template_path = None
 #       bounty/double_knockout achievements. Renumbered from v132 on the
 #       renown→development merge (development reached v136 first). See
 #       CASH_MODE_SCALP_TRACKER.md.
+# v139: add `entity_kind` to prestige_snapshots so AI entities get their own
+#       persisted, field-relative renown rows (Stage A of the AI-wiring plan).
+#       Existing rows default to 'player' (the human); AI rows write 'ai'. See
+#       docs/plans/RENOWN_V2_AI_WIRING_PLAN.md.
 # v138: extend prestige_snapshots with the Renown-v2 columns (uncapped,
 #       field-relative score) — additive, computed-but-unconsumed until
 #       RENOWN_V2_ENABLED flips. Renumbered from v133 on the renown→development
 #       merge. See CASH_MODE_PLAYER_PRESTIGE.md.
-SCHEMA_VERSION = 138
+SCHEMA_VERSION = 139
 
 
 class SchemaManager:
@@ -2142,6 +2146,10 @@ class SchemaManager:
             138: (
                 self._migrate_v138_add_prestige_v2_columns,
                 "Extend prestige_snapshots with the Renown-v2 columns (formula_version, uncapped renown_v2, victim_percentile, field-wide high_cut, v2 component JSON, field_size) so the human's field-relative uncapped score persists ADDITIVELY alongside v1. Computed-but-unconsumed until RENOWN_V2_ENABLED flips. Non-destructive ADD COLUMNs. Renumbered from v133 on the renown→development merge.",
+            ),
+            139: (
+                self._migrate_v139_add_prestige_entity_kind,
+                "Add entity_kind to prestige_snapshots ('player'|'ai', existing rows default 'player') + an (sandbox_id, entity_kind, owner_id, renown_v2) index, so AI entities get their own persisted field-relative renown rows. owner_id is the universal subject id (human owner_id or AI personality_id); entity_kind disambiguates so the human's load_latest never matches AI rows. Stage A of the AI-wiring plan. Non-destructive ADD COLUMN.",
             ),
         }
 
@@ -7282,6 +7290,58 @@ class SchemaManager:
                 added += 1
         logger.info(
             "Migration v138 complete: %d Renown-v2 column(s) added to "
+            "prestige_snapshots",
+            added,
+        )
+
+    def _migrate_v139_add_prestige_entity_kind(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v139: give `prestige_snapshots` an entity identity.
+
+        Until now the table held only the human (keyed `(sandbox_id, owner_id)`,
+        `owner_id` always the human user). To persist a **field-relative renown
+        for every AI** (the field scorer already computes it each cycle and
+        throws it away), we treat `owner_id` as the **universal subject id** —
+        the human's `owner_id` *or* an AI's raw `personality_id`, matching the
+        raw-id scheme `RenownFieldRepository`/`cash_scalps` already use — and add
+        one discriminator column:
+
+          - `entity_kind` TEXT NOT NULL DEFAULT 'player' — 'player' | 'ai'.
+
+        Existing rows default to 'player', so every current
+        `load_latest(sandbox, owner)` keeps returning exactly the human's rows
+        (AI rows carry 'ai' and a distinct `owner_id`). The invariant the repo
+        and tests enforce: **`owner_id` is the subject, `entity_kind`
+        disambiguates** — never set an AI row's `owner_id` to the sandbox owner,
+        or the human's `load_latest` would start matching AI rows.
+
+        Also adds `idx_prestige_snap_kind(sandbox_id, entity_kind, owner_id,
+        renown_v2)` to serve the batched per-AI v2-peak GROUP BY and a future
+        leaderboard read.
+
+        Additive, PRAGMA-guarded, idempotent. Non-destructive. See
+        docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A).
+        """
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(prestige_snapshots)"
+            ).fetchall()
+        }
+        added = 0
+        if "entity_kind" not in existing:
+            conn.execute(
+                "ALTER TABLE prestige_snapshots "
+                "ADD COLUMN entity_kind TEXT NOT NULL DEFAULT 'player'"
+            )
+            added += 1
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prestige_snap_kind
+                ON prestige_snapshots(sandbox_id, entity_kind, owner_id, renown_v2)
+        """)
+        logger.info(
+            "Migration v139 complete: %d entity-kind column(s) added to "
             "prestige_snapshots",
             added,
         )

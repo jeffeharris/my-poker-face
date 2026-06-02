@@ -238,6 +238,18 @@ CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 # set RENOWN_V2_ENABLED=1 in a dev .env to turn the field-relative gauge on.
 RENOWN_V2_ENABLED: bool = _env_flag("RENOWN_V2_ENABLED", False)
 
+# Persist a field-relative renown row for every AI entity (not just the human)
+# each ticker recompute. The field scorer already computes every AI's renown and
+# discards it; this writes those rows so AI fame can be surfaced (dossier badge,
+# marquee table, whereabouts). Pure infrastructure — produces DATA, changes no
+# behavior on its own; the consumers are separate (Stage B). IMPLIES
+# RENOWN_V2_ENABLED (the overlay only scores the field when that's on). Its own
+# kill switch so the per-AI write fan-out can be disabled independently of the
+# human gauge. MUST be stress-validated (50+ AIs under CYCLE_BUDGET_MS) before
+# enabling on a real field. Default OFF. See
+# docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A).
+RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
+
 
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
