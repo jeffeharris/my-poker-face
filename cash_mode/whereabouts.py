@@ -150,6 +150,29 @@ def _idle_recharge_fraction(
     return round(min(1.0, projected / baseline), 3)
 
 
+def _current_energy(
+    bankroll_repo: Any, pid: str, sandbox_id: str, idle_seconds: Optional[int]
+) -> Optional[float]:
+    """Absolute energy axis (0..1) for an AI — how peppy vs. drained it is right
+    now. Projects rest-recovery toward baseline when the AI is idle (mirrors the
+    re-seat gate's view); returns the stored value otherwise. None when there's
+    no persisted psychology to read. Best-effort — surfaced as a bar in the
+    admin panel so a flat-lined (exhausted) AI is visible at a glance."""
+    if bankroll_repo is None:
+        return None
+    try:
+        blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
+        if not blob:
+            return None
+        state = json.loads(blob)
+        stored = float(state.get("axes", {}).get("energy", 0.5))
+        baseline = float(state.get("anchors", {}).get("baseline_energy", stored))
+    except Exception:
+        return None
+    energy = project_idle_energy(stored, baseline, float(idle_seconds)) if idle_seconds else stored
+    return round(max(0.0, min(1.0, energy)), 3)
+
+
 def _recent_events_for(
     bankroll_repo: Any,
     pid: str,
@@ -364,6 +387,10 @@ def build_whereabouts(
             # Lets the lobby show how rested an idle AI is (1.0 = fully
             # recharged, ~ready to return to a seat).
             "recharge": None,
+            # energy — absolute energy axis (0..1), idle-recovery-projected;
+            # rendered as a bar so an exhausted (drained) AI stands out. None
+            # when the AI has no persisted psychology yet.
+            "energy": None,
             # recent notable hand events (bust/suckout/big pot), newest last;
             # [] for AIs with no recent drama. The world's short-term memory.
             "recent": _recent_events_for(bankroll_repo, pid, sandbox_id, names),
@@ -410,6 +437,16 @@ def build_whereabouts(
             record["ends_at"] = _iso(state.ends_at)
             record["seconds_in_state"] = _seconds_between(now, state.started_at)
             record["seconds_remaining"] = _seconds_between(state.ends_at, now)
+
+        # Energy bar (best-effort): project idle recovery only while idle,
+        # otherwise the stored axis. Available for every status that has
+        # persisted psychology.
+        record["energy"] = _current_energy(
+            bankroll_repo,
+            pid,
+            sandbox_id,
+            record["seconds_in_state"] if status == STATUS_IDLE else None,
+        )
 
         # Partition: hard flags are real bugs (alarm); soft flags are
         # temporal and expected after the player's been away (watch).

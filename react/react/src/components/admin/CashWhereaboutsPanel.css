@@ -238,3 +238,49 @@
   background: rgba(224, 176, 32, 0.16);
   color: #e6c558;
 }
+
+/* energy bar — peppy (green) → drained (red) at a glance */
+.cwp-energy-cell {
+  min-width: 96px;
+}
+
+.cwp-energy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cwp-energy__track {
+  flex: 1;
+  height: 8px;
+  min-width: 48px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.cwp-energy__fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.cwp-energy__fill--high {
+  background: #5fc97f;
+}
+
+.cwp-energy__fill--mid {
+  background: #e6c558;
+}
+
+.cwp-energy__fill--low {
+  background: #ff7a7a;
+}
+
+.cwp-energy__pct {
+  font-size: 11px;
+  color: #9aa3ad;
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: right;
+}

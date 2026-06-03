@@ -455,6 +455,9 @@ export interface WhereaboutsPerson {
   /** Recharge fraction 0..1 toward the AI's baseline while resting in the idle
    *  pool (1.0 = fully rested); null for seated/off-grid AIs. */
   recharge: number | null;
+  /** Absolute energy axis 0..1 (idle-recovery-projected) — how peppy vs.
+   *  drained the AI is right now; null when no persisted psychology. */
+  energy: number | null;
   /** The AI's last few notable hand events (bust/suckout/big pot), newest
    *  last — the world's short-term memory. [] when no recent drama. */
   recent: { type: string; amount: number; opponent: string | null }[];
