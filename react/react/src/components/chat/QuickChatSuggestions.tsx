@@ -415,42 +415,36 @@ export function QuickChatSuggestions({
         </div>
       </div>
 
-      {/* Delivery register — sits directly below the tone it modifies, and
-          appears as soon as a tone is picked. Remembered per-tone. Sarcastic
-          is offered only on tones with a surface to invert (warm/hostile
-          relationship tones), where its effect flips: banter (trash talk),
-          backhand (props). */}
+      {/* Delivery + Length share one controls row, directly below the tone.
+          Appears as soon as a tone is picked. Delivery register is remembered
+          per-tone; sarcastic is offered only on tones with a surface to invert
+          (banter on trash talk, backhand on props). */}
       {selectedTone && (
         <div className="delivery-selector">
-          <div className="selector-label">Delivery?</div>
-          <div className="toggle-group toggle-group-wide">
-            {availableRegisters.map((register) => {
-              const meta = REGISTER_META[register];
-              return (
-                <button
-                  key={register}
-                  className={`toggle-btn toggle-btn-lg ${intensity === register ? 'active' : ''}`}
-                  onClick={() => selectIntensity(register)}
-                  title={`${meta.label} — ${meta.hint}`}
-                >
-                  <span className="toggle-btn-emoji">{meta.emoji}</span>
-                  <span className="toggle-btn-text">{meta.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          {/* Live hint: teaches what the selected register does (esp. sarcastic,
-              the novel one) — the mobile-friendly stand-in for a tooltip. */}
-          <div className="delivery-hint">{REGISTER_META[intensity].hint}</div>
-        </div>
-      )}
-
-      {/* Suggestions display */}
-      {(loading || suggestions.length > 0) && (
-        <div className="suggestions-section">
-          <div className="suggestions-header">
-            <div className="selector-label">Say:</div>
-            <div className="modifier-toggles">
+          <div className="controls-row">
+            <div className="control-group">
+              <div className="selector-label">Delivery</div>
+              <div className="toggle-group">
+                {availableRegisters.map((register) => {
+                  const meta = REGISTER_META[register];
+                  return (
+                    <button
+                      key={register}
+                      className={`toggle-btn toggle-btn-lg ${intensity === register ? 'active' : ''}`}
+                      onClick={() => selectIntensity(register)}
+                      title={`${meta.label} — ${meta.hint}`}
+                    >
+                      {/* Text-only here so Delivery + Length fit one row even on
+                          narrow phones; the label + live hint carry the meaning
+                          (the emoji lived only as decoration). */}
+                      <span className="toggle-btn-text">{meta.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="control-group">
+              <div className="selector-label">Length</div>
               <div className="toggle-group">
                 <button
                   className={`toggle-btn toggle-btn-lg ${length === 'short' ? 'active' : ''}`}
@@ -468,6 +462,18 @@ export function QuickChatSuggestions({
                 </button>
               </div>
             </div>
+          </div>
+          {/* Live hint: teaches what the selected register does (esp. sarcastic,
+              the novel one) — the mobile-friendly stand-in for a tooltip. */}
+          <div className="delivery-hint">{REGISTER_META[intensity].hint}</div>
+        </div>
+      )}
+
+      {/* Suggestions display */}
+      {(loading || suggestions.length > 0) && (
+        <div className="suggestions-section">
+          <div className="suggestions-header">
+            <div className="selector-label">Say:</div>
             <button
               className="refresh-btn"
               onPointerDown={(e) => {
