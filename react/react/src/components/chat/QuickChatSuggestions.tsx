@@ -422,7 +422,7 @@ export function QuickChatSuggestions({
       {selectedTone && (
         <div className="delivery-selector">
           <div className="controls-row">
-            <div className="control-group">
+            <div className="control-group delivery-group">
               <div className="selector-label">Delivery</div>
               <div className="toggle-group">
                 {availableRegisters.map((register) => {
@@ -430,20 +430,23 @@ export function QuickChatSuggestions({
                   return (
                     <button
                       key={register}
-                      className={`toggle-btn toggle-btn-lg ${intensity === register ? 'active' : ''}`}
+                      className={`toggle-btn toggle-btn-stack ${intensity === register ? 'active' : ''}`}
                       onClick={() => selectIntensity(register)}
                       title={`${meta.label} — ${meta.hint}`}
                     >
-                      {/* Text-only here so Delivery + Length fit one row even on
-                          narrow phones; the label + live hint carry the meaning
-                          (the emoji lived only as decoration). */}
+                      {/* Emoji over label, stacked — keeps every box the same
+                          (equal) width since the width is set by the label, not
+                          emoji+label side by side. */}
+                      <span className="toggle-btn-emoji" aria-hidden="true">
+                        {meta.emoji}
+                      </span>
                       <span className="toggle-btn-text">{meta.label}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
-            <div className="control-group">
+            <div className="control-group length-group">
               <div className="selector-label">Length</div>
               <div className="toggle-group">
                 <button
