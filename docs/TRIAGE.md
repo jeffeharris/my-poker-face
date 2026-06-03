@@ -2,7 +2,7 @@
 purpose: Pre-release tech debt and code quality review findings triaged by release-blocking severity
 type: reference
 created: 2025-06-15
-last_updated: 2026-05-30
+last_updated: 2026-06-03
 ---
 
 > **Pre-main batch status (2026-05-15):** All 50+ items in T1-28..T1-39,
@@ -295,6 +295,7 @@ Issues to address once live, during ongoing development.
 | T3-73 | `RAISE_LEVEL_ACTIONS` missing 2-bet entry | `poker/controllers.py:115-118` | Maps `0: 'open_raise'`, `1: '3bet'`, falls back to `'4bet+'`. Two prior raises maps to `4bet+` not `4bet`. Minor labeling imprecision, not correctness. | **FIXED** — added `2: '4bet'` to `RAISE_LEVEL_ACTIONS` (now in `poker/raise_utils.py`); `4bet+` still applies for ≥3. Coach-engine and bounded-options tests updated. |
 | T3-74 | `test_call_type_count` pre-existing flake | `tests/test_core/llm/test_tracking.py:50` | CallType enum count assertion. Not caused by this branch; track separately. | |
 | T3-75 | Tournament unification step 3: collapse `TournamentTracker` into `TournamentSession` | `poker/tournament_tracker.py` (deleted), `flask_app/handlers/game_handler.py`, `flask_app/handlers/single_table_tournament.py`, `flask_app/handlers/tournament_completion.py`, `flask_app/routes/game_routes.py` | **DONE & verified** (branch `tournaments`, steps 1–3C). Every game is now a `TournamentSession` (single = 1-table); one unified completion path/screen/career-stats, one persistence + cold-load path. `TournamentTracker` + `handle_eliminations`/`check_tournament_complete` deleted; cold-load migrates legacy saved-tracker blobs into sessions; cash isolation is structural (no session ⇒ no tournament completion). Design + progress: [`docs/plans/TOURNAMENT_UNIFICATION_STEP3.md`](/docs/plans/TOURNAMENT_UNIFICATION_STEP3.md). **FIXED** | Follow-up (separate): the `tournament_tracker` DB table + `load_tournament_tracker` are retained read-only for legacy migration — drop once no legacy games remain. |
+| T3-76 | Tournament vs cash seat-identity model divergence | `flask_app/handlers/tournament_game_builder.py:154-159,231-236`, `flask_app/handlers/tournament_handler.py`, `flask_app/handlers/single_table_tournament.py:51`, `tournament/session.py`, `tournament/field.py`, `tournament/identity.py`, `react/react/src/components/tournament/TournamentStandings.tsx` | Tournament seats overload `Player.name` to carry the raw `personality_id` (human: `human:<owner>`) and bolt the friendly label onto `Player.nickname`; cash names the seat by display name and carries `personality_id` out-of-band. The split leaks raw ids to the UI (felt showed `human:guest_jeff`; dossier flashed `james_bond`) and forces a `resolve_display_name` shim + per-surface nickname fallbacks cash doesn't need. **Interim fix shipped**: cold-load now restores `nickname` (`serialization.py`) and the dossier seeds its title from `nickname` (`dossierFromPlayer.ts`). **Remaining**: (a) standings panel still prints `player_id` (backend `standings_view` emits no names); (b) proper fix = add explicit `Player.personality_id`, make `name` the display name in both modes, key all bridges on the id. ~30-35 coupling points; display-name collision risk (R1). Follow-on to T3-75. Scope: [`docs/triage/TOURNAMENT_SEAT_IDENTITY_MODEL.md`](/docs/triage/TOURNAMENT_SEAT_IDENTITY_MODEL.md). | **OPEN** — interim UI leak patched; standings fix + identity unification scoped |
 
 ---
 
@@ -304,10 +305,12 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 32 | 27 | 6 | 0 (T1-34 demoted+gated, T1-26/T1-27 open) |
 | **Tier 2: Should-Fix** | 58 | 49 | 6 | 3 |
-| **Tier 3: Post-Release** | 74 | 37 | 1 | 36 |
-| **Total** | **164** | **113** | **13** | **39** |
+| **Tier 3: Post-Release** | 75 | 37 | 1 | 37 |
+| **Total** | **165** | **113** | **13** | **40** |
 
 *2026-05-29: added T2-75 (`refresh_unseated_tables` god-function, owner-elevated P1) — see Architecture & Design.*
+
+*2026-06-03: added T3-76 (tournament vs cash seat-identity model divergence; interim UI leak patched, identity unification scoped) — see Code Organization + [`docs/triage/TOURNAMENT_SEAT_IDENTITY_MODEL.md`](/docs/triage/TOURNAMENT_SEAT_IDENTITY_MODEL.md).*
 
 *Note: T1-34 demoted to T2 on 2026-05-15 after round-2 calibration check (gated implementation shipped). T1-26 and T1-27 (guest identity / chat session leak) were not in scope of the pre-main batch and remain open. The pre-main batch (T1-28..T1-39, T2-36..T2-64, T3-61..T3-73 minus deferred) shipped 50+ items in commits c450a359..9f585182 (2026-05-15).*
 
