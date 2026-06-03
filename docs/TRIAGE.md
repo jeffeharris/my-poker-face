@@ -465,3 +465,36 @@ blind steals (`docs/plans/skip-winner-announcement-no-action.md`), and spectator
   hand-reset verification (`:204`), all-in flush bug (resolved by the flush fix).
 - **Test coverage now exists:** HandEvaluator unit tests, side-pot calculations,
   state-machine transitions (see RC-15 note).
+
+---
+
+## Batch: Legacy / Dead-Code Cleanup Inventory (2026-06-03)
+
+Lower-priority **cleanup catalog** (distinct from the review-finding `T#` series):
+identify legacy/back-compat/dead code so it can be deleted deliberately later. Each
+item is a behavior-preserving deletion gated on "callers migrated + tests green",
+not a bug. IDs prefixed `LC-`. Method: grep for legacy markers + `vulture`
+(dead code), `deptry` (deps), `ts-prune` (frontend exports).
+
+> **Repro:** `vulture poker flask_app core cash_mode --min-confidence 90`;
+> `deptry .`; `npx ts-prune -p react/react/tsconfig.app.json` (all run in-container).
+
+| ID | Surface | What / where | Notes |
+|----|---------|--------------|-------|
+| LC-01 | **`player_psychology.py` back-compat shim cluster** (highest-value coherent unit) | `tightness`, `aggression`, `traits` (the 5-key dict), `tilt` + setter, `tilt_category` properties, and the "Legacy methods for backward compatibility" block (~`:1478`) | All exist only to emulate the retired 5-trait model over the anchors/`composure_state` model. Deletable as a unit once callers read anchors directly. Done = grep shows no `.traits`/`.tilt`/`.tightness` consumers outside the shim. |
+| LC-02 | Smaller back-compat seams | `range_guidance.POSITION_CLAMPS` ("kept for back compat, tests reference it"), `zone_detection`/`zone_config` legacy constants ("use `get_zone_param()`"), `rule_based_controller` re-export shim (`:78`), `ai_resilience` legacy functions (`:491`), `prompt_config` legacy field names, `chattiness_manager` compat, `config.py`/`guest_limits` re-exports | Each is a tidy delete once its callers/tests migrate. Independent, small. |
+| LC-03 | API-boundary deprecated aliases | `game_mode` `competitive→pro` (**= RC-08**); `bot_type` `hybrid→standard` / `tiered→sharp`; `randomize_option_order→option_order` | Gate on "no live/saved game/config carries the old value" (RC-08 Stage-1 condition). |
+| LC-04 | **Orphan DB tables** (3 of 70) | `bounded_replay_results` (created, never queried); `opponent_models_new`, `prompt_captures_new` (migration-rebuild leftovers — temp tables never dropped) | Drop as part of the schema baseline/squash. **Cross-ref T3-44 / `docs/plans/SCHEMA_BASELINE_PLAN.md`.** |
+| LC-05 | Feature-flag terminality | 17 `_ENABLED` flags; transitional ones whose losing branch dies once flipped: `PRESENCE_SHADOW_WRITE_ENABLED`, `PRESENCE_AUTHORITY_ENABLED`, `CHIP_CUSTODY_ENABLED` | Audit which are permanently pinned in prod → delete the dead branch + the flag. Needs per-flag prod-state read. |
+| LC-06 | Unused Python dependencies (`deptry` DEP002) | Likely dead: **`eventlet`, `gevent-websocket`** (SocketIO runs `async_mode='threading'`), **`Flask-Session`**; verify **`python-socketio`** (may be transitive via flask-socketio). **KEEP `gunicorn`** (prod entrypoint — deptry false positive). Minor: DEP001 `matplotlib` undeclared in `experiments/plot_trajectories.py`; DEP003 transitive-import hygiene (`httpx`/`requests`/`werkzeug`/`itsdangerous`/`tqdm` — declare explicitly). | Verify each isn't config/entrypoint-only before removing. |
+| LC-07 | Frontend unused exports (`ts-prune`: ~249) | Dead-export debt incl. hooks (`useGameState`, `useMediaQuery`, `usePolling`, `useSocket`), `config/timing.ts` consts, many `types/index.ts` types | **Triage before deleting** — ts-prune over-reports barrel re-exports + dynamic JSX usage, so ≪249 are truly dead. Frontend `depcheck`/`knip` (unused npm deps/files) deferred — didn't run cleanly in-container. |
+| LC-08 | Legacy-marker hotspots (signpost, not standalone work) | 359 Python markers (271× "legacy"). Densest non-squash files: `cash_routes.py` (23), `exploitation.py` (18), `player_psychology.py` (16 → LC-01), `game_handler.py` (12) | Use as a guide when those files are refactored anyway (they overlap MA-16/T3-47). |
+
+### Not debt — don't chase
+- **Dead code is minimal**: `vulture ≥90%` found only 5 items (unused locals/imports in `lobby.py:3059`, `game_handler.py:15`, `character_routes.py:509`, `controllers.py:650`, `emotional_state.py:194`) — trivial, fix opportunistically.
+- **Test debt ≈ nil** (1 skip each in Py/TS); **`: any` (2) / `@ts-ignore` (0)** already cleaned (T2-13). No sweep warranted.
+
+### Suggested permanent guard
+Add `vulture` + `deptry` (backend) and `knip`/`ts-prune` (frontend) as **non-blocking
+CI signals** so this inventory doesn't silently regrow — pairs with the bandit
+security-scan idea (RC-05). Start advisory; never block on the noisy ones.
