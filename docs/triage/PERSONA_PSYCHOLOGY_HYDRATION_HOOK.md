@@ -13,8 +13,10 @@ last_updated: 2026-06-03
 > **STATUS: IMPLEMENTED (2026-06-03, branch `tournaments`).** Shipped in three
 > commits: shared module (`refactor(psych)`), live cash two-way
 > (`feat(cash)`), cash-world tournament two-way (`feat(tournament)`). Tests:
-> 8 hook round-trip + 2 completion-gate, cash slice 343 + tournament bucket 287
-> green. **Deferred refinements** (none block the feature): see §Deferred below.
+> 11 hook (incl. 3 idle-recovery) + 2 completion-gate + 3 reconcile-hydration +
+> 2 vacate-flush, cash slice 343 + tournament bucket 287 green. **All three
+> follow-on refinements are now closed** (balanced-in re-hydrate, per-vacate
+> flush, idle decay-on-read) — see §Refinements.
 
 ## TL;DR
 
@@ -176,11 +178,10 @@ continuity should track economic continuity exactly.
    that moved its mood updates the lobby card after the tournament; verify a
    non-cash tournament neither reads nor writes the blob.
 
-## Deferred refinements (post-implementation)
+## Refinements (all closed 2026-06-03)
 
-Tracked here so they're not silently lost; none block the shipped feature.
-(Balanced-in re-hydrate and per-vacate flush are now closed — see below. Only
-idle decay-on-read remains.)
+These were tracked as deferred after the initial landing; all three are now
+done.
 
 - ~~**Balanced-in personas mid-tournament don't re-hydrate.**~~ **CLOSED
   (2026-06-03).** `reconcile_live_table` now hydrates a genuinely-new
@@ -192,10 +193,11 @@ idle decay-on-read remains.)
   AI's mood to the persona blob before dropping it, so a persona carries the mood
   onward even when it leaves mid-session. Race-free (a seated persona isn't
   sim-played). +2 tests.
-- **Idle decay-on-read not applied at hydrate (D4).** Hydration trusts the last
-  flushed blob; it doesn't re-apply idle recovery toward baseline at seat time.
-  Matches the lobby display's current behaviour (`cash_routes.py` "Decay-on-read
-  is a TODO").
+- ~~**Idle decay-on-read not applied at hydrate (D4).**~~ **CLOSED
+  (2026-06-03).** The hydrate hook now springs the `energy` axis toward baseline
+  for the wall-clock elapsed since the blob's `last_updated`, reusing
+  `cash_mode.movement.project_idle_energy` (the lobby's exact recovery math).
+  Energy-only, matching the lobby model; never exceeds baseline. +3 tests.
 
 ## Test strategy
 
