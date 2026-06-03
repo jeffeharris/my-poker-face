@@ -179,17 +179,19 @@ continuity should track economic continuity exactly.
 ## Deferred refinements (post-implementation)
 
 Tracked here so they're not silently lost; none block the shipped feature.
-(The balanced-in re-hydrate item is now closed — see below.)
+(Balanced-in re-hydrate and per-vacate flush are now closed — see below. Only
+idle decay-on-read remains.)
 
 - ~~**Balanced-in personas mid-tournament don't re-hydrate.**~~ **CLOSED
   (2026-06-03).** `reconcile_live_table` now hydrates a genuinely-new
   real-persona seat from the cash world (gated on a cash-world persona field +
   resolved sandbox, threaded via `game_data['tournament_sandbox_id']`; fresh
   build, not cold-load). +3 reconcile-hydration tests.
-- **Cash AI that leaves before the human isn't flushed individually.** The cash
-  flush fires on the human's leave/settle and captures whoever is seated then;
-  an AI that vacated the human's table earlier in the session has its evolved
-  mood dropped. A per-vacate flush in the AI-leave path would close this.
+- ~~**Cash AI that leaves before the human isn't flushed individually.**~~
+  **CLOSED (2026-06-03).** `_remove_departed_ais_from_game` flushes a departing
+  AI's mood to the persona blob before dropping it, so a persona carries the mood
+  onward even when it leaves mid-session. Race-free (a seated persona isn't
+  sim-played). +2 tests.
 - **Idle decay-on-read not applied at hydrate (D4).** Hydration trusts the last
   flushed blob; it doesn't re-apply idle recovery toward baseline at seat time.
   Matches the lobby display's current behaviour (`cash_routes.py` "Decay-on-read
