@@ -21,7 +21,12 @@ function mkPlayer(over: Partial<Player>): Player {
 }
 
 /** Seed the store with a two-handed pot: human to act at idx 0. */
-function seed(opts?: { humanBet?: number; villainBet?: number; highestBet?: number; pot?: number }) {
+function seed(opts?: {
+  humanBet?: number;
+  villainBet?: number;
+  highestBet?: number;
+  pot?: number;
+}) {
   const humanBet = opts?.humanBet ?? 0;
   const villainBet = opts?.villainBet ?? 0;
   const highestBet = opts?.highestBet ?? Math.max(humanBet, villainBet);

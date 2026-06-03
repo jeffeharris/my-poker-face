@@ -33,8 +33,6 @@ from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple  # noqa: F401 — Tuple used in return type hint
 
 from cash_mode import presence_shadow
-from cash_mode.presence import PresenceEvent, ai_entity_id
-
 from cash_mode.bankroll import (
     AIBankrollState,
     debit_bankroll_for_seat,
@@ -43,6 +41,7 @@ from cash_mode.closed_economy import (
     compute_bank_pool_reserves,
     list_hungry_grinders,
 )
+from cash_mode.presence import PresenceEvent, ai_entity_id
 from cash_mode.stakes_ladder import (
     STAKES_ORDER,
     table_buy_in_window,

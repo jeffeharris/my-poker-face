@@ -78,8 +78,8 @@ export function CoachEffectivenessPanel({ embedded = false }: Props) {
             <GraduationCap size={20} /> Coach follow-through
           </h2>
           <p className="cep-sub">
-            After a preflop leak nudge fired in-game, how often did the player take the
-            solver line on that decision? (all players)
+            After a preflop leak nudge fired in-game, how often did the player take the solver line
+            on that decision? (all players)
           </p>
         </div>
         <button className="cep-refresh" onClick={load} disabled={loading} title="Refresh">
@@ -138,8 +138,8 @@ export function CoachEffectivenessPanel({ embedded = false }: Props) {
             </div>
           )}
           <p className="cep-note">
-            Compliance only — this measures what players did after a nudge, not yet a
-            nudged-vs-not causal comparison.
+            Compliance only — this measures what players did after a nudge, not yet a nudged-vs-not
+            causal comparison.
           </p>
         </>
       )}

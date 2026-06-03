@@ -1255,9 +1255,7 @@ class TestUnstampedFishSeatHealing:
         a grinder never counts."""
         from cash_mode.casino_provisioning import _count_seated_fish
 
-        fish_ids = {
-            f["personality_id"] for f in db_setup["personality"].list_fish_for_cash_mode()
-        }
+        fish_ids = {f["personality_id"] for f in db_setup["personality"].list_fish_for_cash_mode()}
         stamped, unstamped = db_setup["fish_pids"][0], db_setup["fish_pids"][1]
         table = self._make_casino(
             [
@@ -1280,9 +1278,7 @@ class TestUnstampedFishSeatHealing:
 
         tables, ledger = db_setup["tables"], db_setup["ledger"]
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
-        fish_ids = {
-            f["personality_id"] for f in db_setup["personality"].list_fish_for_cash_mode()
-        }
+        fish_ids = {f["personality_id"] for f in db_setup["personality"].list_fish_for_cash_mode()}
         # Six un-stamped fish-persona seats, no open seats.
         wedged = self._make_casino([ai_slot(pid, 80) for pid in db_setup["fish_pids"][:6]])
         assert _count_seated_fish(wedged, fish_ids) == 6  # reads full by identity

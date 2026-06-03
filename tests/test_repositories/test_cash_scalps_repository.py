@@ -46,8 +46,7 @@ class TestCashScalpsRepository(unittest.TestCase):
         for _ in range(3):
             self.repo.record(SB, "ace", "fish")
         self.repo.record(SB, "ace", "donk")
-        self.assertEqual(self.repo.list_for_eliminator(SB, "ace"),
-                         [("fish", 3), ("donk", 1)])
+        self.assertEqual(self.repo.list_for_eliminator(SB, "ace"), [("fish", 3), ("donk", 1)])
         self.assertEqual(self.repo.total_for(SB, "ace"), 4)
 
     def test_victims_of(self):
@@ -55,8 +54,7 @@ class TestCashScalpsRepository(unittest.TestCase):
         self.repo.record(SB, "ace", "fish")
         self.repo.record(SB, "blackbeard", "fish")
         # who busted fish, and how often
-        self.assertEqual(self.repo.victims_of(SB, "fish"),
-                         [("ace", 2), ("blackbeard", 1)])
+        self.assertEqual(self.repo.victims_of(SB, "fish"), [("ace", 2), ("blackbeard", 1)])
 
     def test_sandbox_isolation(self):
         self.repo.record(SB, "ace", "fish")
@@ -71,15 +69,15 @@ class TestCashScalpsRepository(unittest.TestCase):
         n = self.repo.record_many(SB, scalps, now="2026-06-01T00:00:00Z")
         self.assertEqual(n, 3)
         self.assertEqual(self.repo.total_for(SB, "ace"), 3)
-        self.assertEqual(self.repo.list_for_eliminator(SB, "ace"),
-                         [("fish", 2), ("donk", 1)])
+        self.assertEqual(self.repo.list_for_eliminator(SB, "ace"), [("fish", 2), ("donk", 1)])
 
     def test_last_at_stored(self):
         self.repo.record(SB, "ace", "fish", now="2026-06-01T12:34:56Z")
         with self.repo._get_connection() as conn:
             row = conn.execute(
                 "SELECT last_at FROM cash_scalps WHERE sandbox_id=? AND "
-                "eliminator_id=? AND victim_id=?", (SB, "ace", "fish")
+                "eliminator_id=? AND victim_id=?",
+                (SB, "ace", "fish"),
             ).fetchone()
         self.assertEqual(row["last_at"], "2026-06-01T12:34:56Z")
 

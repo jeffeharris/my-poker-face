@@ -166,8 +166,7 @@ def test_refresh_records_zero_collisions(tmp_path, seed, caplog):
             )
 
     collisions = [
-        r for r in caplog.records
-        if r.name == REGISTRY_LOGGER and r.levelno == logging.ERROR
+        r for r in caplog.records if r.name == REGISTRY_LOGGER and r.levelno == logging.ERROR
     ]
     assert not collisions, (
         f"[seed {seed}] SeatOccupancyRegistry recorded {len(collisions)} "

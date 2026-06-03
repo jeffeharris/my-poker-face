@@ -82,11 +82,7 @@ function LeaveBreakdownPanel({ stack, loan }: LeaveBreakdownPanelProps) {
   );
 }
 
-export function CashControls({
-  cashMode,
-  playerStack,
-  handInProgress,
-}: CashControlsProps) {
+export function CashControls({ cashMode, playerStack, handInProgress }: CashControlsProps) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

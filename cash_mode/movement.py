@@ -100,10 +100,10 @@ DWELL_PATIENCE_HANDS = 6.0
 # table decays the next one's odds, and a thin bankroll (only just affordable)
 # pulls back too. When it declines, it `take_break`s (rests, may return) rather
 # than leaving for good. Fish are unaffected (they reload until dry).
-GRINDER_REBUY_BASE_PROB = 0.65       # first reload when comfortably funded
-GRINDER_REBUY_DECAY = 0.5            # ×prob per prior rebuy at this table
-GRINDER_REBUY_CUSHION_BUYINS = 3.0   # full confidence once the bankroll covers
-                                     # this many buy-ins beyond the reload
+GRINDER_REBUY_BASE_PROB = 0.65  # first reload when comfortably funded
+GRINDER_REBUY_DECAY = 0.5  # ×prob per prior rebuy at this table
+GRINDER_REBUY_CUSHION_BUYINS = 3.0  # full confidence once the bankroll covers
+# this many buy-ins beyond the reload
 
 # Per-hand fill probability per open seat. Replaces the per-poll roll;
 # now ticks once per real or sim hand. With 2 opens this averages ~10
@@ -262,9 +262,7 @@ def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
     # so it settles in before it'll wander off. `short` is NOT damped — a
     # genuinely short/broke stack is free to leave or rebuy immediately.
     dwell_damp = (
-        min(1.0, ctx.hands_here / DWELL_PATIENCE_HANDS)
-        if DWELL_PATIENCE_HANDS > 0
-        else 1.0
+        min(1.0, ctx.hands_here / DWELL_PATIENCE_HANDS) if DWELL_PATIENCE_HANDS > 0 else 1.0
     )
     return {
         "stake_up": W_STAKE_UP * stake_up_raw * dwell_damp,
@@ -1269,9 +1267,7 @@ def refresh_table_roster(
     # has lost its fish pushes its stuck grinders to go find action. Computed
     # once per table from the current seats; fed to each seated AI's
     # MovementContext below (fish ignore it — their movement is coerced).
-    _grinder_count = sum(
-        1 for s in new_seats if s.get("kind") == "ai" and not _seat_is_fish(s)
-    )
+    _grinder_count = sum(1 for s in new_seats if s.get("kind") == "ai" and not _seat_is_fish(s))
     _deadness = table_deadness(
         is_casino=(table.table_type == "casino"),
         has_fish=table_has_fish,

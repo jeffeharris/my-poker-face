@@ -107,7 +107,8 @@ class PrestigeSnapshotsRepository(BaseRepository):
                     None if renown_v2 is None else float(renown_v2),
                     None if victim_percentile is None else float(victim_percentile),
                     None if high_cut is None else float(high_cut),
-                    None if renown_v2_components is None
+                    None
+                    if renown_v2_components is None
                     else json.dumps(renown_v2_components, sort_keys=True),
                     None if field_size is None else int(field_size),
                 ),
@@ -149,15 +150,21 @@ class PrestigeSnapshotsRepository(BaseRepository):
                 0.0,  # v1 renown — n/a for AI rows
                 float(row.get("regard", 0.0)),
                 row["quadrant"],
-                0.0, 0.0, 0.0, 0.0, 0.0,  # renown_* components — n/a
-                0.0, 0.0, 0.0,            # regard_* components — n/a
-                0,                        # opponent_count — n/a
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,  # renown_* components — n/a
+                0.0,
+                0.0,
+                0.0,  # regard_* components — n/a
+                0,  # opponent_count — n/a
                 "v2",
                 float(row["renown_v2"]),
-                None if row.get("victim_percentile") is None
-                else float(row["victim_percentile"]),
+                None if row.get("victim_percentile") is None else float(row["victim_percentile"]),
                 None if row.get("high_cut") is None else float(row["high_cut"]),
-                None if row.get("components") is None
+                None
+                if row.get("components") is None
                 else json.dumps(row["components"], sort_keys=True),
                 None if row.get("field_size") is None else int(row["field_size"]),
             )

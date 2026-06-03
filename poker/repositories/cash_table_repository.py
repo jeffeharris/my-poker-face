@@ -132,7 +132,7 @@ def _seated_presence_map(conn, sandbox_id: Optional[str]):
     return {(r["table_id"], r["seat_index"]): r["entity_id"] for r in rows}
 
 
-def _project_table_occupancy(state: "CashTableState", presence_map):
+def _project_table_occupancy(state: CashTableState, presence_map):
     """Render any `ai`/`human` slot NOT confirmed SEATED by presence as `open`
     (occupancy-authority / payload-cache — the D1 read-side projection).
 
@@ -159,8 +159,10 @@ def _project_table_occupancy(state: "CashTableState", presence_map):
             eid = ai_entity_id(pid) if pid else None
         elif kind == "human":
             owner = (
-                slot.get("owner_id") or slot.get("player_id")
-                or slot.get("user_id") or slot.get("personality_id")
+                slot.get("owner_id")
+                or slot.get("player_id")
+                or slot.get("user_id")
+                or slot.get("personality_id")
             )
             eid = player_entity_id(owner) if owner else None
         else:
@@ -465,9 +467,7 @@ class CashTableRepository(BaseRepository):
                 return None
             state = _row_to_state(row)
             # D1 read-side projection: occupancy from presence, payload from cache.
-            return _project_table_occupancy(
-                state, _seated_presence_map(conn, sandbox_id)
-            )
+            return _project_table_occupancy(state, _seated_presence_map(conn, sandbox_id))
 
     def set_closing_countdown(
         self,
@@ -618,9 +618,7 @@ class CashTableRepository(BaseRepository):
         # lockstep with the canonical list.
         rank = {label: i for i, label in enumerate(STAKES_ORDER)}
         unknown = len(STAKES_ORDER)
-        states = [
-            _project_table_occupancy(_row_to_state(r), presence_map) for r in rows
-        ]
+        states = [_project_table_occupancy(_row_to_state(r), presence_map) for r in rows]
         states.sort(key=lambda s: (rank.get(s.stake_label, unknown), s.table_id))
         return states
 
@@ -725,6 +723,7 @@ class CashTableRepository(BaseRepository):
         sandbox_id=None) keeps reading the physical table unchanged.
         """
         from cash_mode import economy_flags
+
         if sandbox_id is not None and getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
             return self._list_idle_from_presence(sandbox_id)
         with self._get_connection() as conn:
@@ -775,10 +774,14 @@ class CashTableRepository(BaseRepository):
                 # Defensive: skip a malformed timestamp rather than raise — a
                 # bad metadata row must not break the whole re-seat tick.
                 continue
-            out.append(IdlePoolEntry(
-                personality_id=r["personality_id"], left_at=la,
-                reason=r["reason"], target_stake=r["target_stake"],
-            ))
+            out.append(
+                IdlePoolEntry(
+                    personality_id=r["personality_id"],
+                    left_at=la,
+                    reason=r["reason"],
+                    target_stake=r["target_stake"],
+                )
+            )
         return out
 
     def delete_idle(
@@ -798,6 +801,7 @@ class CashTableRepository(BaseRepository):
         from the pool would linger as a ghost in the presence-derived list_idle.
         """
         from cash_mode import economy_flags
+
         if sandbox_id and getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
             try:
                 with self._get_connection() as conn:

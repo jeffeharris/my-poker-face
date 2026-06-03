@@ -95,9 +95,7 @@ def seed_personalities(force: bool = False) -> dict:
             # (v123 circulating gate). We only force this on ADD — the --force
             # update path above passes no `circulating`, so save_personality
             # preserves any deliberate demotion (circulating=0) already in the DB.
-            personality_repo.save_personality(
-                name, config, source='json_import', circulating=True
-            )
+            personality_repo.save_personality(name, config, source='json_import', circulating=True)
             added += 1
             print(f"  Added: {name}")
 

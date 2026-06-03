@@ -70,10 +70,36 @@ class TestRenownFieldRepository(unittest.TestCase):
                 "stake_tier, created_at, staker_payout) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [
-                    ("st1", "se1", HUMAN, "player", "x", "ai", "full", 10000, 0.5,
-                     "settled", "$2", "2026-06-01T00:00:00Z", 12000),
-                    ("st2", "se2", "villain", "ai", "y", "ai", "full", 5000, 0.5,
-                     "active", "$2", "2026-06-01T00:00:00Z", None),
+                    (
+                        "st1",
+                        "se1",
+                        HUMAN,
+                        "player",
+                        "x",
+                        "ai",
+                        "full",
+                        10000,
+                        0.5,
+                        "settled",
+                        "$2",
+                        "2026-06-01T00:00:00Z",
+                        12000,
+                    ),
+                    (
+                        "st2",
+                        "se2",
+                        "villain",
+                        "ai",
+                        "y",
+                        "ai",
+                        "full",
+                        5000,
+                        0.5,
+                        "active",
+                        "$2",
+                        "2026-06-01T00:00:00Z",
+                        None,
+                    ),
                 ],
             )
             # cash_sessions: per-tier hands for the human (AIs have none).
@@ -83,10 +109,28 @@ class TestRenownFieldRepository(unittest.TestCase):
                 "total_buy_in, started_at, hands_played, ended_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
                 [
-                    ("cs1", SB, HUMAN, "$2", 200, 200, "2026-06-01T00:30:00Z", 100,
-                     "2026-06-01T01:00:00Z"),
-                    ("cs2", SB, HUMAN, "$10", 1000, 1000, "2026-06-01T01:30:00Z", 50,
-                     "2026-06-01T02:00:00Z"),
+                    (
+                        "cs1",
+                        SB,
+                        HUMAN,
+                        "$2",
+                        200,
+                        200,
+                        "2026-06-01T00:30:00Z",
+                        100,
+                        "2026-06-01T01:00:00Z",
+                    ),
+                    (
+                        "cs2",
+                        SB,
+                        HUMAN,
+                        "$10",
+                        1000,
+                        1000,
+                        "2026-06-01T01:30:00Z",
+                        50,
+                        "2026-06-01T02:00:00Z",
+                    ),
                 ],
             )
             # inbound regard edges toward the human (opponent_id == target).
@@ -117,12 +161,12 @@ class TestRenownFieldRepository(unittest.TestCase):
         h = self.repo.build_inputs(SB, HUMAN)[HUMAN]
         self.assertEqual(h.breadth_opponents, {"villain": 30, "fish": 10})
         self.assertEqual(h.total_hands, 40)
-        self.assertEqual(h.roster_net, 400.0)           # 500 − 100
+        self.assertEqual(h.roster_net, 400.0)  # 500 − 100
         self.assertEqual(h.peak_net_worth, 3000.0)
-        self.assertEqual(h.ticks_at_number_one, 1)      # #1 at t2 only
-        self.assertEqual(h.wall_clock_hours, 2.0)       # 2 distinct ticks (presence)
+        self.assertEqual(h.ticks_at_number_one, 1)  # #1 at t2 only
+        self.assertEqual(h.wall_clock_hours, 2.0)  # 2 distinct ticks (presence)
         self.assertEqual(h.backing_volume, 10000.0)
-        self.assertEqual(h.backing_profit, 2000.0)      # 12000 − 10000
+        self.assertEqual(h.backing_profit, 2000.0)  # 12000 − 10000
         self.assertEqual(h.stakes_hands, {"$2": 100, "$10": 50})
         self.assertEqual(h.scalps, {"fish": 3, "villain": 1})
         # inbound regard averages of (val − 0.5); heat is the raw mean.
@@ -132,14 +176,14 @@ class TestRenownFieldRepository(unittest.TestCase):
 
     def test_villain_standing_and_unsettled_backing(self):
         v = self.repo.build_inputs(SB, HUMAN)["villain"]
-        self.assertEqual(v.ticks_at_number_one, 1)      # #1 at t1
+        self.assertEqual(v.ticks_at_number_one, 1)  # #1 at t1
         self.assertEqual(v.peak_net_worth, 2000.0)
         self.assertEqual(v.backing_volume, 5000.0)
-        self.assertEqual(v.backing_profit, 0.0)         # unsettled → no profit
-        self.assertEqual(v.scalps, {})                  # villain busted no one
+        self.assertEqual(v.backing_profit, 0.0)  # unsettled → no profit
+        self.assertEqual(v.scalps, {})  # villain busted no one
 
     def test_human_always_present_even_with_no_activity(self):
-        field = self.repo.build_inputs(SB, "ghost")     # ghost has no rows
+        field = self.repo.build_inputs(SB, "ghost")  # ghost has no rows
         self.assertIn("ghost", field)
         self.assertEqual(field["ghost"].total_hands, 0)
 

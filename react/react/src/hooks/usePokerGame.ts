@@ -1030,7 +1030,13 @@ export function usePokerGame({
         clearAiThinkingTimeout();
       }
     },
-    [gameId, clearAiThinkingTimeout, refreshGameState, applyOptimisticAction, rollbackOptimisticAction]
+    [
+      gameId,
+      clearAiThinkingTimeout,
+      refreshGameState,
+      applyOptimisticAction,
+      rollbackOptimisticAction,
+    ]
   );
 
   // Keep ref in sync for socket callback access (update synchronously)

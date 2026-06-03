@@ -255,9 +255,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         setShowCards(false);
         onComplete();
       },
-      winnerInfo.showdown
-        ? INTERHAND_TIMING.showdownResultMs
-        : INTERHAND_TIMING.foldoutResultMs
+      winnerInfo.showdown ? INTERHAND_TIMING.showdownResultMs : INTERHAND_TIMING.foldoutResultMs
     );
 
     return () => {

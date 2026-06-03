@@ -42,7 +42,12 @@ export const CoachDock = memo(function CoachDock({
   if (!isOpen) return null;
 
   return (
-    <div className="coach-dock" data-testid="coach-dock" role="complementary" aria-label="Poker Coach">
+    <div
+      className="coach-dock"
+      data-testid="coach-dock"
+      role="complementary"
+      aria-label="Poker Coach"
+    >
       <CoachPanelBody
         isOpen={isOpen}
         onClose={onClose}

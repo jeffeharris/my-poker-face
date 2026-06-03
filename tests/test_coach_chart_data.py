@@ -124,8 +124,13 @@ class TestLiveLeakSet:
         # 8 open-limps from the SB (chart raises-or-folds) → confirmed limp leak.
         decisions = [
             {
-                'hand': 'KQs', 'position': 'SB', 'scenario': 'rfi', 'opener': None,
-                'effective_stack_bb': 50, 'num_players': 6, 'action': 'call',
+                'hand': 'KQs',
+                'position': 'SB',
+                'scenario': 'rfi',
+                'opener': None,
+                'effective_stack_bb': 50,
+                'num_players': 6,
+                'action': 'call',
             }
             for _ in range(8)
         ]
@@ -140,8 +145,13 @@ class TestLiveLeakSet:
         # from the live (confirmed-only) set.
         decisions = [
             {
-                'hand': 'KQs', 'position': 'SB', 'scenario': 'rfi', 'opener': None,
-                'effective_stack_bb': 50, 'num_players': 6, 'action': 'call',
+                'hand': 'KQs',
+                'position': 'SB',
+                'scenario': 'rfi',
+                'opener': None,
+                'effective_stack_bb': 50,
+                'num_players': 6,
+                'action': 'call',
             }
             for _ in range(5)
         ]
@@ -157,9 +167,15 @@ class TestLiveLeakSet:
         def dec(action, created, n):
             return [
                 {
-                    'hand': 'KQs', 'position': 'SB', 'scenario': 'rfi', 'opener': None,
-                    'effective_stack_bb': 50, 'num_players': 6, 'action': action,
-                    'created_at': f'2026-{created} 00:00:00', 'hand_number': i,
+                    'hand': 'KQs',
+                    'position': 'SB',
+                    'scenario': 'rfi',
+                    'opener': None,
+                    'effective_stack_bb': 50,
+                    'num_players': 6,
+                    'action': action,
+                    'created_at': f'2026-{created} 00:00:00',
+                    'hand_number': i,
                 }
                 for i in range(n)
             ]

@@ -2239,9 +2239,7 @@ class AIPlayerController:
             # reconstructs; consumed there on match so a stale stamp can
             # never wrongly skip a later decision that didn't self-analyze.
             phase_name = (
-                self.state_machine.current_phase.name
-                if self.state_machine.current_phase
-                else None
+                self.state_machine.current_phase.name if self.state_machine.current_phase else None
             )
             self._last_analyzed_decision = (
                 self.current_hand_number,

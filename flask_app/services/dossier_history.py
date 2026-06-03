@@ -17,8 +17,14 @@ from typing import Any, Dict, List, Optional
 # Hand-vs-hand events (RelationshipEvent hand-outcome `.value`s) — the rivalry
 # moments. The chat-event family ("chat_*") is banter, bucketed separately.
 CLASH_EVENTS = (
-    'cooler', 'bad_beat', 'hero_call', 'dominated_showdown',
-    'bluffed_off', 'strong_fold_shown', 'big_win', 'big_loss',
+    'cooler',
+    'bad_beat',
+    'hero_call',
+    'dominated_showdown',
+    'bluffed_off',
+    'strong_fold_shown',
+    'big_win',
+    'big_loss',
 )
 
 _EVENT_LABELS = {

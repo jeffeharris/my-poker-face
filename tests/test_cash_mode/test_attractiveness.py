@@ -423,18 +423,32 @@ def test_marquee_term_inert_when_either_factor_zero():
     # A famous table pulls nobody who has no appetite, and an eager seeker
     # feels nothing at a table of nobodies — the term needs BOTH.
     kw = dict(
-        projected_bankroll=5_000, starting_bankroll=START, comfort_zone="$10",
-        stake_label="$10", fish_chips=0, whale_chips=0, other_grinders=0,
+        projected_bankroll=5_000,
+        starting_bankroll=START,
+        comfort_zone="$10",
+        stake_label="$10",
+        fish_chips=0,
+        whale_chips=0,
+        other_grinders=0,
     )
     plain = table_attractiveness(**kw)
-    assert table_attractiveness(**kw, marquee_prestige=0.9, status_appetite=0.0) == pytest.approx(plain)
-    assert table_attractiveness(**kw, marquee_prestige=0.0, status_appetite=0.9) == pytest.approx(plain)
+    assert table_attractiveness(**kw, marquee_prestige=0.9, status_appetite=0.0) == pytest.approx(
+        plain
+    )
+    assert table_attractiveness(**kw, marquee_prestige=0.0, status_appetite=0.9) == pytest.approx(
+        plain
+    )
 
 
 def test_marquee_term_raises_attractiveness_for_status_seeker():
     kw = dict(
-        projected_bankroll=5_000, starting_bankroll=START, comfort_zone="$10",
-        stake_label="$10", fish_chips=0, whale_chips=0, other_grinders=0,
+        projected_bankroll=5_000,
+        starting_bankroll=START,
+        comfort_zone="$10",
+        stake_label="$10",
+        fish_chips=0,
+        whale_chips=0,
+        other_grinders=0,
     )
     plain = table_attractiveness(**kw)
     famous = table_attractiveness(**kw, marquee_prestige=0.9, status_appetite=0.8)

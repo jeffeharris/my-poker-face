@@ -374,13 +374,14 @@ def _release_own_reserved_holds(owner_id: str, *, sandbox_id: str) -> int:
                 logger.info(
                     "[CASH] _release_own_reserved_holds: freed reserved "
                     "table=%r seat=%d owner=%r",
-                    table.table_id, idx, owner_id,
+                    table.table_id,
+                    idx,
+                    owner_id,
                 )
                 freed += 1
             except Exception as e:
                 logger.warning(
-                    "[CASH] _release_own_reserved_holds: save_table failed "
-                    "for %r:%d: %s",
+                    "[CASH] _release_own_reserved_holds: save_table failed " "for %r:%d: %s",
                     table.table_id,
                     idx,
                     e,

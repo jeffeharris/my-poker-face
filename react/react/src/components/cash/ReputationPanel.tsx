@@ -192,7 +192,9 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
                 className="rep-panel__rail-fill"
                 initial={reduce ? false : { width: 0 }}
                 animate={{ width: `${aheadPct}%` }}
-                transition={reduce ? undefined : { duration: 0.85, ease: [0.16, 1, 0.3, 1], delay: 0.18 }}
+                transition={
+                  reduce ? undefined : { duration: 0.85, ease: [0.16, 1, 0.3, 1], delay: 0.18 }
+                }
               />
             </div>
             <div className="rep-panel__poles" aria-hidden="true">
@@ -222,7 +224,9 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
                 className="rep-panel__rail-fill"
                 initial={reduce ? false : { width: 0 }}
                 animate={{ width: `${renownPct}%` }}
-                transition={reduce ? undefined : { duration: 0.85, ease: [0.16, 1, 0.3, 1], delay: 0.18 }}
+                transition={
+                  reduce ? undefined : { duration: 0.85, ease: [0.16, 1, 0.3, 1], delay: 0.18 }
+                }
               />
               <span className="rep-panel__rail-ticks" aria-hidden="true" />
             </div>
@@ -255,7 +259,9 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
               aria-hidden="true"
               initial={reduce ? false : { left: '50%' }}
               animate={{ left: `${regardPos}%` }}
-              transition={reduce ? undefined : { type: 'spring', stiffness: 120, damping: 15, delay: 0.32 }}
+              transition={
+                reduce ? undefined : { type: 'spring', stiffness: 120, damping: 15, delay: 0.32 }
+              }
             />
           </div>
           <div className="rep-panel__poles" aria-hidden="true">

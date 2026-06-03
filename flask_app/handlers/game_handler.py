@@ -3739,7 +3739,9 @@ def _flush_pending_topup(game_id: str, game_data: dict, state_machine) -> None:
     except Exception as e:
         logger.error(
             "[CASH] Failed to flush staged top-up game_id=%r: %s",
-            game_id, e, exc_info=True,
+            game_id,
+            e,
+            exc_info=True,
         )
         return
 
@@ -3753,12 +3755,16 @@ def _flush_pending_topup(game_id: str, game_data: dict, state_machine) -> None:
     except Exception as e:
         logger.error(
             "[CASH] Staged top-up buy-in accounting failed game_id=%r: %s",
-            game_id, e, exc_info=True,
+            game_id,
+            e,
+            exc_info=True,
         )
 
     logger.info(
         "[CASH] Flushed staged top-up game_id=%r applied=%d new_stack=%d",
-        game_id, applied, new_stack,
+        game_id,
+        applied,
+        new_stack,
     )
     send_message(game_id, "Table", f"You topped up ${applied:,}.", "table")
 

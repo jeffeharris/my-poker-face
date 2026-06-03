@@ -121,15 +121,15 @@ class ReputationScore:
     # [0,1] capped; v2 renown is uncapped) so a consumer never compares across
     # versions. Persistence of these columns is DEFERRED (see
     # docs/plans/CASH_MODE_PLAYER_PRESTIGE.md — "v2 implemented" note).
-    renown_v2: float = 0.0           # uncapped v2 total (Σ v2 components)
-    renown_scalps: float = 0.0       # ★ renown-weighted scalps
-    renown_top1: float = 0.0         # ★ time-at-#1 + peak net worth standing
-    renown_peak_worth: float = 0.0   # ★ peak net worth (separate component)
-    renown_backing: float = 0.0      # ★ kingmaker / backing (field-relative)
-    renown_legendary: float = 0.0    # ★ legendary nuggets
-    renown_apex: float = 0.0         # winner-vs-roster premium
-    high_renown_cut: float = 0.0     # field-relative "high renown" threshold
-    formula_version: int = 1         # 1 = v1 (capped), 2 = v2 (uncapped)
+    renown_v2: float = 0.0  # uncapped v2 total (Σ v2 components)
+    renown_scalps: float = 0.0  # ★ renown-weighted scalps
+    renown_top1: float = 0.0  # ★ time-at-#1 + peak net worth standing
+    renown_peak_worth: float = 0.0  # ★ peak net worth (separate component)
+    renown_backing: float = 0.0  # ★ kingmaker / backing (field-relative)
+    renown_legendary: float = 0.0  # ★ legendary nuggets
+    renown_apex: float = 0.0  # winner-vs-roster premium
+    high_renown_cut: float = 0.0  # field-relative "high renown" threshold
+    formula_version: int = 1  # 1 = v1 (capped), 2 = v2 (uncapped)
 
 
 def iso_utc(now: datetime) -> str:
@@ -352,9 +352,7 @@ def compute_prestige(
             c_high_stakes = W_HIGH_STAKES
             break
 
-    raw_renown = (
-        c_breadth + c_tenure + c_stake_tier + c_beat_respected + c_high_stakes
-    )
+    raw_renown = c_breadth + c_tenure + c_stake_tier + c_beat_respected + c_high_stakes
     computed_renown = _clamp(raw_renown, 0.0, 1.0)
     renown = max(renown_peak, computed_renown)  # ratchet
 
@@ -434,22 +432,22 @@ from typing import Dict as _Dict, List as _List, Tuple as _Tuple
 
 # --- v2 weights / tunables (verbatim from the scorer's Weights defaults) ----
 W_SCALP = 4.0
-SCALP_BASE = 0.3           # a nobody's scalp is worth this fraction
-SCALP_QUALITY = 1.0        # ...a TOP-of-field victim's scalp this much more
-W_TOP1 = 0.8               # sqrt(ticks at #1)
-W_PEAK_WORTH = 0.6         # log1p(peak_net_worth / unit)
+SCALP_BASE = 0.3  # a nobody's scalp is worth this fraction
+SCALP_QUALITY = 1.0  # ...a TOP-of-field victim's scalp this much more
+W_TOP1 = 0.8  # sqrt(ticks at #1)
+W_PEAK_WORTH = 0.6  # log1p(peak_net_worth / unit)
 WORTH_UNIT = 5000.0
-W_BACKING = 3.0            # log1p(volume/median) + profit bonus
+W_BACKING = 3.0  # log1p(volume/median) + profit bonus
 BACKING_UNIT = 10000.0
 W_LEGENDARY = 1.5
 W_TENURE_V2 = 0.5
 W_BREADTH_V2 = 9.0
-BREADTH_PER_OPP_CAP_HANDS = 200.0   # concavity knee per opponent (hands mode)
+BREADTH_PER_OPP_CAP_HANDS = 200.0  # concavity knee per opponent (hands mode)
 W_STAKES_V2 = 0.4
 W_APEX = 0.4
 APEX_UNIT = 50000.0
 HIGH_RENOWN_TOP_FRACTION = 0.10  # "figures" = the top decile of the field by renown
-VOLUME_DENOMINATOR = "wallclock"    # the design ideal (anti-treadmill governor)
+VOLUME_DENOMINATOR = "wallclock"  # the design ideal (anti-treadmill governor)
 
 # stake tiers low->high for stakes-mastery depth credit (mirror the scorer).
 _V2_STAKE_ORDER: _Tuple[str, ...] = ("$2", "$10", "$50", "$200", "$1000")
@@ -478,6 +476,7 @@ class WeightsV2:
 
     Mirrors `renown_v2_scorer.Weights` field-for-field so the oracle and prod
     can't drift on the math (only the symbol names differ)."""
+
     w_scalp: float = W_SCALP
     scalp_base: float = SCALP_BASE
     scalp_quality: float = SCALP_QUALITY
@@ -506,6 +505,7 @@ class RenownInputsV2:
     (cash_pair_stats, completed sessions, inbound relationship edges) plus the
     v2 additions (scalps, time-at-#1, backing, legendary nuggets, wall-clock).
     A faithful copy of `renown_v2_scorer.RenownInputs`."""
+
     label: str = ""
 
     # --- ★ scalps: {victim_id: times_busted}. Weighted by victim renown. ---
@@ -542,6 +542,7 @@ class RenownInputsV2:
 @dataclass
 class FieldContextV2:
     """Field-level aggregates needed to make drivers field-relative."""
+
     median_backing_volume: float = 0.0
     median_breadth_depth: float = 0.0
 
@@ -549,10 +550,11 @@ class FieldContextV2:
 @dataclass
 class FieldRenown:
     """Per-entity result from the field-wide v2 scorer."""
+
     components: _Dict[str, float]
     renown_total: float
-    victim_percentile: float   # this entity's own field renown percentile
-    high_cut: float            # the field-wide high-renown cut (same for all)
+    victim_percentile: float  # this entity's own field renown percentile
+    high_cut: float  # the field-wide high-renown cut (same for all)
 
 
 # --- concave accrual helpers (verbatim port) --------------------------------
@@ -643,9 +645,7 @@ def compute_components_v2(
     c["legendary"] = w.w_legendary * _v2_sqrt(inp.legendary_points)
 
     # --- volume-ish drivers ---
-    tenure_input = (
-        inp.wall_clock_hours if w.volume_denominator == "wallclock" else inp.total_hands
-    )
+    tenure_input = inp.wall_clock_hours if w.volume_denominator == "wallclock" else inp.total_hands
     c["tenure"] = w.w_tenure * _v2_sqrt(tenure_input)
     raw_breadth = _breadth_depth_sum_v2(inp, w)
     c["breadth"] = w.w_breadth * _v2_relative(raw_breadth, fctx.median_breadth_depth, 1.0)
@@ -707,9 +707,7 @@ def _field_context_v2(entities: _Dict[str, RenownInputsV2], w: WeightsV2) -> Fie
 
     Verbatim port of `renown_v2_scorer._field_context`."""
     backing = [i.backing_volume for i in entities.values() if i.backing_volume > 0]
-    breadth = [
-        d for d in (_breadth_depth_sum_v2(i, w) for i in entities.values()) if d > 0
-    ]
+    breadth = [d for d in (_breadth_depth_sum_v2(i, w) for i in entities.values()) if d > 0]
     return FieldContextV2(
         median_backing_volume=_median_v2(backing),
         median_breadth_depth=_median_v2(breadth),

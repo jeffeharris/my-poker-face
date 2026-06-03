@@ -30,9 +30,7 @@ from poker.poker_game import Player, PokerGameState
 
 class _FakeBankrollRepo:
     def __init__(self, chips: int):
-        self.state = PlayerBankrollState(
-            player_id='You', chips=chips, starting_bankroll=chips
-        )
+        self.state = PlayerBankrollState(player_id='You', chips=chips, starting_bankroll=chips)
         self.saves = 0
 
     def load_player_bankroll(self, owner_id):
@@ -86,10 +84,10 @@ class TestTopUpStaging(unittest.TestCase):
         sm, repo, increments = self._flush(game_data, gs, bankroll_chips=2000)
 
         human = next(p for p in sm.game_state.players if p.is_human)
-        self.assertEqual(human.stack, 1300)          # 500 + 800
-        self.assertEqual(repo.state.chips, 1200)      # 2000 - 800
+        self.assertEqual(human.stack, 1300)  # 500 + 800
+        self.assertEqual(repo.state.chips, 1200)  # 2000 - 800
         self.assertNotIn('pending_topup', game_data)  # stage cleared
-        self.assertEqual(increments, [('g1', 800)])   # counted as buy-in
+        self.assertEqual(increments, [('g1', 800)])  # counted as buy-in
 
     def test_conservation_chips_neither_minted_nor_lost(self):
         gs = self._state(human_stack=500)
@@ -110,7 +108,7 @@ class TestTopUpStaging(unittest.TestCase):
         sm, repo, increments = self._flush(game_data, gs, bankroll_chips=300)
 
         human = next(p for p in sm.game_state.players if p.is_human)
-        self.assertEqual(human.stack, 800)           # 500 + min(800, 300)
+        self.assertEqual(human.stack, 800)  # 500 + min(800, 300)
         self.assertEqual(repo.state.chips, 0)
         self.assertEqual(increments, [('g1', 300)])
 
@@ -122,7 +120,7 @@ class TestTopUpStaging(unittest.TestCase):
 
         human = next(p for p in sm.game_state.players if p.is_human)
         self.assertEqual(human.stack, 500)
-        self.assertEqual(repo.saves, 0)               # bankroll untouched
+        self.assertEqual(repo.saves, 0)  # bankroll untouched
         self.assertEqual(increments, [])
 
     def test_human_not_seated_leaves_stage_parked(self):

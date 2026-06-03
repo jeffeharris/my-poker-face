@@ -47,8 +47,11 @@ def _tip(**over):
 def _decision(da_repo, *, game_id, hand_number, action, player='Jeff'):
     da_repo.save_decision_analysis(
         DecisionAnalysis(
-            game_id=game_id, player_name=player, hand_number=hand_number,
-            phase='PRE_FLOP', action_taken=action,
+            game_id=game_id,
+            player_name=player,
+            hand_number=hand_number,
+            phase='PRE_FLOP',
+            action_taken=action,
         )
     )
 
@@ -77,9 +80,9 @@ class TestTipEffectiveness:
     def test_limp_nudge_follow_rate(self, coach_repo, da_repo):
         # Two SB-limp nudges: one followed (raised), one not (called again).
         coach_repo.record_tip(_tip(game_id='g1', hand_number=1))
-        _decision(da_repo, game_id='g1', hand_number=1, action='raise')   # followed
+        _decision(da_repo, game_id='g1', hand_number=1, action='raise')  # followed
         coach_repo.record_tip(_tip(game_id='g1', hand_number=2))
-        _decision(da_repo, game_id='g1', hand_number=2, action='call')    # not followed
+        _decision(da_repo, game_id='g1', hand_number=2, action='call')  # not followed
 
         eff = coach_repo.get_tip_effectiveness('guest_jeff')
         assert eff['by_kind']['limp']['nudges'] == 2
@@ -89,8 +92,15 @@ class TestTipEffectiveness:
 
     def test_over_fold_followed_when_continued(self, coach_repo, da_repo):
         # over_fold leak: "followed" = did NOT fold.
-        coach_repo.record_tip(_tip(game_id='g2', hand_number=1, leak_kind='over_fold',
-                                   leak_scenario='vs_open', leak_position='BB'))
+        coach_repo.record_tip(
+            _tip(
+                game_id='g2',
+                hand_number=1,
+                leak_kind='over_fold',
+                leak_scenario='vs_open',
+                leak_position='BB',
+            )
+        )
         _decision(da_repo, game_id='g2', hand_number=1, action='call')
         eff = coach_repo.get_tip_effectiveness('guest_jeff')
         assert eff['by_kind']['over_fold']['follow_rate'] == 1.0

@@ -86,9 +86,7 @@ class CashScalpsRepository(BaseRepository):
             ).fetchone()
         return int(row["total"]) if row is not None else 0
 
-    def list_for_eliminator(
-        self, sandbox_id: str, eliminator_id: str
-    ) -> List[Tuple[str, int]]:
+    def list_for_eliminator(self, sandbox_id: str, eliminator_id: str) -> List[Tuple[str, int]]:
         """Per-victim breakdown for one eliminator: [(victim_id, count), …]
         descending by count. This is what renown-weighting consumes (it joins
         each victim_id to that entity's renown)."""

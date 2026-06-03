@@ -62,11 +62,14 @@ def test_multiway_credits_winner_for_each_victim():
 
 
 def test_mixed_events_only_busts_count():
-    res = _result("ace", [
-        _ev(_NON_BUST, "ace"),
-        _ev(HAND_EVENT_BUST, "fish"),
-        _ev(HAND_EVENT_BUST, "ace"),  # self-bust, skipped
-    ])
+    res = _result(
+        "ace",
+        [
+            _ev(_NON_BUST, "ace"),
+            _ev(HAND_EVENT_BUST, "fish"),
+            _ev(HAND_EVENT_BUST, "ace"),  # self-bust, skipped
+        ],
+    )
     assert eliminations_from_sim(res) == [("ace", "fish")]
 
 

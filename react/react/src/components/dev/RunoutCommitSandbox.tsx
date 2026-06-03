@@ -105,10 +105,20 @@ export function RunoutCommitSandbox() {
 
         <div className={`hero-cards${committed ? ' hero-cards--committed' : ''}`}>
           <div style={heroCardStyle('Left', flags)}>
-            <Card card={{ rank: 'A', suit: 'Hearts' }} faceDown={false} size="xlarge" className="hero-card" />
+            <Card
+              card={{ rank: 'A', suit: 'Hearts' }}
+              faceDown={false}
+              size="xlarge"
+              className="hero-card"
+            />
           </div>
           <div style={heroCardStyle('Right', flags)}>
-            <Card card={{ rank: 'A', suit: 'Diamonds' }} faceDown={false} size="xlarge" className="hero-card" />
+            <Card
+              card={{ rank: 'A', suit: 'Diamonds' }}
+              faceDown={false}
+              size="xlarge"
+              className="hero-card"
+            />
           </div>
         </div>
       </div>

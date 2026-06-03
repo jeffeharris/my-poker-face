@@ -629,11 +629,8 @@ def get_dossier(identifier: str):
         try:
             from flask_app.extensions import prestige_snapshots_repo
 
-            snap = prestige_snapshots_repo.load_latest(
-                sandbox_id, personality_id, entity_kind='ai'
-            )
-            if (snap and snap.get('formula_version') == 'v2'
-                    and snap.get('renown_v2') is not None):
+            snap = prestige_snapshots_repo.load_latest(sandbox_id, personality_id, entity_kind='ai')
+            if snap and snap.get('formula_version') == 'v2' and snap.get('renown_v2') is not None:
                 response['reputation'] = {
                     'formula_version': 'v2',
                     'quadrant': snap['quadrant'],
@@ -736,9 +733,7 @@ def get_dossier(identifier: str):
     try:
         from flask_app.extensions import game_repo
 
-        lifetime_memorable = game_repo.load_lifetime_memorable_hands(
-            observer_id, player_name
-        )
+        lifetime_memorable = game_repo.load_lifetime_memorable_hands(observer_id, player_name)
         if lifetime_memorable:
             response['memorable_hands'] = lifetime_memorable
     except Exception as e:
@@ -755,9 +750,7 @@ def get_dossier(identifier: str):
             build_relationship_history,
         )
 
-        hist = game_repo.load_relationship_history(
-            observer_id, player_name, CLASH_EVENTS
-        )
+        hist = game_repo.load_relationship_history(observer_id, player_name, CLASH_EVENTS)
         response['relationship_history'] = build_relationship_history(hist)
     except Exception as e:
         logger.debug("[CHARACTER] relationship history failed: %s", e)
@@ -791,9 +784,7 @@ def get_dossier(identifier: str):
         )
 
         anchors_block = (response.get('personality') or {}).get('anchors')
-        response['temperament'] = build_temperament(
-            response.get('pressure_summary'), anchors_block
-        )
+        response['temperament'] = build_temperament(response.get('pressure_summary'), anchors_block)
         obs_block = response.get('observation') or {}
         response['field_position'] = field_position(
             obs_block.get('vpip'), obs_block.get('aggression_factor')
@@ -981,11 +972,13 @@ def post_informant_unlock(identifier: str):
 
     bankroll = bankroll_repo.load_player_bankroll(observer_id)
     if bankroll is None or bankroll.chips < price:
-        return jsonify({
-            'error': 'Insufficient bankroll',
-            'price': price,
-            'bankroll': bankroll.chips if bankroll else 0,
-        }), 402
+        return jsonify(
+            {
+                'error': 'Insufficient bankroll',
+                'price': price,
+                'bankroll': bankroll.chips if bankroll else 0,
+            }
+        ), 402
 
     # Record the unlock first (idempotent). If it was already owned (a race),
     # bail before charging — never double-charge on a retry. The reverse
@@ -1016,12 +1009,14 @@ def post_informant_unlock(identifier: str):
     )
 
     updated = compute_scouting(life or {}, purchased | {section_id})
-    return jsonify({
-        'scouting': updated,
-        'bankroll': new_bankroll.chips,
-        'section_id': section_id,
-        'price': price,
-    })
+    return jsonify(
+        {
+            'scouting': updated,
+            'bankroll': new_bankroll.chips,
+            'section_id': section_id,
+            'price': price,
+        }
+    )
 
 
 # Nicknames are displayed prominently and are mostly short cues —
