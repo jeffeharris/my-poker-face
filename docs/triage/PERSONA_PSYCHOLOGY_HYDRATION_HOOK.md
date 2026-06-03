@@ -92,15 +92,29 @@ persona that ran hot against you carries that mood back into the world. Leave-ti
 flush (vs per-hand) is the safe default: it avoids racing the off-screen sim's
 writes for the same `(pid, sandbox_id)` and bounds state loss to one session.
 
-### 4. Wire hydrate-only into the tournament builder
+### 4. Wire the tournament builder — gated on cash-world, not on "is a tournament"
 
-In `tournament_game_builder.py`, hydrate real-persona seats from the blob
-(`sandbox_id` already resolved at line ~223) so the circuit's characters show up
-to play you in the mood the world left them in. **Do NOT flush back from a
-tournament** — a tournament is a separate event with reset chips; bleeding
-tournament tilt into the persona's cash-world blob is undesirable. One-way
-(read) for tournaments, two-way (read+write) for cash. *(Design decision — flag
-for confirmation.)*
+The unit of psychological continuity is the **cash world**, not the table type.
+Emotional state persists across the cash world *including tournaments played in
+it*; a tournament played outside the cash world starts from baseline.
+
+- **Cash-world tournament** (the Circuit / Main Event — registered via
+  `tournament_routes`, so it's sandbox-scoped and economy-bound: bankroll
+  buy-in via `econ.apply_buy_in`, `ai:<pid>` payouts): **two-way**, identical to
+  a cash table. Hydrate real-persona seats on build; flush on completion /
+  bust / leave. Chips reset per tournament (economic), but *mood is continuous*
+  with the cash world — a persona you tilt in the Main Event carries that mood
+  back out, and arrives already in whatever mood the world left it.
+- **Non-cash tournament** (a standard single-table `TournamentSession` from
+  `game_routes`, experiments, synthetic `/register` fields — no economy
+  binding): **neither** hydrate nor flush. Baseline.
+
+**Gate signal:** the cash-world / economy binding (the same one that drives
+bankroll buy-in and `ai:<pid>` payout — a resolved cash sandbox + economy-bound
+session), **not** the chip-PnL `cash_mode` flag (which is off for tournaments by
+design). If no single explicit signal exists on the session / game_data today,
+add one (e.g. `is_cash_world: bool`) so the gate is read, not inferred — psychology
+continuity should track economic continuity exactly.
 
 ## Design decisions / things to get right
 
@@ -110,7 +124,10 @@ for confirmation.)*
   *per-game* `psychology_json`, or a mid-session reload would clobber the
   evolved in-game mood with the (staler) persona blob. The two paths are already
   separate; keep them so.
-- **D2 — Cash two-way, tournament one-way.** See §4.
+- **D2 — Continuity follows the cash world, not the table type.** Cash tables
+  and cash-world (Circuit) tournaments persist two-way; non-cash tournaments
+  start at baseline and persist nothing. Gate on the economy binding, not the
+  `cash_mode` chip flag. See §4. *(Confirmed by owner 2026-06-03.)*
 - **D3 — Concurrency.** A seated persona isn't simultaneously played by the
   off-screen sim (the sim plays *unseated* tables), so the main race is the
   flush boundary. Leave-time flush + best-effort error handling (already in the
@@ -146,16 +163,22 @@ for confirmation.)*
    persona sits down tilted on the live felt.
 3. Flush in `_leave_table_locked` + bust/vacate. Verify a session that tilts a
    persona updates the lobby card emotion after leaving.
-4. Hydrate-only in `tournament_game_builder`. Verify circuit personas enter the
-   Main Event in their world mood; confirm no write-back to the cash blob.
+4. Gate the tournament builder on the cash-world signal. For a cash-world
+   (Circuit) tournament: hydrate on build + flush on completion/bust/leave
+   (two-way). For a non-cash tournament: do nothing (baseline). Verify a
+   cash-world persona enters the Main Event in its world mood AND that a session
+   that moved its mood updates the lobby card after the tournament; verify a
+   non-cash tournament neither reads nor writes the blob.
 
 ## Test strategy
 
 - Round-trip: seed `emotional_state_json` for a pid → build a live cash game →
   assert the controller's `psychology` matches (not baseline).
 - Flush: tilt a controller in a live game → leave → assert the blob updated.
-- Tournament one-way: hydrate present, flush absent (assert blob unchanged after
-  a tournament that moved the persona's mood).
+- Cash-world (Circuit) tournament two-way: hydrate on build AND flush on
+  completion (assert blob updated after a tournament that moved the mood).
+- Non-cash tournament baseline: neither hydrate nor flush (assert controller
+  starts at baseline and blob is unchanged).
 - Cold-load isolation (D1): mid-session reload restores per-game psychology, does
   NOT re-hydrate from the persona blob.
 - Sim equivalence after the module move (R2).
