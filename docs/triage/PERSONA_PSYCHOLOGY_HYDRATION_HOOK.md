@@ -9,6 +9,12 @@ last_updated: 2026-06-03
 
 > **TRIAGE ref:** T3-77 (Tier 3). Live tables seat personas at baseline mood
 > while the world remembers their real emotional state — connect the two.
+>
+> **STATUS: IMPLEMENTED (2026-06-03, branch `tournaments`).** Shipped in three
+> commits: shared module (`refactor(psych)`), live cash two-way
+> (`feat(cash)`), cash-world tournament two-way (`feat(tournament)`). Tests:
+> 8 hook round-trip + 2 completion-gate, cash slice 343 + tournament bucket 287
+> green. **Deferred refinements** (none block the feature): see §Deferred below.
 
 ## TL;DR
 
@@ -169,6 +175,25 @@ continuity should track economic continuity exactly.
    cash-world persona enters the Main Event in its world mood AND that a session
    that moved its mood updates the lobby card after the tournament; verify a
    non-cash tournament neither reads nor writes the blob.
+
+## Deferred refinements (post-implementation)
+
+Tracked here so they're not silently lost; none block the shipped feature.
+
+- **Balanced-in personas mid-tournament don't re-hydrate.** When a table
+  rebalance moves a persona onto the human's table mid-tournament, the reconcile
+  path (`tournament_handler` `_make`) rebuilds the controller but does not call
+  the hydrate hook — so a persona who *joins* the human's table mid-event starts
+  at baseline rather than its world mood. Only seats present at initial build
+  hydrate. (Hydrate at the reconcile build site to close this.)
+- **Cash AI that leaves before the human isn't flushed individually.** The cash
+  flush fires on the human's leave/settle and captures whoever is seated then;
+  an AI that vacated the human's table earlier in the session has its evolved
+  mood dropped. A per-vacate flush in the AI-leave path would close this.
+- **Idle decay-on-read not applied at hydrate (D4).** Hydration trusts the last
+  flushed blob; it doesn't re-apply idle recovery toward baseline at seat time.
+  Matches the lobby display's current behaviour (`cash_routes.py` "Decay-on-read
+  is a TODO").
 
 ## Test strategy
 
