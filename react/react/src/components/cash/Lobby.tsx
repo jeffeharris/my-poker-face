@@ -557,7 +557,10 @@ export function Lobby() {
     setSponsorState(null);
     if (held) {
       releaseSeat(held.tableId, held.seatIndex).catch((e) => {
-        logger.warn('Failed to release sponsorship seat-hold:', e instanceof Error ? e.message : String(e));
+        logger.warn(
+          'Failed to release sponsorship seat-hold:',
+          e instanceof Error ? e.message : String(e)
+        );
       });
     }
   }, [sponsorState]);
@@ -669,7 +672,7 @@ export function Lobby() {
   // table isn't in the rendered list.
   const seatedStakeLabel =
     (seatedTableId
-      ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null)
+      ? tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null
       : null) ?? seatedStakeLabelFromServer;
 
   // The "meanwhile, elsewhere" strip for the join transition — the same
@@ -742,11 +745,7 @@ export function Lobby() {
           )}
 
           {activeTournamentId && (
-            <button
-              type="button"
-              className="main-event-resume"
-              onClick={handleResumeTournament}
-            >
+            <button type="button" className="main-event-resume" onClick={handleResumeTournament}>
               <Trophy size={18} aria-hidden="true" />
               <span className="main-event-resume__text">Resume the Main Event</span>
               <ChevronRight size={18} className="main-event-resume__arrow" aria-hidden="true" />
@@ -758,6 +757,8 @@ export function Lobby() {
               invite={mainEventInvite}
               onEnter={handleEnterTournament}
               onResolved={handleInviteResolved}
+              onRegisterStart={() => setSittingDown({ submessage: 'Main Event' })}
+              onRegisterError={() => setSittingDown(null)}
             />
           )}
 
@@ -939,7 +940,7 @@ export function Lobby() {
           }
           tableName={
             sponsorState
-              ? (tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null)
+              ? tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null
               : null
           }
           onClose={handleSponsorClose}
@@ -950,7 +951,7 @@ export function Lobby() {
           character={dossier?.dossier ?? { name: '' }}
           origin={dossier?.origin}
           identifier={dossier?.identifier}
-          circuitContext  /* the lobby is always the Circuit */
+          circuitContext /* the lobby is always the Circuit */
           // Refresh the lobby intel surfaces (incl. the file cabinet behind
           // this card) after an informant purchase so unlock state updates.
           onIntelChanged={() => setStakablePanelTick((t) => t + 1)}

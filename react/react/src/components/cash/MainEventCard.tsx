@@ -57,9 +57,21 @@ interface MainEventCardProps {
   onEnter: (gameId: string) => void;
   /** The invite was resolved (declined / consumed) — clear + refetch. */
   onResolved: () => void;
+  /** Register kicked off — Lobby raises its full-screen "Taking your seat"
+   *  overlay so the multi-second accept→sit build reads as in-progress
+   *  (and hides the card's mid-flight flip to the Resume bar). */
+  onRegisterStart?: () => void;
+  /** Register failed before navigation — Lobby drops the overlay. */
+  onRegisterError?: () => void;
 }
 
-export function MainEventCard({ invite, onEnter, onResolved }: MainEventCardProps) {
+export function MainEventCard({
+  invite,
+  onEnter,
+  onResolved,
+  onRegisterStart,
+  onRegisterError,
+}: MainEventCardProps) {
   const [busy, setBusy] = useState<null | 'register' | 'decline'>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,22 +81,25 @@ export function MainEventCard({ invite, onEnter, onResolved }: MainEventCardProp
   const doRegister = useCallback(async () => {
     setBusy('register');
     setError(null);
+    // Raise the full-screen seat-taking overlay up front: accept+sit builds the
+    // persona table (a few seconds) and the lobby poll flips this card to the
+    // Resume bar mid-flight — the overlay covers both so it reads as loading.
+    onRegisterStart?.();
     try {
       const { tournament_id } = await acceptInvite();
       const { game_id } = await sitTournament(tournament_id);
       onEnter(game_id);
     } catch (e) {
       if (e instanceof InsufficientFundsError) {
-        setError(
-          `Buy-in is ${formatChips(e.required)} — you have ${formatChips(e.available)}.`
-        );
+        setError(`Buy-in is ${formatChips(e.required)} — you have ${formatChips(e.available)}.`);
       } else {
         setError(e instanceof Error ? e.message : String(e));
       }
       setBusy(null);
       setConfirming(false);
+      onRegisterError?.();
     }
-  }, [onEnter]);
+  }, [onEnter, onRegisterStart, onRegisterError]);
 
   const handleRegister = useCallback(() => {
     if (busy) return;
