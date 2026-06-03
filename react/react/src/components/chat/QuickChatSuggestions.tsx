@@ -106,6 +106,21 @@ const DEFAULT_REGISTER: ChatIntensity = 'chill';
 // resolve to it — see handleToneSelect).
 const VALID_REGISTERS: readonly ChatIntensity[] = ['chill', 'spicy', 'sarcastic'];
 
+// Display metadata for the delivery registers. Each carries an emoji (quick
+// visual ID), a spelled-out label (so no option is emoji-only and ambiguous),
+// and a one-line hint shown live beneath the row — the hint is how we teach
+// what each register actually does, especially `sarcastic`, on mobile where
+// :hover tooltips never fire.
+const REGISTER_META: Record<ChatIntensity, { emoji: string; label: string; hint: string }> = {
+  chill: { emoji: '😌', label: 'Chill', hint: 'Playful and light — soften the blow.' },
+  spicy: { emoji: '🌶️', label: 'Spicy', hint: 'No filter. Cut deep.' },
+  sarcastic: {
+    emoji: '😏',
+    label: 'Sarcastic',
+    hint: "Dry — say the opposite. They won't read it literally.",
+  },
+};
+
 function readRegisterPrefs(): Partial<Record<ChatTone, ChatIntensity>> {
   const raw = safeGetItem(REGISTER_PREFS_KEY);
   if (!raw) return {};
@@ -332,6 +347,12 @@ export function QuickChatSuggestions({
     }
   };
 
+  // Registers offered for the current tone: chill/spicy always, sarcastic
+  // only where the tone has a surface to invert.
+  const availableRegisters: ChatIntensity[] = toneTakesSarcasm(selectedTone)
+    ? ['chill', 'spicy', 'sarcastic']
+    : ['chill', 'spicy'];
+
   // Collapsed state - just show the toggle button
   if (!isExpanded) {
     return (
@@ -395,36 +416,32 @@ export function QuickChatSuggestions({
       </div>
 
       {/* Delivery register — sits directly below the tone it modifies, and
-          appears as soon as a tone is picked. Remembered per-tone. */}
+          appears as soon as a tone is picked. Remembered per-tone. Sarcastic
+          is offered only on tones with a surface to invert (warm/hostile
+          relationship tones), where its effect flips: banter (trash talk),
+          backhand (props). */}
       {selectedTone && (
         <div className="delivery-selector">
           <div className="selector-label">Delivery?</div>
-          <div className="toggle-group">
-            <button
-              className={`toggle-btn ${intensity === 'chill' ? 'active' : ''}`}
-              onClick={() => selectIntensity('chill')}
-            >
-              Chill
-            </button>
-            <button
-              className={`toggle-btn ${intensity === 'spicy' ? 'active' : ''}`}
-              onClick={() => selectIntensity('spicy')}
-            >
-              🌶️
-            </button>
-            {/* Sarcastic is a third mutually-exclusive register, offered only
-                on tones with a surface to invert. Its effect flips by tone:
-                banter (trash talk), backhand (props), mocking (flatter). */}
-            {toneTakesSarcasm(selectedTone) && (
-              <button
-                className={`toggle-btn ${intensity === 'sarcastic' ? 'active' : ''}`}
-                onClick={() => selectIntensity('sarcastic')}
-                title="Sarcastic — don't read it literally"
-              >
-                😏
-              </button>
-            )}
+          <div className="toggle-group toggle-group-wide">
+            {availableRegisters.map((register) => {
+              const meta = REGISTER_META[register];
+              return (
+                <button
+                  key={register}
+                  className={`toggle-btn toggle-btn-lg ${intensity === register ? 'active' : ''}`}
+                  onClick={() => selectIntensity(register)}
+                  title={`${meta.label} — ${meta.hint}`}
+                >
+                  <span className="toggle-btn-emoji">{meta.emoji}</span>
+                  <span className="toggle-btn-text">{meta.label}</span>
+                </button>
+              );
+            })}
           </div>
+          {/* Live hint: teaches what the selected register does (esp. sarcastic,
+              the novel one) — the mobile-friendly stand-in for a tooltip. */}
+          <div className="delivery-hint">{REGISTER_META[intensity].hint}</div>
         </div>
       )}
 
@@ -436,14 +453,16 @@ export function QuickChatSuggestions({
             <div className="modifier-toggles">
               <div className="toggle-group">
                 <button
-                  className={`toggle-btn ${length === 'short' ? 'active' : ''}`}
+                  className={`toggle-btn toggle-btn-lg ${length === 'short' ? 'active' : ''}`}
                   onClick={() => setLength('short')}
+                  title="Short — a quick one-liner"
                 >
                   Short
                 </button>
                 <button
-                  className={`toggle-btn ${length === 'long' ? 'active' : ''}`}
+                  className={`toggle-btn toggle-btn-lg ${length === 'long' ? 'active' : ''}`}
                   onClick={() => setLength('long')}
+                  title="Long — a fuller dig"
                 >
                   Long
                 </button>

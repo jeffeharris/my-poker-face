@@ -297,6 +297,56 @@
   color: white;
 }
 
+/* Larger, clearer toggle buttons (delivery register + length). Bumped tap
+   target and a consistent emoji+label layout so no option is a bare emoji. */
+.toggle-btn-lg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.toggle-btn-emoji {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.toggle-btn.active .toggle-btn-emoji {
+  /* the chili/smirk read better at full saturation when selected */
+  filter: none;
+}
+
+/* Full-width segmented control — equal segments that fill the row, so the
+   delivery options read as one clear, tappable control rather than three
+   small chips floating center. */
+.toggle-group-wide {
+  width: 100%;
+  max-width: 22rem;
+}
+
+.toggle-group-wide .toggle-btn {
+  flex: 1;
+}
+
+/* Live one-line explanation of the selected delivery register. The
+   mobile-friendly stand-in for a hover tooltip; min-height reserves space so
+   switching registers doesn't jump the layout. */
+.delivery-hint {
+  min-height: 1rem;
+  font-size: 0.6875rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  font-style: italic;
+  letter-spacing: 0.01em;
+  transition: color 0.2s ease;
+}
+
 /* Tone options */
 .tone-options {
   display: flex;
