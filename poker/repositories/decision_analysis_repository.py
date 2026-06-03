@@ -240,7 +240,7 @@ class DecisionAnalysisRepository(BaseRepository):
                 SELECT *
                 FROM player_decision_analysis
                 {where_clause}
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
             """
             params.extend([limit, offset])

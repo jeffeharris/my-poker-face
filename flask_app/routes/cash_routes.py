@@ -5084,29 +5084,12 @@ def top_up():
             return jsonify({"error": "Player not seated"}), 400
         human_player = state_machine.game_state.players[human_idx]
 
-        # Phase gate: between-hands phases are always safe. Mid-hand we
-        # only allow it once the human has folded — they can't act this
-        # hand, so the new chips just sit on the stack until the next
-        # deal. A still-active player topping up mid-hand would shift
-        # call/raise math underneath the AI opponents.
-        between_hands = state_machine.current_phase in (
-            PokerPhase.INITIALIZING_GAME,
-            PokerPhase.INITIALIZING_HAND,
-            PokerPhase.HAND_OVER,
-        )
-        if not between_hands and not human_player.is_folded:
-            return jsonify(
-                {
-                    "error": "Top up is only allowed between hands or after folding",
-                }
-            ), 400
-
-        bankroll = bankroll_repo.load_player_bankroll(owner_id)
-        if bankroll is None or bankroll.chips < amount:
-            return jsonify({"error": "Insufficient bankroll"}), 400
         # Mingling bankroll chips with stake chips would corrupt the
         # leave-time math (your top-up money would be taxed by the
-        # staker's cut). Force the player to settle first.
+        # staker's cut). Force the player to settle first. Checked before
+        # the phase branch so it applies to staged top-ups too — and it
+        # guarantees a session carrying a pending_topup never also has an
+        # active stake (the leave path relies on that).
         if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
             return jsonify(
                 {
@@ -5114,24 +5097,54 @@ def top_up():
                 }
             ), 400
 
-        new_stack = state_machine.game_state.players[human_idx].stack + amount
-        state_machine.game_state = state_machine.game_state.update_player(
-            human_idx,
-            stack=new_stack,
+        bankroll = bankroll_repo.load_player_bankroll(owner_id)
+        # Count chips already staged this hand so two quick clicks can't
+        # commit more than the bankroll can cover.
+        already_pending = int(game_data.get("pending_topup", 0) or 0)
+        if bankroll is None or bankroll.chips < amount + already_pending:
+            return jsonify({"error": "Insufficient bankroll"}), 400
+
+        # Phase gate. Between hands we add the chips to the live stack
+        # right now. Mid-hand — whether the player has folded or is still
+        # in the pot — we must NOT touch the live stack: it would shift
+        # the call/raise math under the opponents, and racing the
+        # auto-dealt next hand is exactly what used to make this request
+        # hang on the game lock and then 400. So we *stage* the chips:
+        # park the amount and let the next-hand dealer flush it. The
+        # bankroll is debited at flush time, not here, so a leave / bust /
+        # session-drop before the next deal can't strand committed chips.
+        between_hands = state_machine.current_phase in (
+            PokerPhase.INITIALIZING_GAME,
+            PokerPhase.INITIALIZING_HAND,
+            PokerPhase.HAND_OVER,
         )
 
-        new_bankroll = PlayerBankrollState(
-            player_id=bankroll.player_id,
-            chips=bankroll.chips - amount,
-            starting_bankroll=bankroll.starting_bankroll,
-            # Loan fields are 0 by virtue of the guard above; no need to copy.
-        )
-        bankroll_repo.save_player_bankroll(new_bankroll)
-
-        # Bump the durable session's total_buy_in so leave-time P&L counts
-        # this top-up as money put in (not won). Skipped silently if the
-        # session row doesn't exist (legacy game predating cash_sessions).
-        _increment_cash_session_buy_in(game_id, amount)
+        if between_hands:
+            new_stack = human_player.stack + amount
+            state_machine.game_state = state_machine.game_state.update_player(
+                human_idx,
+                stack=new_stack,
+            )
+            new_bankroll = PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=bankroll.chips - amount,
+                starting_bankroll=bankroll.starting_bankroll,
+                # Loan fields are 0 by virtue of the stake guard above.
+            )
+            bankroll_repo.save_player_bankroll(new_bankroll)
+            # Bump the durable session's total_buy_in so leave-time P&L
+            # counts this as money put in (not won), and emit the paired
+            # buy-in ledger row. Skipped silently if the session row is
+            # missing (legacy game predating cash_sessions).
+            _increment_cash_session_buy_in(game_id, amount)
+            staged_total = 0
+            response_bankroll = new_bankroll.chips
+        else:
+            staged_total = already_pending + amount
+            game_data["pending_topup"] = staged_total
+            game_state_service.set_game(game_id, game_data)
+            new_stack = human_player.stack
+            response_bankroll = bankroll.chips
 
     # Emit outside the lock — update_and_emit_game_state only reads, and the
     # game lock is non-reentrant.
@@ -5142,7 +5155,9 @@ def top_up():
     return jsonify(
         {
             "stack": new_stack,
-            "bankroll": new_bankroll.chips,
+            "bankroll": response_bankroll,
+            "staged": staged_total > 0,
+            "pending_topup": staged_total,
         }
     )
 

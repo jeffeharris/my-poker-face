@@ -221,6 +221,25 @@ def analyze_player_decision(
     try:
         from poker.decision_analyzer import get_analyzer
 
+        # Skip the duplicate analysis when the acting player's controller
+        # already wrote the richer controller-side row for THIS decision.
+        # Self-analyzing controllers (standard/lean/chaos, and tiered when a
+        # decision_analysis repo is attached) stamp (hand_number, phase,
+        # action) after saving; that row carries the capture_id, psychology
+        # snapshot, and menu compliance this fallback path can't reconstruct.
+        # Consume the stamp on match so a stale stamp can never wrongly skip
+        # a later decision that didn't self-analyze (humans, narration-skipped
+        # sharp bots, or any controller without a repo wired).
+        controller = (ai_controllers or {}).get(player_name)
+        if controller is not None:
+            phase_name = (
+                state_machine.current_phase.name if state_machine.current_phase else None
+            )
+            stamp = getattr(controller, '_last_analyzed_decision', None)
+            if stamp is not None and stamp == (hand_number, phase_name, action):
+                controller._last_analyzed_decision = None
+                return
+
         player = game_state.current_player
         if player.name != player_name:
             # Find the player who acted (may have moved to next player already)

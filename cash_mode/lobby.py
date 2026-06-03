@@ -29,6 +29,13 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
+# authoritative `save_table` seat write into the dormant `entity_presence`
+# table via `presence_shadow.shadow_transition`, which is a guarded no-op
+# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
+# in try/except so it can never break the real seat write it shadows. See
+# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
+from cash_mode import presence_shadow
 from cash_mode.attractiveness import (
     CASINO_VENUE_APPEAL,
     DEFAULT_SEEK_RATE,
@@ -50,7 +57,6 @@ from cash_mode.full_sim import (
     hand_burst_count,
     play_one_hand,
 )
-from cash_mode.scalps import eliminations_from_sim
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
     RESEAT_RECOVERY_FLOOR,
@@ -62,6 +68,8 @@ from cash_mode.movement import (
     refresh_table_roster,
     reseat_readiness,
 )
+from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
+from cash_mode.scalps import eliminations_from_sim
 from cash_mode.seat_registry import SeatOccupancyRegistry
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
@@ -77,15 +85,6 @@ from cash_mode.tables import (
     ai_slot,
     open_slot,
 )
-
-# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
-# authoritative `save_table` seat write into the dormant `entity_presence`
-# table via `presence_shadow.shadow_transition`, which is a guarded no-op
-# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
-# in try/except so it can never break the real seat write it shadows. See
-# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
-from cash_mode import presence_shadow
-from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
 
 logger = logging.getLogger(__name__)
 
@@ -1787,6 +1786,7 @@ def refresh_unseated_tables(
                 bankroll_repo=bankroll_repo,
                 chip_ledger_repo=chip_ledger_repo,
                 table_id=getattr(table, 'table_id', None),
+                table_max_buy_in=table_max_buy_in,
             )
             if r.delta > 0:
                 table.seats = r.new_seats

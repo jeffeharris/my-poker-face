@@ -325,6 +325,14 @@ export function usePokerGame({
 
     applyStateUpdate(nextUpdate.gameState);
 
+    // If this replayed update dealt community cards, hold the next update back
+    // until the deal animation finishes — otherwise the follow-up state would
+    // clobber the in-flight cascade (cards snap mid-flight). Non-deal updates
+    // use the standard inter-action delay.
+    const replayedDealCount = nextUpdate.gameState.newly_dealt_count ?? 0;
+    const nextDelay =
+      replayedDealCount > 0 ? calculateGateDuration(replayedDealCount) : REPLAY_DELAY_MS;
+
     // Schedule next replay after delay
     replayTimeoutRef.current = setTimeout(() => {
       try {
@@ -333,8 +341,8 @@ export function usePokerGame({
         logger.error('[BUFFER] Replay failed, resetting to NORMAL:', error);
         resetBuffer();
       }
-    }, REPLAY_DELAY_MS);
-  }, [applyStateUpdate, resetBuffer]);
+    }, nextDelay);
+  }, [applyStateUpdate, calculateGateDuration, resetBuffer]);
 
   /**
    * Start replaying queued updates after gate expires.
@@ -385,15 +393,9 @@ export function usePokerGame({
         // Update tracking ref
         prevCommunityCardCountRef.current = currentCardCount;
 
-        if (cardsJustDealt) {
-          // Cards were just dealt - apply immediately (so animation starts) and open gate
+        if (cardsJustDealt && bufferStateRef.current === BufferState.NORMAL) {
+          // Cards dealt while idle - apply immediately (so animation starts) and open gate
           logger.debug('[BUFFER] Cards dealt, opening gate', { newlyDealtCount, currentCardCount });
-
-          // If replaying when new cards arrive, interrupt replay and clear stale queue
-          if (bufferStateRef.current === BufferState.REPLAYING) {
-            clearBufferTimers();
-            updateQueueRef.current = []; // Clear stale updates from interrupted replay
-          }
 
           // Apply card-dealing state immediately
           applyStateUpdate(transformedState);
@@ -420,15 +422,23 @@ export function usePokerGame({
           // Normal mode: apply immediately
           applyStateUpdate(transformedState);
         } else {
-          // GATED or REPLAYING: queue the update
-          // Clear newly_dealt_count since the card animation was already triggered
-          // by the initial state application. Without this, replayed states would
-          // re-trigger the animation hook.
+          // GATED or REPLAYING: queue the update to preserve ordering and pacing.
+          //
+          // A deal that arrives mid-gate (e.g. the next street, when betting
+          // finished faster than the current cascade) must NOT be applied
+          // immediately — that would clobber the in-flight animation and the
+          // earlier cards would snap mid-flight. Queue it with newly_dealt_count
+          // intact so it animates cleanly when replayed (scheduleNextReplay then
+          // re-gates for the deal's duration). Non-deal updates have their count
+          // zeroed so a replayed state never re-triggers the animation hook.
           logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
             queueLength: updateQueueRef.current.length + 1,
+            cardsJustDealt,
           });
           updateQueueRef.current.push({
-            gameState: { ...transformedState, newly_dealt_count: 0 },
+            gameState: cardsJustDealt
+              ? transformedState
+              : { ...transformedState, newly_dealt_count: 0 },
             timestamp: Date.now(),
             handNumber: transformedState.hand_number ?? 0,
           });
@@ -439,7 +449,7 @@ export function usePokerGame({
         resetBuffer();
       }
     },
-    [applyStateUpdate, calculateGateDuration, clearBufferTimers, resetBuffer, startReplay]
+    [applyStateUpdate, calculateGateDuration, resetBuffer, startReplay]
   );
 
   // ========================================================================

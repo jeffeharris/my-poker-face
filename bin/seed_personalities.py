@@ -90,8 +90,14 @@ def seed_personalities(force: bool = False) -> dict:
             else:
                 skipped += 1
         else:
-            # Add new personality
-            personality_repo.save_personality(name, config, source='json_import')
+            # Add new personality. The canonical roster is meant to auto-seat
+            # into the Circuit (cash mode), so new rows circulate by default
+            # (v123 circulating gate). We only force this on ADD — the --force
+            # update path above passes no `circulating`, so save_personality
+            # preserves any deliberate demotion (circulating=0) already in the DB.
+            personality_repo.save_personality(
+                name, config, source='json_import', circulating=True
+            )
             added += 1
             print(f"  Added: {name}")
 

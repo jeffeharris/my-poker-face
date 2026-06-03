@@ -175,6 +175,14 @@ def _classify_draw_modifier(
     if hand_rank <= 6:
         return 'no_draw'
 
+    # River: the board is complete, so no draw can still be live. A 4-flush or
+    # open-ender here is *dead* (zero equity to improve) and must not be read as
+    # a "strong draw" — that promotion (`strong_made + strong_draw → nuts` in
+    # simplify_hand_class) was crediting finished-board hands with phantom
+    # equity. See test_river_dead_flush_is_no_draw.
+    if len(community_cards) >= 5:
+        return 'no_draw'
+
     all_cards = hole_cards + community_cards
     all_suits = [c[1] for c in all_cards]
     all_ranks = sorted(set(RANK_VALUES[c[0]] for c in all_cards))
@@ -412,6 +420,89 @@ def _apply_made_tier_downgrade(
     return raw_made_tier
 
 
+# --- Board-play detection ------------------------------------------
+#
+# The made-tier path credits a player for the *category* of hand they hold
+# (two pair, a flush, a straight) without asking how much of that strength is
+# theirs versus the board's. On a board that already makes a strong hand by
+# itself — e.g. AA22 two pair on the board — a player who "has two pair" may be
+# playing the board with a kicker that everyone at the table shares. Crediting
+# that as `strong_made`/`nuts` is how Q5 on 2h2cAdThAs got jammed as the nuts.
+#
+# The fix is board-agnostic: evaluate the naked board and compare it to the
+# player's best 7-card hand. Tie → they contributed nothing (`plays_board`);
+# same category but a better kicker → marginal shared-hand edge (`kicker_only`).
+_PLAYS_BOARD = 'plays_board'
+_KICKER_ONLY = 'kicker_only'
+_USES_HOLE = 'uses_hole'
+
+# One-step made-tier demotion for `kicker_only` hands (a real but tiny edge
+# over a shared board hand — can call, must never value-jam).
+_DEMOTE_MADE_TIER = {
+    'nuts': 'medium_made',
+    'strong_made': 'medium_made',
+    'medium_made': 'weak_made',
+    'weak_made': 'weak_made',
+    'air': 'air',
+}
+
+
+def _board_play_level(hole_cards: List[str], community_cards: List[str]) -> str:
+    """How much the hole cards improve on the naked board.
+
+    Only meaningful once the board can stand alone (5 cards); on earlier
+    streets the board isn't a complete hand, so returns `uses_hole`.
+
+    Returns:
+        'plays_board' — hero's best hand ties the board exactly (no edge).
+        'kicker_only' — same made-hand category, hero only has a better kicker.
+        'uses_hole'   — hero genuinely improves the board's hand category.
+    """
+    if len(community_cards) < 5:
+        return _USES_HOLE
+    board_eval = HandEvaluator(
+        [_parse_card(c) for c in community_cards]
+    ).evaluate_hand()
+    hero_eval = HandEvaluator(
+        [_parse_card(c) for c in hole_cards + community_cards]
+    ).evaluate_hand()
+    board_key = (board_eval['hand_rank'], tuple(board_eval.get('hand_values') or []))
+    hero_key = (hero_eval['hand_rank'], tuple(hero_eval.get('hand_values') or []))
+    if hero_key == board_key:
+        return _PLAYS_BOARD
+    if hero_eval['hand_rank'] == board_eval['hand_rank']:
+        return _KICKER_ONLY
+    return _USES_HOLE
+
+
+def _two_pair_topped_by_board_pair(
+    hand_rank: int,
+    hand_values: List[int],
+    community_cards: List[str],
+) -> bool:
+    """True when hero's two pair is *led* by a pair the board makes by itself.
+
+    On a paired board the evaluator promotes a one-pair holding to "two pair"
+    by folding in the board's own pair. When that board pair is the *higher* of
+    the two (e.g. 3s5s on 3h Qd Ks Tc Th → "tens and threes", where the tens are
+    the board's pair), hero's real edge is only the lower pair — everyone with a
+    card of the board-pair rank already shares the top pair, so the hand is a
+    bluff-catcher, not value. This mirrors the paired-board demotion the
+    one-pair branch of `_classify_nut_status` already applies; the made-tier
+    path otherwise credits *all* two pair as `strong_made` (hand_rank 8),
+    board-blind.
+
+    Hero making the *top* pair with a hole card (e.g. K5 on K-7-7-x → kings &
+    sevens, where the kings use a hole card) is genuine top-two value → False.
+    `_board_play_level` already handles the case where hero contributes nothing.
+    """
+    if hand_rank != 8 or len(hand_values) < 2:
+        return False
+    high_pair_rank = hand_values[0]
+    board_rank_counts = Counter(RANK_VALUES[c[0]] for c in community_cards)
+    return board_rank_counts.get(high_pair_rank, 0) >= 2
+
+
 def classify_hand_full(
     hole_cards: List[str],
     community_cards: List[str],
@@ -457,6 +548,36 @@ def classify_hand_full(
         hole_cards,
         community_cards,
     )
+
+    # Board-play override: a hand whose strength is supplied by the board, not
+    # the hole cards, must not be credited as value. Runs after the made-tier
+    # path so it can override its (board-blind) verdict. See _board_play_level.
+    board_play = _board_play_level(hole_cards, community_cards)
+    if board_play == _PLAYS_BOARD:
+        # Everyone has this — it is air that happens to "make" the board's hand.
+        made_tier = 'air'
+        nut_status = NUT_BLUFF_CATCHER
+    elif board_play == _KICKER_ONLY and nut_status not in (NUT_ACTUAL, NUT_NEAR):
+        # Same made-hand category as the naked board, but hero has better
+        # tiebreakers. When those tiebreakers make a genuine nut / near-nut hand
+        # — the nut flush on a monotone board, the nut straight on a board that
+        # already runs four to a straight — the hole card IS the deciding high
+        # card, not a throwaway kicker, so the danger-flag system's `nuts`
+        # verdict stands and we leave it alone. Only the marginal case (a
+        # non-nut flush/straight that barely edges the shared board hand) is the
+        # bluff-catcher Lucille targeted: demote a step and mark bluff_catcher.
+        made_tier = _DEMOTE_MADE_TIER[made_tier]
+        nut_status = NUT_BLUFF_CATCHER
+    elif _two_pair_topped_by_board_pair(hand_rank, hand_values, community_cards):
+        # Two pair whose *top* pair is the board's own pair: hero's real edge is
+        # only the lower pair, so grade it as a bluff-catcher (mirrors the
+        # paired-board one-pair demotion) rather than `strong_made` value. This
+        # stops the overbet/value layers from firing a 150% pot bet with a hand
+        # that loses to the whole continuing range. See
+        # _two_pair_topped_by_board_pair.
+        made_tier = 'weak_made'
+        nut_status = NUT_BLUFF_CATCHER
+
     hand_class = simplify_hand_class(made_tier, draw_modifier)
 
     return HandClassification(

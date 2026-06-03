@@ -107,6 +107,47 @@ def _get_session_memory_manager(sandbox_id: Optional[str], db_path: Optional[str
                     mm.opponent_model_manager = OpponentModelManager.from_dict(saved)
             except Exception as exc:
                 logger.debug("[FULL_SIM] opponent-model restore failed: %s", exc)
+        # Phase 3 relationships in the lobby sim: wire the relationship repo
+        # so AI<->AI heat/respect/likability (and cash_pair_stats PnL) evolve
+        # from off-screen big-pot drama — the social world keeps breathing
+        # while the human is away. LEAN by construction: we deliberately do
+        # NOT call set_hand_history_repo, so `_persistence` stays None and
+        # on_hand_complete skips the per-hand hand_history DB write. Combined
+        # with record_showdown_equity=False at the call site, this keeps the
+        # ~227 hand/sec loop write-light. Mirrors the live cash wiring at
+        # flask_app/routes/cash_routes.py:880.
+        if db_path:
+            try:
+                from poker.repositories.personality_repository import (
+                    PersonalityRepository,
+                )
+                from poker.repositories.relationship_repository import (
+                    RelationshipRepository,
+                )
+
+                mm.set_relationship_repo(
+                    RelationshipRepository(db_path),
+                    cash_mode=True,
+                    sandbox_id=sandbox_id,
+                    # table_max_buy_in left None: STACK_DOMINANCE stays off in
+                    # the lobby sim for v1. The manager is per-sandbox, shared
+                    # across tables of differing stakes, so there's no single
+                    # cap to set here. The big-pot / bluff / hero-call / cooler
+                    # event families drive AI<->AI relationships without it.
+                    table_max_buy_in=None,
+                )
+                # Suppress dossiers + cash-pair PnL for transient casino fish
+                # (per-pair, both directions) — same policy as live cash.
+                # Grinder<->grinder history still accrues normally.
+                mm.set_fish_ids(
+                    {
+                        p["personality_id"]
+                        for p in PersonalityRepository(db_path).list_fish_for_cash_mode()
+                        if p.get("personality_id")
+                    }
+                )
+            except Exception as exc:
+                logger.warning("[FULL_SIM] relationship wiring failed: %s", exc)
         _session_memory_managers[sandbox_id] = mm
         _session_hand_counters[sandbox_id] = 0
         return mm
@@ -656,6 +697,7 @@ def play_one_hand(
     bankroll_repo: Optional[Any] = None,
     chip_ledger_repo: Optional[Any] = None,
     table_id: Optional[str] = None,
+    table_max_buy_in: Optional[int] = None,
 ) -> HandSimResult:
     """Run one AI-only hand at the given cash-mode table.
 
@@ -739,6 +781,7 @@ def play_one_hand(
             sandbox_id=sandbox_id,
             chip_ledger_repo=chip_ledger_repo,
             table_id=table_id,
+            table_max_buy_in=table_max_buy_in,
         )
     finally:
         random.setstate(_saved_global_random_state)
@@ -758,6 +801,7 @@ def _play_one_hand_inner(
     sandbox_id: str,
     chip_ledger_repo: Optional[Any] = None,
     table_id: Optional[str] = None,
+    table_max_buy_in: Optional[int] = None,
 ) -> HandSimResult:
     """Body of play_one_hand, run inside the hermetic random snapshot.
 
@@ -858,9 +902,15 @@ def _play_one_hand_inner(
     # — see scripts/sim_experiments/analyze_interventions.py. The
     # tournament runner does this same wiring at
     # experiments/run_ai_tournament.py:765+.
+    # BaseRepository exposes the path as `db_path` (not `_db_path`). The
+    # original `_db_path` lookup never matched any repo, so this silently
+    # resolved to None — disabling opponent-model persistence/restore AND
+    # (once wired) relationship-simming. Prefer `db_path`, keep `_db_path`
+    # as a defensive fallback for any custom repo that exposes it.
     db_path_for_memory = (
-        bankroll_repo._db_path
-        if bankroll_repo is not None and hasattr(bankroll_repo, '_db_path')
+        getattr(bankroll_repo, 'db_path', None)
+        or getattr(bankroll_repo, '_db_path', None)
+        if bankroll_repo is not None
         else None
     )
     memory_manager = _get_session_memory_manager(sandbox_id, db_path_for_memory)
@@ -897,7 +947,69 @@ def _play_one_hand_inner(
         except Exception as exc:
             logger.debug("[FULL_SIM] on_hand_start failed: %s", exc)
 
-    _run_hand(sm, controllers, memory_manager=memory_manager)
+    winner_info = _run_hand(sm, controllers, memory_manager=memory_manager)
+
+    # Phase 3 relationships: run hand-outcome detection + dispatch so this
+    # hand's AI<->AI axes (and cash_pair_stats PnL) evolve. No-op unless the
+    # relationship repo was wired in _get_session_memory_manager. LEAN cost
+    # controls (see CASH_MODE_FULL_SIM_HANDOFF + the storage/speed analysis):
+    #   - skip_commentary=True  : no LLM (sims have no chat layer anyway)
+    #   - record_showdown_equity=False : skip the inline eval7 enrichment,
+    #     the dominant cost of on_hand_complete (feeds only opponent-model
+    #     equity buckets, not relationship detection)
+    #   - equity_history=None   : BAD_BEAT needs pre-river equity we don't
+    #     compute on this path; the rest of the event family still fires
+    #   - _persistence is None  : the per-hand hand_history INSERT is skipped
+    # game_state.pot survives award_pot_winnings (it only credits stacks), so
+    # the recorded pot_size is intact and the big-pot event gate works.
+    if memory_manager is not None and winner_info is not None:
+        # Backfill end-of-hand card info onto the recorder. The sim calls
+        # on_hand_start BEFORE the state machine deals (so start_hand captured
+        # no hole cards) and never feeds community cards street-by-street.
+        # Without this the recorded hand has empty hole/community cards and the
+        # showdown-based relationship detectors (HERO_CALL, COOLER,
+        # DOMINATED_SHOWDOWN, BLUFFED_OFF, STRONG_FOLD_SHOWN) all bail. At hand
+        # end every card is known (full information, incl. folders' cards which
+        # the engine retains), so backfill here.
+        _rec = getattr(memory_manager.hand_recorder, "current_hand", None)
+        if _rec is not None:
+            try:
+                for _p in sm.game_state.players:
+                    _hole = getattr(_p, "hand", None)
+                    if _hole:
+                        _rec.set_hole_cards(_p.name, [str(c) for c in _hole])
+                _board = [str(c) for c in getattr(sm.game_state, "community_cards", [])]
+                if _board:
+                    _rec.community_cards = list(_board)
+            except Exception as exc:
+                logger.debug("[FULL_SIM] card backfill failed: %s", exc)
+        # STACK_DOMINANCE needs this table's cap. The manager is per-sandbox
+        # and shared across tables of differing stakes, so set it per-hand
+        # right before detection rather than once at wiring time. None leaves
+        # STACK_DOMINANCE off (the other event families are unaffected).
+        try:
+            memory_manager.set_table_max_buy_in(table_max_buy_in)
+        except Exception:
+            pass
+        try:
+            memory_manager.on_hand_complete(
+                winner_info=winner_info,
+                game_state=sm.game_state,
+                ai_players={},
+                skip_commentary=True,
+                equity_history=None,
+                record_showdown_equity=False,
+            )
+        except Exception as exc:
+            logger.debug("[FULL_SIM] on_hand_complete failed: %s", exc)
+        finally:
+            # The recorder appends every completed hand and the manager is
+            # cached per-sandbox for the whole process lifetime — clear it so
+            # the list doesn't grow unbounded across thousands of sim hands.
+            try:
+                memory_manager.hand_recorder.completed_hands.clear()
+            except Exception:
+                pass
 
     # Periodic psychology flush. Increment the per-controller hand
     # counter; every PSYCHOLOGY_FLUSH_EVERY_HANDS hands we serialize
@@ -1104,7 +1216,7 @@ def _run_hand(
     controllers: Dict[str, object],
     *,
     memory_manager: Optional[Any] = None,
-) -> None:
+) -> Optional[Dict[str, Any]]:
     """Drive the state machine from PRE_FLOP to pot award.
 
     Mirrors the spike's loop: advance to EVALUATING_HAND, handling
@@ -1116,6 +1228,11 @@ def _run_hand(
     `memory_manager` is the per-sandbox AIMemoryManager when wired —
     feeds opponent-stat tracking via `on_action` after each play_turn.
     None for legacy callers / tests not wiring memory.
+
+    Returns the `winner_info` dict from `determine_winner` (pot
+    breakdown + winning hand) so the caller can drive
+    `on_hand_complete` for relationship detection. Returns None when
+    the hand ended without reaching EVALUATING_HAND.
     """
     actions = 0
     while actions < _MAX_ACTIONS_PER_HAND:
@@ -1169,12 +1286,18 @@ def _run_hand(
                 # carry actions through this codepath, but guard anyway.
                 if phase_name in ("PRE_FLOP", "FLOP", "TURN", "RIVER"):
                     active = [p.name for p in gs.players if not getattr(p, "is_folded", False)]
+                    # gs.pot is a dict ({'total': N, <name>: bet, ...}); on_action
+                    # (and the recorded action's pot_after, which on_hand_complete's
+                    # fold_to_big_bet replay subtracts from) expects the numeric
+                    # total. Passing the raw dict silently poisoned pot_after.
+                    _pot = getattr(gs, "pot", 0)
+                    pot_total = _pot.get("total", 0) if isinstance(_pot, dict) else (_pot or 0)
                     memory_manager.on_action(
                         player_name=actor_name,
                         action=action,
                         amount=amount,
                         phase=phase_name,
-                        pot_total=getattr(gs, "pot", 0) or 0,
+                        pot_total=pot_total,
                         active_players=active,
                     )
             except Exception as exc:
@@ -1194,3 +1317,5 @@ def _run_hand(
     if sm.current_phase == PokerPhase.EVALUATING_HAND:
         winner_info = determine_winner(sm.game_state)
         sm.game_state = award_pot_winnings(sm.game_state, winner_info)
+        return winner_info
+    return None

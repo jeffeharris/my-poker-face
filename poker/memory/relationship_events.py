@@ -102,6 +102,30 @@ class RelationshipEvent(Enum):
     # `HandOutcomeDetector._detect_stack_dominance` for the gating.
     STACK_DOMINANCE = "stack_dominance"
 
+    # KNOCKOUT: the actor busted the target this hand (took their last
+    # chips). The biggest single moment in poker. Actor = the player who
+    # delivered the knockout; target = the player who busted. Fires on top
+    # of any BIG_LOSS the same pot triggers — the bust is the sharper memory.
+    KNOCKOUT = "knockout"
+
+    # RIVAL: tier-1 rivalry. Two players with real shared history (enough hands
+    # together + a couple of big-pot clashes) develop a competitive edge —
+    # symmetric and usually mutual. The lighter precursor to NEMESIS.
+    RIVAL = "rival"
+
+    # NEMESIS: tier-2, deep-seated rivalry. Fires X->Y when, over a long shared
+    # history, X has lost several big pots to Y and isn't clearly ahead in the
+    # matchup. Actor = the aggrieved player; target = the one who keeps getting
+    # them. Mutual in an even war, one-directional when lopsided.
+    NEMESIS = "nemesis"
+
+    # REGULAR: low-grade familiarity from peaceful co-presence. Fires once
+    # per cooldown window for a co-present pair that did NOT clash that hand.
+    # Bilateral + symmetric — the positive counterweight to STACK_DOMINANCE's
+    # one-sided erosion, so a long-shared table slowly warms rather than only
+    # souring.
+    REGULAR = "regular"
+
     # Quarantine sentinel for unknown strings encountered on load.
     # Has zero entries in both dispatch tables — `record_event` with
     # this value is a documented no-op.
@@ -216,6 +240,19 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
         respect=-0.002,
         likability=-0.003,
     ),
+    # KNOCKOUT actor (the buster): busting someone is a notch on the belt —
+    # mild respect bump, no animosity (you beat them cleanly). The emotional
+    # weight lives on the mirror (the busted player's view).
+    RelationshipEvent.KNOCKOUT: AxisShift(heat=0.00, respect=+0.05, likability=0.00),
+    # RIVAL: a competitive edge, win or lose — a little heat, a little respect
+    # for a worthy regular opponent. Symmetric (same on the mirror side).
+    RelationshipEvent.RIVAL: AxisShift(heat=+0.05, respect=+0.05, likability=0.00),
+    # NEMESIS actor (the chronic loser): this person has become their bogeyman
+    # — heat up, grudging respect, warmth down.
+    RelationshipEvent.NEMESIS: AxisShift(heat=+0.20, respect=+0.05, likability=-0.10),
+    # REGULAR: bilateral familiarity — a small mutual warm-up, heat cools a
+    # touch. Same shift on both sides (see mirror table).
+    RelationshipEvent.REGULAR: AxisShift(heat=-0.01, respect=0.00, likability=+0.02),
     # Quarantine — no axis impact
     RelationshipEvent.UNKNOWN: AxisShift(),
 }
@@ -287,6 +324,19 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     # at a table loses standing with peers without gaining any
     # corresponding contempt or affinity in return.
     RelationshipEvent.STACK_DOMINANCE: AxisShift(),
+    # KNOCKOUT mirror (the busted player's view of the buster): you remember
+    # exactly who took you out. Strong heat, respect for the deed, warmth down.
+    RelationshipEvent.KNOCKOUT: AxisShift(heat=+0.25, respect=+0.10, likability=-0.10),
+    # RIVAL mirror: symmetric with the actor side — both players feel the
+    # rivalry equally.
+    RelationshipEvent.RIVAL: AxisShift(heat=+0.05, respect=+0.05, likability=0.00),
+    # NEMESIS mirror (the winner's view of their chronic victim): asymmetric —
+    # the player on the winning side of the rivalry doesn't register it, same
+    # as STACK_DOMINANCE. No shift.
+    RelationshipEvent.NEMESIS: AxisShift(),
+    # REGULAR mirror: symmetric with the actor side — both players warm to a
+    # familiar tablemate equally.
+    RelationshipEvent.REGULAR: AxisShift(heat=-0.01, respect=0.00, likability=+0.02),
     # Quarantine — no axis impact, same as actor table.
     RelationshipEvent.UNKNOWN: AxisShift(),
 }

@@ -52,10 +52,15 @@ class PlayerHandInfo:
     starting_stack: int
     position: str  # 'BTN', 'SB', 'BB', 'UTG', etc.
     is_human: bool
+    # Stack at hand end. None when not captured (older rows / paths that
+    # don't pass it). final_stack <= 0 means the player busted this hand —
+    # the KNOCKOUT relationship detector keys on it.
+    final_stack: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             'name': self.name,
+            'final_stack': self.final_stack,
             'starting_stack': self.starting_stack,
             'position': self.position,
             'is_human': self.is_human,
@@ -68,6 +73,7 @@ class PlayerHandInfo:
             starting_stack=data['starting_stack'],
             position=data['position'],
             is_human=data['is_human'],
+            final_stack=data.get('final_stack'),
         )
 
 
@@ -301,14 +307,35 @@ class HandInProgress:
         )
 
     def complete(
-        self, winners: List[WinnerInfo], pot_size: int, was_showdown: bool
+        self,
+        winners: List[WinnerInfo],
+        pot_size: int,
+        was_showdown: bool,
+        final_stacks: Optional[Dict[str, int]] = None,
     ) -> RecordedHand:
-        """Complete the hand and return an immutable RecordedHand."""
+        """Complete the hand and return an immutable RecordedHand.
+
+        `final_stacks` (name -> end-of-hand stack), when supplied, is stamped
+        onto each PlayerHandInfo so downstream detectors (e.g. KNOCKOUT) can
+        tell who busted. Players absent from the map keep final_stack=None.
+        """
+        players = self.players
+        if final_stacks:
+            players = [
+                PlayerHandInfo(
+                    name=p.name,
+                    starting_stack=p.starting_stack,
+                    position=p.position,
+                    is_human=p.is_human,
+                    final_stack=final_stacks.get(p.name, p.final_stack),
+                )
+                for p in self.players
+            ]
         return RecordedHand(
             game_id=self.game_id,
             hand_number=self.hand_number,
             timestamp=self.timestamp,
-            players=tuple(self.players),
+            players=tuple(players),
             hole_cards=self.hole_cards.copy(),
             community_cards=tuple(self.community_cards),
             actions=tuple(self.actions),
@@ -417,9 +444,21 @@ class HandHistoryRecorder:
         active_players = [p for p in game_state.players if not p.is_folded]
         was_showdown = len(active_players) > 1
 
+        # Capture end-of-hand stacks so KNOCKOUT can detect busts.
+        final_stacks: Dict[str, int] = {}
+        for p in getattr(game_state, 'players', []):
+            stack = getattr(p, 'stack', None)
+            if stack is None:
+                stack = getattr(p, 'money', None)
+            if stack is not None:
+                final_stacks[p.name] = stack
+
         # Complete and store the hand
         recorded_hand = self.current_hand.complete(
-            winners=winners, pot_size=pot_size, was_showdown=was_showdown
+            winners=winners,
+            pot_size=pot_size,
+            was_showdown=was_showdown,
+            final_stacks=final_stacks,
         )
 
         self.completed_hands.append(recorded_hand)
