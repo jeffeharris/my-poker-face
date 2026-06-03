@@ -36,10 +36,29 @@ describe('buildToneOptions — situational post-round tones', () => {
     ).toEqual(['salty', 'props', 'cry_luck', 'vow']);
   });
 
-  it('lost at showdown multiway: + commiserate', () => {
-    expect(
-      ids({ playerWon: false, isShowdown: true, humanAtShowdown: true, hasFellowLoser: true })
-    ).toEqual(['salty', 'props', 'cry_luck', 'vow', 'commiserate']);
+  it('lost at showdown multiway: capped at 4 — Vow drops for Commiserate', () => {
+    const out = ids({
+      playerWon: false,
+      isShowdown: true,
+      humanAtShowdown: true,
+      hasFellowLoser: true,
+    });
+    expect(out).toEqual(['salty', 'props', 'cry_luck', 'commiserate']);
+    expect(out.length).toBeLessThanOrEqual(4);
+    expect(out).not.toContain('vow');
+  });
+
+  it('never shows more than four options in any situation', () => {
+    for (const playerWon of [true, false]) {
+      for (const isShowdown of [true, false]) {
+        for (const humanAtShowdown of [true, false]) {
+          for (const hasFellowLoser of [true, false]) {
+            const out = ids({ playerWon, isShowdown, humanAtShowdown, hasFellowLoser });
+            expect(out.length).toBeLessThanOrEqual(4);
+          }
+        }
+      }
+    }
   });
 
   it('folded with a fellow loser: salty/props + commiserate, still no needles', () => {

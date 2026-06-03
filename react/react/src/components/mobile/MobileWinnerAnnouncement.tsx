@@ -145,18 +145,16 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const isShowdown = !!winnerInfo?.showdown;
   const humanAtShowdown = !!winnerInfo?.players_showdown?.[playerName];
 
-  // A fellow loser to commiserate with: prefer someone who lost at showdown,
-  // else any seated opponent who isn't the winner. Undefined heads-up (the
-  // only non-winner is you) → Commiserate is suppressed.
+  // A fellow loser to commiserate with: someone OTHER than you who lost at
+  // showdown (was in the pot at the end and got beaten). Strictly the showdown
+  // set — a player who folded earlier didn't take a beat, so commiserating
+  // with them is awkward, and if you're the only loser there's no one to
+  // console → Commiserate is suppressed.
   const fellowLoser = useMemo(() => {
-    if (!winnerInfo) return undefined;
+    if (!winnerInfo?.players_showdown) return undefined;
     const isWinner = (n: string) => winnerInfo.winners.includes(n);
-    const showdownLoser = winnerInfo.players_showdown
-      ? Object.keys(winnerInfo.players_showdown).find((n) => n !== playerName && !isWinner(n))
-      : undefined;
-    if (showdownLoser) return showdownLoser;
-    return (players ?? []).find((p) => !p.is_human && !isWinner(p.name))?.name;
-  }, [winnerInfo, players, playerName]);
+    return Object.keys(winnerInfo.players_showdown).find((n) => n !== playerName && !isWinner(n));
+  }, [winnerInfo, playerName]);
 
   const toneOptions = useMemo(
     () =>

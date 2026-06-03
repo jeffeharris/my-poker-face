@@ -39,9 +39,18 @@ export const SARCASM_ABLE_POST_ROUND: ReadonlySet<PostRoundTone> = new Set<PostR
   'commiserate',
 ]);
 
+// Keep the menu to at most four buttons on screen. The only situation that
+// would otherwise overflow is a multiway showdown loss (salty/props/cry_luck/
+// vow + commiserate = 5); when over, drop the least-essential tones first —
+// Vow goes before Salty (its defiance overlaps Salty's, and Cry Luck already
+// covers the needle-the-winner intent).
+export const MAX_VISIBLE_TONES = 4;
+const TONE_DROP_PRIORITY: PostRoundTone[] = ['vow', 'salty', 'humble', 'gracious'];
+
 /**
  * Pick the post-round tones that actually fit what happened this hand, so the
- * options are never awkward (no "vow revenge" over a hand you folded).
+ * options are never awkward (no "vow revenge" over a hand you folded), capped
+ * at MAX_VISIBLE_TONES.
  *
  *  WIN  — always Gloat/Humble/Gracious; + Props only at showdown (a real play
  *         to respect; an uncontested win shows no cards).
@@ -64,5 +73,13 @@ export function buildToneOptions(opts: {
     if (opts.humanAtShowdown) ids.push('cry_luck', 'vow');
     if (opts.hasFellowLoser) ids.push('commiserate');
   }
+
+  // Trim to the on-screen max, dropping the least-essential tones first.
+  for (const tone of TONE_DROP_PRIORITY) {
+    if (ids.length <= MAX_VISIBLE_TONES) break;
+    const i = ids.indexOf(tone);
+    if (i >= 0) ids.splice(i, 1);
+  }
+
   return ids.map((id) => TONE_META[id]);
 }
