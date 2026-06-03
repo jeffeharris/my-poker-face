@@ -1,8 +1,8 @@
 ---
-purpose: Pre-release tech debt and code quality review findings triaged by release-blocking severity
+purpose: Pre-release tech debt and code quality review findings triaged by release-blocking severity — the single canonical tracker (absorbed root /TRIAGE.md and docs/TODO.md on 2026-06-03)
 type: reference
 created: 2025-06-15
-last_updated: 2026-05-30
+last_updated: 2026-06-03
 ---
 
 > **Pre-main batch status (2026-05-15):** All 50+ items in T1-28..T1-39,
@@ -222,7 +222,7 @@ Issues to address once live, during ongoing development.
 | T3-14 | Python/TypeScript types manually synced | `poker/poker_game.py` ↔ `react/src/types/game.ts` | No automated validation. `has_acted` exists in Python but is an internal game state flag — frontend doesn't need it. Types are currently in sync for all user-facing fields. Remains a maintenance risk long-term. | |
 | T3-15 | Card formatting duplicated across languages | `flask_app/routes/game_routes.py:100-114` + `react/src/utils/cards.ts` | Changes require updating both Python and TypeScript. | **FIXED** — replaced inline `card_to_string` in game_routes with import from shared `card_utils`. Cross-language duplication remains inherent to the architecture. |
 | T3-16 | DB path logic duplicated 3+ times | `core/llm/tracking.py:34-52`, `flask_app/config.py:98-101`, `scripts/dbq.py:27-31` | Each with different fallback paths. Include hardcoded absolute paths. | **FIXED** — consolidated to canonical version in `flask_app/config.py` |
-| T3-17 | Schema version hardcoded, no migrations | `poker/repositories/schema_manager.py` | `SCHEMA_VERSION = 62` with manual migration methods. No Alembic or equivalent. | |
+| T3-17 | Schema version hardcoded, no migrations | `poker/repositories/schema_manager.py` | `SCHEMA_VERSION = 140` (as of 2026-06-03) with manual migration methods. No Alembic or equivalent. | |
 | T3-18 | Circular import workarounds | `flask_app/__init__.py:35-36`, `capture_config.py` | Lazy imports to avoid circular deps indicate architectural coupling. | **FIXED** — persistence.py eliminated; repos imported directly |
 | T3-19 | Inconsistent error response format | 15 files in `flask_app/routes/` | 219 error responses split 50/50: `{'error': ...}` (109, used by global error handlers) vs `{'success': False, 'error': ...}` (107, mostly admin routes). Standardizing to `{'error': ...}` requires ~107 changes across 7 files (admin_dashboard_routes.py alone has 61). Frontend may check `success: false`. | |
 | T3-35 | God Object: `GamePersistence` was 9,000 lines | `poker/persistence.py` → `poker/repositories/` | Split into 10 domain repositories. Facade removed, all callers updated. | **FIXED** |
@@ -234,7 +234,7 @@ Issues to address once live, during ongoing development.
 | T3-41 | Split `AIPlayerController` god object | `poker/controllers.py:554-1794` | 7 responsibilities: LLM, prompts, memory, analysis, resilience, evaluation, normalization. Extract into focused service classes. *(Demoted from T2-10)* | |
 | T3-42 | Clean up `usePokerGame` hook | `react/src/hooks/usePokerGame.ts` | 661-line hook with tightly coupled concerns. Splitting into separate hooks creates ref sync issues. Better approach: extract pure functions (message dedup, avatar caching), organize socket handlers into named setup functions. *(Demoted from T2-11)* | |
 | T3-43 | `experiment_routes.py` god route file | `flask_app/routes/experiment_routes.py` | 3,044 lines, 25 endpoints, 42+ functions mixing 5+ concerns: experiment lifecycle, AI assistant chat, live monitoring, config validation, background thread management, SQL tool execution. Split into `experiment_routes.py` (CRUD), `experiment_lifecycle_routes.py`, `experiment_assistant_routes.py`, `experiment_monitoring_routes.py`. | |
-| T3-44 | `schema_manager.py` monolith | `poker/repositories/schema_manager.py` | 2,949 lines. Single `_init_db()` contains CREATE TABLE for all 25+ tables (~1,500 lines) plus 63 migration methods (most are no-ops). Schema and migrations tightly coupled. Extends T3-17. Split schema definitions by domain and archive historical migrations. | |
+| T3-44 | `schema_manager.py` monolith | `poker/repositories/schema_manager.py` | ~7,350 lines (as of 2026-06-03; was 2,949 at first triage — still growing). Single `_init_db()` contains CREATE TABLE for all tables plus the full migration chain to v140 (most migration methods are no-ops). Schema and migrations tightly coupled. Extends T3-17. Split schema definitions by domain and archive historical migrations. | |
 | T3-45 | `run_ai_tournament.py` god script | `experiments/run_ai_tournament.py` | 2,513 lines, 13 classes. Single file contains dataclass definitions, rate limiting, worker thread management, game simulation loop, pause/resume coordination, AI interpretation, CLI parsing. `AITournamentRunner` alone is ~1,200 lines. Split into config, runner, worker, simulator, and CLI modules. | |
 | T3-46 | `admin_dashboard_routes.py` oversized | `flask_app/routes/admin_dashboard_routes.py` | 1,794 lines, 34 endpoints mixing admin UI redirects, analytics, model management, data export, and complex SQL query builders (~400 lines). Move analytics to dedicated service layer; extract model management to separate route file. | |
 | T3-47 | `game_handler.py` mixed responsibilities | `flask_app/handlers/game_handler.py` | 1,465 lines, 21 top-level functions. Named "handler" but contains game loop logic, avatar reactions, pressure detection, tournament completion, AI commentary generation. **Hotspot**: `handle_evaluating_hand_phase()` is 215 lines doing 14+ operations (winner determination, pot award, showdown prep, async commentary spawn, pressure events, memory update, coaching progression, eliminations, tournament check, psychology recovery, new hand setup, guest tracking). `progress_game()` is 165 lines with ~100 lines of run-it-out logic (nested conditionals, sleep delays, reaction scheduling). **Split into**: `game_loop.py` (progress_game, phase transitions), `hand_completion.py` (handle_evaluating_hand_phase, showdown, winners), `ai_action_handler.py` (handle_ai_action, decision execution), `tournament_handler.py` (eliminations, completion), `runout_handler.py` (run-it-out reveals, reaction scheduling), `commentary_handler.py` (generate_ai_commentary, memory feeding). | |
@@ -397,3 +397,63 @@ Overlaps with existing items: **T2-75** `refresh_unseated_tables` (update: `5063
 ### Process notes
 - **Worktree concurrency:** parallel agents/sessions on one worktree race the git index (a `git reset` clobbered a commit; a merge collided with an in-flight agent). Give each agent its own worktree, or serialize commits / stay off the branch while a batch runs.
 - **Reusable harnesses:** `tests/tiered_bot_equivalence_harness.py` (engine decision-identity) and `tests/test_cash_mode/test_seat_occupancy_invariants.py` (seeded seat/conservation guard).
+
+---
+
+## Batch: TRIAGE/TODO Reconciliation (2026-06-03)
+
+Consolidated three overlapping trackers into this file as the single source of
+truth. **Root `/TRIAGE.md`** (forward-looking maintainability/CI backlog) and
+**`docs/TODO.md`** (legacy engine TODO) were folded in here and then deleted.
+Every legacy `docs/TODO.md` item was verified against current code before
+migration; the disposition is recorded below. IDs prefixed `RC-` to avoid
+collision with the `T#` / `MA#` / `CH#` series.
+
+### Migrated — maintainability/CI backlog (from root `/TRIAGE.md`)
+
+| ID | Tier | Item | Location / Notes |
+|----|------|------|------------------|
+| RC-01 | T1 | Hand-replay endpoint — deck-seed persistence is **done**; remaining work is the API surface | Add `/api/replay-hand/<game_id>/<hand_number>` to reconstruct + replay a hand from its saved seed |
+| RC-02 | T2 | `SkillEvaluation.evaluation` `str` → `EvaluationResult` enum | `flask_app/services/skill_evaluator.py`; ~50 `'correct'`/`'incorrect'`/`'marginal'`/`'not_applicable'` literals |
+| RC-03 | T2 | Incremental `mypy` rollout starting with `core/` | `mypy core/ --ignore-missing-imports` → 80 errors in 13/27 files (2026-05-25); prioritize 13 `union-attr` (real None-safety). Add `[tool.mypy]` scoped to `core/`, then a `typecheck-backend` CI job, then expand per-package. Can't be bulk-autofixed — deliberate project |
+| RC-04 | T2 | Fragile cash-game detection via `gameId.startsWith('cash-')` | `react/react/src/components/game/GamePage.tsx` (`handleBack`, `handleGameLoadFailed`). Couples routing/404-recovery to an id naming convention. Surface an explicit `game_mode: 'cash' \| 'tournament'` field from the backend and branch on that |
+| RC-05 | T3 | CI security scan (`bandit` or CodeQL) | New CI job parallel to `lint-backend` in `.github/workflows/deploy.yml`; bandit is the faster win. Start non-blocking, then flip to required |
+| RC-06 | T3 | Per-package coverage thresholds | Split the single global `--cov-fail-under=40` floor so mature modules (`core/`, `hand_evaluator`) can't regress while newer modules (`cash_mode/`) stay at 40% |
+| RC-07 | T3 | GitHub contributor labels + issue migration | Create `good first issue` / `help wanted`; sift this file for well-scoped newcomer items and migrate to GitHub Issues. Pure curation — do once inviting outside contributors |
+| RC-08 | T3 | Wind down `game_mode` (only `casual` is exposed; rest are code-only) | `game_mode` only shapes LLM-bot prompts; tiered core ignores it. Stage 1: drop the `competitive` alias (`game_routes.py` `VALID_GAME_MODES`, `prompt_config.py from_mode_name`) once no live/saved games carry it. Stage 2: remove `standard`/`pro` only if LLM bots are retired from Custom Game. Removing now would 500 on persisted games |
+
+### Migrated — still-valid legacy items (from `docs/TODO.md`, code-verified live)
+
+| ID | Tier | Item | Location |
+|----|------|------|----------|
+| RC-09 | T3 | Folded-player hand-reset decision still a live `TODO` | `poker/poker_game.py:501` (`# hand=()  # TODO: decide whether or not to reset the hand`) |
+| RC-10 | T3 | Position-tracking feature never decided | `poker/poker_player.py:506` (`# TODO: <FEATURE> decide what to do with this position idea`) |
+| RC-11 | T3 | Generic `raise Exception` for invalid game phase | `poker/poker_state_machine.py:373`; use a specific exception type |
+| RC-12 | T3 | Hand-rank numbering non-standard (1 = Royal Flush … 10 = high card) | `poker/hand_evaluator.py`; labeling/readability only, no correctness impact |
+| RC-13 | T3 | No graceful handling of WebSocket disconnections | Socket handlers (auth gaps are separately FIXED — see T1-18/T1-23/T2-36); this is the connection-drop UX/reliability gap |
+| RC-14 | T3 | Flask dev-server hangs under heavy experiment load | `flask_app/extensions.py` + experiment routes (SocketIO threading + ThreadPoolExecutor); overlaps T3-10 / T3-40 (multi-worker scaling) |
+| RC-15 | T3 | Test gaps: error-recovery and WebSocket-integration | (HandEvaluator, side-pot, and state-machine coverage now EXIST — `test_two_pair_*`, `test_ace_low_straight`, `test_flush_bug`, `test_pot_distribution.py`, 4 state-machine test files) |
+
+### Migrated — feature ideas (belong in vision docs, not tech debt)
+
+Tracked under [`docs/vision/FEATURE_IDEAS.md`](/docs/vision/FEATURE_IDEAS.md), not here:
+difficulty levels, custom-personality builder UI, additional phase-specific prompt
+templates, multi-language personalities, voice/TTS, special personality matchups,
+RAISE_WAR detection (`docs/analysis/SCENARIO_QUERIES.md`), skip-winner-overlay for
+blind steals (`docs/plans/skip-winner-announcement-no-action.md`), and spectator mode.
+
+### Dropped — verified FIXED or stale (no migration)
+
+- **Fixed in code:** hardcoded `SECRET_KEY` (= T1-19), ace-low/wheel straight
+  (`hand_evaluator.py:247` + `tests/test_ace_low_straight.py`), hardcoded "Jeff"
+  player, AI-chat-disabled (chat is live, no commented block), `Assistant.to_dict`
+  `__name__` bug (refactored clean at `core/llm/assistant.py:210`), `determine_winner`
+  error handling (no-active-players guard present), flush bug, `_check_straight`
+  return-value inconsistency, two-pair kicker handling (= T1-03 DISMISSED).
+- **File deleted:** "Remove NONE Action" + "PokerAction unit tests" — `poker/poker_action.py`
+  was removed (= T1-01 / T2-08).
+- **Stale TODO markers / line refs gone:** hole-card evaluation re-introduction
+  (`poker_player.py`), betting-round-logic refinement (`poker_state_machine.py:163`),
+  hand-reset verification (`:204`), all-in flush bug (resolved by the flush fix).
+- **Test coverage now exists:** HandEvaluator unit tests, side-pot calculations,
+  state-machine transitions (see RC-15 note).
