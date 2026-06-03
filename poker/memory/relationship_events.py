@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict
+from typing import Dict, Optional
 
 
 class RelationshipEvent(Enum):
@@ -83,6 +83,11 @@ class RelationshipEvent(Enum):
     # (they catch the ploy → respect + likability down).
     FLATTERY_LANDED = "chat_flattery_landed"
     FLATTERY_BACKFIRED = "chat_flattery_backfired"
+    # Consoling a bystander who just lost a pot you weren't in — the one
+    # warm gesture aimed at someone OTHER than the player who beat you.
+    # Likability-weighted warmth (like COMPLIMENT) but a touch warmer on
+    # the mirror side: shared sympathy bonds.
+    COMMISERATE = "chat_commiserate"
 
     # Cash-mode staking events. The "actor" is the AI staker (extending
     # the stake, being repaid, or being defaulted on), the "target" is
@@ -194,6 +199,8 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.PROPS: AxisShift(heat=0.00, respect=+0.10, likability=+0.02),
     RelationshipEvent.FLATTERY_LANDED: AxisShift(heat=0.00, respect=0.00, likability=+0.02),
     RelationshipEvent.FLATTERY_BACKFIRED: AxisShift(heat=0.00, respect=0.00, likability=-0.02),
+    # Actor consoles a bystander → warmth toward them (a kind gesture).
+    RelationshipEvent.COMMISERATE: AxisShift(heat=0.00, respect=+0.02, likability=+0.05),
     # Cash-mode staking. Actor = AI staker; their view of the borrower
     # moves on stake lifecycle events.
     #   STAKE_OFFERED: staker extends trust → small respect bump, small
@@ -300,6 +307,9 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.PROPS: AxisShift(heat=-0.02, respect=+0.08, likability=+0.05),
     RelationshipEvent.FLATTERY_LANDED: AxisShift(heat=-0.02, respect=-0.02, likability=+0.06),
     RelationshipEvent.FLATTERY_BACKFIRED: AxisShift(heat=+0.03, respect=-0.08, likability=-0.05),
+    # Being consoled in a rough spot bonds — the warmest single chat mirror
+    # (shared sympathy lands harder than a compliment).
+    RelationshipEvent.COMMISERATE: AxisShift(heat=-0.02, respect=+0.02, likability=+0.07),
     # Cash-mode staking. Mirror = borrower's view of the AI staker.
     # Receiving a stake creates gratitude; repaying confirms the
     # staker was trustworthy; defaulting curdles into mutual animosity
@@ -397,6 +407,62 @@ _TEMPERAMENT_MIRROR_OVERRIDES: Dict[RelationshipEvent, Dict[str, AxisShift]] = {
         # 'stoic' absent → falls through to mirror_shift(TAUNT_POST_WIN)
     },
 }
+
+
+# Sarcasm reception — register-dominated, keyed on the recipient's social
+# disposition. When a message is sent `sarcastic`, the override REPLACES the
+# event's neutral mirror shift (the actor side keeps the sincere event shift —
+# the sender's own feelings don't depend on how it was taken, same asymmetry
+# as the temperament overrides above). The effect flips by the tone's surface
+# direction, which the dispatch passes as `mode` (see §3 of
+# docs/plans/SOCIAL_TEMPERAMENT_AND_QUICKCHATS.md):
+#   - 'sharpen' : warm tone → barb (props/compliment/flattery read backhanded)
+#   - 'soften'  : hostile tone → banter (trash talk with the edge off)
+#   - 'self'    : self-directed → self-mockery (humble → self-deprecation)
+_SARCASM_MIRROR_SHIFTS: Dict[str, Dict[str, AxisShift]] = {
+    'sharpen': {
+        # energized is in on the joke; capped at +0.05 likability so a
+        # backhand never out-bonds a sincere compliment.
+        'energized': AxisShift(heat=0.00, respect=+0.05, likability=+0.05),
+        'stoic': AxisShift(heat=+0.03, respect=0.00, likability=-0.03),
+        # backhand stings worse than an open jab: the added respect -0.05 is
+        # the condescension cut (being talked down to, not just insulted).
+        'stung': AxisShift(heat=+0.12, respect=-0.05, likability=-0.15),
+    },
+    'soften': {
+        # the inverse of a sincere jab: heat down, likability up (it reads as
+        # affectionate ribbing). energized bonds hardest over it.
+        'energized': AxisShift(heat=-0.05, respect=+0.02, likability=+0.08),
+        'stoic': AxisShift(heat=0.00, respect=0.00, likability=+0.03),
+        # even the thin-skinned take it lighter than a sincere jab.
+        'stung': AxisShift(heat=+0.02, respect=0.00, likability=+0.02),
+    },
+    'self': {
+        # self-mockery is disarming regardless of disposition — a small
+        # likability bump, never a barb (you're the target of your own joke).
+        'energized': AxisShift(heat=0.00, respect=+0.02, likability=+0.05),
+        'stoic': AxisShift(heat=0.00, respect=0.00, likability=+0.03),
+        'stung': AxisShift(heat=0.00, respect=0.00, likability=+0.02),
+    },
+}
+
+# Fallback disposition for the sarcasm tables (matches the temperament default).
+_SARCASM_DEFAULT_DISPOSITION = 'stoic'
+
+
+def sarcasm_mirror_shift(mode: str, recipient_disposition: str) -> Optional[AxisShift]:
+    """Mirror-side shift for a sarcastic message, by mode + recipient disposition.
+
+    `mode` is the surface-direction class resolved from the tone
+    ('sharpen' | 'soften' | 'self'). Returns the disposition-keyed override,
+    falling back to the 'stoic' row for an unrecognized disposition, or None
+    for an unrecognized mode (caller then leaves the neutral mirror in force).
+    Pure function of the table; `context_multiplier` is applied downstream.
+    """
+    by_disposition = _SARCASM_MIRROR_SHIFTS.get(mode)
+    if by_disposition is None:
+        return None
+    return by_disposition.get(recipient_disposition) or by_disposition[_SARCASM_DEFAULT_DISPOSITION]
 
 
 def temperament_adjusted_mirror_shift(
