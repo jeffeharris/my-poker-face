@@ -129,6 +129,7 @@ def _maybe_payout(rec: dict, owner_id: str, tournament_id: str) -> None:
             bankroll_repo,
             chip_ledger_repo,
             personality_repo,
+            prestige_snapshots_repo,
             tournament_session_repo,
         )
         from flask_app.services import game_state_service, tournament_economy_service as econ
@@ -147,6 +148,8 @@ def _maybe_payout(rec: dict, owner_id: str, tournament_id: str) -> None:
                 # the pool. Without this, a human-played persona field never pays
                 # its AIs (the redistribution silently no-ops).
                 real_persona_ids=econ.real_persona_ids_for(session, personality_repo),
+                # Phase D: grant renown to in-the-money finishers (flag-gated).
+                prestige_repo=prestige_snapshots_repo,
             )
     except Exception:  # noqa: BLE001 — payout is best-effort observability here
         logger.exception("tournament payout failed for %s", tournament_id)

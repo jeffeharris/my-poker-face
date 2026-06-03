@@ -483,6 +483,7 @@ def _apply_tournament_payout(game_data: dict) -> None:
             bankroll_repo,
             chip_ledger_repo,
             personality_repo,
+            prestige_snapshots_repo,
             sandbox_repo,
             tournament_session_repo,
         )
@@ -507,6 +508,8 @@ def _apply_tournament_payout(game_data: dict) -> None:
                 # Credit real personas in a human-played persona field; synthetic
                 # ids sweep to the pool. (Without this the AIs are never paid.)
                 real_persona_ids=econ.real_persona_ids_for(session, personality_repo),
+                # Phase D: grant renown to in-the-money finishers (flag-gated).
+                prestige_repo=prestige_snapshots_repo,
             )
     except Exception:  # noqa: BLE001 — payout must never crash the live game
         logger.exception("tournament boundary payout failed")

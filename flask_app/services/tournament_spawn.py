@@ -405,6 +405,7 @@ def advance_autonomous_tournament(
     ledger_repo,
     session_repo,
     rounds_per_tick: int = 1,
+    prestige_repo=None,
 ) -> dict:
     """Advance an autonomous tournament a bounded number of rounds (one world
     tick's worth) and settle it the moment it completes.
@@ -435,6 +436,7 @@ def advance_autonomous_tournament(
             bankroll_repo=bankroll_repo,
             ledger_repo=ledger_repo,
             session_repo=session_repo,
+            prestige_repo=prestige_repo,
         )
 
     return {
@@ -454,6 +456,7 @@ def settle_autonomous_tournament(
     bankroll_repo,
     ledger_repo,
     session_repo,
+    prestige_repo=None,
 ) -> bool:
     """Distribute a completed autonomous tournament's pool to its real personas.
 
@@ -478,6 +481,7 @@ def settle_autonomous_tournament(
         ledger_repo=ledger_repo,
         session_repo=session_repo,
         real_persona_ids=frozenset(entries.keys()),
+        prestige_repo=prestige_repo,
     )
     if session_repo is not None and session.is_complete():
         try:

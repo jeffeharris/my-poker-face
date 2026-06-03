@@ -161,6 +161,7 @@ def advance_owner_tournament(
     personality_repo=None,
     rounds_per_tick: int = 1,
     now: Optional[datetime] = None,
+    prestige_repo=None,
 ) -> Optional[dict]:
     """Advance the owner's active *autonomous* tournament one tick's worth of
     rounds, settling on completion, and return the structural beats to surface.
@@ -204,6 +205,7 @@ def advance_owner_tournament(
         ledger_repo=ledger_repo,
         session_repo=session_repo,
         rounds_per_tick=rounds_per_tick,
+        prestige_repo=prestige_repo,
     )
 
     # Persist the advanced (or completed) state FIRST — before deriving beats — so

@@ -179,11 +179,38 @@ AI-only start.
   Regression: full `test_cash_mode/` + `test_tournament/` + `test_ticker_service.py`
   + `test_cash_whereabouts.py` = 1553 green; ruff clean.
 
-### Phase D — winner renown/regard grant
-- `tournament_spawn.settle_autonomous_tournament` (+ the human payout path): after
-  payout, grant a renown/regard bump to winner + paid places via
-  `prestige_snapshots.record(formula_version='tournament_v1')` — additive, no new
-  table. Sim-tune the magnitudes.
+### Phase D — winner renown/regard grant ✅ DONE (2026-06-03, verified, uncommitted)
+Fully inert with `TOURNAMENT_DRAW_ENABLED` off (default). Owner decisions: grant
+to **all paid places, scaled by finish** (winner full, bubble a fraction), to
+**both AI and the human**.
+- **`flask_app/services/tournament_renown.py`** (new): `grant_on_payout` +
+  `position_renown` (1.0 at the win → 0.2 at the bubble; 0 out of the money) +
+  `DEFAULT_WIN_RENOWN`. For each in-the-money finisher it records ONE renown
+  snapshot row with `renown_v2 = MAX-peak + position_bump` (the append-only model
+  ratchets the peak), cloning the finisher's latest quadrant/regard so the grant
+  never resets the rest of their scoreboard. AI → `record_ai_many` (v2-native);
+  human → `record(formula_version='tournament_v1', entity_kind='player')`.
+  In-the-money count via **`tournament.economy.paid_places_for`** (the SAME source
+  `compute_payout_schedule` uses, so renown's paid places never diverge from who
+  got chips). Flag-gated + fully best-effort (returns 0 / never raises).
+- **Seam**: hung inside `apply_payout_on_complete` (the one idempotent
+  `claim_payout` once-block), in its OWN try/except so a grant failure can never
+  strand a fully-paid escrow at `in_progress`. Optional `prestige_repo` threaded
+  from all 3 chains — human route (`_try_apply_payout`), live builder
+  (`tournament_game_builder`), autonomous (`settle_autonomous_tournament` ←
+  `advance_autonomous_tournament` ← `advance_owner_tournament` ← ticker, which
+  passes `extensions.prestige_snapshots_repo`).
+- **Idempotency**: the `claim_payout` CAS makes the grant fire exactly once on the
+  happy path. The `reconcile_stuck_payout` watchdog DELIBERATELY does NOT grant
+  (documented) — renown is best-effort + ratcheted, and re-granting there would
+  risk a double-bump on the crash-after-grant window (strictly worse than a rare
+  one-off skip).
+- **Visibility**: the AI grant is consumed by the draw only when
+  `RENOWN_V2_PERSIST_AI` is also on (the draw reads AI renown then); the rows are
+  written regardless, so the peak is already correct when persistence flips on.
+- Tests: `test_renown_grant.py` (curve, scaled AI grant, human player row, clone-
+  latest, flag-off + None-repo inert). Regression: `test_tournament/` +
+  `test_ticker_service.py` = 350 green; ruff clean. Magnitudes sim-tunable.
 
 ## Riskiest seams (scar tissue)
 1. **Cash-leave conservation** (Phase A — DONE): never invent a settle path; reuse

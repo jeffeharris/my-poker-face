@@ -213,10 +213,17 @@ def apply_payout_on_complete(
     session_repo,
     real_persona_ids=frozenset(),
     payout_curve=None,
+    prestige_repo=None,
 ) -> bool:
     """Distribute the escrow per the payout split — an I6 idempotent terminal
     transition. Safe to call from every completion path (boundary, advance,
     play-out): the `payout_status` guard makes a second call a no-op.
+
+    `prestige_repo` (tournaments-as-a-draw, Phase D), when wired AND
+    `TOURNAMENT_DRAW_ENABLED`, grants renown to the in-the-money finishers once
+    the distribution runs — best-effort, inside the same claimed once-block, so
+    it fires exactly once per tournament and a grant failure never affects chips
+    or the payout status. None → no grant (every existing caller is unchanged).
 
     Three kinds of finisher:
       - **the human** (`session.human_id`, only when `human_owner_id` is set —
@@ -354,6 +361,22 @@ def apply_payout_on_complete(
                 tournament_id,
                 final_balance,
             )
+
+        # Phase D — grant renown to the in-the-money finishers (cash→tournament
+        # draw). In its OWN try so a grant failure can never bubble to the payout's
+        # except and wrongly strand a fully-distributed escrow at 'in_progress'.
+        try:
+            from flask_app.services import tournament_renown
+
+            tournament_renown.grant_on_payout(
+                prestige_repo,
+                sandbox_id=sandbox_id,
+                session=session,
+                human_owner_id=human_owner_id,
+                real_persona_ids=real_persona_ids,
+            )
+        except Exception:  # noqa: BLE001 — renown is best-effort; chips already settled
+            logger.exception("renown grant failed for %s (payout unaffected)", tournament_id)
 
         session_repo.set_payout_status(tournament_id, 'complete')
         return True
@@ -507,6 +530,13 @@ def reconcile_stuck_payout(
             )
             return False  # something's off; leave for a human, don't mark complete
 
+        # NOTE (tournaments-as-a-draw, Phase D): the renown grant deliberately
+        # does NOT run on this watchdog path. It lives only in the main
+        # apply_payout_on_complete once-block; a tournament that completes via
+        # reconcile (a rare crash mid-payout) skips its renown bump. Accepted:
+        # renown is best-effort/cosmetic and ratchets over many events, and
+        # re-granting here would risk a double-bump (peak+2·bump) on the
+        # crash-after-grant window — strictly worse than a one-off skip.
         session_repo.set_payout_status(tournament_id, 'complete')
         # Now that the escrow is settled, release the field from the double-
         # presence exclusion (settle left status='active' precisely so this strand

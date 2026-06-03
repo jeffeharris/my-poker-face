@@ -789,6 +789,7 @@ def _maybe_tick_tournament(owner_id: str, sandbox_id: str) -> None:
                 bankroll_repo=bankroll_repo,
                 ledger_repo=ledger_repo,
                 personality_repo=personality_repo,
+                prestige_repo=getattr(extensions, "prestige_snapshots_repo", None),
             )
             if result:
                 events = result['events']
