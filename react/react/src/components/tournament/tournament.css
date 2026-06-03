@@ -35,7 +35,8 @@
   height: 100dvh;
   min-height: 100dvh;
   width: 100%;
-  background: radial-gradient(120% 80% at 50% -10%, rgba(20, 60, 44, 0.55), transparent 60%),
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(20, 60, 44, 0.55), transparent 60%),
     radial-gradient(80% 60% at 100% 110%, rgba(40, 20, 28, 0.4), transparent 55%),
     linear-gradient(180deg, var(--charcoal), var(--felt) 40%, var(--charcoal));
   color: var(--ink);
@@ -371,8 +372,8 @@
   padding: clamp(20px, 6vw, 34px);
   border: 1px solid var(--gold-deep);
   border-radius: 4px;
-  background: radial-gradient(120% 120% at 50% 0%, rgba(232, 196, 104, 0.22), transparent 60%),
-    var(--panel);
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(232, 196, 104, 0.22), transparent 60%), var(--panel);
 }
 .champion__label {
   font-family: var(--display);
@@ -710,8 +711,8 @@
   gap: 14px;
   border: 1px solid var(--gold-deep);
   border-radius: 4px;
-  background: radial-gradient(120% 140% at 0% 0%, rgba(232, 196, 104, 0.16), transparent 55%),
-    var(--panel);
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(232, 196, 104, 0.16), transparent 55%), var(--panel);
   padding: 18px 20px;
   margin-top: 26px;
 }

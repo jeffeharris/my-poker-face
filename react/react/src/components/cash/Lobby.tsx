@@ -390,7 +390,7 @@ export function Lobby() {
       try {
         const lobby = await getTournamentLobby();
         if (cancelled) return;
-        setActiveTournamentId(lobby.has_active ? lobby.active?.tournament_id ?? null : null);
+        setActiveTournamentId(lobby.has_active ? (lobby.active?.tournament_id ?? null) : null);
       } catch (e) {
         if (cancelled) return;
         logger.warn(
@@ -672,7 +672,7 @@ export function Lobby() {
   // table isn't in the rendered list.
   const seatedStakeLabel =
     (seatedTableId
-      ? tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null
+      ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null)
       : null) ?? seatedStakeLabelFromServer;
 
   // The "meanwhile, elsewhere" strip for the join transition — the same
@@ -940,7 +940,7 @@ export function Lobby() {
           }
           tableName={
             sponsorState
-              ? tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null
+              ? (tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null)
               : null
           }
           onClose={handleSponsorClose}

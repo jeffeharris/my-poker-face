@@ -38,6 +38,5 @@ export const tournamentApi = {
   standings: (id: string) => getJson<TournamentStandings>(`/${id}/standings`),
   advance: (id: string) => postJson<TournamentStandings>(`/${id}/advance`),
   playOut: (id: string) => postJson<TournamentStandings>(`/${id}/play-out`),
-  leave: (id: string) =>
-    fetch(`${BASE}/${id}`, { method: 'DELETE', credentials: 'include' }),
+  leave: (id: string) => fetch(`${BASE}/${id}`, { method: 'DELETE', credentials: 'include' }),
 };

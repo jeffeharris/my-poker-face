@@ -28,8 +28,8 @@ export function TournamentLobby({ active, busy, error, onRegister, onResume }: P
         <div className="tlobby__kicker">Multi-Table Event</div>
         <h1 className="tlobby__title">The Main Event</h1>
         <p className="tlobby__sub">
-          A full field across many tables. Survive as the crowd thins, tables break, and
-          you&apos;re moved toward the final table. Last stack standing takes it.
+          A full field across many tables. Survive as the crowd thins, tables break, and you&apos;re
+          moved toward the final table. Last stack standing takes it.
         </p>
 
         {active ? (

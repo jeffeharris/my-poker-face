@@ -7,8 +7,7 @@
   overflow: hidden;
   border-radius: 14px;
   border: 1px solid rgba(212, 175, 55, 0.45);
-  background:
-    linear-gradient(135deg, rgba(40, 32, 8, 0.92), rgba(24, 20, 10, 0.96));
+  background: linear-gradient(135deg, rgba(40, 32, 8, 0.92), rgba(24, 20, 10, 0.96));
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.38);
   margin: 12px 0;
 }
@@ -17,11 +16,7 @@
   position: absolute;
   inset: -40% 55% auto -10%;
   height: 160%;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(212, 175, 55, 0.22),
-    transparent 70%
-  );
+  background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.22), transparent 70%);
   pointer-events: none;
 }
 
@@ -176,7 +171,9 @@
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 0.15s ease, transform 0.08s ease;
+  transition:
+    filter 0.15s ease,
+    transform 0.08s ease;
 }
 
 .main-event-resume:hover {

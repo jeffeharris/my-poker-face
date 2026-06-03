@@ -13,7 +13,11 @@ import { config } from '../../config';
 import { tournamentApi } from './api';
 import { TournamentLobby } from './TournamentLobby';
 import { TournamentStandings } from './TournamentStandings';
-import type { RegisterRequest, TournamentLobbyActive, TournamentStandings as Standings } from './types';
+import type {
+  RegisterRequest,
+  TournamentLobbyActive,
+  TournamentStandings as Standings,
+} from './types';
 import './tournament.css';
 
 // Match useSocket.ts: pin dev to long-polling (the Werkzeug + threading dev
