@@ -2,7 +2,7 @@
 purpose: Make table social friction (heat from being a hog, trash talk) drive behavior and vary by personality temperament, plus nuanced quickchats to express it
 type: design
 created: 2026-05-26
-last_updated: 2026-06-01
+last_updated: 2026-06-03
 ---
 
 > **Status (2026-06-01):** The **trash-talk-reception** half of the
@@ -128,30 +128,39 @@ branch (below).
    built for trash-talk reception. Without (2), sarcasm is just flavor
    text that moves no axes.
 
-### 3. The rule: sarcasm weaponizes *warm* tones
+### 3. The rule: sarcasm = "don't read this literally" (3 modes)
 
-What makes a tone sarcasm-compatible is **having a positive surface to
-invert into a barb**. Sarcasm turns a nice thing mean. So the compatible
-set is the warm tones, *not* the already-hostile ones (there's nothing to
-invert in "trash talk" — sarcastic trash talk is just trash talk said
-dryly).
+**(Revised 2026-06-03.)** The earlier draft had sarcasm as warm-only
+("weaponizes a warm tone into a barb"). That was too narrow. The real rule
+is that sarcasm signals *the surface is not the literal truth*, and its
+social effect **flips with the tone's direction**:
 
-| Tone | Surface | Sarcastic = | Compatible? |
-|---|---|---|---|
-| Props | respect | backhanded "nice play" | ✅ |
-| Gracious (post) | congrats | fake-nice "wp" | ✅ |
-| Flatter | praise | mocking flattery (obviously offensive) | ✅ |
-| Humble (post) | self-deprecating | humblebrag ("just got lucky 😏") | ✅ |
-| Commiserate (post) | sympathy | fake sympathy ("aw, tough beat 🙄") | ✅ |
-| Banter | playful | basically just a needle | marginal — exclude for now |
-| Trash talk / Salty / Needle / Gloat / Intimidate | hostile | nothing to invert | ❌ |
+| Tone direction | Sarcasm does | Examples |
+|---|---|---|
+| **Outward + warm** | sharpens → **barb** | Props → backhanded · Flatter → mocking · Gracious → fake-nice 🙄 · Commiserate → fake sympathy |
+| **Outward + hostile** | softens → **playful** | Trash talk → **banter** ("just ribbing, we're cool") |
+| **Self-directed** | dry → **self-mockery** | Humble → self-deprecation ("oh yeah, pure skill 🙄") — stays charming |
 
-Reception of a sarcastic warm tone is **register-dominated** (the barb
-matters more than the surface event), and it *widens* the temperament
-split: an `energized` recipient is in on the joke (banter — likability up),
-a `stung`/earnest one takes the bait (heat up, condescension). Sarcastic
-`flatter` short-circuits the existing flattery vain/sees-through path — it
-is unambiguously a barb (banter for energized, insult for the rest).
+Consequence: **Banter is not a separate tone** — it *is* sarcastic Trash
+Talk (the edge comes off). The register generates it for free, so the
+palette needs no Banter button. Same logic retires the old "Humble
+sarcastic = humblebrag" mapping: self-directed sarcasm reads as charming
+self-deprecation, not a smug brag.
+
+Reception is **register-dominated** (the register matters more than the
+surface event) and is keyed on the recipient's social disposition:
+
+- **Sharpen (warm → barb):** widens the temperament split — an `energized`
+  recipient is in on the joke (likability up, capped below sincerity), a
+  `stung`/earnest one takes the bait (heat up, condescension → respect
+  down). Sarcastic `flatter` short-circuits the existing flattery
+  vain/sees-through path — it is unambiguously a barb.
+- **Soften (hostile → playful):** the inverse of plain trash talk —
+  heat *down*, likability *up* (it reads as affectionate ribbing). Energized
+  recipients bond hardest; even a `stung` one takes it lighter than a
+  sincere jab.
+- **Self (self-directed → self-mockery):** disarming regardless of
+  disposition — a small likability bump, never a barb (you're the target).
 
 ### 4. UX interaction: tone-primary, register-yields
 
@@ -174,38 +183,69 @@ sarcastic value + gating is spec):
   store `sarcastic`, so recalling a tone's last-used register always lands
   on a valid value — gating and memory don't fight.
 
-### 5. Redesigned tone palette
+### 5. Redesigned tone palette (LOCKED 2026-06-03)
 
 Today four mid-hand tones (`tilt`/`goad`/`needle`/`bait`) all collapse to
-`TRASH_TALK`, differing only by multiplier — the "near-duplicate" rot.
-With temperament now splitting *reception*, trade redundant hostiles for
-distinct *intents* and let disposition + register carry the nuance.
+`TRASH_TALK`, differing only by multiplier — the "near-duplicate" rot. The
+design rule for the new palette: **every button keys off a *different*
+recipient trait**, so the set reads as a toolkit ("which of this opponent's
+attributes can I exploit?"). Two layers are in play:
 
-**Mid-hand** (6 intents + bluff):
+- **Relationship layer** — moves the bilateral bond axes (heat / respect /
+  likability). These are the tones that go through `RelationshipEvent`.
+- **Emotional layer** — moves the target's *in-the-moment* state
+  (composure / confidence), which feeds their bounded-options decision and
+  thus their *play*. These go through `react_to_social_stimulus` (new
+  stimuli + pressure events), and may move **no** relationship axis at all
+  (intimidating someone isn't meant to change whether they *like* you —
+  it's meant to make them *fold*).
 
-| Tone | Intent | Maps to | Sarcastic? |
-|---|---|---|---|
-| Trash talk | open hostility, tilt them | `TRASH_TALK` (full) | ❌ |
-| Needle | sly provocation, bait a call/rise | `PROVOKE` *(new)* or `TRASH_TALK`-light | ❌ |
-| Banter | playful ribbing, rapport | `FRIENDLY_BANTER` | ❌ (marginal) |
-| Props | respect a specific play | `PROPS` | ✅ |
-| Intimidate | project dominance, pressure a fold | reputation/demeanor hook *(or new)* | ❌ |
-| Flatter | insincere ego-stroke | flattery path | ✅ |
-| Bluff | talk about own hand | `None` (no axis) — keep | — |
+The two emotional weapons are deliberate inverses (see §3 of the captain's
+log reasoning): **Intimidate** preys on *low* poise, **Dare** preys on
+*high* ego — so between them no opponent is safe (the unrattlable proud
+villain falls to the Dare; the timid fish falls to Intimidate).
 
-**Post-round** (6 intents):
+**Mid-hand (6):**
 
-| Tone | Intent | Maps to | Sarcastic? |
-|---|---|---|---|
-| Gloat | rub in the win | `TAUNT_POST_WIN` | ❌ |
-| Salty | complain about the beat | `TRASH_TALK` | ❌ |
-| Gracious | tip the cap to the winner | `COMPLIMENT` | ✅ |
-| Humble | downplay your own win | `FRIENDLY_BANTER` | ✅ (humblebrag) |
-| Props | respect the specific play | `PROPS` | ✅ |
-| Commiserate | console a loser you weren't in the pot with | `COMMISERATE` *(new)* | ❌ |
+| Tone | Layer | **Keyed trait** | Effect on target | Sarcastic variant |
+|---|---|---|---|---|
+| **Intimidate** | emotional | poise | timid → composure↓ → **folds** | — |
+| **Dare** | emotional | ego (inverted) | proud → can't back down → **loose call** | — |
+| **Trash Talk** | relationship | disposition (heat) | heat↑/likability↓; energized *bonds* | **banter** (soften) |
+| **Props** | relationship | respect | respect↑ (sincere) | backhand (sharpen) |
+| **Flatter** | relationship+emo | vanity | vain → confidence↑ → overplays; perceptive sees through | mocking (sharpen) |
+| **Befriend** | relationship | likability | sincere warm bond | passive-aggressive *(defer; sincere-only first)* |
 
-`Commiserate` is the genuinely missing color — today there's no way to be
-warm toward someone *other than* the person who just beat you.
+`bluff` is kept as a no-axis tone (talk about your own hand) but is not in
+the 6 above — it has no target effect. Dropped vs the prior draft:
+`Sow Doubt` (adaptation_bias lever — parked as the next emotional cell to
+fill) and a standalone `Banter`/`Needle` (Banter = sarcastic Trash Talk;
+the tilt-to-spew Needle is a documented future split).
+
+**Post-round — after a WIN (4):**
+
+| Tone | Target | Layer | **Keyed trait** | Effect | Sarcastic variant |
+|---|---|---|---|---|---|
+| **Gloat** | the loser | emotional | poise | composure↓ → tilts them into next hand | — |
+| **Gracious** | the loser | relationship | disposition | defuses heat, builds respect | fake-nice "wp" 🙄 |
+| **Humble** | table / self-image | relationship | ego | modesty disarms (likability↑) | **dry self-deprecation** (charming, not humblebrag) |
+| **Commiserate** | a **bystander** who also lost | relationship | disposition/state | likability↑ with someone you *didn't* beat | fake sympathy 🙄 |
+
+**Post-round — after a LOSS (4):**
+
+| Tone | Target | Layer | **Keyed trait** | Effect | Sarcastic variant |
+|---|---|---|---|---|---|
+| **Salty** | the winner | relationship | disposition (heat) | heat↑ toward winner; signals own tilt | — (already bitter) |
+| **Props** | the winner | relationship | respect | respect↑ | bitter backhand |
+| **Cry Luck** | the winner | emotional | ego | diminish their win → proud winner bristles, may overplay to "prove" skill | — |
+| **Vow** | the winner | emotional | poise | rattle a low-poise winner; bravado vs the composed | — |
+
+Note the mirror across surfaces: **Cry Luck is the post-loss Dare**
+(ego poke) and **Vow is the post-loss Intimidate** (poise rattle), so the
+two emotional weapons carry across live-hand → post-win → post-loss with
+consistent victims. `Commiserate` is the genuinely missing color — today
+there's no way to be warm toward someone *other than* the person who beat
+you.
 
 ### 6. Reception numbers — the sarcasm transform
 

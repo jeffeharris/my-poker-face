@@ -1,0 +1,26 @@
+name: quick_chat_dare
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: DARE them. Challenge their pride. Make folding feel like cowardice and
+    backing down feel like admitting you're better. You want their ego to take
+    the bait and call when they shouldn't.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "What's the matter, {target_first_name}? Scared?"
+    - "Big talk earlier. Where'd it go?"
+    - "Go on. Prove me wrong."
+    - "You don't have the guts."
+
+    Poke the ego. Make them want to show you up — that's when they make mistakes.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "dare"}}, {{"text": "...", "tone": "dare"}}], "targetPlayer": "{target_player}"}}

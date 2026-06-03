@@ -186,6 +186,17 @@ _PRESSURE_IMPACTS: Dict[str, Dict[str, float]] = {
     # ploy and bristle (composure dip). 'unmoved' never fires an event.
     'social_flattery_vain': {'confidence': 0.08, 'energy': 0.05},
     'social_flattery_seen_through': {'composure': -0.03},
+    # Emotional-layer quick-chat weapons (mid-hand intimidate / dare). These
+    # move the target's *play* and carry no relationship-axis effect. The
+    # asymmetry each is named for falls out of apply_pressure_event's filters
+    # for free, no extra classifier:
+    #   - intimidate: composure-led, so the (1-poise) filter makes the timid
+    #     rattle (→ play scared / fold) while the composed shrug it off.
+    #   - dare: confidence-led, so the EGO filter makes the proud puff up with
+    #     bravado (→ overplay / loose call) while the modest barely register —
+    #     the inverted asymmetry ("you can't dare a humble man into a call").
+    'social_intimidate': {'composure': -0.10, 'confidence': -0.04},
+    'social_dare': {'confidence': 0.08, 'energy': 0.04},
     # Player-prestige hook 4 (AI demeanor): sitting at a high-renown
     # human's table, applied once per hand. The villain press is
     # composure-led, so the (1-poise) filter in apply_pressure_event
@@ -522,6 +533,14 @@ class PlayerPsychology:
                 event_name = 'social_flattery_seen_through'
             else:
                 return  # unmoved — flattery washes over them
+        elif stimulus == 'intimidate':
+            # Composure-led press; the (1-poise) filter rattles the timid into
+            # playing scared (→ fold) and leaves the composed unmoved.
+            event_name = 'social_intimidate'
+        elif stimulus == 'dare':
+            # Confidence-led bravado spike; the ego filter makes the PROUD puff
+            # up and overplay (→ loose call) while the modest barely register.
+            event_name = 'social_dare'
         else:
             return
         self.apply_pressure_event(event_name, opponent=opponent, multiplier=multiplier)

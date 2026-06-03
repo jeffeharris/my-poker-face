@@ -3,7 +3,7 @@ import {
   MessageCircle,
   Flame,
   Award,
-  CircleDot,
+  Crosshair,
   Zap,
   Sparkles,
   Handshake,
@@ -59,31 +59,52 @@ interface ToneOption {
   label: string;
 }
 
-// NOTE: 'bait' (→ 'props') and 'bluff' (→ 'flatter') are intentionally parked
-// (not shown). Their ChatTone entries, tone→event mappings, and YAML prompts
-// (quick_chat_bait.yaml / quick_chat_bluff.yaml) are all kept, so either is
-// restored by re-adding its entry below.
+// The six mid-hand intents, each keyed off a *different* recipient trait
+// (poise / ego / heat / respect / vanity / likability) so the set reads as a
+// toolkit. `intimidate` and `dare` are emotional-layer tones (they move the
+// target's composure/confidence, not the relationship axes). The retired
+// hostile near-duplicates (tilt/goad/needle/bait) are folded into
+// `trash_talk`; `bluff` is parked (no target effect). All retain ChatTone
+// entries + YAML prompts so any can be restored by re-adding an entry here.
+// See docs/plans/SOCIAL_TEMPERAMENT_AND_QUICKCHATS.md §5.
 const TONE_OPTIONS: ToneOption[] = [
-  { id: 'tilt', icon: Flame, label: 'Tilt' },
+  { id: 'intimidate', icon: Crosshair, label: 'Intimidate' },
+  { id: 'dare', icon: Zap, label: 'Dare' },
+  { id: 'trash_talk', icon: Flame, label: 'Trash Talk' },
   { id: 'props', icon: Award, label: 'Props' },
-  { id: 'needle', icon: CircleDot, label: 'Needle' },
-  { id: 'goad', icon: Zap, label: 'Goad' },
   { id: 'flatter', icon: Sparkles, label: 'Flatter' },
   { id: 'befriend', icon: Handshake, label: 'Befriend' },
 ];
 
-// Delivery register (chill/spicy) is remembered per tone — last used wins.
-// So a player who always needles spicy but gives props chill doesn't
-// re-toggle each time: picking a tone recalls how they last delivered it.
-// Stored as a { tone: register } map; a tone with no stored preference
-// cold-starts at 'chill'.
+// Tones that offer the `sarcastic` register — the relationship tones with a
+// surface to invert that ride the fixed tone→event dispatch path. Sarcasm
+// flips its effect by tone: trash_talk → banter (soften), props → backhand
+// (sharpen). The emotional-layer tones (intimidate/dare) have no surface to
+// read literally; `flatter` (its valence-flipping path needs separate surgery)
+// and `befriend` (passive-aggressive variant) are sincere-only for now —
+// both deferred follow-ups.
+const SARCASM_ABLE_TONES: ReadonlySet<ChatTone> = new Set<ChatTone>([
+  'trash_talk',
+  'props',
+]);
+
+function toneTakesSarcasm(tone: ChatTone | null): boolean {
+  return tone !== null && SARCASM_ABLE_TONES.has(tone);
+}
+
+// Delivery register (chill/spicy/sarcastic) is remembered per tone — last
+// used wins. So a player who always trash-talks spicy but gives props chill
+// doesn't re-toggle each time: picking a tone recalls how they last
+// delivered it. Stored as a { tone: register } map; a tone with no stored
+// preference cold-starts at 'chill'.
 const REGISTER_PREFS_KEY = 'quickchat_register_by_tone';
 const DEFAULT_REGISTER: ChatIntensity = 'chill';
 // Recognized delivery registers. Stored prefs are validated against this so a
 // corrupted / hand-edited / stale-schema value falls back to the default
-// rather than flowing through to the API as an unknown register. Extend this
-// when a new register (e.g. 'sarcastic') ships.
-const VALID_REGISTERS: readonly ChatIntensity[] = ['chill', 'spicy'];
+// rather than flowing through to the API as an unknown register. `sarcastic`
+// is additionally gated per-tone at recall time (only sarcasm-able tones may
+// resolve to it — see handleToneSelect).
+const VALID_REGISTERS: readonly ChatIntensity[] = ['chill', 'spicy', 'sarcastic'];
 
 function readRegisterPrefs(): Partial<Record<ChatTone, ChatIntensity>> {
   const raw = safeGetItem(REGISTER_PREFS_KEY);
@@ -262,8 +283,15 @@ export function QuickChatSuggestions({
     setSelectedTone(tone);
     // Recall how this tone was last delivered (last-used register), so the
     // delivery row reflects the player's habit for this intent. Falls back
-    // to 'chill' for a tone never delivered before.
-    setIntensity(readRegisterPrefs()[tone] ?? DEFAULT_REGISTER);
+    // to 'chill' for a tone never delivered before. Guard: if a stale/hand-
+    // edited pref resolves to 'sarcastic' on a tone that can't take it
+    // (the emotional-layer tones), coerce to 'spicy' so the invalid combo is
+    // unreachable — the delivery row never shows a sarcastic that the tone
+    // doesn't support.
+    const recalled = readRegisterPrefs()[tone] ?? DEFAULT_REGISTER;
+    const resolved =
+      recalled === 'sarcastic' && !toneTakesSarcasm(tone) ? 'spicy' : recalled;
+    setIntensity(resolved);
     // The useEffect handles fetching/cache lookup when both target and tone are set
   };
 
@@ -384,6 +412,18 @@ export function QuickChatSuggestions({
             >
               🌶️
             </button>
+            {/* Sarcastic is a third mutually-exclusive register, offered only
+                on tones with a surface to invert. Its effect flips by tone:
+                banter (trash talk), backhand (props), mocking (flatter). */}
+            {toneTakesSarcasm(selectedTone) && (
+              <button
+                className={`toggle-btn ${intensity === 'sarcastic' ? 'active' : ''}`}
+                onClick={() => selectIntensity('sarcastic')}
+                title="Sarcastic — don't read it literally"
+              >
+                😏
+              </button>
+            )}
           </div>
         </div>
       )}
