@@ -2337,16 +2337,43 @@ class SchemaManager:
                 self._migrate_v131_create_coach_tips(conn)
                 conn.commit()
 
-            # NOTE (tournament→development renumber): the tournament/avatar
-            # migrations were renumbered 132–138 → 141–147 on this merge to clear
-            # development's 132–140. No renumber self-heal is needed: the only DB
-            # ever migrated on the old `tournaments` branch (which recorded 132–138
-            # as the tournament migrations) is the disposable tournaments dev box —
-            # rebuild it. Fresh CI DBs run 1→147 in order; development's DBs (at
-            # v140) run 141–147 forward cleanly (`_init_db` already holds the merged
-            # tables, and v141/v146/v147 are existence-guarded). A sentinel here
-            # would false-fire — `_init_db` itself creates the `tournaments` table,
-            # so "tournaments present" can't discriminate old-tournament lineage.
+            # Tournament→development renumber self-heal. A DB migrated on the old
+            # `tournaments` branch recorded v132–v138 as the OLD tournament
+            # migrations (create_tournaments … avatar drop). The merge re-assigned
+            # 132–138 to development's work (lifetime counts, drop_4d_emotion,
+            # cash_scalps, prestige v2) and bumped the tournament migrations to
+            # 141–147, so such a DB's version counter SKIPPED development's 132–138
+            # (and the forward loop, having already passed 138, never runs them —
+            # even after it force-advances the counter to 147). Re-assert them
+            # idempotently (all existence-guarded; prestige_snapshots predates the
+            # fork at v122 so the v138 ALTER lands). Sentinel: `limp_count`
+            # (development's v132) is ABSENT — it's added only by the v132 ALTER,
+            # never by `_init_db`, so it cleanly discriminates old-tournament
+            # lineage from a fresh build (version < 132 → loop adds it) or a
+            # development DB (limp_count already present → no fire).
+            lifetime_cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)")
+            }
+            tourney_renumber_collision = (
+                current_version >= 132 and 'limp_count' not in lifetime_cols
+            )
+            if tourney_renumber_collision:
+                logger.warning(
+                    "Detected tournament→development renumber collision (version %d "
+                    "but development's 132–138 artifacts missing) — re-asserting "
+                    "lifetime counts, 4D-emotion drop, cash_scalps, and prestige-v2 "
+                    "idempotently",
+                    current_version,
+                )
+                self._migrate_v132_add_limp_lifetime_count(conn)
+                self._migrate_v133_add_sizing_aware_lifetime_counts(conn)
+                self._migrate_v134_add_postflop_axis_lifetime_counts(conn)
+                self._migrate_v135_add_flop_check_barrel_lifetime_counts(conn)
+                self._migrate_v136_drop_4d_emotion(conn)
+                self._migrate_v137_create_cash_scalps(conn)
+                self._migrate_v138_add_prestige_v2_columns(conn)
+                conn.commit()
 
             for version in range(current_version + 1, SCHEMA_VERSION + 1):
                 if version in migrations:

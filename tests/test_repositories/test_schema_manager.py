@@ -99,31 +99,30 @@ class TestSchemaManager(unittest.TestCase):
         """v147 migration: rebuild a pre-v147 (post-v146, dual-column) avatar_images
         keyed on personality_id — drop the personality_name column, preserve rows
         with a backfilled pid, drop NULL-pid orphans."""
-        # Build a minimal dual-column (post-v146) schema and stamp the version at
-        # 146 so only the v147 drop runs forward.
+        # Build the COMPLETE current schema first, then regress ONLY avatar_images
+        # to the post-v146/pre-v147 dual-column shape and stamp the version at 146.
+        # Building the full schema (not a minimal hand-crafted one) keeps the
+        # renumber self-heal's `limp_count` sentinel satisfied so it doesn't fire —
+        # we're isolating the v147 avatar drop, not the 132–138 re-assert.
+        SchemaManager(self.test_db.name).ensure_schema()
         conn = sqlite3.connect(self.test_db.name)
         conn.executescript(
             """
-            CREATE TABLE schema_version (version INTEGER PRIMARY KEY,
-                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, description TEXT);
-            CREATE TABLE personalities (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL, config_json TEXT NOT NULL,
-                created_at TIMESTAMP, updated_at TIMESTAMP, is_generated BOOLEAN DEFAULT 1,
-                source TEXT, times_used INTEGER DEFAULT 0, elasticity_config TEXT,
-                owner_id TEXT, visibility TEXT, personality_id TEXT UNIQUE);
+            DROP TABLE avatar_images;
             CREATE TABLE avatar_images (id INTEGER PRIMARY KEY AUTOINCREMENT,
                 personality_name TEXT NOT NULL, personality_id TEXT, emotion TEXT NOT NULL,
                 image_data BLOB NOT NULL, content_type TEXT DEFAULT 'image/png',
                 width INTEGER, height INTEGER, file_size INTEGER, full_image_data BLOB,
                 full_width INTEGER, full_height INTEGER, full_file_size INTEGER,
                 created_at TIMESTAMP, updated_at TIMESTAMP, UNIQUE(personality_name, emotion));
-            INSERT INTO personalities (name, config_json, personality_id)
-                VALUES ('Napoleon', '{}', 'napoleon');
+            INSERT OR IGNORE INTO personalities (name, config_json, personality_id)
+                VALUES ('Zz Drop Test', '{}', 'zz_drop_test');
             INSERT INTO avatar_images (personality_name, personality_id, emotion, image_data)
-                VALUES ('Napoleon', 'napoleon', 'happy', X'AABB');
+                VALUES ('Zz Drop Test', 'zz_drop_test', 'happy', X'AABB');
             INSERT INTO avatar_images (personality_name, personality_id, emotion, image_data)
                 VALUES ('GhostName', NULL, 'angry', X'CCDD');
-            INSERT INTO schema_version (version, description) VALUES (146, 'pre-v147 stamp');
+            DELETE FROM schema_version WHERE version > 146;
+            INSERT OR REPLACE INTO schema_version (version, description) VALUES (146, 'pre-v147 stamp');
             """
         )
         conn.commit()
@@ -141,7 +140,7 @@ class TestSchemaManager(unittest.TestCase):
 
         self.assertEqual(version, SCHEMA_VERSION)
         self.assertNotIn('personality_name', cols)  # legacy column dropped
-        self.assertEqual(rows, [('napoleon', 'happy')])  # matched kept, orphan dropped
+        self.assertEqual(rows, [('zz_drop_test', 'happy')])  # matched kept, orphan dropped
 
     def test_games_table_has_coach_mode(self):
         """Games table should have coach_mode column (v62 migration)."""
