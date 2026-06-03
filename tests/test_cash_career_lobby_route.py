@@ -159,7 +159,9 @@ class TestCareerKeyringLobby(unittest.TestCase):
 
         # One-shot: a second load doesn't strip again (bankroll stays 0, no re-deposit).
         self.client.get("/api/cash/lobby")
-        assert compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb) == pool_after
+        assert (
+            compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb) == pool_after
+        )
 
     def test_scene_top_up_rebuys_the_short_fish_from_its_bankroll(self):
         """If the hero short-stacks Larry, the cast top-up rebuys him from his own
@@ -180,9 +182,7 @@ class TestCareerKeyringLobby(unittest.TestCase):
 
         gs = initialize_game_state(player_names=["Sal Monroe", "Loose Larry"], human_name="You")
         gs = gs.update(
-            players=tuple(
-                p.update(stack=10) if p.name == "Loose Larry" else p for p in gs.players
-            )
+            players=tuple(p.update(stack=10) if p.name == "Loose Larry" else p for p in gs.players)
         )
         sm = PokerStateMachine(game_state=gs)
         game_data = {
@@ -414,15 +414,19 @@ class TestCareerMentorStake(unittest.TestCase):
                 return {"cash_table_id": cp.SCENE0_TABLE_ID, "cash_stake_label": "$2"}
             return None
 
-        with patch(
-            "flask_app.routes.cash_routes._find_active_cash_game_id",
-            return_value=stuck_id,
-        ), patch(
-            "flask_app.routes.cash_routes._leave_table_locked",
-            side_effect=lambda owner, gid: leave_calls.append((owner, gid)),
-        ), patch(
-            "flask_app.services.game_state_service.get_game",
-            side_effect=_fake_get_game,
+        with (
+            patch(
+                "flask_app.routes.cash_routes._find_active_cash_game_id",
+                return_value=stuck_id,
+            ),
+            patch(
+                "flask_app.routes.cash_routes._leave_table_locked",
+                side_effect=lambda owner, gid: leave_calls.append((owner, gid)),
+            ),
+            patch(
+                "flask_app.services.game_state_service.get_game",
+                side_effect=_fake_get_game,
+            ),
         ):
             data = self.client.get("/api/cash/lobby").get_json()
 
@@ -466,7 +470,9 @@ class TestCareerMentorStake(unittest.TestCase):
         principal = offer['amount']
 
         # One-shot burned so the generic pool (which never lists Sal) can't re-offer.
-        assert self.repos['career_progress_repo'].load(sb, MENTOR_OWNER_ID).mentor_stake_used is True
+        assert (
+            self.repos['career_progress_repo'].load(sb, MENTOR_OWNER_ID).mentor_stake_used is True
+        )
 
         # Conservation: the principal came OUT of Sal's bankroll, never minted. His
         # roll dropped by exactly the principal — a pure transfer to the player's
@@ -477,6 +483,23 @@ class TestCareerMentorStake(unittest.TestCase):
         assert sal_before_chips - sal_after.chips == principal, (
             f"principal {principal} not funded from Sal's roll "
             f"(before={sal_before_chips}, after={sal_after.chips})"
+        )
+
+        # Mentors start WARM: Sal's relationship toward the player is seeded strong
+        # enough that the EXISTING relationship-driven forgiveness would grant a
+        # busted mentor-stake carry (no bespoke settlement code). Verify Sal's view
+        # of the player clears the very threshold `request_forgiveness` checks.
+        from flask_app.routes.cash_routes import FORGIVENESS_THRESHOLD, _forgiveness_score
+
+        rel = self.repos['relationship_repo'].load_relationship_state(
+            observer_id=cp.SAL_ID, opponent_id=MENTOR_OWNER_ID
+        )
+        assert rel is not None
+        assert rel.likability >= 0.8 and rel.respect >= 0.8
+        score = _forgiveness_score(likability=rel.likability, respect=rel.respect, heat=rel.heat)
+        assert score > FORGIVENESS_THRESHOLD, (
+            f"mentor forgiveness score {score:.3f} <= threshold {FORGIVENESS_THRESHOLD} — "
+            f"Sal wouldn't forgive a busted mentor stake"
         )
 
         # A second attempt is refused — both the active session AND the spent

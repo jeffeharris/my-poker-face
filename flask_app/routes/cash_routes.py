@@ -2514,6 +2514,33 @@ def sponsor_and_sit():
             except Exception as exc:
                 logger.warning("[CASH][SPONSOR] failed to set mentor_stake_used: %s", exc)
 
+        # Mentors start WARM. Seed a strong Sal↔player relationship so that if the
+        # player busts this stake, the EXISTING relationship-driven forgiveness
+        # handles the carry — no bespoke mentor-settlement code. `request_forgiveness`
+        # grants when Sal's view of the player scores
+        #   likability*0.5 + respect*0.4 − heat*0.3 > FORGIVENESS_THRESHOLD (0.55);
+        # a neutral pair (0.5/0.5/0) sits at 0.45 (refused), so the seed is what
+        # makes Sal forgive. 0.85/0.85/0 → ~0.77, with headroom even if a bad beat
+        # later nudges heat up. Seeded both directions for a mutual mentor bond
+        # (Sal→player is the load-bearing one the forgiveness route reads).
+        # Best-effort: a relationship-write failure never fails the sit.
+        if relationship_repo is not None:
+            try:
+                from poker.memory.opponent_model import RelationshipState
+
+                _seed_now = datetime.utcnow()
+                warm = RelationshipState(
+                    respect=0.85,
+                    likability=0.85,
+                    heat=0.0,
+                    last_seen=_seed_now,
+                    last_decay_tick=_seed_now,
+                )
+                relationship_repo.save_relationship_state(offer_lender_id, owner_id, warm)
+                relationship_repo.save_relationship_state(owner_id, offer_lender_id, warm)
+            except Exception as exc:
+                logger.warning("[CASH][SPONSOR] mentor relationship seed failed: %s", exc)
+
     if lender_id:
         logger.info(
             "[CASH] Sponsored sit %r owner=%r stake=%r lender=%r " "amount=%d floor=%.2f rate=%.2f",
