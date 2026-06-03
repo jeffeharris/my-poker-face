@@ -2,7 +2,7 @@
 purpose: Technical reference for cash-mode AI seating as implemented — the movement/attractiveness loop inversion, the scoring formula, the seating flow, conservation, and tuning levers.
 type: reference
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-06-03
 ---
 
 # Cash Mode Seating & Table Attractiveness
@@ -10,6 +10,12 @@ last_updated: 2026-05-29
 How AI players decide **whether to leave a table** and **which table to sit
 at** in cash mode, as shipped on the `prestige` branch (Phases A–C of
 [`docs/plans/CASH_MODE_TABLE_ATTRACTIVENESS.md`](/docs/plans/CASH_MODE_TABLE_ATTRACTIVENESS.md)).
+
+> **Where this fits:** the seat-occupancy decisions here are one consumer of the
+> unified world-state in [`PRESENCE_WHEREABOUTS.md`](PRESENCE_WHEREABOUTS.md) — an
+> AI is `SEATED` there while occupying a chair, and a leave/seek here drives a
+> presence transition (e.g. to `IDLE` / `SIDE_HUSTLE`). See that doc for the
+> authoritative state model.
 
 The design doc is the *why*; this is the *what's built*. For the deferred
 "occupant / social (marquee) prestige" layer — a v2 feature with its own

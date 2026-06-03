@@ -124,6 +124,28 @@ The 3BP *classification* (`preflop_raise_count` → `pot_type`) remains live; in
 play it resolves to `postflop_strategies.json` via the 3BP→SRP fallback rather
 than the dedicated slice.
 
+## Build artifacts, config & generators (not shipped charts)
+
+These files live under `poker/strategy/data/` but are **not** the shipped
+runtime charts catalogued above — they are generators, build-time intermediates,
+source fragments, or tuned config. They had no provenance row before 2026-06-03;
+listed here so the directory is fully accounted for.
+
+| File | Kind | Loaded at runtime? | Source / role |
+|---|---|---|---|
+| `phase_7_5_config.yaml` | Tuned config (YAML) | **Yes** — via `phase_7_5_config.py` | Single source of truth for the three-tier exploitation clamp caps (`default/medium/extreme_max_total_shift` = 0.4/0.6/0.8), `should_apply_bluff_catch_override` sizing/dampener thresholds, tier ratchet, and benchmark prior. Manually authored; the in-file header still says "PLACEHOLDERS for v1 ship" pending the Step 0.5 calibration sweep. Semantics: `docs/plans/PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md`. The bluff-catch override that consumes it is mapped in [`POSTFLOP_OVERRIDES.md`](POSTFLOP_OVERRIDES.md). |
+| `push_fold_equity_matrix.json` | Build-time cache | No (build only) | Cached eval7 all-in equity matrix built/loaded by `generate_push_fold_nash.py` (`load_or_build_matrix`, `MATRIX_ITERS`/`MATRIX_SEED`) so the deterministic Nash fixed-point iteration that produces `push_fold_hu.json` is fast and reproducible. An intermediate of the push/fold generator, not a chart. |
+| `preflop_100bb_6max_wider_rfi.json` | Source fragment | No | The CO/BTN/SB widened-RFI fragment (`meta` + `rfi`/`vs_open`/`vs_3bet`/`vs_4bet` blocks) produced by `experiments/build_wider_rfi_chart.py` (2026-05-27, `4f5fb311`). Its RFI rows were merged **into** the shipped `preflop_100bb_6max.json`; this standalone file is the build artifact/source, not a separately-loaded chart. |
+| `generate_depth_charts.py` | Generator | No | Produces `preflop_50bb_6max.json` / `preflop_25bb_6max.json` from the 100bb chart. See `depth_charts_README.md` and the depth-chart footgun note above. |
+| `generate_postflop_spr.py` | Generator | No | Produces the cut-from-play `postflop_strategies_low_spr.json` (see above). |
+| `generate_postflop_3bp.py` | Generator | No | Produces the cut-from-play `postflop_strategies_3bp.json` (see above). |
+| `generate_push_fold_nash.py` | Generator | No | Computes `push_fold_hu.json` (chip-EV HU Nash, fictitious play) using the cached equity matrix above. |
+| `generate_push_fold_hu.py` | Generator | No | Earlier push/fold HU chart builder (superseded by the Nash recompute, `66586d76`). |
+| `generate_hu_chart.py` | Generator | No | HU preflop chart builder for `preflop_100bb_hu.json`. |
+
+`build_wider_rfi_chart.py` lives in `experiments/`, not `poker/strategy/data/`,
+and is referenced from the `preflop_100bb_6max` row and README calibration log.
+
 ## Keeping this current
 
 When a chart is added, regenerated, or retired:

@@ -47,26 +47,25 @@ adversarial falsify pass on the new gap docs.
 
 ---
 
+## ✅ Completed — 2026-06-03 gap-doc batch (code-explorer + captain-log → draft → verify)
+
+The held cash docs and the gap docs were written via two verify-gated workflows
+using `feature-dev:code-explorer` for architecture mapping + captain's logs for
+design rationale. All claims adversarially verified against code.
+
+- **NEW:** `CHIP_CUSTODY_LEDGER.md`, `PRESENCE_WHEREABOUTS.md`, `BACKING_AND_STAKING.md`, `POSTFLOP_OVERRIDES.md`, `SOCIAL_DYNAMICS.md`, `TOURNAMENTS.md`, `CSRF.md`
+- **REFRESHED:** `CASH_MODE_ECONOMY.md` (chip-custody section), `CASH_MODE_FULL_SIM.md` (signature + `psychology_persistence.py` + keying + decay), `EMOTION_AND_PRESSURE_ARCHITECTURE.md` (`EmotionalStateGenerator` narrative role), `CASH_MODE_SEATING_ATTRACTIVENESS.md` (whereabouts cross-link)
+- **Provenance:** `LOOKUP_TABLE_PROVENANCE.md` gained a "Build artifacts, config & generators" section accounting for all of `poker/strategy/data/`. `SECURITY_POSTURE.md` + `REPOSITORIES.md` got cross-links to the new docs.
+
+This closes the High/Medium/Low gap list from the original survey.
+
 ## Still open
 
-### Held — docs over in-flight code (refresh after the cash work lands)
-- 🟠 `CASH_MODE_ECONOMY.md` — add a chip-custody / ledger-as-authority section (`CHIP_CUSTODY_ENABLED`, `economy_flags.py:253`); the "pure transfers write no ledger entry" claim is conditionally false under custody (`bankroll.py:202`). Dead movement constants: `DEFAULT_STAKE_UP_PROB`/`TAKE_BREAK`/`BORED_MOVE` gone; `DEFAULT_LIVE_FILL_PROB`=0.05 not 0.15 (`movement.py:111`).
-- 🟠 `CASH_MODE_FULL_SIM.md` — `play_one_hand` signature (required `sandbox_id` + new params, `full_sim.py:595`); psychology hydrate/flush relocated to `cash_mode/psychology_persistence.py`; emotional state keyed `(personality_id, sandbox_id)`; decay-on-read now shipped.
-
-*(`full_sim.py` and `whereabouts.py` are uncommitted/in-flight — documenting them now chases a moving target.)*
-
-### Minor (P3, not yet done)
-- 🟡 `CASH_MODE_SEATING_ATTRACTIVENESS.md` — add a note that seating feeds the unified `whereabouts.py` world-state. (All scoring constants verified correct.)
-
-### Gap docs still needed (systems in code, undocumented)
-- **High** (partly in-flight — coordinate with cash work): chip-custody/ledger-as-authority (`chip_ledger_repository.py`); presence/whereabouts machine (`whereabouts.py`, `presence*.py`, `entity_presence`).
-- **Medium**: backing/staking/loans (`player_staking.py`, `stake_settlement.py`, `sponsor_offers.py`); postflop strategy modules (`value_override.py`, `induce_override.py`, `overbet_context.py`, `multistreet_context.py`); social layer (trash-talk reception, sarcasm gate, flattery in `player_psychology.py`); `emotional_state.py` surviving role (`EmotionalStateGenerator` narrative); **`poker/strategy/data/` provenance rows** (`fish_loadout.py`, `preflop_isolate.py`, induce/overbet/stab) — surfaced this batch.
-- **Low / stub**: tournaments-as-a-draw (flag-gated WIP); CSRF (`flask_app/csrf.py`, currently only inside `SECURITY_POSTURE.md`).
-
-### New gaps surfaced this batch
-- **`react/CLAUDE.md` is itself stale** (auto-loaded): says "React 18" (actual 19) and lists a non-existent `contexts/` dir — the same two errors just fixed in `FRONTEND.md`. Worth correcting at the source.
-- **`PROMPT_CONFIG_REFERENCE.md` field catalog drifts when fields ship** (`show_ev_labels` was undocumented until this pass) — periodically re-verify against the `prompt_config.py` dataclass `fields()`.
-- **`psychology.traits` backward-compat shim** (old 5-key dict derived from the anchors) is a live doc/code confusion source — worth a one-line note in `PSYCHOLOGY_OVERVIEW.md`.
+### Small follow-ups (not full docs)
+- 🟡 **`react/CLAUDE.md` is stale** (auto-loaded): says "React 18" (actual 19) and lists a non-existent `contexts/` dir — same two errors fixed in `FRONTEND.md`. Fix at the source.
+- 🟡 **`PROMPT_CONFIG_REFERENCE.md` field catalog drifts when fields ship** (`show_ev_labels` was undocumented until this pass) — periodically re-verify against the `prompt_config.py` dataclass `fields()`.
+- 🟡 **`psychology.traits` backward-compat shim** (old 5-key dict derived from the anchors) — worth a one-line note in `PSYCHOLOGY_OVERVIEW.md` (also tracked as legacy LC-01 in `docs/TRIAGE.md`).
+- 🟡 **`fish_loadout.py` / `preflop_isolate.py`** (in `poker/strategy/`, not `data/`) — strategy code modules not yet covered by `POSTFLOP_OVERRIDES.md`; minor, fold in if that doc is next touched.
 
 ### Code-comment drift → `docs/TRIAGE.md` candidate (not a doc issue)
 - `schema_manager.py:622` labels the `hand_equity` bootstrap table "(v68)" but it's added by `_migrate_v69_add_hand_equity`.

@@ -66,7 +66,7 @@ repos' tables for joins/aggregation).
 |---|---|---|
 | `game_repository.py` | `GameRepository`, `SavedGame` (dataclass) | `games`, `game_messages`, `ai_player_state`, `controller_state`, `emotional_state`, `personality_snapshots`, `opponent_models`, `opponent_observation_lifetime`, `memorable_hands`, `tournament_tracker`, `dossier_informant_unlocks` |
 | `bankroll_repository.py` | `BankrollRepository` | `ai_bankroll_state`, `player_bankroll_state`, persona bankroll columns on `personalities` |
-| `chip_ledger_repository.py` | `ChipLedgerRepository` | `chip_ledger_entries` (v93 chip-custody ledger) |
+| `chip_ledger_repository.py` | `ChipLedgerRepository` | `chip_ledger_entries` (v93 chip-custody ledger — see [`CHIP_CUSTODY_LEDGER.md`](CHIP_CUSTODY_LEDGER.md)) |
 | `cash_table_repository.py` | `CashTableRepository` | `cash_tables`, `cash_idle_pool`, `cash_idle_metadata` (reads `entity_presence`) |
 | `cash_session_repository.py` | `CashSessionRepository` | `cash_sessions`, `cash_session_events` |
 | `cash_scalps_repository.py` | `CashScalpsRepository` | `cash_scalps` (v132 attributed bust counts) |

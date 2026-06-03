@@ -148,22 +148,22 @@ so the **relationship layer** can fire `BAD_BEAT` events — the only relationsh
 event needing pre-river equity.
 
 **Persistence:** The pipeline is constructed with `persist_controller_state=False`
-(`:3359`) because the game handler persists psychology itself, **per-decision**:
+(`:3227`) because the game handler persists psychology itself, **per-decision**:
 after each AI acts, `game_repo.save_controller_state(...)` writes
 `controller.psychology.to_dict()` into the `controller_state.psychology_json`
-column (`game_handler.py:4627`; deferred emotional-narration prose is flushed the
-same way at `:2955`). The old `game_repo.save_emotional_state(...)` call and the
+column (`game_handler.py:4501`; deferred emotional-narration prose is flushed the
+same way at `:2813`). The old `game_repo.save_emotional_state(...)` call and the
 standalone `emotional_state` table were **removed in schema v136** (the table is
 dropped in `poker/repositories/schema_manager.py:_migrate_v136_drop_4d_emotion`,
-migration registered at `:2145`). On game restore, psychology is rehydrated from
-`psychology_json` via `PlayerPsychology.from_dict(...)` (`game_handler.py:461`);
-narrative/inner_voice now ride along in that same JSON (`:475-476`). Pressure
+migration registered at `:2235`). On game restore, psychology is rehydrated from
+`psychology_json` via `PlayerPsychology.from_dict(...)` (`game_handler.py:479`);
+narrative/inner_voice now ride along in that same JSON (`:493-495`). Pressure
 events themselves are written via `PressureEventRepository`.
 
 > **Note — two different "emotional state" columns.** The live Flask path above
 > uses `controller_state.psychology_json`. The off-screen sim/cash-persona path
 > is separate: it persists psychology to `ai_bankroll_state.emotional_state_json`
-> via `bankroll_repository.save_emotional_state_json` (`bankroll_repository.py:204`,
+> via `bankroll_repository.save_emotional_state_json` (`bankroll_repository.py:219`,
 > added v97). Both survive the v136 table drop; neither is the retired
 > `emotional_state` *table*.
 
@@ -179,6 +179,133 @@ make. It does **not** display a face or change axes — it produces prompt text.
 - Maps to a level (`routine` / `notable` / `high_stakes` / `climactic`) and tone, which `prompt_manager.py` turns into `DRAMA_CONTEXTS` response-style instructions.
 - Consumed in `poker/controllers.py` (prompt assembly), `poker/tiered_bot_controller.py`, `poker/memory/commentary_generator.py`, and `poker/memory/hand_outcome_detector.py`.
 - Also note: `pressure_detector.py` reuses `MomentAnalyzer.is_big_pot()` so Track 2's "big pot" threshold stays consistent with Track 3's.
+
+## Narration: the surviving role of `emotional_state.py`
+
+`poker/emotional_state.py` is **not** a fourth track — it produces no face and
+changes no axis. It is the **prose layer that rides on Track 2**: given the
+quadrant state Track 2 already computed (`confidence × composure`), it makes one
+cheap LLM call to render two display strings and nothing else. After the 4D
+dimensional model (valence/arousal/control/focus) was retired in schema v136,
+this is the module's *only* remaining job — see the class docstrings at
+`emotional_state.py:96-99` and `:151-160`, and the rationale in
+`PSYCHOLOGY_OVERVIEW.md:110-130`.
+
+> **Design origin (planning doc, not code).** `docs/plans/POKER_NATIVE_PSYCHOLOGY.md`
+> (undated, pre-header) called for exactly this — it lists "`poker/emotional_state.py`
+> — Simplify: derive from 2 traits", i.e. derive the emotion from the
+> confidence × composure quadrant and reduce the module to surface text. The
+> current narration-only shape is that plan realized. (Plan claim; the code above
+> is the verification.)
+
+**Two output strings** (the `EmotionalState` dataclass, `emotional_state.py:91`):
+
+| Field | Person | Meaning |
+|---|---|---|
+| `narrative` | third | A concrete physical tell an opponent would catch |
+| `inner_voice` | first | One sharp thought in the character's own voice |
+
+Plus metadata: `generated_at_hand`, `source_events`, `created_at`,
+`used_fallback`. `to_dict()`/`from_dict()` are deliberately tolerant of legacy
+rows that still carry the dropped 4D scalar keys — they are silently ignored
+(`emotional_state.py:126-140`).
+
+**Generator + LLM tier.** `EmotionalStateGenerator` (`emotional_state.py:151`)
+holds a single `StructuredLLMCategorizer` built from
+`EMOTIONAL_NARRATION_SCHEMA` — two string fields, no scalars
+(`emotional_state.py:29-49`). `StructuredLLMCategorizer.categorize` always issues
+`CallType.CATEGORIZATION` (`core/llm_categorizer.py:272`), which maps to the
+**Fast** tier (small/cheap model). Default timeout is **3.0s**
+(`EmotionalStateGenerator.__init__`, `emotional_state.py:171`). On LLM failure
+the generator sets `used_fallback=True` and returns a fixed generic line
+(`_generate_narration_fallback`, `emotional_state.py:376-378`); if the whole call
+raises, `PlayerPsychology._generate_emotional_state` catches it and installs its
+own *quadrant-keyed* static prose (`player_psychology.py:1737-1742`).
+
+### Where it fires (it's the async half of the post-hand pipeline)
+
+Track 2's `_update_composure` (`psychology_pipeline.py:348`) splits the post-hand
+work into a **synchronous play-affecting half** (`update_composure_only`,
+`:423`) and a **deferred display-only half** (narration). The narration jobs are
+*not* run inline — they are gated, packaged into `NarrationRequest` objects, and
+returned for the caller to run off the critical path.
+
+> **Why the split (architecture rationale).** Composure affects the next hand, so
+> it must settle before play continues; the narration is display-only, so its LLM
+> latency must **not** gate the next hand. The `defer_narration=True` flag exists
+> for exactly this — see the Track 2 wiring above and the TL;DR table.
+
+The deferred path, step by step:
+
+1. `game_handler.handle_evaluating_hand_phase` constructs the pipeline with
+   `enable_emotional_narration=True, defer_narration=True`.
+2. `_update_composure` runs `update_composure_only` synchronously, then **gates**
+   narration (next section) and appends a `NarrationRequest` per surviving player
+   to its `pending` list (`psychology_pipeline.py:453-454`).
+3. If `pending` is non-empty, the handler dispatches
+   `socketio.start_background_task(_run_async_narration, ...)`.
+4. `_run_async_narration` (`game_handler.py:2790`) calls
+   `controller.psychology.generate_narration(**req.kwargs)` and **persists the
+   result itself** via `game_repo.save_controller_state(...)`
+   (`:2813-2818`) — the old synchronous emotional-state save was removed with the
+   deferral.
+5. `generate_narration` (`player_psychology.py:866`) → `_generate_emotional_state`
+   (`:1704`) → `_emotional_generator.generate(...)` (`:1722`).
+
+### Who gets narration (the `USES_EMOTIONAL_NARRATION` gate)
+
+Narration is generated only for players who actually **consume** the prose. The
+gate (`psychology_pipeline.py:439-443`) is: `enable_emotional_narration` is on
+**AND** (`controller.USES_EMOTIONAL_NARRATION` is truthy **OR** the table is
+heads-up). Heads-up is `ai_seat_count <= 1` (`:368-369`) — the lone AI's prose is
+shown in the React opponent panel regardless of its bot type.
+
+| Controller class | `USES_…` | Why |
+|---|---|---|
+| `AIPlayerController` (chaos) | `True` (`controllers.py:639`) | Injects prose into decision prompt |
+| `HybridAIController` (standard) | inherits `True` | Same |
+| `LeanBoundedController` (lean) | `False` (`lean_bounded_controller.py:62`) | Options-only prompt; prose unread |
+| `TieredBotController` (sharp) | `False` (`tiered_bot_controller.py:231`) | Solver path; prompt unread |
+| `RuleBotController` (casebot/gto_lite) | `False` (`rule_bot_controller.py:49`) | Pure rules; prompt unread |
+
+### Where the two strings are consumed
+
+1. **Decision-prompt injection** (chaos / standard). Gated on
+   `prompt_config.emotional_state`, `controllers.py` prepends
+   `psychology.get_prompt_section()` to the decision message
+   (`controllers.py:1078-1081`). That section
+   (`player_psychology.get_prompt_section`, `:1226`) returns `""` when the player
+   `is_severely_tilted` (composure < 0.4) — the zone-effects pathway voices the
+   tilt instead, to avoid double-voicing — otherwise emits a
+   `[YOUR EMOTIONAL STATE]` block carrying `narrative`, the quadrant feeling, the
+   composure category, the energy band, and `inner_voice`.
+2. **Heads-up opponent panel** (React). `game_handler.py:622-623` copies
+   `psych.emotional.narrative` / `.inner_voice` into `player_dict['psychology']`
+   on the game-state push; `HeadsUpOpponentPanel.tsx:134-137` renders them
+   (`emotional-narrative` and `inner-voice`), shown only when at least one is
+   non-empty.
+
+### Persistence (two columns, both survive v136)
+
+The strings ride **inside** existing psychology blobs — there is no dedicated
+table after v136.
+
+| Scope | Column | Path |
+|---|---|---|
+| Live game session | `controller_state.psychology_json` | `PlayerPsychology.to_dict()` nests `emotional` under key `'emotional'` (`player_psychology.py:1603`); rehydrated by `from_dict` (`:1679-1680`). Written by `game_repo.save_controller_state` |
+| Cash persona continuity | `ai_bankroll_state.emotional_state_json` (v97) | `cash_mode/psychology_persistence.py` `flush_persona_psychology` / `hydrate_persona_psychology` via `bankroll_repository.save_emotional_state_json` |
+
+The v136 migration (`schema_manager.py:_migrate_v136_drop_4d_emotion`) dropped the
+standalone `emotional_state` *table* and the 4D columns from
+`player_decision_analysis`; it did **not** touch either column above.
+
+> **Known gap (log, not code).** `docs/captains-log/tournaments/persona-identity-and-psychology-continuity.md:53-74`
+> records gap T3-77: live games historically built every opponent at baseline
+> (never reading the persona blob) and never wrote evolved mood back, leaving the
+> lobby-sim ↔ live-game ↔ lobby-sim emotional loop open. The
+> `psychology_persistence.py` helpers were built to close it; the log indicates
+> the live-game-side wiring was incomplete at the time of that entry. Treat the
+> closure status as unverified here.
 
 ## The Seam: Display-Emotion Selection
 
@@ -268,6 +395,7 @@ edges worth understanding before changing anything.
 
 - `docs/technical/EQUITY_PRESSURE_DETECTION.md` — spec for the equity-shock detector (Track 2's coolers/suckouts/bad-beats).
 - `docs/technical/PRESSURE_EVENTS.md` — full catalog of pressure events, axis impacts, resolution.
-- `docs/technical/PSYCHOLOGY_OVERVIEW.md` / `PSYCHOLOGY_DESIGN.md` / `PSYCHOLOGY_ZONES_MODEL.md` — the axes/zones model Track 2 feeds.
+- `docs/technical/PSYCHOLOGY_OVERVIEW.md` / `PSYCHOLOGY_DESIGN.md` / `PSYCHOLOGY_ZONES_MODEL.md` — the axes/zones model Track 2 feeds; `PSYCHOLOGY_OVERVIEW.md:110-130` documents the v136 4D retirement that left `emotional_state.py` narration-only.
+- `docs/plans/POKER_NATIVE_PSYCHOLOGY.md` — planning doc (undated) that called for simplifying `emotional_state.py` to derive emotion from the 2-trait quadrant.
 - `docs/technical/PRESSURE_STATS_SYSTEM.md` — the `pressure_stats` UI aggregation fed by the pipeline callback.
 - `poker/CLAUDE.md` — drama detection (Track 3) reference, kept next to the code.
