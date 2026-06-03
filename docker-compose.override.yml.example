@@ -14,13 +14,27 @@
 
 services:
   backend:
+    # Run as the host user (defaults to uid/gid 1000) so anything the container
+    # writes into the bind-mounted repo — the data DB, __pycache__, tool caches —
+    # is owned by YOU, not root. Root-owned artifacts otherwise break the host's
+    # pre-commit/pre-push hook (ruff can't write its cache as the host user).
+    #   - Most hosts: leave as-is (1000:1000).
+    #   - Other uid: run `UID=$(id -u) GID=$(id -g) docker compose up`, or set
+    #     UID/GID in .env.
+    #   - EXISTING worktree whose ./data is already root-owned: chown it once:
+    #       sudo chown -R $(id -u):$(id -g) ./data
+    user: "${UID:-1000}:${GID:-1000}"
     # Use Flask's dev server with auto-reload (instead of the production entry point)
     command: python -m flask_app.ui_web
-    # Additional volumes for hot reloading (beyond what's in main file)
+    # Additional volumes for hot reloading (beyond what's in main file).
+    # The anon volumes keep tool caches container-internal so they never land in
+    # the host tree (belt-and-suspenders with RUFF_CACHE_DIR/PYTEST_ADDOPTS in the
+    # base compose). .ruff_cache was the one missing here — the host-pollution culprit.
     volumes:
       - .:/app
       - /app/__pycache__
       - /app/.pytest_cache
+      - /app/.ruff_cache
 
   frontend:
     # Vite cache for faster rebuilds
