@@ -184,7 +184,40 @@ synthetic renown overlay) to make the `renown`/`field` axes tunable. On the raw
 flag-off dev pool, the only honest conclusion is "this pool can't tune 3 of 4
 weights" — exactly what H3's falsifier predicted.
 
-*Formal sweep results to be filled after running on a signal-bearing pool.*
+**Overlay sweep (2026-06-03, `--overlay-sweep`, renown still off):** swept the
+prize overlay as multiples of the pool median bankroll (6,458):
+
+| overlay (×median) | redistribution (dflt = best) | weight-spread | prize fires |
+|---|---|---|---|
+| 0.25× (1,614) | 0.06 | 0.000 | yes |
+| 0.5× (3,229) | 0.14 | 0.000 | yes |
+| 1× (6,458) | 0.18 | 0.000 | yes |
+| 2× (12,916) | 0.18 | 0.000 | yes |
+| 5× (32,290) | 0.41 | 0.000 | yes |
+| 10× (64,580) | 0.66 | 0.000 | yes |
+
+Two findings: (1) **H1 is satisfied at every realistic overlay** (redistribution
+0.06–0.66, all ≤ 0.80) — the draw strongly pulls the poorer half regardless, and
+**overlay size is the redistribution dial** (smaller prize → more extreme skew).
+(2) **weight-spread is 0.000 at every overlay** — varying the four weights across
+the whole grid does NOT change the field. With renown/field dead, `prize_appeal`
+saturates to 1.0 for everyone below the overlay and `cash_comfort`'s rank-order
+is weight-invariant, so the no-jitter field is fixed by prize-saturation +
+comfort alone. **Weight-tuning is moot until renown is live** — the renown/field
+terms are the only ones that could re-rank within the poor group (pull the bigs
+in, break comfort ties on status). Comfort resistance = 1.0 and variety = 25/25
+throughout (settled winners avoid; jitter gives full cast variety).
+
+**Action taken (2026-06-03):** enabled `RENOWN_V2_ENABLED=1` + `RENOWN_V2_PERSIST_AI=1`
+in the dev `.env` (backend recreated, flags verified live, clean startup) so REAL
+per-AI renown now persists each ticker recompute — instead of fabricating it
+(synthetic renown was considered and rejected: it'd tune the formula to an
+invented distribution). Renown data accrues over time as the dev world ticks with
+an active player; the formal weight sweep (all four terms live) waits until a
+renown distribution has accumulated — re-run `sim_tournament_draw_weights.py` once
+`renown data present: True`.
+
+*Formal four-term sweep to be filled once renown has accrued on dev.*
 
 ## Conclusion
 

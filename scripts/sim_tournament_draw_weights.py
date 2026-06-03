@@ -121,6 +121,28 @@ def _eval_weights(inputs, weights, field_size, seeds):
     }
 
 
+def _run_config(inputs, field_size, seeds, grid):
+    """Run the full weight grid for one (already-overridden) input set. Returns
+    the default-weights metrics, the best-redistribution vector, the spread of
+    redistribution across the grid (how much the weights actually matter here),
+    and the per-term firing (H3)."""
+    fires = _term_fires(inputs, field_size)
+    base = _eval_weights(inputs, DEFAULT_WEIGHTS, field_size, seeds)
+    best = None
+    redists = []
+    for p, r, f, c in product(grid, grid, grid, grid):
+        m = _eval_weights(
+            inputs, DrawWeights(prize=p, renown=r, field=f, cash_comfort=c), field_size, seeds
+        )
+        if m["redistribution"] is None:
+            continue
+        redists.append(m["redistribution"])
+        if best is None or m["redistribution"] < best["redistribution"]:
+            best = {"weights": {"prize": p, "renown": r, "field": f, "cash_comfort": c}, **m}
+    spread = (max(redists) - min(redists)) if redists else 0.0
+    return {"default": base, "best": best, "redist_spread": spread, "term_fires": fires}
+
+
 def _term_fires(inputs, field_size):
     """H3: zero each term in turn; does the no-jitter field change vs the default?"""
     base = set(rank_field(inputs, field_size, weights=DEFAULT_WEIGHTS, rng=None))
@@ -154,6 +176,14 @@ def main() -> int:
         "overlay (e.g. the DEFAULT_MAIN_EVENT pool) to exercise the redistribution "
         "lever against the real bankroll spread.",
     )
+    ap.add_argument(
+        "--overlay-sweep",
+        default=None,
+        help="Comma list of prize-pool sizes as MULTIPLES of the pool median "
+        "bankroll, e.g. '0.5,1,2,5,10'. For each, run the full weight grid and "
+        "report redistribution + weight-sensitivity + per-term firing — to find "
+        "the overlay where prize_appeal stops saturating yet still redistributes.",
+    )
     args = ap.parse_args()
 
     sandbox_id = args.sandbox or _discover_sandbox(DB_PATH)
@@ -178,15 +208,69 @@ def main() -> int:
         f"renown data present: {renown_present} | cash-seated personas present: {comfort_present}"
     )
 
+    grid = [0.1, 0.2, 0.3, 0.4, 0.5]
+
+    # --- Overlay sweep: how redistribution + weight-leverage move with prize size.
+    if args.overlay_sweep:
+        pool_median = _median([i.own_bankroll for i in inputs])
+        mults = [float(x) for x in args.overlay_sweep.split(",")]
+        print(f"\n[overlay sweep] pool median bankroll = {pool_median:.0f}")
+        print(
+            f"  {'×med':>5} {'overlay':>8} | {'dflt':>5} {'best':>5} {'spread':>6} "
+            f"{'prizeFires':>10} {'cmftR':>6} {'variety':>8}"
+        )
+        sweep = []
+        for m in mults:
+            overlay = int(m * pool_median)
+            cfg = [dataclasses.replace(i, prize_pool=overlay) for i in inputs]
+            s = _run_config(cfg, args.field_size, args.seeds, grid)
+            d, b = s["default"], s["best"]
+            cr = "n/a" if d["comfort_resistance"] is None else f"{d['comfort_resistance']:.2f}"
+            print(
+                f"  {m:>5.1f} {overlay:>8d} | {d['redistribution']:>5.2f} "
+                f"{b['redistribution']:>5.2f} {s['redist_spread']:>6.3f} "
+                f"{str(s['term_fires']['prize']['fires']):>10} {cr:>6} "
+                f"{d['variety_distinct_fields']:>3}/{d['variety_of']:<4}"
+            )
+            sweep.append({"mult": m, "overlay": overlay, **s})
+        out_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "docs",
+            "experiments",
+            "data",
+        )
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, "EXP_007_overlay_sweep.json")
+        with open(out_path, "w") as fh:
+            json.dump(
+                {
+                    "sandbox_id": sandbox_id,
+                    "pool_size": len(inputs),
+                    "pool_median_bankroll": pool_median,
+                    "field_size": args.field_size,
+                    "seeds": args.seeds,
+                    "renown_present": renown_present,
+                    "sweep": sweep,
+                },
+                fh,
+                indent=2,
+            )
+        print(f"\nwrote {out_path}  ({len(sweep)} overlays)")
+        print(
+            "\nRead: 'dflt'/'best' = drawn-field median ÷ pool median at default/"
+            "best weights (want ≤0.80); 'spread' = how much weights move it "
+            "(≈0 → prize saturates, weights moot); 'prizeFires' = H3 for prize."
+        )
+        return 0
+
     # H3 — which terms actually fire on this pool.
     fires = _term_fires(inputs, args.field_size)
     print("\n[H3] per-term firing (zero-one-term Δ vs default field):")
     for term, r in fires.items():
         print(f"  {term:13s} changed={r['changed_members']:3d}  fires={r['fires']}")
 
-    # Sweep a coarse grid. The formula isn't normalized, but comparable ratios
+    # Sweep the coarse grid. The formula isn't normalized, but comparable ratios
     # are what matter; sweep each term over a small range.
-    grid = [0.1, 0.2, 0.3, 0.4, 0.5]
     rows = []
     for p, r, f, c in product(grid, grid, grid, grid):
         w = DrawWeights(prize=p, renown=r, field=f, cash_comfort=c)
