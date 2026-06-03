@@ -39,6 +39,7 @@ import { gameAPI } from '../../../utils/api';
 import { avatarUrlForEmotion } from '../../../utils/avatarUrl';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
+import { useTournamentEvents } from '../../../hooks/useTournamentEvents';
 import { useCommunityCardAnimation } from '../../../hooks/useCommunityCardAnimation';
 import { useDisplayNickname } from '../../../stores/nicknameOverridesStore';
 import { isBettingPhase } from '../../../constants/gamePhases';
@@ -118,7 +119,7 @@ export function PokerTable({
     winnerInfo,
     revealedCards,
     tournamentResult,
-    socketRef: _socketRef,
+    socketRef,
     isConnected,
     showActionButtons,
     handlePlayerAction,
@@ -137,6 +138,10 @@ export function PokerTable({
     onGameLoadFailed,
     onNewAiMessage: handleNewAiMessage,
   });
+
+  // Multi-table tournament felt: relocation toasts + bust/win routing to the
+  // standings hub (no-op for non-tournament games). See useTournamentEvents.
+  useTournamentEvents({ socketRef, connected: isConnected, gameId });
 
   // Community-card deal-in animation timing (flop cascade, turn/river single).
   const communityCardAnimations = useCommunityCardAnimation(

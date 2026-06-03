@@ -1160,6 +1160,18 @@ def refresh_unseated_tables(
     # 0 (default) = full saturation, which is what sims/tests want; the
     # LIVE lobby + ticker pass `economy_flags.LIVE_FILL_HUMAN_HEADROOM`.
     human_headroom: int = 0,
+    # Tournament session repo. When provided, personas in an active tournament
+    # (`active_participant_pids`) are excluded from seating — the "away at the
+    # Main Event" half of the double-presence guard. None → no exclusion
+    # (sim/test callers without tournaments).
+    tournament_repo=None,
+    # Tournament call-up (cash→tournament draw): pids reserved by an open Main
+    # Event invite being gathered off cash. Each is (a) excluded from re-seating
+    # like an off-grid AI, and (b) forced to leave its current seat via
+    # `refresh_table_roster(called_up_pids=…)`. The caller records the actual
+    # leavers from each result's `.called_up`. None/empty → no call-up (every
+    # existing caller unaffected). Behind TOURNAMENT_DRAW_ENABLED at the caller.
+    called_up_pids: Optional[Set[str]] = None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -1315,7 +1327,21 @@ def refresh_unseated_tables(
     # cross-table pool) reads these variables, so a single filter at the
     # top covers all the seating / staking eligibility surfaces without
     # per-call-site changes.
-    off_grid = on_vice | on_hustle
+    # Personas currently in a tournament are "away at the Main Event" — the
+    # same treatment as off-grid vice/side-hustle, so the seat-filler never
+    # seats a tournament entrant at a cash table (the double-presence guard).
+    # Derived from the active tournaments' fields; released when they complete.
+    on_tournament: Set[str] = set()
+    if tournament_repo is not None and user_id:
+        try:
+            on_tournament = tournament_repo.active_participant_pids(user_id)
+        except Exception:  # noqa: BLE001 — best-effort exclusion; never break the fill
+            logger.exception("active-participant scan failed for owner %s", user_id)
+    # Reserved-for-tournament personas (cash→tournament draw) are gathered off
+    # cash: excluded from re-seating here, AND forced to leave via
+    # called_up_pids passed to refresh_table_roster below.
+    tournament_bound = called_up_pids or set()
+    off_grid = on_vice | on_hustle | on_tournament | tournament_bound
     unavailable = off_grid | live_seated
     if unavailable:
         idle_pool = [entry for entry in idle_pool if entry.personality_id not in unavailable]
@@ -1796,6 +1822,7 @@ def refresh_unseated_tables(
         agg_stake_creations = []
         agg_leave_signals: Dict[str, str] = {}
         agg_vice_bound: List[str] = []
+        agg_called_up: List[str] = []
         # Scalp attribution (Renown-v2 / CASH_MODE_SCALP_TRACKER.md §3a): record
         # AI-vs-AI eliminations from each sim hand. This is the full-sim world
         # path, so busts are real. Resolved once; best-effort — a scalp-write
@@ -1892,6 +1919,9 @@ def refresh_unseated_tables(
                 eligible_candidates=[],
                 enable_live_fill=False,
                 seated_globally=seated_globally,
+                # Cash→tournament call-up: force any reserved persona seated at
+                # this table to leave for the gathering Main Event.
+                called_up_pids=called_up_pids,
                 bankroll_lookup=_bankroll_lookup,
                 buy_in_lookup=_buy_in_for,
                 rng=rng,
@@ -1965,6 +1995,7 @@ def refresh_unseated_tables(
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)
             agg_vice_bound.extend(per_hand.vice_bound)
+            agg_called_up.extend(per_hand.called_up)
             # Update the burst-local set so subsequent hands within
             # this same burst can't double-stake the same borrower.
             for sc in per_hand.stake_creations:
@@ -1982,6 +2013,7 @@ def refresh_unseated_tables(
             leave_signals=agg_leave_signals,
             stake_creations=agg_stake_creations,
             vice_bound=agg_vice_bound,
+            called_up=agg_called_up,
         )
         # Roll up this table's go_vice leavers for the refresh-level
         # commit below (their from_seat credits are applied in-loop, so

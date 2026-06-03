@@ -179,7 +179,7 @@ GARNISHMENT_ABSOLUTE_CAP = 0.55
 # leaving.
 MovementDecision = (
     # 'stay' | 'stake_up' | 'take_break' | 'forced_leave' | 'bored_move' | 'rebuy'
-    # | 'go_vice'
+    # | 'go_vice' | 'called_up'
     #
     # `go_vice` is a discretionary leave (take_break/bored_move) that a
     # vice roll intercepted: the AI leaves the seat and goes straight
@@ -187,8 +187,19 @@ MovementDecision = (
     # time (not the post-loop idle-only scan) is what lets a winning
     # table-hopper actually get caught — they re-seat before the scan, so
     # the scan never saw them idle.
+    #
+    # `called_up` is an UNCONDITIONAL leave: the persona was drawn into a
+    # tournament (the cash→tournament migration) and must vacate regardless
+    # of movement pressure. Like `go_vice` it leaves the seat and is NOT
+    # added to the idle pool (it's bound for the tournament, not resting,
+    # and must not be re-seated into cash). Seat chips settle to bankroll
+    # via the same `from_seat` path as every other leave, so the caller's
+    # existing departed-seat credit handles conservation — no new settle.
     str
 )
+
+# Movement decision for a tournament call-up (see MovementDecision above).
+CALLED_UP = "called_up"
 
 
 @dataclass(frozen=True)
@@ -841,6 +852,13 @@ class RosterRefreshResult:
     # actual vice (amount, narration, pool debit) post-loop — kept out of
     # this pure-ish helper because it needs repos + the LLM narrator.
     vice_bound: List[str] = field(default_factory=list)
+    # Tournament call-up: pids the `called_up_pids` arg forced to leave for a
+    # tournament. Their seat is already vacated and their seat chips are in a
+    # `from_seat` BankrollChange (so bankroll is whole), and — like vice_bound —
+    # they are NOT in `idle_changes` (bound for the tournament, not re-seatable).
+    # The caller's seat-diff departed-credit settles them like any other leave;
+    # this list just names who left for the Main Event (Phase B reserves/tracks).
+    called_up: List[str] = field(default_factory=list)
 
 
 def find_ai_staker_for(
@@ -1116,6 +1134,13 @@ def refresh_table_roster(
     # below RESEAT_RECOVERY_FLOOR are still resting and won't be picked; above
     # it, return chance ramps with recovery. Omit → no gate (pre-idle behavior).
     energy_lookup: Optional[Callable[[str], float]] = None,
+    # Tournament call-up (cash→tournament migration): pids that must leave
+    # this table for a tournament regardless of movement pressure. Each
+    # seated pid in this set is forced to the `called_up` decision —
+    # vacated + settled to bankroll via the normal departed path, and NOT
+    # added to the idle pool (it's bound for the tournament). Omit/empty →
+    # no call-ups (every existing caller is unaffected).
+    called_up_pids: Optional[Set[str]] = None,
     # Phase 4: optional callbacks to intercept `forced_leave` with a
     # `take_stake` decision when a peer AI is willing and able to
     # stake the busting borrower. Omit (default None) → never tries
@@ -1225,6 +1250,7 @@ def refresh_table_roster(
     freshly_vacated: Set[int] = set()
     stake_creations: List[StakeCreationChange] = []
     vice_bound: List[str] = []
+    called_up: List[str] = []
     # Snapshot the AIs currently at this table before any movement
     # applies, so a busting AI's `take_stake` candidates are the OTHER
     # AIs seated alongside them at the start of the tick (not their
@@ -1324,10 +1350,16 @@ def refresh_table_roster(
                 "leave_prob": round(_total / (_total + LEAVE_K), 3) if _total > 0 else 0.0,
             }
         decision = evaluate_ai_movement(ctx, rng)
+        # Tournament call-up overrides everything: this persona was drawn into
+        # a tournament and leaves UNCONDITIONALLY — skip the fish/predator/
+        # grinder coercions, the take_stake interception, and rebuy. It vacates
+        # and settles to bankroll like any other leave (handled below).
+        if called_up_pids and pid in called_up_pids:
+            decision = CALLED_UP
         # Fish are casino-bound chip donors: they reload from their
         # pool-funded bankroll and stay until the whole stake is gone,
         # unless they tilt and storm off. See `_coerce_fish_movement`.
-        if is_fish:
+        elif is_fish:
             decision = _coerce_fish_movement(decision, ctx, rng)
         else:
             # Predator retention: grinders stay to farm a seated fish
@@ -1558,6 +1590,14 @@ def refresh_table_roster(
             # so the lobby commits the vice against the whole bankroll.
             vice_bound.append(pid)
             continue
+        if decision == CALLED_UP:
+            # Bound for a tournament — like go_vice, deliberately NO idle-pool
+            # add (it's not resting and must not be re-seated into cash) and no
+            # per-table leave cooldown. Seat chips already returned via the
+            # `from_seat` change above, so the caller's departed-seat credit
+            # settles it conservation-safely; this list just names the call-up.
+            called_up.append(pid)
+            continue
         target_stake = None
         if decision == "stake_up" and stake_idx + 1 < len(STAKES_ORDER):
             target_stake = STAKES_ORDER[stake_idx + 1]
@@ -1763,4 +1803,5 @@ def refresh_table_roster(
         leave_signals=leave_signals,
         stake_creations=stake_creations,
         vice_bound=vice_bound,
+        called_up=called_up,
     )

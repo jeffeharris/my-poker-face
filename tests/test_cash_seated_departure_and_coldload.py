@@ -12,11 +12,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from cash_mode.movement import BankrollChange
-from flask_app.handlers.game_handler import (
-    _credit_departed_ai_bankrolls,
-    check_tournament_complete,
-    handle_eliminations,
-)
+from flask_app.handlers.game_handler import _credit_departed_ai_bankrolls
 
 
 class TestPRH3SeatedDepartureCredit(unittest.TestCase):
@@ -86,35 +82,25 @@ class TestPRH3SeatedDepartureCredit(unittest.TestCase):
 
 
 class TestPRH4CashNeverRoutesToTournament(unittest.TestCase):
-    """Cash games never reach tournament elimination/completion logic."""
+    """Cash games never reach tournament elimination/completion logic.
 
-    def test_handle_eliminations_noops_without_tracker(self):
-        # Warm/cold cash builders omit the key → no-op (rebuy modal handles bust).
-        result = handle_eliminations('cash-x', {}, MagicMock(), ['Alice'], 100)
-        self.assertIsNone(result)
+    Post-unification (step 3) this is a STRUCTURAL guarantee: tournament
+    completion runs only for games carrying a `tournament_session`, and cash
+    games never have one (cash builders create no session; cold-load only builds
+    a session for `not is_cash_game`). The legacy `handle_eliminations` /
+    `check_tournament_complete` no-op guards were deleted with `TournamentTracker`.
+    Cash-bust routing to the rebuy/sponsor flow is covered by
+    `tests/test_cash_mode/test_human_bust_pause.py`.
+    """
 
-    def test_handle_eliminations_noops_for_cash_even_with_leaked_tracker(self):
-        # Belt-and-suspenders: a leaked tracker on a cash game must still no-op.
-        tracker = MagicMock()
-        game_data = {'cash_mode': True, 'tournament_tracker': tracker}
-        result = handle_eliminations('cash-x', game_data, MagicMock(), ['Alice'], 100)
-        self.assertIsNone(result)
-        tracker.on_hand_complete.assert_not_called()
+    def test_single_table_boundary_requires_a_session(self):
+        # The dispatch is gated on `tournament_session is not None`; a cash game
+        # (no session) is skipped. The boundary itself assumes a session is
+        # present, so it must never be invoked without one.
+        from flask_app.handlers.single_table_tournament import single_table_hand_boundary
 
-    def test_check_tournament_complete_noops_for_cash_even_with_leaked_tracker(self):
-        tracker = MagicMock()
-        game_data = {'cash_mode': True, 'tournament_tracker': tracker}
-        self.assertFalse(check_tournament_complete('cash-x', game_data))
-        tracker.is_complete.assert_not_called()
-
-    def test_tournament_path_still_active_for_real_tournaments(self):
-        # Sanity: a real tournament (tracker present, no cash_mode) passes the
-        # guard and exercises the tracker.
-        tracker = MagicMock()
-        tracker.is_complete.return_value = False
-        game_data = {'tournament_tracker': tracker}
-        self.assertFalse(check_tournament_complete('g1', game_data))
-        tracker.is_complete.assert_called_once()
+        with self.assertRaises(KeyError):
+            single_table_hand_boundary('cash-x', {}, MagicMock(), ['Alice'], None)
 
 
 if __name__ == '__main__':

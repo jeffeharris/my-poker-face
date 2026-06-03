@@ -120,3 +120,9 @@ volumes:
 networks:
   poker-network:
     driver: bridge
+    # Pin a dedicated subnet so this worktree's network doesn't collide with the
+    # other my-poker-face worktrees (desktop .45 / main .46 / circuit .47) when
+    # Docker's default address pool is exhausted. See the desktop-parity fix.
+    ipam:
+      config:
+        - subnet: 10.123.48.0/24

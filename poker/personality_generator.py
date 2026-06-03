@@ -391,8 +391,23 @@ Respond with ONLY a JSON object in this exact format:
             logger.info(f"[PERSONALITY] Found {name} in cache")
             return self._cache[name]
 
-        # Check database (source of truth) unless forcing generation
+        # Check database (source of truth) unless forcing generation.
         if not force_generate:
+            # Try the stable personality_id FIRST. Tournament seats pass the pid
+            # SLUG (Player.name == personality_id, e.g. "socrates"); the name
+            # lookup below is keyed on the exact DISPLAY name ("Socrates") and
+            # would miss the slug — and then either regenerate the persona via the
+            # LLM (~5s each, what made Main Event registration take ~40s) or, once
+            # a prior regenerate-on-miss had saved a `name=<slug>` / `*_v2` zombie
+            # row, resolve to that WRONG generated persona. Resolving by id first
+            # returns the real curated persona and dodges both. Display-name
+            # callers (cash/legacy) miss here and fall through unchanged.
+            by_id = self.personality_repo.load_personality_by_id(name)
+            if by_id:
+                logger.info(f"[PERSONALITY] Found {name} in database by personality_id")
+                self._cache[name] = by_id
+                return by_id
+
             db_personality = self.personality_repo.load_personality(name)
             if db_personality:
                 logger.info(f"[PERSONALITY] Found {name} in database")

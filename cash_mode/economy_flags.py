@@ -265,6 +265,36 @@ CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
 CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 
 
+# --- Tournament circuit world-tick hook (P3.7) ----------------------------
+
+# World-tick hook for the Main Event circuit. When True, the world ticker
+# (`ticker_service._tick_sandbox`) does two extra things per active sandbox:
+#   (a) lets the EconomyChairman offer / expire Main Event invites on the tick
+#       (so an offer surfaces or an un-accepted one lapses without a lobby poll);
+#   (b) advances the owner's *autonomous* (declined / expired, AI-only)
+#       tournament one round per tick so it plays out at world pace — like the
+#       cash tables — surfacing structural beats (final table / bubble / winner)
+#       on the lobby ticker.
+# Default **False**: inert for any sandbox without a live autonomous tournament,
+# and a complete no-op when off — the lobby-poll path
+# (`GET /api/tournament/invite`) still offers/expires invites without it. Flip on
+# only after re-validating the economy sim under the per-tournament overlay
+# cadence (P3_REMAINING_HANDOFF §6). See `docs/plans/P3_REMAINING_HANDOFF.md` §P3.7.
+TOURNAMENT_CIRCUIT_ENABLED: bool = _env_flag("TOURNAMENT_CIRCUIT_ENABLED", False)
+
+# --- Tournaments as a draw (cash→tournament migration) --------------------
+
+# Master switch for the "tournament as a draw" feature: AI personas LEAVE cash
+# tables to enter a tournament, pulled by a draw/attractiveness score (prize +
+# renown/regard), trickling off their seats over the registration window. The
+# conservation-safe "called-up" cash-leave primitive (cash_mode/movement.py
+# `called_up_pids`) is inert until a caller populates it; this flag gates the
+# layers that DO populate it (the draw scorer + reserve/spawn + ticker trickle,
+# built in later phases). Default **False** — Phase A ships the primitive only,
+# wired to nothing, so flipping this changes nothing yet. See
+# docs/plans/* (tournaments-as-a-draw) when the later phases land.
+TOURNAMENT_DRAW_ENABLED: bool = _env_flag("TOURNAMENT_DRAW_ENABLED", False)
+
 # --- Player-prestige Renown-v2 (read-side field scorer) -------------------
 
 # Kill switch for the Renown-v2 field-relative scoreboard. Default **False** —

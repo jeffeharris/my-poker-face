@@ -55,7 +55,10 @@ export function dossierFromPlayer(
   remark?: string
 ): CharacterDossierData {
   return {
-    name: personality?.name ?? player.name,
+    // Prefer the friendly name for the title; a tournament seat's `player.name`
+    // is the raw field id, which would flash until the persona fetch resolves.
+    // (No-op for cash, where `player.name` is already the display name.)
+    name: personality?.name ?? player.nickname ?? player.name,
     nickname: personality?.nickname ?? player.nickname,
     avatarUrl: absolutizeAvatarUrl(player.avatar_url),
     emotion: player.avatar_emotion,

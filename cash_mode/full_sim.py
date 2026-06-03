@@ -468,12 +468,12 @@ def _build_controller(
     return controller
 
 
-# `_hydrate_psychology` / `serialize` / `_flush_psychology` were promoted
-# verbatim to `cash_mode.psychology_persistence` so the off-screen sim, the live
-# cash seat build, and the cash-world tournament builder share this exact logic.
-# They're imported at the top of this module under their historical private
-# names, so the call sites below and the sim-cadence wrapper
-# `_maybe_flush_psychology` are unchanged.
+# `_hydrate_psychology` / `_serialize_psychology` / `_flush_psychology` were
+# promoted verbatim to `cash_mode.psychology_persistence` so the live cash seat
+# build and the cash-world tournament builder share this exact logic. They're
+# imported at the top of this module under their historical private names, so the
+# call sites below and the sim-cadence wrapper `_maybe_flush_psychology` are
+# unchanged.
 
 
 def _maybe_flush_psychology(

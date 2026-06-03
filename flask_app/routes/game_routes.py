@@ -39,7 +39,6 @@ from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
 from poker.prompt_config import PromptConfig
-from poker.tournament_tracker import TournamentTracker
 from poker.utils import get_celebrities
 
 from .. import config, extensions
@@ -556,13 +555,22 @@ def list_games():
     else:
         saved_games = []
 
-    # Filter out cash + training games — they're session-only and don't belong
-    # in the "continue games" list. Identified by the "cash-" / "train-"
-    # game_id prefixes that /api/cash/start and /api/training/start use.
+    # Filter out games that own a dedicated resume surface, so they don't
+    # also appear as standalone "continue games":
+    #   - cash games ("cash-"): session-only, resumed from the cash lobby.
+    #   - training games ("train-"): session-only, resumed from the training UI.
+    #   - multi-table tournament tables ("tourney-"): the human's live table is
+    #     an internal child of a TournamentSession, resumed only through the
+    #     tournament lobby/standings (never loaded standalone). Listing it here
+    #     would let a player reopen one table detached from its field.
     saved_games = [
         g
         for g in saved_games
-        if not g.game_id.startswith("cash-") and not g.game_id.startswith("train-")
+        if not (
+            g.game_id.startswith("cash-")
+            or g.game_id.startswith("tourney-")
+            or g.game_id.startswith("train-")
+        )
     ]
 
     games_data = []
@@ -662,6 +670,22 @@ def api_game_state(game_id):
                         state_machine = StateMachineAdapter(base_state_machine)
                         # Load per-player LLM configs for proper provider restoration
                         llm_configs = extensions.game_repo.load_llm_configs(game_id) or {}
+                        # Multi-table tournament tables ("tourney-") persist their
+                        # per-seat intent (P3.9c): a SYNTHETIC field saves
+                        # `ai_chat=False` + all-`sharp` (zero-LLM, no table talk);
+                        # a PERSONA field saves `ai_chat=True` + per-seat
+                        # `player_llm_configs` (real provider/model) so each
+                        # persona seat rebuilds WITH table talk and a valid config.
+                        # Honor the persisted flag, but DEFAULT FALSE for tourney-
+                        # rows that saved none (legacy zero-LLM games / a synthetic
+                        # field) — a True default would rebuild seats with the
+                        # expression layer on an empty config and 404 the narration
+                        # call per decision (see tiered_factory).
+                        _restore_ai_chat = (
+                            bool(llm_configs.get('ai_chat', False))
+                            if game_id.startswith("tourney-")
+                            else llm_configs.get('ai_chat', True)
+                        )
                         ai_controllers = restore_ai_controllers(
                             game_id,
                             state_machine,
@@ -672,7 +696,7 @@ def api_game_state(game_id):
                             capture_label_repo=extensions.capture_label_repo,
                             decision_analysis_repo=extensions.decision_analysis_repo,
                             bot_types=llm_configs.get('bot_types'),
-                            ai_chat=llm_configs.get('ai_chat', True),
+                            ai_chat=_restore_ai_chat,
                         )
                         db_messages = extensions.game_repo.load_messages(game_id)
 
@@ -704,14 +728,23 @@ def api_game_state(game_id):
                         # relationship rows and rebuild as a tournament. See
                         # docs/plans/TRAINING_MODE.md and training_routes.py.
                         is_training_game = game_id.startswith("train-")
+                        # Multi-table tournament tables (tourney- prefix) are a
+                        # third non-cash sibling. P3.9a: they wire the dossier
+                        # grind exactly like a Circuit cash game (sandbox_id +
+                        # persona registration) but with cash_mode=False — so the
+                        # same sandbox resolution that cash uses must also fire on
+                        # tournament cold-load, or "Resume the Main Event" silently
+                        # drops the sandbox and stops folding observations.
+                        is_tournament_game = game_id.startswith("tourney-")
 
                         # v109: cash_pair_stats writes need a sandbox_id so the
                         # admin Chip Economy panel can scope Won/Lost/Net. For
                         # cold-loaded cash games the owner's default sandbox is
                         # the right answer — owners are single-sandbox in v1,
-                        # and the same resolver feeds /api/cash/start.
+                        # and the same resolver feeds /api/cash/start. Tournament
+                        # games resolve the same sandbox so the dossier fold lands.
                         cold_load_sandbox_id: Optional[str] = None
-                        if is_cash_game and owner_id is not None:
+                        if (is_cash_game or is_tournament_game) and owner_id is not None:
                             try:
                                 from flask_app.extensions import sandbox_repo as _sandbox_repo
                                 from flask_app.services.sandbox_resolver import (
@@ -724,9 +757,9 @@ def api_game_state(game_id):
                                 )
                             except Exception as e:
                                 logger.warning(
-                                    "[LOAD] sandbox resolve failed for cash "
-                                    "game %s owner %s: %s — cash_pair_stats "
-                                    "writes will be skipped this session",
+                                    "[LOAD] sandbox resolve failed for game "
+                                    "%s owner %s: %s — cash_pair_stats / dossier "
+                                    "fold writes will be skipped this session",
                                     game_id,
                                     owner_id,
                                     e,
@@ -867,9 +900,27 @@ def api_game_state(game_id):
                             # personalities in the DB get a real id; humans
                             # and ad-hoc names get None.
                             try:
-                                pid = extensions.personality_repo.resolve_name_to_personality_id(
-                                    player.name
-                                )
+                                if is_tournament_game:
+                                    # Tournament seat Player.name IS the
+                                    # personality_id (MTT bridge), not a display
+                                    # name — resolve_name_to_personality_id queries
+                                    # by name and would return None (Break B). Use
+                                    # it directly, gated on it being a real persona
+                                    # (side-effect-free lookup) so synthetic P##
+                                    # fields don't register junk lifetime rows.
+                                    pid = (
+                                        player.name
+                                        if extensions.personality_repo.display_names_by_ids(
+                                            [player.name]
+                                        )
+                                        else None
+                                    )
+                                else:
+                                    pid = (
+                                        extensions.personality_repo.resolve_name_to_personality_id(
+                                            player.name
+                                        )
+                                    )
                             except Exception:
                                 pid = None
                             if not player.is_human and player.name in ai_controllers:
@@ -910,25 +961,97 @@ def api_game_state(game_id):
                         # "Nth place" screen instead of the rebuy/sponsor modal.
                         # New cash games (/api/cash/start) omit it; the cold-load
                         # path used to rebuild it for everyone, which is the bug.
-                        tournament_tracker = None
-                        if not is_cash_game and not is_training_game:
-                            # Try to load tournament tracker from database, or create new one
-                            tracker_data = extensions.game_repo.load_tournament_tracker(game_id)
-                            if tracker_data:
-                                tournament_tracker = TournamentTracker.from_dict(tracker_data)
-                                logger.info(
-                                    f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations"
+                        # Re-attach this game's tournament wrapper on cold-load.
+                        # Every non-cash, non-training game is a tournament: look
+                        # up its row in the `tournaments` table by game_id and
+                        # classify it —
+                        #   - resolver_kind != 'single' → MULTI-table session
+                        #     (the human's table inside a field).
+                        #   - resolver_kind == 'single' with a real session blob
+                        #     → single-table session (the unified one-table game).
+                        #   - no row, or a pre-3B lightweight envelope → legacy
+                        #     tracker-driven single game.
+                        # Training games (train-) are single-table practice, not
+                        # tournaments — they skip this path entirely.
+                        mtt_session_row = None
+                        single_session = None
+                        _session_row = None
+                        if (
+                            not is_cash_game
+                            and not is_training_game
+                            and extensions.tournament_session_repo is not None
+                        ):
+                            try:
+                                _session_row = extensions.tournament_session_repo.find_by_game_id(
+                                    game_id
                                 )
+                            except Exception:
+                                logger.debug(
+                                    "[LOAD] tournament lookup failed for %s",
+                                    game_id,
+                                    exc_info=True,
+                                )
+                        if _session_row is not None:
+                            if _session_row.get('resolver_kind') != 'single':
+                                mtt_session_row = _session_row
                             else:
-                                # Fallback: create new tracker with current players
-                                starting_players = [
-                                    {'name': p.name, 'is_human': p.is_human}
-                                    for p in state_machine.game_state.players
-                                ]
-                                tournament_tracker = TournamentTracker(
-                                    game_id=game_id, starting_players=starting_players
+                                try:
+                                    _sj = json.loads(_session_row.get('session_json') or '{}')
+                                    if 'field' in _sj:  # a real session, not a bare envelope
+                                        from tournament.director import FakeHandResolver
+                                        from tournament.session import TournamentSession
+
+                                        single_session = TournamentSession.from_dict(
+                                            _sj, FakeHandResolver()
+                                        )
+                                except Exception:
+                                    logger.error(
+                                        "[LOAD] single session rehydrate failed for %s; "
+                                        "falling back to tracker",
+                                        game_id,
+                                        exc_info=True,
+                                    )
+                                    single_session = None
+
+                        if (
+                            not is_cash_game
+                            and not is_training_game
+                            and mtt_session_row is None
+                            and single_session is None
+                        ):
+                            # Legacy single game (pre-3B): no session row yet.
+                            # Seed a fresh single-table session from the live
+                            # table so the game becomes session-backed.
+                            # TournamentTracker is fully retired (v124) — any
+                            # legacy tracker blob is NOT migrated; stacks may have
+                            # diverged mid-hand, the next boundary resyncs the field.
+                            from flask_app.handlers.single_table_tournament import (
+                                build_session_for_new_game,
+                            )
+
+                            players = state_machine.game_state.players
+                            total = sum(p.stack for p in players)
+                            n = len(players)
+                            starting_stack = (
+                                total // n
+                                if n and total % n == 0
+                                else (players[0].stack if players else 0)
+                            )
+                            single_session = build_session_for_new_game(
+                                players, starting_stack=starting_stack, seed=0
+                            )
+                            try:
+                                from flask_app.services import tournament_registry
+
+                                tournament_registry.persist_single_session(
+                                    game_id=game_id, owner_id=owner_id, session=single_session
                                 )
-                                tournament_tracker.hand_count = memory_manager.hand_count
+                            except Exception:
+                                logger.debug(
+                                    "[LOAD] single-session persist failed for %s",
+                                    game_id,
+                                    exc_info=True,
+                                )
 
                         # Seed hand_start_stacks / short_stack_players from current
                         # stacks. On mid-hand restore we don't know the real hand-start
@@ -963,10 +1086,12 @@ def api_game_state(game_id):
                             'hand_start_stacks': hand_start_stacks,
                             'short_stack_players': short_stack_players,
                         }
-                        # Only tournament games carry a tracker key (PRH-4):
-                        # mirror the warm cash builder, which omits it for cash.
-                        if tournament_tracker is not None:
-                            current_game_data['tournament_tracker'] = tournament_tracker
+                        # Single-table session game: attach the rehydrated /
+                        # migrated session (no multi_table flag → the
+                        # single-table boundary drives eliminations/completion).
+                        # Cash games get neither (handled below).
+                        if single_session is not None:
+                            current_game_data['tournament_session'] = single_session
 
                         # Re-derive the training flag from the prefix (not
                         # persisted in game_data) so the non-counting,
@@ -1080,6 +1205,43 @@ def api_game_state(game_id):
                             extensions.game_repo.save_game(
                                 game_id, state_machine._state_machine, owner_id, owner_name
                             )
+
+                        # Re-attach the multi-table tournament session on cold
+                        # load. The games row only persists the single table's
+                        # state machine; the field / seating / blinds live in the
+                        # TournamentSession (tournaments table). Without this, an
+                        # evicted or restarted MTT table loses
+                        # game_data['tournament_session'], the hand-boundary hook
+                        # stops advancing the field, and the event silently
+                        # decays into a lone single table. Rehydrate via the
+                        # registry and re-point it at this game.
+                        if mtt_session_row is not None:
+                            try:
+                                from flask_app.services import tournament_registry
+
+                                _rec = tournament_registry.get(mtt_session_row['tournament_id'])
+                                _sess = _rec.get('session') if _rec else None
+                                if _sess is not None:
+                                    _ht = _sess.human_table
+                                    current_game_data['tournament_session'] = _sess
+                                    current_game_data['tournament_id'] = mtt_session_row[
+                                        'tournament_id'
+                                    ]
+                                    current_game_data['tournament_human_id'] = _sess.human_id
+                                    current_game_data['tournament_table_id'] = (
+                                        _ht.table_id if _ht is not None else None
+                                    )
+                                    current_game_data['tournament_resolver_kind'] = _rec.get(
+                                        'resolver_kind', 'fake'
+                                    )
+                                    if _rec.get('game_id') != game_id:
+                                        _rec['game_id'] = game_id
+                            except Exception:
+                                logger.error(
+                                    "[LOAD] failed to re-attach tournament session for %s",
+                                    game_id,
+                                    exc_info=True,
+                                )
 
                         game_state_service.set_game(game_id, current_game_data)
 
@@ -1757,10 +1919,20 @@ def api_new_game():
         state_machine.game_state, hand_number=1, deck_seed=state_machine.current_hand_seed
     )
 
-    starting_players = [
-        {'name': p.name, 'is_human': p.is_human} for p in state_machine.game_state.players
-    ]
-    tournament_tracker = TournamentTracker(game_id=game_id, starting_players=starting_players)
+    # A single-table game is a one-table tournament: build a TournamentSession
+    # from the real players. It replaces the legacy TournamentTracker as the
+    # elimination/completion authority (one wrapper type for single + multi),
+    # feeding the unified completion path. The live state machine still owns play
+    # and blinds — the session is a passive field/standings observer here.
+    import zlib
+
+    from flask_app.handlers.single_table_tournament import build_session_for_new_game
+
+    tournament_session = build_session_for_new_game(
+        state_machine.game_state.players,
+        starting_stack=starting_stack,
+        seed=zlib.crc32(game_id.encode()),
+    )
 
     game_data = {
         'state_machine': state_machine,
@@ -1768,7 +1940,7 @@ def api_new_game():
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
         'memory_manager': memory_manager,
-        'tournament_tracker': tournament_tracker,
+        'tournament_session': tournament_session,
         'owner_id': owner_id,
         'owner_name': owner_name,
         'llm_config': default_llm_config,  # Default config for new players
@@ -1816,8 +1988,19 @@ def api_new_game():
             'ai_chat': ai_chat,
         },
     )
-    extensions.game_repo.save_tournament_tracker(game_id, tournament_tracker)
     extensions.game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
+    # Persist the one-table TournamentSession to the durable `tournaments` table
+    # (resolver_kind='single'), so all games — single and multi — share one
+    # tournament identity and one rehydration path on cold-load. Best-effort;
+    # never block game creation.
+    try:
+        from flask_app.services import tournament_registry
+
+        tournament_registry.persist_single_session(
+            game_id=game_id, owner_id=owner_id, session=tournament_session
+        )
+    except Exception:
+        logger.warning("failed to persist single-table tournament session for %s", game_id)
     # New games adopt the owner's default coaching mode (sticky cross-device pref).
     stamp_coach_default_mode(game_id, owner_id)
     if config.ENABLE_AVATAR_GENERATION:
@@ -2153,6 +2336,18 @@ def api_retry_game(game_id):
     ), 200
 
 
+def _delete_single_tournament_envelope(game_id: str) -> None:
+    """Best-effort removal of a game's single-table tournament envelope when the
+    game itself is deleted. Only touches the `single-<game_id>` row, so it's a
+    no-op for cash games and multi-table tournament tables."""
+    try:
+        from flask_app.services import tournament_registry
+
+        tournament_registry.delete_single_envelope(game_id)
+    except Exception:
+        logger.debug("[DELETE] single-envelope cleanup failed for %s", game_id, exc_info=True)
+
+
 @game_bp.route('/api/game/<game_id>', methods=['DELETE'])
 def delete_game(game_id):
     """Delete a saved game."""
@@ -2164,6 +2359,7 @@ def delete_game(game_id):
     try:
         game_state_service.delete_game(game_id)
         extensions.game_repo.delete_game(game_id)
+        _delete_single_tournament_envelope(game_id)
 
         return jsonify({'message': 'Game deleted successfully'}), 200
     except Exception as e:
@@ -2185,6 +2381,7 @@ def end_game(game_id):
         extensions.game_repo.delete_game(game_id)
     except Exception as e:
         logger.warning(f"[DELETE] Error deleting game {game_id} from database: {e}")
+    _delete_single_tournament_envelope(game_id)
 
     return jsonify({'message': 'Game ended successfully'})
 

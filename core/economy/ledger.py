@@ -49,6 +49,14 @@ LEDGER_REASONS = frozenset(
         # (atomic seed event — chips land at the seat,
         # not the bankroll; same pool draw semantics
         # as tourist_injection just routed differently)
+        'tournament_overlay',  # bank pool → tournament:<id> escrow: the house
+        # contribution that funds an AI-only / flush-bank
+        # prize pool. A pool DRAW (depletes reserves — the
+        # thermostat's "distribute" lever; see
+        # economy_signal.tournament_funding). Counts in drift
+        # (it really moves reserves into circulation), which is
+        # why the overlay-vs-buy-in distinction is made by
+        # REASON here, not by the tournament:<id> counterparty.
         'bank_pool_sim_seed',  # sim-only: central_bank → synthetic donor as
         # the creation half of a paired (creation +
         # bank_pool_deposit) seed flow. Paired form
@@ -77,6 +85,14 @@ LEDGER_REASONS = frozenset(
         # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
         # this also feeds the bank pool — see
         # BANK_POOL_DEPOSIT_REASONS below.
+        'tournament_return',  # tournament:<id> → bank pool: escrow chips that
+        # found no real recipient at distribute time (a
+        # synthetic-AI finisher's share, or any undistributed
+        # overlay) returning to the recyclable pool. Keeps the
+        # escrow at exactly 0 and is the v1 counterpart to a
+        # real ai:<pid> payout (which lands when real-persona
+        # tournament fields ship). Recyclable (a deposit), so
+        # the overlay it cancels is restored to reserves.
         'casino_seat_return',  # ai → bank pool: residual seat chips returned
         # when a casino tears down (or a tourist leaves
         # mid-life). Mirror of `casino_seat_seed` —
@@ -124,6 +140,19 @@ LEDGER_REASONS = frozenset(
         # or the funding player (player:<owner>). A single
         # transfer reconciles both the borrower debit and the
         # staker credit; no seat is involved.
+        'tournament_buy_in',  # player:<id>/ai:<pid> → tournament:<id>: an
+        # entrant's buy-in committed to the tournament escrow
+        # at registration. A drift-invisible TRANSFER (the
+        # chips were already counted on the bankroll; they are
+        # now earmarked at the escrow). Sibling of
+        # player_buy_in — the escrow is the tournament analog
+        # of the seat. Overlay (bank-funded) is NOT this; it is
+        # `tournament_overlay`, a real pool draw.
+        'tournament_payout',  # tournament:<id> → player:<id>/ai:<pid>: a prize
+        # paid out of the escrow at completion. The TRANSFER
+        # mirror of tournament_buy_in. After every payout +
+        # rake the escrow nets to 0 (the escrow-balance
+        # invariant).
     }
 )
 
@@ -139,6 +168,8 @@ TRANSFER_REASONS = frozenset(
         'ai_buy_in',
         'ai_cash_out',
         'stake_payoff',
+        'tournament_buy_in',
+        'tournament_payout',
     }
 )
 
@@ -163,6 +194,7 @@ BANK_POOL_DEPOSIT_REASONS = frozenset(
         'casino_seat_return',
         'table_rake',
         'informant_unlock',
+        'tournament_return',
     }
 )
 
@@ -174,6 +206,7 @@ BANK_POOL_DRAW_REASONS = frozenset(
         'tourist_injection',
         'casino_seat_seed',
         'side_hustle_earning',
+        'tournament_overlay',
     }
 )
 
@@ -216,6 +249,22 @@ def seat(game_id: str) -> str:
     if not game_id:
         raise ValueError("seat() requires a non-empty game_id")
     return f"seat:{game_id}"
+
+
+def tournament(tournament_id: str) -> str:
+    """Format `tournament_id` into the canonical `tournament:<id>` form.
+
+    A `tournament:` entity is the escrow holding one tournament's whole purse:
+    buy-ins flow IN (`player/ai → tournament:<id>`, transfers), the bank overlay
+    flows IN (`bank → tournament:<id>`, a creation/draw), and payouts + rake flow
+    OUT (`tournament:<id> → player/ai`, transfers; `tournament:<id> → bank`, a
+    rake destruction). Its `balance_of` IS the at-escrow amount — the sibling of
+    `seat(game_id)`. The escrow-balance invariant: after escrow-in it holds
+    `Σ buy_ins + Σ overlays`; after distribute it nets to 0.
+    """
+    if not tournament_id:
+        raise ValueError("tournament() requires a non-empty tournament_id")
+    return f"tournament:{tournament_id}"
 
 
 def ai_seat(sandbox_id: str, personality_id: str) -> str:
@@ -616,6 +665,141 @@ def record_stake_payoff(
         amount=amount,
         reason='stake_payoff',
         context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+# --- Tournament escrow helpers ---
+#
+# The tournament economy is the seat/buy-in pattern with one net-new account,
+# `tournament(id)`. Buy-in and payout are TRANSFERS (drift-invisible, earmarked
+# at the escrow); the overlay is a bank-pool DRAW (real reserve movement). Rake
+# reuses `record_table_rake` (source = the escrow) — already a deposit reason.
+
+
+def record_tournament_buy_in(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """<entrant> → tournament:<id> — an entrant's buy-in committed to escrow.
+
+    `source` is the canonical entity string the buy-in is debited from — build
+    it with `player(owner_id)` (human) or `ai(personality_id)` (AI tourist).
+    A drift-invisible transfer: the chips were already counted on the bankroll
+    and are now earmarked at the escrow. No-op when `repo` is None or
+    `amount <= 0` (a freeroll seat writes no buy-in row). Stamps the
+    `tournament_id` into context so the post-event audit can scope by tournament.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record_transfer(
+        repo,
+        source=source,
+        sink=tournament(tournament_id),
+        amount=amount,
+        reason='tournament_buy_in',
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_tournament_payout(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    sink: str,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """tournament:<id> → <finisher> — a prize paid out of the escrow.
+
+    `sink` is the canonical entity string the prize lands on — `player(owner_id)`
+    or `ai(personality_id)`. The transfer mirror of `record_tournament_buy_in`;
+    after every payout + rake the escrow nets to 0. No-op when `repo` is None or
+    `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record_transfer(
+        repo,
+        source=tournament(tournament_id),
+        sink=sink,
+        amount=amount,
+        reason='tournament_payout',
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_tournament_overlay(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """central_bank → tournament:<id> — the house overlay funding the prize pool.
+
+    A pool DRAW (`tournament_overlay` is in `BANK_POOL_DRAW_REASONS`): it depletes
+    reserves and counts in drift, which is precisely how it differs from a
+    drift-invisible buy-in even though both land at the same escrow. The caller
+    (the funding policy) decides the amount from the live `EconomyState`; this
+    helper just writes the row. No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record(
+        repo,
+        source=bank(),
+        sink=tournament(tournament_id),
+        amount=int(amount),
+        reason='tournament_overlay',
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_tournament_return(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """tournament:<id> → central_bank — escrow chips with no real recipient.
+
+    At distribute, a synthetic-AI finisher's share (and any undistributed
+    overlay) is swept back to the recyclable bank pool so the escrow nets to 0.
+    `tournament_return` is a `BANK_POOL_DEPOSIT_REASON`, so the overlay draw it
+    cancels is restored to reserves. The swap point when real-persona fields
+    ship: credit `ai:<pid>` via `record_tournament_payout` instead of sweeping.
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record(
+        repo,
+        source=tournament(tournament_id),
+        sink=bank(),
+        amount=int(amount),
+        reason='tournament_return',
+        context=ctx,
         sandbox_id=sandbox_id,
     )
 

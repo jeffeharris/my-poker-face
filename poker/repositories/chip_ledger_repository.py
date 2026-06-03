@@ -172,6 +172,37 @@ class ChipLedgerRepository(BaseRepository):
             ).fetchall()
         return {row['reason']: int(row['total'] or 0) for row in rows}
 
+    def payouts_by_sink(
+        self,
+        source: str,
+        *,
+        reason: str,
+        sandbox_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """Σ(amount) grouped by sink for rows where `source = <source>` and
+        `reason = <reason>`. The authoritative "what has this escrow already paid
+        each recipient" view that drives payout reconciliation: a tournament's
+        `tournament_payout` rows (source = `tournament(id)`) grouped by sink give
+        the per-finisher amounts already distributed, so a stuck (`in_progress`)
+        payout can be resumed by paying only the unpaid remainder per sink without
+        double-crediting anyone. Returns {sink_account: total}; empty if none."""
+        params: List[Any] = [source, reason]
+        where = "source = ? AND reason = ?"
+        if sandbox_id is not None:
+            where += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT sink, SUM(amount) AS total
+                FROM chip_ledger_entries
+                WHERE {where}
+                GROUP BY sink
+                """,
+                params,
+            ).fetchall()
+        return {row['sink']: int(row['total'] or 0) for row in rows}
+
     def non_bank_entries_since(
         self,
         since_iso: str,

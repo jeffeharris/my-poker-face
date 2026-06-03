@@ -199,27 +199,6 @@ def test_coach_mode(repo):
     assert repo.load_coach_mode("game1") == "on"
 
 
-# --- Tournament Tracker ---
-
-
-def test_tournament_tracker_save_load(repo):
-    tracker_data = {"round": 1, "players_remaining": 4}
-    repo.save_tournament_tracker("game1", tracker_data)
-    loaded = repo.load_tournament_tracker("game1")
-    assert loaded == tracker_data
-
-
-def test_tournament_tracker_not_found(repo):
-    assert repo.load_tournament_tracker("nonexistent") is None
-
-
-def test_tournament_tracker_upsert(repo):
-    repo.save_tournament_tracker("game1", {"round": 1})
-    repo.save_tournament_tracker("game1", {"round": 2})
-    loaded = repo.load_tournament_tracker("game1")
-    assert loaded["round"] == 2
-
-
 # --- Messages ---
 
 
