@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   MessageCircle,
   Flame,
@@ -13,6 +13,7 @@ import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
+import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { safeGetItem, safeSetItem } from '../../utils/storage';
 import { ChatTargetSelector } from './ChatTargetSelector';
 import './QuickChatSuggestions.css';
@@ -83,10 +84,7 @@ const TONE_OPTIONS: ToneOption[] = [
 // read literally; `flatter` (its valence-flipping path needs separate surgery)
 // and `befriend` (passive-aggressive variant) are sincere-only for now —
 // both deferred follow-ups.
-const SARCASM_ABLE_TONES: ReadonlySet<ChatTone> = new Set<ChatTone>([
-  'trash_talk',
-  'props',
-]);
+const SARCASM_ABLE_TONES: ReadonlySet<ChatTone> = new Set<ChatTone>(['trash_talk', 'props']);
 
 function toneTakesSarcasm(tone: ChatTone | null): boolean {
   return tone !== null && SARCASM_ABLE_TONES.has(tone);
@@ -195,7 +193,9 @@ export function QuickChatSuggestions({
   // Folded targets are still useful: the player can needle a busted opponent
   // or reach out to a friend who just mucked. Folded state is reflected
   // visually so the affordance is honest about who's still in the hand.
-  const aiPlayers = players.filter((p) => !p.is_human);
+  // Ordered the same way they sit around the felt relative to the human
+  // (clockwise from the human's left) so the picker mirrors the table.
+  const aiPlayers = useMemo(() => orderOpponentsRelativeToHuman(players), [players]);
   const fetchSuggestions = useCallback(
     async (target: string | null, tone: ChatTone, forceRefresh = false) => {
       // Block fetching when guest chat is disabled
@@ -304,8 +304,7 @@ export function QuickChatSuggestions({
     // unreachable — the delivery row never shows a sarcastic that the tone
     // doesn't support.
     const recalled = readRegisterPrefs()[tone] ?? DEFAULT_REGISTER;
-    const resolved =
-      recalled === 'sarcastic' && !toneTakesSarcasm(tone) ? 'spicy' : recalled;
+    const resolved = recalled === 'sarcastic' && !toneTakesSarcasm(tone) ? 'spicy' : recalled;
     setIntensity(resolved);
     // The useEffect handles fetching/cache lookup when both target and tone are set
   };

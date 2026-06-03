@@ -38,6 +38,7 @@ import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { useRunoutDirector } from '../../hooks/useRunoutDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { heroCardAnimation } from './heroCardAnimation';
+import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { logger } from '../../utils/logger';
 import { gameAPI } from '../../utils/api';
 import { avatarUrlForEmotion } from '../../utils/avatarUrl';
@@ -187,8 +188,10 @@ export function MobilePokerTable({
     onGameLoadFailed,
   });
 
-  const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } =
-    useGuestChatLimit(awaitingAction, handleSendMessage);
+  const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } = useGuestChatLimit(
+    awaitingAction,
+    handleSendMessage
+  );
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();
@@ -242,7 +245,11 @@ export function MobilePokerTable({
         if (!prev) return prev;
         return prev.map((p) =>
           p.name === playerName
-            ? { ...p, avatar_emotion: emotion, avatar_url: avatarUrlForEmotion(p.avatar_url, emotion) }
+            ? {
+                ...p,
+                avatar_emotion: emotion,
+                avatar_url: avatarUrlForEmotion(p.avatar_url, emotion),
+              }
             : p
         );
       });
@@ -347,25 +354,12 @@ export function MobilePokerTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPlayerIdx, currentPlayer?.name]);
 
-  // Sort opponents by their position relative to the human player in turn order
-  const opponents = useMemo(() => {
-    if (!storePlayers) return [];
-    const humanIndex = storePlayers.findIndex((p) => p.is_human);
-    const totalPlayers = storePlayers.length;
-
-    return storePlayers
-      .filter((p) => !p.is_human)
-      .sort((a, b) => {
-        const idxA = storePlayers.findIndex((p) => p.name === a.name);
-        const idxB = storePlayers.findIndex((p) => p.name === b.name);
-
-        // Calculate clockwise distance from human (wrapping around)
-        const distA = (idxA - humanIndex + totalPlayers) % totalPlayers;
-        const distB = (idxB - humanIndex + totalPlayers) % totalPlayers;
-
-        return distA - distB;
-      });
-  }, [storePlayers]);
+  // Sort opponents by their position relative to the human player in turn
+  // order (shared with the quick-chat target picker so both line up).
+  const opponents = useMemo(
+    () => (storePlayers ? orderOpponentsRelativeToHuman(storePlayers) : []),
+    [storePlayers]
+  );
 
   // Separate active and folded opponents
   const activeOpponents = useMemo(() => opponents.filter((p) => !p.is_folded), [opponents]);
