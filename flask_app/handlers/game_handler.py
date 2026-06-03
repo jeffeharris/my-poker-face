@@ -2227,8 +2227,32 @@ def _remove_departed_ais_from_game(
 
     state_machine.game_state = game_state.update(players=remaining_players)
 
+    # T3-77 — an AI leaving the human's table heads back to the cash world
+    # (idle pool → re-seat / off-screen sim), so hand its evolved mood off NOW by
+    # flushing to the per-persona emotional_state_json. Doing it per-vacate (not
+    # only at human-leave) means a persona you tilted carries that mood onward
+    # even if it departs mid-session — and it's race-free, since a seated persona
+    # isn't simultaneously sim-played. Best-effort; runs before the controller is
+    # dropped.
+    from flask_app import extensions
+
+    flush_sandbox_id = game_data.get('sandbox_id')
+    flush_bankroll_repo = getattr(extensions, 'bankroll_repo', None)
+
     ai_controllers = game_data.get('ai_controllers', {})
     for name in departed_names:
+        if flush_sandbox_id and flush_bankroll_repo is not None:
+            ctrl = ai_controllers.get(name)
+            flush_pid = cash_pids.get(name)
+            if ctrl is not None and flush_pid:
+                try:
+                    from cash_mode.psychology_persistence import flush_persona_psychology
+
+                    flush_persona_psychology(ctrl, flush_pid, flush_bankroll_repo, flush_sandbox_id)
+                except Exception as e:  # noqa: BLE001 — flush is best-effort
+                    logger.warning(
+                        "[CASH][LOBBY] psychology flush on vacate failed for %r: %s", name, e
+                    )
         ai_controllers.pop(name, None)
         cash_pids.pop(name, None)
         logger.info(

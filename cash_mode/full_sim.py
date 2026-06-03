@@ -26,7 +26,6 @@ cached controller path used here.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
@@ -39,6 +38,10 @@ from cash_mode.fake_sim import (
     DEFAULT_BIG_EVENT_THRESHOLD_BB,
     DEFAULT_FAKE_HAND_PROB,
     DEFAULT_MAX_POT_BB,
+)
+from cash_mode.psychology_persistence import (
+    flush_persona_psychology as _flush_psychology,
+    hydrate_persona_psychology as _hydrate_psychology,
 )
 from poker.poker_game import (
     Player,
@@ -465,106 +468,12 @@ def _build_controller(
     return controller
 
 
-def _hydrate_psychology(
-    controller,
-    personality_id: str,
-    bankroll_repo,
-    sandbox_id: str,
-) -> None:
-    """Apply persisted emotional state to a freshly-built controller.
-
-    Reads `ai_bankroll_state.emotional_state_json` (schema v97) and
-    deserializes via `PlayerPsychology.from_dict`. No-op when:
-      - `bankroll_repo` is None (test paths that don't care)
-      - the column is NULL (AI has never been touched by sim before)
-      - the JSON fails to parse (logged + skipped; controller stays
-        at fresh defaults — surfacing the error would block hands
-        on a column we can rewrite from the next flush)
-
-    The controller's `psychology` attribute is replaced in-place,
-    not its underlying class. Anchors carry over via the
-    `personality_config` arg to `from_dict`.
-    """
-    if bankroll_repo is None:
-        return
-    try:
-        blob = bankroll_repo.load_emotional_state_json(
-            personality_id,
-            sandbox_id=sandbox_id,
-        )
-    except Exception as exc:  # noqa: BLE001 — repo is best-effort here
-        logger.debug(f"[FULL_SIM] {personality_id}: load_emotional_state_json failed: {exc}")
-        return
-    if not blob:
-        return
-    try:
-        state_dict = json.loads(blob)
-    except (json.JSONDecodeError, TypeError) as exc:
-        logger.warning(
-            f"[FULL_SIM] {personality_id}: emotional_state_json malformed "
-            f"({exc}); using fresh defaults"
-        )
-        return
-    if controller.psychology is None:
-        return
-    try:
-        from poker.player_psychology import PlayerPsychology
-
-        personality_config = getattr(controller.ai_player, "personality_config", {})
-        controller.psychology = PlayerPsychology.from_dict(
-            state_dict,
-            personality_config,
-        )
-    except Exception as exc:  # noqa: BLE001 — psychology is best-effort
-        logger.warning(
-            f"[FULL_SIM] {personality_id}: PlayerPsychology.from_dict failed "
-            f"({exc}); using fresh defaults"
-        )
-
-
-def _serialize_psychology(controller) -> Optional[str]:
-    """Return the controller's psychology as a JSON blob, or None.
-
-    Returns None if the controller has no psychology attached (some
-    test stubs or partial builds). Wrapped to_dict / json.dumps so a
-    serialization quirk on one field doesn't poison the rest.
-    """
-    psych = getattr(controller, "psychology", None)
-    if psych is None:
-        return None
-    try:
-        return json.dumps(psych.to_dict())
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"[FULL_SIM] _serialize_psychology failed: {exc}")
-        return None
-
-
-def _flush_psychology(
-    controller,
-    personality_id: str,
-    bankroll_repo,
-    sandbox_id: str,
-) -> None:
-    """Write the controller's current emotional state to the repo.
-
-    Called by the periodic flush cadence and (in a future commit) on
-    cache eviction. Best-effort: a repo error logs at debug and
-    returns — the next flush will retry. State loss is bounded by
-    the flush cadence (PSYCHOLOGY_FLUSH_EVERY_HANDS).
-    """
-    if bankroll_repo is None:
-        return
-    blob = _serialize_psychology(controller)
-    if blob is None:
-        return
-    try:
-        bankroll_repo.save_emotional_state_json(
-            personality_id,
-            blob,
-            sandbox_id=sandbox_id,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug(f"[FULL_SIM] {personality_id}: save_emotional_state_json failed: {exc}")
+# `_hydrate_psychology` / `serialize` / `_flush_psychology` were promoted
+# verbatim to `cash_mode.psychology_persistence` so the off-screen sim, the live
+# cash seat build, and the cash-world tournament builder share this exact logic.
+# They're imported at the top of this module under their historical private
+# names, so the call sites below and the sim-cadence wrapper
+# `_maybe_flush_psychology` are unchanged.
 
 
 def _maybe_flush_psychology(
