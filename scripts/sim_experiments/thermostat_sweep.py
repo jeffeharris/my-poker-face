@@ -27,6 +27,7 @@ Run (inside Docker, against the isolated copy DB):
 
 Writes <out>.csv (per-tick trajectory) + <out>.summary.json.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -114,30 +115,60 @@ def main() -> int:
     p.add_argument("--ticks", type=int, required=True)
     p.add_argument("--tick-seconds", type=int, default=8)
     p.add_argument("--rng-seed", type=int, default=42)
-    p.add_argument("--mode", choices=["baseline", "rake_only", "overlay_only", "thermostat",
-                                       "tournament_cadence"],
-                   default="thermostat")
-    p.add_argument("--cooldown-seconds", type=int, default=economy_signal.MAIN_EVENT_COOLDOWN_SECONDS,
-                   help="tournament_cadence: min spacing between overlay events (wall-clock)")
-    p.add_argument("--field-size", type=int, default=economy_signal.DEFAULT_MAIN_EVENT.field_size,
-                   help="tournament_cadence: Main Event field size (logging/spec only)")
-    p.add_argument("--cadence-sizing", choices=["production", "to_setpoint"], default="production",
-                   help="tournament_cadence overlay sizing: production (2%% of reserves) "
-                        "or to_setpoint (drain back to FLUSH_SETPOINT each event)")
-    p.add_argument("--base-rake", type=int, default=130,
-                   help="Base modeled table_rake chips/tick ($1000-tier proxy)")
+    p.add_argument(
+        "--mode",
+        choices=["baseline", "rake_only", "overlay_only", "thermostat", "tournament_cadence"],
+        default="thermostat",
+    )
+    p.add_argument(
+        "--cooldown-seconds",
+        type=int,
+        default=economy_signal.MAIN_EVENT_COOLDOWN_SECONDS,
+        help="tournament_cadence: min spacing between overlay events (wall-clock)",
+    )
+    p.add_argument(
+        "--field-size",
+        type=int,
+        default=economy_signal.DEFAULT_MAIN_EVENT.field_size,
+        help="tournament_cadence: Main Event field size (logging/spec only)",
+    )
+    p.add_argument(
+        "--cadence-sizing",
+        choices=["production", "to_setpoint"],
+        default="production",
+        help="tournament_cadence overlay sizing: production (2%% of reserves) "
+        "or to_setpoint (drain back to FLUSH_SETPOINT each event)",
+    )
+    p.add_argument(
+        "--base-rake",
+        type=int,
+        default=130,
+        help="Base modeled table_rake chips/tick ($1000-tier proxy)",
+    )
     p.add_argument("--flush", type=float, default=0.10, help="signal above which overlay fires")
     p.add_argument("--empty", type=float, default=0.03, help="signal below which rake scales up")
-    p.add_argument("--overlay-pct", type=float, default=0.02,
-                   help="fraction of reserves distributed per tick when fully flush")
-    p.add_argument("--rake-max-mult", type=float, default=3.0,
-                   help="max rake multiplier when bank is starved")
-    p.add_argument("--hands-on", action="store_true",
-                   help="drive REAL hands (hand_sim_prob=1.0) so the actual rake "
-                        "faucet is generated — the §6 fidelity check (~100x slower)")
-    p.add_argument("--preload-reserves", type=int, default=0,
-                   help="seed the bank pool to ~N chips at tick 0 (ai→bank), to "
-                        "exercise the regulated regime without the slow natural fill")
+    p.add_argument(
+        "--overlay-pct",
+        type=float,
+        default=0.02,
+        help="fraction of reserves distributed per tick when fully flush",
+    )
+    p.add_argument(
+        "--rake-max-mult", type=float, default=3.0, help="max rake multiplier when bank is starved"
+    )
+    p.add_argument(
+        "--hands-on",
+        action="store_true",
+        help="drive REAL hands (hand_sim_prob=1.0) so the actual rake "
+        "faucet is generated — the §6 fidelity check (~100x slower)",
+    )
+    p.add_argument(
+        "--preload-reserves",
+        type=int,
+        default=0,
+        help="seed the bank pool to ~N chips at tick 0 (ai→bank), to "
+        "exercise the regulated regime without the slow natural fill",
+    )
     p.add_argument("--metrics-every", type=int, default=10)
     p.add_argument("--progress-every", type=int, default=500)
     p.add_argument("--out", required=True)
@@ -179,12 +210,19 @@ def main() -> int:
                 continue
             _adjust_chips(conn, sb, pid, -take)
             conn.commit()
-            ledger.record(chip_ledger_repo, source=ledger.ai(pid), sink=ledger.bank(),
-                          amount=take, reason="bank_pool_deposit",
-                          context={"sim": "preload"}, sandbox_id=sb)
+            ledger.record(
+                chip_ledger_repo,
+                source=ledger.ai(pid),
+                sink=ledger.bank(),
+                amount=take,
+                reason="bank_pool_deposit",
+                context={"sim": "preload"},
+                sandbox_id=sb,
+            )
             remaining -= take
-        logger.info("[therm] preloaded %d chips into the bank pool",
-                    args.preload_reserves - remaining)
+        logger.info(
+            "[therm] preloaded %d chips into the bank pool", args.preload_reserves - remaining
+        )
 
     for tick in range(args.ticks):
         now = start_at + timedelta(seconds=tick * args.tick_seconds)
@@ -221,8 +259,11 @@ def main() -> int:
         # 3a. The faucet — modeled per-tick table rake (the economy's inflow,
         # which hands-off play doesn't generate). Always on at mult 1.0; the rake
         # LEVER scales it up across tiers when the bank is starved.
-        mult = _rake_multiplier(signal, empty=args.empty, max_mult=args.rake_max_mult) \
-            if lever_rake else 1.0
+        mult = (
+            _rake_multiplier(signal, empty=args.empty, max_mult=args.rake_max_mult)
+            if lever_rake
+            else 1.0
+        )
         rake_amt = int(args.base_rake * mult)
         # Debit the richest solvent AI; record table_rake (ai → bank).
         if rake_amt > 0 and top:
@@ -230,9 +271,15 @@ def main() -> int:
             if chips > rake_amt:
                 _adjust_chips(conn, sb, payer, -rake_amt)
                 conn.commit()
-                ledger.record(chip_ledger_repo, source=ledger.ai(payer), sink=ledger.bank(),
-                              amount=rake_amt, reason="table_rake",
-                              context={"sim": "thermostat"}, sandbox_id=sb)
+                ledger.record(
+                    chip_ledger_repo,
+                    source=ledger.ai(payer),
+                    sink=ledger.bank(),
+                    amount=rake_amt,
+                    reason="table_rake",
+                    context={"sim": "thermostat"},
+                    sandbox_id=sb,
+                )
             else:
                 rake_amt = 0
 
@@ -245,8 +292,9 @@ def main() -> int:
         #     sized by the REAL `tournament_funding`. This is the production
         #     cadence we must re-validate before flipping the thermostat on.
         if lever_overlay:
-            overlay_amt = _overlay_amount(signal, reserves, flush=args.flush,
-                                          overlay_pct=args.overlay_pct)
+            overlay_amt = _overlay_amount(
+                signal, reserves, flush=args.flush, overlay_pct=args.overlay_pct
+            )
         elif cadence_overlay:
             ticks_since_event += 1
             state = economy_signal.signal(chip_ledger_repo, sandbox_id=sb)
@@ -259,8 +307,7 @@ def main() -> int:
                     # the FLUSH setpoint (sawtooth band), instead of a fixed 2%
                     # of reserves (which is far too weak across a 30-min cooldown).
                     target = int(economy_signal.FLUSH_SETPOINT * state.holdings)
-                    overlay_amt = min(max(0, state.reserves - target),
-                                      economy_signal.OVERLAY_CAP)
+                    overlay_amt = min(max(0, state.reserves - target), economy_signal.OVERLAY_CAP)
                 else:  # "production" — the current tournament_funding sizing
                     plan = economy_signal.tournament_funding(
                         state, field_size=spec.field_size, seat_price=0, human_in=False
@@ -270,17 +317,22 @@ def main() -> int:
         if overlay_amt > 0 and top:
             # Distribute across the bottom-half (the field's finishers get
             # paid; spread so it doesn't all pile on one whale).
-            recipients = [r[0] for r in top[len(top) // 2:]] or [top[-1][0]]
+            recipients = [r[0] for r in top[len(top) // 2 :]] or [top[-1][0]]
             share = max(1, overlay_amt // len(recipients))
             paid = 0
             for pid in recipients:
                 _adjust_chips(conn, sb, pid, share)
                 paid += share
             conn.commit()
-            ledger.record(chip_ledger_repo, source=ledger.bank(),
-                          sink=ledger.ai(recipients[0]), amount=paid,
-                          reason="tournament_overlay",
-                          context={"sim": "thermostat"}, sandbox_id=sb)
+            ledger.record(
+                chip_ledger_repo,
+                source=ledger.bank(),
+                sink=ledger.ai(recipients[0]),
+                amount=paid,
+                reason="tournament_overlay",
+                context={"sim": "thermostat"},
+                sandbox_id=sb,
+            )
             overlay_amt = paid
             if cadence_overlay:
                 ticks_since_event = 0
@@ -288,15 +340,27 @@ def main() -> int:
 
         # 4. Metrics.
         if tick % args.metrics_every == 0 or tick == args.ticks - 1:
-            rows_out.append({
-                "tick": tick, "reserves": reserves, "holdings": holdings,
-                "signal": round(signal, 5), "rake_amt": rake_amt,
-                "overlay_amt": overlay_amt, "n_ai": len(top),
-            })
+            rows_out.append(
+                {
+                    "tick": tick,
+                    "reserves": reserves,
+                    "holdings": holdings,
+                    "signal": round(signal, 5),
+                    "rake_amt": rake_amt,
+                    "overlay_amt": overlay_amt,
+                    "n_ai": len(top),
+                }
+            )
 
         if args.progress_every and (tick + 1) % args.progress_every == 0:
-            logger.info("[therm] tick %d/%d reserves=%d holdings=%d signal=%.4f",
-                        tick + 1, args.ticks, reserves, holdings, signal)
+            logger.info(
+                "[therm] tick %d/%d reserves=%d holdings=%d signal=%.4f",
+                tick + 1,
+                args.ticks,
+                reserves,
+                holdings,
+                signal,
+            )
 
     conn.close()
 
@@ -304,12 +368,13 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     import csv as _csv
+
     with out.with_suffix(".csv").open("w", newline="") as fh:
         w = _csv.DictWriter(fh, fieldnames=list(rows_out[0].keys()))
         w.writeheader()
         w.writerows(rows_out)
 
-    back = rows_out[len(rows_out) // 2:]
+    back = rows_out[len(rows_out) // 2 :]
     xs = [r["tick"] for r in back]
     ys = [r["reserves"] for r in back]
     n = len(xs)
@@ -318,20 +383,34 @@ def main() -> int:
     denom = sum((x - mx) ** 2 for x in xs) or 1
     slope = sum((xs[i] - mx) * (ys[i] - my) for i in range(n)) / denom
     summary = {
-        "mode": args.mode, "ticks": args.ticks, "rng_seed": args.rng_seed,
-        "base_rake": args.base_rake, "flush": args.flush, "empty": args.empty,
-        "overlay_pct": args.overlay_pct, "rake_max_mult": args.rake_max_mult,
-        "cooldown_seconds": args.cooldown_seconds, "cooldown_ticks": cooldown_ticks,
-        "cadence_sizing": args.cadence_sizing, "n_overlay_events": n_events,
-        "reserves_first": rows_out[0]["reserves"], "reserves_final": rows_out[-1]["reserves"],
-        "reserves_back_min": min(ys), "reserves_back_max": max(ys),
+        "mode": args.mode,
+        "ticks": args.ticks,
+        "rng_seed": args.rng_seed,
+        "base_rake": args.base_rake,
+        "flush": args.flush,
+        "empty": args.empty,
+        "overlay_pct": args.overlay_pct,
+        "rake_max_mult": args.rake_max_mult,
+        "cooldown_seconds": args.cooldown_seconds,
+        "cooldown_ticks": cooldown_ticks,
+        "cadence_sizing": args.cadence_sizing,
+        "n_overlay_events": n_events,
+        "reserves_first": rows_out[0]["reserves"],
+        "reserves_final": rows_out[-1]["reserves"],
+        "reserves_back_min": min(ys),
+        "reserves_back_max": max(ys),
         "back_half_slope_chips_per_tick": round(slope, 3),
         "signal_final": rows_out[-1]["signal"],
     }
     out.with_suffix(".summary.json").write_text(json.dumps(summary, indent=2))
-    logger.info("Done — mode=%s slope=%.2f chips/tick  reserves %d→%d  signal_final=%.4f",
-                args.mode, slope, rows_out[0]["reserves"], rows_out[-1]["reserves"],
-                rows_out[-1]["signal"])
+    logger.info(
+        "Done — mode=%s slope=%.2f chips/tick  reserves %d→%d  signal_final=%.4f",
+        args.mode,
+        slope,
+        rows_out[0]["reserves"],
+        rows_out[-1]["reserves"],
+        rows_out[-1]["signal"],
+    )
     print(json.dumps(summary))
     return 0
 

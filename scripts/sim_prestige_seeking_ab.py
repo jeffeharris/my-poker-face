@@ -23,6 +23,7 @@ Fish/casinos spawn over ticks from the seeded bank pool, so this needs
 
 scripts/ is gitignored — force-add to keep it.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,19 +46,28 @@ def _seed_renown(db_path, sandbox_id, owner_id, n_famous):
     repos = create_repos(db_path)
     eligible = repos["personality_repo"].list_eligible_for_cash_mode(user_id=owner_id)
     fish = load_fish_ids(repos["bankroll_repo"], sandbox_id=sandbox_id)
-    pids = sorted(p["personality_id"] for p in eligible
-                  if p.get("personality_id") and p["personality_id"] not in fish)
+    pids = sorted(
+        p["personality_id"]
+        for p in eligible
+        if p.get("personality_id") and p["personality_id"] not in fish
+    )
     famous = set(pids[:n_famous])
-    rows = [{
-        "owner_id": pid,
-        "renown_v2": 60.0 if pid in famous else 10.0,
-        "regard": 0.0,
-        "quadrant": "Infamous Villain" if pid in famous else "Up-and-comer",
-        "victim_percentile": 0.90 if pid in famous else 0.15,
-        "high_cut": 30.0, "components": {"breadth": 1.0}, "field_size": len(pids),
-    } for pid in pids]
+    rows = [
+        {
+            "owner_id": pid,
+            "renown_v2": 60.0 if pid in famous else 10.0,
+            "regard": 0.0,
+            "quadrant": "Infamous Villain" if pid in famous else "Up-and-comer",
+            "victim_percentile": 0.90 if pid in famous else 0.15,
+            "high_cut": 30.0,
+            "components": {"breadth": 1.0},
+            "field_size": len(pids),
+        }
+        for pid in pids
+    ]
     repos["prestige_snapshots_repo"].record_ai_many(
-        sandbox_id=sandbox_id, captured_at="2026-06-02T00:00:00Z", rows=rows)
+        sandbox_id=sandbox_id, captured_at="2026-06-02T00:00:00Z", rows=rows
+    )
     return famous
 
 
@@ -71,13 +81,19 @@ def _run_arm(db_path, sandbox_id, *, enabled, w_marquee, ticks, seed, hand_sim_p
     economy_flags.PRESTIGE_SEEKING_ENABLED = enabled
     if w_marquee is not None:
         import cash_mode.attractiveness as _attr
+
         _attr.W_MARQUEE = w_marquee
     repos = create_repos(db_path)
     result = run_sim(
         SimConfig(
-            sandbox_id=sandbox_id, num_ticks=ticks, rng_seed=seed,
-            start_at=datetime(2026, 6, 2, 12, 0, 0), hand_sim_prob=hand_sim_prob,
-            initial_bank_pool_seed=bank_pool, audit_every=25, progress_every=0,
+            sandbox_id=sandbox_id,
+            num_ticks=ticks,
+            rng_seed=seed,
+            start_at=datetime(2026, 6, 2, 12, 0, 0),
+            hand_sim_prob=hand_sim_prob,
+            initial_bank_pool_seed=bank_pool,
+            audit_every=25,
+            progress_every=0,
         ),
         repos=repos,
     )
@@ -113,8 +129,9 @@ def main():
     ap.add_argument("--hand-sim-prob", type=float, default=0.5)
     ap.add_argument("--famous", type=int, default=4)
     ap.add_argument("--bank-pool", type=int, default=3_000_000)
-    ap.add_argument("--w-sweep", default="1,3,5,8",
-                    help="Comma list of W_MARQUEE values to test (ON arms)")
+    ap.add_argument(
+        "--w-sweep", default="1,3,5,8", help="Comma list of W_MARQUEE values to test (ON arms)"
+    )
     args = ap.parse_args()
     w_values = [float(x) for x in args.w_sweep.split(",")]
 
@@ -124,21 +141,32 @@ def main():
     famous = _seed_renown(base, sandbox_id, "sim-bot", args.famous)
     _checkpoint(base)
 
-    print(f"sandbox={sandbox_id} famous={sorted(famous)} ticks={args.ticks} "
-          f"seed={args.rng_seed} hand_sim_prob={args.hand_sim_prob} "
-          f"bank_pool={args.bank_pool} w_sweep={w_values}")
+    print(
+        f"sandbox={sandbox_id} famous={sorted(famous)} ticks={args.ticks} "
+        f"seed={args.rng_seed} hand_sim_prob={args.hand_sim_prob} "
+        f"bank_pool={args.bank_pool} w_sweep={w_values}"
+    )
     print("=" * 78)
 
     def arm(label, enabled, w):
         db = f"{tmp}/{label}.db"
         shutil.copy(base, db)
         tables, fish, drift = _run_arm(
-            db, sandbox_id, enabled=enabled, w_marquee=w, ticks=args.ticks,
-            seed=args.rng_seed, hand_sim_prob=args.hand_sim_prob, bank_pool=args.bank_pool)
+            db,
+            sandbox_id,
+            enabled=enabled,
+            w_marquee=w,
+            ticks=args.ticks,
+            seed=args.rng_seed,
+            hand_sim_prob=args.hand_sim_prob,
+            bank_pool=args.bank_pool,
+        )
         m = _metrics(tables, famous, fish)
-        print(f"[{label:10s}] co-loc {m['co_location']*100:5.1f}%  "
-              f"grinders={m['grinders']:3d}  at-fish={m['at_fish']:3d}  "
-              f"fish_seen={len(fish):2d}  max|drift|={drift}")
+        print(
+            f"[{label:10s}] co-loc {m['co_location']*100:5.1f}%  "
+            f"grinders={m['grinders']:3d}  at-fish={m['at_fish']:3d}  "
+            f"fish_seen={len(fish):2d}  max|drift|={drift}"
+        )
         return m, drift
 
     off_m, off_d = arm("OFF", False, None)
@@ -151,9 +179,11 @@ def main():
         flags.append("route+" if lift > 1.0 else "route~")
         flags.append("drift!" if on_d != 0 else "drift0")
         flags.append("STARVE" if fish_keep < 0.6 else "fishOK")
-        print(f"    └─ W={w:g}: routing {lift:+.1f}pp | fish-table grinders "
-              f"{on_m['at_fish']} vs {off_m['at_fish']} ({fish_keep*100:.0f}%) | "
-              f"{' '.join(flags)}")
+        print(
+            f"    └─ W={w:g}: routing {lift:+.1f}pp | fish-table grinders "
+            f"{on_m['at_fish']} vs {off_m['at_fish']} ({fish_keep*100:.0f}%) | "
+            f"{' '.join(flags)}"
+        )
     print("=" * 78)
     print(f"CONSERVATION: OFF drift={off_d} (must be 0 across all arms above)")
     print("Calibration target: the largest W with routing+ AND fishOK AND drift0.")

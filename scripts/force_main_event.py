@@ -13,6 +13,7 @@ Usage (inside the backend container):
 
 Then open cash mode in the app and refresh the lobby — the Main Event card appears.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,8 +32,12 @@ def main() -> int:
     p.add_argument("--field", type=int, default=18)
     p.add_argument("--table", type=int, default=6)
     p.add_argument("--starting-stack", type=int, default=10_000)
-    p.add_argument("--expiry-seconds", type=int, default=600,
-                   help="registration window before auto-expiry→autonomous (0=no expiry)")
+    p.add_argument(
+        "--expiry-seconds",
+        type=int,
+        default=600,
+        help="registration window before auto-expiry→autonomous (0=no expiry)",
+    )
     args = p.parse_args()
 
     from flask_app import create_app
@@ -66,8 +71,10 @@ def main() -> int:
 
         existing = inv.active_invite(extensions.tournament_invite_repo, owner)
         if existing is not None:
-            print(f"an invite is already open: {existing['invite_id']} "
-                  f"(status={existing['status']}, expires_at={existing['expires_at']})")
+            print(
+                f"an invite is already open: {existing['invite_id']} "
+                f"(status={existing['status']}, expires_at={existing['expires_at']})"
+            )
             print("→ open cash mode and look for the Main Event card.")
             return 0
 
@@ -89,8 +96,10 @@ def main() -> int:
         if invite is None:
             print("offer suppressed — a tournament is probably already active for this owner.")
             return 1
-        print(f"OFFERED Main Event: invite_id={invite['invite_id']} buy_in={invite['buy_in']} "
-              f"field={invite['field_size']} expires_at={invite['expires_at']}")
+        print(
+            f"OFFERED Main Event: invite_id={invite['invite_id']} buy_in={invite['buy_in']} "
+            f"field={invite['field_size']} expires_at={invite['expires_at']}"
+        )
         print("→ open cash mode (The Circuit) and refresh the lobby — the Main Event card is up.")
         return 0
 

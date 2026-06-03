@@ -23,6 +23,7 @@ Monkeypatches the greedy seater (no production change). Run in Docker:
 
 scripts/ is gitignored — force-add to keep it.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,9 +31,9 @@ import sys
 import tempfile
 from datetime import datetime
 
-from cash_mode import economy_flags
 import cash_mode.attractiveness as attr
 import cash_mode.lobby as lobby
+from cash_mode import economy_flags
 from cash_mode.attractiveness import seeker_buy_in, table_attractiveness
 from cash_mode.closed_economy import load_fish_ids
 from cash_mode.sim_runner import SimConfig, run_sim
@@ -65,14 +66,21 @@ def _probing_greedy(seekers, tables):
             common = dict(
                 projected_bankroll=seeker.projected_bankroll,
                 starting_bankroll=seeker.starting_bankroll,
-                comfort_zone=seeker.comfort_zone, stake_label=t.stake_label,
-                fish_chips=t.fish_chips, whale_chips=t.whale_chips,
-                other_grinders=t.grinder_count, buy_in_multiplier=seeker.buy_in_multiplier,
-                prestige_override=t.prestige_override, venue_appeal=t.venue_appeal,
+                comfort_zone=seeker.comfort_zone,
+                stake_label=t.stake_label,
+                fish_chips=t.fish_chips,
+                whale_chips=t.whale_chips,
+                other_grinders=t.grinder_count,
+                buy_in_multiplier=seeker.buy_in_multiplier,
+                prestige_override=t.prestige_override,
+                venue_appeal=t.venue_appeal,
             )
             s0 = table_attractiveness(**common, marquee_prestige=0.0, status_appetite=0.0)
-            s_with = table_attractiveness(**common, marquee_prestige=t.marquee_prestige,
-                                          status_appetite=seeker.status_appetite)
+            s_with = table_attractiveness(
+                **common,
+                marquee_prestige=t.marquee_prestige,
+                status_appetite=seeker.status_appetite,
+            )
             cand.append((tid, s0, s_with - s0, t.marquee_prestige))
             if best_score is None or s_with > best_score:
                 best_score, best_id = s_with, tid
@@ -114,37 +122,61 @@ def main():
     repos = create_repos(db)
     eligible = repos["personality_repo"].list_eligible_for_cash_mode(user_id="sim-bot")
     fish = load_fish_ids(repos["bankroll_repo"], sandbox_id=sandbox_id)
-    pids = sorted(p["personality_id"] for p in eligible
-                  if p.get("personality_id") and p["personality_id"] not in fish)
-    famous = set(pids[:args.famous])
+    pids = sorted(
+        p["personality_id"]
+        for p in eligible
+        if p.get("personality_id") and p["personality_id"] not in fish
+    )
+    famous = set(pids[: args.famous])
     repos["prestige_snapshots_repo"].record_ai_many(
-        sandbox_id=sandbox_id, captured_at="2026-06-02T00:00:00Z",
-        rows=[{"owner_id": pid, "renown_v2": 60.0 if pid in famous else 10.0,
-               "regard": 0.0, "quadrant": "x",
-               "victim_percentile": 0.90 if pid in famous else 0.15,
-               "high_cut": 30.0, "components": {}, "field_size": len(pids)}
-              for pid in pids])
+        sandbox_id=sandbox_id,
+        captured_at="2026-06-02T00:00:00Z",
+        rows=[
+            {
+                "owner_id": pid,
+                "renown_v2": 60.0 if pid in famous else 10.0,
+                "regard": 0.0,
+                "quadrant": "x",
+                "victim_percentile": 0.90 if pid in famous else 0.15,
+                "high_cut": 30.0,
+                "components": {},
+                "field_size": len(pids),
+            }
+            for pid in pids
+        ],
+    )
 
     # Instrument the greedy seater the lobby calls, run ONE sim at W=1.
     economy_flags.PRESTIGE_SEEKING_ENABLED = True
     attr.W_MARQUEE = 1.0
     lobby.assign_seats_greedy = _probing_greedy
-    run_sim(SimConfig(sandbox_id=sandbox_id, num_ticks=args.ticks, rng_seed=args.rng_seed,
-                      start_at=datetime(2026, 6, 2, 12, 0, 0), hand_sim_prob=args.hand_sim_prob,
-                      initial_bank_pool_seed=args.bank_pool, audit_every=9999, progress_every=0),
-            repos=repos)
+    run_sim(
+        SimConfig(
+            sandbox_id=sandbox_id,
+            num_ticks=args.ticks,
+            rng_seed=args.rng_seed,
+            start_at=datetime(2026, 6, 2, 12, 0, 0),
+            hand_sim_prob=args.hand_sim_prob,
+            initial_bank_pool_seed=args.bank_pool,
+            audit_every=9999,
+            progress_every=0,
+        ),
+        repos=repos,
+    )
     lobby.assign_seats_greedy = _real_greedy
 
     # Decisions that HAD a marquee option (some candidate with occ>0) — the only
     # ones the marquee term can possibly swing.
     relevant = [c for c in DECISIONS if any(occ > 0 for *_x, occ in c)]
-    print(f"sandbox={sandbox_id} famous={len(famous)} ticks={args.ticks} "
-          f"hand_sim_prob={args.hand_sim_prob}")
-    print(f"multi-candidate decisions={len(DECISIONS)}  "
-          f"with a marquee option={len(relevant)}")
+    print(
+        f"sandbox={sandbox_id} famous={len(famous)} ticks={args.ticks} "
+        f"hand_sim_prob={args.hand_sim_prob}"
+    )
+    print(f"multi-candidate decisions={len(DECISIONS)}  " f"with a marquee option={len(relevant)}")
     print("=" * 70)
-    print(f"{'W':>5} | {'influence':>9} | {'mean occ of pick':>16} | "
-          f"{'(baseline pick occ)':>20}")
+    print(
+        f"{'W':>5} | {'influence':>9} | {'mean occ of pick':>16} | " f"{'(baseline pick occ)':>20}"
+    )
     print("-" * 70)
     if not relevant:
         print("no marquee-eligible decisions — increase ticks / famous / churn")
@@ -160,11 +192,14 @@ def main():
                 flips += 1
             pick_occ += c[iw][3]
         infl = flips / len(relevant)
-        print(f"{w:>5g} | {infl*100:>8.1f}% | {pick_occ/len(relevant):>16.3f} | "
-              f"{base_occ:>20.3f}")
+        print(
+            f"{w:>5g} | {infl*100:>8.1f}% | {pick_occ/len(relevant):>16.3f} | " f"{base_occ:>20.3f}"
+        )
     print("=" * 70)
-    print("Calibration: pick the W whose influence is FELT but not domineering "
-          "(~15-35%); mean-occ-of-pick should rise above the baseline pick occ.")
+    print(
+        "Calibration: pick the W whose influence is FELT but not domineering "
+        "(~15-35%); mean-occ-of-pick should rise above the baseline pick occ."
+    )
 
 
 if __name__ == "__main__":
