@@ -169,6 +169,23 @@ def finalize_tournament(
     except Exception:  # noqa: BLE001 — never let stats writes break completion
         logger.exception("[TOURNEY] failed to persist completion for %s", game_id)
 
+    # T3-77 — flush real personas' evolved tournament mood back to the cash
+    # world. A cash-world (persona) field is two-way, like a cash table; a
+    # non-cash / single-table tournament leaves the flag unset and writes
+    # nothing (baseline). Seat keys ARE personality_ids (MTT bridge). Guarded so
+    # a flush hiccup never blocks completion.
+    if game_data.get('tournament_is_persona_field'):
+        try:
+            from cash_mode.psychology_persistence import flush_persona_psychology
+
+            sandbox_id = game_data.get('tournament_sandbox_id')
+            bankroll_repo = getattr(extensions, 'bankroll_repo', None)
+            if sandbox_id and bankroll_repo is not None:
+                for pid, ctrl in (game_data.get('ai_controllers') or {}).items():
+                    flush_persona_psychology(ctrl, pid, bankroll_repo, sandbox_id)
+        except Exception:  # noqa: BLE001 — never let a flush break completion
+            logger.exception("[TOURNEY] psychology flush failed for %s", game_id)
+
     game_data['tournament_finalized'] = True
 
     if emit and extensions.socketio is not None:

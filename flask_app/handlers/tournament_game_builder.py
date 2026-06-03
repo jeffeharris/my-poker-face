@@ -239,6 +239,21 @@ def build_tournament_game(
         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
         controller.memory_manager = memory_manager
 
+    # T3-77 — a cash-world (Circuit) tournament is part of the cash world, so its
+    # real personas arrive in the mood the world left them in. Hydrate each
+    # real-persona seat from the per-persona emotional_state_json (schema v97);
+    # finalize_tournament flushes the evolved mood back, so it's two-way (chips
+    # reset per tournament, but mood is continuous with the cash world). Gated on
+    # real_persona_ids so a synthetic P## field stays at baseline. The seat name
+    # IS the personality_id (MTT bridge). Fresh-build only — cold-load restores
+    # the per-game psychology_json instead.
+    if sandbox_id and real_persona_ids:
+        from cash_mode.psychology_persistence import hydrate_persona_psychology
+
+        for pid, controller in ai_controllers.items():
+            if pid in real_persona_ids:
+                hydrate_persona_psychology(controller, pid, extensions.bankroll_repo, sandbox_id)
+
     pressure_event_repo = PressureEventRepository(persistence_db_path)
     pressure_detector = PressureEventDetector()
     pressure_stats = PressureStatsTracker(game_id, pressure_event_repo)
@@ -285,6 +300,11 @@ def build_tournament_game(
         "tournament_is_persona_field": is_persona_field,
         "tournament_bot_types": bot_types,
         "tournament_player_llm_configs": player_llm_configs,
+        # T3-77 — the cash sandbox this cash-world tournament belongs to, so
+        # finalize_tournament can flush each persona's evolved mood back to the
+        # right per-persona emotional_state_json. Only meaningful for a persona
+        # field (see the hydrate gate above).
+        "tournament_sandbox_id": sandbox_id,
     }
     game_state_service.set_game(game_id, game_data)
     # Persist the per-seat LLM/bot intent so it survives a cold load.

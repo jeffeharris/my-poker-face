@@ -1,9 +1,13 @@
 """Unified completion adapter: a TournamentSession -> the tracker-shaped result
 dict that tournament_repo + the tournament_complete event consume (step 3)."""
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from flask_app.handlers.tournament_completion import build_completion_result, finalize_tournament
+from poker.player_psychology import PlayerPsychology
 from tournament.config import TournamentConfig
 from tournament.director import FakeHandResolver
 from tournament.session import TournamentSession
@@ -188,6 +192,61 @@ def test_finalize_fires_when_human_busts_before_field_completes(finalize_env):
     assert human_row['player_name'] == player_name  # matches its standings row
     assert result['winner_name'] is None  # field not finished yet
     assert result['human_finishing_position'] == s.human_rank()
+
+
+def _persona_controller(hand_count):
+    psych = PlayerPsychology.from_personality_config('napoleon', {})
+    psych.hand_count = hand_count
+    return SimpleNamespace(psychology=psych)
+
+
+def test_finalize_flushes_persona_psychology_for_cash_world(finalize_env, monkeypatch):
+    """T3-77 — a cash-world (persona) tournament flushes each persona's evolved
+    mood back to its emotional_state_json blob on completion (two-way)."""
+    import flask_app.extensions as ext
+
+    saves = {}
+
+    class _FakeBankrollRepo:
+        def save_emotional_state_json(self, pid, blob, sandbox_id=None):
+            saves[(pid, sandbox_id)] = blob
+
+    monkeypatch.setattr(ext, 'bankroll_repo', _FakeBankrollRepo(), raising=False)
+
+    s = _completed_session()
+    game_data = {
+        'tournament_session': s,
+        'tournament_is_persona_field': True,
+        'tournament_sandbox_id': 'sb-1',
+        'ai_controllers': {'napoleon': _persona_controller(5)},
+    }
+
+    assert finalize_tournament('g1', game_data, emit=False) is True
+    assert ('napoleon', 'sb-1') in saves
+    assert json.loads(saves[('napoleon', 'sb-1')])['hand_count'] == 5
+
+
+def test_finalize_does_not_flush_for_non_cash_tournament(finalize_env, monkeypatch):
+    """A non-cash / single-table tournament leaves `tournament_is_persona_field`
+    unset, so completion writes nothing back (personas stay at baseline)."""
+    import flask_app.extensions as ext
+
+    saves = {}
+
+    class _FakeBankrollRepo:
+        def save_emotional_state_json(self, pid, blob, sandbox_id=None):
+            saves[(pid, sandbox_id)] = blob
+
+    monkeypatch.setattr(ext, 'bankroll_repo', _FakeBankrollRepo(), raising=False)
+
+    s = _completed_session()
+    game_data = {  # no tournament_is_persona_field => non-cash
+        'tournament_session': s,
+        'ai_controllers': {'napoleon': _persona_controller(5)},
+    }
+
+    assert finalize_tournament('g1', game_data, emit=False) is True
+    assert saves == {}
 
 
 def test_winner_is_human_path():
