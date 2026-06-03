@@ -38,6 +38,7 @@ class ChipLedgerRepository(BaseRepository):
         context: Optional[Dict[str, Any]] = None,
         *,
         sandbox_id: Optional[str] = None,
+        conn=None,
     ) -> int:
         """Append one ledger entry. Returns the row id.
 
@@ -54,18 +55,28 @@ class ChipLedgerRepository(BaseRepository):
         callers should always pass it; legacy migration helpers
         (`_migrate_v94_seed_pre_ledger_universe`) leave it NULL on
         purpose.
+
+        `conn` (chip-custody atomicity): when given, the INSERT runs on
+        the CALLER's open connection so the ledger row commits in the
+        SAME transaction as the caller's bankroll-int write (no two-commit
+        divergence window). The caller owns the commit. None → open + commit
+        our own connection (the standalone default; every existing caller).
         """
         context_blob = json.dumps(context) if context is not None else None
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO chip_ledger_entries
-                    (source, sink, amount, reason, context_json, sandbox_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (source, sink, int(amount), reason, context_blob, sandbox_id),
-            )
-            return cursor.lastrowid
+        sql = """
+            INSERT INTO chip_ledger_entries
+                (source, sink, amount, reason, context_json, sandbox_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """
+        params = (source, sink, int(amount), reason, context_blob, sandbox_id)
+        if conn is not None:
+            # Join the caller's transaction — they commit (or roll back) both
+            # the int write and this row together.
+            rid = conn.execute(sql, params).lastrowid
+        else:
+            with self._get_connection() as own:
+                rid = own.execute(sql, params).lastrowid
+        return int(rid) if rid is not None else 0
 
     def balance_of(
         self,

@@ -340,6 +340,7 @@ def record(
     reason: str,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """Write one ledger entry. Returns the row id, or None on failure.
 
@@ -415,6 +416,7 @@ def record(
             reason=reason,
             context=context,
             sandbox_id=sandbox_id,
+            conn=conn,
         )
     except Exception as e:
         # ERROR, not warning (PRH-11): validation has already passed, so this
@@ -422,7 +424,9 @@ def record(
         # land. Callers write the bankroll first, then this best-effort ledger
         # row — so a failure here means the chip move likely committed without
         # a ledger entry = conservation drift. Surface it loudly for alerting;
-        # the audit's `drift` is the reconciliation backstop.
+        # the audit's `drift` is the reconciliation backstop. (When `conn` is
+        # passed the row shares the caller's txn, so a raise here rolls BOTH back
+        # — the caller decides whether to swallow; see save_ai_bankroll.)
         logger.error(
             "[LEDGER] DRIFT RISK: record() DB write failed "
             "(reason=%s amount=%d source=%s sink=%s): %s",
@@ -872,6 +876,7 @@ def record_ai_seed(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """First AI bankroll write in a sandbox: central_bank → ai.
 
@@ -882,6 +887,10 @@ def record_ai_seed(
     No-op when `repo` is None or `amount <= 0`. Called from
     `BankrollRepository.save_ai_bankroll` when the existence check
     fires (first write per `(personality_id, sandbox_id)`).
+
+    `conn` (chip-custody atomicity): when given, the seed row is written on
+    the caller's open connection so it commits in the SAME transaction as the
+    bankroll upsert (no two-commit divergence window for a first write).
     """
     if repo is None or amount <= 0:
         return None
@@ -893,6 +902,7 @@ def record_ai_seed(
         reason='ai_seed',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1243,6 +1253,7 @@ def record_casino_seat_seed(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for a fish seat buy-in at casino spawn.
 
@@ -1268,6 +1279,7 @@ def record_casino_seat_seed(
         reason='casino_seat_seed',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1278,6 +1290,7 @@ def record_casino_seat_return(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai → central_bank for residual seat chips returned to the pool.
 
@@ -1303,4 +1316,5 @@ def record_casino_seat_return(
         reason='casino_seat_return',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )

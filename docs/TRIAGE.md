@@ -214,6 +214,7 @@ Issues to address once live, during ongoing development.
 | T3-12 | No pagination on game list | `flask_app/routes/game_routes.py:194` | Hardcoded `limit=10`, no offset support. | **FIXED** — added `limit` and `offset` query params (max 100), persistence layer supports offset |
 | T3-13 | Hardcoded 600s HTTP timeout | `core/llm/providers/http_client.py:16` | 10-minute timeout for all operations. Can't configure per-request. | **FIXED** — configurable via `LLM_HTTP_TIMEOUT` env var |
 | T3-40 | Multi-worker scaling | `docker-compose.prod.yml`, `flask_app/extensions.py`, `game_state_service.py`, `game_handler.py` | Single worker handles current load. When scaling to 30+ concurrent games: (1) add `message_queue=REDIS_URL` to SocketIO init, (2) fix `async_mode`, (3) bump workers, (4) audit thread safety, (5) review `progress_game()` locking. Consolidates T2-03, T2-21. *(Demoted from T2-29)* | |
+| T3-82 | Chip-custody: atomic chip-movement writes + ledger-read scaling | `poker/repositories/bankroll_repository.py` (`save_ai_bankroll`), `poker/repositories/chip_ledger_repository.py` (`record`), `core/economy/ledger.py` (`record`/`record_ai_seed`/`record_casino_seat_seed`/`_return`), `cash_mode/casino_provisioning.py`, + the ~13 hot chokepoints in `cash_mode/bankroll.py`/`ai_vice_spending.py`/`ai_side_hustle.py`/`closed_economy.py`/`ai_carry_resolution.py` + `flask_app/services/tournament_economy_service.py` | Chip movements write the bankroll int (read-model/cache) and the `chip_ledger_entries` row in SEPARATE commits on SEPARATE thread-local connections (one per repo), so the int and the ledger can momentarily diverge (crash / concurrent read in the ~ms window). **DONE this pass (atomic-write PR):** (1) CP-19 — `save_ai_bankroll`'s first-write `ai_seed` now writes int + seed in ONE transaction via an optional `conn=` threaded through the ledger write API (backward-compatible; the seam for the rest); (2) casino prefund/drain (`_prefund_fish_from_pool`, `_drain_fish_bankroll_to_pool`) given logical-failure backstops — only credit/zero the int if the ledger write landed (no mint/double-count without a record). Tests: `tests/test_cash_mode/test_atomic_chip_writes.py`. **DEFERRED (Tier-2):** route the ~13 remaining hot money chokepoints (and the casino pair's hard-crash window) through a shared-connection unit-of-work so every int+ledger pair commits atomically — needs a public `BaseRepository.transaction()` primitive (reaching `_get_connection()` cross-repo breaks test doubles, see the casino-shadow tests). **Read-scaling:** `CHIP_CUSTODY_DERIVE_READS` makes `load_*` sum the ledger per read (O(rows/account), no index on source/sink) — does NOT scale; the scalable design is int-as-read (O(1), correct-at-chokepoint) + a periodic `audit_ledger_completeness.py` reconcile. **For prod: set `DERIVE_READS=off`** (it's a dev tripwire only). See `docs/plans/PROD_MERGE_PLAN.md` and `docs/captains-log/`. | **PARTIAL** — CP-19 + casino backstops FIXED; full shared-conn UoW + `DERIVE_READS=off` prod posture OPEN |
 
 ### Code Organization
 
@@ -310,8 +311,8 @@ Issues to address once live, during ongoing development.
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 32 | 27 | 6 | 0 (T1-34 demoted+gated, T1-26/T1-27 open) |
 | **Tier 2: Should-Fix** | 58 | 49 | 6 | 3 |
-| **Tier 3: Post-Release** | 80 | 38 | 1 | 41 |
-| **Total** | **170** | **114** | **13** | **44** |
+| **Tier 3: Post-Release** | 81 | 38 | 1 | 42 |
+| **Total** | **171** | **114** | **13** | **45** |
 
 *2026-05-29: added T2-75 (`refresh_unseated_tables` god-function, owner-elevated P1) — see Architecture & Design.*
 
