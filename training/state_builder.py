@@ -57,7 +57,6 @@ def build_scripted_spot_state_machine(
     time so it never reaches a live game).
     """
     from core.card import Card
-
     from flask_app.game_adapter import StateMachineAdapter
     from poker.poker_game import Player, PokerGameState, create_deck
     from poker.poker_state_machine import PokerPhase, PokerStateMachine
@@ -147,16 +146,16 @@ def build_scripted_spot_state_machine(
     )
 
     # --- Ghost-seat / legality guards (the load-bearing invariants) ---
-    assert game_state.players[game_state.current_player_idx].is_human, (
-        "scripted spot factory: current player is not the human (ghost-seat risk)"
-    )
+    assert game_state.players[
+        game_state.current_player_idx
+    ].is_human, "scripted spot factory: current player is not the human (ghost-seat risk)"
     assert game_state.awaiting_action, "scripted spot factory: not awaiting action"
     assert len(deck) == 52 - len(placed) - 2 * (
         n_villains if spot.villain_holes is None else 0
     ), "scripted spot factory: deck size inconsistent with placed cards"
-    assert all(c not in deck for c in placed), (
-        "scripted spot factory: a placed card is still in the deck"
-    )
+    assert all(
+        c not in deck for c in placed
+    ), "scripted spot factory: a placed card is still in the deck"
 
     base = PokerStateMachine.from_saved_state(
         game_state,

@@ -221,6 +221,23 @@ def analyze_player_decision(
     try:
         from poker.decision_analyzer import get_analyzer
 
+        # Skip the duplicate analysis when the acting player's controller
+        # already wrote the richer controller-side row for THIS decision.
+        # Self-analyzing controllers (standard/lean/chaos, and tiered when a
+        # decision_analysis repo is attached) stamp (hand_number, phase,
+        # action) after saving; that row carries the capture_id, psychology
+        # snapshot, and menu compliance this fallback path can't reconstruct.
+        # Consume the stamp on match so a stale stamp can never wrongly skip
+        # a later decision that didn't self-analyze (humans, narration-skipped
+        # sharp bots, or any controller without a repo wired).
+        controller = (ai_controllers or {}).get(player_name)
+        if controller is not None:
+            phase_name = state_machine.current_phase.name if state_machine.current_phase else None
+            stamp = getattr(controller, '_last_analyzed_decision', None)
+            if stamp is not None and stamp == (hand_number, phase_name, action):
+                controller._last_analyzed_decision = None
+                return
+
         player = game_state.current_player
         if player.name != player_name:
             # Find the player who acted (may have moved to next player already)
@@ -1916,21 +1933,18 @@ def api_player_action(game_id):
         extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
             _mm = current_game_data['memory_manager']
-            extensions.game_repo.save_opponent_models(
-                game_id, _mm.get_opponent_model_manager()
-            )
+            extensions.game_repo.save_opponent_models(game_id, _mm.get_opponent_model_manager())
             # Circuit scouting memory: fold this game's observation counts
             # into the durable per-sandbox lifetime rows. No-op for
             # non-sandbox games (sandbox_id is None). Isolated + guarded so a
             # fold hiccup can never break the hand flow.
             try:
-                extensions.game_repo.fold_observations_into_lifetime(
-                    game_id, _mm.sandbox_id
-                )
+                extensions.game_repo.fold_observations_into_lifetime(game_id, _mm.sandbox_id)
             except Exception as _fold_exc:  # pragma: no cover - defensive
                 logger.warning(
                     "[DOSSIER] observation lifetime fold failed for game %s: %s",
-                    game_id, _fold_exc,
+                    game_id,
+                    _fold_exc,
                 )
 
         # If the human just folded and opted into "speed through after I fold",
@@ -2425,21 +2439,18 @@ def register_socket_events(sio):
         extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
             _mm = current_game_data['memory_manager']
-            extensions.game_repo.save_opponent_models(
-                game_id, _mm.get_opponent_model_manager()
-            )
+            extensions.game_repo.save_opponent_models(game_id, _mm.get_opponent_model_manager())
             # Circuit scouting memory: fold this game's observation counts
             # into the durable per-sandbox lifetime rows. No-op for
             # non-sandbox games (sandbox_id is None). Isolated + guarded so a
             # fold hiccup can never break the hand flow.
             try:
-                extensions.game_repo.fold_observations_into_lifetime(
-                    game_id, _mm.sandbox_id
-                )
+                extensions.game_repo.fold_observations_into_lifetime(game_id, _mm.sandbox_id)
             except Exception as _fold_exc:  # pragma: no cover - defensive
                 logger.warning(
                     "[DOSSIER] observation lifetime fold failed for game %s: %s",
-                    game_id, _fold_exc,
+                    game_id,
+                    _fold_exc,
                 )
 
         # Human opted into "speed through after I fold" — fast-forward the orbit.

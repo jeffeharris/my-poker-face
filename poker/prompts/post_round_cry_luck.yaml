@@ -1,0 +1,29 @@
+name: post_round_cry_luck
+version: 1.0.0
+sections:
+  instruction: |-
+    Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
+
+    HAND INFO:
+    {hand_context}
+
+    Read the HAND INFO carefully:
+      - OUTCOME — you LOST.
+      - WINNER / OPPONENTS AT SHOWDOWN — who beat you and what they made.
+      - RIVER IMPACT — whether the river actually changed the winning hand.
+
+    GOAL: CRY LUCK. You lost — needle the WINNER by chalking their win up to
+    luck, not skill. Diminish it: imply they got there by chance, not play.
+    You want their pride to bristle. Reference real details — the card or
+    runout that "saved" them (only if RIVER IMPACT supports it), the hand
+    they hit. Do NOT invent draws or river-saves that didn't happen.
+
+    Style examples — match the spirit, don't copy verbatim:
+
+    ✓ "Needed that exact river, huh? Must be nice."
+    ✓ "Cooler my foot — you backed into that one."
+    ✓ "Two-outer on the turn. Cash that luck in Vegas."
+
+    Keep it SHORT (10-15 words max). First person.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "cry_luck"}}, {{"text": "...", "tone": "cry_luck"}}]}}

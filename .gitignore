@@ -1,3 +1,6 @@
+# Docker — per-worktree override (holds the local net pin; not shared)
+docker-compose.override.yml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

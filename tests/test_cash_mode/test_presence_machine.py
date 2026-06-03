@@ -33,7 +33,6 @@ from cash_mode.presence import (
     transition,
 )
 
-
 # ===========================================================================
 # Pure machine — constructors & invariants
 # ===========================================================================
@@ -60,8 +59,7 @@ def test_seated_requires_seat_fields():
 
 def test_non_seated_must_not_carry_a_seat():
     # A non-seated entity holding a seat is exactly the ghost-seat bug.
-    for st in (Presence.IDLE, Presence.OFFLINE, Presence.SIDE_HUSTLE,
-               Presence.VICE, Presence.POOL):
+    for st in (Presence.IDLE, Presence.OFFLINE, Presence.SIDE_HUSTLE, Presence.VICE, Presence.POOL):
         with pytest.raises(IllegalPresenceTransition):
             PresenceState("ai:x", "s", st, table_id="t1", seat_index=0)
 
@@ -89,9 +87,9 @@ def _seat_kwargs(event):
     return {}
 
 
-@pytest.mark.parametrize("from_state,event,to_state", [
-    (k[0], k[1], v) for k, v in LEGAL_TRANSITIONS.items()
-])
+@pytest.mark.parametrize(
+    "from_state,event,to_state", [(k[0], k[1], v) for k, v in LEGAL_TRANSITIONS.items()]
+)
 def test_every_legal_transition_lands_on_expected_state(from_state, event, to_state):
     # Build a valid `from` state (seat fields when seated).
     if from_state is Presence.SEATED:
@@ -252,8 +250,7 @@ def test_sandbox_scoping_independent_states():
         offline("ai:x", "sandbox-1"), PresenceEvent.SIT, table_id="t1", seat_index=0
     )
     idle_s2 = transition(
-        transition(offline("ai:x", "sandbox-2"), PresenceEvent.SIT,
-                   table_id="t9", seat_index=0),
+        transition(offline("ai:x", "sandbox-2"), PresenceEvent.SIT, table_id="t9", seat_index=0),
         PresenceEvent.LEAVE,
     )
     assert seated_s1.sandbox_id == "sandbox-1" and seated_s1.state is Presence.SEATED
@@ -269,8 +266,8 @@ def test_sandbox_scoping_independent_states():
 
 @pytest.fixture
 def presence_repo(tmp_path):
-    from poker.repositories.schema_manager import SchemaManager
     from poker.repositories.entity_presence_repository import EntityPresenceRepository
+    from poker.repositories.schema_manager import SchemaManager
 
     db = str(tmp_path / "presence.db")
     SchemaManager(db).ensure_schema()
@@ -284,9 +281,7 @@ def test_repo_load_defaults_offline(presence_repo):
 
 def test_repo_persist_and_reload(presence_repo):
     eid = ai_entity_id("snoop")
-    s = presence_repo.persist_transition(
-        eid, "s1", PresenceEvent.SIT, table_id="t1", seat_index=3
-    )
+    s = presence_repo.persist_transition(eid, "s1", PresenceEvent.SIT, table_id="t1", seat_index=3)
     assert s.state is Presence.SEATED
     reloaded = presence_repo.load(eid, "s1")
     assert reloaded.state is Presence.SEATED
@@ -365,7 +360,7 @@ def test_repo_save_offline_is_delete(presence_repo):
 
 
 def test_repo_migration_idempotent(tmp_path):
-    from poker.repositories.schema_manager import SchemaManager, SCHEMA_VERSION
+    from poker.repositories.schema_manager import SCHEMA_VERSION, SchemaManager
 
     db = str(tmp_path / "idem.db")
     SchemaManager(db).ensure_schema()
@@ -377,9 +372,8 @@ def test_repo_migration_idempotent(tmp_path):
         assert v == SCHEMA_VERSION
         # table present
         names = {
-            r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         assert "entity_presence" in names
     finally:

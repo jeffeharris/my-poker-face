@@ -54,7 +54,6 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Dict, FrozenSet, Optional, Tuple
 
-
 # ---------------------------------------------------------------------------
 # States
 # ---------------------------------------------------------------------------
@@ -92,14 +91,14 @@ class PresenceEvent(Enum):
     the lifecycle-event vocabulary in the design's §5.3 table.
     """
 
-    SIT = "sit"                    # take a seat at a table (from OFFLINE/IDLE/POOL)
-    LEAVE = "leave"               # voluntary leave / cash-out from a seat
-    RESEAT = "reseat"             # idle -> seated (re-entry from the idle pool)
+    SIT = "sit"  # take a seat at a table (from OFFLINE/IDLE/POOL)
+    LEAVE = "leave"  # voluntary leave / cash-out from a seat
+    RESEAT = "reseat"  # idle -> seated (re-entry from the idle pool)
     START_HUSTLE = "start_hustle"  # idle -> side hustle (AI off-grid earning)
-    START_VICE = "start_vice"     # idle -> vice (AI off-grid spending)
-    END_OFFGRID = "end_offgrid"   # hustle/vice timer ends -> back to idle
-    GO_OFFLINE = "go_offline"     # explicit departure from the sandbox
-    SEED = "seed"                 # provision a pool-funded AI into the sandbox
+    START_VICE = "start_vice"  # idle -> vice (AI off-grid spending)
+    END_OFFGRID = "end_offgrid"  # hustle/vice timer ends -> back to idle
+    GO_OFFLINE = "go_offline"  # explicit departure from the sandbox
+    SEED = "seed"  # provision a pool-funded AI into the sandbox
     RETURN_TO_POOL = "return_to_pool"  # pool-funded AI leaves a seat back to POOL
 
 
@@ -125,18 +124,15 @@ LEGAL_TRANSITIONS: Dict[Tuple[PresenceState_, PresenceEvent], PresenceState_] = 
     (Presence.POOL, PresenceEvent.SIT): Presence.SEATED,
     (Presence.IDLE, PresenceEvent.SIT): Presence.SEATED,
     (Presence.IDLE, PresenceEvent.RESEAT): Presence.SEATED,
-
     # --- Leaving a seat ---------------------------------------------------
     (Presence.SEATED, PresenceEvent.LEAVE): Presence.IDLE,
     (Presence.SEATED, PresenceEvent.GO_OFFLINE): Presence.OFFLINE,
     (Presence.SEATED, PresenceEvent.RETURN_TO_POOL): Presence.POOL,
-
     # --- Off-grid (AI side hustle / vice) ---------------------------------
     (Presence.IDLE, PresenceEvent.START_HUSTLE): Presence.SIDE_HUSTLE,
     (Presence.IDLE, PresenceEvent.START_VICE): Presence.VICE,
     (Presence.SIDE_HUSTLE, PresenceEvent.END_OFFGRID): Presence.IDLE,
     (Presence.VICE, PresenceEvent.END_OFFGRID): Presence.IDLE,
-
     # --- Idle / pool departures ------------------------------------------
     (Presence.IDLE, PresenceEvent.GO_OFFLINE): Presence.OFFLINE,
     (Presence.POOL, PresenceEvent.GO_OFFLINE): Presence.OFFLINE,

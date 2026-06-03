@@ -240,6 +240,9 @@ def run_sim(
     # wealth-tax matches the live game. Real vice runs with the templated
     # narrator (vice_use_llm_narration=False below) — no LLM in the sim.
     vice_repo = repos.get('vice_state_repo') if config.vice_mode == 'real' else None
+    # Renown-v2 B4: only consulted when PRESTIGE_SEEKING_ENABLED is on (else the
+    # marquee term is inert). Optional in the dict for back-compat.
+    prestige_snapshots_repo = repos.get('prestige_snapshots_repo')
     db_path = repos['db_path']
 
     rng = random.Random(config.rng_seed)
@@ -289,10 +292,14 @@ def run_sim(
             relationship_repo=relationship_repo,
             stake_repo=stake_repo,
             side_hustle_repo=side_hustle_repo,
+            prestige_snapshots_repo=prestige_snapshots_repo,
             vice_repo=vice_repo,
             # Run the SAME vice as production (default 'real' = cast-median
             # concentration). The sim has no LLM, so real vice runs with the
             # deterministic templated narrator instead of narrating per fire.
+            # Supersedes the earlier fake-vice-only stub: polish made real vice
+            # LLM-free via the templated narrator, so the sim's wealth-tax now
+            # matches the live game.
             vice_mode=config.vice_mode,
             vice_use_llm_narration=False,
             hustle_use_llm_narration=False,

@@ -95,6 +95,12 @@
   padding: 0.25rem 0;
 }
 
+.cash-controls__notice {
+  color: #86efac;
+  font-size: 0.75rem;
+  padding: 0.25rem 0;
+}
+
 .cash-controls__breakdown {
   margin-top: 0.25rem;
   padding: 0.5rem 0.6rem;

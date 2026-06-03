@@ -199,6 +199,7 @@ class AIMemoryManager:
             # different sandbox doesn't poison this hand's reads.
             stack_dom_max: Optional[int] = None
             stack_dom_lookup: Optional[Callable[[str, str], int]] = None
+            hands_played_lookup: Optional[Callable[[str, str], int]] = None
             if self._cash_mode and self._table_max_buy_in and self._sandbox_id is not None:
                 stack_dom_max = self._table_max_buy_in
                 relationship_repo = self._relationship_repo
@@ -212,11 +213,22 @@ class AIMemoryManager:
                     )
                     return stats.cumulative_pnl if stats is not None else 0
 
+                # Shared-hand volume gate for the RIVAL/NEMESIS tiers — the
+                # persisted per-pair hand count (symmetric).
+                def hands_played_lookup(a_id: str, b_id: str) -> int:
+                    stats = relationship_repo.load_cash_pair_stats(
+                        a_id,
+                        b_id,
+                        sandbox_id=sandbox_id,
+                    )
+                    return stats.hands_played_cash if stats is not None else 0
+
             events = self.hand_outcome_detector.detect_events(
                 recorded_hand,
                 equity_history=equity_history,
                 max_buy_in=stack_dom_max,
                 cash_pnl_lookup=stack_dom_lookup,
+                hands_played_lookup=hands_played_lookup,
             )
             # Cash pair PnL feeds from every chip flow (no big-pot
             # gate), independent of whether relationship-axis events
@@ -675,6 +687,7 @@ class AIMemoryManager:
         ai_players: Dict[str, Any] = None,
         skip_commentary: bool = False,
         equity_history=None,
+        record_showdown_equity: bool = True,
     ) -> Dict[str, HandCommentary]:
         """Process end of hand - record history, update models, optionally generate commentary.
 
@@ -683,6 +696,13 @@ class AIMemoryManager:
             game_state: Current game state
             ai_players: Dict mapping player names to their AIPokerPlayer objects
             skip_commentary: If True, skip commentary generation (for async flow)
+            record_showdown_equity: If False, skip the showdown
+                equity-at-actions enrichment (`_record_showdown_equity_at_actions`).
+                That step runs inline eval7 (iterations=400 per postflop
+                showdown action) and is the dominant cost of this method;
+                it only feeds opponent-model equity buckets, not the
+                relationship detector. The cash lobby sim passes False so
+                relationship-simming stays write-light on the hot path.
             equity_history: Optional HandEquityHistory built by the
                 caller before this method runs. Forwarded to the
                 relationship detector to enable BAD_BEAT detection.
@@ -747,7 +767,13 @@ class AIMemoryManager:
                 except Exception as e:
                     logger.warning(f"Polarization Phase A equity recording failed: {e}")
 
-            if ASYNC_EQUITY_TELEMETRY:
+            if not record_showdown_equity:
+                # Lean path (cash lobby sim): skip the eval7 enrichment
+                # entirely — it's the dominant per-hand cost and the
+                # opponent-model equity buckets it feeds are not needed
+                # for relationship detection.
+                pass
+            elif ASYNC_EQUITY_TELEMETRY:
                 # Live: off the hand-completion path (best-effort enrichment).
                 try:
                     _EQUITY_TELEMETRY_EXECUTOR.submit(_record)

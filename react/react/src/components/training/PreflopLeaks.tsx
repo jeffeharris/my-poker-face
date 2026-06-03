@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
 import { Sparkline } from '../cash/Sparkline';
+import { SizingReadability } from './SizingReadability';
 import type { BankrollPoint } from '../cash/types';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
@@ -320,6 +321,11 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
         {loading && <div className="pfl-state">Reviewing your hands…</div>}
         {error && <div className="pfl-state pfl-error">{error}</div>}
 
+        {/* Surface A (SIZING_COACH_SURFACES.md): your OWN bet-sizing readability,
+            independent of the preflop review — self-fetches, shows its own
+            "keep playing" note when thin. */}
+        <SizingReadability />
+
         {data && !data.enough_data && (
           <div className="pfl-state">
             <TrendingUp size={28} />
@@ -337,10 +343,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
         {data && data.enough_data && (
           <div className="pfl-body">
             <p className="pfl-intro">
-              Across <strong>{data.total_decisions}</strong> preflop decisions. Your VPIP
-              (how often you play a hand) is shown next to a standard opening range for
-              orientation — it's context, not a grade (your number includes calls and
-              blind defense).
+              Across <strong>{data.total_decisions}</strong> preflop decisions. Your VPIP (how often
+              you play a hand) is shown next to a standard opening range for orientation — it's
+              context, not a grade (your number includes calls and blind defense).
             </p>
 
             <p className="pfl-scale-note">
@@ -349,7 +354,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
             <div className="pfl-positions">
               {data.by_position.map((row) => (
                 <div key={row.position} className="pfl-pos">
-                  <span className="pfl-pos-name">{POSITION_LABEL[row.position] ?? row.position}</span>
+                  <span className="pfl-pos-name">
+                    {POSITION_LABEL[row.position] ?? row.position}
+                  </span>
                   <span className="pfl-pos-bar-wrap">
                     <span
                       className="pfl-pos-bar"
@@ -357,7 +364,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                     />
                     <span
                       className="pfl-pos-ref"
-                      style={{ left: `${Math.min(100, (row.reference_vpip_pct / scaleMax) * 100)}%` }}
+                      style={{
+                        left: `${Math.min(100, (row.reference_vpip_pct / scaleMax) * 100)}%`,
+                      }}
                       title={`standard opens ~${row.reference_vpip_pct}%`}
                     />
                   </span>
@@ -394,8 +403,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                   ))}
                 </div>
                 <p className="pfl-depth-note">
-                  Scopes the leak analysis to {depth === 'all' ? 'all stack depths' : `${depth}-stack spots`}.
-                  The VPIP bars above stay all-time.
+                  Scopes the leak analysis to{' '}
+                  {depth === 'all' ? 'all stack depths' : `${depth}-stack spots`}. The VPIP bars
+                  above stay all-time.
                 </p>
               </div>
             )}
@@ -435,7 +445,9 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                         Drill
                       </button>
                       {open && (
-                        <p className="pfl-leak-explain">{TREND_TOOLTIP[trend](lk.recent?.n ?? 0)}</p>
+                        <p className="pfl-leak-explain">
+                          {TREND_TOOLTIP[trend](lk.recent?.n ?? 0)}
+                        </p>
                       )}
                     </li>
                   );
@@ -492,17 +504,17 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
             )}
             <p className="pfl-note pfl-note--tier">
               <strong>watching</strong> = small sample so far (could be variance);{' '}
-              <strong>leak</strong> = seen enough to be sure. Keep playing and watch-items
-              graduate (or clear).
+              <strong>leak</strong> = seen enough to be sure. Keep playing and watch-items graduate
+              (or clear).
             </p>
             <p className="pfl-note">
-              Graded {data.graded} of your decisions against the same solver charts the bots
-              play — measured by how often you take each action, not single hands.
+              Graded {data.graded} of your decisions against the same solver charts the bots play —
+              measured by how often you take each action, not single hands.
               {data.skipped?.short_multiway
                 ? ` ${data.skipped.short_multiway} short-stack multiway spots were skipped (no clean reference there).`
                 : ''}{' '}
-              This is the GTO baseline; deliberate adjustments against weak players will show
-              up here as deviations.
+              This is the GTO baseline; deliberate adjustments against weak players will show up
+              here as deviations.
             </p>
 
             {effect && effect.overall.nudged.n > 0 && (
@@ -525,17 +537,13 @@ export function PreflopLeaks({ onBack, onDrill }: PreflopLeaksProps) {
                     ))}
                 </ul>
                 <p className="pfl-note">
-                  Baseline = how you usually play these spots — a correlation, not a controlled test.
+                  Baseline = how you usually play these spots — a correlation, not a controlled
+                  test.
                 </p>
               </div>
             )}
 
-            <button
-              type="button"
-              className="pfl-ask"
-              onClick={askCoach}
-              disabled={feedbackLoading}
-            >
+            <button type="button" className="pfl-ask" onClick={askCoach} disabled={feedbackLoading}>
               {feedbackLoading ? 'Coach is reviewing…' : 'Ask the coach about this'}
             </button>
             {feedback && (

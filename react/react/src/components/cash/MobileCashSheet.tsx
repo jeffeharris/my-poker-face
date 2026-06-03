@@ -44,7 +44,6 @@ interface MobileCashSheetProps {
   cashMode: CashModeInfo;
   playerStack: number;
   handInProgress: boolean;
-  playerFolded: boolean;
 }
 
 interface LeaveBreakdownPanelProps {
@@ -101,11 +100,11 @@ export function MobileCashSheet({
   cashMode,
   playerStack,
   handInProgress,
-  playerFolded,
 }: MobileCashSheetProps) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [leaveResult, setLeaveResult] = useState<LeaveResponse | null>(null);
@@ -121,6 +120,7 @@ export function MobileCashSheet({
       return;
     }
     setError(null);
+    setNotice(null);
     setClosing(false);
     setConfirmLeave(false);
     let cancelled = false;
@@ -149,16 +149,17 @@ export function MobileCashSheet({
 
   const headroom = Math.max(0, cashMode.max_buy_in - playerStack);
   const topUpAmount = Math.min(headroom, cashMode.bankroll);
-  // Mid-hand top-up is allowed once the human has folded — they're
-  // out of the betting for this hand, so adding chips can't shift
-  // the call/raise math in front of the AIs.
-  const topUpBlocked = handInProgress && !playerFolded;
-  const canTopUp = !busy && !topUpBlocked && topUpAmount > 0;
+  // A mid-hand top-up no longer fails: the backend stages it and the
+  // chips land at the start of the next hand. The only hard block is no
+  // headroom / no bankroll. `willStage` only drives the copy.
+  const willStage = handInProgress;
+  const canTopUp = !busy && topUpAmount > 0;
 
   const handleTopUp = useCallback(async () => {
     if (!canTopUp) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(`${config.API_URL}/api/cash/topup`, {
         method: 'POST',
@@ -166,15 +167,22 @@ export function MobileCashSheet({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: topUpAmount }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         if (res.status === 404 && data.error === 'No active cash session') {
           navigate('/cash');
           return;
         }
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      handleClose();
+      // Staged top-ups land next hand — keep the sheet open and show a
+      // note instead of closing on what looks like a no-op. Immediate
+      // top-ups (between hands) close the sheet as before.
+      if (data.staged) {
+        setNotice(`+$${topUpAmount.toLocaleString()} added at the start of your next hand`);
+      } else {
+        handleClose();
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('Top up failed:', msg);
@@ -299,10 +307,10 @@ export function MobileCashSheet({
             >
               {busy && !confirmLeave
                 ? 'Topping up…'
-                : topUpBlocked
-                  ? 'Top up between hands (or after you fold)'
-                  : topUpAmount === 0
-                    ? 'No bankroll to top up'
+                : topUpAmount === 0
+                  ? 'No bankroll to top up'
+                  : willStage
+                    ? `Top up next hand +$${topUpAmount.toLocaleString()}`
                     : `Top up +$${topUpAmount.toLocaleString()}`}
             </button>
           ) : (
@@ -333,6 +341,12 @@ export function MobileCashSheet({
           {error && (
             <div className="mobile-cash-sheet__error" role="alert">
               {error}
+            </div>
+          )}
+
+          {notice && (
+            <div className="mobile-cash-sheet__notice" role="status">
+              {notice}
             </div>
           )}
         </div>

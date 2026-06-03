@@ -294,7 +294,31 @@ _test_schema_template_path = None
 #       OpponentTendencies._SERIAL_FIELDS first so they serialize per-game.
 #       Player/coach-facing read only. 2 INTEGER columns. Guarded ALTER,
 #       idempotent.
-SCHEMA_VERSION = 136
+# v136: Retire the deprecated 4D emotion model — DROP the emotional_state table
+#       (consolidated into controller_state.psychology_json) and the
+#       valence/arousal/control/focus columns on player_decision_analysis.
+# v137: Create `cash_scalps` — durable, sandbox-scoped, attributed "who busted
+#       whom" counter (per eliminator→victim pair, so renown-weighting can read
+#       the victim's standing). Forward-only; AI-symmetric. The shared
+#       prerequisite for the Renown-v2 scalp driver (villain route) and the
+#       bounty/double_knockout achievements. Renumbered from v132 on the
+#       renown→development merge (development reached v136 first). See
+#       CASH_MODE_SCALP_TRACKER.md.
+# v139: add `entity_kind` to prestige_snapshots so AI entities get their own
+#       persisted, field-relative renown rows (Stage A of the AI-wiring plan).
+#       Existing rows default to 'player' (the human); AI rows write 'ai'. See
+#       docs/plans/RENOWN_V2_AI_WIRING_PLAN.md.
+# v140: add a covering index on holdings_snapshots(sandbox_id, entity_id,
+#       net_worth) so the Renown-v2 field build's peak-net-worth aggregate
+#       (MAX(net_worth) GROUP BY entity_id) is index-only instead of doing one
+#       table lookup per snapshot row. On the real field that was ~200ms of the
+#       ~520ms field build (the table is a large per-tick time series); covering
+#       it drops it to ~tens of ms. Additive index, idempotent.
+# v138: extend prestige_snapshots with the Renown-v2 columns (uncapped,
+#       field-relative score) — additive, computed-but-unconsumed until
+#       RENOWN_V2_ENABLED flips. Renumbered from v133 on the renown→development
+#       merge. See CASH_MODE_PLAYER_PRESTIGE.md.
+SCHEMA_VERSION = 140
 
 
 class SchemaManager:
@@ -2120,6 +2144,22 @@ class SchemaManager:
             136: (
                 self._migrate_v136_drop_4d_emotion,
                 "Retire the deprecated 4D emotion model: DROP the emotional_state table (consolidated into controller_state.psychology_json) and the valence/arousal/control/focus columns on player_decision_analysis. Emotion is now the quadrant model (trait-aware family x quadrant). NOTE: numbered 136 (not 130) because this branch (polish, schema v129) diverged before development reached v135; 130-135 belong to development and are skipped here if absent.",
+            ),
+            137: (
+                self._migrate_v137_create_cash_scalps,
+                "Create cash_scalps table — durable sandbox-scoped attributed 'who busted whom' counter (per eliminator→victim pair), the shared prerequisite for the Renown-v2 scalp driver and bounty achievements. Forward-only, AI-symmetric. Renumbered from v132 on the renown→development merge.",
+            ),
+            138: (
+                self._migrate_v138_add_prestige_v2_columns,
+                "Extend prestige_snapshots with the Renown-v2 columns (formula_version, uncapped renown_v2, victim_percentile, field-wide high_cut, v2 component JSON, field_size) so the human's field-relative uncapped score persists ADDITIVELY alongside v1. Computed-but-unconsumed until RENOWN_V2_ENABLED flips. Non-destructive ADD COLUMNs. Renumbered from v133 on the renown→development merge.",
+            ),
+            139: (
+                self._migrate_v139_add_prestige_entity_kind,
+                "Add entity_kind to prestige_snapshots ('player'|'ai', existing rows default 'player') + an (sandbox_id, entity_kind, owner_id, renown_v2) index, so AI entities get their own persisted field-relative renown rows. owner_id is the universal subject id (human owner_id or AI personality_id); entity_kind disambiguates so the human's load_latest never matches AI rows. Stage A of the AI-wiring plan. Non-destructive ADD COLUMN.",
+            ),
+            140: (
+                self._migrate_v140_add_holdings_peak_index,
+                "Add covering index holdings_snapshots(sandbox_id, entity_id, net_worth) so the Renown-v2 field build's MAX(net_worth) GROUP BY entity_id is index-only (no per-row table lookup) — cuts ~200ms off the ~520ms field build on the real field. Additive index, idempotent.",
             ),
         }
 
@@ -6938,9 +6978,7 @@ class SchemaManager:
         cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
         columns = [row[1] for row in cursor.fetchall()]
         if 'preflop_node_key' not in columns:
-            conn.execute(
-                "ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT"
-            )
+            conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT")
             logger.info("Added preflop_node_key column to player_decision_analysis")
         logger.info("Migration v130 complete: preflop_node_key added")
 
@@ -6985,14 +7023,10 @@ class SchemaManager:
             CREATE INDEX IF NOT EXISTS idx_coach_tips_join
                 ON coach_tips(game_id, hand_number, player_name)
         """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)")
         logger.info("Migration v131 complete: coach_tips table created")
 
-    def _migrate_v132_add_limp_lifetime_count(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v132_add_limp_lifetime_count(self, conn: sqlite3.Connection) -> None:
         """Migration v132: add `limp_count` to `opponent_observation_lifetime`.
 
         The numerator for `OpponentTendencies.limp_rate` — how often an
@@ -7009,9 +7043,7 @@ class SchemaManager:
         new_columns = ['limp_count']
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -7021,14 +7053,11 @@ class SchemaManager:
                 )
 
         logger.info(
-            "Migration v132 complete: %d column(s) added to "
-            "opponent_observation_lifetime",
+            "Migration v132 complete: %d column(s) added to " "opponent_observation_lifetime",
             len(new_columns),
         )
 
-    def _migrate_v133_add_sizing_aware_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v133_add_sizing_aware_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v133: persist the sizing-aware counters/sums.
 
         The sizing tells were tracked live on `OpponentTendencies` but never
@@ -7057,9 +7086,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col, sql_type in new_columns:
             if col not in existing:
@@ -7074,9 +7101,7 @@ class SchemaManager:
             len(new_columns),
         )
 
-    def _migrate_v134_add_postflop_axis_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v134_add_postflop_axis_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v134: persist the postflop aggression-axis counters.
 
         These four counters were tracked live on `OpponentTendencies` but never
@@ -7102,9 +7127,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -7119,9 +7142,7 @@ class SchemaManager:
             len(new_columns),
         )
 
-    def _migrate_v135_add_flop_check_barrel_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v135_add_flop_check_barrel_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v135: persist the flop-check-then-barrel counters.
 
         `flop_check_then_barrel_rate` (checks flop OOP, then bets turn after a
@@ -7141,9 +7162,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -7157,3 +7176,175 @@ class SchemaManager:
             "opponent_observation_lifetime",
             len(new_columns),
         )
+
+    def _migrate_v137_create_cash_scalps(self, conn: sqlite3.Connection) -> None:
+        """Migration v137: create `cash_scalps` — durable attributed bust counter.
+
+        A sandbox-scoped cumulative count of eliminations, keyed per
+        (eliminator, victim) pair so renown-weighting can read the *victim's*
+        standing (busting a legend ≫ a nobody) rather than just a flat count.
+
+        Ids are raw (no `player:`/`ai:` prefix), mirroring `cash_pair_stats`:
+        `owner_id` for the human, `personality_id` for AIs. AI-symmetric (the
+        eliminator may be an AI) and forward-only (counts start at 0; nothing
+        backfilled). Populated by `cash_mode/scalps.py` attribution off the
+        world-sim and the human's hand. Non-destructive, idempotent.
+
+        Renumbered from v132 on the renown→development merge (development
+        reached v136 first). See docs/plans/CASH_MODE_SCALP_TRACKER.md.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_scalps (
+                sandbox_id     TEXT NOT NULL,
+                eliminator_id  TEXT NOT NULL,
+                victim_id      TEXT NOT NULL,
+                count          INTEGER NOT NULL DEFAULT 0,
+                last_at        TIMESTAMP,
+                PRIMARY KEY (sandbox_id, eliminator_id, victim_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_scalps_eliminator
+                ON cash_scalps(sandbox_id, eliminator_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_scalps_victim
+                ON cash_scalps(sandbox_id, victim_id)
+        """)
+        logger.info("Migration v137 complete: cash_scalps table created")
+
+    def _migrate_v138_add_prestige_v2_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v138: extend `prestige_snapshots` with the Renown-v2 columns.
+
+        v1 persisted a CAPPED [0,1] renown with a fixed absolute quadrant cut
+        (0.40). v2 is **uncapped, concave, and field-relative** — it scores the
+        human against the whole field and classifies the quadrant by a
+        self-scaling cut (`max(top-X%, k×median)`) instead of a constant. The
+        validated v2 math already lives in `cash_mode/prestige.py`
+        (`score_renown_field` et al.) behind the default-OFF `RENOWN_V2_ENABLED`
+        flag; this migration gives it somewhere to land.
+
+        The columns are ADDITIVE and nullable/defaulted so the v1 columns stay
+        the stable baseline:
+          - `formula_version` — which formula wrote the CONSUMED columns
+            (`quadrant`, etc.) for this row: 'v1' (absolute) or 'v2' (relative).
+            The 4 reputation hooks + the lobby read the `quadrant` STRING
+            unchanged; `formula_version` only tells the panel which gauge to
+            render. Existing rows default to 'v1'.
+          - `renown_v2` — the uncapped lifetime renown points (NULL on v1 rows).
+            Ratchets via its own `MAX(renown_v2)` peak load (the v1 `renown`
+            column keeps its own independent ratchet; the two scales never mix).
+          - `victim_percentile` — the human's own field renown percentile [0,1].
+          - `high_cut` — the field-wide high-renown cut at capture time (same
+            for every entity that cycle; persisted so the panel can show the
+            gap to "figure" status).
+          - `renown_v2_components` — JSON of the v2 driver breakdown (scalps,
+            top1, peak_worth, backing, legendary, tenure, breadth, stakes,
+            apex), the v2 analogue of the renown_*/regard_* columns.
+          - `field_size` — entities scored that cycle (context for the panel and
+            for debugging the relative cut).
+
+        Every ALTER is PRAGMA-guarded so the migration is safe on a partially
+        applied DB. Non-destructive, idempotent. Renown stays a read-only
+        scoreboard — nothing here feeds AI decision thresholds. Renumbered from
+        v133 on the renown→development merge. See
+        docs/plans/CASH_MODE_PLAYER_PRESTIGE.md (Renown v2) and
+        docs/plans/RENOWN_V2_HANDOFF.md.
+        """
+        # (column, sql_type, default_clause) — all nullable except the version
+        # tag, which defaults to 'v1' so historical rows read as the old formula.
+        new_columns = [
+            ("formula_version", "TEXT", "NOT NULL DEFAULT 'v1'"),
+            ("renown_v2", "REAL", ""),
+            ("victim_percentile", "REAL", ""),
+            ("high_cut", "REAL", ""),
+            ("renown_v2_components", "TEXT", ""),
+            ("field_size", "INTEGER", ""),
+        ]
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(prestige_snapshots)").fetchall()
+        }
+        added = 0
+        for col, sql_type, default_clause in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE prestige_snapshots "
+                    f"ADD COLUMN {col} {sql_type} {default_clause}".rstrip()
+                )
+                added += 1
+        logger.info(
+            "Migration v138 complete: %d Renown-v2 column(s) added to " "prestige_snapshots",
+            added,
+        )
+
+    def _migrate_v139_add_prestige_entity_kind(self, conn: sqlite3.Connection) -> None:
+        """Migration v139: give `prestige_snapshots` an entity identity.
+
+        Until now the table held only the human (keyed `(sandbox_id, owner_id)`,
+        `owner_id` always the human user). To persist a **field-relative renown
+        for every AI** (the field scorer already computes it each cycle and
+        throws it away), we treat `owner_id` as the **universal subject id** —
+        the human's `owner_id` *or* an AI's raw `personality_id`, matching the
+        raw-id scheme `RenownFieldRepository`/`cash_scalps` already use — and add
+        one discriminator column:
+
+          - `entity_kind` TEXT NOT NULL DEFAULT 'player' — 'player' | 'ai'.
+
+        Existing rows default to 'player', so every current
+        `load_latest(sandbox, owner)` keeps returning exactly the human's rows
+        (AI rows carry 'ai' and a distinct `owner_id`). The invariant the repo
+        and tests enforce: **`owner_id` is the subject, `entity_kind`
+        disambiguates** — never set an AI row's `owner_id` to the sandbox owner,
+        or the human's `load_latest` would start matching AI rows.
+
+        Also adds `idx_prestige_snap_kind(sandbox_id, entity_kind, owner_id,
+        renown_v2)` to serve the batched per-AI v2-peak GROUP BY and a future
+        leaderboard read.
+
+        Additive, PRAGMA-guarded, idempotent. Non-destructive. See
+        docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A).
+        """
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(prestige_snapshots)").fetchall()
+        }
+        added = 0
+        if "entity_kind" not in existing:
+            conn.execute(
+                "ALTER TABLE prestige_snapshots "
+                "ADD COLUMN entity_kind TEXT NOT NULL DEFAULT 'player'"
+            )
+            added += 1
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prestige_snap_kind
+                ON prestige_snapshots(sandbox_id, entity_kind, owner_id, renown_v2)
+        """)
+        logger.info(
+            "Migration v139 complete: %d entity-kind column(s) added to " "prestige_snapshots",
+            added,
+        )
+
+    def _migrate_v140_add_holdings_peak_index(self, conn: sqlite3.Connection) -> None:
+        """Migration v140: covering index for the Renown-v2 peak-net-worth read.
+
+        The v2 field build (`RenownFieldRepository`) aggregates the per-entity
+        peak net worth as `MAX(net_worth) GROUP BY entity_id` over
+        `holdings_snapshots` — the field's largest table (a per-tick time
+        series). With only `idx_holdings_snap_entity(sandbox_id, entity_id,
+        captured_at)` the grouping is indexed but `net_worth` is fetched per row
+        from the table, so on the real field it cost ~200ms (one random page
+        read per snapshot row). This covering index puts `net_worth` in the
+        index so `MAX` is answered index-only (a single seek per entity group),
+        dropping it to ~tens of ms. The sibling presence read
+        (`COUNT(DISTINCT captured_at)`) is already covered by the entity index;
+        the time-at-#1 window read uses `idx_holdings_snap_scope`.
+
+        Additive index, idempotent. No write-path semantics change — only one
+        extra index maintained on holdings inserts (a periodic ticker write, not
+        the per-hand path). See docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A
+        stress gate) and RENOWN_V2_HANDOFF.md.
+        """
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_holdings_snap_peak
+                ON holdings_snapshots(sandbox_id, entity_id, net_worth)
+        """)
+        logger.info("Migration v140 complete: idx_holdings_snap_peak created")

@@ -824,11 +824,34 @@ def compute_bluff_catch_strategy(
 DEFAULT_SIZING_DEFENSE_CALL_MULTIPLIER = 0.55
 
 
+def proportional_call_multiplier(
+    polar_score: float, *, min_polar: float, full_polar: float, floor: float
+) -> float:
+    """The call-retention multiplier, scaled by HOW face-up the read is.
+
+    Linear ramp: 1.0 (no fold-more) at ``min_polar`` → ``floor`` (the most
+    aggressive retention) at ``full_polar`` and above. A barely-face-up read
+    (just over the gate) barely changes anything; a blatantly face-up one folds
+    hard. This bounds the misfire cost on weak / small-sample reads (which rarely
+    score high) and shrinks the surface an adapting adversary can exploit. With
+    ``floor == 1.0`` it's a no-op; passing ``full_polar <= min_polar`` recovers a
+    flat ``floor`` multiplier (degenerate ramp → always saturated).
+    """
+    floor = max(0.0, min(1.0, floor))
+    span = full_polar - min_polar
+    if span <= 1e-9:
+        return floor
+    frac = max(0.0, min(1.0, (polar_score - min_polar) / span))
+    return 1.0 - (1.0 - floor) * frac
+
+
 def compute_sizing_defense_strategy(
     strategy: StrategyProfile,
     *,
-    call_multiplier: float,
     polar_score: float,
+    min_polar: float,
+    full_polar: float,
+    call_multiplier_floor: float,
     bet_ratio: float,
     hand_strength: str,
     max_total_shift: float,
@@ -838,12 +861,15 @@ def compute_sizing_defense_strategy(
     """Shift call/continue mass toward fold vs a face-up big bettor, clamped.
 
     Reads the baseline ``strategy``'s probability on the call-equivalent action
-    (``call``, or ``all_in`` when call is illegal) and multiplies it by
-    ``call_multiplier`` (< 1.0); the freed mass moves to ``fold``. Raise/check
-    mass is left untouched — this layer only governs the call-vs-fold bluff-catch
-    decision, mirroring ``compute_bluff_catch_strategy``'s action vocabulary. The
-    proposal is then ``_clamp_to_envelope``d against the baseline so the L1 shift
-    never exceeds the active (DEFAULT) tier cap.
+    (``call``, or ``all_in`` when call is illegal) and multiplies it by a
+    PROPORTIONAL retention multiplier — ``proportional_call_multiplier`` scales
+    from 1.0 (no change) at the ``min_polar`` gate down to ``call_multiplier_floor``
+    at ``full_polar`` — so the fold-more commitment tracks how face-up the read
+    actually is. The freed mass moves to ``fold``. Raise/check mass is left
+    untouched — this layer only governs the call-vs-fold bluff-catch decision,
+    mirroring ``compute_bluff_catch_strategy``'s action vocabulary. The proposal is
+    then ``_clamp_to_envelope``d against the baseline so the L1 shift never exceeds
+    the active (DEFAULT) tier cap.
 
     Returns ``(strategy, trace)``. When ablation-disabled, returns the strategy
     unchanged with a ``disabled_by_ablation`` no-op trace.
@@ -867,7 +893,9 @@ def compute_sizing_defense_strategy(
             reason_code='no_call_mass',
         )
 
-    mult = max(0.0, min(1.0, call_multiplier))
+    mult = proportional_call_multiplier(
+        polar_score, min_polar=min_polar, full_polar=full_polar, floor=call_multiplier_floor
+    )
     new_call = base_call * mult
     freed = base_call - new_call
 

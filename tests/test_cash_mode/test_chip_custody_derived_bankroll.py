@@ -50,19 +50,43 @@ def derive_on(monkeypatch):
 
 class TestBalanceOf:
     def test_scoped_sum_minus_source(self, ledger_repo):
-        L.record(ledger_repo, source=L.bank(), sink=L.ai(PID), amount=10_000,
-                 reason="ai_seed", sandbox_id=SB1)
-        L.record_transfer(ledger_repo, source=L.ai(PID), sink=L.ai_seat(SB1, PID),
-                          amount=3_000, reason="ai_buy_in", sandbox_id=SB1)
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.ai(PID),
+            amount=10_000,
+            reason="ai_seed",
+            sandbox_id=SB1,
+        )
+        L.record_transfer(
+            ledger_repo,
+            source=L.ai(PID),
+            sink=L.ai_seat(SB1, PID),
+            amount=3_000,
+            reason="ai_buy_in",
+            sandbox_id=SB1,
+        )
         # ai:PID in SB1 = 10000 (seed) - 3000 (buy_in) = 7000
         assert ledger_repo.balance_of(L.ai(PID), sandbox_id=SB1) == 7_000
         assert ledger_repo.balance_of(L.ai_seat(SB1, PID), sandbox_id=SB1) == 3_000
 
     def test_sandbox_isolation_and_global_sum(self, ledger_repo):
-        L.record(ledger_repo, source=L.bank(), sink=L.player(OID), amount=5_000,
-                 reason="player_seed", sandbox_id=SB1)
-        L.record(ledger_repo, source=L.bank(), sink=L.player(OID), amount=2_000,
-                 reason="player_seed", sandbox_id=SB2)
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.player(OID),
+            amount=5_000,
+            reason="player_seed",
+            sandbox_id=SB1,
+        )
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.player(OID),
+            amount=2_000,
+            reason="player_seed",
+            sandbox_id=SB2,
+        )
         # Per-sandbox is isolated; global (None) sums across both.
         assert ledger_repo.balance_of(L.player(OID), sandbox_id=SB1) == 5_000
         assert ledger_repo.balance_of(L.player(OID), sandbox_id=SB2) == 2_000
@@ -74,10 +98,22 @@ class TestBalanceOf:
 
 class TestDeriveHelpers:
     def test_derive_ai_and_player(self, ledger_repo):
-        L.record(ledger_repo, source=L.bank(), sink=L.ai(PID), amount=8_000,
-                 reason="ai_seed", sandbox_id=SB1)
-        L.record(ledger_repo, source=L.bank(), sink=L.player(OID), amount=4_000,
-                 reason="player_seed", sandbox_id=SB1)
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.ai(PID),
+            amount=8_000,
+            reason="ai_seed",
+            sandbox_id=SB1,
+        )
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.player(OID),
+            amount=4_000,
+            reason="player_seed",
+            sandbox_id=SB1,
+        )
         assert L.derive_ai_balance(ledger_repo, personality_id=PID, sandbox_id=SB1) == 8_000
         assert L.derive_player_balance(ledger_repo, owner_id=OID) == 4_000
 
@@ -90,33 +126,51 @@ class TestDerivedReads:
     def test_default_read_is_stored_int(self, bankroll_repo, ledger_repo):
         # flag OFF (autouse reset): the stored int is returned even if the
         # ledger has nothing for this pid.
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(PID, 9_999, None), sandbox_id=SB1
-        )
+        bankroll_repo.save_ai_bankroll(AIBankrollState(PID, 9_999, None), sandbox_id=SB1)
         assert bankroll_repo.load_ai_bankroll(PID, sandbox_id=SB1).chips == 9_999
 
     def test_derived_read_prefers_ledger(self, bankroll_repo, ledger_repo, derive_on):
         # Stored int says 9999 but the ledger derives 7000 → derived wins.
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(PID, 9_999, None), sandbox_id=SB1
+        bankroll_repo.save_ai_bankroll(AIBankrollState(PID, 9_999, None), sandbox_id=SB1)
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.ai(PID),
+            amount=7_000,
+            reason="ai_seed",
+            sandbox_id=SB1,
         )
-        L.record(ledger_repo, source=L.bank(), sink=L.ai(PID), amount=7_000,
-                 reason="ai_seed", sandbox_id=SB1)
         assert bankroll_repo.load_ai_bankroll(PID, sandbox_id=SB1).chips == 7_000
 
     def test_derived_read_matches_when_consistent(self, bankroll_repo, ledger_repo, derive_on):
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(PID, 6_000, None), sandbox_id=SB1
+        bankroll_repo.save_ai_bankroll(AIBankrollState(PID, 6_000, None), sandbox_id=SB1)
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.ai(PID),
+            amount=6_000,
+            reason="ai_seed",
+            sandbox_id=SB1,
         )
-        L.record(ledger_repo, source=L.bank(), sink=L.ai(PID), amount=6_000,
-                 reason="ai_seed", sandbox_id=SB1)
         assert bankroll_repo.load_ai_bankroll(PID, sandbox_id=SB1).chips == 6_000
 
     def test_player_derived_read_sums_across_sandboxes(self, bankroll_repo, ledger_repo, derive_on):
         bankroll_repo.save_player_bankroll(PlayerBankrollState(OID, 12_345, 10_000))
-        L.record(ledger_repo, source=L.bank(), sink=L.player(OID), amount=5_000,
-                 reason="player_seed", sandbox_id=SB1)
-        L.record(ledger_repo, source=L.bank(), sink=L.player(OID), amount=2_000,
-                 reason="player_seed", sandbox_id=SB2)
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.player(OID),
+            amount=5_000,
+            reason="player_seed",
+            sandbox_id=SB1,
+        )
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.player(OID),
+            amount=2_000,
+            reason="player_seed",
+            sandbox_id=SB2,
+        )
         # Global derivation = 7000 (across both sandboxes), overriding the 12345 cache.
         assert bankroll_repo.load_player_bankroll(OID).chips == 7_000

@@ -2,8 +2,34 @@
 purpose: Spec for a durable, attributed "who busted whom" (scalp) counter in cash mode — the shared prerequisite for renown-weighted scalps and the bounty/double_knockout achievements, for the human and AIs alike.
 type: spec
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-06-01
 ---
+
+> **Status (2026-06-01): scalp tracker COMPLETE** — steps 1, 2, 3a, 3b all
+> done; only step 4 (the renown driver that *reads* the counter) remains, and
+> it belongs to the broader Renown-v2 build, not this tracker.
+> - **Step 2** (pure attribution helper) — `cash_mode/scalps.py`
+>   (`eliminations_from_sim` + `eliminations_from_human_hand`), unit-tested,
+>   deliberately pure (local `HAND_EVENT_BUST` mirror + drift-guard test).
+> - **Step 1** (durable counter) — schema **v132** `cash_scalps` +
+>   `CashScalpsRepository` (record / record_many / total_for /
+>   list_for_eliminator / victims_of), registered in `create_repos` +
+>   `extensions`; 7 repo tests + schema-chain tests green.
+> - **Step 3a** (AI-vs-AI world-sim path) — wired in
+>   `cash_mode/lobby.py::refresh_unseated_tables`: each sim hand's
+>   `eliminations_from_sim` is recorded via a lazily-resolved
+>   `cash_scalps_repo` (mirrors the entity-presence getter), best-effort so a
+>   write failure never breaks the world tick. 42 lobby tests green.
+> - **Step 3b** (human's own table) — wired in
+>   `game_handler.handle_evaluating_hand_phase` via `_record_cash_scalps`: after
+>   the pot award (stacks final), the headline winner (`winning_player_names[0]`
+>   → `owner_id` if human else the AI's `personality_id` via
+>   `cash_personality_ids`) is credited for each non-human player busted to 0.
+>   Headline-winner rule, consistent with 3a; AI-vs-AI busts at the human's
+>   table are recorded too; the human-as-victim is excluded (they leave, don't
+>   bust). Best-effort; 5 wiring tests green.
+> The counter now accrues from **both** the world sim and human tables; the
+> Renown-v2 scalp driver that *reads* it lands with the broader v2 build (step 4).
 
 # Cash Scalp Tracker — attributed bust counting
 

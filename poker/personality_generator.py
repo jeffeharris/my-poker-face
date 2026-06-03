@@ -13,6 +13,7 @@ from core.llm import CallType, LLMClient
 from core.llm.settings import get_assistant_model, get_assistant_provider
 
 from .repositories import PersonalityRepository
+from .strategy.skill_tiers import skill_tier_for_adaptation_bias
 
 logger = logging.getLogger(__name__)
 
@@ -549,6 +550,17 @@ Respond with ONLY a JSON object in this exact format:
                 )
                 result['anchors'] = _default_anchors()
 
+            # Skill tier (PLAYER_SKILL_SPECTRUM.md): derived from the persona's
+            # own adaptation_bias so the tiered (`sharp`) bot gets the same
+            # field variety the authored roster has, instead of silently
+            # defaulting every generated persona to the `shark` ceiling. Derived
+            # (not asked of the LLM) so it can't contradict the anchors. Must run
+            # after the anchors fallback above so adaptation_bias is present.
+            result.setdefault(
+                'skill',
+                skill_tier_for_adaptation_bias(result['anchors'].get('adaptation_bias')),
+            )
+
             return result
 
         except Exception as e:
@@ -596,6 +608,9 @@ Respond with ONLY a JSON object in this exact format:
                 "willingness_threshold": 0.30,
             },
             "anchors": _default_anchors(),
+            # Derived from the default anchors' adaptation_bias (0.50 -> `reg`),
+            # keeping skill consistent with the rest of this fallback config.
+            "skill": skill_tier_for_adaptation_bias(_default_anchors().get('adaptation_bias')),
         }
 
     def bulk_generate(self, names: list[str], save: bool = True) -> Dict[str, Dict[str, Any]]:

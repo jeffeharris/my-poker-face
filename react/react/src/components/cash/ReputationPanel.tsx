@@ -17,7 +17,12 @@ import { memo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ChevronDown, Crown, Ghost, Swords, TrendingUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ReputationComponents, ReputationData, ReputationQuadrant } from './types';
+import type {
+  ReputationComponents,
+  ReputationData,
+  ReputationQuadrant,
+  ReputationV2Components,
+} from './types';
 import './ReputationPanel.css';
 
 /** Renown drivers, each with the weight cap it saturates at (must match the
@@ -36,6 +41,21 @@ const REGARD_DRIVERS: { key: keyof ReputationComponents; label: string }[] = [
   { key: 'likability', label: 'Likability' },
   { key: 'respect', label: 'Respect' },
   { key: 'heat', label: 'Heat — notoriety' },
+];
+
+/** v2 renown drivers — UNCAPPED point contributions (no per-driver max). Order
+ *  is the narrative priority for ties; the ledger re-sorts by magnitude. Keys
+ *  match cash_mode/prestige.py compute_components_v2. */
+const RENOWN_V2_DRIVERS: { key: keyof ReputationV2Components; label: string }[] = [
+  { key: 'scalps', label: 'Scalps — busting big names' },
+  { key: 'backing', label: 'Backing — staking the field' },
+  { key: 'peak_worth', label: 'Wealth standing' },
+  { key: 'top1', label: 'Time at #1 net worth' },
+  { key: 'apex', label: 'Winning vs the roster' },
+  { key: 'breadth', label: 'Breadth — who knows you' },
+  { key: 'stakes', label: 'Stakes mastery' },
+  { key: 'tenure', label: 'Time at the tables' },
+  { key: 'legendary', label: 'Legendary hands' },
 ];
 
 const pts = (v: number) => Math.round(v * 100);
@@ -76,7 +96,26 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
-  // Renown drivers, biggest contribution first; drop zero-contribution rows.
+  // v2 = uncapped, field-relative renown. The renown axis renders a different
+  // gauge: the big number is the uncapped magnitude, and the bar is your FIELD
+  // STANDING (percentile) — the only naturally-bounded, always-meaningful read
+  // for an uncapped score (a fresh career sits near-empty; a legend near-full;
+  // it never pins like a progress-to-cap bar would). The regard axis is
+  // unchanged. Falls back to the v1 [0,1] gauge when absent.
+  const isV2 = reputation.formula_version === 'v2' && typeof reputation.renown_v2 === 'number';
+  const renownV2 = reputation.renown_v2 ?? 0;
+  const highCut = reputation.high_cut ?? 0;
+  const isFigure = isV2 && highCut > 0 && renownV2 >= highCut;
+  // Field standing = fraction of the room you out-rank on renown, [0,100].
+  const aheadPct = Math.round(clamp(reputation.victim_percentile ?? 0, 0, 1) * 100);
+
+  // v2 renown ledger — uncapped point contributions, biggest first.
+  const v2Comp = reputation.renown_v2_components ?? {};
+  const renownV2Rows = RENOWN_V2_DRIVERS.map((d) => ({ ...d, value: v2Comp?.[d.key] ?? 0 }))
+    .filter((r) => r.value > 0.005)
+    .sort((a, b) => b.value - a.value);
+
+  // v1 renown drivers, biggest contribution first; drop zero-contribution rows.
   const renownRows = RENOWN_DRIVERS.map((d) => ({ ...d, value: components?.[d.key] ?? 0 }))
     .filter((r) => r.value > 0.0005)
     .sort((a, b) => b.value - a.value);
@@ -84,7 +123,8 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
   const regardRows = REGARD_DRIVERS.map((d) => ({ ...d, value: components?.[d.key] ?? 0 }))
     .filter((r) => Math.abs(r.value) > 0.0005)
     .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-  const hasLedger = !!components && (renownRows.length > 0 || regardRows.length > 0);
+  const renownLedgerRows = isV2 ? renownV2Rows : renownRows;
+  const hasLedger = !!components && (renownLedgerRows.length > 0 || regardRows.length > 0);
 
   const renownPct = Math.round(clamp(renown, 0, 1) * 100);
   const regardWarm = regard >= 0;
@@ -132,29 +172,66 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
       </div>
 
       <div className="rep-panel__meters">
-        {/* Renown — engraved one-way fame gauge. */}
-        <div className="rep-panel__meter">
-          <div className="rep-panel__meter-head">
-            <span className="rep-panel__meter-name">Renown</span>
-            <span className="rep-panel__meter-figure">{renownPct}</span>
+        {/* Renown — v2 is an UNCAPPED figure with a progress-to-"figure" rail;
+            v1 is the engraved [0,100] fame gauge. */}
+        {isV2 ? (
+          <div className="rep-panel__meter">
+            <div className="rep-panel__meter-head">
+              <span className="rep-panel__meter-name">Renown</span>
+              <span className="rep-panel__meter-figure">{Math.round(renownV2)}</span>
+            </div>
+            <div
+              className="rep-panel__rail"
+              role="meter"
+              aria-valuenow={aheadPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Renown — field standing (percentile of the room you out-rank)"
+            >
+              <motion.span
+                className="rep-panel__rail-fill"
+                initial={reduce ? false : { width: 0 }}
+                animate={{ width: `${aheadPct}%` }}
+                transition={
+                  reduce ? undefined : { duration: 0.85, ease: [0.16, 1, 0.3, 1], delay: 0.18 }
+                }
+              />
+            </div>
+            <div className="rep-panel__poles" aria-hidden="true">
+              <span>
+                {isFigure
+                  ? 'A figure at these stakes'
+                  : `${Math.round(highCut)} renown to become a figure`}
+              </span>
+              <span>ahead of {aheadPct}% of the field</span>
+            </div>
           </div>
-          <div
-            className="rep-panel__rail"
-            role="meter"
-            aria-valuenow={renownPct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Renown"
-          >
-            <motion.span
-              className="rep-panel__rail-fill"
-              initial={reduce ? false : { width: 0 }}
-              animate={{ width: `${renownPct}%` }}
-              transition={reduce ? undefined : { duration: 0.85, ease: [0.16, 1, 0.3, 1], delay: 0.18 }}
-            />
-            <span className="rep-panel__rail-ticks" aria-hidden="true" />
+        ) : (
+          <div className="rep-panel__meter">
+            <div className="rep-panel__meter-head">
+              <span className="rep-panel__meter-name">Renown</span>
+              <span className="rep-panel__meter-figure">{renownPct}</span>
+            </div>
+            <div
+              className="rep-panel__rail"
+              role="meter"
+              aria-valuenow={renownPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Renown"
+            >
+              <motion.span
+                className="rep-panel__rail-fill"
+                initial={reduce ? false : { width: 0 }}
+                animate={{ width: `${renownPct}%` }}
+                transition={
+                  reduce ? undefined : { duration: 0.85, ease: [0.16, 1, 0.3, 1], delay: 0.18 }
+                }
+              />
+              <span className="rep-panel__rail-ticks" aria-hidden="true" />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Regard — bipolar reviled↔beloved needle dial. */}
         <div className="rep-panel__meter">
@@ -182,7 +259,9 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
               aria-hidden="true"
               initial={reduce ? false : { left: '50%' }}
               animate={{ left: `${regardPos}%` }}
-              transition={reduce ? undefined : { type: 'spring', stiffness: 120, damping: 15, delay: 0.32 }}
+              transition={
+                reduce ? undefined : { type: 'spring', stiffness: 120, damping: 15, delay: 0.32 }
+              }
             />
           </div>
           <div className="rep-panel__poles" aria-hidden="true">
@@ -219,7 +298,27 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
                 transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
               >
                 <div className="rep-panel__ledger-inner">
-                  {renownRows.length > 0 && (
+                  {isV2 && renownV2Rows.length > 0 && (
+                    <div className="rep-panel__group rep-panel__group--renown rep-panel__group--bare">
+                      <div className="rep-panel__group-head">
+                        <span className="rep-panel__group-tag">Renown</span>
+                        <span className="rep-panel__group-sub">what makes you a figure</span>
+                        <span className="rep-panel__group-total">{Math.round(renownV2)}</span>
+                      </div>
+                      {/* Numbers only — v2 renown is uncapped, so a fill bar has
+                          no fixed scale to fill toward; the points (sorted
+                          desc) read cleanly on their own, matching the regard
+                          rows below. */}
+                      {renownV2Rows.map((r) => (
+                        <div className="rep-panel__driver" key={r.key}>
+                          <span className="rep-panel__driver-label">{r.label}</span>
+                          <span className="rep-panel__driver-value">{Math.round(r.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!isV2 && renownRows.length > 0 && (
                     <div className="rep-panel__group rep-panel__group--renown">
                       <div className="rep-panel__group-head">
                         <span className="rep-panel__group-tag">Renown</span>

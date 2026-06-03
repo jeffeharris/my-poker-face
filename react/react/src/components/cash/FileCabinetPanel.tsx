@@ -39,9 +39,7 @@ function sortPeople(people: FileCabinetPerson[], key: SortKey): FileCabinetPerso
     case 'recent':
       return c.sort((a, b) => (b.last_seen ?? '').localeCompare(a.last_seen ?? ''));
     case 'progress':
-      return c.sort(
-        (a, b) => b.reads_unlocked / b.reads_total - a.reads_unlocked / a.reads_total
-      );
+      return c.sort((a, b) => b.reads_unlocked / b.reads_total - a.reads_unlocked / a.reads_total);
     case 'most_played':
     default:
       return c.sort((a, b) => b.hands_observed - a.hands_observed);
@@ -66,11 +64,7 @@ function FileFolder({
 }) {
   const pct = Math.round((person.reads_unlocked / person.reads_total) * 100);
   const isRival = person.heat >= 0.5;
-  const status = person.fully_unlocked
-    ? 'complete'
-    : person.floor_met
-      ? 'partial'
-      : 'classified';
+  const status = person.fully_unlocked ? 'complete' : person.floor_met ? 'partial' : 'classified';
   const statusLabel = person.fully_unlocked
     ? 'FILE COMPLETE'
     : person.floor_met
@@ -209,8 +203,7 @@ export function FileCabinetPanel({
                 key={s.key}
                 type="button"
                 className={
-                  'archive__index-tab' +
-                  (sort === s.key ? ' archive__index-tab--active' : '')
+                  'archive__index-tab' + (sort === s.key ? ' archive__index-tab--active' : '')
                 }
                 onClick={() => chooseSort(s.key)}
                 title={sort === s.key ? 'Click to reverse' : undefined}
@@ -238,8 +231,8 @@ export function FileCabinetPanel({
               NO FILES
             </div>
             <p>
-              The cabinet is empty. Sit down at the Circuit — every hand you share
-              builds a file on the table.
+              The cabinet is empty. Sit down at the Circuit — every hand you share builds a file on
+              the table.
             </p>
           </div>
         )}

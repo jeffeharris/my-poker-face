@@ -45,9 +45,7 @@ class TestOpponentRoster(unittest.TestCase):
 
     def test_roster_cycles_when_seats_exceed_roster(self):
         # easy has 2 entries; 5 seats cycle fish/foldy/fish/foldy/fish.
-        self.assertEqual(
-            resolve_opponents('easy', 5), ['fish', 'foldy', 'fish', 'foldy', 'fish']
-        )
+        self.assertEqual(resolve_opponents('easy', 5), ['fish', 'foldy', 'fish', 'foldy', 'fish'])
 
     def test_hard_is_the_sharp_solver(self):
         self.assertEqual(resolve_opponents('hard', 3), ['sharp', 'sharp', 'sharp'])
@@ -361,9 +359,7 @@ class TestTrainingStartRoute(unittest.TestCase):
         start = self._start(difficulty='medium', preset_id='standard')
         gid = start.get_json()['game_id']
         with self._mock_auth():
-            resp = self.client.get(
-                '/api/games', environ_overrides={'REMOTE_ADDR': '10.77.0.1'}
-            )
+            resp = self.client.get('/api/games', environ_overrides={'REMOTE_ADDR': '10.77.0.1'})
         self.assertEqual(resp.status_code, 200)
         listed = {g['game_id'] for g in resp.get_json()['games']}
         self.assertNotIn(gid, listed)
@@ -401,10 +397,10 @@ class TestTrainingStartRoute(unittest.TestCase):
             'heads-up human should be first to act preflop',
         )
 
-        with patch(
-            'flask_app.routes.game_routes._evaluate_coach_progression', return_value=canned
-        ), patch('flask_app.routes.game_routes.progress_game'), patch(
-            'flask_app.routes.game_routes.send_message'
+        with (
+            patch('flask_app.routes.game_routes._evaluate_coach_progression', return_value=canned),
+            patch('flask_app.routes.game_routes.progress_game'),
+            patch('flask_app.routes.game_routes.send_message'),
         ):
             body = None
             for act in ('fold', 'check', 'call'):

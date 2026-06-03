@@ -11,7 +11,39 @@ from flask_app.services.dossier_scouting import (
     SCOUTING_SCHEDULE,
     apply_scouting_gate,
     compute_scouting,
+    is_read_unlocked,
 )
+
+# The sizing tell tier gates the coach's over-time card (Surface B): 260 hands +
+# 8 summed sized-showdown samples across both bins.
+_SIZING_OK = {
+    'hands_observed': 300,
+    'equity_betting_big_count': 5,
+    'equity_betting_small_count': 5,
+}
+
+
+def test_is_read_unlocked_gates_sizing_tell():
+    # Enough hands + samples → unlocked.
+    assert is_read_unlocked(_SIZING_OK, 'sizing_polarization') is True
+    # Hands met but the showdown-sample opportunity gate not → locked.
+    assert (
+        is_read_unlocked(
+            {'hands_observed': 300, 'equity_betting_big_count': 1, 'equity_betting_small_count': 1},
+            'sizing_polarization',
+        )
+        is False
+    )
+    # Below the hand floor → locked.
+    assert is_read_unlocked({'hands_observed': 50}, 'sizing_polarization') is False
+
+
+def test_is_read_unlocked_honors_informant_purchase():
+    # The informant section that contains the sizing read unlocks it below floor.
+    section = next(
+        sid for sid, cfg in INFORMANT_SECTIONS.items() if 'sizing_polarization' in cfg['items']
+    )
+    assert is_read_unlocked({'hands_observed': 0}, 'sizing_polarization', {section}) is True
 
 
 def _full_response():
@@ -22,14 +54,20 @@ def _full_response():
             'name': 'Greg',
             'attitude': 'smug',
             'anchors': {
-                'aggression': 0.7, 'looseness': 0.6, 'poise': 0.4,
-                'expressiveness': 0.5, 'risk': 0.8,
+                'aggression': 0.7,
+                'looseness': 0.6,
+                'poise': 0.4,
+                'expressiveness': 0.5,
+                'risk': 0.8,
             },
         },
         'emotion': 'cocky',
         'observation': {
-            'hands_observed': 200, 'vpip': 0.3, 'pfr': 0.2,
-            'aggression_factor': 1.25, 'play_style': 'loose-aggressive',
+            'hands_observed': 200,
+            'vpip': 0.3,
+            'pfr': 0.2,
+            'aggression_factor': 1.25,
+            'play_style': 'loose-aggressive',
         },
         'pressure_summary': {'total_events': 5, 'signature_move': 'check-raise'},
         'ai_bankroll': 5000,
@@ -61,23 +99,30 @@ def _full_response():
             'lifetime': True,
         },
         'the_read': [
-            {'pattern': 'hyper_passive', 'text': 'value-bet thin, stop bluffing',
-             'intensity': 0.8},
+            {'pattern': 'hyper_passive', 'text': 'value-bet thin, stop bluffing', 'intensity': 0.8},
         ],
         'archetype': {'id': 'pure_station', 'label': 'Calling Station'},
         'temperament': {
-            'tilt_score': 0.7, 'tilt_label': 'On tilt',
-            'poise': 0.3, 'expressiveness': 0.8,
+            'tilt_score': 0.7,
+            'tilt_label': 'On tilt',
+            'poise': 0.3,
+            'expressiveness': 0.8,
             'lines': ['Rattles easily — keep the pressure on.'],
         },
         'field_position': {
-            'vpip_pct': 77, 'vpip_label': 'Looser than 77% of the field',
-            'af_pct': 60, 'af_label': 'More aggressive than 60% of the field',
+            'vpip_pct': 77,
+            'vpip_label': 'Looser than 77% of the field',
+            'af_pct': 60,
+            'af_label': 'More aggressive than 60% of the field',
         },
         'relationship_history': {
             'line': "Bad blood.",
-            'defining': {'event': 'cooler', 'label': 'cooler',
-                         'impact_score': 0.92, 'narrative': 'kings into aces'},
+            'defining': {
+                'event': 'cooler',
+                'label': 'cooler',
+                'impact_score': 0.92,
+                'narrative': 'kings into aces',
+            },
             'clash': [{'event': 'cooler', 'label': 'cooler', 'count': 2}],
             'banter': [],
         },
@@ -89,14 +134,21 @@ def _full_response():
 def _maxed(hands=10_000):
     return {
         'hands_observed': hands,
-        'cbet_faced_count': 100, 'postflop_seen_as_pfr_count': 100,
-        'postflop_bet_raise_count': 100, 'postflop_call_count': 100,
-        'barrel_opportunity_count': 100, 'equity_betting_count': 100,
-        'equity_raising_count': 100, 'equity_calling_count': 100,
-        'preflop_open_opportunities': 100, 'showdowns_seen': 100,
-        'big_bet_faced_count': 100, 'equity_betting_big_count': 100,
+        'cbet_faced_count': 100,
+        'postflop_seen_as_pfr_count': 100,
+        'postflop_bet_raise_count': 100,
+        'postflop_call_count': 100,
+        'barrel_opportunity_count': 100,
+        'equity_betting_count': 100,
+        'equity_raising_count': 100,
+        'equity_calling_count': 100,
+        'preflop_open_opportunities': 100,
+        'showdowns_seen': 100,
+        'big_bet_faced_count': 100,
+        'equity_betting_big_count': 100,
         'equity_betting_small_count': 100,
-        'facing_bet_opportunities': 100, 'postflop_open_opportunities': 100,
+        'facing_bet_opportunities': 100,
+        'postflop_open_opportunities': 100,
         'flop_check_barrel_opportunity_count': 100,
     }
 
@@ -117,7 +169,7 @@ def test_floor_unlocks_first_reads():
     assert s['floor_met'] is True
     assert 'play_style' in s['unlocked']
     assert 'vpip' in s['unlocked']
-    assert 'pfr' not in s['unlocked']          # 40
+    assert 'pfr' not in s['unlocked']  # 40
     assert 'aggression_factor' not in s['unlocked']  # 60
 
 
@@ -188,15 +240,19 @@ def test_gate_full_unlock_keeps_everything():
 
 # --- Tier-2 deep reads (B1) — HYBRID gate (hands AND opportunity samples) ----
 
+
 def test_deep_reads_hybrid_unlock_needs_hand_floor_and_samples():
     resp = _full_response()
     # Hand floor met for fold_to_cbet (180) with 20 c-bets faced → unlocked;
     # c-bet% has hand floor met but too few flops-as-raiser → still locked.
-    apply_scouting_gate(resp, {
-        'hands_observed': 250,
-        'cbet_faced_count': 25,
-        'postflop_seen_as_pfr_count': 5,
-    })
+    apply_scouting_gate(
+        resp,
+        {
+            'hands_observed': 250,
+            'cbet_faced_count': 25,
+            'postflop_seen_as_pfr_count': 5,
+        },
+    )
     assert resp['deeper_reads']['fold_to_cbet'] == 0.6
     assert resp['deeper_reads']['cbet_attempt_rate'] is None
     assert resp['deeper_reads']['barrel_frequency'] is None
@@ -228,7 +284,7 @@ def test_scalar_input_keeps_sample_gated_tiers_locked():
     # hand-only tiers still unlock.
     s = compute_scouting(10_000)
     assert 'play_style' in s['unlocked']
-    assert 'all_in_freq' in s['unlocked']      # hand-only Tier-2 tier
+    assert 'all_in_freq' in s['unlocked']  # hand-only Tier-2 tier
     assert 'fold_to_cbet' not in s['unlocked']  # needs c-bet samples
 
 
@@ -262,16 +318,20 @@ def test_barrel_tier_gates_both_barrel_fields():
     resp = _full_response()
     # barrel: hand floor 220 + 12 barrel spots → both barrel fields unlock;
     # polarization needs equity samples (none here) → stays locked.
-    apply_scouting_gate(resp, {
-        'hands_observed': 400,
-        'barrel_opportunity_count': 15,
-    })
+    apply_scouting_gate(
+        resp,
+        {
+            'hands_observed': 400,
+            'barrel_opportunity_count': 15,
+        },
+    )
     assert resp['deeper_reads']['barrel_frequency'] == 0.4
     assert resp['deeper_reads']['third_barrel_frequency'] == 0.3
     assert resp['deeper_reads']['equity_when_betting'] is None
 
 
 # --- B2 "the read" + archetype badge ----------------------------------------
+
 
 def test_read_and_archetype_gate_by_tier():
     resp = _full_response()
@@ -299,6 +359,7 @@ def test_read_below_floor_redacted():
 
 
 # --- B3 temperament + B4 field standing -------------------------------------
+
 
 def test_temperament_and_field_gate_by_tier():
     resp = _full_response()

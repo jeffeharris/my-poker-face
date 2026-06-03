@@ -375,7 +375,9 @@ class TieredBotController(AIPlayerController):
         # 0.0 = OFF (value-only, byte-identical). Production gating (multiway veto /
         # regime) lives in the caller; this is the raw lever the eval harness drives.
         self.overbet_bluff_fraction: float = 0.0
-        self.overbet_bluff_classes: Optional[frozenset] = None  # None = default {air_strong_draw, air_no_draw}
+        self.overbet_bluff_classes: Optional[frozenset] = (
+            None  # None = default {air_strong_draw, air_no_draw}
+        )
         # River-bluff side (OVERBET_BALANCING.md T2): CREATES river bluff supply by
         # promoting give-up-air CHECK mass to a bet at the value size — the only
         # path that fixes the face-up river (tell map: river big bets ~95-100%
@@ -388,7 +390,9 @@ class TieredBotController(AIPlayerController):
         # Set 0.0 to disable. (Eval harnesses bypass __init__ → unaffected unless
         # they set it explicitly; this default only turns it on in real games.)
         self.river_bluff_fraction: float = 1.0
-        self.river_bluff_classes: Optional[frozenset] = None  # None = default {air_strong_draw, air_no_draw}
+        self.river_bluff_classes: Optional[frozenset] = (
+            None  # None = default {air_strong_draw, air_no_draw}
+        )
         self.river_bluff_size: Optional[int] = None  # None = match overbet_size
         # Regime gate: river bluffs fire ONLY vs a detected over-folder/sizing-
         # reader (opponent fold_to_big_bet >= min). Cold-start / caller → value-
@@ -407,8 +411,16 @@ class TieredBotController(AIPlayerController):
         # (no model manager). The §B leverage is concentrated vs a loose human who
         # value-bets big OFTEN (modest in the AI pool — see the LooseFaceUp probe).
         self.sizing_defense_enabled: bool = False
-        self.sizing_defense_min_polar: float = 0.15  # face-up: big − small bet eq
-        self.sizing_defense_call_multiplier: float = 0.55  # retain ~55% of calls
+        self.sizing_defense_min_polar: float = 0.15  # face-up gate: big − small bet eq
+        # PROPORTIONAL dampener: the call-retention multiplier scales with HOW
+        # face-up the read is — 1.0 (no change) at the min_polar threshold, ramping
+        # down to `call_multiplier` (the most-aggressive floor) at `full_polar`.
+        # A barely-face-up read barely folds; a blatantly face-up one folds hard.
+        # This bounds the misfire cost on weak/false-positive reads (a tiny sample
+        # rarely scores high) and shrinks the surface an adapting adversary can
+        # exploit. Set call_multiplier=full_polar-equal to recover flat behavior.
+        self.sizing_defense_call_multiplier: float = 0.55  # retain at FULL face-up
+        self.sizing_defense_full_polar: float = 0.40  # score at which the floor applies
         self.sizing_defense_min_bet_ratio: float = 0.75  # only vs a "big bet"
         self.sizing_defense_polar_override: Optional[float] = None
         # River-air SUPPLY build (OVERBET_BALANCING.md §5e): T2's bluff supply is
@@ -448,6 +460,35 @@ class TieredBotController(AIPlayerController):
         _pcfg = getattr(getattr(self, 'psychology', None), 'personality_config', None)
         if isinstance(_pcfg, dict) and 'adaptive_overbet' in _pcfg:
             self.adaptive_overbet = bool(_pcfg['adaptive_overbet'])
+        # Per-personality opt-in for Phase B sizing defense (the "skill" of folding
+        # to a face-up bettor's big bets). A character carries `"sizing_defense":
+        # true` in personalities.json to enable it. Default OFF — measured ~+4.27
+        # bb/100 [−8.20, +16.74] vs a maximally face-up bot (real but marginal, CI
+        # spans 0), so it ships opt-in per persona, not as a global default. Same
+        # bypassed-__init__ caveat as adaptive_overbet: only affects the live path.
+        if isinstance(_pcfg, dict) and 'sizing_defense' in _pcfg:
+            self.sizing_defense_enabled = bool(_pcfg['sizing_defense'])
+
+        # Per-personality skill tier (PLAYER_SKILL_SPECTRUM.md): a character can
+        # carry `"skill": "reg"` (etc.) in its config to set its sharpness across
+        # the exploitation / river-bluff / stab-defense / overbet intensities.
+        # Mirrors the `adaptive_overbet` read above — native to every live build
+        # path. No key (or the default `shark` ceiling) is a no-op, so an
+        # un-tiered persona is byte-identical to today. Sims/tests bypass __init__
+        # and set the intensity fields directly, so this read only affects the
+        # live path. An explicit `skill=` at the factory runs after this and wins.
+        _skill = _pcfg.get('skill') if isinstance(_pcfg, dict) else None
+        if _skill:
+            from poker.strategy.skill_tiers import SKILL_TIERS, apply_skill_tier
+
+            if _skill in SKILL_TIERS:
+                apply_skill_tier(self, _skill)
+            else:
+                logger.warning(
+                    "Unknown skill tier %r for persona %r; using default ceiling.",
+                    _skill,
+                    player_name,
+                )
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1543,9 +1584,7 @@ class TieredBotController(AIPlayerController):
         _overbet_bluff_fraction = getattr(self, 'overbet_bluff_fraction', 0.0)
         _river_bluff_fraction = getattr(self, 'river_bluff_fraction', 0.0)
         if getattr(self, 'enable_overbet_context', False) and (
-            _overbet_fraction > 0.0
-            or _overbet_bluff_fraction > 0.0
-            or _river_bluff_fraction > 0.0
+            _overbet_fraction > 0.0 or _overbet_bluff_fraction > 0.0 or _river_bluff_fraction > 0.0
         ):
             from .strategy.overbet_context import apply_overbet_context
 
@@ -2687,8 +2726,10 @@ class TieredBotController(AIPlayerController):
 
         override, trace = compute_sizing_defense_strategy(
             strategy,
-            call_multiplier=getattr(self, 'sizing_defense_call_multiplier', 0.55),
             polar_score=polar,
+            min_polar=getattr(self, 'sizing_defense_min_polar', 0.15),
+            full_polar=getattr(self, 'sizing_defense_full_polar', 0.40),
+            call_multiplier_floor=getattr(self, 'sizing_defense_call_multiplier', 0.55),
             bet_ratio=bet_ratio,
             hand_strength=hand_strength,
             max_total_shift=DEFAULT_MAX_TOTAL_SHIFT,
@@ -3221,9 +3262,7 @@ class TieredBotController(AIPlayerController):
         if manager is None:
             return None
         opps = [
-            p.name
-            for p in game_state.players
-            if p.name != self.player_name and not p.is_folded
+            p.name for p in game_state.players if p.name != self.player_name and not p.is_folded
         ]
         if len(opps) != 1:  # MVP: HU only; multiway → don't fire (safe)
             return None
@@ -3265,6 +3304,11 @@ class TieredBotController(AIPlayerController):
         small_n = getattr(tendencies, '_equity_betting_small_count', 0)
         if big_n < SIZING_MIN_BIN_SAMPLE or small_n < SIZING_MIN_BIN_SAMPLE:
             return None  # immature read -> no defense
+        # Kill switch (Surface B `stability`): if the face-up tell is going stale
+        # (recent big bets weakening = they've started bluffing big), stop folding
+        # into it rather than feeding an adapting adversary.
+        if hasattr(tendencies, 'sizing_tell_is_mixing') and tendencies.sizing_tell_is_mixing():
+            return None
         return tendencies.sizing_polarization_score
 
     def _resolve_stabber_read(self, game_state) -> Optional[float]:
@@ -3280,9 +3324,7 @@ class TieredBotController(AIPlayerController):
         if manager is None:
             return None
         opps = [
-            p.name
-            for p in game_state.players
-            if p.name != self.player_name and not p.is_folded
+            p.name for p in game_state.players if p.name != self.player_name and not p.is_folded
         ]
         if len(opps) != 1:  # HU only for the MVP
             return None

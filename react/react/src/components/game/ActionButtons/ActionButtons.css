@@ -872,11 +872,19 @@
    above the base button styles but below hover/active states.               */
 
 /* Per-type glow colour (RGB) */
-.action-button.fold.coach-recommended    { --coach-glow: 244, 63, 94;    }
-.action-button.check.coach-recommended   { --coach-glow: 52, 211, 153;   }
-.action-button.call.coach-recommended    { --coach-glow: 59, 130, 246;   }
+.action-button.fold.coach-recommended {
+  --coach-glow: 244, 63, 94;
+}
+.action-button.check.coach-recommended {
+  --coach-glow: 52, 211, 153;
+}
+.action-button.call.coach-recommended {
+  --coach-glow: 59, 130, 246;
+}
 .action-button.bet.coach-recommended,
-.action-button.raise.coach-recommended   { --coach-glow: 212, 165, 116;  }
+.action-button.raise.coach-recommended {
+  --coach-glow: 212, 165, 116;
+}
 
 /* Shared pulse */
 .action-button.coach-recommended {
@@ -890,7 +898,8 @@
 }
 
 @keyframes desktopCoachPulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow:
       0 0 16px rgba(var(--coach-glow), 0.6),
       0 0 32px rgba(var(--coach-glow), 0.3),
@@ -903,4 +912,3 @@
       0 2px 8px rgba(0, 0, 0, 0.4);
   }
 }
-

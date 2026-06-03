@@ -125,7 +125,12 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
     });
   });
 
-  describe('Case 3: Guest user', () => {
+  // STALE (quarantined): these assert the pre-PRH-27 guest UX (Quick Chat locked,
+  // default-to-keyboard). PRH-27 (commit aded1264, 2026-05-28) inverted it — guests
+  // now GET quick chat once/turn and the free-text/keyboard tab is sign-in-gated
+  // (guestFreeChatLocked). Rewrite to the new behavior as part of the
+  // quickchat-palette-sarcasm merge, which owns this surface. See TODO(PRH-27).
+  describe.skip('Case 3: Guest user', () => {
     it('disables Quick Chat tab and shows "Sign in" text', () => {
       render(<MobileChatSheet {...makeProps({ isGuest: true })} />);
 

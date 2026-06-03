@@ -60,6 +60,12 @@ SIZING_MIN_BIN_SAMPLE = 4
 # fold_to_big_bet (live, all-hands) is the offensive trigger; it needs a
 # smaller floor than the showdown-gated polarization score.
 SIZING_MIN_BIG_BET_FACED = 6
+# Recency kill switch (Surface B `stability`): the last-N big-bet showdown
+# equities. When their mean falls SIZING_MIXING_DELTA below the LIFETIME big-bet
+# mean, the opponent is bluffing big more — the face-up read is going stale and
+# the bot's Phase B sizing-defense should stop folding into it.
+SIZING_RECENT_WINDOW = 6
+SIZING_MIXING_DELTA = 0.12
 
 
 @dataclass
@@ -294,6 +300,11 @@ class OpponentTendencies:
     # config changes via reload_for_testing apply to new instances).
     _recent_postflop_events: Deque[Tuple[str, bool]] = field(
         default_factory=lambda: deque(maxlen=_load_window_size())
+    )
+    # Recency window of the opponent's last-N big-bet showdown equities — the
+    # signal behind sizing_tell_is_mixing() (the Phase B kill switch).
+    _recent_big_bet_equities: Deque[float] = field(
+        default_factory=lambda: deque(maxlen=SIZING_RECENT_WINDOW)
     )
 
     # Per-hand tracking (reset each new hand)
@@ -688,12 +699,35 @@ class OpponentTendencies:
             self.equity_when_betting_big = (
                 self._equity_betting_big_sum / self._equity_betting_big_count
             )
+            self._recent_big_bet_equities.append(equity)  # recency kill-switch feed
         else:
             self._equity_betting_small_sum += equity
             self._equity_betting_small_count += 1
             self.equity_when_betting_small = (
                 self._equity_betting_small_sum / self._equity_betting_small_count
             )
+
+    def sizing_tell_is_mixing(self) -> bool:
+        """Phase B kill switch: is the opponent's face-up size→strength tell going
+        stale (they've started bluffing big)?
+
+        True when their RECENT big bets (last SIZING_RECENT_WINDOW showdowns) are
+        materially weaker than their LIFETIME big-bet mean — the live, at-decision
+        twin of the coach's `stability='mixing'`. Consumers (the sizing-defense
+        resolver) should stop folding into a mixing read. Conservative: needs a
+        full recent window + a matured big bin, else False (trust the read).
+
+        Note the structural limit: this only updates when the opponent's big bets
+        reach SHOWDOWN, and the bot folding to them suppresses those showdowns — so
+        it catches mixing via bets others call, not bets the bot itself folds to.
+        """
+        if (
+            len(self._recent_big_bet_equities) < SIZING_RECENT_WINDOW
+            or self._equity_betting_big_count < SIZING_MIN_BIN_SAMPLE
+        ):
+            return False
+        recent_mean = sum(self._recent_big_bet_equities) / len(self._recent_big_bet_equities)
+        return recent_mean <= self.equity_when_betting_big - SIZING_MIXING_DELTA
 
     def update_fold_to_big_bet(self, folded: bool) -> None:
         """Sizing-aware Phase A: live (all-hands) record of how this opponent
@@ -883,6 +917,7 @@ class OpponentTendencies:
             return 'unknown'
 
         from ..archetypes import play_style_label
+
         return play_style_label(self.vpip, self.aggression_factor)
 
     def get_summary(self) -> str:
@@ -917,10 +952,7 @@ class OpponentTendencies:
         # the score self-gates to 0.0 below SIZING_MIN_BIN_SAMPLE).
         if self.sizing_polarization_score > 0.15:
             parts.append("face-up sizing")  # bets big with strength → exploitable
-        if (
-            self._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED
-            and self.fold_to_big_bet > 0.6
-        ):
+        if self._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED and self.fold_to_big_bet > 0.6:
             parts.append("over-folds to big bets")
 
         return ", ".join(parts)
@@ -1021,6 +1053,7 @@ class OpponentTendencies:
         out: Dict[str, Any] = {attr: getattr(self, attr) for attr, _ in self._SERIAL_FIELDS}
         # Phase 7.5 Item 2b: sliding-window events (list-serialized).
         out['_recent_postflop_events'] = list(self._recent_postflop_events)
+        out['_recent_big_bet_equities'] = list(self._recent_big_bet_equities)
         return out
 
     @classmethod
@@ -1047,6 +1080,10 @@ class OpponentTendencies:
         tendencies._recent_postflop_events = deque(
             recent_events,
             maxlen=_load_window_size(),
+        )
+        tendencies._recent_big_bet_equities = deque(
+            data.get('_recent_big_bet_equities', []),
+            maxlen=SIZING_RECENT_WINDOW,
         )
         return tendencies
 
@@ -2029,7 +2066,9 @@ class OpponentModelManager:
         self._apply_one_side(
             observer_id=target_id,
             other_id=actor_id,
-            shift=mirror_shift_override if mirror_shift_override is not None else mirror_shift(event),
+            shift=mirror_shift_override
+            if mirror_shift_override is not None
+            else mirror_shift(event),
             context_multiplier=context_multiplier,
             now=now,
         )

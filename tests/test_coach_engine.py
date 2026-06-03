@@ -1126,8 +1126,14 @@ class TestLiveLeakRecall:
         players = tuple(
             SimpleNamespace(name=f'P{i}', bet=0, is_folded=False, stack=1000) for i in range(n)
         )
-        base = ['button', 'small_blind_player', 'big_blind_player',
-                'under_the_gun', 'middle_position_1', 'cutoff']
+        base = [
+            'button',
+            'small_blind_player',
+            'big_blind_player',
+            'under_the_gun',
+            'middle_position_1',
+            'cutoff',
+        ]
         positions = {pos: players[(dealer_idx + i) % n].name for i, pos in enumerate(base[:n])}
         return SimpleNamespace(
             players=players,
@@ -1140,7 +1146,8 @@ class TestLiveLeakRecall:
 
     def _leak(self, kind='limp', status='confirmed'):
         return {
-            'kind': kind, 'status': status,
+            'kind': kind,
+            'status': status,
             'your_freq': {'fold': 0.5, 'call': 0.4, 'raise': 0.1},
             'chart_freq': {'fold': 0.5, 'call': 0.0, 'raise': 0.5},
             'gap': 0.4,
@@ -1207,9 +1214,13 @@ class TestLiveLeakRecall:
             'flask_app.services.coach_chart_data.get_owner_chart_leak_set', return_value=leak_set
         ):
             first = {}
-            coach_engine._annotate_known_preflop_leak(first, game_data, gs, 3, {'canonical_hand': 'KQs'})
+            coach_engine._annotate_known_preflop_leak(
+                first, game_data, gs, 3, {'canonical_hand': 'KQs'}
+            )
             second = {}
-            coach_engine._annotate_known_preflop_leak(second, game_data, gs, 3, {'canonical_hand': 'KQs'})
+            coach_engine._annotate_known_preflop_leak(
+                second, game_data, gs, 3, {'canonical_hand': 'KQs'}
+            )
         assert 'known_preflop_leak' in first
         assert 'known_preflop_leak' not in second  # already nudged this session
 

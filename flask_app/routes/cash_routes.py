@@ -21,6 +21,7 @@ Spec: docs/plans/CASH_MODE_AND_RELATIONSHIPS.md Part 2.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -373,13 +374,14 @@ def _release_own_reserved_holds(owner_id: str, *, sandbox_id: str) -> int:
                 logger.info(
                     "[CASH] _release_own_reserved_holds: freed reserved "
                     "table=%r seat=%d owner=%r",
-                    table.table_id, idx, owner_id,
+                    table.table_id,
+                    idx,
+                    owner_id,
                 )
                 freed += 1
             except Exception as e:
                 logger.warning(
-                    "[CASH] _release_own_reserved_holds: save_table failed "
-                    "for %r:%d: %s",
+                    "[CASH] _release_own_reserved_holds: save_table failed " "for %r:%d: %s",
                     table.table_id,
                     idx,
                     e,
@@ -5083,29 +5085,12 @@ def top_up():
             return jsonify({"error": "Player not seated"}), 400
         human_player = state_machine.game_state.players[human_idx]
 
-        # Phase gate: between-hands phases are always safe. Mid-hand we
-        # only allow it once the human has folded — they can't act this
-        # hand, so the new chips just sit on the stack until the next
-        # deal. A still-active player topping up mid-hand would shift
-        # call/raise math underneath the AI opponents.
-        between_hands = state_machine.current_phase in (
-            PokerPhase.INITIALIZING_GAME,
-            PokerPhase.INITIALIZING_HAND,
-            PokerPhase.HAND_OVER,
-        )
-        if not between_hands and not human_player.is_folded:
-            return jsonify(
-                {
-                    "error": "Top up is only allowed between hands or after folding",
-                }
-            ), 400
-
-        bankroll = bankroll_repo.load_player_bankroll(owner_id)
-        if bankroll is None or bankroll.chips < amount:
-            return jsonify({"error": "Insufficient bankroll"}), 400
         # Mingling bankroll chips with stake chips would corrupt the
         # leave-time math (your top-up money would be taxed by the
-        # staker's cut). Force the player to settle first.
+        # staker's cut). Force the player to settle first. Checked before
+        # the phase branch so it applies to staged top-ups too — and it
+        # guarantees a session carrying a pending_topup never also has an
+        # active stake (the leave path relies on that).
         if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
             return jsonify(
                 {
@@ -5113,24 +5098,54 @@ def top_up():
                 }
             ), 400
 
-        new_stack = state_machine.game_state.players[human_idx].stack + amount
-        state_machine.game_state = state_machine.game_state.update_player(
-            human_idx,
-            stack=new_stack,
+        bankroll = bankroll_repo.load_player_bankroll(owner_id)
+        # Count chips already staged this hand so two quick clicks can't
+        # commit more than the bankroll can cover.
+        already_pending = int(game_data.get("pending_topup", 0) or 0)
+        if bankroll is None or bankroll.chips < amount + already_pending:
+            return jsonify({"error": "Insufficient bankroll"}), 400
+
+        # Phase gate. Between hands we add the chips to the live stack
+        # right now. Mid-hand — whether the player has folded or is still
+        # in the pot — we must NOT touch the live stack: it would shift
+        # the call/raise math under the opponents, and racing the
+        # auto-dealt next hand is exactly what used to make this request
+        # hang on the game lock and then 400. So we *stage* the chips:
+        # park the amount and let the next-hand dealer flush it. The
+        # bankroll is debited at flush time, not here, so a leave / bust /
+        # session-drop before the next deal can't strand committed chips.
+        between_hands = state_machine.current_phase in (
+            PokerPhase.INITIALIZING_GAME,
+            PokerPhase.INITIALIZING_HAND,
+            PokerPhase.HAND_OVER,
         )
 
-        new_bankroll = PlayerBankrollState(
-            player_id=bankroll.player_id,
-            chips=bankroll.chips - amount,
-            starting_bankroll=bankroll.starting_bankroll,
-            # Loan fields are 0 by virtue of the guard above; no need to copy.
-        )
-        bankroll_repo.save_player_bankroll(new_bankroll)
-
-        # Bump the durable session's total_buy_in so leave-time P&L counts
-        # this top-up as money put in (not won). Skipped silently if the
-        # session row doesn't exist (legacy game predating cash_sessions).
-        _increment_cash_session_buy_in(game_id, amount)
+        if between_hands:
+            new_stack = human_player.stack + amount
+            state_machine.game_state = state_machine.game_state.update_player(
+                human_idx,
+                stack=new_stack,
+            )
+            new_bankroll = PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=bankroll.chips - amount,
+                starting_bankroll=bankroll.starting_bankroll,
+                # Loan fields are 0 by virtue of the stake guard above.
+            )
+            bankroll_repo.save_player_bankroll(new_bankroll)
+            # Bump the durable session's total_buy_in so leave-time P&L
+            # counts this as money put in (not won), and emit the paired
+            # buy-in ledger row. Skipped silently if the session row is
+            # missing (legacy game predating cash_sessions).
+            _increment_cash_session_buy_in(game_id, amount)
+            staged_total = 0
+            response_bankroll = new_bankroll.chips
+        else:
+            staged_total = already_pending + amount
+            game_data["pending_topup"] = staged_total
+            game_state_service.set_game(game_id, game_data)
+            new_stack = human_player.stack
+            response_bankroll = bankroll.chips
 
     # Emit outside the lock — update_and_emit_game_state only reads, and the
     # game lock is non-reentrant.
@@ -5141,7 +5156,9 @@ def top_up():
     return jsonify(
         {
             "stack": new_stack,
-            "bankroll": new_bankroll.chips,
+            "bankroll": response_bankroll,
+            "staged": staged_total > 0,
+            "pending_topup": staged_total,
         }
     )
 
@@ -5156,16 +5173,22 @@ WHALE_BANKROLL_MULTIPLE = 20
 def _reputation_payload_from_snapshot(snap: Dict[str, Any]) -> Dict[str, Any]:
     """Shape a `prestige_snapshots` row into the lobby `reputation` payload.
 
-    The only rename is `captured_at` → `computed_at`; the renown_*/regard_*
-    columns are nested under `components` for the panel's explain affordance.
+    The v1 renames `captured_at` → `computed_at` and nests the renown_*/regard_*
+    columns under `components` for the panel's explain affordance. When the row
+    was written by the v2 formula (`formula_version == 'v2'`) it also carries the
+    uncapped `renown_v2`, the field `high_cut`, the human's `victim_percentile`,
+    the `field_size`, and the v2 driver breakdown under `renown_v2_components`;
+    the panel branches on `formula_version` to render the uncapped gauge instead
+    of the [0,1] bar. The v1 columns stay populated as a baseline either way.
     Named so the DB-column → wire-format mapping is in one testable place.
     """
-    return {
+    payload: Dict[str, Any] = {
         "renown": snap["renown"],
         "regard": snap["regard"],
         "quadrant": snap["quadrant"],
         "opponent_count": snap["opponent_count"],
         "computed_at": snap["captured_at"],
+        "formula_version": snap.get("formula_version") or "v1",
         "components": {
             "breadth": snap["renown_breadth"],
             "tenure": snap["renown_tenure"],
@@ -5177,6 +5200,20 @@ def _reputation_payload_from_snapshot(snap: Dict[str, Any]) -> Dict[str, Any]:
             "heat": snap["regard_heat"],
         },
     }
+    if (snap.get("formula_version") == "v2") and snap.get("renown_v2") is not None:
+        v2_components: Dict[str, Any] = {}
+        raw = snap.get("renown_v2_components")
+        if raw:
+            try:
+                v2_components = json.loads(raw)
+            except (ValueError, TypeError):
+                v2_components = {}
+        payload["renown_v2"] = snap["renown_v2"]
+        payload["high_cut"] = snap.get("high_cut")
+        payload["victim_percentile"] = snap.get("victim_percentile")
+        payload["field_size"] = snap.get("field_size")
+        payload["renown_v2_components"] = v2_components
+    return payload
 
 
 def _resolve_human_regard(sandbox_id: str, owner_id: str) -> Optional[float]:

@@ -261,8 +261,8 @@ def credit_ai_cash_out(
             raise
         bankroll_repo.save_ai_bankroll(new_state)
     if chip_ledger_repo is not None:
-        from core.economy import ledger as chip_ledger
         from cash_mode import economy_flags
+        from core.economy import ledger as chip_ledger
 
         ctx = {'site': 'credit_ai_cash_out', 'sandbox_id': sandbox_id}
         if ledger_context:
@@ -365,7 +365,9 @@ def settle_ai_bankroll_to_pool_on_delete(
                 "[CASH LIFECYCLE] persona-delete settle: ledger return REJECTED "
                 "for %s sandbox=%s (%d chips) — NOT zeroing the row to avoid "
                 "forfeiting them; needs operator attention",
-                pid, sandbox_id, chips,
+                pid,
+                sandbox_id,
+                chips,
             )
             continue
         bankroll_repo.save_ai_bankroll(
@@ -376,7 +378,9 @@ def settle_ai_bankroll_to_pool_on_delete(
         logger.info(
             "[CASH] persona-delete settle: returned %d chips to pool for %s "
             "sandbox=%s (conservation-safe deletion)",
-            chips, pid, sandbox_id,
+            chips,
+            pid,
+            sandbox_id,
         )
     return total
 

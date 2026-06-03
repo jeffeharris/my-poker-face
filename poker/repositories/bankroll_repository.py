@@ -104,7 +104,10 @@ class BankrollRepository(BaseRepository):
             logger.warning(
                 "[CHIP_CUSTODY] ai bankroll cache divergence pid=%s sandbox=%s "
                 "stored=%d derived=%d (ledger authoritative)",
-                personality_id, sandbox_id, stored_chips, derived,
+                personality_id,
+                sandbox_id,
+                stored_chips,
+                derived,
             )
         return derived
 
@@ -537,7 +540,9 @@ class BankrollRepository(BaseRepository):
             logger.warning(
                 "[CHIP_CUSTODY] player bankroll cache divergence player=%s "
                 "stored=%d derived=%d (ledger authoritative)",
-                player_id, stored_chips, derived,
+                player_id,
+                stored_chips,
+                derived,
             )
         return derived
 

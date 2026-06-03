@@ -171,7 +171,9 @@ def _build_training_game(
     pool = [n for n in get_celebrities(shuffled=True) if n.lower() != player_name.lower()]
     ai_names = pool[: preset.opponents]
     bot_types_list = resolve_opponents(difficulty, len(ai_names))
-    bot_types: Dict[str, str] = {name: bt for name, bt in zip(ai_names, bot_types_list)}
+    bot_types: Dict[str, str] = {
+        name: bt for name, bt in zip(ai_names, bot_types_list, strict=False)
+    }
 
     state_machine = build_table_preset_state_machine(preset, player_name, ai_names)
     game_id = f"train-{generate_game_id()}"

@@ -416,7 +416,9 @@ def delete_personality(name):
                 if returned:
                     logger.info(
                         "[CASH] persona delete %r (pid=%s): returned %d chips to pool",
-                        name, pid, returned,
+                        name,
+                        pid,
+                        returned,
                     )
         except Exception as e:
             logger.warning("[CASH] persona-delete settle failed for %r: %s", name, e)

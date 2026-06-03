@@ -1,0 +1,25 @@
+name: quick_chat_intimidate
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: INTIMIDATE them. Project dominance and strength. Make them feel the
+    pressure of tangling with you — you want them rattled and folding, not calling.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "You really want to do this with me, {target_first_name}?"
+    - "I've got you covered, and then some."
+    - "Think hard about your next move."
+    - "This pot's mine. You just don't know it yet."
+
+    Loom over them. Make the smart play feel like getting out of your way.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "intimidate"}}, {{"text": "...", "tone": "intimidate"}}], "targetPlayer": "{target_player}"}}

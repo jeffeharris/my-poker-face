@@ -225,6 +225,7 @@ def coach_ask(game_id: str):
 
     # Point the recommendation highlight at the coach's pick (env-gated).
     from flask_app.services.coach_assistant import apply_coach_highlight
+
     apply_coach_highlight(stats, coach_action, coach_raise_to)
 
     payload = {
@@ -251,6 +252,8 @@ def coach_preflop_leaks():
     direction is deliberately not graded (can't tell opens from correct folds to
     a raise). See flask_app/services/coach_leaks for the scope caveats.
     """
+    from poker.strategy.preflop_reference import reference_strategy
+
     from ..services import preflop_leak_cache
     from ..services.coach_chart_data import load_owner_chart_decisions
     from ..services.coach_chart_leaks import (
@@ -266,7 +269,6 @@ def coach_preflop_leaks():
         count_owner_preflop_decisions,
         load_owner_preflop_decisions,
     )
-    from poker.strategy.preflop_reference import reference_strategy
 
     owner_id = _get_current_user_id()
     if not owner_id:
@@ -292,7 +294,9 @@ def coach_preflop_leaks():
         vpip_report = compute_preflop_leaks(load_owner_preflop_decisions(db_path, owner_id))
         # Load chart decisions ONCE; depth-slice, then reuse for every pass.
         all_decisions = load_owner_chart_decisions(db_path, owner_id)
-        deep_n = sum(1 for d in all_decisions if (d.get('effective_stack_bb') or 0) >= DEEP_FLOOR_BB)
+        deep_n = sum(
+            1 for d in all_decisions if (d.get('effective_stack_bb') or 0) >= DEEP_FLOOR_BB
+        )
         short_n = sum(
             1 for d in all_decisions if 0 < (d.get('effective_stack_bb') or 0) < DEEP_FLOOR_BB
         )
@@ -358,14 +362,190 @@ def coach_preflop_leaks():
         # Cache the computed report per (owner, depth, window); the owner's
         # PRE_FLOP count gates staleness, so a new hand self-invalidates it.
         count = count_owner_preflop_decisions(db_path, owner_id)
-        report = preflop_leak_cache.get_or_compute(
-            (owner_id, depth, recent_hands), count, _build
-        )
+        report = preflop_leak_cache.get_or_compute((owner_id, depth, recent_hands), count, _build)
     except Exception as e:
         logger.error(f"preflop-leaks failed for {owner_id}: {e}", exc_info=True)
         return jsonify({'error': 'Could not compute leaks'}), 500
 
     return jsonify(report)
+
+
+def _sizing_tell_locked(observer_id: str, opponent: str) -> bool:
+    """Scouting-economy gate for the over-time sizing tell, reconciled with the
+    dossier's paid `sizing_polarization` tier.
+
+    Fails OPEN (returns False = ungated) outside the Circuit, when the gate flag
+    is off, or on any error — mirroring the dossier route, which only gates when a
+    sandbox is in play. Inside the Circuit it returns True until the player has
+    ground the read open (or bought it from the informant), so the coach surface
+    can't hand out intel the dossier still charges for.
+    """
+    try:
+        from cash_mode import economy_flags
+
+        if not economy_flags.DOSSIER_SCOUTING_GATE_ENABLED:
+            return False
+        from flask_app.extensions import game_repo, sandbox_repo
+        from flask_app.services.dossier_scouting import is_read_unlocked
+        from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+        from .character_routes import _resolve_personality_id
+
+        personality_id = _resolve_personality_id(opponent)
+        sandbox_id = resolve_default_sandbox_for(observer_id, sandbox_repo=sandbox_repo)
+        if not personality_id or not sandbox_id:
+            return False  # not a Circuit-scouted opponent → ungated
+        life = game_repo.load_observation_lifetime(sandbox_id, observer_id, personality_id) or {}
+        purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
+        return not is_read_unlocked(life, 'sizing_polarization', purchased)
+    except Exception as e:  # noqa: BLE001 — gate must never break the coach surface
+        logger.debug(
+            "sizing-tell scouting gate failed (fail-open) for %s/%s: %s", observer_id, opponent, e
+        )
+        return False
+
+
+@coach_bp.route('/api/coach/opponent-tells', methods=['GET'])
+@limiter.limit("20/minute")
+@_coach_required
+def coach_opponent_tells():
+    """How readable an opponent's bet SIZING is, with a stability trend.
+
+    Surface B of docs/plans/SIZING_COACH_SURFACES.md. User-scoped: grades the
+    named opponent's postflop bets (in the caller's games) into a size→strength
+    `sizing_polarization_score` over time-blocks, so the dossier shows whether the
+    tell is holding (`stable`) or the opponent is starting to mix (`mixing`). The
+    `stability` axis is the kill-switch signal for the bot's Phase B sizing-defense.
+    """
+    from ..services.coach_sizing_tells import (
+        CONFIRM_MIN_BETS,
+        FACE_UP_THRESHOLD,
+        compute_opponent_sizing_tell,
+        load_opponent_bet_decisions,
+        sizing_label,
+    )
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+    opponent = (request.args.get('opponent') or '').strip()
+    if not opponent:
+        return jsonify({'error': 'opponent query param required', 'code': 'BAD_REQUEST'}), 400
+
+    # Reconcile with the scouting economy: in the Circuit, the over-time sizing
+    # tell is gated behind the same `sizing_polarization` read the dossier sells.
+    # Locked → return the lock status (no intel), never the computed tell.
+    if _sizing_tell_locked(owner_id, opponent):
+        return jsonify(
+            {
+                'opponent': opponent,
+                'locked': True,
+                'unlock_read': 'sizing_polarization',
+                'tells': [],
+                'message': f"{opponent}'s sizing tell is locked — scout them more (or "
+                "ask your informant) to read it.",
+            }
+        )
+
+    db_path = extensions.persistence_db_path
+    try:
+        decisions = load_opponent_bet_decisions(db_path, owner_id, opponent)
+        tell = compute_opponent_sizing_tell(decisions)
+    except Exception as e:
+        logger.error(f"opponent-tells failed for {owner_id}/{opponent}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not compute opponent tells'}), 500
+
+    payload = {
+        'opponent': opponent,
+        'face_up_threshold': FACE_UP_THRESHOLD,
+        'confirm_min_bets': CONFIRM_MIN_BETS,
+        'tells': [],
+    }
+    if tell.confidence == 'insufficient':
+        payload['message'] = (
+            f"Not enough of {opponent}'s big bets seen yet to read their sizing — "
+            "keep playing them."
+        )
+        return jsonify(payload)
+
+    payload['tells'].append(
+        {
+            'axis': 'sizing',
+            'label': sizing_label(tell.verdict),
+            'verdict': tell.verdict,
+            'score': tell.score,
+            'big_eq': tell.big_eq,
+            'small_eq': tell.small_eq,
+            'confidence': tell.confidence,
+            'stability': tell.stability,
+            'n_bets': tell.n_bets,
+            'n_big': tell.n_big,
+            'n_small': tell.n_small,
+            'exploit': tell.exploit,
+            'trend': {'series': tell.series},
+        }
+    )
+    return jsonify(payload)
+
+
+@coach_bp.route('/api/coach/sizing-readability', methods=['GET'])
+@limiter.limit("20/minute")
+@_coach_required
+def coach_sizing_readability():
+    """How readable YOUR OWN bet sizing is, over time — Surface A.
+
+    Self-coaching twin of /opponent-tells: grades the caller's own postflop bets
+    into a size→strength score (do your big bets always mean strength? → face-up →
+    opponents fold for free) with the same stability trend. Reuses the Surface B
+    grading core (compute_opponent_sizing_tell) pointed at the owner seat.
+    """
+    from ..services.coach_sizing_tells import (
+        CONFIRM_MIN_BETS,
+        FACE_UP_THRESHOLD,
+        compute_opponent_sizing_tell,
+        load_owner_bet_decisions,
+        self_advice,
+        self_label,
+    )
+
+    owner_id = _get_current_user_id()
+    if not owner_id:
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+    db_path = extensions.persistence_db_path
+    try:
+        decisions = load_owner_bet_decisions(db_path, owner_id)
+        tell = compute_opponent_sizing_tell(decisions)
+    except Exception as e:
+        logger.error(f"sizing-readability failed for {owner_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Could not compute sizing readability'}), 500
+
+    payload = {
+        'face_up_threshold': FACE_UP_THRESHOLD,
+        'confirm_min_bets': CONFIRM_MIN_BETS,
+        'readability': None,
+    }
+    if tell.confidence == 'insufficient':
+        payload['message'] = (
+            "Not enough of your own big bets yet to read your sizing — keep playing."
+        )
+        return jsonify(payload)
+
+    payload['readability'] = {
+        'label': self_label(tell.verdict),
+        'verdict': tell.verdict,
+        'score': tell.score,
+        'big_eq': tell.big_eq,
+        'small_eq': tell.small_eq,
+        'confidence': tell.confidence,
+        'stability': tell.stability,
+        'n_bets': tell.n_bets,
+        'n_big': tell.n_big,
+        'n_small': tell.n_small,
+        'advice': self_advice(tell.verdict),
+        'trend': {'series': tell.series},
+    }
+    return jsonify(payload)
 
 
 @coach_bp.route('/api/coach/preflop-leaks/feedback', methods=['POST'])
@@ -378,10 +558,11 @@ def coach_preflop_leaks_feedback():
     the text description to the coach (Assistant tier). The coach explains real,
     computed data — it can't invent leaks. User-initiated (one LLM call/click).
     """
+    from poker.strategy.preflop_reference import reference_strategy
+
     from ..services.coach_assistant import CoachAssistant
     from ..services.coach_chart_data import load_owner_chart_decisions
     from ..services.coach_chart_leaks import compute_chart_leaks, format_chart_leaks_for_prompt
-    from poker.strategy.preflop_reference import reference_strategy
 
     owner_id = _get_current_user_id()
     if not owner_id:
@@ -396,7 +577,9 @@ def coach_preflop_leaks_feedback():
         if report.graded == 0:
             return jsonify({'feedback': "Play some hands first — there's nothing to review yet."})
         profile_text = format_chart_leaks_for_prompt(report)
-        coach = CoachAssistant(game_id=f'preflop-leaks-{owner_id}', owner_id=owner_id, mode='review')
+        coach = CoachAssistant(
+            game_id=f'preflop-leaks-{owner_id}', owner_id=owner_id, mode='review'
+        )
         feedback = coach.review_preflop_leaks(profile_text)
     except TimeoutError:
         return jsonify({'error': 'Coach is taking too long, please try again'}), 504

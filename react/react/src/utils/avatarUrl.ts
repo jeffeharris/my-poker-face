@@ -6,10 +6,7 @@
 // Accepts `undefined` and returns it unchanged so call sites can pass an
 // optional `avatar_url` (string | undefined) without extra guarding — matching
 // the behavior of the original inline/local implementations.
-export function avatarUrlForEmotion(
-  url: string | undefined,
-  emotion: string
-): string | undefined {
+export function avatarUrlForEmotion(url: string | undefined, emotion: string): string | undefined {
   if (!url) return url;
   return url.replace(/\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/, `/api/avatar/$1/${emotion}$2`);
 }

@@ -20,8 +20,6 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from poker.strategy.nodes import PreflopNode
-
 logger = logging.getLogger(__name__)
 
 # Engine position keys → 6-max chart labels. Short-handed tables collapse to a
@@ -225,10 +223,6 @@ def get_owner_chart_leak_set(
     spot = compute_chart_leaks(decisions, reference_strategy, group_by='position')
     hand = compute_chart_leaks(decisions, reference_strategy, group_by='hand')
     return {
-        'by_spot': {
-            (lk.scenario, lk.position): info(lk) for lk in spot.leaks if keep(lk)
-        },
-        'by_hand': {
-            (lk.scenario, lk.position, lk.hand): info(lk) for lk in hand.leaks if keep(lk)
-        },
+        'by_spot': {(lk.scenario, lk.position): info(lk) for lk in spot.leaks if keep(lk)},
+        'by_hand': {(lk.scenario, lk.position, lk.hand): info(lk) for lk in hand.leaks if keep(lk)},
     }

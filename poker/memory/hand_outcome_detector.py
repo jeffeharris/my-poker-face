@@ -77,6 +77,61 @@ STACK_DOMINANCE_THRESHOLD = 1.5
 # catastrophic. Stacks above 3.5× cap saturate at this signal level.
 STACK_DOMINANCE_EXCESS_CAP = 2.0
 
+# STACK_DOMINANCE firing cooldown, in hands, per (observer, deep_stack)
+# pair. The detector would otherwise emit once PER HAND for every peer
+# of every deep stack — in a 6-max table with one chip leader that's
+# ~5 events/hand, which swamps real poker events (~0.2/hand) by two
+# orders of magnitude and erodes respect/likability toward the floor
+# long before any other signal registers (measured: 98.5% of all
+# relationship events in a 3000-hand lobby sim). Throttling to once
+# per N hands per pair makes dominance a slow background pressure
+# rather than a flood, while still accumulating over genuinely
+# sustained co-presence. 0 disables the throttle.
+STACK_DOMINANCE_COOLDOWN_HANDS = 10
+
+# --- Rivalry tiers (RIVAL -> NEMESIS) -------------------------------------
+# Both tiers gate first on shared-hand VOLUME (hands_played_cash — the
+# persisted per-pair count maintained on every settled pot), so a couple of
+# big pots in a pair's first session can't mint a rivalry. The competition
+# signal is the big-pot CLASH count: each big pot a player loses to a specific
+# opponent is one clash against them. Count-based and stack-relative (see
+# MomentAnalyzer.is_big_pot), so it means the same at $2 and $50 — a chip
+# threshold would be unreachable at low stakes and instant-and-plural at high
+# stakes.
+
+# RIVAL (tier 1 — "we've got history"): symmetric / mutual. Fires for a pair
+# once they've shared RIVAL_MIN_HANDS hands AND tangled in RIVAL_MIN_CLASHES
+# big pots total (either direction). Balance-agnostic — a rivalry is
+# engagement, win or lose.
+RIVAL_MIN_HANDS = 40
+RIVAL_MIN_CLASHES = 2
+
+# NEMESIS (tier 2 — "deep-seated"): directed. Fires X->Y when, after a longer
+# shared history (NEMESIS_MIN_HANDS), X has lost NEMESIS_BIG_LOSS_COUNT big
+# pots to Y AND X is not clearly ahead in the big-pot record — i.e. X's losses
+# to Y are within NEMESIS_AHEAD_TOLERANCE of X's wins back. The tolerance is
+# why it "needn't be exactly equal": X can be up a pot or two and still hold
+# the grudge, and an even back-and-forth war fires for BOTH sides (mutual
+# nemesis) — which a pure antisymmetric net deficit could never produce.
+NEMESIS_MIN_HANDS = 80
+NEMESIS_BIG_LOSS_COUNT = 3
+NEMESIS_AHEAD_TOLERANCE = 1
+
+# REGULAR: low-grade familiarity from peaceful co-presence. Fires once per
+# this many hands per co-present pair that did NOT have any other relationship
+# event that hand (no warmth on a hand you clashed). The first time a pair is
+# seen only starts their clock — familiarity is earned over time, not on the
+# first shared hand. 0 disables.
+REGULAR_COOLDOWN_HANDS = 20
+
+# REGULAR fires at most this many times per pair, then plateaus. Familiarity
+# is a bounded mild warmth ("we're regulars, I have a baseline good feeling
+# about this person"), NOT ever-climbing affection. Without this cap every
+# always-co-present pair saturates likability to 1.0 over a long session
+# (measured: 25/30 pairs maxed in a 3000-hand sim). At MAX_FIRES x the +0.02
+# likability shift, a pair warms by at most +0.10 (0.5 -> ~0.60).
+REGULAR_MAX_FIRES = 5
+
 
 @dataclass(frozen=True)
 class DetectedEvent:
@@ -138,6 +193,30 @@ class HandOutcomeDetector:
         self._name_to_id: Dict[str, Optional[str]] = name_to_id if name_to_id is not None else {}
         # Dedup set; key shape: (hand_number, actor_id, target_id, event)
         self._emitted: Set[Tuple[int, str, str, RelationshipEvent]] = set()
+        # STACK_DOMINANCE per-pair cooldown: (observer_id, deep_id) -> last
+        # hand_number it fired. Throttles the per-hand drip to once every
+        # STACK_DOMINANCE_COOLDOWN_HANDS so a long-seated deep stack doesn't
+        # flood the relationship layer. Persists for the detector's lifetime
+        # (per-game / per-sandbox), so the spacing holds across hands.
+        self._stack_dominance_last_fired: Dict[Tuple[str, str], int] = {}
+        # NEMESIS: count of big pots lost, per ordered (loser_id, winner_id)
+        # pair. The reverse entry (winner_id, loser_id) is the loser's big
+        # wins back, so the net deficit is loss[(a,b)] - loss[(b,a)]. When a
+        # pair both reaches NEMESIS_BIG_LOSS_COUNT losses AND isn't ahead, the
+        # rivalry fires once (latched in _nemesis_fired). In-memory for the
+        # detector's lifetime (per-game / per-sandbox), like the other
+        # throttle/latch state.
+        self._big_pot_loss_count: Dict[Tuple[str, str], int] = {}
+        # RIVAL fire-once latch, keyed by the UNORDERED pair (frozenset) since
+        # the tier is symmetric/mutual. NEMESIS latch is directed.
+        self._rival_fired: Set[frozenset] = set()
+        self._nemesis_fired: Set[Tuple[str, str]] = set()
+        # REGULAR per-pair cooldown: ordered (lo_id, hi_id) -> last hand fired
+        # (or first-seen hand). Throttles the familiarity drip.
+        self._regular_last_fired: Dict[Tuple[str, str], int] = {}
+        # REGULAR per-pair fire count, capped at REGULAR_MAX_FIRES so
+        # familiarity plateaus instead of climbing to max affection.
+        self._regular_fire_count: Dict[Tuple[str, str], int] = {}
 
     def detect_events(
         self,
@@ -146,6 +225,7 @@ class HandOutcomeDetector:
         equity_history: Optional[HandEquityHistory] = None,
         max_buy_in: Optional[int] = None,
         cash_pnl_lookup: Optional[Callable[[str, str], int]] = None,
+        hands_played_lookup: Optional[Callable[[str, str], int]] = None,
     ) -> List[DetectedEvent]:
         """Inspect a completed hand and return the events it triggered.
 
@@ -172,7 +252,9 @@ class HandOutcomeDetector:
         chips, only victims do. See `_detect_stack_dominance`.
         """
         events: List[DetectedEvent] = []
-        events.extend(self._detect_big_pot_events(recorded_hand))
+        big_pot_events = self._detect_big_pot_events(recorded_hand)
+        events.extend(big_pot_events)
+        events.extend(self._detect_knockouts(recorded_hand))
         events.extend(self._detect_hero_calls(recorded_hand))
         events.extend(self._detect_bluffed_off(recorded_hand))
         events.extend(self._detect_dominated_showdown(recorded_hand))
@@ -188,6 +270,16 @@ class HandOutcomeDetector:
                     cash_pnl_lookup,
                 )
             )
+        # RIVAL / NEMESIS: accumulate big-pot clashes and fire the rivalry
+        # tiers, gated on shared-hand volume. Cash-only — runs only when a
+        # hands_played_lookup is wired (the same cash-mode context that builds
+        # the cash_pnl_lookup); tournaments leave it None and never tier up.
+        if hands_played_lookup is not None:
+            events.extend(self._detect_rivalries(big_pot_events, hands_played_lookup))
+        # REGULAR runs last: it keys off which pairs already have an event this
+        # hand (no familiarity bump on a hand you clashed), so it needs the
+        # full prior-event list.
+        events.extend(self._detect_regulars(recorded_hand, events))
         # Apply dedup AFTER detection so detection logic stays a
         # pure mapping. Each surviving event marks its key as
         # emitted; re-running the same hand returns no events.
@@ -1094,6 +1186,17 @@ class HandOutcomeDetector:
                         # no resentment. Strangers and net winners
                         # against the deep stack stay neutral.
                         continue
+                # Throttle: at most one drip per pair per cooldown window so a
+                # long-seated deep stack doesn't flood the relationship layer.
+                if STACK_DOMINANCE_COOLDOWN_HANDS > 0:
+                    pair_key = (observer_id, deep_id)
+                    last = self._stack_dominance_last_fired.get(pair_key)
+                    if (
+                        last is not None
+                        and (hand.hand_number - last) < STACK_DOMINANCE_COOLDOWN_HANDS
+                    ):
+                        continue
+                    self._stack_dominance_last_fired[pair_key] = hand.hand_number
                 events.append(
                     DetectedEvent(
                         actor_id=observer_id,
@@ -1105,6 +1208,172 @@ class HandOutcomeDetector:
                             f"({deep.starting_stack} chips, "
                             f"{deep.starting_stack / max_buy_in:.1f}× cap)"
                         ),
+                    )
+                )
+        return events
+
+    def _detect_knockouts(self, hand: RecordedHand) -> List[DetectedEvent]:
+        """Emit KNOCKOUT when a player busts (final_stack <= 0) this hand.
+
+        The buster is attributed via `compute_chip_flows`: the winner who took
+        the largest share of the busted player's chips this hand. Actor = the
+        buster, target = the busted player — the emotional weight is on the
+        mirror (the busted player's view of who took them out). Requires
+        `final_stack` to be populated on the recorded players; paths that don't
+        capture it (final_stack=None) simply never fire KNOCKOUT.
+        """
+        busted = {p.name for p in hand.players if p.final_stack is not None and p.final_stack <= 0}
+        if not busted:
+            return []
+        # Largest taker from each busted loser = the buster.
+        best: Dict[str, Tuple[int, str]] = {}  # loser -> (chips, winner)
+        for flow in self.compute_chip_flows(hand):
+            if flow.loser in busted and flow.chips > best.get(flow.loser, (0, ""))[0]:
+                best[flow.loser] = (flow.chips, flow.winner)
+        events: List[DetectedEvent] = []
+        for loser, (_chips, winner) in best.items():
+            loser_id = self._resolve_id(loser)
+            buster_id = self._resolve_id(winner)
+            if loser_id is None or buster_id is None or loser_id == buster_id:
+                continue
+            events.append(
+                DetectedEvent(
+                    actor_id=buster_id,
+                    target_id=loser_id,
+                    event=RelationshipEvent.KNOCKOUT,
+                    narrative=f"{winner} busted {loser}",
+                )
+            )
+        return events
+
+    def _detect_rivalries(
+        self,
+        big_pot_events: List[DetectedEvent],
+        hands_played_lookup: Callable[[str, str], int],
+    ) -> List[DetectedEvent]:
+        """Fold this hand's big-pot clashes into the running counts, then emit
+        the rivalry tiers gated on shared-hand volume.
+
+        RIVAL (tier 1, symmetric/mutual): the pair has shared >= RIVAL_MIN_HANDS
+        hands AND clashed in >= RIVAL_MIN_CLASHES big pots (either direction).
+        Balance-agnostic.
+
+        NEMESIS (tier 2, directed): after >= NEMESIS_MIN_HANDS shared hands, a
+        player has lost >= NEMESIS_BIG_LOSS_COUNT big pots to a specific
+        opponent AND isn't ahead of them by more than NEMESIS_AHEAD_TOLERANCE
+        big pots. The tolerance lets an even war fire for both sides (mutual)
+        while a lopsided matchup stays one-directional. Both tiers latch.
+
+        `hands_played_lookup(a, b)` returns the pair's persisted
+        `hands_played_cash` (symmetric); this method is only called in the
+        cash-mode context where that lookup is wired.
+        """
+        touched: Set[frozenset] = set()
+        for ev in big_pot_events:
+            if ev.event is not RelationshipEvent.BIG_LOSS:
+                continue
+            loser_id, winner_id = ev.actor_id, ev.target_id
+            if loser_id == winner_id:
+                continue
+            key = (loser_id, winner_id)
+            self._big_pot_loss_count[key] = self._big_pot_loss_count.get(key, 0) + 1
+            touched.add(frozenset(key))
+
+        events: List[DetectedEvent] = []
+        for pair_set in touched:
+            a, b = tuple(pair_set)
+            try:
+                hands = hands_played_lookup(a, b)
+            except Exception:
+                continue
+            loss_ab = self._big_pot_loss_count.get((a, b), 0)
+            loss_ba = self._big_pot_loss_count.get((b, a), 0)
+            clashes = loss_ab + loss_ba
+
+            # RIVAL — mutual, once per unordered pair.
+            if (
+                pair_set not in self._rival_fired
+                and hands >= RIVAL_MIN_HANDS
+                and clashes >= RIVAL_MIN_CLASHES
+            ):
+                self._rival_fired.add(pair_set)
+                events.append(
+                    DetectedEvent(
+                        actor_id=a,
+                        target_id=b,
+                        event=RelationshipEvent.RIVAL,
+                        narrative=f"{a} and {b} have history ({clashes} big-pot clashes)",
+                    )
+                )
+
+            # NEMESIS — directed; check each side.
+            for loser_id, winner_id, l_loss, l_win in (
+                (a, b, loss_ab, loss_ba),
+                (b, a, loss_ba, loss_ab),
+            ):
+                pair = (loser_id, winner_id)
+                if (
+                    pair not in self._nemesis_fired
+                    and hands >= NEMESIS_MIN_HANDS
+                    and l_loss >= NEMESIS_BIG_LOSS_COUNT
+                    and l_loss >= l_win - NEMESIS_AHEAD_TOLERANCE
+                ):
+                    self._nemesis_fired.add(pair)
+                    events.append(
+                        DetectedEvent(
+                            actor_id=loser_id,
+                            target_id=winner_id,
+                            event=RelationshipEvent.NEMESIS,
+                            narrative=(
+                                f"{loser_id} has lost {l_loss} big pots to "
+                                f"{winner_id} — nemesis"
+                            ),
+                        )
+                    )
+        return events
+
+    def _detect_regulars(
+        self,
+        hand: RecordedHand,
+        prior_events: List[DetectedEvent],
+    ) -> List[DetectedEvent]:
+        """Emit a bilateral REGULAR familiarity drip for co-present pairs.
+
+        Fires once per REGULAR_COOLDOWN_HANDS per pair, skipping any pair that
+        already has an event this hand (no warmth on a hand you clashed). The
+        first time a pair is seen only starts their clock — the first bump
+        comes one cooldown window later, so familiarity is earned, not granted
+        on the opening shared hand. The shift is symmetric, so one directed
+        event per unordered pair updates both views via record_event.
+        """
+        if REGULAR_COOLDOWN_HANDS <= 0 or len(hand.players) < 2:
+            return []
+        clashed = {frozenset((e.actor_id, e.target_id)) for e in prior_events}
+        ids = [pid for pid in (self._resolve_id(p.name) for p in hand.players) if pid is not None]
+        hn = hand.hand_number
+        events: List[DetectedEvent] = []
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                a, b = ids[i], ids[j]
+                if a == b or frozenset((a, b)) in clashed:
+                    continue
+                pair = (a, b) if a < b else (b, a)
+                if self._regular_fire_count.get(pair, 0) >= REGULAR_MAX_FIRES:
+                    continue  # familiarity plateaued for this pair
+                last = self._regular_last_fired.get(pair)
+                if last is None:
+                    self._regular_last_fired[pair] = hn  # start the clock
+                    continue
+                if (hn - last) < REGULAR_COOLDOWN_HANDS:
+                    continue
+                self._regular_last_fired[pair] = hn
+                self._regular_fire_count[pair] = self._regular_fire_count.get(pair, 0) + 1
+                events.append(
+                    DetectedEvent(
+                        actor_id=pair[0],
+                        target_id=pair[1],
+                        event=RelationshipEvent.REGULAR,
+                        narrative="familiar tablemates",
                     )
                 )
         return events

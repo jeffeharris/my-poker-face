@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Keyboard, Zap, Send } from 'lucide-react';
 import type { ChatMessage, WinResult } from '../../types';
@@ -6,6 +6,7 @@ import type { Player } from '../../types/player';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { ChatTargetSelector } from '../chat/ChatTargetSelector';
 import { parseMessageBlock } from '../../utils/messages';
+import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import './MobileChatSheet.css';
 
 type ParsedCard = { rank: string; suit: string; color: 'red' | 'white' };
@@ -128,6 +129,10 @@ export function MobileChatSheet({
   guestFreeChatLocked = false,
   initialTarget = null,
 }: MobileChatSheetProps) {
+  // Opponents ordered as they sit at the table relative to the human, so the
+  // free-text target picker matches Quick Chat and the felt.
+  const orderedOpponents = useMemo(() => orderOpponentsRelativeToHuman(players), [players]);
+
   // Default to quick-chat for everyone: it's the bounded, always-available
   // surface (guests get it once per turn; their keyboard tab is locked).
   const [activeTab, setActiveTab] = useState<InputTab>('quick');
@@ -447,7 +452,7 @@ export function MobileChatSheet({
               // applies here too.
               <div className="mcs-quick-chat-wrapper mcs-text-tab">
                 <ChatTargetSelector
-                  aiPlayers={players.filter((p) => !p.is_human)}
+                  aiPlayers={orderedOpponents}
                   selectedTarget={textTarget}
                   onTargetSelect={setTextTarget}
                 />

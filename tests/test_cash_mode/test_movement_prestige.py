@@ -47,6 +47,10 @@ def _ctx(**over) -> MovementContext:
         hands_in_detached_zone=0,
         emotional_intensity=0.0,
         table_deadness=0.0,
+        # Settled past the dwell floor (DWELL_PATIENCE_HANDS=6) so the
+        # discretionary-pressure dwell_damp is 1.0 — these wealth/stake-up
+        # tests assert undamped pressure.
+        hands_here=20,
     )
     base.update(over)
     return MovementContext(**base)

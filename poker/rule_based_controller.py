@@ -281,9 +281,7 @@ class RuleBasedController:
         # (range-aware adaptive prototype) instead of vs-random.
         if community_cards:
             if getattr(self, 'use_range_equity', False):
-                equity = (
-                    self._range_equity(game_state, player, hole_cards, community_cards) or 0.5
-                )
+                equity = self._range_equity(game_state, player, hole_cards, community_cards) or 0.5
             else:
                 equity = (
                     calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)

@@ -394,9 +394,7 @@ class TestSitAll(_CashSitRouteBase):
         data = resp.get_json()
         # Claimed a real open seat, not the taken one.
         assert data["seat_index"] != 0
-        claimed = self.cash_table_repo.load_table(
-            "cash-table-2-001", sandbox_id="test-sandbox-1"
-        )
+        claimed = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert claimed.seats[data["seat_index"]]["kind"] == "human"
 
     def test_full_table_409(self):
@@ -457,9 +455,7 @@ class TestSitAll(_CashSitRouteBase):
         # AI" race). Response echoes the held seat for release/accept.
         assert data.get("table_id") == "cash-table-2-001"
         assert data.get("seat_index") == open_idx
-        held = self.cash_table_repo.load_table(
-            "cash-table-2-001", sandbox_id="test-sandbox-1"
-        )
+        held = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert held.seats[open_idx]["kind"] == "reserved"
         assert held.seats[open_idx]["personality_id"] == PLAYER_OWNER_ID
 
@@ -771,9 +767,9 @@ class TestSitAll(_CashSitRouteBase):
             )
 
         projected = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
-        assert projected.seats[orphan_idx]["kind"] == "open", (
-            "projection should hide the unconfirmed ghost human slot at orphan_idx"
-        )
+        assert (
+            projected.seats[orphan_idx]["kind"] == "open"
+        ), "projection should hide the unconfirmed ghost human slot at orphan_idx"
 
         # Phase 2: sit at new_idx on the SAME table — must succeed and
         # leave only the new seat human (orphan stays projected open).

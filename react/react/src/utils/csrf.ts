@@ -59,9 +59,7 @@ export function installCsrfFetch(): void {
     if (MUTATING_METHODS.has(method) && isApiRequest(url)) {
       const token = readCookie(CSRF_COOKIE);
       if (token) {
-        const headers = new Headers(
-          init.headers || (isRequestObj ? input.headers : undefined)
-        );
+        const headers = new Headers(init.headers || (isRequestObj ? input.headers : undefined));
         if (!headers.has(CSRF_HEADER)) headers.set(CSRF_HEADER, token);
         init = { ...init, headers, credentials: init.credentials ?? 'include' };
       }

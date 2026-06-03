@@ -101,9 +101,7 @@ class FakePresenceRepo:
 @pytest.fixture
 def shadow_on(monkeypatch):
     """Enable the kill switch and route shadow writes to a recording repo."""
-    monkeypatch.setattr(
-        economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", True, raising=False
-    )
+    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", True, raising=False)
     repo = FakePresenceRepo()
     # shadow_transition() resolves the repo from flask_app.extensions when no
     # repo= is passed; the call sites don't pass one, so patch the lookup.
@@ -115,9 +113,7 @@ def shadow_on(monkeypatch):
 
 @pytest.fixture
 def shadow_off(monkeypatch):
-    monkeypatch.setattr(
-        economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False
-    )
+    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False)
     repo = FakePresenceRepo()
     import flask_app.extensions as extensions
 
@@ -230,9 +226,7 @@ def _preseat(repo, pid, table_id="casino-2-001", seat_index=0):
     """
     e = ai_entity_id(pid)
     repo.persist_transition(e, SANDBOX, PresenceEvent.SEED)
-    repo.persist_transition(
-        e, SANDBOX, PresenceEvent.SIT, table_id=table_id, seat_index=seat_index
-    )
+    repo.persist_transition(e, SANDBOX, PresenceEvent.SIT, table_id=table_id, seat_index=seat_index)
     return e
 
 
@@ -257,9 +251,7 @@ def test_drain_shadows_return_to_pool(shadow_on):
         reason_detail="casino_teardown",
     )
     assert (returned, stranded) == (500, 0)
-    assert [c[2] for c in repo.calls[before:] if c[0] == entity] == [
-        PresenceEvent.RETURN_TO_POOL
-    ]
+    assert [c[2] for c in repo.calls[before:] if c[0] == entity] == [PresenceEvent.RETURN_TO_POOL]
     assert repo.state_of(entity, SANDBOX).state is Presence.POOL
 
 
@@ -323,9 +315,7 @@ def test_shed_shadows_return_to_pool(shadow_on):
         now=NOW,
     )
     assert shed == 1
-    pool_returns = [
-        c for c in repo.calls[before:] if c[2] is PresenceEvent.RETURN_TO_POOL
-    ]
+    pool_returns = [c for c in repo.calls[before:] if c[2] is PresenceEvent.RETURN_TO_POOL]
     assert len(pool_returns) == 1
     shed_entity = pool_returns[0][0]
     assert repo.state_of(shed_entity, SANDBOX).state is Presence.POOL
