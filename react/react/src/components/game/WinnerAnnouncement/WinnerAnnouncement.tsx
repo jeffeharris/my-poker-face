@@ -107,7 +107,10 @@ const LOSER_TONES: ToneOption[] = [
   { id: 'props', icon: Award, label: 'Props' },
 ];
 
-const FALLBACK_SUGGESTIONS: Record<PostRoundTone, PostRoundSuggestion[]> = {
+// Only the manually-selectable tone-bar tones (gloat/humble/props/salty/gracious)
+// have static fallbacks; commiserate/cry_luck/vow are situational tones that never
+// reach the tone bar here, so the map is Partial and lookups fall back to [].
+const FALLBACK_SUGGESTIONS: Partial<Record<PostRoundTone, PostRoundSuggestion[]>> = {
   gloat: [
     { text: 'Too easy.', tone: 'gloat' },
     { text: 'Thanks for the chips!', tone: 'gloat' },
@@ -167,7 +170,7 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
       if (!gameId || !playerName) {
         logger.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
-        setSuggestions(FALLBACK_SUGGESTIONS[tone]);
+        setSuggestions(FALLBACK_SUGGESTIONS[tone] ?? []);
         return;
       }
 
@@ -177,7 +180,7 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
         setSuggestions(response.suggestions || []);
       } catch (error) {
         logger.error('[PostRoundChat] Failed to fetch suggestions:', error);
-        setSuggestions(FALLBACK_SUGGESTIONS[tone]);
+        setSuggestions(FALLBACK_SUGGESTIONS[tone] ?? []);
       } finally {
         setLoadingSuggestions(false);
       }

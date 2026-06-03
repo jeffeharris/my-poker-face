@@ -555,8 +555,14 @@ def get_post_round_chat_suggestions(game_id):
         # Validate tone. After a WIN: gloat/gracious/humble/commiserate.
         # After a LOSS: salty/props/cry_luck/vow. props is shared.
         allowed_tones = {
-            'gloat', 'gracious', 'humble', 'commiserate',
-            'salty', 'props', 'cry_luck', 'vow',
+            'gloat',
+            'gracious',
+            'humble',
+            'commiserate',
+            'salty',
+            'props',
+            'cry_luck',
+            'vow',
         }
         if tone not in allowed_tones:
             logger.warning("Invalid tone value received for post-round chat: %r", tone)

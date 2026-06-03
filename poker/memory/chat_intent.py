@@ -77,13 +77,13 @@ _MID_HAND_TONE_MAP: dict[str, ChatEventMapping] = {
 # self-mockery. Tones absent here take no sarcastic variant.
 _SARCASM_MODE_BY_TONE: dict[str, str] = {
     # Mid-hand
-    "trash_talk": "soften",   # → banter
-    "props": "sharpen",       # → backhanded "nice play"
-    "flatter": "sharpen",     # → mocking (resolved on the flattery path)
+    "trash_talk": "soften",  # → banter
+    "props": "sharpen",  # → backhanded "nice play"
+    "flatter": "sharpen",  # → mocking (resolved on the flattery path)
     # Post-round
-    "gracious": "sharpen",    # → fake-nice "wp"
-    "commiserate": "sharpen", # → fake sympathy
-    "humble": "self",         # → dry self-deprecation
+    "gracious": "sharpen",  # → fake-nice "wp"
+    "commiserate": "sharpen",  # → fake sympathy
+    "humble": "self",  # → dry self-deprecation
 }
 
 
