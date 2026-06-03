@@ -2,7 +2,7 @@
 purpose: Living plan + risk register for eventually bringing the modern dev work (cash mode, circuit, dossiers, chip ledger, tournament economy, presence) to the far-older production deployment.
 type: guide
 created: 2026-06-02
-last_updated: 2026-06-02
+last_updated: 2026-06-03
 ---
 
 # Prod Merge Plan — Bringing Dev to Production
@@ -17,10 +17,21 @@ last_updated: 2026-06-02
 Production is **far behind** `development`/`tournaments` and on a **different
 migration framework**:
 
+> **CORRECTION (2026-06-03):** an earlier draft of this table claimed dev tracks
+> versions in a **`schema_migrations`** table. That is **wrong** — verified on the
+> live dev DB: the modern `SchemaManager` reads/writes **`schema_version`**
+> (columns `version, applied_at, description`; `SELECT MAX(version)`), and there
+> is **no `schema_migrations` table**. So prod and dev use the **same table name
+> and the same numeric scheme** — prod is just far behind (v70 vs 148). The
+> cutover is therefore likely *"run migrations 71→148 on prod"*, NOT a
+> two-framework bridge — **but confirm prod's `schema_version` STRUCTURE on a
+> copy** (prod's may be a legacy human-readable variant under the same name; if
+> its `version` column isn't the same numeric scheme, that IS the bridge work).
+
 | | Production | Dev branches (`tournaments`, `development`, …) |
 |---|---|---|
-| Migration table | legacy **`schema_version`** (human-readable) | numeric **`schema_migrations`** |
-| Version | **v70**, last applied **2026-02-06** | **`SCHEMA_VERSION = 137`** (`poker/repositories/schema_manager.py`) |
+| Migration table | **`schema_version`** (v70 — confirm column structure on a copy) | **`schema_version`** (numeric; cols `version/applied_at/description`) |
+| Version | **v70**, last applied **2026-02-06** | **`SCHEMA_VERSION = 148`** (`poker/repositories/schema_manager.py`) |
 | `personalities.personality_id` | ❌ absent | ✅ (~v85) |
 | `personalities.circulating` | ❌ absent | ✅ (v123) |
 | `avatar_images.personality_id` | ❌ absent | ✅ (v137) |
@@ -42,14 +53,38 @@ its own project with a tested dry-run on a prod DB copy before touching prod.
 
 ## How prod tracks version (so the upgrade can detect it)
 
-- Prod has a **`schema_version`** table (max v70) and **no `schema_migrations`**.
-- The modern `SchemaManager` keys off `schema_migrations`. On a prod DB it will
-  see no `schema_migrations` and must NOT assume a fresh DB (that would try to
-  `_init_db` over a populated legacy DB). **Verify the bootstrap path handles
-  "legacy `schema_version` present, `schema_migrations` absent"** — does it
-  detect the legacy version and run the numeric chain from the right starting
-  point, or does it need a one-time bridge migration? This is the first thing to
-  prove on a prod DB copy.
+- BOTH prod and the modern code use a **`schema_version`** table — prod at max
+  **v70**, dev at **148**. The modern `SchemaManager` reads `SELECT MAX(version)
+  FROM schema_version` and applies every registered migration whose number is
+  **greater than** that max. So pointing the modern code at the prod copy should
+  run migrations **71→148** in order. **Prove on a copy** that: (a) prod's
+  `schema_version.version` column is the same numeric scheme (not a text/legacy
+  label that `MAX()` mis-orders), and (b) `_init_db`'s `CREATE TABLE IF NOT
+  EXISTS` statements no-op cleanly over prod's populated legacy tables (they
+  should — but the avatar/personality tables differ; watch those).
+- **`schema_version = N` does NOT prove the schema is complete** (see the
+  root-cause finding below). After the walk, run the **schema-completeness gate**
+  (`scripts/schema_completeness_check.py`) on the copy and require ZERO missing
+  tables/columns/indexes before cutover.
+
+## Root cause finding (2026-06-03): a high version number can hide missing migrations
+
+The dev DB was stamped `schema_version = 148` but was **missing the
+`prestige_snapshots.entity_kind` column + the v139/v140 indexes** — the v139 and
+v140 rows were absent from its history entirely. Cause: those migrations were
+**renumbered to 139/140 on a branch merge** (`schema_manager.py` v138's own
+description: *"Renumbered from v133 on the renown→development merge"*) **after**
+this DB had already advanced past 140. The walk only runs versions `> MAX`, so a
+migration inserted at a number below a live DB's current version **never runs on
+that DB**. A *fresh* `ensure_schema()` build is complete (it walks 1→148), so this
+is drift on long-lived DBs, not a fresh-build bug.
+
+**Why prod is probably safe from THIS instance:** prod is at v70, so the walk will
+run 139 and 140 (both > 70) → prod gets `entity_kind`. The hazard is general,
+though: **the completeness gate is the catch-all** — run it post-migration, every
+time. **Going forward:** never assign a migration a number ≤ any deployed DB's
+current version; keep the registry numbers contiguous + monotonic (a CI test now
+asserts this — see `tests/test_repositories/test_schema_manager.py`).
 
 ## Suggested sequence (high level — refine before executing)
 
@@ -58,6 +93,13 @@ its own project with a tested dry-run on a prod DB copy before touching prod.
 2. **Dry-run on the copy:** point the modern code at the prod DB copy in a
    throwaway container and let `SchemaManager` migrate. Capture every migration
    that runs, every destructive step, and any failure. Iterate until clean.
+2b. **Schema-completeness gate (REQUIRED before cutover):** after the migrate,
+   run `scripts/schema_completeness_check.py --db <prod-copy>` — it diffs the
+   migrated copy against a fresh canonical `ensure_schema()` build and exits
+   non-zero on any MISSING table/column/index. Require a clean (exit 0) result.
+   This is the catch-all for the "high version number, missing migration" class
+   (see the root-cause finding above). Extra/legacy prod tables are reported but
+   don't fail — those are expected (e.g. the old single-table tournament tables).
 3. **Data backfills to validate on the copy** (these run against REAL prod data,
    not the empty dev template the tests use):
    - v137 avatar `personality_id` backfill over prod's 322 rows — re-run the
@@ -106,8 +148,21 @@ its own project with a tested dry-run on a prod DB copy before touching prod.
   and `CHIP_CUSTODY_ENABLED` are enabled in the **dev** `.env` only; prod env
   must be set deliberately at/after cutover, not assumed. See
   `docs/guides/OPS_RUNBOOK.md`.
+- **2026-06-03 — `schema_version = N` ≠ complete schema (renumbering hazard).**
+  The dev DB sat at v148 missing the v139 `prestige_snapshots.entity_kind` column
+  + v139/v140 indexes, because those migrations were renumbered below the DB's
+  current version after it had passed them, so the walk skipped them (rows 139/140
+  absent from its `schema_version`). Silently broke the renown AI fan-out
+  (`record_ai_many` INSERTs `entity_kind`). Fixed on dev by re-running the two
+  idempotent migrations + backfilling the version rows (backup:
+  `data/poker_games.backup_pre_schemafix_20260603.db`). **Mitigation = the
+  completeness gate (step 2b).** Dev `schema_migrations`-vs-`schema_version`
+  table-name claim above was also corrected. See the captain's log
+  `docs/captains-log/tournaments/schema-drift-and-migration-path.md`.
 
 ## Pointers
+- **Schema-completeness gate:** `scripts/schema_completeness_check.py` (run on the
+  prod copy after migrating — the required cutover gate; step 2b).
 - Schema authority: `poker/repositories/schema_manager.py` (`SCHEMA_VERSION`,
   `migrations` dict, `_init_db`, `_migrate_vNNN`).
 - Ops/deploy: `docs/guides/OPS_RUNBOOK.md`, `deploy.sh`, `docker-compose.prod.yml`.

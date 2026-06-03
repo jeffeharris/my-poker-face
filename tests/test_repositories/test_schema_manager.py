@@ -1,6 +1,7 @@
 """Tests for SchemaManager."""
 
 import os
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -179,6 +180,40 @@ class TestSchemaManager(unittest.TestCase):
         conn.close()
 
         self.assertEqual(tables, {'groups', 'user_groups', 'permissions', 'group_permissions'})
+
+
+class TestMigrationRegistryContiguity(unittest.TestCase):
+    """Guard the renumbering hazard. Migration version numbers must form a
+    gapless, duplicate-free 1..SCHEMA_VERSION. A gap, a reused number, or a
+    migration numbered below a deployed DB's current version is how a DB ends up
+    stamped vN yet missing a migration the walk skipped (the dev DB hit exactly
+    this — v148 missing the v139 entity_kind column; see PROD_MERGE_PLAN.md
+    root-cause finding 2026-06-03). The runtime catch-all is
+    scripts/schema_completeness_check.py; this catches the registry-shape half at
+    CI time so a future renumber can't silently leave a hole."""
+
+    def _migration_versions(self):
+        versions = []
+        for name in dir(SchemaManager):
+            m = re.match(r"_migrate_v(\d+)_", name)
+            if m:
+                versions.append(int(m.group(1)))
+        return versions
+
+    def test_no_duplicate_version_numbers(self):
+        versions = self._migration_versions()
+        dupes = sorted({v for v in versions if versions.count(v) > 1})
+        self.assertEqual(dupes, [], f"duplicate migration version numbers: {dupes}")
+
+    def test_versions_are_gapless_1_to_schema_version(self):
+        versions = sorted(set(self._migration_versions()))
+        self.assertEqual(
+            versions,
+            list(range(1, SCHEMA_VERSION + 1)),
+            "migration version numbers must be a gapless 1..SCHEMA_VERSION "
+            "(no gaps, none beyond SCHEMA_VERSION) — a hole here means a renumber "
+            "left a migration unreachable",
+        )
 
 
 if __name__ == '__main__':
