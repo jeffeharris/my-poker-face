@@ -290,6 +290,8 @@ def cash_whereabouts():
             relationship_repo=extensions.relationship_repo,
             bankroll_repo=extensions.bankroll_repo,
             personality_repo=extensions.personality_repo,
+            tournament_session_repo=getattr(extensions, 'tournament_session_repo', None),
+            tournament_invite_repo=getattr(extensions, 'tournament_invite_repo', None),
         )
         people = data['people']
         for person in people:

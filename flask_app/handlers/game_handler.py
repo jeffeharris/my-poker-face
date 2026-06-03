@@ -139,6 +139,24 @@ def _off_grid_pids(sandbox_id: Optional[str], now: datetime) -> set:
     return pids
 
 
+def _tournament_bound_pids(owner_id: Optional[str]) -> set:
+    """Personas reserved for the owner's gathering Main Event (cash→tournament
+    draw). The human-table mirror of `_off_grid_pids`: these are kept out of the
+    seat-fill paths (`_refill_cash_seats`, `select_rejoin_candidates`,
+    `_refresh_lobby_table_for_session`) AND force-left via `called_up_pids`, so a
+    reserved opponent drifts to the tournament instead of being re-seated at the
+    human's table. Empty behind `TOURNAMENT_DRAW_ENABLED` or when there's no
+    gather-eligible invite. Best-effort: any error → empty (never blocks refill)."""
+    try:
+        from flask_app.extensions import tournament_invite_repo
+        from flask_app.services import tournament_invites
+
+        return tournament_invites.bound_pids(tournament_invite_repo, owner_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[CASH] tournament-bound pid lookup failed: %s", e)
+        return set()
+
+
 def live_cash_seated_pids(sandbox_id: Optional[str]) -> set:
     """Personality ids seated as AI opponents in any *live* cash game for
     `sandbox_id` — the authoritative "who is the human playing right now".
@@ -988,7 +1006,7 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     # exclusion the autonomous lobby refresh applies. Without it a broke,
     # hustling AI gets pulled into the human's table mid-hustle (the
     # `seated_and_offgrid` split-brain). See `_off_grid_pids`.
-    off_grid = _off_grid_pids(sandbox_id, now)
+    off_grid = _off_grid_pids(sandbox_id, now) | _tournament_bound_pids(owner_id)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     eligible_pool = [
         e
@@ -1199,10 +1217,11 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
     occupied = {p.name for p in game_state.players if p.is_human or p.stack > 0}
 
     now = datetime.utcnow()
-    # Don't offer an off-grid AI (on a vice / side hustle) as a rejoin
-    # candidate — seating one would re-create the `seated_and_offgrid`
+    # Don't offer an off-grid AI (on a vice / side hustle) — or a persona
+    # reserved for the gathering Main Event — as a rejoin candidate; seating one
+    # would re-create the `seated_and_offgrid` (or seated-and-tournament-bound)
     # split-brain. Mirrors the autonomous lobby refresh's exclusion.
-    off_grid = _off_grid_pids(sandbox_id, now)
+    off_grid = _off_grid_pids(sandbox_id, now) | _tournament_bound_pids(owner_id)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     pool = [
         e for e in eligible if e['name'] not in occupied and e['personality_id'] not in off_grid
@@ -1594,7 +1613,11 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     # autonomous lobby refresh does. Live-filling a hustling AI here is
     # what produces the `seated_and_offgrid` split-brain at the human's
     # table. See `_off_grid_pids`.
-    off_grid = _off_grid_pids(sandbox_id, now)
+    # Cash→tournament draw: reserved personas are gathered off cash — kept out
+    # of this table's re-fill AND force-left below via called_up_pids. Computed
+    # once and reused so the exclusion and the call-up agree.
+    tournament_bound = _tournament_bound_pids(human_owner_id)
+    off_grid = _off_grid_pids(sandbox_id, now) | tournament_bound
     eligible = [
         cand
         for cand in personality_repo.list_eligible_for_cash_mode(user_id=human_owner_id)
@@ -1692,6 +1715,9 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         # built for the seat re-stamp above) so a missing `archetype='fish'`
         # stamp can't spuriously fire the dead-push or drop a fish's rebuy.
         fish_ids=fish_pids,
+        # Cash→tournament call-up: force a reserved opponent at the human's
+        # table to leave for the gathering Main Event (mirrors the lobby tick).
+        called_up_pids=tournament_bound or None,
     )
 
     # Apply rebuy decisions: debit each AI's bankroll for the top-up

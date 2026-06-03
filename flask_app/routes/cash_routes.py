@@ -5993,6 +5993,8 @@ def get_whereabouts():
         personality_repo,
         relationship_repo,
         side_hustle_state_repo,
+        tournament_invite_repo,
+        tournament_session_repo,
         vice_state_repo,
     )
     from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
@@ -6007,6 +6009,8 @@ def get_whereabouts():
         relationship_repo=relationship_repo,
         bankroll_repo=bankroll_repo,
         personality_repo=personality_repo,
+        tournament_session_repo=tournament_session_repo,
+        tournament_invite_repo=tournament_invite_repo,
     )
 
     met_people = [p for p in data["people"] if p.get("met")]

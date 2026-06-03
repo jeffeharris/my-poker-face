@@ -37,6 +37,39 @@ from poker.repositories.tournament_invite_repository import (
 logger = logging.getLogger(__name__)
 
 
+def open_invite_for_gather(invite_repo, owner_id: Optional[str]) -> Optional[dict]:
+    """The owner's open invite IF its reserved field should be gathered off cash
+    this tick — i.e. `TOURNAMENT_DRAW_ENABLED` AND the invite has an `expires_at`.
+
+    The `expires_at` gate is the no-stranding guarantee: trickle-vacate only
+    pulls personas off cash for an invite that WILL spawn (expire_due fires at
+    expiry). An invite kept open indefinitely (`expires_at` None) is never
+    gathered, so a vacated persona never ends up in limbo with no tournament to
+    join. Best-effort: any read error → None (no gather this tick)."""
+    from cash_mode import economy_flags
+
+    if invite_repo is None or not owner_id or not economy_flags.TOURNAMENT_DRAW_ENABLED:
+        return None
+    try:
+        invite = invite_repo.active_for_owner(owner_id)
+    except Exception:  # noqa: BLE001 — gather is best-effort; never break the tick
+        logger.exception("gather: open-invite read failed for owner=%s", owner_id)
+        return None
+    if not invite or not invite.get('expires_at'):
+        return None
+    return invite
+
+
+def bound_pids(invite_repo, owner_id: Optional[str]) -> set:
+    """The reserved field (set of pids) being gathered off cash for the owner's
+    open Main Event — the cash→tournament "called up" set. Empty unless the
+    invite is gather-eligible (see `open_invite_for_gather`). Used by the
+    seat-fill paths to exclude reserved personas AND as `called_up_pids` to
+    force the still-seated ones to leave."""
+    invite = open_invite_for_gather(invite_repo, owner_id)
+    return set(invite.get('reserved_pids') or []) if invite else set()
+
+
 def draw_context(
     *,
     personality_repo,

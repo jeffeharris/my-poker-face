@@ -481,6 +481,57 @@ class TestDrawReserve:
         assert spawned is not None and spawned['tournament_id'] is not None
 
 
+class TestBoundPidsGating:
+    """`bound_pids` / `open_invite_for_gather` — the trickle-vacate gate (Phase C):
+    only gather an open invite that has reserved_pids AND an expires_at AND the
+    flag on, so a vacated persona is never stranded without a guaranteed spawn."""
+
+    def _make_open_invite(self, kit, *, reserved, expires_at):
+        kit['invite_repo'].create(
+            invite_id='iv',
+            owner_id=OWNER,
+            sandbox_id=SB,
+            buy_in=0,
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+            expires_at=expires_at,
+            reserved_pids=reserved,
+        )
+
+    def test_gather_when_flag_on_and_has_expiry(self, kit, monkeypatch):
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', True)
+        self._make_open_invite(
+            kit, reserved=['persona_1', 'persona_2'], expires_at='2099-01-01T00:00:00'
+        )
+        assert inv.bound_pids(kit['invite_repo'], OWNER) == {'persona_1', 'persona_2'}
+
+    def test_no_gather_when_flag_off(self, kit, monkeypatch):
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', False)
+        self._make_open_invite(kit, reserved=['persona_1'], expires_at='2099-01-01T00:00:00')
+        assert inv.bound_pids(kit['invite_repo'], OWNER) == set()
+
+    def test_no_gather_without_expiry(self, kit, monkeypatch):
+        # An invite kept open indefinitely (no expires_at) is never gathered —
+        # the no-stranding guarantee (no guaranteed spawn to absorb vacated AIs).
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', True)
+        self._make_open_invite(kit, reserved=['persona_1'], expires_at=None)
+        assert inv.bound_pids(kit['invite_repo'], OWNER) == set()
+
+    def test_no_invite_is_empty(self, kit, monkeypatch):
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', True)
+        assert inv.bound_pids(kit['invite_repo'], OWNER) == set()
+        assert inv.open_invite_for_gather(kit['invite_repo'], OWNER) is None
+
+
 class TestDraftExclusionsReserved:
     """draft_exclusions unions the owner's open-invite reserved field (B3.3)."""
 

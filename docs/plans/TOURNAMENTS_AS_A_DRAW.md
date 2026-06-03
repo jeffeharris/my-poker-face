@@ -139,18 +139,45 @@ The riskiest seam, proven in isolation, wired to nothing.
     grant); reserve = top `field_size`; `field_top_renown` = field-relative
     binary (1 when any big in pool). All sim-tunable.
 
-### Phase C — ticker trickle-vacate + spawn + whereabouts surfacing
-- **`ticker_service._tick_sandbox`**: thread the open invite's
-  `reserved_pids − vacated_pids` (intersected with currently-cash-seated) as
-  `called_up_pids` into the roster-refresh call-sites (unseated tables, the human's
-  live table via `_refill_cash_seats`/`_refresh_lobby_table_for_session`, rejoin)
-  — **all three**, or a reserved-and-seated persona is a split-brain. Record
-  `vacated_pids` from the refresh result's `called_up`. **Hold the sandbox lock**
-  for the vacate (it touches the ledger + table row + idle pool).
-- Spawn when `reserved ⊆ vacated` OR `expires_at` elapsed.
-- **`whereabouts.build_whereabouts`**: surface `STATUS_TOURNAMENT` (from
-  `active_participant_pids`) and `STATUS_TOURNAMENT_BOUND` (from `reserved_pids`),
-  + a `STUCK_*_AND_SEATED` flag for reserved-but-still-seated past expiry.
+### Phase C — ticker trickle-vacate + whereabouts surfacing ✅ DONE (2026-06-03, verified, uncommitted)
+Fully inert with `TOURNAMENT_DRAW_ENABLED` off (default). Owner decisions baked
+in: **both sites vacate** (lobby + the human's live table), and **NO early
+spawn** — the human keeps the full registration window; their seat is held and
+filled by an AI at `expires_at` (the existing `expire_due` path), never an early
+AI-only start.
+- **Gate helpers** (`tournament_invites.py`): `open_invite_for_gather` /
+  `bound_pids` return the open invite's `reserved_pids` ONLY when
+  `TOURNAMENT_DRAW_ENABLED` AND the invite has an `expires_at` — the
+  **no-stranding guarantee** (only gather when a spawn at expiry is guaranteed,
+  so a vacated persona is never left in limbo).
+- **Site A — `refresh_unseated_tables(called_up_pids=…)`** (`lobby.py`): adds the
+  reserved set to the `off_grid`/`unavailable` exclusion (so the global greedy
+  fill never re-seats a reservation) AND passes it to the per-hand
+  `refresh_table_roster`; new `agg_called_up` threads `per_hand.called_up` into
+  the synthesized `RosterRefreshResult.called_up`. `ticker_service._tick_sandbox`
+  computes `called_up` from the invite **inside the sandbox lock**, captures the
+  results, and `_record_vacated` writes the leavers to `vacated_pids`.
+- **Site B — the human's live table** (`game_handler.py`): new
+  `_tournament_bound_pids` unioned into `off_grid` at all three seat-fill paths
+  (`_refill_cash_seats`, `select_rejoin_candidates`,
+  `_refresh_lobby_table_for_session`); the hand-boundary refresh also passes
+  `called_up_pids`. So a reserved opponent drifts to the Main Event instead of
+  being re-seated.
+- **`whereabouts.build_whereabouts`** (optional `tournament_session_repo` /
+  `tournament_invite_repo`): `STATUS_TOURNAMENT` (in a running tournament),
+  `STATUS_TOURNAMENT_BOUND` (reserved + vacated, en route), `STUCK_SEATED_AND_TOURNAMENT`
+  (hard — true double-presence) + `STUCK_TOURNAMENT_BOUND_AND_SEATED` (soft —
+  reserved + still seated past expiry, i.e. missed the gather). Derives state from
+  LIVE seat status, not `vacated_pids`.
+- **Double-presence guard**: the fill-exclusion is applied to EVERY seat-fill
+  candidate pool (lobby global greedy + all 3 human-table paths), so a vacated
+  persona is never re-seated; the spawn-time `select_persona_field` exclude is the
+  backstop. `vacated_pids` is observability-only (not a spawn gate); human-table
+  vacations are intentionally not folded into it (avoids a cross-path invite write
+  race). Tests: `test_cash_whereabouts.py` (tournament statuses/flags + inert),
+  `test_invites.py::TestBoundPidsGating`, `test_offgrid_not_seated.py::TestSelectRejoinExcludesTournamentBound`.
+  Regression: full `test_cash_mode/` + `test_tournament/` + `test_ticker_service.py`
+  + `test_cash_whereabouts.py` = 1553 green; ruff clean.
 
 ### Phase D — winner renown/regard grant
 - `tournament_spawn.settle_autonomous_tournament` (+ the human payout path): after

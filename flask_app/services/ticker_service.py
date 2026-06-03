@@ -347,6 +347,32 @@ def _resolve_pace(owner_id: str) -> Tuple[float, int]:
     return _PACE_PARAMS.get(pace, _PACE_PARAMS[_DEFAULT_PACE])
 
 
+def _record_vacated(invite_repo, invite: dict, results: dict) -> None:
+    """Fold this tick's freshly-vacated reservations (each result's `.called_up`)
+    into the invite's `vacated_pids` — the observable gather progress. Best-effort
+    and idempotent: only the reserved pids that actually left are recorded, only
+    written when the set grew, never breaks the tick.
+
+    Observability ONLY — NOT a spawn gate. The autonomous run always spawns at
+    `expires_at` (via `expire_due`), never early "when gathered", so an
+    incomplete `vacated_pids` never changes spawn timing. It's fed from the
+    unseated-tables refresh here; reservations vacated off the human's OWN live
+    table (game_handler's hand-boundary refresh, outside this lock) leave cash
+    correctly but aren't folded in — deliberately, to avoid a cross-path invite
+    write race on a non-load-bearing field. Whereabouts derives bound/seated from
+    LIVE seat status, not from this."""
+    try:
+        reserved = set(invite.get('reserved_pids') or [])
+        vacated = set(invite.get('vacated_pids') or [])
+        for result in results.values():
+            vacated.update(getattr(result, 'called_up', None) or [])
+        vacated &= reserved  # only reserved personas count toward the gather
+        if vacated != set(invite.get('vacated_pids') or []):
+            invite_repo.set_vacated_pids(invite['invite_id'], sorted(vacated))
+    except Exception:  # noqa: BLE001 — gather bookkeeping is best-effort
+        logger.exception("gather: recording vacated_pids failed for %s", invite.get('invite_id'))
+
+
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
     from cash_mode import economy_flags
@@ -373,7 +399,18 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     # last-write-wins → a stranded already-debited AI buy-in or a double-seat /
     # seated_and_idle split-brain. See game_state_service.get_sandbox_lock.
     with game_state_service.get_sandbox_lock(sandbox_id):
-        refresh_unseated_tables(
+        # Cash→tournament draw (flag-gated): the reserved field of the owner's
+        # open Main Event is gathered off cash this tick — passed as
+        # called_up_pids so seated reservations leave + aren't re-seated. The
+        # actual leavers come back on each result's `.called_up`; record them
+        # as vacated_pids so the field's gather progress is observable.
+        from flask_app.services import tournament_invites as invites
+
+        invite_repo = getattr(extensions, "tournament_invite_repo", None)
+        gather_invite = invites.open_invite_for_gather(invite_repo, owner_id)
+        called_up = set(gather_invite['reserved_pids'] or []) if gather_invite else set()
+
+        results = refresh_unseated_tables(
             cash_table_repo=extensions.cash_table_repo,
             personality_repo=extensions.personality_repo,
             bankroll_repo=extensions.bankroll_repo,
@@ -390,7 +427,11 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
             human_headroom=economy_flags.LIVE_FILL_HUMAN_HEADROOM,
             # Keep personas who are in a tournament out of cash seats.
             tournament_repo=extensions.tournament_session_repo,
+            called_up_pids=called_up or None,
         )
+
+        if gather_invite and called_up:
+            _record_vacated(invite_repo, gather_invite, results)
 
     _maybe_record_holdings_snapshot(sandbox_id)
     # Recompute the human's reputation scoreboard. Placed before the
