@@ -181,6 +181,7 @@ def _shadow_reconcile_table(
     # So skip entirely once authority is on; the chokepoint is the sole seat
     # writer. (Off-grid mirroring still runs via presence_shadow.)
     from cash_mode import economy_flags
+
     if getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
         return
     if repo is None:
@@ -203,7 +204,8 @@ def _shadow_reconcile_table(
     # SEATED at THIS table who is not still in the new map at the same seat.
     try:
         seated_here = [
-            s for s in repo.list_for_sandbox(sandbox_id)
+            s
+            for s in repo.list_for_sandbox(sandbox_id)
             if s.is_seated and s.table_id == table.table_id
         ]
     except Exception:  # noqa: BLE001 — read failure must not break the real path
@@ -876,9 +878,7 @@ def _process_global_greedy_fills(
             projected = project_idle_energy(stored, baseline, idle_seconds)
         return 1.0 if baseline <= 0 else min(1.0, projected / baseline)
 
-    def _can_afford_target(
-        target_stake: str, projected: int, buy_in_multiplier: float
-    ) -> bool:
+    def _can_afford_target(target_stake: str, projected: int, buy_in_multiplier: float) -> bool:
         """Whether `projected` covers this AI's ACTUAL buy-in at `target_stake`.
 
         Must mirror the placement gate (`assign_seats_greedy` →
@@ -940,9 +940,7 @@ def _process_global_greedy_fills(
                 entry is not None
                 and entry.target_stake is not None
                 and entry.target_stake != ft.stake_label
-                and _can_afford_target(
-                    entry.target_stake, projected, knobs.buy_in_multiplier
-                )
+                and _can_afford_target(entry.target_stake, projected, knobs.buy_in_multiplier)
             ):
                 continue  # target-stake stickiness (relaxed if can't afford target)
             allowed.add(tid)
@@ -1080,6 +1078,9 @@ def refresh_unseated_tables(
     # vice economics (cast-median concentration) without an LLM call per
     # fire, so the sim's wealth dynamics match production.
     vice_use_llm_narration: bool = True,
+    # Same switch for side-hustle narration. False → the deterministic
+    # templated narrator (no LLM call per hustle), used by the headless sim.
+    hustle_use_llm_narration: bool = True,
     # Personas the human is actively playing in a live in-memory hand
     # (from `game_handler.live_cash_seated_pids`). The world sim's
     # `seated_globally` is derived only from the persisted `cash_tables`
@@ -2263,7 +2264,7 @@ def refresh_unseated_tables(
                         sandbox_id=sandbox_id,
                         rng=rng,
                         now=now,
-                        narrate_fn=_vice_narrate,
+                        narrate_fn=_vice_narrate if vice_use_llm_narration else None,
                     )
                     if committed is not None:
                         vice_starts.append(committed)
@@ -2361,7 +2362,7 @@ def refresh_unseated_tables(
                     sandbox_id=sandbox_id,
                     rng=rng,
                     now=now,
-                    narrate_fn=_hustle_narrate,
+                    narrate_fn=_hustle_narrate if hustle_use_llm_narration else None,
                     field_snapshot=_field_snapshot,
                 )
         except Exception as exc:
@@ -3978,7 +3979,9 @@ def _settle_orphan_seat_to_bankroll(
             "[CASH LIFECYCLE] settle-before-delete: seat %r holds %d chips but "
             "owner %r has no bankroll row — LEAVING the balance in the ledger "
             "(not forfeiting); needs operator attention",
-            game_id, bal, owner_id,
+            game_id,
+            bal,
+            owner_id,
         )
         return 0
     from cash_mode.bankroll import PlayerBankrollState
@@ -4001,7 +4004,9 @@ def _settle_orphan_seat_to_bankroll(
     logger.info(
         "[CASH][LOBBY] settle-before-delete recovered %d chips for owner %r "
         "from seat %r (chip forfeiture prevented)",
-        bal, owner_id, game_id,
+        bal,
+        owner_id,
+        game_id,
     )
     return bal
 
@@ -4833,8 +4838,7 @@ def _process_aspiration_asks(
                     )
             except Exception as refund_exc:
                 logger.warning(
-                    "[CASH][LOBBY] aspiration: staker refund failed "
-                    "staker=%r principal=%d: %s",
+                    "[CASH][LOBBY] aspiration: staker refund failed " "staker=%r principal=%d: %s",
                     staker_id,
                     principal,
                     refund_exc,

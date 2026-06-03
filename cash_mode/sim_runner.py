@@ -295,6 +295,7 @@ def run_sim(
             # deterministic templated narrator instead of narrating per fire.
             vice_mode=config.vice_mode,
             vice_use_llm_narration=False,
+            hustle_use_llm_narration=False,
         )
 
         # 2. Metrics capture (every N ticks). The very first and very
