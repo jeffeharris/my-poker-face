@@ -179,13 +179,13 @@ continuity should track economic continuity exactly.
 ## Deferred refinements (post-implementation)
 
 Tracked here so they're not silently lost; none block the shipped feature.
+(The balanced-in re-hydrate item is now closed — see below.)
 
-- **Balanced-in personas mid-tournament don't re-hydrate.** When a table
-  rebalance moves a persona onto the human's table mid-tournament, the reconcile
-  path (`tournament_handler` `_make`) rebuilds the controller but does not call
-  the hydrate hook — so a persona who *joins* the human's table mid-event starts
-  at baseline rather than its world mood. Only seats present at initial build
-  hydrate. (Hydrate at the reconcile build site to close this.)
+- ~~**Balanced-in personas mid-tournament don't re-hydrate.**~~ **CLOSED
+  (2026-06-03).** `reconcile_live_table` now hydrates a genuinely-new
+  real-persona seat from the cash world (gated on a cash-world persona field +
+  resolved sandbox, threaded via `game_data['tournament_sandbox_id']`; fresh
+  build, not cold-load). +3 reconcile-hydration tests.
 - **Cash AI that leaves before the human isn't flushed individually.** The cash
   flush fires on the human's leave/settle and captures whoever is seated then;
   an AI that vacated the human's table earlier in the session has its evolved
