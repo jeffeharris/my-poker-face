@@ -108,6 +108,12 @@ _POST_ROUND_TONE_MAP: dict[str, ChatEventMapping] = {
     "salty": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
     "gracious": ChatEventMapping(RelationshipEvent.COMPLIMENT, 1.0),
     "props": ChatEventMapping(RelationshipEvent.PROPS, 1.0),
+    # Consoling a bystander who lost — the warm color aimed at someone other
+    # than the player who beat you.
+    "commiserate": ChatEventMapping(RelationshipEvent.COMMISERATE, 1.0),
+    # NOTE: `cry_luck` and `vow` are post-round EMOTIONAL tones (ego poke /
+    # poise rattle on the winner) and are dispatched to psychology in
+    # chat_relationship.py, not mapped here.
 }
 
 

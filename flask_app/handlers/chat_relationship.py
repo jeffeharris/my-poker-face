@@ -36,6 +36,9 @@ BROADCAST_REACTION_SCALE = 0.5
 _EMOTIONAL_TONE_STIMULUS = {
     'intimidate': 'intimidate',
     'dare': 'dare',
+    # Post-round reskins of the same two weapons (the spec's mirror):
+    'vow': 'intimidate',    # "I'm coming for that stack" → poise rattle
+    'cry_luck': 'dare',     # "you got lucky" → ego poke (proud bristles)
 }
 
 
@@ -51,6 +54,7 @@ def _stimulus_for_event(event) -> Optional[str]:
         RelationshipEvent.COMPLIMENT,
         RelationshipEvent.FRIENDLY_BANTER,
         RelationshipEvent.PROPS,
+        RelationshipEvent.COMMISERATE,
     ):
         return 'praise'
     return None

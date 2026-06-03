@@ -545,10 +545,19 @@ def get_post_round_chat_suggestions(game_id):
         hand_number = memory_manager.hand_count if memory_manager else None
 
         player_name = data.get('playerName', 'Player')
-        tone = data.get('tone', 'gracious')  # gloat, humble, salty, gracious
+        tone = data.get('tone', 'gracious')
+        # Delivery register. Post-round tones encode their own intensity, so
+        # there's no chill/spicy here — but `sarcastic` rides on the warm ones
+        # (gracious/humble/commiserate). Default empty → no extra guidance,
+        # so sincere post-round text is unchanged.
+        intensity = data.get('intensity')
 
-        # Validate tone
-        allowed_tones = {'gloat', 'humble', 'salty', 'gracious', 'props'}
+        # Validate tone. After a WIN: gloat/gracious/humble/commiserate.
+        # After a LOSS: salty/props/cry_luck/vow. props is shared.
+        allowed_tones = {
+            'gloat', 'gracious', 'humble', 'commiserate',
+            'salty', 'props', 'cry_luck', 'vow',
+        }
         if tone not in allowed_tones:
             logger.warning("Invalid tone value received for post-round chat: %r", tone)
             return jsonify(
@@ -604,12 +613,17 @@ def get_post_round_chat_suggestions(game_id):
             logger.warning(f"[PostRound] No recorded hand available for game {game_id}")
             hand_context_str = "No hand data available."
 
-        # Build the prompt using the new template
+        # Build the prompt using the new template. intensity_guidance is passed
+        # to every post-round template but only the sarcasm-able ones
+        # (gracious/humble/commiserate) interpolate it; the rest ignore the
+        # extra kwarg (str.format drops unused keys). Empty default keeps
+        # sincere text unchanged.
         template_name = f'post_round_{tone}'
         prompt = _prompt_manager.render_prompt(
             template_name,
             player_name=player_name,
             hand_context=hand_context_str,
+            intensity_guidance=INTENSITY_GUIDANCE.get(intensity, ''),
         )
 
         if not os.environ.get("OPENAI_API_KEY"):
