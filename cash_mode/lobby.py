@@ -1138,6 +1138,15 @@ def refresh_unseated_tables(
     # `economy_flags.VICE_MODE`. The sim passes 'fake' (real vice needs an
     # LLM call per fire). See economy_flags.VICE_MODE / CASH_MODE_SIDE_HUSTLE.md.
     vice_mode: Optional[str] = None,
+    # When real vice fires, narrate each event with the LLM-backed
+    # narrator (live default). Set False to use the deterministic
+    # templated narrator instead — lets the headless sim run the REAL
+    # vice economics (cast-median concentration) without an LLM call per
+    # fire, so the sim's wealth dynamics match production.
+    vice_use_llm_narration: bool = True,
+    # Same switch for side-hustle narration. False → the deterministic
+    # templated narrator (no LLM call per hustle), used by the headless sim.
+    hustle_use_llm_narration: bool = True,
     # Personas the human is actively playing in a live in-memory hand
     # (from `game_handler.live_cash_seated_pids`). The world sim's
     # `seated_globally` is derived only from the persisted `cash_tables`
@@ -1337,6 +1346,23 @@ def refresh_unseated_tables(
     from cash_mode.closed_economy import load_fish_ids
 
     _fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+
+    # Field-relative wealth snapshot (LEVER_REFERENCE_MODE='field_liquid').
+    # One per tick: liquid net worth (bankroll + seat) for every non-fish
+    # AI. Shared by vice, side-hustle, and grinder-hunger so they all key
+    # off the field instead of each AI's own starting bankroll. None in
+    # the default 'own_start' mode → every lever keeps prior behaviour.
+    _field_snapshot = None
+    if economy_flags.lever_field_mode():
+        from cash_mode.field_wealth import build_field_wealth_snapshot
+
+        _field_snapshot = build_field_wealth_snapshot(
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            sandbox_id=sandbox_id,
+            now=now,
+            fish_ids=_fish_ids,
+        )
 
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
@@ -1570,15 +1596,23 @@ def refresh_unseated_tables(
             compute_vice_probability,
         )
 
-        try:
-            _vice_cast_median = compute_cast_median(
-                bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
-            )
-        except Exception as exc:
-            logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
-            _vice_cast_median = 0
+        # Field-liquid mode: the cast median is the field's LIQUID net
+        # worth median (bankroll+seat), from the shared snapshot — so
+        # seated AIs count their stacks and don't depress the reference.
+        if _field_snapshot is not None:
+            _vice_cast_median = _field_snapshot.median()
+            _vice_min_median = economy_flags.MIN_FIELD_MEDIAN_FOR_VICE
+        else:
+            try:
+                _vice_cast_median = compute_cast_median(
+                    bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
+                )
+            except Exception as exc:
+                logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
+                _vice_cast_median = 0
+            _vice_min_median = MIN_CAST_MEDIAN_FOR_VICE
 
-        if _vice_cast_median >= MIN_CAST_MEDIAN_FOR_VICE:
+        if _vice_cast_median >= _vice_min_median:
 
             def _vice_prob_lookup(pid: str) -> float:
                 # Refractory window: no urge to celebrate right after one.
@@ -1592,7 +1626,15 @@ def refresh_unseated_tables(
                     return 0.0
                 if not current or current <= 0:
                     return 0.0
-                excess = compute_excess_ratio(current, _vice_cast_median)
+                if _field_snapshot is not None:
+                    # Measure this AI by its liquid standing in the field.
+                    excess = max(
+                        0.0,
+                        _field_snapshot.concentration(pid)
+                        - economy_flags.FIELD_CONCENTRATION_FLOOR,
+                    )
+                else:
+                    excess = compute_excess_ratio(current, _vice_cast_median)
                 if excess <= 0:
                     return 0.0
                 psych = _load_psych_snapshot(
@@ -2286,6 +2328,10 @@ def refresh_unseated_tables(
                     personality_repo=personality_repo,
                 )
 
+            # narrate_fn=None → resolve_ai_vice_spending uses its
+            # deterministic templated narrator (no LLM). The headless sim
+            # passes vice_use_llm_narration=False so it can run the real
+            # vice economics without an LLM call per fire.
             vice_starts = resolve_ai_vice_spending(
                 candidates=candidates,
                 vice_repo=vice_repo,
@@ -2294,7 +2340,8 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
-                narrate_fn=_vice_narrate,
+                narrate_fn=_vice_narrate if vice_use_llm_narration else None,
+                field_snapshot=_field_snapshot,
             )
 
             # Leave-vice commits: AIs whose discretionary leave a vice roll
@@ -2317,7 +2364,7 @@ def refresh_unseated_tables(
                         sandbox_id=sandbox_id,
                         rng=rng,
                         now=now,
-                        narrate_fn=_vice_narrate,
+                        narrate_fn=_vice_narrate if vice_use_llm_narration else None,
                     )
                     if committed is not None:
                         vice_starts.append(committed)
@@ -2386,7 +2433,16 @@ def refresh_unseated_tables(
                 if projected is None:
                     continue
                 threshold = round(cheapest_min_buy_in * knobs.buy_in_multiplier)
-                if projected < threshold:
+                # Field-liquid mode broadens (never narrows) eligibility:
+                # also a candidate if in the bottom decile of field liquid,
+                # even if it could technically afford the cheapest table.
+                eligible_field = (
+                    _field_snapshot is not None
+                    and pid in _field_snapshot.liquid_chips
+                    and _field_snapshot.pct_rank(pid)
+                    < economy_flags.FIELD_HUSTLE_ELIGIBLE_PERCENTILE
+                )
+                if projected < threshold or eligible_field:
                     candidates.add(pid)
 
             def _hustle_narrate(pid, amount):
@@ -2406,7 +2462,8 @@ def refresh_unseated_tables(
                     sandbox_id=sandbox_id,
                     rng=rng,
                     now=now,
-                    narrate_fn=_hustle_narrate,
+                    narrate_fn=_hustle_narrate if hustle_use_llm_narration else None,
+                    field_snapshot=_field_snapshot,
                 )
         except Exception as exc:
             logger.warning(
@@ -2447,6 +2504,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
+                field_snapshot=_field_snapshot,
             )
         except Exception as exc:
             logger.warning(
@@ -2475,6 +2533,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
+                field_snapshot=_field_snapshot,
             )
         except Exception as exc:
             logger.warning(

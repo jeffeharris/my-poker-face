@@ -17,15 +17,17 @@ Three independent variables:
     off-grid side hustle on lobby refresh and return with a lump drawn
     from the bank pool. See `cash_mode/ai_side_hustle.py`.
 
-  - `RAKE_ENABLED`: the table-side sink. When True, a fraction of every
-    pot is destroyed (ledger reason `table_rake`, sink = central_bank)
-    at award time. Default off so the live deployment behaviour is
-    unchanged until we flip it.
+  - `RAKE_ENABLED`: the table-side skim. When True, a fraction of every
+    pot is taken at award time (ledger reason `table_rake`). The chips
+    are NOT destroyed — `table_rake` is a `BANK_POOL_DEPOSIT_REASON`, so
+    the rake RECYCLES into the bank pool that funds fish / side-hustle
+    (see CASH_MODE_SIDE_HUSTLE.md). Default ON.
 
-  - `RAKE_PLAYER_TABLES`: when False, rake only fires at AI-only sim
-    tables (`cash_mode/full_sim.play_one_hand`). When True, the same
-    rake also applies at tables with a human seated. Keeping this off
-    preserves the "sandbox" feel for players.
+  - `RAKE_PLAYER_TABLES`: when False, rake only fires at AI-only tables
+    (`cash_mode/full_sim.play_one_hand`); when True, it also applies at
+    tables with a human seated. Currently True — the human IS raked at
+    the rake-eligible tiers. (Setting it False would preserve a pure
+    "sandbox" feel for players; that's a live product choice.)
 
   - `RAKE_STAKE_BIG_BLINDS`: the stake tiers rake applies at, keyed by
     big blind (the 1:1 proxy for a stake label — see
@@ -37,7 +39,7 @@ Three independent variables:
 
 Tuning levers:
 
-  - `RAKE_RATE`: fraction of pot destroyed per hand. 0.02 = 2%.
+  - `RAKE_RATE`: fraction of pot skimmed to the pool per hand. 0.02 = 2%.
   - `RAKE_CAP_BB`: hard cap on rake per hand, expressed in big blinds.
     Mirrors the cap real cardrooms enforce so a single huge pot can't
     delete half the universe.
@@ -98,6 +100,48 @@ SIDE_HUSTLE_ENABLED: bool = True
 # mode, so existing off-grid AIs still return when the mode is switched.
 VICE_MODE: str = 'real'
 VICE_MODES = ('real', 'fake', 'off')
+
+
+# --- Lever reference mode (field-relative vs own-start) -------------------
+#
+# Controls how the three closed-economy wealth levers (real vice,
+# side-hustle, grinder-hunger) measure wealth:
+#
+#   'own_start'    — default; bit-for-bit current behaviour. Each lever
+#                    keys off the AI's OWN starting_bankroll (vice off the
+#                    cast-median of bankrolls; side-hustle/grinder off
+#                    starting_bankroll). Inconsistent and anti-mobility.
+#   'field_liquid' — all three key off the FIELD's LIQUID net worth
+#                    (bankroll + seat stack) distribution at evaluation
+#                    time, via a single per-tick FieldWealthSnapshot:
+#                      * vice: concentration = liquid / field-median,
+#                        tax above FIELD_CONCENTRATION_FLOOR×
+#                      * side-hustle: eligible in the bottom decile of
+#                        field liquid; tops up toward a field percentile
+#                      * grinder-hunger: hungry below a field percentile
+#
+# Default 'own_start' so production is unchanged until flipped. The
+# levers share one economic model and flip together (no per-lever flag).
+LEVER_REFERENCE_MODE: str = os.environ.get('LEVER_REFERENCE_MODE', 'own_start').strip().lower()
+
+# Tunables used only in 'field_liquid' mode (validate in sim before flip):
+FIELD_CONCENTRATION_FLOOR: float = 2.5  # vice fires above N× field median
+MIN_FIELD_MEDIAN_FOR_VICE: int = 5_000  # suppress vice when field is broke
+FIELD_HUSTLE_ELIGIBLE_PERCENTILE: float = 0.10  # bottom 10% of field → hustle candidate
+FIELD_HUSTLE_TARGET_PERCENTILE: float = 0.25  # hustle tops up toward this field pct
+FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry grinder
+
+
+def lever_field_mode() -> bool:
+    """True when the levers should use the field-liquid reference.
+
+    Reads the env at call time (not just the import-time module global)
+    so a sim/experiment can flip it per-run regardless of import order.
+    """
+    return (
+        os.environ.get('LEVER_REFERENCE_MODE', LEVER_REFERENCE_MODE).strip().lower()
+        == 'field_liquid'
+    )
 
 
 # --- Sink (table rake) ----------------------------------------------------

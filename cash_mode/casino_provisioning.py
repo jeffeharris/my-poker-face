@@ -927,6 +927,7 @@ def resolve_casino_provisioning(
     sandbox_id: str,
     rng: random.Random,
     now: datetime,
+    field_snapshot=None,
 ) -> CasinoProvisioningBatch:
     """Three-pass provisioning: refill / teardown / spawn.
 
@@ -1239,7 +1240,9 @@ def resolve_casino_provisioning(
     by_stake_after_teardown = _existing_casinos_by_stake(cash_table_repo, sandbox_id=sandbox_id)
     # Hungry-grinder demand signal — count ALL hungry grinders (including
     # lobby-seated ones); they're the customers the casino spawns to lure.
-    hungry_grinders = list_hungry_grinders(bankroll_repo, sandbox_id=sandbox_id, now=now)
+    hungry_grinders = list_hungry_grinders(
+        bankroll_repo, sandbox_id=sandbox_id, now=now, field_snapshot=field_snapshot
+    )
 
     threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
     for idx, stake_label in enumerate(threshold_order):

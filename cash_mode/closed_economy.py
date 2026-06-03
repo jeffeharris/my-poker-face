@@ -73,6 +73,14 @@ FAKE_VICE_FLOOR_PROTECTION = 0.5
 MIN_VICE_AMOUNT = 50
 FAKE_VICE_DEPOSITS_PER_REFRESH = 3
 
+
+# Vice reference is unified under `economy_flags.LEVER_REFERENCE_MODE`
+# (own_start | field_liquid), shared with real vice / side-hustle /
+# grinder-hunger. In field_liquid mode the caller passes a precomputed
+# `FieldWealthSnapshot` (see cash_mode/field_wealth.py) — the single
+# source of truth for field-relative liquid wealth — so this module no
+# longer rolls its own seat-scan / percentile / env-mode helpers.
+
 # Grinder definition — the AIs that come to the casino to farm fish.
 # A "hungry grinder" satisfies all three:
 #   • archetype != 'fish' (fish farm nobody)
@@ -225,13 +233,17 @@ def is_hungry_grinder(
     bankroll_repo,
     sandbox_id: str,
     now: datetime,
+    field_snapshot=None,
 ) -> bool:
-    """True iff this AI is a casino-tier grinder currently below hunger threshold.
+    """True iff this AI is a casino-tier grinder currently below the hunger gate.
 
     Three filters AND'd:
       1. archetype != 'fish' (fish are donors, not grinders)
       2. stake_comfort_zone in `GRINDER_COMFORT_ZONES` ($2 or $10)
-      3. projected bankroll < `starting_bankroll × GRINDER_HUNGER_THRESHOLD`
+      3. wealth below the hunger gate:
+         - own_start mode: projected bankroll < starting × GRINDER_HUNGER_THRESHOLD
+         - field_liquid mode (field_snapshot given): liquid net worth in the
+           bottom FIELD_GRINDER_HUNGER_PERCENTILE of the field
 
     Used by:
       • Casino spawn demand signal (need ≥ MIN_HUNGRY_GRINDERS before
@@ -248,6 +260,14 @@ def is_hungry_grinder(
         return False
     if knobs.starting_bankroll <= 0:
         return False
+    if field_snapshot is not None:
+        # Field-relative: hungry iff in the bottom slice of field liquid.
+        # Not in the field snapshot → no bankroll row → not currently hungry.
+        from cash_mode import economy_flags as _eflags
+
+        if personality_id not in field_snapshot.liquid_chips:
+            return False
+        return field_snapshot.pct_rank(personality_id) < _eflags.FIELD_GRINDER_HUNGER_PERCENTILE
     state = bankroll_repo.load_ai_bankroll(personality_id, sandbox_id=sandbox_id)
     if state is None:
         # Never been seeded — treat as "not currently hungry" (will get
@@ -268,6 +288,7 @@ def list_hungry_grinders(
     sandbox_id: str,
     now: datetime,
     exclude: Optional[Set[str]] = None,
+    field_snapshot=None,
 ) -> List[str]:
     """Return personality_ids of hungry grinders, most-desperate first.
 
@@ -292,17 +313,22 @@ def list_hungry_grinders(
             bankroll_repo=bankroll_repo,
             sandbox_id=sandbox_id,
             now=now,
+            field_snapshot=field_snapshot,
         ):
             continue
-        knobs = bankroll_repo.load_personality_knobs(pid)
-        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-        projected = project_bankroll(
-            state,
-            knobs.starting_bankroll,
-            knobs.bankroll_rate,
-            now,
-        )
-        ratio = projected / knobs.starting_bankroll
+        if field_snapshot is not None:
+            # Most-desperate-first by field standing.
+            ratio = field_snapshot.pct_rank(pid)
+        else:
+            knobs = bankroll_repo.load_personality_knobs(pid)
+            state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+            projected = project_bankroll(
+                state,
+                knobs.starting_bankroll,
+                knobs.bankroll_rate,
+                now,
+            )
+            ratio = projected / knobs.starting_bankroll
         ratios.append((ratio, pid))
     ratios.sort(key=lambda r: (r[0], r[1]))
     return [pid for _, pid in ratios]
@@ -387,12 +413,21 @@ def resolve_fake_vice_deposits(
     rng: random.Random,
     now: datetime,
     fish_ids: Set[str],
+    field_snapshot=None,
 ) -> List[FakeViceDeposit]:
     """Drain chips from rich non-fish AIs into the bank pool.
 
     Iterates every AI with a bankroll in the sandbox, rolls the vice
     formula, commits the chip move + ledger entry on a fire. Fish are
     excluded — they receive injections, they don't contribute.
+
+    Wealth reference (`economy_flags.LEVER_REFERENCE_MODE`):
+      * own_start  — each AI vs its OWN starting bankroll (default;
+        reproduces prior behaviour). Punishes climbing above your origin.
+      * field_liquid — when a `field_snapshot` is passed, vs the FIELD's
+        median LIQUID net worth (bankroll + seat), so only AIs rich by
+        the field's standard are taxed. The drain still comes from
+        off-table bankroll (seat chips can't be touched mid-hand).
 
     Cap is `FAKE_VICE_DEPOSITS_PER_REFRESH`; if more candidates roll
     positive, the largest amounts win. The rest re-roll next refresh.
@@ -404,7 +439,7 @@ def resolve_fake_vice_deposits(
         sandbox_id=sandbox_id,
     )
 
-    rolls: List[tuple] = []  # (pid, state, knobs, projected, amount, excess, prob)
+    loaded: List[tuple] = []  # (pid, state, knobs, starting, projected)
     for pid in candidates:
         if pid in fish_ids:
             continue
@@ -416,7 +451,24 @@ def resolve_fake_vice_deposits(
         if starting <= 0:
             continue
         projected = project_bankroll(state, starting, knobs.bankroll_rate, now)
-        excess = compute_excess_ratio(projected, starting)
+        loaded.append((pid, state, knobs, starting, projected))
+
+    # field_liquid mode: shared reference = the field's median liquid
+    # wealth (from the snapshot). own_start mode (no snapshot): per-AI
+    # starting bankroll, unchanged.
+    field_median = field_snapshot.median() if field_snapshot is not None else 0
+
+    rolls: List[tuple] = []  # (pid, state, knobs, projected, amount, excess, prob)
+    for pid, state, knobs, starting, projected in loaded:
+        if field_snapshot is not None and field_median > 0:
+            # Measure liquid net worth (bankroll + seat) against the field
+            # median; drain still capped to off-table bankroll below.
+            liquid = field_snapshot.liquid_chips.get(pid, projected)
+            excess = compute_excess_ratio(liquid, field_median)
+            floor = 0
+        else:
+            excess = compute_excess_ratio(projected, starting)
+            floor = int(starting * FAKE_VICE_FLOOR_PROTECTION)
         if excess <= 0:
             continue
         prob = compute_vice_probability(excess)
@@ -425,8 +477,7 @@ def resolve_fake_vice_deposits(
         amount = compute_vice_amount(projected, excess, rng)
         if amount < MIN_VICE_AMOUNT:
             continue
-        # Floor protection — never drop below 50% of starting in one event.
-        floor = int(starting * FAKE_VICE_FLOOR_PROTECTION)
+        # Floor protection — never drop below `floor` in one event.
         if projected - amount < floor:
             amount = max(0, projected - floor)
             if amount < MIN_VICE_AMOUNT:
@@ -489,6 +540,7 @@ def resolve_closed_economy(
     sandbox_id: str,
     rng: random.Random,
     now: datetime,
+    field_snapshot=None,
 ) -> ClosedEconomyBatch:
     """One closed-economy resolution tick.
 
@@ -512,6 +564,7 @@ def resolve_closed_economy(
             rng=rng,
             now=now,
             fish_ids=fish_ids,
+            field_snapshot=field_snapshot,
         )
     except Exception as exc:  # noqa: BLE001 — best-effort resolution
         logger.warning(
