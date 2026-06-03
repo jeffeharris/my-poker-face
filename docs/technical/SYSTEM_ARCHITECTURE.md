@@ -1,3 +1,10 @@
+---
+purpose: High-level system structure — core components, data flow, and module layout
+type: architecture
+created: 2026-02-03
+last_updated: 2026-06-03
+---
+
 # System Architecture
 
 This document provides a comprehensive overview of the My Poker Face application architecture.
@@ -59,7 +66,7 @@ This document provides a comprehensive overview of the My Poker Face application
         │                   │                    │
         │           ┌───────▼───────┐            │
         │           │    SQLite     │            │
-        │           │  (30+ tables) │            │
+        │           │ (schema v140) │            │
         │           └───────────────┘            │
         └─────────────────────────────────────────┘
 ```
@@ -177,53 +184,56 @@ response = client.complete(
 
 **Location:** `/poker/`
 
-Dynamic personality system where traits vary based on game state.
+The psychology system is an **anchors + dynamic-axes** model. Static *anchors*
+define who a player fundamentally is and never change during a session; dynamic
+*axes* drift under game pressure and decay back toward the anchors. The earlier
+"elastic 5-trait" model (`elasticity_manager.py`, `trait_converter.py`,
+`ElasticPersonality`/`ElasticityManager`) has been **removed** — those files and
+classes no longer exist.
+
+> For the full model (axes, zones, decay, the family×quadrant emotion matrix),
+> see [`PSYCHOLOGY_OVERVIEW.md`](PSYCHOLOGY_OVERVIEW.md) and
+> [`PERSONALITY_ANCHORS.md`](PERSONALITY_ANCHORS.md). This section is only the
+> architectural seam.
 
 ### Components
 
 | File | Responsibility |
 |------|----------------|
-| `personalities.json` | 200+ celebrity/character personalities |
-| `elasticity_manager.py` | Runtime 5-trait variance based on game events |
-| `emotional_state.py` | Two-layer emotional model (baseline + spike) |
-| `player_psychology.py` | Orchestrator: elastic traits, emotional state, composure |
-| `trait_converter.py` | Auto-converts old 4-trait to new 5-trait format |
+| `personalities.json` | 62 celebrity/character personalities (top key `personalities`) |
+| `psychology_model.py` | Core frozen dataclasses + the emotion model (see below) |
+| `player_psychology.py` | `PlayerPsychology` orchestrator: holds anchors, applies pressure, derives expression (`poker/player_psychology.py:212`) |
+| `emotional_state.py` | Emotional axes state types |
 | `moment_analyzer.py` | Drama detection (routine → climactic) |
 | `pressure_detector.py` | Bad beats, coolers, streaks (detection-only) |
 
-### Personality Traits (5-Trait Poker-Native Model)
+### Core types in `psychology_model.py`
 
-```json
-{
-  "play_style": "aggressive",
-  "confidence": 0.8,
-  "personality_traits": {
-    "tightness": 0.5,      // Range selectivity (0=loose, 1=tight)
-    "aggression": 0.8,     // Bet frequency (0=passive, 1=aggressive)
-    "confidence": 0.7,     // Sizing/commitment (0=scared, 1=fearless)
-    "composure": 0.8,      // Decision quality (0=tilted, 1=focused)
-    "table_talk": 0.6      // Chat frequency (0=silent, 1=chatty)
-  },
-  "elasticity_config": {
-    "trait_elasticity": {"tightness": 0.3, "aggression": 0.5, "composure": 0.4},
-    "mood_elasticity": 0.4,
-    "recovery_rate": 0.1
-  }
-}
-```
+| Type | Kind | Role |
+|------|------|------|
+| `PersonalityAnchors` | frozen dataclass (`:137`) | Static identity: `ego`, `poise`, `expressiveness`, `risk_identity`, `adaptation_bias`, `baseline_*` — gravity that pulls dynamic state back to baseline |
+| `EmotionalAxes` | frozen dataclass (`:216`) | Dynamic state that drifts under pressure |
+| `ComposureState` | frozen dataclass (`:266`) | Decision-quality / tilt state |
+| `PokerFaceZone` | frozen dataclass (`:386`) | How much true emotion leaks vs. is masked |
+| `EmotionalQuadrant` | Enum (`:97`) | Confidence × composure → `COMMANDING` / `OVERHEATED` / `GUARDED` / `SHAKEN` (the *internal* feeling) |
+| `EmotionFamily` | Enum (`:114`) | Temperament family `COMPETITOR` / `FUN_LOVER` / `STOIC` / `ANXIOUS` — selects *how* a quadrant is expressed |
+| `get_emotion_family(anchors)` | function (`:548`) | Maps anchors (ego/expressiveness) → an `EmotionFamily` |
 
-> Note: Old 4-trait personalities (bluff_tendency, chattiness, emoji_usage) are auto-converted.
+The quadrant decides the internal feeling; the family decides the surface
+emotion. Two players in the same `OVERHEATED` quadrant read differently — a
+high-ego `COMPETITOR` looks angry while a low-ego `FUN_LOVER` looks
+giddy/gleeful.
 
 ### Psychology Flow
 
 ```
 Game Event → Pressure Detector → PlayerPsychology.apply_pressure_event()
                                         ↓
-                              ElasticPersonality.apply_pressure_event()
+                          EmotionalAxes drift; anchors pull back toward baseline
                                         ↓
-                              All 5 traits modified (incl. composure)
+              get_emotion_family(anchors) × EmotionalQuadrant → surface emotion
                                         ↓
-                              AI Decision Influenced
+                              AI Decision / table-talk influenced
 ```
 
 ---
@@ -310,13 +320,21 @@ Flask backend with REST and WebSocket support.
 
 ### Route Modules
 
-| File | Endpoints |
-|------|-----------|
-| `routes/game_routes.py` | `/api/pokergame/*` - Game lifecycle |
-| `routes/coach_routes.py` | `/api/coach/*` - Coaching features |
-| `routes/experiment_routes.py` | `/api/experiments/*` - A/B testing |
-| `routes/personality_routes.py` | `/api/personalities/*` - CRUD |
-| `routes/admin_dashboard_routes.py` | `/api/admin/*` - Configuration |
+Blueprints are registered **without a `url_prefix`** (e.g.
+`app.register_blueprint(game_bp)` at `flask_app/__init__.py:276`), so the full
+path is whatever the `@route` decorator declares. `game_bp = Blueprint('game', __name__)`
+(`flask_app/routes/game_routes.py:71`) — its routes are *not* under `/api/pokergame/*`.
+
+| File | Representative endpoints |
+|------|--------------------------|
+| `routes/game_routes.py` | `POST /api/new-game` (`:1485`), `POST /api/game/<id>/action` (`:1833`), `GET /api/game-state/<id>` (`:619`), `GET /api/games` (`:539`) |
+| `routes/cash_routes.py` | Cash-mode lifecycle, whereabouts, forgiveness asks |
+| `routes/coach_routes.py` | Coaching features |
+| `routes/experiment_routes.py` | A/B testing |
+| `routes/personality_routes.py` | Personality CRUD |
+| `routes/admin_dashboard_routes.py` | Admin / configuration |
+
+> The legacy `/api/pokergame/*` prefix is gone — paths are flat under `/api/...`.
 
 ### WebSocket Handlers
 
@@ -326,7 +344,7 @@ Flask backend with REST and WebSocket support.
 | `handlers/message_handler.py` | Chat and action messages |
 | `handlers/avatar_handler.py` | Avatar URL resolution |
 
-### Game Handler Flow (~2000 lines)
+### Game Handler Flow (~4600 lines)
 
 ```
 Action Received → Validation → State Update → AI Turn (if applicable)
@@ -344,28 +362,17 @@ Action Received → Validation → State Update → AI Turn (if applicable)
 
 **Location:** `/poker/repositories/`
 
-Repository pattern with SQLite backend.
+Repository pattern over a single SQLite database. `BaseRepository`
+(`poker/repositories/base_repository.py:92`) provides connection handling; ~35
+concrete repositories (game, cash, ledger, tournament, coach, experiment, LLM,
+personality, presence, relationship, …) sit on top. Schema and forward
+migrations are managed by `SchemaManager` (`schema_manager.py`,
+`SCHEMA_VERSION = 140` at `:321`) — one `_migrate_vN_*` method per version,
+~130 `CREATE TABLE` statements total.
 
-### Repositories
-
-| Repository | Purpose |
-|------------|---------|
-| `game_repository.py` | Game state, hands, players |
-| `coach_repository.py` | Skills, progression, evaluations |
-| `experiment_repository.py` | Experiments, variants, results |
-| `llm_repository.py` | API usage, token tracking |
-| `personality_repository.py` | Personality CRUD |
-| `hand_history_repository.py` | Hand records |
-
-### Schema
-
-**Location:** `poker/repositories/schema_manager.py` (~3000 lines)
-
-30+ tables including:
-- `games`, `players`, `hands`
-- `coach_profiles`, `skill_states`, `hand_evaluations`
-- `experiments`, `experiment_variants`, `experiment_games`
-- `api_usage`, `prompt_captures`
+> For the repository catalog, the migration mechanism, and the
+> conventions around `BaseRepository`, see
+> [`REPOSITORIES.md`](REPOSITORIES.md) — not re-described here.
 
 ### Database Paths
 
@@ -470,7 +477,7 @@ src/
 5.  AI Controller: Triggered for AI player
 6.  Prompt Manager: Builds context
     - Game state
-    - Personality traits (with elasticity)
+    - Personality traits (anchors + current emotional axes)
     - Memory (opponent models, session)
     - Coaching context
 7.  LLM Client: Calls provider
@@ -507,7 +514,7 @@ src/
 |----------------|-----------|
 | Game Logic | `poker_game.py`, `poker_state_machine.py`, `controllers.py` |
 | AI Decisions | `controllers.py` (AIPlayerController), `core/llm/client.py` |
-| Personality | `personalities.json`, `elasticity_manager.py` |
+| Personality | `personalities.json`, `psychology_model.py`, `player_psychology.py` |
 | Prompts | `prompt_manager.py`, `prompts/*.yaml` |
 | Memory | `memory_manager.py`, `opponent_model.py`, `session_memory.py` |
 | Coaching | `coach_engine.py`, `skill_evaluator.py`, `coach_progression.py` |
@@ -529,9 +536,9 @@ src/
 
 ## Areas for Consideration
 
-- **Complexity**: Many interconnected systems (psychology, memory, coaching, elasticity)
+- **Complexity**: Many interconnected systems (psychology, memory, coaching, cash economy)
 - **SQLite scaling**: Fine for current use, but single-writer limitation for high concurrency
-- **Large handlers**: `game_handler.py` (~2000 lines) handles many concerns
+- **Large handlers**: `game_handler.py` (~4600 lines) handles many concerns
 - **Cross-cutting concerns**: Memory updates, coaching, and psychology are interleaved
 
 ---
@@ -541,5 +548,8 @@ src/
 - [Game Vision](/docs/vision/GAME_VISION.md)
 - [Feature Ideas](/docs/vision/FEATURE_IDEAS.md)
 - [Psychology Overview](/docs/technical/PSYCHOLOGY_OVERVIEW.md)
+- [Personality Anchors](/docs/technical/PERSONALITY_ANCHORS.md)
+- [Repositories](/docs/technical/REPOSITORIES.md)
+- [Rate Limiting](/docs/technical/RATE_LIMITING.md)
 - [Scaling Guide](/docs/technical/SCALING.md)
 - [DevOps & Deployment](/docs/DEVOPS.md)

@@ -2,7 +2,7 @@
 purpose: Zone geometry, effects, blending rules, and experiment infrastructure for the psychology system
 type: spec
 created: 2025-10-15
-last_updated: 2026-05-15
+last_updated: 2026-06-03
 ---
 
 # Psychology System: Zones Model v3
@@ -245,78 +245,97 @@ Each personality has an anchor point where recovery pulls them. Anchors should b
 | Bob Ross | 0.30 | 0.78 | Guarded |
 | Tourist (bad player) | 0.35 | 0.40 | Near Shaken |
 
-## Deriving Anchor from Traits
+## Deriving Baselines from Anchors
 
-Anchors are derived from multiple personality traits using a **translation layer** that maps the 0-1 designer-facing scale to a safe internal range.
+The anchor point each axis recovers toward (the "baseline") is derived from the
+static personality anchors by two weighted formulas in
+`poker/psychology_model.py`: `compute_baseline_confidence` (lines 464-494) and
+`compute_baseline_composure` (lines 497-518). There is **no** designer-facing
+0-1→safe-range "translation layer" or `ANCHOR_FLOOR`/`ANCHOR_CEILING` remap — those
+do not exist in the code. The only range protection is the per-formula clamp
+described below, computed from the live penalty-zone thresholds in
+[`zone_config.py`](../../poker/zone_config.py).
 
-### Translation Model
+### Confidence Baseline
 
-```python
-# Safe anchor range (never in penalty zones)
-ANCHOR_FLOOR = 0.35
-ANCHOR_CEILING = 0.85
-
-# Designer sets traits 0-1, internal anchor maps to safe range
-anchor = ANCHOR_FLOOR + (ANCHOR_CEILING - ANCHOR_FLOOR) * raw_value
-# raw_value 0.0 → anchor 0.35
-# raw_value 0.5 → anchor 0.60
-# raw_value 1.0 → anchor 0.85
-```
-
-This ensures:
-- Designers tune traits intuitively (0 = min, 1 = max)
-- Anchors never land in penalty zones
-- Full range of the safe space is usable
-
-### Confidence Anchor
-
-Confidence baseline is a direct linear combination of three traits:
+Confidence baseline is a weighted sum of four anchors (`psychology_model.py:481-487`):
 
 ```python
 baseline_confidence = (
     0.3                              # floor
-    + baseline_aggression × 0.25     # aggressive players are confident
-    + risk_identity × 0.20           # risk-seekers expect to win
-    + ego × 0.25                     # high ego = high self-regard
+    + baseline_aggression * 0.25     # aggressive players are confident
+    + risk_identity * 0.20           # risk-seekers expect to win
+    + ego * 0.25                     # high ego = high self-regard
+    + (self_belief - 0.5) * 0.4      # bravado/delusion, decoupled from ego
 )
-# Range: 0.30 (all zero) to 1.00 (all one)
-# Clamped to [0.15, 0.85] to stay outside penalty zones
 ```
 
-| Trait Mix | Baseline Confidence |
-|-----------|---------------------|
-| All low (0.0) | 0.30 |
-| All mid (0.5) | 0.65 |
-| All high (1.0) | 0.85 (clamped from 1.00) |
-| High ego only (1.0, others 0) | 0.55 |
-| High aggression only (1.0, others 0) | 0.55 |
+`self_belief` (default 0.5 → no offset) is the "bravado/delusion" dial: it lets
+confidence rise without raising `ego` (which would also make a persona
+anger-prone/brittle). At its neutral default the term is 0 and the formula matches
+the historical three-anchor version, so existing personas are unchanged.
+
+The result is **clamped** to a margin inside the penalty thresholds rather than to
+fixed `[0.15, 0.85]` (`psychology_model.py:488-494`):
+
+```python
+margin = 0.10
+min_conf = min(0.45, PENALTY_TIMID_THRESHOLD + margin)        # → 0.20 with defaults
+max_conf = max(0.55, PENALTY_OVERCONFIDENT_THRESHOLD - margin)  # → 0.80 with defaults
+```
+
+With the default thresholds (TIMID 0.10, OVERCONFIDENT 0.90) the effective clamp is
+`[0.20, 0.80]`. The clamp also caps a maxed-out `self_belief` so even an
+overconfident tourist stays below the OVERCONFIDENT zone instead of auto-tilting.
+
+| Anchor Mix | Pre-clamp | Baseline Confidence |
+|-----------|-----------|---------------------|
+| All low (0.0), self_belief 0.5 | 0.30 | 0.30 |
+| All mid (0.5) | 0.65 | 0.65 |
+| All high (1.0), self_belief 1.0 | 1.20 | 0.80 (clamped) |
+| High self_belief only (1.0, others 0/0.5) | 0.50 | 0.50 |
 
 **Note:** Ego also affects *sensitivity* (how much being wrong hurts), not just baseline.
 
-### Composure Anchor
+### Composure Baseline
 
-Composure baseline uses poise as primary driver with expressiveness and risk modifiers:
+Composure baseline uses poise as primary driver with expressiveness and risk
+modifiers (`psychology_model.py:512-513`):
 
 ```python
-risk_mod = (risk_identity - 0.5) × 0.3   # centered: below 0.5 = nervous, above = comfortable
+risk_mod = (risk_identity - 0.5) * 0.3   # centered: below 0.5 = nervous, above = comfortable
 baseline_composure = (
     0.25                                   # floor
-    + poise × 0.50                         # primary driver
-    + (1 - expressiveness) × 0.15          # low expressiveness = internal control
+    + poise * 0.50                         # primary driver
+    + (1 - expressiveness) * 0.15          # low expressiveness = internal control
     + risk_mod                             # risk-seekers comfortable with chaos
 )
-# Range: ~0.10 to ~1.05
-# Clamped to [0.15, 0.85] to stay outside penalty zones
 ```
 
-| Trait Mix | Baseline Composure |
-|-----------|--------------------|
-| Poise 0, Express 1, Risk 0 | 0.15 (clamped from 0.10) |
-| All mid (0.5) | 0.58 |
-| Poise 1, Express 0, Risk 1 | 0.85 (clamped from 1.05) |
-| High poise only (1.0, others 0.5) | 0.83 |
+Clamped to a margin above the TILTED threshold (`psychology_model.py:514-518`):
+
+```python
+margin = 0.05
+min_comp = min(0.55, PENALTY_TILTED_THRESHOLD + margin)  # → 0.40 with defaults
+max_comp = 1.0 - margin                                  # → 0.95
+```
+
+With the default TILTED threshold (0.35) the effective clamp is `[0.40, 0.95]`.
+
+| Anchor Mix | Pre-clamp | Baseline Composure |
+|-----------|-----------|--------------------|
+| Poise 0, Express 1, Risk 0 | 0.10 | 0.40 (clamped) |
+| All mid (0.5) | 0.575 | 0.575 |
+| Poise 1, Express 0, Risk 1 | 1.05 | 0.95 (clamped) |
+| High poise only (1.0, others 0.5) | 0.825 | 0.825 |
 
 **Note:** Poise also affects *sensitivity* (how much bad outcomes hurt), not just baseline.
+
+> The surface emotion a baseline/state produces is a separate concern from this
+> geometry: the quadrant fixes the internal feeling, and the persona's
+> **emotion family** (`get_emotion_family`, `psychology_model.py:548`) selects the
+> displayed label. See the "Emotion Families" section of
+> [`PSYCHOLOGY_OVERVIEW.md`](PSYCHOLOGY_OVERVIEW.md#emotion-families-trait-aware-expression).
 
 ### Example Characters
 
@@ -328,19 +347,12 @@ baseline_composure = (
 | Napoleon | 0.7 | 0.6 | 0.85 | 0.7 | 0.5 | 0.81 | 0.71 | Commanding |
 | Tourist | 0.3 | 0.4 | 0.3 | 0.25 | 0.7 | 0.53 | 0.39 | Neutral (near Shaken) |
 
-### Fallback: Independent Definition
-
-If the complex blend doesn't produce good zone placement during testing, we can define `anchor_confidence` and `anchor_composure` as **independent traits** in the personality config, bypassing the derivation formulas entirely.
-
-```python
-# Fallback approach - direct definition (0-1 scale, auto-mapped to safe range)
-anchors:
-  anchor_confidence: 0.6  # maps to 0.35 + 0.50 × 0.6 = 0.65
-  anchor_composure: 0.8   # maps to 0.35 + 0.50 × 0.8 = 0.75
-  # ... other traits still derived normally
-```
-
-This gives full control over zone placement per character while still using the safe range mapping.
+> **Historical note.** An earlier design proposed a fallback where personalities
+> could define `anchor_confidence` / `anchor_composure` directly (bypassing the
+> derivation) via a 0-1→safe-range mapping. That fallback and its mapping were never
+> implemented — baselines are always derived from the weighted formulas above, and
+> the only personality input is the anchor set on `PersonalityAnchors`
+> (`psychology_model.py:136-212`).
 
 ## Sensitivity (How Events Affect You)
 
@@ -1366,8 +1378,8 @@ def get_manifestation_modifiers(zone: str, manifestation: str) -> dict:
    detection scaffolding ever shipped; the compute step in `recover()`
    was never written and the dead config was removed in 2026-05-15. See
    `docs/triage/ZONE_GRAVITY_DECISION.md` if revisiting.
-5. **Formula reconciliation** - Complex blend with translation layer (0-1 input → 0.35-0.85 safe range)
-6. **Anchor caps** - Floor 0.35, ceiling 0.85 ensures no baseline lands in penalty zones
+5. **Formula reconciliation** - Baselines are weighted sums of anchors (`compute_baseline_confidence` / `compute_baseline_composure`); no separate translation layer
+6. **Baseline caps** - Each formula clamps to a margin inside the live penalty thresholds (confidence → `[0.20, 0.80]`, composure → `[0.40, 0.95]` with defaults), so no baseline lands in a penalty zone
 7. **Zone benefits design** - What each zone shows/hides, intrusive thoughts, tone, blending rules (see Zone Benefits System section)
 8. **Energy (3rd dimension)** - Energy creates zone manifestations (flavor), not new zones. Poker Face is 3D (energy extremes break the mask). See Energy and Zone Manifestations section.
 

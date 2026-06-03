@@ -1,3 +1,10 @@
+---
+purpose: Scaling thresholds, bottlenecks, and migration paths for the application
+type: guide
+created: 2026-02-03
+last_updated: 2026-06-03
+---
+
 # Scaling Guide
 
 This document outlines scaling thresholds and migration paths for My Poker Face.
@@ -49,8 +56,8 @@ This document outlines scaling thresholds and migration paths for My Poker Face.
 ### Migration Complexity
 
 **Medium-high effort**:
-- 30+ tables defined in `schema_manager.py`
-- 63 migration methods (most are no-ops)
+- ~130 `CREATE TABLE` statements in `schema_manager.py` (`SCHEMA_VERSION = 140`)
+- 140 sequential `_migrate_vN_*` methods (one per schema version)
 - Would need Alembic or similar migration tool
 - Test thoroughly — hand evaluation edge cases are critical
 

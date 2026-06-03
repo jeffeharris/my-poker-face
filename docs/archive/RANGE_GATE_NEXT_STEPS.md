@@ -5,6 +5,8 @@ created: 2026-02-13
 last_updated: 2026-02-15
 ---
 
+> **ARCHIVED 2026-06-03** — historical artifact, no longer maintained. Kept for the record; do not treat as current. See `docs/technical/TODO.md`.
+
 # Range Gate: Progress & Next Steps
 
 ## What We Did (2026-02-13)

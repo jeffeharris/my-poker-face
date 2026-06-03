@@ -1,312 +1,175 @@
-# AI Player System Documentation
+---
+purpose: Architecture of the AI poker player — personality model, decision flow, and LLM integration
+type: architecture
+created: 2025-06-01
+last_updated: 2026-06-03
+---
 
-## Overview
+# AI Player System
 
-The AI Player System in My Poker Face creates dynamic, personality-driven poker opponents using OpenAI's language models. Each AI player has a unique personality that influences their playing style, communication, and decision-making process.
+Dynamic, personality-driven poker opponents. Each AI player carries a persona
+(loaded from `poker/personalities.json` or generated on demand), a psychology
+state that drifts during play, and an LLM-backed decision loop that picks an
+action and produces table talk.
+
+This doc is the **architecture map**: components, data flow, and the seams.
+For the field-by-field personality schema (every anchor, its range and meaning),
+see [`PERSONALITY_ANCHORS.md`](PERSONALITY_ANCHORS.md). For the psychology
+runtime (axes, zones, pressure events), see
+[`PSYCHOLOGY_OVERVIEW.md`](PSYCHOLOGY_OVERVIEW.md). For how the decision *prompt*
+is assembled, see [`AI_PROMPT_ARCHITECTURE.md`](AI_PROMPT_ARCHITECTURE.md).
 
 ## Architecture
 
 ```
 ┌─────────────────────┐
-│   Web/Console UI    │
+│   Web / Console UI  │
 └──────────┬──────────┘
            │
-┌──────────▼──────────┐
-│  AIPlayerController │ ← Orchestrates decisions
-└──────────┬──────────┘
-           │
-┌──────────▼──────────┐     ┌────────────────────┐
-│    AIPokerPlayer    │────►│ PersonalityGenerator│
-└──────────┬──────────┘     └────────────────────┘
-           │                           │
-┌──────────▼──────────┐     ┌─────────▼──────────┐
-│   PromptManager     │     │   Database/JSON    │
-└──────────┬──────────┘     └────────────────────┘
-           │
-┌──────────▼──────────┐
-│ OpenAILLMAssistant  │
-└─────────────────────┘
+┌──────────▼──────────┐     ┌─────────────────────┐
+│  AIPlayerController │────►│ PersonalityGenerator│  (lookup / generate persona)
+│  (or subclass)      │     └──────────┬──────────┘
+└──────────┬──────────┘                │
+           │ owns                       ▼
+┌──────────▼──────────┐     ┌─────────────────────┐
+│  PlayerPsychology   │     │ personalities.json  │
+│  (axes / emotion)   │     │   + SQLite cache    │
+└──────────┬──────────┘     └─────────────────────┘
+           │ injected into prompt
+┌──────────▼──────────┐     ┌─────────────────────┐
+│   AIPokerPlayer     │────►│  core.llm.Assistant │ ──► provider API
+│ (persona + stack)   │     │ (CallType.PLAYER_   │
+└─────────────────────┘     │      DECISION)      │
+                            └─────────────────────┘
 ```
 
 ## Core Components
 
-### 1. AIPokerPlayer (`poker/poker_player.py`)
+### AIPokerPlayer (`poker/poker_player.py`)
 
-The main AI player class that extends the base PokerPlayer with AI capabilities.
+Extends `PokerPlayer` with persona state and an LLM assistant. On construction
+it loads/generates a personality and builds a `core.llm.Assistant` with the
+persona prompt as its system message (`poker_player.py:129`,
+`CallType.PLAYER_DECISION`). The provider/model are taken from per-game
+`llm_config` (`:121-122`) — the PLAYER_DECISION tier is **set by the user in the
+game UI**, not by the Default tier (see the CallType→tier table in the root
+`CLAUDE.md`).
 
-**Key Features:**
-- Maintains personality state (confidence, attitude)
-- Integrates with OpenAI through an assistant
-- Tracks conversation history for consistent behavior
+Note: this uses `core.llm.Assistant` (the project's provider-agnostic wrapper,
+`poker_player.py:7`), **not** a raw OpenAI assistant object.
 
-**Example Initialization:**
-```python
-ai_player = AIPokerPlayer(name="Gordon Ramsay", starting_money=10000)
-# Automatically loads/generates personality
-# Sets up OpenAI assistant with character prompt
-```
+Key methods:
+- `persona_prompt()` (`:331`) — renders the `'poker_player'` template via
+  `PromptManager` and appends an example response.
+- `get_personality_modifier()` (`:362`) — maps anchors to an archetype play-style
+  hint (LAG/TAG/Tricky/Rock); supports the anchors format and a legacy
+  `personality_traits` format.
 
-### 2. PersonalityGenerator (`poker/personality_generator.py`)
+### PersonalityGenerator (`poker/personality_generator.py`)
 
-Manages personality creation and storage with a smart lookup hierarchy:
+Resolves a persona by name through a lookup hierarchy: session cache → SQLite →
+`personalities.json` → LLM generation if not found. Generated personas are
+cached and persisted (with guards against saving reserved/junk names).
 
-1. **Session Cache** - In-memory for current game
-2. **Database** - Persistent storage across games
-3. **JSON File** - Pre-defined personalities
-4. **AI Generation** - Dynamic creation if not found
+### Personality schema (anchors model)
 
-**Personality Structure:**
-```json
-{
-  "play_style": "aggressive and confrontational",
-  "default_confidence": "supreme",
-  "default_attitude": "intense",
-  "personality_traits": {
-    // 5-trait poker-native model (Feb 2026)
-    "tightness": 0.3,       // 0-1 scale: 0=loose, 1=tight
-    "aggression": 0.9,      // 0-1 scale: 0=passive, 1=aggressive
-    "confidence": 0.8,      // 0-1 scale: 0=scared, 1=fearless
-    "composure": 0.7,       // 0-1 scale: 0=tilted, 1=focused
-    "table_talk": 0.8       // 0-1 scale: 0=silent, 1=chatty
-  },
-  "verbal_tics": [
-    "This hand is RAW!",
-    "You donkey!",
-    "SHUT IT DOWN!"
-  ],
-  "physical_tics": [
-    "*slams fist on table*",
-    "*points aggressively*"
-  ]
-}
-```
+Personas in `poker/personalities.json` use an **anchors** block plus skill and
+economy metadata. The historical "5-trait poker-native model"
+(tightness/aggression/confidence/composure/table_talk) **never existed in this
+file** — it was doc fiction. The real top-level keys (verified by enumerating
+every persona, 62 total) are:
 
-### 3. PromptManager (`poker/prompt_manager.py`)
+| Key | What it carries |
+|-----|-----------------|
+| `anchors` | Baseline psychology axes (see below + `PERSONALITY_ANCHORS.md`) |
+| `skill` | Strategy tier label (e.g. `weak_reg`, `reg`) driving the solver/bot loadout |
+| `play_style`, `default_confidence`, `default_attitude` | Persona flavor / prompt text |
+| `bankroll_knobs` | Cash economy: `starting_bankroll`, `bankroll_rate`, `buy_in_multiplier`, `stake_comfort_zone` |
+| `staker_profile` / `borrower_profile` | Backing/staking economy willingness + terms |
+| `verbal_tics`, `physical_tics` | Character expression snippets |
+| `id` | Stable persona id |
+| `archetype`, `rule_strategy`, `fish_leak`, `spot_tendencies`, `adaptive_overbet`, `nickname`, `visual_identity` | Optional bot-behavior / presentation extras (not on every persona) |
 
-Centralizes all AI prompts for consistency and maintainability.
+The `anchors` block holds 10 axis baselines (the first 9 are present on every
+persona; `self_belief` is optional and defaults to `0.5` —
+`psychology_model.py:161`):
 
-**Templates:**
-- `poker_player` - Initial character definition
-- `decision` - Per-turn decision making
+`baseline_aggression`, `baseline_looseness`, `ego`, `poise`, `expressiveness`,
+`risk_identity`, `adaptation_bias`, `baseline_energy`, `recovery_rate`,
+`self_belief`.
 
-**Response Format:**
-The AI responds with structured JSON containing both game actions and roleplay elements:
+Field-by-field semantics and ranges: **[`PERSONALITY_ANCHORS.md`](PERSONALITY_ANCHORS.md)**.
 
-```json
-{
-  // Thinking
-  "inner_monologue": "These idiots don't know what hit them...",
-  "hand_strategy": "analysis of cards and situation",
-  "player_observations": {"john": "seems nervous"},
-  "hand_strength": "strong",
-  "bluff_likelihood": 75,
+> There is no `elasticity_config` / `personality_traits` block in the shipped
+> `personalities.json` (both confirmed absent). The runtime psychology system
+> derives behavior from `anchors`, not a stored trait dict.
 
-  // Decision
-  "action": "raise",
-  "raise_to": 200,
+### PlayerPsychology (`poker/player_psychology.py`)
 
-  // Reaction
-  "dramatic_sequence": ["*slams chips on table*", "This pot is MINE! I raise $200!"]
-}
-```
+The unified runtime psychology owned by the controller. It models **axes**
+(confidence, composure, energy, plus the anchored baselines) and an emotional
+state, drifting them via pressure events and recovery between hands. See
+[`PSYCHOLOGY_OVERVIEW.md`](PSYCHOLOGY_OVERVIEW.md).
 
-### 4. AIPlayerController (`poker/controllers.py`)
+Two compatibility surfaces are worth flagging because they are easy to mistake
+for the old model:
+- `psychology.traits` (`player_psychology.py`) still returns a dict keyed
+  `tightness/aggression/confidence/composure/table_talk` — but its docstring
+  says *"backward compat"*; these are **derived views** computed from the axes,
+  not a persisted personality schema.
+- `apply_tilt_effects(prompt)` and `apply_zone_effects(prompt)` are the methods
+  that fold low-composure / zone modifiers into the prompt (there is **no**
+  `apply_composure_effects` method — that name in older docs is wrong).
 
-Orchestrates the decision-making process:
+### Controllers (`poker/controllers.py` + subclasses)
 
-1. **Game State Translation** - Converts global state to player perspective
-2. **Context Building** - Includes recent actions, chat messages
-3. **Prompt Rendering** - Uses templates with current data
-4. **Response Validation** - Ensures all required fields present
+`AIPlayerController` orchestrates a decision: translate global game state to the
+player's perspective, build context (recent actions, chat, psychology section),
+render the `'decision'` prompt, call the assistant, and validate the response.
+Several bot types subclass or replace this path (`standard` →
+`HybridAIController`, `lean` → `LeanBoundedController`, `sharp` →
+`TieredBotController`); see `poker/CLAUDE.md` "Bot Controller Lineup".
 
 ## Decision Flow
 
-### 1. Initialization Phase
-```
-Player Named "Gordon Ramsay" joins
-    ↓
-PersonalityGenerator checks:
-    - Database? → Not found
-    - personalities.json? → Not found
-    - Generate via AI → Creates chef personality
-    ↓
-AIPokerPlayer initialized with:
-    - Personality config
-    - OpenAI assistant
-    - Starting game state
-```
+**Initialization (game setup)**
+1. Persona resolved via `PersonalityGenerator` (cache → DB → JSON → generate).
+2. `AIPokerPlayer.persona_prompt()` renders the `'poker_player'` template.
+3. The rendered prompt becomes the system message of a `core.llm.Assistant`
+   (`CallType.PLAYER_DECISION`, per-game provider/model).
 
-### 2. Turn Decision Phase
-```
-Game requests AI decision
-    ↓
-AIPlayerController:
-    - Builds game context
-    - Summarizes recent actions
-    - Renders decision prompt
-    ↓
-OpenAI processes with:
-    - System prompt (character)
-    - User prompt (game state)
-    ↓
-Returns structured JSON
-    ↓
-Controller extracts:
-    - Game action (fold/call/raise)
-    - Chat message
-    - Physical actions
-```
+**Per-turn decision**
+1. Controller receives game state, extracts the player view + valid actions.
+2. Controller injects psychology (`get_prompt_section()`, then
+   `apply_tilt_effects` / `apply_zone_effects`) and other context.
+3. Controller renders the `'decision'` template and calls
+   `assistant.chat(..., json_format=True)` (`poker_player.py:480`).
+4. The response is validated and repaired by the resilience layer (see below);
+   the structured action (fold/check/call/raise + table talk) returns to the game.
 
-## Key Features
+## Response Format & Resilience
 
-### Personality Persistence
-- Personalities stored in SQLite database
-- Reused across multiple games
-- Usage statistics tracked
+The LLM returns structured JSON: a thinking block (`inner_monologue`,
+`hand_strategy`, `player_observations`, `hand_strength`, `bluff_likelihood`), a
+decision (`action`, `raise_to`), and a `dramatic_sequence` of reaction beats.
+(A simplified `{action, raise_to}` format is available via
+`use_simple_response_format`.)
 
-### Dynamic Behavior
-AI adjusts based on:
-- **Personality Traits**: High aggression → more raises
-- **Game State**: Low chips → conservative play
-- **Emotional State**: Confidence affects betting
+Validation and fallback live in `poker/ai_resilience.py`: the
+`@with_ai_fallback` decorator (`ai_resilience.py:374`) parses/validates the
+response and, on failure, substitutes a deterministic action. Fallback
+strategies (`AIFallbackStrategy`, `:39`): `CONSERVATIVE` (check→call→fold),
+`RANDOM_VALID`, `MIMIC_PERSONALITY` (trait-weighted).
 
-### Rich Communication
-- **Public Chat**: What everyone sees ("This hand is MINE!")
-- **Inner Monologue**: Private thoughts ("Should I bluff here?")
-- **Physical Actions**: Gestures and emotes ("*drums fingers*")
+## Persistence
 
-### Contextual Memory
-- Maintains conversation history
-- Remembers previous actions
-- Consistent character portrayal
-
-## Example Game Interaction
-
-```
-=== Pre-Flop ===
-Gordon Ramsay (AI): 
-- Cards: [K♠, K♥]
-- Inner thought: "Finally, a bloody decent hand!"
-- Says: "Let's turn up the heat! I raise $200!"
-- Action: *slams chips decisively*
-
-Eeyore (AI):
-- Cards: [7♣, 2♦]
-- Inner thought: "Oh bother, another terrible hand..."
-- Says: "I suppose I'll fold. Not that it matters."
-- Action: *sighs heavily*
-
-=== Flop: [K♦, 8♣, 3♠] ===
-Gordon Ramsay (AI):
-- Inner thought: "Three kings! These donkeys are finished!"
-- Says: "You call that a bet? PATHETIC! I raise $500!"
-- Action: *pounds table triumphantly*
-```
-
-## Extending the System
-
-### Adding New Personalities
-
-1. **Via personalities.json:**
-```json
-{
-  "personalities": {
-    "Sherlock Holmes": {
-      "play_style": "analytical and deductive",
-      "default_confidence": "certain",
-      "default_attitude": "aloof",
-      "personality_traits": {
-        "tightness": 0.7,      // Selective about hands
-        "aggression": 0.5,     // Moderate betting
-        "confidence": 0.8,     // High confidence
-        "composure": 0.9,      // Very composed under pressure
-        "table_talk": 0.6      // Moderate commentary
-      }
-    }
-  }
-}
-```
-
-> Note: Old 4-trait personalities (bluff_tendency, chattiness, emoji_usage) are auto-converted.
-
-2. **Via AI Generation:**
-Simply use a new name - the system will generate an appropriate personality automatically using the 5-trait model.
-
-3. **Via Database:**
-Personalities can be imported/exported or manually added to the SQLite database.
-
-### Customizing Behavior
-
-Modify these files to adjust AI behavior:
-- `prompt_manager.py` - Change decision criteria or response format
-- `personality_generator.py` - Adjust generation prompts
-- `controllers.py` - Modify game state interpretation
-
-## Performance Considerations
-
-- **Caching**: Personalities cached in memory during games
-- **API Calls**: One call per decision (typically 1-2 seconds)
-- **Token Usage**: ~500-1000 tokens per decision
-- **Persistence**: Full state can be saved/loaded
-
-## Personality Elasticity Integration
-
-The AI Player System includes dynamic 5-trait personalities that change during gameplay through the Elasticity System.
-
-### How Elasticity Works with AI Players
-
-1. **Trait Modification**: Each personality trait (tightness, aggression, confidence, composure, table_talk) elastically changes within defined bounds based on game events.
-
-2. **Pressure Events**: Events route through PlayerPsychology:
-   ```python
-   # Via AIPlayerController
-   controller.psychology.apply_pressure_event('big_loss')  # Reduces composure, confidence
-   # Composure replaces old tilt system: low composure = tilted
-   ```
-
-3. **Dynamic Decisions**: The AIPlayerController uses current elastic trait values:
-   ```python
-   # Gets current trait values, not just base values
-   traits = controller.psychology.traits
-   # {'tightness': 0.5, 'aggression': 0.7, 'confidence': 0.6, 'composure': 0.8, 'table_talk': 0.5}
-   ```
-
-4. **Persistence**: Elastic personality state is fully serialized with the player.
-
-### Example Elasticity Flow
-
-```
-Gordon Ramsay starts with aggression = 0.95
-    ↓
-Loses big pot → "big_loss" event
-    ↓
-Pressure applied: aggression -0.3
-    ↓
-Trait changes to 0.80 (within elasticity bounds)
-    ↓
-Mood updates from "intense" to "frustrated"
-    ↓
-AI decisions reflect lower aggression
-    ↓
-Over time, trait recovers toward 0.95
-```
-
-For full details, see [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md).
-
-## Future Enhancements
-
-1. **Learning System**: Track win rates per personality
-2. **Adaptive Difficulty**: Adjust skill based on player level
-3. **Team Play**: Personalities that work together
-4. ~~**Emotional Arcs**: Mood changes based on wins/losses~~ ✓ Implemented via Elasticity System
-5. **Custom Personalities**: UI for players to design their own
+Persona config and psychology state serialize with the player; the assistant's
+conversation memory round-trips via `Assistant.to_dict()` /
+`Assistant.from_dict()` (`poker_player.py:161,201`). Personas persist across
+games in SQLite.
 
 ## Debugging
 
-Enable debug logging to see:
-- Personality lookups
-- Prompt generation
-- AI responses
-- Decision parsing
-
-Check logs for `[PersonalityGenerator]` tags to trace personality loading.
+- `[PersonalityGenerator]`-tagged logs trace persona lookup/generation.
+- Player-decision LLM calls are logged to `api_usage` (and optionally captured to
+  `prompt_captures`) with `call_type='player_decision'`.

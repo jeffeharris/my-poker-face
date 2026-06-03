@@ -118,6 +118,24 @@ function timeCell(p: WhereaboutsPerson): { text: string; overdue: boolean } {
   return { text: '—', overdue: false };
 }
 
+/** Energy axis (0..1) as a small bar — drained AIs read red, fresh ones green. */
+function EnergyBar({ energy }: { energy: number | null }) {
+  if (energy == null) return <span className="cwp-muted">—</span>;
+  const pct = Math.round(Math.max(0, Math.min(1, energy)) * 100);
+  const level = energy < 0.34 ? 'low' : energy < 0.67 ? 'mid' : 'high';
+  return (
+    <div className="cwp-energy" title={`energy ${pct}%`}>
+      <div className="cwp-energy__track">
+        <div
+          className={`cwp-energy__fill cwp-energy__fill--${level}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="cwp-energy__pct">{pct}%</span>
+    </div>
+  );
+}
+
 function FlagBadges({ flags, kind }: { flags: string[]; kind: 'stuck' | 'watch' }) {
   if (!flags.length) return null;
   return (
@@ -154,6 +172,9 @@ function PersonRow({ person, showSandbox }: { person: WhereaboutsPerson; showSan
       </td>
       <td className="cwp-where">{whereCell(person)}</td>
       <td className={time.overdue ? 'cwp-time cwp-time--overdue' : 'cwp-time'}>{time.text}</td>
+      <td className="cwp-energy-cell">
+        <EnergyBar energy={person.energy} />
+      </td>
       <td className="cwp-num">{fmtChips(person.bankroll)}</td>
       <td className="cwp-num">
         {person.met ? (
@@ -294,6 +315,7 @@ export function CashWhereaboutsPanel({ embedded = false }: CashWhereaboutsPanelP
                   <th>Status</th>
                   <th>Where / what</th>
                   <th>Time</th>
+                  <th>Energy</th>
                   <th className="cwp-num">Bankroll</th>
                   <th className="cwp-num">vs you</th>
                   {showSandbox && <th>Sandbox</th>}
@@ -326,6 +348,7 @@ export function CashWhereaboutsPanel({ embedded = false }: CashWhereaboutsPanelP
                   <th>Status</th>
                   <th>Where / what</th>
                   <th>Time</th>
+                  <th>Energy</th>
                   <th className="cwp-num">Bankroll</th>
                   <th className="cwp-num">vs you</th>
                   {showSandbox && <th>Sandbox</th>}

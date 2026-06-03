@@ -7,8 +7,10 @@ last_updated: 2026-06-03
 
 # Persona Psychology Hydration Hook — Scope
 
-> **TRIAGE ref:** T3-77 (Tier 3). Live tables seat personas at baseline mood
-> while the world remembers their real emotional state — connect the two.
+> **TRIAGE ref:** T3-81 (Tier 3; was T3-77 on-branch, renumbered on the
+> development merge to avoid an ID collision). Live tables seat personas at
+> baseline mood while the world remembers their real emotional state — connect
+> the two.
 >
 > **STATUS: IMPLEMENTED (2026-06-03, branch `tournaments`).** Shipped in three
 > commits: shared module (`refactor(psych)`), live cash two-way

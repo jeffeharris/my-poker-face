@@ -5,6 +5,8 @@ created: 2026-02-16
 last_updated: 2026-02-16
 ---
 
+> **ARCHIVED 2026-06-03** — historical artifact, no longer maintained. Kept for the record; do not treat as current. See `docs/technical/TODO.md`.
+
 # Phase 1: Preflop Core — Complete
 
 ## Status: DONE

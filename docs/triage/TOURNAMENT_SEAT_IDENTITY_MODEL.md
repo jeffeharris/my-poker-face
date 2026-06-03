@@ -7,8 +7,9 @@ last_updated: 2026-06-03
 
 # Tournament vs Cash Seat Identity — Divergence & Unification Scope
 
-> **TRIAGE ref:** T3-76 (Tier 3, Code Organization). Follow-on to T3-75
-> (tournament unification). **Owner-flagged design miss**, not a fresh bug.
+> **TRIAGE ref:** T3-80 (Tier 3, Code Organization; was T3-76 on-branch,
+> renumbered on the development merge). Follow-on to T3-79 (tournament
+> unification). **Owner-flagged design miss**, not a fresh bug.
 
 ## TL;DR
 

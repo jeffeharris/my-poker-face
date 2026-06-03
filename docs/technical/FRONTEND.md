@@ -1,313 +1,237 @@
-# Frontend Architecture Documentation
+---
+purpose: Frontend architecture — React app structure, state management, and component layout
+type: architecture
+created: 2025-06-07
+last_updated: 2026-06-03
+---
 
-This document describes the organization and architecture of the React frontend for My Poker Face.
+# Frontend Architecture
 
-## Overview
+The React frontend for My Poker Face. TypeScript + Vite, real-time over Socket.IO,
+state held in Zustand. This doc maps the directory layout, the state-flow seam
+(socket → store → components), and the cross-cutting providers — the parts you'd
+otherwise reverse-engineer. It is not a per-component catalog; read the tree for that.
 
-The frontend is a modern React application built with TypeScript and Vite, featuring:
-- Organized component structure by feature/domain
-- Centralized state management with React Context
-- Custom hooks for reusable logic
-- Type-safe development with TypeScript
-- Real-time updates via WebSocket
+Code lives in `react/react/src/`. All paths below are relative to that root.
 
-**Status**: ✅ Migration Complete (as of January 2025)
+## Stack
 
-## Project Structure
+Source of truth: `react/react/package.json`.
+
+| Concern | Choice |
+|---|---|
+| Framework | React 19 (`react` / `react-dom` `^19`) |
+| Build / dev | Vite 7 (`@vitejs/plugin-react`) |
+| Language | TypeScript ~5.9 |
+| State | Zustand 5 (`stores/`) + React Context providers (auth, usage, deck packs) |
+| Routing | React Router 7 (`react-router-dom`) |
+| Real-time | `socket.io-client` 4 |
+| Animation | Framer Motion 12 |
+| Icons / toasts | `lucide-react`, `react-hot-toast` |
+| PWA | `vite-plugin-pwa` |
+| Tests | Vitest + Testing Library (unit), Playwright (E2E) |
+
+There is **no Redux and no `contexts/` directory** — providers live in `hooks/`
+(e.g. `AuthProvider` is exported from `hooks/useAuth.tsx`).
+
+## Build & dev (`package.json` scripts)
+
+| Script | Does |
+|---|---|
+| `npm run dev` | Vite dev server |
+| `npm run build` | `tsc -b && vite build` |
+| `npm run typecheck` | `tsc -b --noEmit` (also run in Docker via `python3 scripts/test.py --ts`) |
+| `npm run lint` | ESLint (flat config, `typescript-eslint`) |
+| `npm run format` / `format:check` | Prettier |
+| `npm test` / `test:watch` | Vitest |
+
+Environment config is centralized in `config.ts`. API and socket URLs default to
+the current host in production (relative `''` / `window.location.origin`) and to
+`http://<hostname>:<VITE_BACKEND_PORT|5000>` in dev. Two debug flags
+(`ENABLE_DEBUG`, `ENABLE_AI_DEBUG`) read `VITE_*` env vars. Backend is Flask + Socket.IO
+(not FastAPI), served behind Caddy in Docker (not Vercel/Netlify).
+
+## State management
+
+The app uses **Zustand stores** plus a small set of **Context providers** for
+cross-cutting app state. There is no global game Context.
+
+### Game state: the socket → store → component seam
+
+```
+Socket.IO event ──► usePokerGame ──► useGameStore.applyGameState() ──► components
+   (backend)         (hooks/)            (stores/gameStore.ts)        (selectors)
+```
+
+- **`stores/gameStore.ts`** — the single source of truth for live game state
+  (`useGameStore`, created via `create<GameStore>`). Holds granular slices: `players`,
+  `phase`, `pot`, `communityCards`, betting context, blinds/dealer indices, `cashMode`,
+  buffered `worldEvents`, run-out director flags, and an optimistic-action rollback
+  snapshot. Components subscribe to only the slices they need.
+- **`hooks/usePokerGame.ts`** — owns the socket lifecycle. It receives backend game
+  state and writes it into the store via `applyGameState(...)` (`usePokerGame.ts:120`,
+  `:294`, `:776`), and exposes actions (`handleAction`, `sendMessage`, fast-forward)
+  plus non-store state (winners, tournament info). It composes a backward-compatible
+  `gameState` object via `selectGameState` (`gameStore.ts:343`).
+
+**Read conventions** (per `react/CLAUDE.md`):
+
+- **Mobile** components (`mobile/MobilePokerTable` and children) read store selectors
+  directly for granular re-render control.
+- **Desktop** (`game/PokerTable`) reads the composed `gameState` object from
+  `usePokerGame` for backward compatibility.
+
+`selectGameState` and the store use stable empty/zero references
+(`EMPTY_MESSAGES`, `ZERO_POT`) so selector identity stays stable across updates.
+
+### Other stores
+
+- **`stores/nicknameOverridesStore.ts`** (`useNicknameOverridesStore`) — local
+  overrides for AI-assigned nicknames, hydrated from the backend on app load
+  (`App.tsx` → `fetchNicknameOverrides`).
+
+### Context providers (`main.tsx`)
+
+Wrapped around the router in `main.tsx`, outermost first:
+`BrowserRouter → AuthProvider → UsageStatsProvider → DeckPackProvider`.
+
+| Provider | Defined in | Purpose |
+|---|---|---|
+| `AuthProvider` / `useAuth` | `hooks/useAuth.tsx` | Current user (guest or Google), `login`/`logout`/`checkAuth`, permissions; `hasPermission(user, perm)` helper |
+| `UsageStatsProvider` | `hooks/UsageStatsProvider.tsx` | API usage/cost stats |
+| `DeckPackProvider` / `useDeckPack` | `hooks/useDeckPack.tsx` | Active card-deck pack |
+
+## Routing
+
+`App.tsx` is the root: it defines routes with React Router 7 and **lazy-loads** most
+secondary/admin routes via `React.lazy` + `Suspense` (game selectors, personality
+manager, admin routes, landing page, cash `Lobby`, training screens, settings, PWA
+install prompt). Eagerly imported: `HomeMenu`, `TournamentMenu`, auth (`LoginForm`,
+`ProtectedRoute`), and `GamePage`. `ErrorBoundary` (`components/ErrorBoundary.tsx`)
+wraps the tree for graceful failure.
+
+## Directory map
+
+Regenerated from `react/react/src/` (2026-06-03). Counts are approximate `.tsx` files
+per directory and will drift — treat the list of directories as the durable part.
 
 ```
 src/
+├── App.tsx              # Root routing + lazy routes
+├── main.tsx             # Provider stack + BrowserRouter mount
+├── config.ts            # API/socket URLs, debug flags
 ├── components/
-│   ├── cards/          # Card display components
-│   ├── game/           # Core game components
-│   ├── chat/           # Chat functionality
-│   ├── stats/          # Statistics and pressure tracking
-│   ├── debug/          # Debug tools (excluded in production)
-│   ├── menus/          # Menu and game setup screens
-│   └── admin/          # Admin tools (personality manager)
-├── contexts/
-│   └── ThemeContext.tsx # Theme/appearance context
-├── hooks/
-│   ├── usePokerGame.ts # Central game state, socket events, messages
-│   ├── useSocket.ts    # WebSocket connection management
-│   ├── useGameState.ts # Game state fetching and updates
-│   └── usePolling.ts   # Fallback polling for game updates
-├── types/
-│   ├── game.ts         # Game state interfaces
-│   ├── player.ts       # Player interfaces
-│   ├── chat.ts         # Chat message interfaces
-│   └── index.ts        # Barrel exports
-├── utils/
-│   ├── api.ts          # Centralized API calls
-│   └── cards.ts        # Card parsing utilities
-└── config.ts           # Environment configuration
+│   ├── ErrorBoundary.tsx
+│   ├── admin/           # Admin dashboard, sidebar, routes; model/personality/prompt
+│   │                    #   managers, chip ledger, relationship matrix, replay designer,
+│   │                    #   cash whereabouts, coach effectiveness, range explorer
+│   ├── auth/            # LoginForm, ProtectedRoute
+│   ├── cards/           # Card.tsx + debug hole card
+│   ├── cash/            # Cash/career mode: Lobby, TableCard, sponsor/stake/bust/solo
+│   │                    #   modals, net-worth drawer, reputation/intel, activity ticker
+│   ├── character/       # Character/dossier cards, sizing tells, api.ts (+ index.ts)
+│   ├── chat/            # Chat panel / quick-chat
+│   ├── debug/           # Dev-only debug panels
+│   ├── dev/             # Layout/runout sandboxes (RunoutCommitSandbox, WinnerLayoutSandbox)
+│   ├── game/            # Core game UI (subfolders below)
+│   ├── landing/         # Marketing/landing page
+│   ├── legal/           # Terms, privacy
+│   ├── menus/           # HomeMenu, TournamentMenu, GameSelector, ThemedGameSelector,
+│   │                    #   CustomGameConfig, PlayerNameEntry
+│   ├── mobile/          # Mobile table, action buttons, coach bubble/panel, floating chat,
+│   │                    #   heads-up panel, progression strip, stats bar
+│   ├── profile/         # ProfilePage.css only (component lives elsewhere — see note)
+│   ├── pwa/             # InstallPrompt
+│   ├── settings/        # SettingsPage + coach/gameplay/profile settings
+│   ├── shared/          # Reusable UI: PageLayout/PageHeader, BottomSheet, ShuffleLoading,
+│   │                    #   GuestLimitModal, MenuBar, ThemedSelect, UserBadge/Dropdown, …
+│   ├── stats/           # CareerStats
+│   └── training/        # TrainingMenu, PreflopLeaks, PreflopDrill, SizingReadability
+├── hooks/               # Custom hooks + the three Context providers (see below)
+├── stores/              # Zustand: gameStore.ts, nicknameOverridesStore.ts (+ tests)
+├── types/               # TS interfaces (game, player, chat, coach, llm, runout, …)
+├── utils/               # api.ts, cards, formatters, logger, csrf, storage, playerOrdering, …
+├── constants/           # gameModes, gamePhases, gameStructure, interhand/runout timing
+├── config/              # timing.ts
+├── styles/              # design-tokens.css, animations.css, action-badges.css
+├── assets/
+└── test/, __tests__/    # test setup + suites
 ```
 
-## Component Organization
+**Note on `profile/`:** the directory currently holds only `ProfilePage.css`; the
+profile UI component is `settings/ProfileSettings.tsx`. (Possible stray CSS — unverified
+whether the page component was moved or removed.)
 
-### Cards (`/components/cards/`)
-- `Card.tsx` - Base card component with three variants:
-  - `Card` - Generic card display
-  - `CommunityCard` - Community cards on the table
-  - `HoleCard` - Player's hole cards (with visibility control)
+### `game/` subfolders
 
-### Game Components (`/components/game/`)
-Core gameplay components organized in subfolders:
-- `PokerTable/` - Main game table component
-- `PokerTableLayout/` - Layout wrapper for game screen
-- `ActionButtons/` - Player action controls (fold, check, raise)
-- `PlayerThinking/` - AI thinking indicator
-- `WinnerAnnouncement/` - Game winner overlay
-- `LoadingIndicator/` - Loading states
+Each is a folder of related components (most with an `index.ts` barrel):
 
-### Chat Components (`/components/chat/`)
-- `Chat/` - Chat message display
-- `ChatSidebar/` - Collapsible chat panel
+| Folder | Role |
+|---|---|
+| `GamePage.tsx` | Main game view (eager-imported in `App.tsx`) |
+| `PokerTable/` | Desktop table layout + player positions |
+| `StadiumLayout/` | Alternative desktop stadium layout |
+| `ActionButtons/` | Fold/check/call/raise controls |
+| `PlayerCommandCenter/` | Player action area |
+| `GameHeader/` | Top bar (game info, coach toggle) |
+| `ActivityFeed/` | Game event log |
+| `StatsPanel/` | In-game statistics |
+| `CoachDock/` | Docked coach panel (desktop) |
+| `PlayerThinking/` | AI thinking indicator |
+| `SeatSpeechBubble/` | Per-seat speech bubbles |
+| `WinnerAnnouncement/` | Hand-winner overlay (+ quote flavor) |
+| `TournamentComplete/` | End-of-tournament screen |
+| `LoadingIndicator/` | Loading states |
 
-### Stats Components (`/components/stats/`)
-- `PressureStats.tsx` - Real-time pressure statistics and player personalities
+## Key hooks
 
-### Menu Components (`/components/menus/`)
-- `PlayerNameEntry.tsx` - Initial player name input
-- `GameMenu.tsx` - Main menu after name entry
-- `GameSelector.tsx` - Load saved games
-- `ThemedGameSelector.tsx` - Select themed games
-- `CustomGameConfig.tsx` - Configure custom games
+In `hooks/`. The list is large; these are the load-bearing ones.
 
-### Debug Components (`/components/debug/`)
-Development tools that should be excluded from production:
-- `ElasticityDebugPanel.tsx` - Personality elasticity testing
-- `DebugPanel.tsx` - Game state debugging
-- `CSSDebugger.tsx` - CSS layout debugging
-- `CardDemo.tsx` - Card rendering demo
+| Hook | Role |
+|---|---|
+| `usePokerGame` | Socket lifecycle → writes Zustand store; exposes game actions |
+| `useSocket` | Low-level Socket.IO connection management |
+| `useGameState` | Game-state fetch/update helpers |
+| `usePolling` | Fallback polling when the socket is down |
+| `useAuth` | Auth context consumer (provider also defined here) |
+| `useCoach`, `useCareerStats` | Coaching feedback / career-mode stats |
+| `useRunoutDirector`, `useInterhandDirector` | Client-owned reveal/interhand pacing |
+| `useCardAnimation`, `useCommunityCardAnimation` | Card reveal animations |
+| `useBettingCalculations` | Raise/bet sizing math for the action UI |
+| `useMediaQuery`, `useViewport` | Responsive layout (mobile vs desktop split) |
+| `useOnlineStatus` | Offline detection |
+| `useLLMProviders`, `useUsageStats`, `useAdminResource` | Admin/usage data |
+| `useGuestChatLimit` | Guest chat-rate gating |
 
-## State Management
+## API integration
 
-### usePokerGame Hook
-The `usePokerGame` hook (`src/hooks/usePokerGame.ts`) is the central game state manager:
-- Game state (players, cards, pot, etc.)
-- Socket.IO event handling
-- Chat messages and deduplication
-- AI thinking states
-- Winner announcements and tournaments
-
-### Usage Example
-```typescript
-import { usePokerGame } from '../hooks/usePokerGame';
-
-function MyComponent() {
-  const { gameState, sendAction, loading } = usePokerGame({ gameId });
-
-  if (loading) return <LoadingIndicator />;
-
-  return <div>{gameState?.pot.total}</div>;
-}
-```
-
-## Custom Hooks
-
-### useSocket
-Manages WebSocket connections with auto-reconnect:
-```typescript
-const { socket, connect, disconnect } = useSocket(url, {
-  onConnect: () => console.log('Connected'),
-  onDisconnect: () => console.log('Disconnected')
-});
-```
-
-### useGameState
-Handles game state fetching and updates:
-```typescript
-const { 
-  gameState, 
-  loading, 
-  error, 
-  playerPositions,
-  fetchGameState,
-  updateGameState 
-} = useGameState(gameId);
-```
-
-### usePolling
-Provides polling functionality for fallback updates:
-```typescript
-const { start, stop } = usePolling(
-  () => fetchGameState(),
-  2000, // interval in ms
-  { enabled: !socket.connected }
-);
-```
-
-## API Integration
-
-All API calls are centralized in `utils/api.ts`:
+REST calls are centralized in `utils/api.ts`. The primary export is `gameAPI`
+(`createGame`, `loadGame`, `sendAction`, `fastForward`, `sendMessage`,
+`getPressureStats`, chat-suggestion endpoints, …). An `adminAPI` object exists for
+backward compatibility. CSRF handling lives in `utils/csrf.ts`.
 
 ```typescript
 import { gameAPI } from '../utils/api';
 
-// Create new game
 const { game_id } = await gameAPI.createGame(playerName);
-
-// Send player action
 await gameAPI.sendAction(gameId, 'raise', 100);
-
-// Send chat message
 await gameAPI.sendMessage(gameId, message, sender);
 ```
 
-## Type Safety
+## Conventions
 
-All major data structures have TypeScript interfaces:
+- **Functional components + hooks** throughout; no class components except
+  `ErrorBoundary`.
+- **`React.memo` on leaves**, with reference-stable props: wrap callbacks in
+  `useCallback`, derived objects/arrays in `useMemo`. Zustand selectors return new
+  references on each change, so derived values must be memoized. (Full rationale:
+  `react/CLAUDE.md`.)
+- **`import type`** for type-only imports.
+- **Route-level code splitting** for admin and secondary pages (see Routing).
 
-```typescript
-// types/game.ts
-export interface GameState {
-  players: Player[];
-  community_cards: string[];
-  pot: { total: number };
-  current_player_idx: number;
-  // ... etc
-}
+## Related docs
 
-// types/player.ts
-export interface Player {
-  name: string;
-  stack: number;
-  bet: number;
-  is_folded: boolean;
-  is_human: boolean;
-  hand?: string[];
-}
-```
-
-## Component Patterns
-
-### Index Exports
-Each component folder has an `index.ts` for clean imports:
-```typescript
-// components/cards/index.ts
-export { Card, CommunityCard, HoleCard } from './Card';
-```
-
-### Props Interfaces
-All components have clearly defined prop interfaces:
-```typescript
-interface ComponentProps {
-  requiredProp: string;
-  optionalProp?: boolean;
-  onAction?: (value: string) => void;
-}
-```
-
-### Functional Components
-All components use functional component syntax with hooks:
-```typescript
-export function ComponentName({ prop1, prop2 }: ComponentProps) {
-  const [state, setState] = useState(initialValue);
-  // component logic
-  return <div>...</div>;
-}
-```
-
-## Development Guidelines
-
-### Import Paths
-- Use relative imports within the same feature folder
-- Use absolute imports from `src/` for cross-feature imports
-- Always use `type` imports for TypeScript types
-
-### Component Responsibilities
-- **Container components** handle state and side effects
-- **Presentational components** focus on UI rendering
-- **Keep components focused** on a single responsibility
-
-### Testing Strategy
-- Unit test hooks and utilities
-- Integration test component interactions
-- E2E test full game flows
-
-### Performance Considerations
-- Use React.memo for expensive renders
-- Implement lazy loading for heavy components
-- Minimize re-renders with proper dependencies
-
-## Production Considerations
-
-### Excluding Debug Components
-Debug components should be conditionally imported:
-```typescript
-const DebugPanel = import.meta.env.DEV 
-  ? lazy(() => import('./components/debug/DebugPanel'))
-  : null;
-```
-
-### Environment Configuration
-All environment-specific values come from `config.ts`:
-```typescript
-export const config = {
-  API_URL: import.meta.env.VITE_API_URL || 'http://localhost:5000',
-  SOCKET_URL: import.meta.env.VITE_SOCKET_URL || 'ws://localhost:5000',
-  ENABLE_DEBUG: import.meta.env.DEV
-};
-```
-
-### Build Optimization
-- Tree-shake unused code
-- Chunk vendor dependencies
-- Optimize images and assets
-- Enable gzip compression
-
-## Future Enhancements
-
-1. **State Management**
-   - Consider Redux Toolkit for more complex state
-   - Add optimistic updates for better UX
-
-2. **Testing**
-   - Add React Testing Library tests
-   - Implement Storybook for component documentation
-
-3. **Performance**
-   - Implement virtual scrolling for chat
-   - Add service worker for offline support
-
-4. **Features**
-   - Add sound effects and haptic feedback
-   - Implement gesture controls for mobile
-   - Add player statistics dashboard
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Import Errors After Reorganization**
-   - Update all import paths to reflect new structure
-   - Check that index.ts files export all components
-
-2. **TypeScript Errors**
-   - Ensure all type imports use `import type`
-   - Check that interfaces match actual data
-
-3. **WebSocket Connection Issues**
-   - Verify SOCKET_URL in config
-   - Check that backend is running
-   - Look for CORS issues
-
-4. **State Not Updating**
-   - Verify GameProvider wraps components
-   - Check that hooks are used within provider
-   - Ensure proper dependency arrays
-
-## Migration History
-
-The frontend was successfully migrated from a flat component structure to the organized architecture described above in January 2025. The migration preserved all CSS styling and functionality while improving code organization and maintainability.
-
-### Key Improvements from Migration:
-- Components organized by feature/domain
-- Type definitions centralized in `/types/`
-- Custom hooks extracted to `/hooks/`
-- Utility functions in `/utils/`
-- Clean import paths with barrel exports
-- Resolved CSS naming conflicts (e.g., `.player-cards`)
-
-This architecture provides a solid foundation for maintaining and extending the poker application while keeping the codebase organized and scalable.
+- `react/CLAUDE.md` — working guide for this app (state-management contract,
+  memoization rules, key-file table).
+- Backend: Flask + Socket.IO API (`flask_app/`).
+</content>

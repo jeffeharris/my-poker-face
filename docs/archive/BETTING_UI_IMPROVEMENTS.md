@@ -1,3 +1,12 @@
+---
+purpose: Historical summary of betting-UI improvements (archive candidate — see docs/technical/TODO.md)
+type: guide
+created: 2025-06-07
+last_updated: 2026-01-20
+---
+
+> **ARCHIVED 2026-06-03** — historical artifact, no longer maintained. Kept for the record; do not treat as current. See `docs/technical/TODO.md`.
+
 # Betting UI Improvements Summary
 
 ## Overview

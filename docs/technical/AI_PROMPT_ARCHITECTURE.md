@@ -1,302 +1,185 @@
+---
+purpose: How AI player prompts are assembled, from personality config through the LLM assistant layer
+type: architecture
+created: 2026-01-04
+last_updated: 2026-06-03
+---
+
 # AI Prompt System Architecture
 
-This document describes the different systems that work together to create prompts for the AI poker players.
+How the pieces fit together to build the prompt an AI poker player sends to the
+LLM each turn: persona config → system prompt, game state + psychology →
+decision prompt, response → validated action.
+
+Related: persona schema in [`PERSONALITY_ANCHORS.md`](PERSONALITY_ANCHORS.md),
+player-system overview in [`AI_PLAYER_SYSTEM.md`](AI_PLAYER_SYSTEM.md),
+psychology runtime in [`PSYCHOLOGY_OVERVIEW.md`](PSYCHOLOGY_OVERVIEW.md), and the
+prompt toggle catalog in [`PROMPT_CONFIG_REFERENCE.md`](PROMPT_CONFIG_REFERENCE.md).
 
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                           AI PROMPT SYSTEM ARCHITECTURE                              │
-└─────────────────────────────────────────────────────────────────────────────────────┘
-
-
-  ┌─────────────────────────────────────┐          ┌──────────────────────────────────┐
-  │         PROMPT MANAGER              │          │       personalities.json         │
-  │       (prompt_manager.py)           │          │         (45+ personas)           │
-  │         << UTILITY >>               │          ├──────────────────────────────────┤
-  ├─────────────────────────────────────┤          │  • play_style, confidence        │
-  │                                     │          │  • 5-trait model: tightness,     │
-  │  Templates:                         │          │    aggression, confidence,       │
-  │  ┌─────────────────────────────┐    │          │  • verbal_tics, physical_tics    │
-  │  │ 'poker_player' (system msg)│    │          │  • elasticity_config             │
-  │  │  • persona_details         │    │          └───────────────┬──────────────────┘
-  │  │  • strategy guidance       │    │                          │
-  │  │  • response_format         │    │                          │ loads
-  │  └─────────────────────────────┘    │                          │
-  │  ┌─────────────────────────────┐    │                          ▼
-  │  │ 'decision' (user msg)      │    │     ┌─────────────────────────────────────────┐
-  │  │  • JSON format instruction │    │     │           AIPokerPlayer                 │
-  │  │  • raise guidance          │    │     │         (poker_player.py)               │
-  │  └─────────────────────────────┘    │     ├─────────────────────────────────────────┤
-  │  ┌─────────────────────────────┐    │     │                                         │
-  │  │ 'end_of_hand_commentary'   │    │     │  • persona_prompt() ◄───────────────────┼──┐
-  │  │  • reflection prompt       │    │     │  • get_personality_modifier()           │  │
-  │  └─────────────────────────────┘    │     │                                         │  │
-  │                                     │     │  ┌─────────────────────────────────┐    │  │
-  └──────────────┬──────────────────────┘     │  │    OpenAILLMAssistant           │    │  │
-                 │                            │  │    (assistants.py)              │    │  │
-                 │                            │  │    << CONTAINED >>              │    │  │
-                 │ renders                    │  ├─────────────────────────────────┤    │  │
-                 │ 'poker_player'             │  │  • system_message ◄─────────────┼────┼──┘
-                 │ template                   │  │  • memory[] (conversation)      │    │
-                 └────────────────────────────┼──►  • chat(message) ──────────┐    │    │
-                                              │  │                            │    │    │
-                                              │  └────────────────────────────┼────┘    │
-                                              │                               │         │
-                                              └───────────────────────────────┼─────────┘
-                                                                              │
-                 ┌────────────────────────────────────────────────────────────┘
-                 │
-                 │ calls chat() with assembled prompt
-                 │
-┌────────────────┴────────────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────┐          ┌──────────────────────────────────┐
+│         PROMPT MANAGER              │          │       personalities.json         │
+│       (prompt_manager.py)           │          │         (62 personas)            │
+│         << UTILITY >>               │          ├──────────────────────────────────┤
+├─────────────────────────────────────┤          │  • play_style, confidence,       │
+│  Templates (YAML in poker/prompts/):│          │    attitude                      │
+│  ┌─────────────────────────────┐    │          │  • anchors{} (10 psychology      │
+│  │ 'poker_player' (system msg)│    │          │    axis baselines)               │
+│  │  • persona_details         │    │          │  • skill, bankroll_knobs,        │
+│  │  • response_format         │    │          │    staker_profile                │
+│  └─────────────────────────────┘    │          │  • verbal_tics, physical_tics    │
+│  ┌─────────────────────────────┐    │          └───────────────┬──────────────────┘
+│  │ 'decision' (user msg)      │    │                          │ loads
+│  └─────────────────────────────┘    │                          ▼
+│  ┌─────────────────────────────┐    │     ┌─────────────────────────────────────────┐
+│  │ 'end_of_hand_commentary'   │    │     │           AIPokerPlayer                 │
+│  └─────────────────────────────┘    │     │         (poker_player.py)               │
+│  (templates loaded from *.yaml      │     ├─────────────────────────────────────────┤
+│   via yaml.safe_load, hot-reload    │     │  • persona_prompt() ◄───────────────────┼──┐
+│   in dev)                           │     │  • get_personality_modifier()           │  │
+└──────────────┬──────────────────────┘     │                                         │  │
+               │                            │  ┌─────────────────────────────────┐    │  │
+               │                            │  │  core.llm.Assistant             │    │  │
+               │ renders                    │  │  (core/llm/assistant.py)        │    │  │
+               │ 'poker_player'             │  │  << CONTAINED >>                │    │  │
+               │ template                   │  ├─────────────────────────────────┤    │  │
+               └────────────────────────────┼──►  • system_prompt ◄──────────────┼────┼──┘
+                                            │  │  • memory[] (conversation)      │    │
+                                            │  │  • chat(message) ──────────┐    │    │
+                                            │  └────────────────────────────┼────┘    │
+                                            └───────────────────────────────┼─────────┘
+                                                                            │
+               ┌────────────────────────────────────────────────────────────┘
+               │ calls chat() with assembled prompt
+               ▼
+┌──────────────────────────────────────────────────────────────────────────────────────┐
 │                            AIPlayerController                                        │
 │                             (controllers.py)                                         │
 │                            << ORCHESTRATOR >>                                        │
 ├──────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                      │
-│   decide_action(game_state, player) → assembles complete prompt:                     │
+│   decide_action() → assembles complete prompt:                                       │
 │                                                                                      │
 │   1. GAME STATE EXTRACTION                                                           │
-│   ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐           │
-│   │  Hole Cards   │ │  Board Cards  │ │   Pot Size    │ │ Cost to Call  │           │
-│   └───────────────┘ └───────────────┘ └───────────────┘ └───────────────┘           │
-│   ┌───────────────┐ ┌───────────────┐ ┌───────────────┐                              │
-│   │  Positions    │ │ Valid Actions │ │ Recent Msgs   │                              │
-│   └───────────────┘ └───────────────┘ └───────────────┘                              │
+│      hole cards • board • pot • cost to call • positions • valid actions • recent    │
 │                                                                                      │
 │   2. PSYCHOLOGY STATE (PlayerPsychology)                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐           │
-│   │  psychology.get_prompt_section() → Emotional State                  │           │
-│   │  • valence, arousal, control, focus • narrative • display_emotion   │           │
-│   └─────────────────────────────────────────────────────────────────────┘           │
-│   ┌─────────────────────────────────────────────────────────────────────┐           │
-│   │  psychology.apply_composure_effects() → Prompt Modifiers            │           │
-│   │  • intrusive thoughts • tilted advice • degraded strategy           │           │
-│   └─────────────────────────────────────────────────────────────────────┘           │
-│   ┌─────────────────────────────────────────────────────────────────────┐           │
-│   │  psychology.traits → Current Trait Values (5-trait model)           │           │
-│   │  • tightness • aggression • confidence • composure • table_talk     │           │
-│   └─────────────────────────────────────────────────────────────────────┘           │
+│      • get_prompt_section()  → emotional state text                                  │
+│      • apply_tilt_effects()  → low-composure modifications (intrusive thoughts,      │
+│                                degraded strategy)                                     │
+│      • apply_zone_effects()  → zone-based strategy modifiers                          │
+│      • derived axes (confidence/composure/energy from anchors)                       │
 │                                                                                      │
 │   3. ADDITIONAL CONTEXT                                                              │
-│   ┌───────────────┐ ┌───────────────┐                                               │
-│   │ Memory        │ │ Chattiness    │                                               │
-│   │ Context       │ │ Guidance      │                                               │
-│   ├───────────────┤ ├───────────────┤                                               │
-│   │ • session     │ │ • level 0-1   │                                               │
-│   │   history     │ │ • should_speak│                                               │
-│   │ • opponent    │ │ • style hints │                                               │
-│   │   models      │ │               │                                               │
-│   └───────────────┘ └───────────────┘                                               │
+│      memory context (session history, opponent models) • chattiness guidance         │
 │                                                                                      │
 │   4. GAME CONTEXT FLAGS                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────┐           │
-│   │ big_pot | all_in | heads_up | multi_way_pot | showdown | addressed │           │
-│   └─────────────────────────────────────────────────────────────────────┘           │
+│      big_pot | all_in | heads_up | multi_way | showdown | addressed                  │
 │                                                                                      │
-│   5. RENDER via PromptManager.render_prompt('decision', ...) ◄──────────────────────┼───┐
-│                                                                                      │   │
-│                                                                                      │   │
-│   ┌──────────────────────────────────────────────────────────────────────┐          │   │
-│   │                    PlayerPsychology                                  │          │   │
-│   │                 (player_psychology.py)                               │          │   │
-│   │                 << UNIFIED STATE >>                                  │          │   │
-│   ├──────────────────────────────────────────────────────────────────────┤          │   │
-│   │                                                                      │          │   │
-│   │  Consolidates:                                                       │          │   │
-│   │  • ElasticPersonality (5-trait model with pressure/recovery)         │          │   │
-│   │  • EmotionalState (deterministic dimensions + LLM-narrated text)     │          │   │
-│   │  • ComposureState (pressure source, nemesis - composure is a trait)  │          │   │
-│   │                                                                      │          │   │
-│   │  Events:                                                             │          │   │
-│   │  • apply_pressure_event(event, opponent) → updates all 5 traits      │          │   │
-│   │  • on_hand_complete(...) → updates composure, generates emotion      │          │   │
-│   │  • recover() → drift all traits to anchor                            │          │   │
-│   │                                                                      │          │   │
-│   │  Prompt Building:                                                    │          │   │
-│   │  • get_prompt_section() → emotional state for injection              │          │   │
-│   │  • apply_composure_effects(prompt) → low-composure modifications     │          │   │
-│   │  • get_display_emotion() → avatar emotion selection                  │          │   │
-│   └──────────────────────────────────────────────────────────────────────┘          │   │
-│                                                                                      │   │
-└──────────────────────────────────────────────────────────────────────────────────────┘   │
-                 │                                                                         │
-                 │ renders 'decision' template                                             │
-                 └─────────────────────────────────────────────────────────────────────────┘
-
-
+│   5. RENDER via PromptManager.render_decision_prompt(...)                            │
+└──────────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       │ API call with:
                                       │  • system: persona_prompt
                                       │  • memory: conversation history
-                                      │  • user: assembled decision prompt
+                                      │  • user:   assembled decision prompt
                                       ▼
                           ┌─────────────────────┐
-                          │     OpenAI API      │
-                          │   (GPT-5-nano or    │
-                          │     GPT-4o)         │
+                          │  core.llm.Assistant │  → provider API (per-game model;
+                          │  (CallType.         │     PLAYER_DECISION tier set by
+                          │   PLAYER_DECISION)  │     user in game UI)
                           └──────────┬──────────┘
-                                     │
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          AI Resilience Layer                                 │
-│                         (ai_resilience.py)                                   │
+│                          AI Resilience Layer (ai_resilience.py)              │
 │                    << DECORATOR: @with_ai_fallback >>                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│   Validation:                      Fallback Strategies:                      │
+│   Validation:                      Fallback Strategies (AIFallbackStrategy): │
 │   • Parse JSON response            • CONSERVATIVE (check→call→fold)          │
 │   • Validate 'action' field        • RANDOM_VALID (weighted random)          │
 │   • Check against valid options    • MIMIC_PERSONALITY (trait-based)         │
-│   • Fix raise_by vs raise_to       │                                         │
-│                                    │                                         │
+│   • Fix raise_by vs raise_to                                                 │
 └─────────────────────────────────────────────────────────────────────────────┘
-                                     │
                                      ▼
                     ┌────────────────────────────────┐
                     │      RESPONSE FORMAT           │
-                    ├────────────────────────────────┤
-                    │ Thinking:                      │
-                    │  • inner_monologue             │
-                    │  • hand_strategy               │
-                    │  • player_observations         │
-                    │  • hand_strength               │
-                    │  • bluff_likelihood            │
-                    │ Decision:                      │
-                    │  • action (fold/check/call/raise)
-                    │  • raise_to (total bet amount) │
-                    │ Reaction:                      │
-                    │  • dramatic_sequence (beats)   │
+                    │ Thinking: inner_monologue,     │
+                    │  hand_strategy,                │
+                    │  player_observations,          │
+                    │  hand_strength, bluff_likelihood
+                    │ Decision: action, raise_to     │
+                    │ Reaction: dramatic_sequence    │
                     └────────────────────────────────┘
 ```
 
-## Component Relationships
+## Model selection
 
-```
-                    ┌──────────────────────┐
-                    │  AIPlayerController  │
-                    │   (orchestrator)     │
-                    └──────────┬───────────┘
-                               │
-              ┌────────────────┼────────────────┬─────────────────┐
-              │ uses           │ calls          │ uses            │ owns
-              ▼                ▼                ▼                 ▼
-    ┌─────────────────┐  ┌───────────┐  ┌─────────────────┐  ┌──────────────────┐
-    │  PromptManager  │  │AIPokerPlayer│  │  Game State    │  │PlayerPsychology  │
-    │   (utility)     │  │           │  │                 │  │ (unified state)  │
-    │                 │  │  contains │  │                 │  │                  │
-    │ 'decision'      │  │     │     │  │                 │  │ • Elastic        │
-    │  template       │  │     ▼     │  │                 │  │ • Emotional      │
-    └─────────────────┘  │┌─────────┐│  └─────────────────┘  │ • Tilt           │
-              ▲          ││OpenAI   ││                        └──────────────────┘
-              │          ││LLM      ││
-              │ uses     ││Assistant││
-              │          │└─────────┘│
-              │          └───────────┘
-              │                │
-              │                │ uses
-              │                ▼
-              │      ┌─────────────────┐
-              └──────│  PromptManager  │
-                     │   (utility)     │
-                     │                 │
-                     │ 'poker_player'  │
-                     │  template       │
-                     └─────────────────┘
-```
+The default LLM tier is **groq `llama-3.1-8b-instant`** (`DEFAULT_MODEL` /
+`DEFAULT_PROVIDER`, `core/llm/config.py:33-34`) — a cheap, fast model, since the
+default opponent is a solver/tiered bot that only calls the LLM for table talk.
+The **PLAYER_DECISION** tier specifically is per-game (chosen by the user in the
+game UI), so an AI player may run a different model than the Default tier. The
+full CallType→tier mapping lives in the root `CLAUDE.md`.
 
 ## Key Files
 
 | Component | Path | Role |
 |-----------|------|------|
-| Prompt Manager | `poker/prompt_manager.py` | Utility - renders prompt templates |
-| Personalities | `poker/personalities.json` | Data - defines 45+ AI personas |
-| Player Psychology | `poker/player_psychology.py` | Unified psychological state - elastic traits, emotions, tilt |
-| AI Player | `poker/poker_player.py` | Contains assistant, manages persona |
-| Controller | `poker/controllers.py` | Orchestrator - assembles prompts, calls AI, owns psychology |
-| OpenAI Assistant | `core/assistants.py` | API wrapper - sends/receives from OpenAI |
-| Resilience Layer | `poker/ai_resilience.py` | Decorator - validates responses, provides fallbacks |
+| Prompt Manager | `poker/prompt_manager.py` | Loads YAML templates from `poker/prompts/`, renders prompts |
+| Templates | `poker/prompts/*.yaml` | `poker_player`, `decision`, `end_of_hand_commentary`, plus quick-chat / post-round variants |
+| Personalities | `poker/personalities.json` | 62 personas; `anchors` block + skill/economy metadata |
+| Player Psychology | `poker/player_psychology.py` | Axes/emotion runtime; `get_prompt_section`, `apply_tilt_effects`, `apply_zone_effects` |
+| AI Player | `poker/poker_player.py` | Holds the `core.llm.Assistant`, renders persona prompt |
+| Controller | `poker/controllers.py` | Orchestrates: extracts state, injects psychology, renders `decision` |
+| LLM Assistant | `core/llm/assistant.py` | Provider-agnostic chat wrapper (class `Assistant`) |
+| Resilience Layer | `poker/ai_resilience.py` | `@with_ai_fallback` — validates responses, deterministic fallback |
+
+> Corrections from earlier revisions of this doc: the assistant class is
+> `Assistant` in `core/llm/assistant.py` (there is **no** `core/assistants.py`
+> or `OpenAILLMAssistant`); the persona count is **62**, not "45+"; personas
+> carry an `anchors` block, **not** a 5-trait model or an `elasticity_config`
+> (both absent from `personalities.json`); the default model is groq
+> llama-3.1-8b-instant, not GPT-5-nano/GPT-4o.
 
 ## Initialization vs Runtime
 
-### At Initialization (game setup)
-1. `AIPokerPlayer` loads personality from `personalities.json`
-2. `AIPokerPlayer.persona_prompt()` uses `PromptManager` to render `'poker_player'` template
-3. System prompt is set on the contained `OpenAILLMAssistant`
+**At initialization (game setup)**
+1. `AIPokerPlayer` resolves a personality (`personalities.json` / generator).
+2. `AIPokerPlayer.persona_prompt()` renders the `'poker_player'` template.
+3. The result is set as the system prompt on the contained `core.llm.Assistant`.
 
-### At Runtime (each decision)
-1. `AIPlayerController.decide_action()` is called with game state
-2. Controller extracts game state and builds context injections
-3. Controller uses `PromptManager` to render `'decision'` template with all context
-4. Controller calls `player.assistant.chat(prompt)`
-5. `OpenAILLMAssistant` sends: system message + memory + user prompt
-6. Response is validated by `@with_ai_fallback` decorator
-7. Validated action is returned to game
+**At runtime (each decision)**
+1. `AIPlayerController.decide_action()` runs with current game state.
+2. Controller extracts state and builds context injections.
+3. Controller calls `PromptManager.render_decision_prompt(...)` (`controllers.py:1888`).
+4. Controller injects psychology: `get_prompt_section()`, then
+   `apply_tilt_effects()` (`controllers.py:1079,1085`).
+5. Controller calls `player.assistant.chat(message, json_format=True)`
+   (`poker_player.py:480`) — sends system + memory + user prompt.
+6. Response validated by `@with_ai_fallback`; validated action returns to the game.
 
-## Data Flow Summary
-
-```
-personalities.json ──► AIPokerPlayer ──► persona_prompt() ──► system message
-                            │
-                            │ contains
-                            ▼
-                      OpenAILLMAssistant
-                            ▲
-                            │ chat(user_prompt)
-                            │
-game_state ──► AIPlayerController ──► render 'decision' ──► user prompt
-                    │
-                    │ owns PlayerPsychology
-                    │
-                    └── injects context:
-                        ├── psychology.get_prompt_section() (emotional state)
-                        ├── psychology.apply_composure_effects() (composure modifiers)
-                        ├── psychology.traits (5-trait: tightness, aggression, etc.)
-                        ├── memory context
-                        ├── table_talk guidance (was: chattiness)
-                        └── game context flags
-```
-
-## Event Flow (Unified Psychology Updates)
+## Event Flow (Psychology Updates)
 
 ```
-Pressure Event (bluff_called, bad_beat, etc.)
-    │
-    ▼
-AIPlayerController.psychology.apply_pressure_event(event, opponent)
-    │
-    └──► ElasticPersonality.apply_pressure_event() ──► all 5 traits shift
-         (including composure - replaces separate TiltState)
+Pressure Event (bluff_called, bad_beat, ...)
+    └──► psychology.apply_pressure_event(event, opponent) ──► axes shift
+         (poise/recovery_rate filter the magnitude)
 
 Hand Complete
-    │
-    ▼
-AIPlayerController.psychology.on_hand_complete(outcome, amount, ...)
-    │
-    ├──► ComposureState.update_from_hand() ──► tracks pressure source, nemesis
-    │
-    └──► Two-layer emotional state generation:
-         │
-         ├──► Layer 1: compute_baseline_mood(elastic_traits) ──► slow-moving session mood
-         │    (deterministic, from current trait values vs anchors)
-         │
-         ├──► Layer 2: compute_reactive_spike(outcome, amount, composure) ──► fast reaction
-         │    (deterministic, amount normalized by big_blind, amplified by low composure)
-         │
-         ├──► blend_emotional_state(baseline, spike) ──► final dimensions
-         │
-         └──► EmotionalStateGenerator.generate() ──► LLM narrates the computed dimensions
-              (LLM produces narrative + inner_voice text only; dimensions are pre-computed)
+    └──► psychology.on_hand_complete(outcome, amount, ...)
+         ├──► composure update (pressure source, nemesis)
+         └──► emotional state generation:
+              baseline mood (from axes vs anchors)
+              + reactive spike (outcome/amount, amplified by low composure)
+              → LLM narrates the pre-computed dimensions
 
 Recovery (between hands)
-    │
-    ▼
-AIPlayerController.psychology.recover()
-    │
-    ├──► ElasticPersonality.recover_traits() ──► all 5 traits drift to anchor
-    │    (including composure - recovers toward focused state)
-    │
-    └──► EmotionalState.decay_toward_baseline() ──► spike fades toward elastic baseline
-         (not toward hardcoded neutral — toward personality-specific resting state)
+    └──► psychology.recover() ──► axes drift toward anchors; emotion decays
+         toward the personality-specific resting state
 ```
+
+Method names verified in `poker/player_psychology.py`
+(`apply_pressure_event`, `on_hand_complete`, `recover`, `get_prompt_section`,
+`apply_tilt_effects`, `apply_zone_effects`). The detailed axis math lives in
+[`PSYCHOLOGY_OVERVIEW.md`](PSYCHOLOGY_OVERVIEW.md).
