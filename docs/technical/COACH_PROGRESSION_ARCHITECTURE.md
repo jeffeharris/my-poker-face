@@ -361,7 +361,7 @@ POST /api/coach/<game_id>/onboarding
 > **As-built correction**: `poker/persistence.py` no longer exists. Persistence was
 > split into per-domain repositories under `poker/repositories/`. Coach state lives in
 > **`coach_repository.py`** (`CoachRepository`), and the schema/migrations are owned by
-> **`schema_manager.py`** (`SCHEMA_VERSION = 140` as of this revision). The coach tables
+> **`schema_manager.py`** (`SCHEMA_VERSION = 148` as of this revision). The coach tables
 > were indeed added in **migration v63** — that part of the plan held — but the file the
 > plan names to edit is gone. Two later migrations extended the profile table:
 > **v68** added `onboarding_completed_at` and **v70** added a `range_targets` JSON column

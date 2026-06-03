@@ -227,7 +227,7 @@ added by later `ALTER` migrations (v64, v123), not in the base `CREATE`.
 `anchors` and `bankroll_knobs` are nested **sub-dicts inside `config_json`**, not
 columns (`schema_manager.py:90-91,156,578-579`).
 
-Current schema: **`SCHEMA_VERSION = 140`** (`poker/repositories/schema_manager.py:321`).
+Current schema: **`SCHEMA_VERSION = 148`** (`poker/repositories/schema_manager.py:321`).
 
 ---
 

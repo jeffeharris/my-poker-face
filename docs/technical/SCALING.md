@@ -56,8 +56,8 @@ This document outlines scaling thresholds and migration paths for My Poker Face.
 ### Migration Complexity
 
 **Medium-high effort**:
-- ~130 `CREATE TABLE` statements in `schema_manager.py` (`SCHEMA_VERSION = 140`)
-- 140 sequential `_migrate_vN_*` methods (one per schema version)
+- ~130 `CREATE TABLE` statements in `schema_manager.py` (`SCHEMA_VERSION = 148`)
+- 148 sequential `_migrate_vN_*` methods (one per schema version)
 - Would need Alembic or similar migration tool
 - Test thoroughly — hand evaluation edge cases are critical
 

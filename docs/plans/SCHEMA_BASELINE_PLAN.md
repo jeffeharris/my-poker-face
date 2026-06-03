@@ -1,5 +1,5 @@
 ---
-purpose: Strategy for consolidating the 7,350-line schema_manager.py by squashing the v1..v140 migration chain at the prod cutover
+purpose: Strategy for consolidating the 7,840-line schema_manager.py by squashing the v1..v148 migration chain at the prod cutover
 type: design
 created: 2026-06-03
 last_updated: 2026-06-03
@@ -13,7 +13,7 @@ test `tests/test_schema_consistency.py`.
 
 ## The problem
 
-`poker/repositories/schema_manager.py` is ~7,350 lines. ~5,000 of those are 140
+`poker/repositories/schema_manager.py` is ~7,840 lines. ~5,000 of those are 148
 `_migrate_vN_*` methods. We want to collapse that chain to a baseline so the file
 shrinks to roughly the DDL (~1,500–2,000 lines) and new contributors aren't reading
 two years of migration archaeology.
@@ -22,7 +22,7 @@ two years of migration archaeology.
 
 - `_init_db()` runs `CREATE TABLE IF NOT EXISTS …` for the tables it knows about.
 - A brand-new DB has schema version 0, so `ensure_schema()` then runs
-  `_run_migrations()`, which **replays the entire v1→v140 chain** over that fresh
+  `_run_migrations()`, which **replays the entire v1→v148 chain** over that fresh
   schema. The migrations are guarded (`if 'owner_id' not in columns: …`), so they're
   normally no-ops — but **every fresh install today = `_init_db` + full chain.**
 - A squash deletes the chain. After that, new installs run **`_init_db()` alone**.
@@ -85,11 +85,11 @@ Alembic "compact to base".
 - After this: no sub-baseline DB exists in production.
 
 ### Phase 3 — Squash (requires Phase 1 green AND Phase 2 done)
-- Set `BASELINE_VERSION = 140` (or bump to a clean `141` floor).
-- Move `_migrate_v1..v140` into `poker/repositories/legacy_migrations.py`, invoked
+- Set `BASELINE_VERSION = 148` (or bump to a clean `149` floor).
+- Move `_migrate_v1..v148` into `poker/repositories/legacy_migrations.py`, invoked
   **only** when a sub-baseline DB is detected. Keep `_init_db` as the canonical head.
 - Add a loud guard: non-empty DB with `version < BASELINE` → **raise** (never silently
-  run `_init_db` over it). Empty DB → `_init_db` at baseline. New chain starts at 141.
+  run `_init_db` over it). Empty DB → `_init_db` at baseline. New chain starts at 149.
 - `schema_manager.py` drops to ~1,500–2,000 lines.
 
 ### Phase 4 — Retire the legacy chain (after a safe interval)
@@ -112,7 +112,7 @@ Alembic "compact to base".
 - A DB built from `_init_db` alone is byte-identical (schema) to a full `ensure_schema()`
   build (same test).
 - Prod runs on a baseline-version DB; no sub-baseline DB exists (Phase 2).
-- `schema_manager.py` no longer carries the v1..v140 chain inline (Phase 3).
+- `schema_manager.py` no longer carries the v1..v148 chain inline (Phase 3).
 
 ## Incidental
 

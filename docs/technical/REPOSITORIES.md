@@ -160,7 +160,7 @@ owner_id=None, owner_name=None`.
 
 ## Schema management: `SchemaManager` + `SCHEMA_VERSION`
 
-- **`SCHEMA_VERSION = 140`** (`schema_manager.py:321`).
+- **`SCHEMA_VERSION = 148`** (`schema_manager.py:321`).
 - **`SchemaManager`** (`schema_manager.py:324`) is the self-described "single source
   of truth for database structure" (327-328). It is a **plain class, not a
   `BaseRepository`**, with its own `_get_connection` (`schema_manager.py:341`,
@@ -179,14 +179,14 @@ owner_id=None, owner_name=None`.
   `_get_current_schema_version()` (1620) reads `SELECT MAX(version) FROM
   schema_version` (0 if the table is missing); if `current >= SCHEMA_VERSION` it
   returns (1635-1636). A `migrations: Dict[int, tuple]` maps `version → (migrate_func,
-  description)` (v1 at 1643 … v140 at 2160). The loop `for version in
+  description)` (v1 at 1643 through v148). The loop `for version in
   range(current_version + 1, SCHEMA_VERSION + 1)` (2195) runs each func, inserts
   `(version, description)` into `schema_version`, commits, and logs; on exception it
-  logs and **re-raises** (2196-2208). Newest migrations: `_migrate_v137_create_cash_scalps`
-  (7180), `_migrate_v138_add_prestige_v2_columns` (7216),
-  `_migrate_v139_add_prestige_entity_kind` (7280), and v140 = a covering index on
-  `holdings_snapshots(sandbox_id, entity_id, …)` for the Renown-v2 peak-net-worth
-  read (7327; comment at 311-312).
+  logs and **re-raises** (2196-2208). Recent migrations through v140:
+  `_migrate_v137_create_cash_scalps` (7180), `_migrate_v138_add_prestige_v2_columns`
+  (7216), `_migrate_v139_add_prestige_entity_kind` (7280), and v140 (a covering index
+  on `holdings_snapshots` for the Renown-v2 peak-net-worth read). The chain currently
+  extends through **v148** (tournaments-as-a-draw + renown-v2 wiring).
 - **Scar to know about:** there is idempotent "training-room renumber collision"
   handling that re-asserts skipped v123/v124 (`schema_manager.py:2184-2193`).
 

@@ -66,7 +66,7 @@ This document provides a comprehensive overview of the My Poker Face application
         │                   │                    │
         │           ┌───────▼───────┐            │
         │           │    SQLite     │            │
-        │           │ (schema v140) │            │
+        │           │ (schema v148) │            │
         │           └───────────────┘            │
         └─────────────────────────────────────────┘
 ```
@@ -367,7 +367,7 @@ Repository pattern over a single SQLite database. `BaseRepository`
 concrete repositories (game, cash, ledger, tournament, coach, experiment, LLM,
 personality, presence, relationship, …) sit on top. Schema and forward
 migrations are managed by `SchemaManager` (`schema_manager.py`,
-`SCHEMA_VERSION = 140` at `:321`) — one `_migrate_vN_*` method per version,
+`SCHEMA_VERSION = 148` at `:321`) — one `_migrate_vN_*` method per version,
 ~130 `CREATE TABLE` statements total.
 
 > For the repository catalog, the migration mechanism, and the
