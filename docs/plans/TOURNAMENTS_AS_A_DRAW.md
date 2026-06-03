@@ -90,21 +90,33 @@ The riskiest seam, proven in isolation, wired to nothing.
 - `cash_mode/economy_flags.py`: `TOURNAMENT_DRAW_ENABLED` (default False).
 - Test: `tests/test_cash_mode/test_movement.py::TestCalledUpVacate`.
 
-### Phase B — draw scorer + reserve/spawn lifecycle (NEXT)
-- **Schema v148**: add `reserved_pids TEXT` (+ `vacated_pids TEXT`) JSON columns to
-  `tournament_invites`. Repo `update_reserved_pids` / `update_vacated_pids` +
-  deserialize in `load()`.
-- **`flask_app/services/tournament_draw.py`** (NEW): pure `score_draw` + `rank_field`
-  + an effectful `build_draw_inputs` (injected repos: bankroll, prestige/renown,
-  cash_table). Unit-test the pure core (`tests/test_tournament/test_tournament_draw.py`).
-- **`tournament_invites.offer()` / `maybe_offer_main_event()`**: after writing the
-  invite, run the scorer → store the top-N as `reserved_pids` (flag-gated).
-- **`tournament_spawn.draft_exclusions`**: union the open invite's `reserved_pids`
-  (+ later `en_route`) so a reserved persona isn't drafted into a concurrent
-  tournament.
-- **`spawn_autonomous_tournament` / `create_human_tournament`**: accept the
-  reserved field instead of a fresh random shuffle (add `include`/`scored_order`
-  to `select_persona_field`).
+### Phase B — draw scorer + reserve/spawn lifecycle (IN PROGRESS)
+- **B1 ✅ DONE + PUSHED (`0353c727`)** — `flask_app/services/tournament_draw.py`:
+  pure `score_draw` + `rank_field` (+ `DrawInputs`/`DrawWeights`), fully
+  unit-tested (`tests/test_tournament/test_tournament_draw.py`). Pure, unused by
+  any caller yet.
+- **B2 ⚠️ COMMITTED LOCAL, NOT PUSHED, UNVERIFIED-BY-SUITE (`dbc88bc0`)** — schema
+  **v148**: `reserved_pids` + `vacated_pids` JSON cols on `tournament_invites`
+  (`_init_db` + guarded `_migrate_v148_invite_reserved_pids` + dict entry,
+  SCHEMA_VERSION→148). `TournamentInviteRepository`: `create(reserved_pids=…)`,
+  `_row_to_dict` deserializes (keys-guarded), `set_reserved_pids` /
+  `set_vacated_pids` / `reserved_pids_for_owner`. ruff clean but the dev container
+  was OOM-killing test runs at handoff time — **FIRST next step: re-run on a
+  stable container** `test_tournament/test_invites.py` + `test_repositories/test_schema_manager.py`
+  + a fresh-build schema smoke (SCHEMA_VERSION==148, cols present), then **push**.
+- **B3 — NOT STARTED** (the effectful wiring):
+  - `flask_app/services/tournament_draw.py`: add an effectful `build_draw_inputs`
+    (injected repos: bankroll `ai_bankroll_state`, renown `prestige_snapshots`
+    renown-v2, cash seat/`cash_pair_stats` for `cash_comfort`; `prize_pool` from
+    `core/economy` / the invite). Maps the candidate pool → `list[DrawInputs]`.
+  - `tournament_invites.offer()` / `maybe_offer_main_event()`: after writing the
+    invite, `build_draw_inputs` → `rank_field` → `invite_repo.set_reserved_pids`
+    (flag-gated `TOURNAMENT_DRAW_ENABLED`).
+  - `tournament_spawn.draft_exclusions`: union `invite_repo.reserved_pids_for_owner`
+    so a reserved persona isn't drafted into a concurrent tournament.
+  - `spawn_autonomous_tournament` / `create_human_tournament`: use the reserved
+    field instead of a fresh shuffle (add `include`/`scored_order` to
+    `select_persona_field`).
 
 ### Phase C — ticker trickle-vacate + spawn + whereabouts surfacing
 - **`ticker_service._tick_sandbox`**: thread the open invite's
