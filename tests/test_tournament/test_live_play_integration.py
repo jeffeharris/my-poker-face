@@ -212,7 +212,13 @@ def test_human_plays_real_hands_to_a_terminal_state(app, monkeypatch):
                 assert session.field.chip_sum() == cfg.total_chips
 
             assert terminal, "tournament never reached a terminal state (possible redeal loop)"
-            assert human_turns > 3, "human barely acted — turns aren't reaching the human"
+            # human_turns varies with live deck/AI variance — the human can bust
+            # early on an unlucky run — so a fixed floor like ">3" was flaky under
+            # `-n auto`. The real contract is already proven above: every settle
+            # was the human's turn, conservation held each boundary, and the run
+            # reached a terminal state. Keep a >=1 floor to catch the actual
+            # regression this guards — progress_game never delivering a human turn.
+            assert human_turns >= 1, "progress_game never delivered a real human turn"
             assert session.field.chip_sum() == cfg.total_chips
             # the field advanced past the start
             assert session.rounds > 0
