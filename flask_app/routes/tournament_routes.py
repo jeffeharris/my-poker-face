@@ -187,14 +187,21 @@ def get_lobby():
     active = None
     if active_tid:
         rec = registry.get(active_tid)
-        active = {
-            'tournament_id': active_tid,
-            'created_at': rec['created_at'],
-            'standings': rec['session'].standings_view(),
-        }
+        # An AUTONOMOUS tournament (declined/expired → AI-only, no `human:<owner>`
+        # seat) is not joinable — the human isn't in it. Surfacing it here drives
+        # a "Resume Main Event" bar whose /sit 409s ("autonomous tournament is not
+        # joinable"). Only a tournament the human is actually seated in counts as
+        # their resumable active one. Mirrors the `_is_autonomous_record` guard the
+        # /sit, /advance, and /play-out routes already apply.
+        if rec is not None and not _is_autonomous_record(rec, owner_id):
+            active = {
+                'tournament_id': active_tid,
+                'created_at': rec['created_at'],
+                'standings': rec['session'].standings_view(),
+            }
     return jsonify(
         {
-            'has_active': active_tid is not None,
+            'has_active': active is not None,
             'active': active,
             'defaults': {'field_size': 18, 'table_size': 6, 'starting_stack': 10_000},
         }
