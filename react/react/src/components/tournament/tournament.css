@@ -35,8 +35,7 @@
   height: 100dvh;
   min-height: 100dvh;
   width: 100%;
-  background:
-    radial-gradient(120% 80% at 50% -10%, rgba(20, 60, 44, 0.55), transparent 60%),
+  background: radial-gradient(120% 80% at 50% -10%, rgba(20, 60, 44, 0.55), transparent 60%),
     radial-gradient(80% 60% at 100% 110%, rgba(40, 20, 28, 0.4), transparent 55%),
     linear-gradient(180deg, var(--charcoal), var(--felt) 40%, var(--charcoal));
   color: var(--ink);
@@ -86,7 +85,9 @@
   padding: 7px 14px;
   border-radius: 2px;
   cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
 }
 .tourney__back:hover {
   color: var(--ink);
@@ -112,9 +113,15 @@
   animation: tourneyPulse 2.2s ease-out infinite;
 }
 @keyframes tourneyPulse {
-  0% { box-shadow: 0 0 0 0 rgba(232, 196, 104, 0.55); }
-  70% { box-shadow: 0 0 0 9px rgba(232, 196, 104, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(232, 196, 104, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(232, 196, 104, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(232, 196, 104, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 196, 104, 0);
+  }
 }
 
 /* ── the clock band ──────────────────────────────────────────────────────── */
@@ -123,9 +130,7 @@
   position: relative;
   border: 1px solid var(--panel-edge);
   border-radius: 4px;
-  background:
-    linear-gradient(180deg, rgba(232, 196, 104, 0.06), transparent 40%),
-    var(--panel);
+  background: linear-gradient(180deg, rgba(232, 196, 104, 0.06), transparent 40%), var(--panel);
   backdrop-filter: blur(6px);
   padding: clamp(16px, 4vw, 26px);
   overflow: hidden;
@@ -233,7 +238,9 @@
   font-size: 13px;
   color: var(--gold);
 }
-.you-strip--out .you-strip__tag { color: var(--crimson); }
+.you-strip--out .you-strip__tag {
+  color: var(--crimson);
+}
 .you-strip__rank {
   font-family: var(--display);
   font-size: clamp(28px, 9vw, 44px);
@@ -364,8 +371,7 @@
   padding: clamp(20px, 6vw, 34px);
   border: 1px solid var(--gold-deep);
   border-radius: 4px;
-  background:
-    radial-gradient(120% 120% at 50% 0%, rgba(232, 196, 104, 0.22), transparent 60%),
+  background: radial-gradient(120% 120% at 50% 0%, rgba(232, 196, 104, 0.22), transparent 60%),
     var(--panel);
 }
 .champion__label {
@@ -410,7 +416,9 @@
   gap: 12px;
 }
 @media (min-width: 640px) {
-  .tables { grid-template-columns: repeat(2, 1fr); }
+  .tables {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .table-card {
@@ -422,7 +430,9 @@
 }
 .table-card--human {
   border-color: var(--gold-deep);
-  box-shadow: 0 0 0 1px rgba(232, 196, 104, 0.18), 0 12px 40px -20px rgba(232, 196, 104, 0.5);
+  box-shadow:
+    0 0 0 1px rgba(232, 196, 104, 0.18),
+    0 12px 40px -20px rgba(232, 196, 104, 0.5);
 }
 
 .table-card__head {
@@ -458,14 +468,18 @@
   border-radius: 3px;
   font-size: 13px;
 }
-.seat + .seat { border-top: 1px solid rgba(244, 239, 230, 0.04); }
+.seat + .seat {
+  border-top: 1px solid rgba(244, 239, 230, 0.04);
+}
 .seat--human {
   background: linear-gradient(90deg, rgba(232, 196, 104, 0.14), transparent);
   margin: 0 -4px;
   padding: 5px 10px;
   border-radius: 3px;
 }
-.seat--empty { opacity: 0.4; }
+.seat--empty {
+  opacity: 0.4;
+}
 
 .seat__btn {
   width: 16px;
@@ -478,7 +492,9 @@
   color: var(--charcoal);
   background: var(--button);
 }
-.seat__btn--off { background: transparent; }
+.seat__btn--off {
+  background: transparent;
+}
 
 .seat__who {
   display: flex;
@@ -493,18 +509,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.seat--human .seat__id { color: var(--gold); }
+.seat--human .seat__id {
+  color: var(--gold);
+}
 .seat__id .you {
   font-family: var(--display);
   letter-spacing: 0.14em;
   font-size: 10px;
   color: var(--gold);
   margin-left: 6px;
-}
-.seat__arch {
-  font-size: 10px;
-  color: var(--muted-2);
-  letter-spacing: 0.04em;
 }
 .seat__empty {
   font-family: var(--mono);
@@ -519,7 +532,9 @@
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.seat--human .seat__stack { color: var(--gold); }
+.seat--human .seat__stack {
+  color: var(--gold);
+}
 
 /* ── knockouts feed ──────────────────────────────────────────────────────── */
 
@@ -545,8 +560,14 @@
   line-height: 1;
   min-width: 38px;
 }
-.ko__pos sup { font-size: 0.5em; color: var(--muted); }
-.ko__who { font-weight: 600; color: var(--ink); }
+.ko__pos sup {
+  font-size: 0.5em;
+  color: var(--muted);
+}
+.ko__who {
+  font-weight: 600;
+  color: var(--ink);
+}
 .ko__by {
   font-size: 12px;
   color: var(--muted);
@@ -582,15 +603,25 @@
   padding: 13px 22px;
   border-radius: 3px;
   border: 1px solid transparent;
-  transition: transform 0.12s, filter 0.2s, opacity 0.2s;
+  transition:
+    transform 0.12s,
+    filter 0.2s,
+    opacity 0.2s;
 }
-.dock__btn:active { transform: translateY(1px) scale(0.99); }
-.dock__btn:disabled { opacity: 0.45; cursor: default; }
+.dock__btn:active {
+  transform: translateY(1px) scale(0.99);
+}
+.dock__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .dock__btn--primary {
   background: linear-gradient(180deg, var(--gold), var(--gold-deep));
   color: var(--charcoal);
 }
-.dock__btn--primary:hover:not(:disabled) { filter: brightness(1.08); }
+.dock__btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
 .dock__btn--ghost {
   background: rgba(244, 239, 230, 0.04);
   border-color: rgba(244, 239, 230, 0.16);
@@ -662,7 +693,9 @@
   color: var(--muted);
   transition: all 0.16s;
 }
-.chip:hover { color: var(--ink); }
+.chip:hover {
+  color: var(--ink);
+}
 .chip--on {
   border-color: var(--gold);
   color: var(--charcoal);
@@ -677,13 +710,15 @@
   gap: 14px;
   border: 1px solid var(--gold-deep);
   border-radius: 4px;
-  background:
-    radial-gradient(120% 140% at 0% 0%, rgba(232, 196, 104, 0.16), transparent 55%),
+  background: radial-gradient(120% 140% at 0% 0%, rgba(232, 196, 104, 0.16), transparent 55%),
     var(--panel);
   padding: 18px 20px;
   margin-top: 26px;
 }
-.tlobby__resume-meta { font-size: 13px; color: var(--muted); }
+.tlobby__resume-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
 .tlobby__resume-meta strong {
   display: block;
   font-family: var(--display);

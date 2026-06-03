@@ -8,8 +8,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import type { TournamentSeat, TournamentStandings, TournamentTable } from './types';
 import './tournament.css';
 
-const fmt = (n: number | null | undefined): string =>
-  n == null ? '—' : n.toLocaleString('en-US');
+const fmt = (n: number | null | undefined): string => (n == null ? '—' : n.toLocaleString('en-US'));
 
 const ordinalSuffix = (n: number): string => {
   const v = n % 100;
@@ -115,10 +114,7 @@ export function TournamentStandings({
         )}
 
         {/* ── you ── */}
-        <motion.div
-          className={`you-strip${human.out ? ' you-strip--out' : ''}`}
-          {...fade(1)}
-        >
+        <motion.div className={`you-strip${human.out ? ' you-strip--out' : ''}`} {...fade(1)}>
           <div>
             <div className="you-strip__tag">
               {human.out ? 'Busted' : 'Your Standing'}
@@ -146,9 +142,7 @@ export function TournamentStandings({
         {complete && winner && (
           <motion.div className="champion" {...fade(2)}>
             <div className="champion__label">Champion</div>
-            <div className="champion__name">
-              {winner === human.player_id ? 'You' : winner}
-            </div>
+            <div className="champion__name">{winner === human.player_id ? 'You' : winner}</div>
           </motion.div>
         )}
 
@@ -210,7 +204,9 @@ export function TournamentStandings({
               <div className="ko__who">
                 {ko.player_id === human.player_id ? 'You' : ko.player_id}
               </div>
-              <div className="ko__by">{ko.eliminator ? `KO by ${ko.eliminator}` : 'eliminated'}</div>
+              <div className="ko__by">
+                {ko.eliminator ? `KO by ${ko.eliminator}` : 'eliminated'}
+              </div>
             </motion.div>
           ))}
         </div>
@@ -278,7 +274,6 @@ function SeatRow({ seat }: { seat: TournamentSeat }) {
           {seat.is_human ? 'You' : seat.player_id}
           {seat.is_human && <span className="you">YOU</span>}
         </span>
-        {seat.archetype && !seat.is_human && <span className="seat__arch">{seat.archetype}</span>}
       </span>
       <span className="seat__stack">{fmt(seat.stack)}</span>
     </div>
