@@ -242,6 +242,16 @@ class PromptManager:
     _shared_subscribers: Dict[Path, "weakref.WeakSet"] = {}
     _shared_observer_lock = threading.Lock()
 
+    # Process-wide cache of parsed templates keyed by resolved prompts_dir.
+    # The codebase constructs a PromptManager per AI controller, per player,
+    # and per commentary generator; a sim builds one per decision. Without
+    # this cache each construction re-globs and re-parses every YAML file,
+    # which manifests as constant disk reads and pegged CPU in long runs.
+    # Reloads refresh both the live instances and this cache, so it stays
+    # correct under hot-reload.
+    _template_cache: Dict[Path, Dict[str, "PromptTemplate"]] = {}
+    _template_cache_lock = threading.Lock()
+
     def __init__(self, enable_hot_reload: bool = False, prompts_dir: Optional[Path] = None):
         self.templates: Dict[str, PromptTemplate] = {}
         self._last_good_templates: Dict[str, PromptTemplate] = {}
@@ -265,24 +275,48 @@ class PromptManager:
             self._setup_hot_reload()
 
     def _load_all_templates(self) -> None:
-        """Load all templates from YAML files."""
+        """Load all templates, reusing the process-wide parsed cache.
+
+        Templates are parsed from disk once per ``prompts_dir`` per process.
+        Every subsequent ``PromptManager`` built for the same directory copies
+        the already-parsed templates instead of re-reading and re-parsing every
+        YAML file — the construction hot path during sims and per-hand
+        controller setup. ``_reload_template`` keeps the cache fresh, so
+        hot-reload still propagates edits to managers created later.
+        """
         if not self.prompts_dir.exists():
             logger.warning(f"Prompts directory not found: {self.prompts_dir}")
             return
 
-        loaded_count = 0
+        key = self.prompts_dir.resolve()
+
+        # Fast path: copy the already-parsed templates for this directory.
+        with PromptManager._template_cache_lock:
+            cached = PromptManager._template_cache.get(key)
+        if cached is not None:
+            with self._lock:
+                self.templates = dict(cached)
+                self._last_good_templates = dict(cached)
+            logger.debug(f"Reused {len(cached)} cached prompt templates for {self.prompts_dir}")
+            return
+
+        # Slow path: parse from disk once, then publish to the shared cache.
+        loaded: Dict[str, PromptTemplate] = {}
         for yaml_file in self.prompts_dir.glob('*.yaml'):
             try:
                 template = self._load_template_file(yaml_file)
                 if template:
-                    with self._lock:
-                        self.templates[template.name] = template
-                        self._last_good_templates[template.name] = template
-                    loaded_count += 1
+                    loaded[template.name] = template
             except Exception as e:
                 logger.error(f"Failed to load template {yaml_file.name}: {e}")
 
-        logger.info(f"Loaded {loaded_count} prompt templates from {self.prompts_dir}")
+        with self._lock:
+            self.templates = dict(loaded)
+            self._last_good_templates = dict(loaded)
+        with PromptManager._template_cache_lock:
+            PromptManager._template_cache[key] = dict(loaded)
+
+        logger.info(f"Loaded {len(loaded)} prompt templates from {self.prompts_dir}")
 
     def _load_template_file(self, yaml_file: Path) -> Optional[PromptTemplate]:
         """Load a single template from a YAML file.
@@ -331,6 +365,13 @@ class PromptManager:
                 with self._lock:
                     self.templates[template_name] = new_template
                     self._last_good_templates[template_name] = new_template
+                # Keep the shared cache fresh so PromptManagers constructed
+                # after this reload observe the new content, not a stale parse.
+                key = self.prompts_dir.resolve()
+                with PromptManager._template_cache_lock:
+                    cached = PromptManager._template_cache.get(key)
+                    if cached is not None:
+                        cached[template_name] = new_template
                 logger.info(f"[PromptManager] Reloaded template: {template_name}")
                 return True
             else:
@@ -486,6 +527,16 @@ class PromptManager:
                 logger.info(f"[PromptManager] Hot-reload stopped (shared, {key})")
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[PromptManager] Error stopping shared observer at {key}: {e}")
+
+    @classmethod
+    def clear_template_cache(cls) -> None:
+        """Drop the process-wide parsed-template cache.
+
+        Mainly for tests that rewrite prompt YAML on disk between manager
+        constructions and need the next manager to re-read from disk.
+        """
+        with cls._template_cache_lock:
+            cls._template_cache.clear()
 
     def __del__(self):
         """Clean up file watcher on destruction."""
