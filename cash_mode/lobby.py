@@ -2403,7 +2403,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
-                cash_table_repo=cash_table_repo,
+                field_snapshot=_field_snapshot,
             )
         except Exception as exc:
             logger.warning(

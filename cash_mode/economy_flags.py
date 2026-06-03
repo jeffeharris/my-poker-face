@@ -131,8 +131,12 @@ FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35   # below this field pct → hungr
 
 
 def lever_field_mode() -> bool:
-    """True when the levers should use the field-liquid reference."""
-    return LEVER_REFERENCE_MODE == 'field_liquid'
+    """True when the levers should use the field-liquid reference.
+
+    Reads the env at call time (not just the import-time module global)
+    so a sim/experiment can flip it per-run regardless of import order.
+    """
+    return os.environ.get('LEVER_REFERENCE_MODE', LEVER_REFERENCE_MODE).strip().lower() == 'field_liquid'
 
 
 # --- Sink (table rake) ----------------------------------------------------

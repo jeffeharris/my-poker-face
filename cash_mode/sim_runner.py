@@ -86,8 +86,9 @@ class SimConfig:
     initial_bank_pool_seed: int = 0
     # Vice mechanism the sim drives. Default 'real' so the sim runs the
     # SAME wealth-tax as production (cast-median concentration, via the
-    # templated narrator — no LLM). Set 'fake' for the LLM-free stub
-    # (own-start / VICE_REFERENCE_MODE testbed) or 'off' to disable.
+    # templated narrator — no LLM). Set 'fake' for the LLM-free stub or
+    # 'off' to disable. Field-relative behaviour for both is controlled
+    # by economy_flags.LEVER_REFERENCE_MODE.
     vice_mode: str = 'real'
 
 

@@ -140,9 +140,12 @@ def _ledger_breakdown(db_path, sandbox_id, pid):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    # Reference mode now unified under LEVER_REFERENCE_MODE:
+    #   own_start    — each AI vs its own starting bankroll (legacy)
+    #   field_liquid — vs the field's liquid net worth (vice + side-hustle
+    #                  + grinder-hunger all field-relative)
     ap.add_argument("--vice-ref", required=True,
-                    choices=["starting", "median", "top_percentile"])
-    ap.add_argument("--top-percentile", default="0.90")
+                    choices=["own_start", "field_liquid"])
     ap.add_argument("--challenger", default="blackbeard")
     ap.add_argument("--start", type=int, default=8000)
     ap.add_argument("--seed", type=int, required=True)
@@ -152,10 +155,8 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    # Must be set before run_sim drives the vice path (read at call time).
-    os.environ["VICE_REFERENCE_MODE"] = args.vice_ref
-    os.environ["VICE_MEDIAN_MULT"] = str(args.median_mult)
-    os.environ["VICE_TOP_PERCENTILE"] = str(args.top_percentile)
+    # Must be set before economy_flags is imported (module reads it once).
+    os.environ["LEVER_REFERENCE_MODE"] = args.vice_ref
 
     from cash_mode.sim_runner import SimConfig, run_sim
     from poker.repositories import create_repos
