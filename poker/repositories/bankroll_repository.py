@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import nullcontext
 from datetime import datetime
 from typing import List, Optional
 
@@ -127,6 +128,7 @@ class BankrollRepository(BaseRepository):
         *,
         sandbox_id: str,
         chip_ledger_repo=None,
+        conn=None,
     ) -> None:
         """Upsert the AI bankroll row in the given sandbox.
 
@@ -140,18 +142,28 @@ class BankrollRepository(BaseRepository):
         chip-ledger gap from `CASH_MODE_ECONOMY.md` Known Issues §2:
         without this, new sandboxes would create AI chips from thin
         air with no audit trail.
+
+        Chip-custody atomicity: the upsert AND the first-write `ai_seed`
+        ledger row are written on ONE connection inside ONE transaction, so
+        a crash can't land the int without its seed (or vice versa) — closing
+        the two-commit divergence window. When `conn` is passed, the upsert
+        joins the CALLER's open transaction (the caller commits); a casino
+        seed/drain uses this to commit its bank-pool ledger row + this int
+        together. `conn=None` (the default, every existing caller) opens and
+        commits our own connection.
         """
-        with self._get_connection() as conn:
+        ctx = nullcontext(conn) if conn is not None else self._get_connection()
+        with ctx as c:
             is_first_write = (
                 chip_ledger_repo is not None
-                and conn.execute(
+                and c.execute(
                     "SELECT 1 FROM ai_bankroll_state "
                     "WHERE personality_id = ? AND sandbox_id = ?",
                     (state.personality_id, sandbox_id),
                 ).fetchone()
                 is None
             )
-            conn.execute(
+            c.execute(
                 """
                 INSERT OR REPLACE INTO ai_bankroll_state
                     (personality_id, sandbox_id, chips, last_regen_tick)
@@ -164,16 +176,19 @@ class BankrollRepository(BaseRepository):
                     state.last_regen_tick.isoformat() if state.last_regen_tick else None,
                 ),
             )
-        if is_first_write and state.chips > 0:
-            from core.economy import ledger as chip_ledger
+            # Seed INSIDE the same transaction (on `c`) so int + seed commit
+            # together. Was previously a separate post-commit write.
+            if is_first_write and state.chips > 0:
+                from core.economy import ledger as chip_ledger
 
-            chip_ledger.record_ai_seed(
-                chip_ledger_repo,
-                personality_id=state.personality_id,
-                amount=int(state.chips),
-                context={'sandbox_id': sandbox_id, 'site': 'save_ai_bankroll'},
-                sandbox_id=sandbox_id,
-            )
+                chip_ledger.record_ai_seed(
+                    chip_ledger_repo,
+                    personality_id=state.personality_id,
+                    amount=int(state.chips),
+                    context={'sandbox_id': sandbox_id, 'site': 'save_ai_bankroll'},
+                    sandbox_id=sandbox_id,
+                    conn=c,
+                )
 
     def load_ai_bankroll(
         self,

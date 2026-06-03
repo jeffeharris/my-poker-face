@@ -551,13 +551,25 @@ def _prefund_fish_from_pool(
     draw = min(draw, pool)
     if draw <= 0:
         return 0
-    record_casino_seat_seed(
+    # Backstop (chip-custody): ledger the pool-draw FIRST and only credit the
+    # bankroll int if it landed — otherwise we'd mint chips into the fish with no
+    # pool-draw record (conservation break). Mirrors the `stranded` guard in
+    # `_drain_fish_bankroll_to_pool`. (True single-txn atomicity for this pair is
+    # the deferred Tier-2 — the `conn=` seam exists; see TRIAGE.)
+    row_id = record_casino_seat_seed(
         chip_ledger_repo,
         personality_id=personality_id,
         amount=draw,
         context=context,
         sandbox_id=sandbox_id,
     )
+    if row_id is None:
+        logger.warning(
+            "[CASH][CASINO] fish prefund ledger rejected for %s (%d not credited)",
+            personality_id,
+            draw,
+        )
+        return 0
     bankroll_repo.save_ai_bankroll(
         AIBankrollState(
             personality_id=personality_id,
@@ -592,6 +604,10 @@ def _drain_fish_bankroll_to_pool(
     chips = _load_ai_chips(bankroll_repo, personality_id, sandbox_id)
     if chips <= 0:
         return 0, 0
+    # Backstop (chip-custody): ledger the pool-return FIRST; only zero the int if
+    # it landed. A rejected/failed ledger write returns `stranded` (int untouched
+    # → fish keeps its chips), never double-counting them into the pool. (True
+    # single-txn atomicity is the deferred Tier-2 — the `conn=` seam exists.)
     try:
         row_id = record_casino_seat_return(
             chip_ledger_repo,
@@ -602,14 +618,14 @@ def _drain_fish_bankroll_to_pool(
         )
         if row_id is None:
             logger.warning(
-                "[CASH][CASINO] fish bankroll drain rejected for %s " "(%d chips stranded)",
+                "[CASH][CASINO] fish bankroll drain rejected for %s (%d chips stranded)",
                 personality_id,
                 chips,
             )
             return 0, chips
     except Exception as exc:
         logger.warning(
-            "[CASH][CASINO] fish bankroll drain failed for %s " "(%d chips stranded): %s",
+            "[CASH][CASINO] fish bankroll drain failed for %s (%d chips stranded): %s",
             personality_id,
             chips,
             exc,
