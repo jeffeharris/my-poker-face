@@ -29,6 +29,13 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
+# authoritative `save_table` seat write into the dormant `entity_presence`
+# table via `presence_shadow.shadow_transition`, which is a guarded no-op
+# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
+# in try/except so it can never break the real seat write it shadows. See
+# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
+from cash_mode import presence_shadow
 from cash_mode.attractiveness import (
     CASINO_VENUE_APPEAL,
     DEFAULT_SEEK_RATE,
@@ -58,6 +65,7 @@ from cash_mode.movement import (
     refresh_table_roster,
     reseat_readiness,
 )
+from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
 from cash_mode.seat_registry import SeatOccupancyRegistry
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
@@ -73,15 +81,6 @@ from cash_mode.tables import (
     ai_slot,
     open_slot,
 )
-
-# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
-# authoritative `save_table` seat write into the dormant `entity_presence`
-# table via `presence_shadow.shadow_transition`, which is a guarded no-op
-# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
-# in try/except so it can never break the real seat write it shadows. See
-# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
-from cash_mode import presence_shadow
-from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
 
 logger = logging.getLogger(__name__)
 
@@ -1281,6 +1280,23 @@ def refresh_unseated_tables(
 
     _fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
 
+    # Field-relative wealth snapshot (LEVER_REFERENCE_MODE='field_liquid').
+    # One per tick: liquid net worth (bankroll + seat) for every non-fish
+    # AI. Shared by vice, side-hustle, and grinder-hunger so they all key
+    # off the field instead of each AI's own starting bankroll. None in
+    # the default 'own_start' mode → every lever keeps prior behaviour.
+    _field_snapshot = None
+    if economy_flags.lever_field_mode():
+        from cash_mode.field_wealth import build_field_wealth_snapshot
+
+        _field_snapshot = build_field_wealth_snapshot(
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            sandbox_id=sandbox_id,
+            now=now,
+            fish_ids=_fish_ids,
+        )
+
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
             pid,
@@ -1513,15 +1529,23 @@ def refresh_unseated_tables(
             compute_vice_probability,
         )
 
-        try:
-            _vice_cast_median = compute_cast_median(
-                bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
-            )
-        except Exception as exc:
-            logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
-            _vice_cast_median = 0
+        # Field-liquid mode: the cast median is the field's LIQUID net
+        # worth median (bankroll+seat), from the shared snapshot — so
+        # seated AIs count their stacks and don't depress the reference.
+        if _field_snapshot is not None:
+            _vice_cast_median = _field_snapshot.median()
+            _vice_min_median = economy_flags.MIN_FIELD_MEDIAN_FOR_VICE
+        else:
+            try:
+                _vice_cast_median = compute_cast_median(
+                    bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
+                )
+            except Exception as exc:
+                logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
+                _vice_cast_median = 0
+            _vice_min_median = MIN_CAST_MEDIAN_FOR_VICE
 
-        if _vice_cast_median >= MIN_CAST_MEDIAN_FOR_VICE:
+        if _vice_cast_median >= _vice_min_median:
 
             def _vice_prob_lookup(pid: str) -> float:
                 # Refractory window: no urge to celebrate right after one.
@@ -1535,7 +1559,15 @@ def refresh_unseated_tables(
                     return 0.0
                 if not current or current <= 0:
                     return 0.0
-                excess = compute_excess_ratio(current, _vice_cast_median)
+                if _field_snapshot is not None:
+                    # Measure this AI by its liquid standing in the field.
+                    excess = max(
+                        0.0,
+                        _field_snapshot.concentration(pid)
+                        - economy_flags.FIELD_CONCENTRATION_FLOOR,
+                    )
+                else:
+                    excess = compute_excess_ratio(current, _vice_cast_median)
                 if excess <= 0:
                     return 0.0
                 psych = _load_psych_snapshot(
@@ -2208,6 +2240,7 @@ def refresh_unseated_tables(
                 rng=rng,
                 now=now,
                 narrate_fn=_vice_narrate if vice_use_llm_narration else None,
+                field_snapshot=_field_snapshot,
             )
 
             # Leave-vice commits: AIs whose discretionary leave a vice roll
@@ -2299,7 +2332,16 @@ def refresh_unseated_tables(
                 if projected is None:
                     continue
                 threshold = round(cheapest_min_buy_in * knobs.buy_in_multiplier)
-                if projected < threshold:
+                # Field-liquid mode broadens (never narrows) eligibility:
+                # also a candidate if in the bottom decile of field liquid,
+                # even if it could technically afford the cheapest table.
+                eligible_field = (
+                    _field_snapshot is not None
+                    and pid in _field_snapshot.liquid_chips
+                    and _field_snapshot.pct_rank(pid)
+                    < economy_flags.FIELD_HUSTLE_ELIGIBLE_PERCENTILE
+                )
+                if projected < threshold or eligible_field:
                     candidates.add(pid)
 
             def _hustle_narrate(pid, amount):
@@ -2320,6 +2362,7 @@ def refresh_unseated_tables(
                     rng=rng,
                     now=now,
                     narrate_fn=_hustle_narrate,
+                    field_snapshot=_field_snapshot,
                 )
         except Exception as exc:
             logger.warning(
@@ -2389,6 +2432,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
+                field_snapshot=_field_snapshot,
             )
         except Exception as exc:
             logger.warning(

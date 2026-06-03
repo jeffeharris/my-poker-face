@@ -670,6 +670,7 @@ def resolve_ai_vice_spending(
     narrate_fn: Optional[NarrateFn] = None,
     max_starts: int = VICE_STARTS_PER_REFRESH,
     concentration_floor: float = CONCENTRATION_FLOOR,
+    field_snapshot=None,
 ) -> List[ViceStartResult]:
     """Roll vice for each candidate; fire up to `max_starts` this refresh.
 
@@ -700,17 +701,29 @@ def resolve_ai_vice_spending(
     if narrate_fn is None:
         narrate_fn = _templated_narrate_fn
 
-    # Phase 0: load cast bankrolls + compute median. One query for the
-    # whole pass; cheap relative to the per-candidate work that follows.
-    try:
-        cast_chips = bankroll_repo.list_all_ai_bankroll_chips(
-            sandbox_id=sandbox_id,
-        )
-    except Exception as exc:
-        logger.warning("[VICE] list_all_ai_bankroll_chips failed: %s", exc)
-        return []
-    cast_median = compute_cast_median(cast_chips)
-    if cast_median < MIN_CAST_MEDIAN_FOR_VICE:
+    # Phase 0: establish the cast median wealth — the reference each
+    # candidate's concentration is measured against. In field-liquid mode
+    # this is the median of LIQUID net worth (bankroll + seat) across the
+    # field (passed in as a precomputed snapshot, so seated AIs count
+    # their stacks); otherwise it's the legacy median of off-table
+    # bankrolls only. Either way the per-candidate logic below is
+    # identical — an idle candidate's `current` IS its liquid wealth.
+    if field_snapshot is not None:
+        from cash_mode import economy_flags as _eflags
+
+        cast_median = field_snapshot.median()
+        min_median = _eflags.MIN_FIELD_MEDIAN_FOR_VICE
+    else:
+        try:
+            cast_chips = bankroll_repo.list_all_ai_bankroll_chips(
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.warning("[VICE] list_all_ai_bankroll_chips failed: %s", exc)
+            return []
+        cast_median = compute_cast_median(cast_chips)
+        min_median = MIN_CAST_MEDIAN_FOR_VICE
+    if cast_median < min_median:
         # Cast is too poor for the "drain the wealthy" framing to make
         # sense. Skip the pass entirely; AIs grind back to wealth via
         # the normal regen/play loop and vice resumes when the median

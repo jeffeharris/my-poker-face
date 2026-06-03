@@ -100,6 +100,41 @@ VICE_MODE: str = 'real'
 VICE_MODES = ('real', 'fake', 'off')
 
 
+# --- Lever reference mode (field-relative vs own-start) -------------------
+#
+# Controls how the three closed-economy wealth levers (real vice,
+# side-hustle, grinder-hunger) measure wealth:
+#
+#   'own_start'    — default; bit-for-bit current behaviour. Each lever
+#                    keys off the AI's OWN starting_bankroll (vice off the
+#                    cast-median of bankrolls; side-hustle/grinder off
+#                    starting_bankroll). Inconsistent and anti-mobility.
+#   'field_liquid' — all three key off the FIELD's LIQUID net worth
+#                    (bankroll + seat stack) distribution at evaluation
+#                    time, via a single per-tick FieldWealthSnapshot:
+#                      * vice: concentration = liquid / field-median,
+#                        tax above FIELD_CONCENTRATION_FLOOR×
+#                      * side-hustle: eligible in the bottom decile of
+#                        field liquid; tops up toward a field percentile
+#                      * grinder-hunger: hungry below a field percentile
+#
+# Default 'own_start' so production is unchanged until flipped. The
+# levers share one economic model and flip together (no per-lever flag).
+LEVER_REFERENCE_MODE: str = os.environ.get('LEVER_REFERENCE_MODE', 'own_start').strip().lower()
+
+# Tunables used only in 'field_liquid' mode (validate in sim before flip):
+FIELD_CONCENTRATION_FLOOR: float = 2.5          # vice fires above N× field median
+MIN_FIELD_MEDIAN_FOR_VICE: int = 5_000          # suppress vice when field is broke
+FIELD_HUSTLE_ELIGIBLE_PERCENTILE: float = 0.10  # bottom 10% of field → hustle candidate
+FIELD_HUSTLE_TARGET_PERCENTILE: float = 0.25    # hustle tops up toward this field pct
+FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35   # below this field pct → hungry grinder
+
+
+def lever_field_mode() -> bool:
+    """True when the levers should use the field-liquid reference."""
+    return LEVER_REFERENCE_MODE == 'field_liquid'
+
+
 # --- Sink (table rake) ----------------------------------------------------
 
 RAKE_ENABLED: bool = True

@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, List, Optional, Set, Tuple
 
+from cash_mode import presence_shadow
+
 # Shared off-grid duration helpers — the bucket model is identical to
 # vice's (the LLM picks short/medium/long; the exact delta is sampled
 # within the bucket). Reused rather than duplicated; if hustles ever need
@@ -45,7 +47,6 @@ from cash_mode.ai_vice_spending import (
     DURATION_RANGES,
     duration_for_bucket,
 )
-from cash_mode import presence_shadow
 from cash_mode.presence import PresenceEvent, ai_entity_id
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,33 @@ def compute_hustle_amount(
     return amount
 
 
+def compute_field_hustle_amount(
+    current_liquid: int,
+    field_target: int,
+    rng: random.Random,
+) -> int:
+    """Field-relative hustle target: top up toward a FIELD percentile.
+
+    The 'field_liquid' analogue of `compute_hustle_amount` — the deficit
+    is measured against `field_target` (a field-wide liquid percentile)
+    instead of the AI's own starting bankroll, so a low-baseline persona
+    that's poor by the FIELD's standard still earns, and a high-baseline
+    persona that's already field-rich does not. Never overshoots the
+    target. Returns 0 when at/above target or below the minimum.
+    """
+    if field_target <= 0 or current_liquid >= field_target:
+        return 0
+    deficit = (field_target - current_liquid) / field_target
+    earn_fraction = HUSTLE_BASE_FRACTION + deficit * HUSTLE_DEFICIT_WEIGHT
+    jitter = rng.uniform(AMOUNT_JITTER_LOW, AMOUNT_JITTER_HIGH)
+    raw = int(field_target * earn_fraction * jitter)
+    gap = field_target - current_liquid  # never overshoot the field target
+    amount = min(raw, gap)
+    if amount < HUSTLE_MIN_AMOUNT:
+        return 0
+    return amount
+
+
 # --- Narration callback type ------------------------------------------------
 
 
@@ -242,6 +270,7 @@ def resolve_ai_side_hustle(
     now: datetime,
     narrate_fn: Optional[NarrateFn] = None,
     max_starts: int = HUSTLE_STARTS_PER_REFRESH,
+    field_snapshot=None,
 ) -> List[HustleStartResult]:
     """Send broke candidates off to a side hustle; fire up to `max_starts`.
 
@@ -289,10 +318,20 @@ def resolve_ai_side_hustle(
             )
             continue
         starting = knobs.starting_bankroll
-        amount = compute_hustle_amount(current, starting, rng)
+        if field_snapshot is not None:
+            # Field-relative: top up toward a field liquid percentile, and
+            # order by how far below that target the AI sits.
+            from cash_mode import economy_flags as _eflags
+
+            target = int(field_snapshot.percentile(_eflags.FIELD_HUSTLE_TARGET_PERCENTILE))
+            amount = compute_field_hustle_amount(int(current), target, rng)
+            order_deficit = (target - current) / target if target > 0 else 0.0
+        else:
+            amount = compute_hustle_amount(current, starting, rng)
+            order_deficit = compute_deficit_ratio(current, starting)
         if amount <= 0:
             continue
-        pending.append((pid, amount, compute_deficit_ratio(current, starting)))
+        pending.append((pid, amount, order_deficit))
 
     if not pending:
         return []

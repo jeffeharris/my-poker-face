@@ -38,7 +38,7 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from cash_mode.bankroll import AIBankrollState, project_bankroll
 from core.economy import ledger as chip_ledger
@@ -303,13 +303,17 @@ def is_hungry_grinder(
     bankroll_repo,
     sandbox_id: str,
     now: datetime,
+    field_snapshot=None,
 ) -> bool:
-    """True iff this AI is a casino-tier grinder currently below hunger threshold.
+    """True iff this AI is a casino-tier grinder currently below the hunger gate.
 
     Three filters AND'd:
       1. archetype != 'fish' (fish are donors, not grinders)
       2. stake_comfort_zone in `GRINDER_COMFORT_ZONES` ($2 or $10)
-      3. projected bankroll < `starting_bankroll × GRINDER_HUNGER_THRESHOLD`
+      3. wealth below the hunger gate:
+         - own_start mode: projected bankroll < starting × GRINDER_HUNGER_THRESHOLD
+         - field_liquid mode (field_snapshot given): liquid net worth in the
+           bottom FIELD_GRINDER_HUNGER_PERCENTILE of the field
 
     Used by:
       • Casino spawn demand signal (need ≥ MIN_HUNGRY_GRINDERS before
@@ -326,6 +330,14 @@ def is_hungry_grinder(
         return False
     if knobs.starting_bankroll <= 0:
         return False
+    if field_snapshot is not None:
+        # Field-relative: hungry iff in the bottom slice of field liquid.
+        # Not in the field snapshot → no bankroll row → not currently hungry.
+        from cash_mode import economy_flags as _eflags
+
+        if personality_id not in field_snapshot.liquid_chips:
+            return False
+        return field_snapshot.pct_rank(personality_id) < _eflags.FIELD_GRINDER_HUNGER_PERCENTILE
     state = bankroll_repo.load_ai_bankroll(personality_id, sandbox_id=sandbox_id)
     if state is None:
         # Never been seeded — treat as "not currently hungry" (will get
@@ -346,6 +358,7 @@ def list_hungry_grinders(
     sandbox_id: str,
     now: datetime,
     exclude: Optional[Set[str]] = None,
+    field_snapshot=None,
 ) -> List[str]:
     """Return personality_ids of hungry grinders, most-desperate first.
 
@@ -370,17 +383,22 @@ def list_hungry_grinders(
             bankroll_repo=bankroll_repo,
             sandbox_id=sandbox_id,
             now=now,
+            field_snapshot=field_snapshot,
         ):
             continue
-        knobs = bankroll_repo.load_personality_knobs(pid)
-        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-        projected = project_bankroll(
-            state,
-            knobs.starting_bankroll,
-            knobs.bankroll_rate,
-            now,
-        )
-        ratio = projected / knobs.starting_bankroll
+        if field_snapshot is not None:
+            # Most-desperate-first by field standing.
+            ratio = field_snapshot.pct_rank(pid)
+        else:
+            knobs = bankroll_repo.load_personality_knobs(pid)
+            state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+            projected = project_bankroll(
+                state,
+                knobs.starting_bankroll,
+                knobs.bankroll_rate,
+                now,
+            )
+            ratio = projected / knobs.starting_bankroll
         ratios.append((ratio, pid))
     ratios.sort(key=lambda r: (r[0], r[1]))
     return [pid for _, pid in ratios]
