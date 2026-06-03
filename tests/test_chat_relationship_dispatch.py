@@ -571,9 +571,7 @@ class TestEmotionalLayerTones:
     of the apply_pressure_event filters for free.
     """
 
-    def test_intimidate_drops_composure_and_writes_no_relationship_row(
-        self, opp_manager, repo
-    ):
+    def test_intimidate_drops_composure_and_writes_no_relationship_row(self, opp_manager, repo):
         game_data, psych = _ai_game_data(opp_manager, "bob", _TIMID_ANCHORS)
         before = psych.composure
         dispatch_chat_relationship_event(
@@ -587,12 +585,16 @@ class TestEmotionalLayerTones:
     def test_intimidate_rattles_the_timid_more_than_the_composed(self, opp_manager):
         gd_t, p_t = _ai_game_data(opp_manager, "bob", _TIMID_ANCHORS)
         c0t = p_t.composure
-        dispatch_chat_relationship_event(gd_t, "alice", ["bob"], tone="intimidate", intensity="spicy")
+        dispatch_chat_relationship_event(
+            gd_t, "alice", ["bob"], tone="intimidate", intensity="spicy"
+        )
         timid_drop = c0t - p_t.composure
 
         gd_c, p_c = _ai_game_data(opp_manager, "bob", _COMPOSED_ANCHORS)
         c0c = p_c.composure
-        dispatch_chat_relationship_event(gd_c, "alice", ["bob"], tone="intimidate", intensity="spicy")
+        dispatch_chat_relationship_event(
+            gd_c, "alice", ["bob"], tone="intimidate", intensity="spicy"
+        )
         composed_drop = c0c - p_c.composure
 
         assert timid_drop > composed_drop > 0
@@ -622,13 +624,17 @@ class TestSarcasmReception:
     def test_sarcastic_trash_talk_softens_vs_sincere(self, opp_manager, repo):
         # Sincere spicy trash talk on a stung target → heat up, likability down.
         gd_s, _ = _ai_game_data(opp_manager, "bob", STUNG_ANCHORS)
-        dispatch_chat_relationship_event(gd_s, "alice", ["bob"], tone="trash_talk", intensity="spicy")
+        dispatch_chat_relationship_event(
+            gd_s, "alice", ["bob"], tone="trash_talk", intensity="spicy"
+        )
         sincere = repo.load_raw_relationship_state("bob_pid", "alice_pid")
 
         # Sarcastic trash talk (banter) on the SAME disposition, fresh pair.
         opp_manager.register_player_id("carol", "carol_pid")
         gd_b, _ = _ai_game_data(opp_manager, "carol", STUNG_ANCHORS)
-        dispatch_chat_relationship_event(gd_b, "alice", ["carol"], tone="trash_talk", intensity="sarcastic")
+        dispatch_chat_relationship_event(
+            gd_b, "alice", ["carol"], tone="trash_talk", intensity="sarcastic"
+        )
         banter = repo.load_raw_relationship_state("carol_pid", "alice_pid")
 
         # The edge comes off: banter is warmer (less heat, more likability).
@@ -644,7 +650,9 @@ class TestSarcasmReception:
 
         opp_manager.register_player_id("carol", "carol_pid")
         gd_b, _ = _ai_game_data(opp_manager, "carol", STUNG_ANCHORS)
-        dispatch_chat_relationship_event(gd_b, "alice", ["carol"], tone="props", intensity="sarcastic")
+        dispatch_chat_relationship_event(
+            gd_b, "alice", ["carol"], tone="props", intensity="sarcastic"
+        )
         backhand = repo.load_raw_relationship_state("carol_pid", "alice_pid")
 
         assert sincere.respect > 0.5  # sincere props built respect
@@ -659,3 +667,102 @@ class TestSarcasmReception:
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.PROPS]
         assert actor_state.respect == pytest.approx(0.5 + expected.respect)
+
+
+# adaptation_bias gates sarcasm detection (floor 0.45). These two sets differ
+# ONLY in that trait, so the disposition (and thus the literal/sarcasm
+# receptions) is identical — isolating the detection effect.
+_OBLIVIOUS_ANCHORS = {
+    "ego": 0.5,
+    "poise": 0.6,
+    "expressiveness": 0.4,
+    "baseline_aggression": 0.5,
+    "adaptation_bias": 0.2,
+}
+_PERCEPTIVE_ANCHORS = {
+    "ego": 0.5,
+    "poise": 0.6,
+    "expressiveness": 0.4,
+    "baseline_aggression": 0.5,
+    "adaptation_bias": 0.75,
+}
+
+
+class TestSarcasmDetectionGate:
+    """A recipient who misses the sarcasm (low adaptation_bias) reacts to the
+    LITERAL surface — a backhanded compliment pleases them, friendly banter
+    offends them. The inversion that makes sarcasm a read-dependent tool.
+    """
+
+    def test_oblivious_takes_a_backhand_as_a_sincere_compliment(self, opp_manager, repo):
+        from poker.memory.relationship_events import RelationshipEvent, mirror_shift
+
+        gd_o, _ = _ai_game_data(opp_manager, "bob", _OBLIVIOUS_ANCHORS)
+        dispatch_chat_relationship_event(
+            gd_o, "alice", ["bob"], tone="props", intensity="sarcastic"
+        )
+        oblivious = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+
+        opp_manager.register_player_id("carol", "carol_pid")
+        gd_p, _ = _ai_game_data(opp_manager, "carol", _PERCEPTIVE_ANCHORS)
+        dispatch_chat_relationship_event(
+            gd_p, "alice", ["carol"], tone="props", intensity="sarcastic"
+        )
+        perceptive = repo.load_raw_relationship_state("carol_pid", "alice_pid")
+
+        # Missed it → literal PROPS reception → respect rises exactly as a
+        # sincere compliment would; the perceptive reader's respect is lower.
+        sincere = mirror_shift(RelationshipEvent.PROPS)
+        assert oblivious.respect == pytest.approx(0.5 + sincere.respect)
+        assert oblivious.respect > 0.5
+        assert perceptive.respect < oblivious.respect
+
+    def test_oblivious_takes_banter_as_a_real_jab(self, opp_manager, repo):
+        gd_o, _ = _ai_game_data(opp_manager, "bob", _OBLIVIOUS_ANCHORS)
+        dispatch_chat_relationship_event(
+            gd_o, "alice", ["bob"], tone="trash_talk", intensity="sarcastic"
+        )
+        oblivious = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+
+        opp_manager.register_player_id("carol", "carol_pid")
+        gd_p, _ = _ai_game_data(opp_manager, "carol", _PERCEPTIVE_ANCHORS)
+        dispatch_chat_relationship_event(
+            gd_p, "alice", ["carol"], tone="trash_talk", intensity="sarcastic"
+        )
+        perceptive = repo.load_raw_relationship_state("carol_pid", "alice_pid")
+
+        # Missed the banter → literal trash talk → strictly more heat than the
+        # perceptive reader, who hears the edge come off.
+        assert oblivious.heat > perceptive.heat
+
+    def test_detection_flips_the_emotional_reaction(self, opp_manager):
+        # Perceived backhand presses composure (a jab); a missed one warms
+        # (praise) and leaves composure unpressed.
+        gd_p, p_p = _ai_game_data(opp_manager, "carol", _PERCEPTIVE_ANCHORS)
+        c_p = p_p.composure
+        dispatch_chat_relationship_event(
+            gd_p, "alice", ["carol"], tone="props", intensity="sarcastic"
+        )
+        assert p_p.composure < c_p  # caught the barb → stung
+
+        gd_o, p_o = _ai_game_data(opp_manager, "bob", _OBLIVIOUS_ANCHORS)
+        c_o = p_o.composure
+        dispatch_chat_relationship_event(
+            gd_o, "alice", ["bob"], tone="props", intensity="sarcastic"
+        )
+        assert p_o.composure >= c_o  # took the compliment at face value
+
+    def test_flag_off_restores_universal_sarcasm(self, opp_manager, repo, monkeypatch):
+        # With detection disabled, even the oblivious get the sarcasm transform
+        # (the prior behavior) — the backhand cuts rather than flatters.
+        import flask_app.handlers.chat_relationship as cr
+
+        monkeypatch.setattr(cr, "SARCASM_DETECTION_ENABLED", False)
+        from poker.memory.relationship_events import RelationshipEvent, mirror_shift
+
+        gd, _ = _ai_game_data(opp_manager, "bob", _OBLIVIOUS_ANCHORS)
+        dispatch_chat_relationship_event(gd, "alice", ["bob"], tone="props", intensity="sarcastic")
+        mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+
+        sincere = mirror_shift(RelationshipEvent.PROPS)
+        assert mirror.respect < 0.5 + sincere.respect  # sarcasm applied, not literal

@@ -46,6 +46,7 @@ class TestEnumCoverage:
             "chat_props",
             "chat_flattery_landed",
             "chat_flattery_backfired",
+            "chat_commiserate",
             # Cash-mode staking
             "stake_offered",
             "stake_repaid",

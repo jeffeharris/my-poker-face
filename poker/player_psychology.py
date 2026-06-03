@@ -480,6 +480,23 @@ class PlayerPsychology:
     _FLATTERY_VAIN_EGO_FLOOR = 0.60
     _FLATTERY_PERCEPTIVE_ADAPT_FLOOR = 0.50
 
+    # Sarcasm detection rides the same read-the-opponent trait as flattery's
+    # 'sees_through' (adaptation_bias). Below the floor the dry register flies
+    # over the character's head and they take the literal surface.
+    _SARCASM_DETECTION_ADAPT_FLOOR = 0.45
+
+    def _detects_sarcasm(self) -> bool:
+        """Whether this character catches sarcasm vs. taking it literally.
+
+        Pure function of adaptation_bias (the opponent-reading trait) — the
+        same axis that lets the perceptive 'see through' flattery. Below the
+        floor the register is missed and the recipient reacts to the LITERAL
+        message: a backhanded compliment lands as sincere praise, friendly
+        banter lands as a real jab. That inversion is what makes sarcasm a
+        read-dependent tool rather than a universally-understood one.
+        """
+        return self.anchors.adaptation_bias >= self._SARCASM_DETECTION_ADAPT_FLOOR
+
     def _classify_flattery_disposition(self) -> str:
         """Map this character's anchors to how it takes flattery (insincere or
         over-the-top praise).
