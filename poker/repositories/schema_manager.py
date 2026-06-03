@@ -336,7 +336,7 @@ _test_schema_template_path = None
 #       backfill by the unique display-name join). (was v137)
 # v147: Make `personality_id` the SOLE avatar key — drop the legacy
 #       `personality_name` column + dual-key reads. (was v138)
-SCHEMA_VERSION = 147
+SCHEMA_VERSION = 148
 
 
 class SchemaManager:
@@ -1391,7 +1391,13 @@ class SchemaManager:
                     expires_at    TEXT,
                     tournament_id TEXT,
                     created_at    TEXT NOT NULL,
-                    updated_at    TEXT NOT NULL
+                    updated_at    TEXT NOT NULL,
+                    -- v148 (tournaments-as-a-draw): the draw-selected field locked
+                    -- at offer time (JSON array of personality_ids), and the
+                    -- subset that has already vacated cash en route. NULL on
+                    -- pre-v148 / non-draw offers (random-shuffle field at spawn).
+                    reserved_pids TEXT,
+                    vacated_pids  TEXT
                 )
             """)
             conn.execute(
@@ -2275,6 +2281,10 @@ class SchemaManager:
             147: (
                 self._migrate_v147_avatar_drop_personality_name,
                 "Complete the avatar re-key: make `personality_id` the SOLE key of avatar_images (NOT NULL, UNIQUE(personality_id, emotion)) and DROP the legacy `personality_name` column + the dual-key `OR personality_name` reads. Rebuilds the table; rows whose personality_id is NULL (orphans the v146 name-join couldn't match) are dropped — they were already unreachable by the id-keyed path. Idempotent: a no-op once personality_name is gone. Renumbered 138→147.",
+            ),
+            148: (
+                self._migrate_v148_invite_reserved_pids,
+                "Add reserved_pids + vacated_pids JSON columns to tournament_invites (tournaments-as-a-draw): the draw-selected field locked at offer time and the subset that has vacated cash en route. Additive nullable ALTERs; existing offers read NULL (random-shuffle field at spawn, unchanged).",
             ),
         }
 
@@ -7356,6 +7366,21 @@ class SchemaManager:
             "(dropped personality_name column + %d orphan row(s) with no pid)",
             dropped,
         )
+
+    def _migrate_v148_invite_reserved_pids(self, conn: sqlite3.Connection) -> None:
+        """Migration v148: add reserved_pids + vacated_pids to tournament_invites
+        (tournaments-as-a-draw). The draw-selected field locked at offer time
+        (JSON array of personality_ids) and the subset that has vacated cash en
+        route. Additive nullable columns — existing offers read NULL (no
+        draw-selected field → random shuffle at spawn, unchanged). Guarded so
+        re-running / a fresh DB (column already present from `_init_db`) is a
+        no-op."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tournament_invites)")}
+        if "reserved_pids" not in cols:
+            conn.execute("ALTER TABLE tournament_invites ADD COLUMN reserved_pids TEXT")
+        if "vacated_pids" not in cols:
+            conn.execute("ALTER TABLE tournament_invites ADD COLUMN vacated_pids TEXT")
+        logger.info("Migration v148 complete: tournament_invites reserved_pids/vacated_pids added")
 
     def _migrate_v145_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:
         """Migration v145 (renumbered 136→145): structurally enforce one open invite per owner.
