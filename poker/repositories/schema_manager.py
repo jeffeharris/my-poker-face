@@ -285,7 +285,7 @@ _test_schema_template_path = None
 #       one open invite per owner that they accept (→ play it), decline, or let
 #       expire (→ runs autonomously). Durable so a scheduled window survives
 #       navigation / restart. See `docs/plans/TOURNAMENT_CIRCUIT_SURFACING.md`.
-SCHEMA_VERSION = 138
+SCHEMA_VERSION = 147
 
 
 class SchemaManager:
@@ -941,7 +941,7 @@ class SchemaManager:
             )
 
             # 17. Avatar images (v5; v28 added full_image columns; v137 added
-            # personality_id; v138 made it the SOLE key + dropped personality_name)
+            # personality_id; v147 made it the SOLE key + dropped personality_name)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS avatar_images (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -961,13 +961,13 @@ class SchemaManager:
                     UNIQUE(personality_id, emotion)
                 )
             """)
-            # v138: avatars are keyed SOLELY by the stable `personality_id` (the
+            # v147: avatars are keyed SOLELY by the stable `personality_id` (the
             # slug everything else uses); the legacy `personality_name` display-name
             # column + dual-key reads are gone. On a fresh DB the table is created
-            # in this final shape here; on a pre-v138 DB the `CREATE TABLE IF NOT
-            # EXISTS` is a no-op and the v138 migration rebuilds the old table into
+            # in this final shape here; on a pre-v147 DB the `CREATE TABLE IF NOT
+            # EXISTS` is a no-op and the v147 migration rebuilds the old table into
             # this shape. The index guard tolerates BOTH orderings (init runs before
-            # migrations): a pre-v138 table still has `personality_name` and no
+            # migrations): a pre-v147 table still has `personality_name` and no
             # NOT-NULL `personality_id`, so only build the pid index once the table
             # is in the new shape — the migration builds it otherwise.
             avatar_cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
@@ -2185,33 +2185,41 @@ class SchemaManager:
                 self._migrate_v131_create_coach_tips,
                 "Create coach_tips table — log proactive in-decision coach tips (and which leak nudge fired, if any) so the coach's effect on play can be measured by joining to player_decision_analysis",
             ),
-            132: (
-                self._migrate_v132_create_tournaments,
-                "Create tournaments table — durable multi-table tournament meta-state (serialized TournamentSession + live game_id + status + resolver_kind) so a tournament survives navigation / TTL eviction / restart. Renumbered from v130 on the development→tournaments economy merge.",
+            # NOTE: the tournament + avatar migrations below were renumbered from
+            # 132–138 to 141–147 to clear the collision with development's
+            # 132–140 (limp/sizing/postflop/flop lifetime counts, drop_4d_emotion,
+            # cash_scalps, prestige v2/entity_kind, holdings_peak). Numbers
+            # 132–140 are intentionally absent here and are filled by the
+            # development merge; the runner skips absent versions, and a
+            # renumber self-heal (added on the merge) re-asserts dev's 132–138 on
+            # a DB that recorded them as the OLD tournament migrations.
+            141: (
+                self._migrate_v141_create_tournaments,
+                "Create tournaments table — durable multi-table tournament meta-state (serialized TournamentSession + live game_id + status + resolver_kind) so a tournament survives navigation / TTL eviction / restart. Renumbered 132→141 to clear the development collision.",
             ),
-            133: (
-                self._migrate_v133_drop_tournament_tracker,
-                "Drop legacy tournament_tracker table — TournamentTracker retired by the unification (every game is a TournamentSession); brute-force cut drops any games that still depended on it (pre-release, no real user data). Renumbered from v131.",
+            142: (
+                self._migrate_v142_drop_tournament_tracker,
+                "Drop legacy tournament_tracker table — TournamentTracker retired by the unification (every game is a TournamentSession); brute-force cut drops any games that still depended on it (pre-release, no real user data). Renumbered 133→142.",
             ),
-            134: (
-                self._migrate_v134_add_tournament_economy,
-                "Add the tournament real-chip economy columns (buy_in, rake, bank_overlay, prize_pool, payout_status) to `tournaments`. Additive ALTER TABLE; existing rows default to payout_status='skipped' so the payout idempotency guard never fires on pre-economy tournaments. Renumbered from v132.",
+            143: (
+                self._migrate_v143_add_tournament_economy,
+                "Add the tournament real-chip economy columns (buy_in, rake, bank_overlay, prize_pool, payout_status) to `tournaments`. Additive ALTER TABLE; existing rows default to payout_status='skipped' so the payout idempotency guard never fires on pre-economy tournaments. Renumbered 134→143.",
             ),
-            135: (
-                self._migrate_v135_create_tournament_invites,
-                "Create tournament_invites table — the circuit Main Event offer (P3): one open invite per owner, accepted (→ play) / declined / expired (→ autonomous). Durable so a scheduled window survives navigation / restart.",
+            144: (
+                self._migrate_v144_create_tournament_invites,
+                "Create tournament_invites table — the circuit Main Event offer (P3): one open invite per owner, accepted (→ play) / declined / expired (→ autonomous). Durable so a scheduled window survives navigation / restart. Renumbered 135→144.",
             ),
-            136: (
-                self._migrate_v136_one_open_invite_per_owner,
-                "Enforce one open invite per owner structurally — partial UNIQUE index on tournament_invites(owner_id) WHERE status='offered'. Backs the app-level offer() guard against a cross-worker race. Defensive pre-step collapses any pre-existing duplicate open invites (keep newest, expire the rest) so index creation can't fail on live data.",
+            145: (
+                self._migrate_v145_one_open_invite_per_owner,
+                "Enforce one open invite per owner structurally — partial UNIQUE index on tournament_invites(owner_id) WHERE status='offered'. Backs the app-level offer() guard against a cross-worker race. Defensive pre-step collapses any pre-existing duplicate open invites (keep newest, expire the rest) so index creation can't fail on live data. Renumbered 136→145.",
             ),
-            137: (
-                self._migrate_v137_avatar_personality_id,
-                "Re-key avatar_images on the stable `personality_id` (the slug used by bankrolls/ledger/relationships/dossiers/tournaments) instead of `personality_name` (the display name). Adds the column + backfills it by joining personalities on name (names are unique), so existing avatars keep matching while tournaments — which look up by id — stop missing + regenerating. personality_name kept as a legacy/debug column; reads tolerate either key during the transition.",
+            146: (
+                self._migrate_v146_avatar_personality_id,
+                "Re-key avatar_images on the stable `personality_id` (the slug used by bankrolls/ledger/relationships/dossiers/tournaments) instead of `personality_name` (the display name). Adds the column + backfills it by joining personalities on name (names are unique), so existing avatars keep matching while tournaments — which look up by id — stop missing + regenerating. Renumbered 137→146.",
             ),
-            138: (
-                self._migrate_v138_avatar_drop_personality_name,
-                "Complete the avatar re-key: make `personality_id` the SOLE key of avatar_images (NOT NULL, UNIQUE(personality_id, emotion)) and DROP the legacy `personality_name` column + the dual-key `OR personality_name` reads. Rebuilds the table; rows whose personality_id is NULL (orphans the v137 name-join couldn't match) are dropped — they were already unreachable by the id-keyed path. Idempotent: a no-op once personality_name is gone.",
+            147: (
+                self._migrate_v147_avatar_drop_personality_name,
+                "Complete the avatar re-key: make `personality_id` the SOLE key of avatar_images (NOT NULL, UNIQUE(personality_id, emotion)) and DROP the legacy `personality_name` column + the dual-key `OR personality_name` reads. Rebuilds the table; rows whose personality_id is NULL (orphans the v146 name-join couldn't match) are dropped — they were already unreachable by the id-keyed path. Idempotent: a no-op once personality_name is gone. Renumbered 138→147.",
             ),
         }
 
@@ -2453,9 +2461,9 @@ class SchemaManager:
 
         On a real pre-v5 DB this creates the original name-keyed table. On a FRESH
         DB (which runs every migration 1→N over the CURRENT `_init_db` schema), the
-        table already exists in the v138 pid-only shape, so the CREATE is a no-op
+        table already exists in the v147 pid-only shape, so the CREATE is a no-op
         and the legacy `personality_name` index is guarded on the column existing
-        (v138 dropped it — see `_migrate_v138_avatar_drop_personality_name`)."""
+        (v147 dropped it — see `_migrate_v147_avatar_drop_personality_name`)."""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS avatar_images (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7036,8 +7044,8 @@ class SchemaManager:
         """)
         logger.info("Migration v129 complete: cash_idle_metadata table created")
 
-    def _migrate_v132_create_tournaments(self, conn: sqlite3.Connection) -> None:
-        """Migration v132: create `tournaments` — durable multi-table tournament
+    def _migrate_v141_create_tournaments(self, conn: sqlite3.Connection) -> None:
+        """Migration v141 (renumbered 132→141): create `tournaments` — durable multi-table tournament
         (MTT) meta-state.
 
         One row per tournament holding the serialized `TournamentSession`
@@ -7073,8 +7081,8 @@ class SchemaManager:
         )
         logger.info("Migration v132 complete: tournaments table created")
 
-    def _migrate_v133_drop_tournament_tracker(self, conn: sqlite3.Connection) -> None:
-        """Migration v133: drop the legacy `tournament_tracker` table.
+    def _migrate_v142_drop_tournament_tracker(self, conn: sqlite3.Connection) -> None:
+        """Migration v142 (renumbered 133→142): drop the legacy `tournament_tracker` table.
 
         `TournamentTracker` was retired by the tournament-unification work (every
         game is now a `TournamentSession`; a single game is a 1-table session).
@@ -7098,8 +7106,8 @@ class SchemaManager:
         conn.execute("DROP TABLE IF EXISTS tournament_tracker")
         logger.info("Migration v133 complete: tournament_tracker dropped (legacy tracker retired)")
 
-    def _migrate_v134_add_tournament_economy(self, conn: sqlite3.Connection) -> None:
-        """Migration v134: add the real-chip economy columns to `tournaments`.
+    def _migrate_v143_add_tournament_economy(self, conn: sqlite3.Connection) -> None:
+        """Migration v143 (renumbered 134→143): add the real-chip economy columns to `tournaments`.
 
         The funny-money field stays serialized in `session_json`; these columns
         are the real-chip layer (escrow → overlay → payout) on top:
@@ -7131,8 +7139,8 @@ class SchemaManager:
                 conn.execute(f"ALTER TABLE tournaments ADD COLUMN {name} {decl}")
         logger.info("Migration v134 complete: tournament economy columns added")
 
-    def _migrate_v135_create_tournament_invites(self, conn: sqlite3.Connection) -> None:
-        """Migration v135: create `tournament_invites` — the circuit Main Event offer.
+    def _migrate_v144_create_tournament_invites(self, conn: sqlite3.Connection) -> None:
+        """Migration v144 (renumbered 135→144): create `tournament_invites` — the circuit Main Event offer.
 
         One open invite per owner that they accept (→ play it through the live
         bridge), decline, or let expire (→ it runs autonomously). Durable so a
@@ -7163,8 +7171,8 @@ class SchemaManager:
         )
         logger.info("Migration v135 complete: tournament_invites table created")
 
-    def _migrate_v137_avatar_personality_id(self, conn: sqlite3.Connection) -> None:
-        """Migration v137: re-key `avatar_images` on the stable `personality_id`.
+    def _migrate_v146_avatar_personality_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v146 (renumbered 137→146): re-key `avatar_images` on the stable `personality_id`.
 
         Avatars were the ONE identity surface keyed by the persona's *display
         name* (`personality_name`, e.g. "Napoleon") while everything else keys on
@@ -7180,9 +7188,9 @@ class SchemaManager:
 
         NOTE: the name-join backfill is guarded on `personality_name` existing.
         Fresh DBs run every migration 1→N over the CURRENT `_init_db` schema, and
-        as of v138 `_init_db` builds avatar_images WITHOUT `personality_name` —
+        as of v147 `_init_db` builds avatar_images WITHOUT `personality_name` —
         so on a fresh DB this backfill is a skipped no-op (personality_id is
-        already the canonical key); on a real pre-v137 DB the column is present
+        already the canonical key); on a real pre-v146 DB the column is present
         and the backfill runs."""
         existing = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
         if 'personality_id' not in existing:
@@ -7211,11 +7219,11 @@ class SchemaManager:
             "(%d row(s) left unmatched/orphan, reachable only by legacy name)", orphans
         )
 
-    def _migrate_v138_avatar_drop_personality_name(self, conn: sqlite3.Connection) -> None:
-        """Migration v138: make `personality_id` the SOLE key of avatar_images and
-        drop the legacy `personality_name` column.
+    def _migrate_v147_avatar_drop_personality_name(self, conn: sqlite3.Connection) -> None:
+        """Migration v147 (renumbered 138→147): make `personality_id` the SOLE key
+        of avatar_images and drop the legacy `personality_name` column.
 
-        v137 added `personality_id` + backfilled it but kept `personality_name`
+        v146 added `personality_id` + backfilled it but kept `personality_name`
         (and dual-key reads) for a safe transition. This completes the cut: rebuild
         the table keyed on `personality_id` (NOT NULL, UNIQUE(personality_id,
         emotion)), dropping the name column and its index. Rows with a NULL
@@ -7236,7 +7244,7 @@ class SchemaManager:
         ).fetchone()[0]
 
         conn.execute("""
-            CREATE TABLE avatar_images_v138 (
+            CREATE TABLE avatar_images_v147 (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 personality_id TEXT NOT NULL,
                 emotion TEXT NOT NULL,
@@ -7258,7 +7266,7 @@ class SchemaManager:
         # guards the (unlikely) case of two legacy name rows that backfilled to the
         # same pid+emotion — keep the first, drop the dup.
         conn.execute("""
-            INSERT OR IGNORE INTO avatar_images_v138
+            INSERT OR IGNORE INTO avatar_images_v147
                 (personality_id, emotion, image_data, content_type, width, height,
                  file_size, full_image_data, full_width, full_height, full_file_size,
                  created_at, updated_at)
@@ -7269,7 +7277,7 @@ class SchemaManager:
             WHERE personality_id IS NOT NULL AND personality_id != ''
         """)
         conn.execute("DROP TABLE avatar_images")
-        conn.execute("ALTER TABLE avatar_images_v138 RENAME TO avatar_images")
+        conn.execute("ALTER TABLE avatar_images_v147 RENAME TO avatar_images")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
         )
@@ -7277,12 +7285,12 @@ class SchemaManager:
             "CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)"
         )
         logger.info(
-            "Migration v138 complete: avatar_images keyed solely on personality_id "
+            "Migration v147 complete: avatar_images keyed solely on personality_id "
             "(dropped personality_name column + %d orphan row(s) with no pid)", dropped
         )
 
-    def _migrate_v136_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:
-        """Migration v136: structurally enforce one open invite per owner.
+    def _migrate_v145_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:
+        """Migration v145 (renumbered 136→145): structurally enforce one open invite per owner.
 
         A partial UNIQUE index over `owner_id` WHERE status = 'offered' makes a
         second OPEN invite for the same owner unrepresentable — backing the

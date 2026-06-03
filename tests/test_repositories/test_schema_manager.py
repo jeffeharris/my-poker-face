@@ -81,7 +81,7 @@ class TestSchemaManager(unittest.TestCase):
         self.assertEqual(mode, 'wal')
 
     def test_fresh_db_avatar_images_is_pid_only(self):
-        """v138: a fresh DB builds avatar_images keyed solely on personality_id —
+        """v147: a fresh DB builds avatar_images keyed solely on personality_id —
         no legacy personality_name column."""
         sm = SchemaManager(self.test_db.name)
         sm.ensure_schema()
@@ -95,11 +95,12 @@ class TestSchemaManager(unittest.TestCase):
         self.assertNotIn('personality_name', cols)
         self.assertIn('idx_avatar_pid', idx)
 
-    def test_v138_drops_name_column_and_orphans(self):
-        """v138 migration: rebuild a pre-v138 (v137-shape) avatar_images keyed on
-        personality_id — drop the personality_name column, preserve rows with a
-        backfilled pid, drop NULL-pid orphans."""
-        # Build a minimal v137-era schema and stamp the version at 137.
+    def test_v147_drops_name_column_and_orphans(self):
+        """v147 migration: rebuild a pre-v147 (post-v146, dual-column) avatar_images
+        keyed on personality_id — drop the personality_name column, preserve rows
+        with a backfilled pid, drop NULL-pid orphans."""
+        # Build a minimal dual-column (post-v146) schema and stamp the version at
+        # 146 so only the v147 drop runs forward.
         conn = sqlite3.connect(self.test_db.name)
         conn.executescript(
             """
@@ -122,7 +123,7 @@ class TestSchemaManager(unittest.TestCase):
                 VALUES ('Napoleon', 'napoleon', 'happy', X'AABB');
             INSERT INTO avatar_images (personality_name, personality_id, emotion, image_data)
                 VALUES ('GhostName', NULL, 'angry', X'CCDD');
-            INSERT INTO schema_version (version, description) VALUES (137, 'pre-v138 stamp');
+            INSERT INTO schema_version (version, description) VALUES (146, 'pre-v147 stamp');
             """
         )
         conn.commit()

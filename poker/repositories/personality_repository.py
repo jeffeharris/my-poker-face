@@ -843,7 +843,7 @@ class PersonalityRepository(BaseRepository):
     def _resolve_avatar_pid(self, key: Optional[str]) -> Optional[str]:
         """Resolve an avatar key (a `personality_id` slug OR a display name) to the
         canonical `personality_id` — the SOLE key `avatar_images` is stored and
-        looked up by (v138). Both `personalities.personality_id` and `.name` are
+        looked up by (v147). Both `personalities.personality_id` and `.name` are
         UNIQUE, so the lookup is unambiguous. Returns None for a key that matches
         no persona (a guest / synthetic `P##` seat / orphan): such an entity has no
         persona art, so its avatar is neither stored nor found — by design."""
@@ -871,7 +871,7 @@ class PersonalityRepository(BaseRepository):
     ) -> None:
         """Save an avatar image. `personality_name` is an avatar KEY — a display
         name (cash/regular) or a `personality_id` slug (tournaments) — resolved to
-        the canonical `personality_id` (v138). The upsert dedups on
+        the canonical `personality_id` (v147). The upsert dedups on
         `(personality_id, emotion)`. A key that matches no persona is skipped (an
         avatar can't be keyed without a pid)."""
         pid = self._resolve_avatar_pid(personality_name)
@@ -1051,7 +1051,7 @@ class PersonalityRepository(BaseRepository):
 
     def list_personalities_with_avatars(self) -> List[Dict[str, Any]]:
         """Get list of all personalities that have at least one avatar image.
-        Keyed by `personality_id` (v138); the display name is joined from
+        Keyed by `personality_id` (v147); the display name is joined from
         `personalities` for the response (falls back to the id if unmatched)."""
         with self._get_connection() as conn:
             cursor = conn.execute("""
@@ -1148,7 +1148,7 @@ class PersonalityRepository(BaseRepository):
     def assign_avatar(self, personality_name: str, emotion: str, image_data: bytes) -> None:
         """Assign an avatar image to a personality, updating if one already exists.
         `personality_name` is an avatar key (display name or `personality_id`)
-        resolved to the canonical `personality_id` (v138). A key that matches no
+        resolved to the canonical `personality_id` (v147). A key that matches no
         persona is skipped."""
         pid = self._resolve_avatar_pid(personality_name)
         if pid is None:
