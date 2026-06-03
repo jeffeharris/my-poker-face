@@ -2,7 +2,7 @@
 purpose: Equity-based pressure event detection system for coolers, suckouts, and bad beats
 type: spec
 created: 2025-06-15
-last_updated: 2026-02-07
+last_updated: 2026-06-03
 ---
 
 # Equity-Based Pressure Event Detection
@@ -41,16 +41,17 @@ handle_evaluating_hand_phase()
     │
     ├─► award_pot_winnings() → game_state updated
     │
-    ├─► EquityTracker.calculate_showdown_equity_history()
-    │       For each street (PRE_FLOP, FLOP, TURN, RIVER):
-    │         - Get hole cards from recorded_hand
+    ├─► EquityTracker.calculate_hand_equity_history(hand_in_progress)
+    │       (game_handler.py:3273; gated on hand_in_progress.hole_cards)
+    │       For each street (PRE_FLOP, FLOP, TURN, RIVER) that was played:
+    │         - Get hole cards from HandInProgress
     │         - Get board cards for that street
     │         - EquityCalculator.calculate_equity()
-    │         - Build EquitySnapshot
+    │         - Build one EquitySnapshot per player (incl. folded, was_active=False)
     │       Return HandEquityHistory
     │
-    ├─► HandEquityRepository.save_hand_equity_history()
-    │       Save to hand_equity table for analytics
+    ├─► HandEquityRepository.save_equity_history()
+    │       (game_handler.py:3317; save to hand_equity table for analytics)
     │
     └─► PsychologyPipeline.process_hand()
             │
@@ -68,9 +69,14 @@ handle_evaluating_hand_phase()
 
 ### `hand_equity` Table
 
+Added in **schema migration v69** (`schema_manager.py:_migrate_v69_add_hand_equity`,
+`SCHEMA_VERSION` currently 140). `player_hole_cards` and `board_cards` are stored
+as JSON arrays (e.g. `["As","Kd"]`), not the comma string shown in the older
+example rows below.
+
 ```sql
 CREATE TABLE hand_equity (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
 
     -- FKs with SET NULL - analytics data survives cleanup
     hand_history_id INTEGER REFERENCES hand_history(id) ON DELETE SET NULL,
@@ -80,10 +86,11 @@ CREATE TABLE hand_equity (
     hand_number INTEGER NOT NULL,
     street TEXT NOT NULL,               -- 'PRE_FLOP', 'FLOP', 'TURN', 'RIVER'
     player_name TEXT NOT NULL,
-    player_hole_cards TEXT,             -- "As,Kd" - self-contained
-    board_cards TEXT,                   -- Cards at this street
+    player_hole_cards TEXT,             -- JSON array, self-contained
+    board_cards TEXT,                   -- JSON array, cards at this street
     equity REAL NOT NULL,
-    sample_count INTEGER,               -- Monte Carlo iterations (NULL = exact)
+    was_active BOOLEAN DEFAULT 1,       -- False once this player has folded
+    sample_count INTEGER,               -- Monte Carlo iterations (NULL = exact river)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE(hand_history_id, street, player_name)
@@ -142,127 +149,115 @@ Additional thresholds: `POT_SIGNIFICANCE_MIN = 0.15` (ignore trivial pots), prio
 
 ## Core Components
 
-### `EquitySnapshot` (dataclass)
+> **Where detection lives now.** Equity-event detection is **not** on
+> `EquityTracker` (it never carried the COOLER/SUCKOUT constants or the
+> `_detect_cooler/_detect_suckout/_detect_got_sucked_out` helpers an earlier
+> version of this doc described — those are gone). `EquityTracker` only *builds*
+> the equity history; detection is `PressureEventDetector.detect_equity_shock_events`
+> in `poker/pressure_detector.py`, using the weighted-delta model above.
+
+### `EquitySnapshot` (dataclass, `poker/equity_snapshot.py`)
+
+One row per player per street (folded players included, with `was_active=False`).
 
 ```python
 @dataclass(frozen=True)
 class EquitySnapshot:
+    player_name: str
     street: str                      # 'PRE_FLOP', 'FLOP', 'TURN', 'RIVER'
-    equities: Dict[str, float]       # player_name -> win probability (0-1)
-    board_cards: Tuple[str, ...]     # Community cards at this street
-    sample_count: int                # Monte Carlo iterations used
+    equity: float                    # win probability (0-1)
+    hole_cards: Tuple[str, ...]
+    board_cards: Tuple[str, ...]     # community cards at this street
+    was_active: bool                 # False once this player has folded
+    sample_count: Optional[int]      # Monte Carlo iterations (None = exact river)
 ```
 
-### `HandEquityHistory` (dataclass)
+### `HandEquityHistory` (dataclass, `poker/equity_snapshot.py`)
 
 ```python
 @dataclass(frozen=True)
 class HandEquityHistory:
+    hand_history_id: Optional[int]
+    game_id: str
+    hand_number: int
     snapshots: Tuple[EquitySnapshot, ...]
-
-    def get_preflop_equity(self, player: str) -> float
-    def get_equity_at_street(self, player: str, street: str) -> float
-    def was_behind_then_won(self, player: str, threshold: float = 0.30) -> bool
-    def was_ahead_then_lost(self, player: str, threshold: float = 0.70) -> bool
 ```
 
-### `EquityTracker`
+Verify the exact accessor surface against `poker/equity_snapshot.py` before
+relying on helper methods (e.g. `get_player_names`, `get_player_history` are the
+methods `pressure_detector` calls) — **unverified** here beyond those two.
+
+### `EquityTracker` (`poker/equity_tracker.py`)
+
+Builds the per-street equity history. **No detection logic, no thresholds.**
 
 ```python
 class EquityTracker:
-    COOLER_MIN_EQUITY = 0.30
-    COOLER_MIN_HAND_RANK = 4
-    SUCKOUT_THRESHOLD = 0.30
-    BAD_BEAT_THRESHOLD = 0.70
+    ITERATIONS_BY_STREET = {'PRE_FLOP': 1000, 'FLOP': 2000, 'TURN': 3000, 'RIVER': 5000}
 
-    def calculate_showdown_equity_history(
-        self,
-        hole_cards: Dict[str, List[str]],
-        community_cards: List[str],
-        phase_community: Dict[str, List[str]]
-    ) -> HandEquityHistory
+    def calculate_hand_equity_history(
+        self, hand: HandInProgress, folded_players: Optional[Set[str]] = None
+    ) -> HandEquityHistory       # live path (game_handler.py:3273)
 
-    def detect_equity_events(
-        self,
-        equity_history: HandEquityHistory,
-        winner_names: List[str],
-        loser_hand_ranks: Dict[str, int],
-        is_big_pot: bool
-    ) -> List[Tuple[str, List[str]]]
+    def calculate_from_recorded_hand(
+        self, recorded_hand: RecordedHand, hand_history_id: Optional[int] = None
+    ) -> HandEquityHistory       # offline/replay path
 ```
 
-### `HandEquityRepository`
+### `PressureEventDetector.detect_equity_shock_events` (`poker/pressure_detector.py:239`)
+
+The actual detector. Thresholds are class constants (`pressure_detector.py:226-237`):
+
+```python
+EQUITY_SHOCK_THRESHOLD = 0.30   # min |weighted delta| to fire
+BAD_BEAT_EQUITY_MIN    = 0.80   # loser had 80%+ equity at worst swing
+COOLER_EQUITY_MIN      = 0.60   # loser had 60-80% equity at worst swing
+POT_SIGNIFICANCE_MIN   = 0.15   # ignore swings in trivial pots
+STREET_WEIGHTS = {'FLOP': 1.0, 'TURN': 1.2, 'RIVER': 1.4}
+
+def detect_equity_shock_events(
+    self,
+    equity_history: HandEquityHistory,
+    winner_names: List[str],
+    pot_size: int,
+    hand_start_stacks: Dict[str, int],
+) -> List[Tuple[str, List[str]]]
+```
+
+### `HandEquityRepository` (`poker/repositories/hand_equity_repository.py`)
 
 ```python
 class HandEquityRepository:
-    def save_hand_equity_history(...)
-    def get_equity_history_for_hand(hand_history_id: int) -> HandEquityHistory
-    def find_suckouts(game_id: str, threshold: float = 0.30) -> List[Dict]
-    def find_coolers(game_id: str, min_equity: float = 0.30) -> List[Dict]
+    def save_equity_history(equity_history: HandEquityHistory) -> None
+    def get_equity_history(hand_history_id: int) -> Optional[HandEquityHistory]
+    def get_equity_history_by_game_hand(game_id, hand_number) -> Optional[HandEquityHistory]
+    def get_player_equity_stats(player_name, game_id=None, limit=100) -> Dict
+    def find_suckouts(game_id: str, threshold: float = 0.40) -> List[Dict]   # :229
+    def find_coolers(game_id: str, min_equity: float = 0.30) -> List[Dict]   # :273
 ```
 
 ---
 
 ## Event Detection Logic
 
-### Cooler Detection
+The detector walks each player's active snapshots, tracks the largest positive
+and negative `weighted_delta = delta × pot_significance × street_weight`, and
+fires **at most one** event per player by priority
+`bad_beat > got_sucked_out > cooler > suckout`
+(`pressure_detector.py:306-334`). `pot_significance = pot_size / hand_start_stack`
+is **per player** (`:274`); players whose `pot_significance < POT_SIGNIFICANCE_MIN`
+or who have fewer than two active snapshots are skipped.
 
-```python
-def _detect_cooler(self, equity_history, loser_hand_ranks, winner_names):
-    preflop = equity_history.get_snapshot_for_street('PRE_FLOP')
-    if not preflop:
-        return []
+| Event | Fires when (`pressure_detector.py`) |
+|-------|-------------------------------------|
+| `bad_beat` | lost AND equity before worst swing `≥ 0.80` AND `max_negative_wd ≤ -0.30` (`:313`) |
+| `cooler` | lost AND `0.60 ≤` equity before worst swing `< 0.80` AND `max_negative_wd ≤ -0.30` (`:320`) |
+| `got_sucked_out` | lost AND `max_negative_wd ≤ -0.30` (no equity floor) (`:327`) |
+| `suckout` | won AND `max_positive_wd ≥ 0.30` (`:330`) |
 
-    # Both players had reasonable pre-flop equity AND loser had strong hand
-    strong_players = [
-        p for p, eq in preflop.equities.items()
-        if eq >= 0.30 and (
-            p in winner_names or
-            loser_hand_ranks.get(p, 10) <= 4  # Straight or better
-        )
-    ]
-
-    if len(strong_players) >= 2:
-        losers = [p for p in strong_players if p not in winner_names]
-        return [("cooler", losers)] if losers else []
-    return []
-```
-
-### Suckout Detection
-
-```python
-def _detect_suckout(self, equity_history, winner_names, is_big_pot):
-    if not is_big_pot:
-        return []
-
-    suckout_players = []
-    for winner in winner_names:
-        for street in ['PRE_FLOP', 'FLOP', 'TURN']:
-            equity = equity_history.get_equity_at_street(winner, street)
-            if equity and equity < 0.30:
-                suckout_players.append(winner)
-                break
-
-    return [("suckout", suckout_players)] if suckout_players else []
-```
-
-### Got Sucked Out Detection
-
-```python
-def _detect_got_sucked_out(self, equity_history, winner_names, losers, is_big_pot):
-    if not is_big_pot:
-        return []
-
-    victims = []
-    for loser in losers:
-        for street in ['PRE_FLOP', 'FLOP', 'TURN']:
-            equity = equity_history.get_equity_at_street(loser, street)
-            if equity and equity > 0.70:
-                victims.append(loser)
-                break
-
-    return [("got_sucked_out", victims)] if victims else []
-```
+> The earlier per-street `_detect_cooler/_detect_suckout/_detect_got_sucked_out`
+> pseudocode (preflop-snapshot scans gated on `loser_hand_ranks` and `is_big_pot`)
+> documented an API that no longer exists. The weighted-delta walk above replaced it.
 
 ---
 
@@ -270,17 +265,20 @@ def _detect_got_sucked_out(self, equity_history, winner_names, losers, is_big_po
 
 ### Find all suckouts in a game
 
+This mirrors `HandEquityRepository.find_suckouts` (turn equity below `threshold`,
+default `0.40`, river effectively won at `> 0.99`):
+
 ```sql
-SELECT DISTINCT he1.hand_history_id, he1.hand_number, he1.player_name,
-       he1.player_hole_cards, he1.equity as was_behind
-FROM hand_equity he1
-JOIN hand_equity he2 ON he1.hand_history_id = he2.hand_history_id
-                    AND he1.player_name = he2.player_name
-WHERE he1.game_id = ?
-  AND he1.street IN ('PRE_FLOP', 'FLOP', 'TURN')
-  AND he1.equity < 0.30           -- Was behind
-  AND he2.street = 'RIVER'
-  AND he2.equity = 1.0            -- Won
+SELECT turn.hand_number, turn.player_name,
+       turn.equity AS turn_equity, river.equity AS river_equity,
+       turn.player_hole_cards
+FROM hand_equity turn
+JOIN hand_equity river ON turn.hand_history_id = river.hand_history_id
+                      AND turn.player_name = river.player_name
+WHERE turn.game_id = ?
+  AND turn.street = 'TURN'  AND turn.equity < 0.40   -- was behind on the turn
+  AND river.street = 'RIVER' AND river.equity > 0.99  -- won
+ORDER BY turn.hand_number
 ```
 
 ### Find coolers
@@ -314,10 +312,10 @@ WHERE he1.game_id = ?
 | File | Purpose |
 |------|---------|
 | `poker/equity_snapshot.py` | Data structures (EquitySnapshot, HandEquityHistory) |
-| `poker/equity_tracker.py` | Calculation + event detection |
-| `poker/repositories/hand_equity_repository.py` | Database persistence |
-| `poker/repositories/schema_manager.py` | Schema migration v68 |
-| `poker/pressure_detector.py` | Integration point (detect_equity_shock_events) |
+| `poker/equity_tracker.py` | Equity-history calculation (no detection) |
+| `poker/repositories/hand_equity_repository.py` | Database persistence + analytics queries |
+| `poker/repositories/schema_manager.py` | Schema migration v69 (`_migrate_v69_add_hand_equity`) |
+| `poker/pressure_detector.py` | Event detection (`detect_equity_shock_events`, `:239`) |
 | `poker/psychology_pipeline.py` | Orchestration (unified pipeline) |
 
 ---

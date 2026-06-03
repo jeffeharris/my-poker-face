@@ -2,7 +2,7 @@
 purpose: Architecture of the coaching system — engine, routes, skills, and coaching modes
 type: architecture
 created: 2026-02-04
-last_updated: 2026-02-04
+last_updated: 2026-06-03
 ---
 
 # Coach System Architecture
@@ -308,13 +308,30 @@ raise_threshold = min(0.75, base_raise_threshold + opponent_adjustment)
 
     # Progression (when enabled)
     'progression': {
-        'coaching_mode': 'teaching',
+        'coaching_mode': 'learn',   # CoachingMode enum: 'learn' | 'compete' | 'silent'
         'primary_skill': 'bet_when_strong',
         'relevant_skills': ['bet_when_strong', 'checking_is_allowed'],
         'skill_states': {...}
     }
 }
 ```
+
+> The `coaching_mode` value is the `CoachingMode` enum (`poker/coach_models.py:34-39`):
+> **`learn`** (teach concepts), **`compete`** (brief reminders), **`silent`** (no
+> coaching, skill is automatic). There is no `teaching` mode. (`learn`/`compete`/`silent`
+> are the *skill-state-driven* modes; the per-game config in §6 — `proactive`/`reactive`/
+> `off` — is a separate, user-facing setting.)
+
+### LLM tier (important)
+
+The conversational coach (`CoachAssistant` in `coach_assistant.py`) runs on the
+**Assistant LLM tier**, not the in-game Default tier. It builds its `Assistant` with
+`get_assistant_provider()` / `get_assistant_model()` and tags calls
+`CallType.COACHING` (`coach_assistant.py:226-228`). This is a deliberate fix: the Default
+tier (an 8B-class model) hallucinated hand facts — e.g. narrating a "set of fives" on a
+hand that ended preflop — so coaching was moved to the stronger Assistant tier. The
+system prompt also hard-forbids inventing board-made hands the cards don't support. See
+the root `CLAUDE.md` CallType→tier table.
 
 ---
 
@@ -405,14 +422,57 @@ To unlock the next gate, player must have **2+ skills** in `reliable` state with
 
 ## 8. API Endpoints
 
+All player-facing routes are gated by `@require_permission('can_access_coach')`; the
+`/metrics/*` routes are admin-only (`can_access_admin_tools`). Source: `coach_routes.py`.
+
+**Per-game (in-hand) coaching:**
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/coach/<game_id>/stats` | GET | Fetch all coaching data |
-| `/api/coach/<game_id>/ask` | POST | Ask a question or get proactive tip |
-| `/api/coach/<game_id>/config` | GET/POST | Get/set coach mode |
-| `/api/coach/<game_id>/hand-review` | POST | Get post-hand analysis |
+| `/api/coach/<game_id>/stats` | GET | Fetch all coaching data (+progression) |
+| `/api/coach/<game_id>/ask` | POST | Ask a question or get proactive tip (serves a prefetched tip when ready) |
+| `/api/coach/<game_id>/config` | GET/POST | Get/set coach mode (`proactive`/`reactive`/`off`) |
+| `/api/coach/<game_id>/hand-review` | POST | Get post-hand analysis (with skill evaluations) |
 | `/api/coach/<game_id>/progression` | GET | Get full progression state |
 | `/api/coach/<game_id>/onboarding` | POST | Skip ahead to experience level |
+
+**User-scoped review surfaces (across the caller's real games, not one game):**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/coach/preflop-leaks` | GET | Your preflop range vs a reference; specific below-range hands you keep playing |
+| `/api/coach/preflop-leaks/feedback` | POST | LLM (Assistant tier) interprets your recomputed leak profile |
+| `/api/coach/drill` | GET | Build a preflop drill from your top confirmed leak |
+| `/api/coach/drill/answer` | POST | Grade one drill answer against the solver chart |
+| `/api/coach/opponent-tells` | GET | How readable an opponent's bet *sizing* is, with a stability trend |
+| `/api/coach/sizing-readability` | GET | Self-coaching twin: how readable *your own* sizing is |
+| `/api/coach/tip-effectiveness` | GET | Did you follow the solver line after a leak nudge, vs baseline |
+
+**Admin metrics:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/coach/metrics/overview` | GET | Aggregate progression usage |
+| `/api/coach/metrics/skills` | GET | Per-skill distribution |
+| `/api/coach/metrics/advancement` | GET | Skill advancement timing/difficulty |
+| `/api/coach/metrics/tip-effectiveness` | GET | Global (or `?owner=`) leak-nudge follow-through |
+
+### 8.1 Sub-feature surface (services behind these routes)
+
+Beyond the in-hand engine, the coach has several analysis surfaces, each backed by its own
+service module:
+
+| Surface | Service module(s) | Routes |
+|---------|-------------------|--------|
+| **Preflop leak detection** | `coach_leaks.py` (VPIP-by-position), `coach_chart_leaks.py` (chart-graded leaks, trends, depth/recent slices), `coach_chart_data.py` (loaders) | `/preflop-leaks`, `/preflop-leaks/feedback` |
+| **Drills** | `coach_drill.py` (`pick_drill_leak`, `sample_drill_spots`, `grade_drill_answer`) | `/drill`, `/drill/answer` |
+| **Sizing tells** | `coach_sizing_tells.py` (`compute_opponent_sizing_tell`, size→strength polarization + stability trend) | `/opponent-tells`, `/sizing-readability` |
+| **Tip prefetch** | `coach_prefetch.py` (`prefetch_proactive_tip` fired at human turn-start, `take_cached_tip`) — hides LLM round-trip latency, guarantees one coach call per decision | (consumed by `/ask`) |
+| **Tip instrumentation** | `coach_repository.py` (`record_tip`, `get_tip_effectiveness`) joined to `player_decision_analysis` | `/tip-effectiveness`, `/metrics/tip-effectiveness` |
+
+> In the Circuit (cash mode), the over-time opponent sizing tell on `/opponent-tells` is
+> gated behind the same `sizing_polarization` read the dossier sells (`_sizing_tell_locked`
+> in `coach_routes.py`) — it fails open outside the Circuit.
 
 ---
 
@@ -421,8 +481,16 @@ To unlock the next gate, player must have **2+ skills** in `reliable` state with
 | File | Purpose |
 |------|---------|
 | `flask_app/services/coach_engine.py` | Main coaching data computation |
+| `flask_app/services/coach_assistant.py` | LLM coach (Assistant tier, `CallType.COACHING`) |
 | `flask_app/services/coach_progression.py` | Skill progression service |
 | `flask_app/services/skill_definitions.py` | Skill and gate definitions |
+| `poker/coach_models.py` | Shared enums/dataclasses (`SkillState`, `CoachingMode`, `EvidenceRules`, ...) |
+| `flask_app/services/context_builder.py` | `build_poker_context()` helper |
+| `flask_app/services/coach_leaks.py` / `coach_chart_leaks.py` / `coach_chart_data.py` | Preflop leak detection |
+| `flask_app/services/coach_drill.py` | Preflop drills |
+| `flask_app/services/coach_sizing_tells.py` | Bet-sizing readability tells |
+| `flask_app/services/coach_prefetch.py` | Proactive tip prefetch |
+| `poker/repositories/coach_repository.py` | Coach state + tip instrumentation persistence |
 | `flask_app/routes/coach_routes.py` | API endpoints |
 | `poker/decision_analyzer.py` | Equity calculation, action recommendation |
 | `poker/hand_ranges.py` | Opponent range estimation |

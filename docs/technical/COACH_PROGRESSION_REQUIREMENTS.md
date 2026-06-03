@@ -1,17 +1,27 @@
 ---
-purpose: Requirements and milestone spec for the coach progression system
+purpose: Requirements and design rationale for the coach progression system (kept as the "why" reference; build status updated to shipped reality)
 type: spec
 created: 2026-02-01
-last_updated: 2026-02-02
+last_updated: 2026-06-03
 ---
 
 # Coach Progression System – Requirements
 
 ## Document Purpose
 
-Requirements for evolving the existing AI poker coach into an adaptive progression system. This builds on the current `CoachEngine` + `CoachAssistant` architecture — not a replacement, but a new intelligence layer between the stats engine and the LLM voice.
+Requirements and design rationale for the AI poker coach's adaptive progression system.
+This builds on the `CoachEngine` + `CoachAssistant` architecture — not a replacement, but
+an intelligence layer between the stats engine and the LLM voice. This document is kept as
+the **design-rationale / spec** reference (the "why" behind the skill/gate model); the
+milestone phasing below describes the original plan and is now partly shipped — see the
+Build Status note.
 
-**Status**: Draft for review
+**Status**: Largely shipped. Milestone 1 (skill-aware coaching), and parts of M2–M3 (the
+full four-gate skill tree, the state machine, progression endpoints, hand-review skill
+context) are in production. RBAC (M5's headline item) is also already wired — see §1.4.
+The remaining M4/M5 items (full frontend progression UI, metrics tuning from production
+data) are partial. Treat the per-milestone breakdown in §4 as the original roadmap, not a
+status board.
 **Scope**: Behavior, data contracts, progression logic, integration with existing coach
 **Out of scope**: UI polish, solver integration, detailed algorithms
 
@@ -48,9 +58,15 @@ The coach is a premium feature gated behind RBAC:
 - **Registered users**: Full access (`can_access_coach` permission)
 - **Admins**: Full access
 
-Implementation: `@require_permission('can_access_coach')` decorator on coach routes (currently ungated), following the existing pattern in `poker/authorization.py`. New permission added via DB migration and assigned to `user` and `admin` groups.
+Implementation: `@require_permission('can_access_coach')` decorator on coach routes,
+following the existing pattern in `poker/authorization.py`. The permission was added via
+DB migration (v63) and assigned to the `user` and `admin` groups.
 
-**Pre-RBAC**: Until Milestone 5 ships, the coach is available to all users (including guests). This is intentional — progression tracking still requires a logged-in user, but the coach interaction itself is ungated during development.
+> **Shipped**: This is now live. `coach_routes.py:27-28` defines
+> `_coach_required = require_permission('can_access_coach')` and every player-facing coach
+> route is decorated with it; the admin-only `/api/coach/metrics/*` routes use a separate
+> `_admin_required = require_permission('can_access_admin_tools')`. The earlier "ungated
+> until Milestone 5" note is obsolete — guests get a 403 today.
 
 ---
 
@@ -633,7 +649,7 @@ When skill definitions change between deployments (e.g., threshold adjustments, 
 | `flask_app/services/coach_engine.py` | Add situation classification call after computing stats |
 | `flask_app/services/coach_assistant.py` | Mode-specific system prompt templates, dynamic context injection |
 | `flask_app/routes/coach_routes.py` | RBAC gating, progression endpoints, enhanced payloads |
-| `poker/persistence.py` | New tables via migration |
+| `poker/repositories/coach_repository.py` + `schema_manager.py` | New tables via migration v63 (was planned as `poker/persistence.py`, which no longer exists) |
 | `react/react/src/hooks/useCoach.ts` | Consume progression data, mode-aware behavior |
 | `react/react/src/components/mobile/CoachPanel.tsx` | Progression display, mode-aware content |
 

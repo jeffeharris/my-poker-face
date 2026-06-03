@@ -2,7 +2,7 @@
 purpose: Single reference for the psychology system architecture, axes, zones, and effects
 type: architecture
 created: 2025-10-15
-last_updated: 2026-06-01
+last_updated: 2026-06-03
 ---
 
 # Poker AI Psychology System Overview
@@ -37,7 +37,7 @@ This separation is a hard design constraint: anchors define the gravity well, ax
 
 ## 3. Personality Anchors (Identity Layer)
 
-Nine anchors define a player's identity. They never change during a session.
+Ten anchors define a player's identity. They never change during a session.
 
 | Anchor | Range | Purpose |
 |--------|-------|---------|
@@ -50,6 +50,7 @@ Nine anchors define a player's identity. They never change during a session.
 | `adaptation_bias` | 0-1 | Opponent adjustment rate |
 | `baseline_energy` | 0-1 | Resting energy level |
 | `recovery_rate` | 0-1 | Speed of axis decay toward baselines |
+| `self_belief` | 0-1 | Bravado/delusion decoupled from ego; raises baseline confidence without making the persona brittle (`psychology_model.py:161`, default 0.5) |
 
 ---
 
@@ -76,10 +77,10 @@ Engagement and intensity level. A volume knob for expression, not strategy.
 
 ```python
 baseline_composure = 0.25 + poise * 0.50 + (1 - expressiveness) * 0.15 + (risk_identity - 0.5) * 0.3
-baseline_confidence = 0.3 + baseline_aggression * 0.25 + risk_identity * 0.20 + ego * 0.25
+baseline_confidence = 0.3 + baseline_aggression * 0.25 + risk_identity * 0.20 + ego * 0.25 + (self_belief - 0.5) * 0.4
 ```
 
-Both are clamped to stay outside penalty zone thresholds.
+Both are clamped to stay outside penalty zone thresholds (confidence → `[0.20, 0.80]`, composure → `[0.40, 0.95]` with default thresholds; `psychology_model.py:481-518`). The `self_belief` term defaults to 0 (anchor 0.5), so existing personas are unchanged.
 
 ---
 

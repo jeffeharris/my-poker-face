@@ -2,7 +2,7 @@
 purpose: How opponent models persist and reload across sessions for AI memory
 type: spec
 created: 2026-02-03
-last_updated: 2026-02-03
+last_updated: 2026-06-03
 ---
 
 # Cross-Session Opponent Modeling
@@ -139,16 +139,26 @@ GROUP BY opponent_name
 
 ### 4.3 Coach Engine Integration
 
-**Updated function**: `_get_opponent_stats()` in `coach_engine.py`
+**Function**: `_get_opponent_stats()` in `coach_engine.py:449`.
+
+As built, the cross-session lookup is factored into a shared helper,
+`_load_cross_session_historical(human_name, user_id)` (`coach_engine.py:279`), which wraps
+`game_repo.load_cross_session_opponent_models()` and returns `{}` for guests / on error.
+`compute_coaching_data()` loads it **once** (`coach_engine.py:775`) and passes the result
+to both `_build_opponent_infos()` and `_get_opponent_stats()` so neither hits the DB
+independently per coaching tick. Each still falls back to loading it lazily if a caller
+passes `historical_data=None`:
 
 ```python
-def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -> List[Dict]:
+def _get_opponent_stats(
+    game_data: dict, human_name: str, user_id: str = None,
+    historical_data: Optional[dict] = None,
+) -> List[Dict]:
     """Extract opponent stats with historical context."""
 
-    # Load historical data if user_id provided
-    historical_data = {}
-    if user_id:
-        historical_data = game_repo.load_cross_session_opponent_models(human_name, user_id)
+    # Caller may pass it pre-loaded; else fetch via the shared helper.
+    if historical_data is None:
+        historical_data = _load_cross_session_historical(human_name, user_id)
 
     stats = []
     for player in game_state.players:

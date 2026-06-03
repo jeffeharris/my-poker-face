@@ -2,10 +2,19 @@
 purpose: Architecture design for the 3-layer tiered bot (solver baselines + personality distortion + LLM expression)
 type: architecture
 created: 2026-02-16
-last_updated: 2026-05-12
+last_updated: 2026-06-03
 ---
 
 # Tiered Bot Architecture
+
+> **v1 design record.** This captures the original 3-layer design intent. The
+> 3-layer logit-distortion core (Layers 1-3) shipped substantially as written and
+> is still accurate. But opponent exploitation — framed below as "v2, not in v1
+> scope" — **has since shipped** (Phase 6): see `classify_opponent_archetype` and
+> the rule cluster in `poker/strategy/exploitation.py`, and the live reference
+> [`TIEREDBOT_DECISION_QUALITY.md`](TIEREDBOT_DECISION_QUALITY.md) for what's
+> actually in the code today. Sections still labeled "v2"/"NOT in v1 scope" below
+> are flagged inline where they're now stale.
 
 ## Motivation
 
@@ -466,26 +475,41 @@ class StrategyTable:
 
 ### File Structure
 
+> **Corrected 2026-06-03 to match shipped code.** The original block proposed
+> `board_texture.py`, `heuristics.py`, and a `pio/` solver-export directory. None
+> shipped: board texture classification lives in `postflop_classifier.py` /
+> `hand_classification.py`; turn/river heuristics are baked into the authored
+> postflop charts (the data layer) rather than a separate module; and the
+> PioSOLVER export pipeline was never built — every postflop chart is hand/rule-
+> authored (see [`LOOKUP_TABLE_PROVENANCE.md`](LOOKUP_TABLE_PROVENANCE.md);
+> `flop_srp_hu/` does not exist — postflop data is flat `postflop_strategies*.json`).
+> The exploitation/decision-quality modules (`exploitation.py`, `defense_floor.py`,
+> `bet_size_classification.py`, `value_override.py`, …) that shipped with Phase 6
+> are catalogued in [`TIEREDBOT_DECISION_QUALITY.md`](TIEREDBOT_DECISION_QUALITY.md).
+
 ```
 poker/
   strategy/
     __init__.py
-    strategy_table.py       # StrategyTable, lookup logic, node mapping
-    hand_classification.py  # Postflop: map hand + board → (made_tier, draw_modifier)
-    board_texture.py        # Classify board into texture buckets
-    multiway.py             # Multiway frequency adjustments
-    heuristics.py           # Turn/river heuristic rules
+    strategy_table.py          # StrategyTable, lookup, depth/width-table selection
+    nodes.py                   # PreflopNode / PostflopNode keys
+    hand_classification.py     # Postflop: hand + board → (made_tier, draw_modifier) + nut_status/danger_flags
+    postflop_classifier.py     # Board texture + postflop node classification
+    preflop_classifier.py      # Preflop node classification
+    multiway.py                # Multiway frequency adjustments
+    deviation_profiles.py      # Per-archetype DeviationProfile + ARCHETYPE_WIDTH_TABLE
+    personality_modifier.py    # Layer 2 logit-space distortion
+    exploitation.py            # Phase 6: opponent archetype + exploitation offsets (RULE_ORDER)
+    defense_floor.py           # §2 made-hand call floor
+    bet_size_classification.py # Faced-bet → required-equity bucket
+    push_fold.py               # Short-stack (≤15bb HU) push/fold gate
+    math_floor.py              # Pot-committed / short-stack veto
 
     data/
-      preflop_100bb_6max.json   # Curated preflop charts (from established sources)
-      flop_srp_hu/              # Pio-solved per-texture flop strategies
-        dry_rainbow.json
-        connected_wet.json
-        ...
-
-    pio/
-      export_flops.py       # UPI script: batch solve + export flop textures
-      combo_to_class.py     # Map Pio combo output → hand class buckets
+      preflop_100bb_6max.json     # Curated preflop charts (hand/AI-authored, sim-tuned)
+      postflop_strategies.json    # Hand-authored postflop node strategies (flat)
+      push_fold_hu.json           # Computed chip-EV HU push/fold Nash
+      …                           # depth + width-tier charts — see LOOKUP_TABLE_PROVENANCE.md
 ```
 
 ### Safety & Fallbacks
@@ -877,10 +901,19 @@ The combination of anchor values naturally produces classic poker archetypes:
 | **Maniac** | Very High | Very High | Raises almost everything. Exploitable by calling down with medium hands. |
 | **Nit** | Very Low | Very Low | Tighter than rock. Only plays top 5% hands. Exploitable by stealing constantly. |
 
-### Opponent Exploitation (v2 — NOT in v1 scope)
+### Opponent Exploitation (Phase 6 — SHIPPED; this section is the original v2 spec)
 
-> **This section is the full v2 spec for opponent exploitation. Do not implement during v1.**
-> v1 ships with static personality distortion only. The `adaptation_bias` anchor exists in personality data but is unused until v2.
+> **Status update (2026-06-03): this shipped.** The text below was the v2 spec
+> written while v1 was static-distortion-only. Opponent exploitation is now live:
+> `classify_opponent_archetype` (`poker/strategy/exploitation.py:778`) labels each
+> opponent, and a 7-rule exploitation cluster (`RULE_ORDER`,
+> `poker/strategy/exploitation.py:222`) emits archetype-gated logit offsets,
+> per-rule L1-budgeted by `MAX_L1_SHIFT_BY_RULE` (`exploitation.py:182`). The
+> `adaptation_bias` anchor is no longer unused. For the *as-built* pipeline (order,
+> rules, budgets, defense floor, bluff reduction, sim findings) see the live
+> reference [`TIEREDBOT_DECISION_QUALITY.md`](TIEREDBOT_DECISION_QUALITY.md). The
+> spec below is retained as the design intent that preceded it; treat the doc you're
+> reading as the v1 design record, not the current state of the exploitation layer.
 
 Previously handled through LLM prompt direction, which was inconsistent. Now algorithmic — deterministic adjustments based on tracked opponent statistics, gated by `adaptation_bias`.
 

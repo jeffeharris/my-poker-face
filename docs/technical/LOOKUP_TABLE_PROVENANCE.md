@@ -2,7 +2,7 @@
 purpose: Single-page provenance index for every shipped tiered-bot lookup table — source, method, commit, calibration status
 type: reference
 created: 2026-05-26
-last_updated: 2026-05-27
+last_updated: 2026-06-03
 ---
 
 <!-- 2026-05-26: push_fold_hu.json reclassified from hand-authored placeholder to computed chip-EV HU Nash (no ante), validated vs HUNE anchors. -->
@@ -29,14 +29,23 @@ known gaps); this page summarizes and cross-links them.
 | Table (`poker/strategy/data/…`) | Entries | First shipped | Method | README |
 |---|---:|---|---|---|
 | `preflop_100bb_6max.json` | 8,450 | `b8ff5c30` (2026-02-16); CO/BTN/SB RFI widened toward GTO 2026-05-27 (`build_wider_rfi_chart.py`) after a steal-aware A/B (+16 bb/100 vs jeff, +5.3 vs punisher, CI-clear) | Hand-authored + AI assist, validation-tuned; late-position RFI then widened toward GTO pure-opens | `preflop_100bb_6max_README.md` |
-| `preflop_100bb_6max_tight_rfi.json` | 8,450 | snapshot 2026-05-27 | The pre-widening tight chart, preserved as the "tighten-vs-station" table for opponent-adaptive width (`EXP_003`) | `preflop_100bb_6max_README.md` (log) |
+| `preflop_100bb_6max_tight_rfi.json` | 8,450 | snapshot 2026-05-27 | The pre-widening tight chart, preserved as the "tighten-vs-station" table for opponent-adaptive width (`EXP_003`); also the `nit`/`rock` width-tier table | `preflop_100bb_6max_README.md` (log) |
+| `preflop_100bb_6max_loose.json` | 8,450 | 2026-05-29 | **Archetype width-tier chart** — widest realistic opening envelope; the `maniac` / `maniac_overbluff` / `spewy_fish` preflop table. Hand/AI-authored loose-tier opens layered on the 100bb taxonomy | `preflop_100bb_6max_README.md` (log) |
+| `preflop_100bb_6max_loose_mid.json` | 8,450 | 2026-05-29 | **Archetype width-tier chart** — between TAG and Maniac; the `lag` preflop table | `preflop_100bb_6max_README.md` (log) |
+| `preflop_100bb_6max_station.json` | 8,450 | 2026-05-29 | **Archetype width-tier chart** — loose-passive caller shape; the `calling_station` (+ `calling_station_pblind`/`_overbluff` isolation variants) preflop table | `preflop_100bb_6max_README.md` (log) |
+| `preflop_100bb_6max_weak_station.json` | 8,450 | 2026-05-29 | **Archetype width-tier chart** — widest passive-caller shape (flats almost anything vs a raise); the `weak_fish` ($2-tier trickle) preflop table. NOT reachable via anchor classification — explicit loadout. See `FISH_AS_CALLING_STATION.md` | `preflop_100bb_6max_README.md` (log) |
 | `postflop_strategies.json` | 2,160 | `e16a42aa` (2026-02-17) | Hand-crafted node taxonomy (only `(pot_type=SRP, spr=high)` populated) | `postflop_strategies_README.md` |
 | `preflop_50bb_6max.json` | 8,450 | `707ff03b` (2026-05-25) | **Generated** from the 100bb chart by `generate_depth_charts.py` (depth rules) | `depth_charts_README.md` |
 | `preflop_25bb_6max.json` | 8,450 | `707ff03b` (2026-05-25) | **Generated** from the 100bb chart by `generate_depth_charts.py` (depth rules) | `depth_charts_README.md` |
 | `preflop_100bb_hu.json` | 676 | `46ca598e` (2026-05-13) | Hand-authored per-hand rules + border-flip log + v2 mixed-freq calibration | `hu_preflop_chart_README.md` |
 | `push_fold_hu.json` | 5 depth buckets (5/7/10/12/15bb) | `0575952a` (2026-05-17); recomputed 2026-05-26 | **Computed** chip-EV HU pure jam/fold Nash (no ante) by `generate_push_fold_nash.py` (fictitious play, eval7 all-in equities). SB-pusher validated vs HoldemResources HUNE anchors (the placeholder's A6o/KQo-fold-at-15bb bug is fixed); BB-caller independently verified as the exact pot-odds best-response to the SB jam range via fresh eval7 (wider than some circulating "caller charts," which are inconsistent with the wide jam range — see README). | `push_fold_hu_README.md` |
 
-All entry counts are live (`load_strategy_table().size` etc., 2026-05-27).
+All entry counts re-verified live against the JSON on 2026-06-03 (per-hand leaf
+count = `load_strategy_table().size`): the five preflop 6-max charts (base, tight,
+loose, loose_mid, station, weak_station) are each **8,450**; `preflop_100bb_hu.json`
+is **676**; `postflop_strategies.json` is **2,160**; `postflop_strategies_3bp.json`
+is **4,320**; `postflop_strategies_low_spr.json` is **2,160**; `push_fold_hu.json`
+is **5 depth buckets** (`5/7/10/12/15bb`) + a `meta` block.
 
 > **Depth-chart footgun (2026-05-27):** the 50/25bb charts were **NOT**
 > regenerated when the 100bb chart's RFI was widened. They were generated from
@@ -54,7 +63,19 @@ All entry counts are live (`load_strategy_table().size` etc., 2026-05-27).
 and the push/fold gate decide which chart serves a given spot:
 
 - **Preflop, heads-up** (`num_seated == 2`): `preflop_100bb_hu.json`.
-- **Preflop, 6-max/multiway**: the depth chart nearest the effective stack —
+- **Preflop, 6-max/multiway, archetype WITH a width-tier chart** (loose / station
+  / weak / tight): that **width-tier chart wins at every depth** — it does *not*
+  fall through to the depth charts. The archetype's looseness is its identity, so
+  a fish/maniac must not collapse to the standard depth chart at the shallow
+  casino buy-in (~40bb). The mapping lives in `ARCHETYPE_WIDTH_TABLE`
+  (`poker/strategy/deviation_profiles.py:238`): `nit`/`rock` → `tight_rfi`,
+  `calling_station` → `station`, `lag` → `loose_mid`, `maniac` → `loose`,
+  `weak_fish` → `weak_station` (plus isolation/validation variants); `tag`/baseline
+  map to `None`. Selection: `_select_preflop_table`
+  (`poker/tiered_bot_controller.py:2491`), which returns the width table directly
+  when `_archetype_base_table()` resolves to a non-`'6max'` label.
+- **Preflop, 6-max/multiway, archetype WITHOUT a width chart** (tag / baseline —
+  the depth-aware competent bot): the depth chart nearest the effective stack —
   `preflop_100bb_6max.json` (≈100bb), `preflop_50bb_6max.json` (≈50bb), or
   `preflop_25bb_6max.json` (≈25bb), via `nearest_depth_bucket`.
 - **Short stacks ≤ 15bb** (`PUSH_FOLD_THRESHOLD_BB`, `poker/strategy/push_fold.py`):
@@ -66,22 +87,42 @@ and the push/fold gate decide which chart serves a given spot:
   SPR / pot_type rides the **degrade ladder** (`spr` low→high, `pot_type`
   3BP→SRP) plus the `postflop_commit` layer for genuinely-short SPR.
 
-## Removed charts (history)
+## Cut-from-play postflop slices (retained as eval/attribution harness)
 
-The generated postflop *precision slices* were cut after the hardened SNG
-champion-challenger gate measured them **neutral** (no win-rate benefit vs the
-bot itself — combined `slices` 49.2% [47.9, 50.5] @ 2,000 SNGs). See
-`docs/plans/SNG_RUNNER_HARDENING.md` and the `eval-harness-audit` memory note.
+The generated postflop *precision slices* (`postflop_strategies_low_spr.json`,
+`postflop_strategies_3bp.json`) and their generators are **present in the repo on
+`development`** but **not loaded by the live table** — they were cut from *play*
+(the SPR/pot_type fallback ladder serves those nodes), and re-added as an
+eval/attribution harness, not removed from the tree.
 
-| Removed file | Was | Shipped | Removed | Why |
-|---|---:|---|---|---|
-| `postflop_strategies_low_spr.json` | 2,160 low-SPR entries (generated from the high chart by `generate_postflop_spr.py`) | `c5aa0d07` (2026-05-25) | `0164ce64` (2026-05-26) | Gate-neutral; the SPR fallback ladder covers low-SPR |
-| `postflop_strategies_3bp.json` | 4,320 3-bet-pot entries (generated by `generate_postflop_3bp.py`) | `4be11e93` (2026-05-25) | `0164ce64` (2026-05-26) | Gate-neutral; the pot_type fallback (3BP→SRP) covers it |
+History:
 
-The slice **generators** (`generate_postflop_spr.py`, `generate_postflop_3bp.py`)
-and the `allow_shallow` HU gate were removed in the same commit. The 3BP
-*classification* (`preflop_raise_count` → `pot_type`) was **kept** — only the
-chart data was cut. To recover a slice, see commit `0164ce64^`.
+1. **Generated + shipped** (2026-05-25): `postflop_strategies_low_spr.json`
+   (`c5aa0d07`) and `postflop_strategies_3bp.json` (`4be11e93`).
+2. **Cut from play** (`0164ce64`, 2026-05-26) after the hardened SNG
+   champion-challenger gate measured them **neutral** (no win-rate benefit vs the
+   bot itself — combined `slices` 49.2% [47.9, 50.5] @ 2,000 SNGs). See
+   `docs/plans/SNG_RUNNER_HARDENING.md` and the `eval-harness-audit` memory note.
+3. **Re-added to the repo** (`dd098d13`, "restore cut postflop slices +
+   attribution harness"): the slice JSONs and their generators
+   (`generate_postflop_spr.py`, `generate_postflop_3bp.py`) live again under
+   `poker/strategy/data/`. They are **not wired into `lookup_postflop_with_fallback`
+   for live play** — the live postflop lookup still rides the single
+   `postflop_strategies.json` plus the degrade ladder (see "How a table is
+   selected" above). The slices are retained for attribution/eval experiments
+   that want to measure the contribution of an explicit slice vs the fallback.
+
+Current state of the files (verified 2026-06-03):
+
+| File | Entries | Status |
+|---|---:|---|
+| `postflop_strategies_low_spr.json` | 2,160 | In repo; cut from play, eval/attribution harness |
+| `postflop_strategies_3bp.json` | 4,320 | In repo; cut from play, eval/attribution harness |
+| `generate_postflop_spr.py` / `generate_postflop_3bp.py` | — | In repo (`poker/strategy/data/`) |
+
+The 3BP *classification* (`preflop_raise_count` → `pot_type`) remains live; in
+play it resolves to `postflop_strategies.json` via the 3BP→SRP fallback rather
+than the dedicated slice.
 
 ## Keeping this current
 
