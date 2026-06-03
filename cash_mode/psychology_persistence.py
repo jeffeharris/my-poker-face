@@ -88,6 +88,40 @@ def hydrate_persona_psychology(
             personality_id,
             exc,
         )
+        return
+
+    _apply_idle_energy_recovery(controller.psychology, state_dict, personality_id)
+
+
+def _apply_idle_energy_recovery(psychology, state_dict, personality_id: str) -> None:
+    """Decay-on-read: spring the `energy` axis toward baseline for the wall-clock
+    the persona rested since its mood was last written.
+
+    A persisted mood is a frozen snapshot — no hands fire while a persona is
+    idle, so without this it would sit back down just as drained (or just as
+    wired) as it left, hours later. Mirrors the lobby's projection-on-read
+    (`cash_mode.movement.project_idle_energy`) and the energy-only model there:
+    only `energy` recovers on idle; confidence / composure / tilt carry as the
+    last snapshot until live hands move them again. Best-effort — a missing or
+    unparseable `last_updated` just skips recovery (trust the stored value).
+    """
+    last_updated = state_dict.get("last_updated")
+    anchors = getattr(psychology, "anchors", None)
+    axes = getattr(psychology, "axes", None)
+    if not last_updated or anchors is None or axes is None:
+        return
+    try:
+        from datetime import datetime
+
+        from cash_mode.movement import project_idle_energy
+
+        idle_seconds = (datetime.utcnow() - datetime.fromisoformat(last_updated)).total_seconds()
+        if idle_seconds <= 0:
+            return
+        recovered = project_idle_energy(axes.energy, anchors.baseline_energy, idle_seconds)
+        psychology.axes = axes.update(energy=recovered)
+    except Exception as exc:  # noqa: BLE001 — recovery is best-effort
+        logger.debug("[PSYCH] %s: idle energy recovery skipped (%s)", personality_id, exc)
 
 
 def serialize_persona_psychology(controller) -> Optional[str]:

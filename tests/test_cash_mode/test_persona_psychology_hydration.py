@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -110,3 +111,44 @@ def test_sandbox_scoping_isolates_blobs(repo):
     ctrl = _controller(hand_count=0)
     hydrate_persona_psychology(ctrl, PID, repo, "sandbox-B")
     assert ctrl.psychology.hand_count == 0  # different sandbox → no carry
+
+
+def _blob_with(energy, baseline_energy, last_updated):
+    """A drained-mood blob: energy/baseline + an explicit last-active time."""
+    d = PlayerPsychology.from_personality_config(PID, {}).to_dict()
+    d["axes"]["energy"] = energy
+    d["anchors"]["baseline_energy"] = baseline_energy
+    d["last_updated"] = last_updated
+    return json.dumps(d)
+
+
+def test_hydrate_recovers_energy_after_long_idle(repo):
+    # Drained to 0.1, baseline 0.8, last active 2h ago. At +0.5/hr that's
+    # 0.1 + 1.0 = 1.1, clamped to baseline 0.8.
+    two_hours_ago = (datetime.utcnow() - timedelta(hours=2)).isoformat()
+    repo.save_emotional_state_json(PID, _blob_with(0.1, 0.8, two_hours_ago), sandbox_id=SANDBOX)
+
+    ctrl = _controller()
+    hydrate_persona_psychology(ctrl, PID, repo, SANDBOX)
+    assert ctrl.psychology.axes.energy == pytest.approx(0.8, abs=0.01)
+
+
+def test_hydrate_recent_blob_barely_recovers(repo):
+    # Just left (now): essentially no rest, so energy stays drained.
+    repo.save_emotional_state_json(
+        PID, _blob_with(0.1, 0.8, datetime.utcnow().isoformat()), sandbox_id=SANDBOX
+    )
+
+    ctrl = _controller()
+    hydrate_persona_psychology(ctrl, PID, repo, SANDBOX)
+    assert ctrl.psychology.axes.energy == pytest.approx(0.1, abs=0.02)
+
+
+def test_hydrate_recovery_never_exceeds_baseline(repo):
+    # Already above baseline → rest must not push it higher.
+    long_ago = (datetime.utcnow() - timedelta(hours=10)).isoformat()
+    repo.save_emotional_state_json(PID, _blob_with(0.7, 0.5, long_ago), sandbox_id=SANDBOX)
+
+    ctrl = _controller()
+    hydrate_persona_psychology(ctrl, PID, repo, SANDBOX)
+    assert ctrl.psychology.axes.energy == pytest.approx(0.7, abs=0.01)  # unchanged
