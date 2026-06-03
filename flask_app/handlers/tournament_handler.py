@@ -118,6 +118,7 @@ def reconcile_live_table(
     make_controller,
     owner_name: str | None = None,
     real_persona_ids: frozenset[str] | set[str] = frozenset(),
+    sandbox_id: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """Mutate the human's live game to match the field's view of their table.
 
@@ -177,6 +178,20 @@ def reconcile_live_table(
         controller = make_controller(name, state_machine)
         ai_controllers[name] = controller
         added.append(name)
+        # T3-77 — a persona balanced ONTO the human's table mid-tournament is a
+        # genuinely-new live seat, so hydrate its mood from the cash world just
+        # like the initial builder does (off-table play is headless, so the
+        # persona blob is the freshest mood available). Gated to a cash-world
+        # persona field with a resolved sandbox; synthetic `P##` seats no-op.
+        # This is a fresh-seat build, not cold-load, so D1 still holds.
+        if (
+            sandbox_id
+            and name in real_persona_ids
+            and getattr(extensions, 'bankroll_repo', None) is not None
+        ):
+            from cash_mode.psychology_persistence import hydrate_persona_psychology
+
+            hydrate_persona_psychology(controller, name, extensions.bankroll_repo, sandbox_id)
         if memory_manager is not None:
             try:
                 # P3.9a — register a balanced-in seat's personality_id (== name
@@ -223,6 +238,7 @@ def advance_tournament_after_hand(
         make_controller=make_controller,
         owner_name=game_data.get('owner_name'),
         real_persona_ids=_real_persona_ids_for_session(session),
+        sandbox_id=game_data.get('tournament_sandbox_id'),
     )
     game_data['tournament_table_id'] = outcome.table_id
     game_data['hand_start_stacks'] = {p.name: p.stack for p in state_machine.game_state.players}
