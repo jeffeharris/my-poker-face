@@ -368,22 +368,24 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         self.assertTrue(body['session_ended'])
         self.assertEqual(body['chips_at_table'], 0)
 
-    def test_leave_frees_ghost_seat_when_cash_table_id_none(self):
-        """A session with cash_table_id=None (the sponsor-flow gap)
-        must still free the player's lobby seat on leave.
+    def test_leave_ghost_seat_with_cash_table_id_none_is_hidden_by_projection(self):
+        """A session with cash_table_id=None (the sponsor-flow gap) used to
+        rely on the cross-table `_free_ghost_human_seats` sweep at leave to
+        free its lobby seat. That sweep was retired 2026-06-01.
 
-        Regression for the nested-if bug: the cross-table ghost-seat
-        sweep used to live inside `if cash_table_id is not None:`, so a
-        sponsor session — which wrote cash_sessions.cash_table_id=NULL
-        — skipped the sweep entirely and stranded the human seat on the
-        lobby table. With game_data['cash_table_id'] = None AND no
-        persisted cash_sessions row to fall back on, the seat-specific
-        free can't run; the now-unconditional sweep is the only thing
-        that frees the seat.
+        Under presence authority the orphan is instead a GHOST — a raw
+        `cash_tables` human slot with NO confirming `entity_presence` row — so
+        the read-side occupancy projection renders it `open` and the lobby
+        never shows the player as seated. This pins that the projection (not a
+        leave-time sweep) is what hides it.
         """
+        import cash_mode.economy_flags as ef
+
         table_id = "cash-table-200-001"
         seats = [open_slot()] * 6
         seats[3] = human_slot(OWNER_ID, 900)
+        # Plant the orphan with authority OFF → no presence row is written,
+        # so this is a raw cache slot the projection must hide.
         self.repos['cash_table_repo'].save_table(
             CashTableState(
                 table_id=table_id,
@@ -400,25 +402,29 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         game_data['cash_seat_index'] = None
         self.game_state_service.set_game(GAME_ID, game_data)
 
-        resp = self.client.post('/api/cash/leave')
-        self.assertEqual(resp.status_code, 200)
+        ef.PRESENCE_AUTHORITY_ENABLED = True
+        try:
+            resp = self.client.post('/api/cash/leave')
+            self.assertEqual(resp.status_code, 200)
 
-        self.assertEqual(
-            self._seated_indices(table_id),
-            [],
-            "ghost human seat survived a leave whose session had "
-            "cash_table_id=None — the unconditional sweep didn't run",
-        )
+            self.assertEqual(
+                self._seated_indices(table_id),
+                [],
+                "ghost human seat (no presence row) was not hidden by the "
+                "read-side occupancy projection",
+            )
+        finally:
+            ef.PRESENCE_AUTHORITY_ENABLED = False
 
-    def test_leave_frees_orphan_seat_at_different_table(self):
-        """Active seat at table A + orphan seat at table B (same
-        sandbox) → leave A must free both.
-
-        Cross-table case: the user previously sat at the $50 table,
-        exited uncleanly, then today sits at the $200 table and leaves
-        cleanly. The $50 orphan is on a different `cash_tables` row
-        entirely and is reaped by the ghost-seat sweep.
+    def test_leave_orphan_seat_at_different_table_is_hidden_by_projection(self):
+        """Active seat at table A + orphan seat at table B (same sandbox).
+        Leaving A frees A's active seat the normal way; B's orphan — a raw
+        cache slot with NO presence row — is hidden by the read-side
+        projection (the cross-table `_free_ghost_human_seats` sweep that used
+        to reap it was retired 2026-06-01).
         """
+        import cash_mode.economy_flags as ef
+
         active_table = "cash-table-200-001"
         orphan_table = "cash-table-50-001"
 
@@ -435,6 +441,7 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
         orphan_seats = [open_slot()] * 6
         orphan_seats[0] = human_slot(OWNER_ID, 500)
+        # Authority OFF → no presence row for the orphan (raw cache slot).
         self.repos['cash_table_repo'].save_table(
             CashTableState(
                 table_id=orphan_table,
@@ -449,16 +456,20 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
             self._stub_game_data(active_table, seat_index=2),
         )
 
-        resp = self.client.post('/api/cash/leave')
-        self.assertEqual(resp.status_code, 200)
+        ef.PRESENCE_AUTHORITY_ENABLED = True
+        try:
+            resp = self.client.post('/api/cash/leave')
+            self.assertEqual(resp.status_code, 200)
 
-        self.assertEqual(self._seated_indices(active_table), [])
-        self.assertEqual(
-            self._seated_indices(orphan_table),
-            [],
-            "orphan human seat on a different table survived — the "
-            "ghost-seat sweep failed to reap it on leave",
-        )
+            self.assertEqual(self._seated_indices(active_table), [])
+            self.assertEqual(
+                self._seated_indices(orphan_table),
+                [],
+                "orphan human seat on a different table (no presence row) was "
+                "not hidden by the read-side occupancy projection",
+            )
+        finally:
+            ef.PRESENCE_AUTHORITY_ENABLED = False
 
 
 if __name__ == '__main__':

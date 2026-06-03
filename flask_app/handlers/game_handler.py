@@ -20,7 +20,6 @@ from poker.ai_resilience import (
 from poker.betting_context import BettingContext
 from poker.card_utils import card_to_string
 from poker.config import AI_MESSAGE_CONTEXT_LIMIT, MIN_RAISE
-from poker.emotional_state import EmotionalState
 from poker.equity_snapshot import HandEquityHistory
 from poker.equity_tracker import EquityTracker
 from poker.game_helpers import should_clear_player_options
@@ -355,7 +354,6 @@ def restore_ai_controllers(
     bot_types = bot_types or {}
 
     controller_states = {}
-    emotional_states = {}
     try:
         # The loaders now skip individual corrupt rows internally, so an
         # empty dict here means "no saved state" (a fresh/legacy game) —
@@ -363,7 +361,6 @@ def restore_ai_controllers(
         # (e.g. DB/connection error): every AI silently reverts to default
         # tilt/emotion, so log it loudly (error + traceback), not as a warning.
         controller_states = game_repo.load_all_controller_states(game_id)
-        emotional_states = game_repo.load_all_emotional_states(game_id)
     except Exception as e:
         logger.error(
             f"Failed to load controller/emotional states for {game_id}; "
@@ -407,9 +404,7 @@ def restore_ai_controllers(
                     debug_logging=True,
                     default_strategy=strategy,
                 )
-                logger.info(
-                    f"[RESTORE] Created controller for {player.name} (bot_type={strategy})"
-                )
+                logger.info(f"[RESTORE] Created controller for {player.name} (bot_type={strategy})")
             else:
                 # No bot_types entry — match the new-game route's default of
                 # 'sharp' (the tiered solver bot, the core engine). Legacy
@@ -476,11 +471,9 @@ def restore_ai_controllers(
                         controller.psychology.tilt = ComposureState.from_tilt_state(
                             ctrl_state['tilt_state']
                         )
-                    # Note: elastic_personality is deprecated - new system uses anchors/axes
-                    if player.name in emotional_states:
-                        controller.psychology.emotional = EmotionalState.from_dict(
-                            emotional_states[player.name]
-                        )
+                    # Note: elastic_personality is deprecated - new system uses anchors/axes.
+                    # The legacy emotional_state table was retired in v136; narrative/
+                    # inner_voice now restore from psychology_json on the primary path above.
 
                 # Restore prompt_config (toggleable prompt components)
                 if ctrl_state.get('prompt_config'):
@@ -1309,8 +1302,8 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
 
     if _ef.PRESENCE_AUTHORITY_ENABLED:
         try:
-            from flask_app.extensions import entity_presence_repo as _epr
             from cash_mode.presence import Presence, player_entity_id
+            from flask_app.extensions import entity_presence_repo as _epr
 
             if _epr is not None:
                 st = _epr.load(player_entity_id(cs.owner_id), cs.sandbox_id)
@@ -1319,14 +1312,15 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
                         logger.info(
                             "[CASH][PRESENCE] cold-load binding from presence %r:%s "
                             "(cash_sessions had %r:%s) for %r",
-                            st.table_id, st.seat_index,
-                            cs.cash_table_id, cs.cash_seat_index, game_id,
+                            st.table_id,
+                            st.seat_index,
+                            cs.cash_table_id,
+                            cs.cash_seat_index,
+                            game_id,
                         )
                     resolved_table_id, resolved_seat = st.table_id, st.seat_index
         except Exception as e:  # noqa: BLE001 — presence read must not block recovery
-            logger.warning(
-                "[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e
-            )
+            logger.warning("[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e)
     if resolved_table_id is None:
         return None
     game_data['cash_table_id'] = resolved_table_id
@@ -1480,7 +1474,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from cash_mode.movement import refresh_table_roster
     from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
-    from cash_mode.tables import ai_slot, human_slot, open_slot
+    from cash_mode.tables import ai_slot, ai_slot_fish, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
 
     sandbox_id = _sandbox_id_for(game_data)
@@ -1540,18 +1534,42 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     leftover_busted = busted_slot_indices[len(fresh_pids_needing_slot) :]
 
     # 2. Sync: rewrite each persisted slot using game-state truth.
+    # Fish identity is intrinsic to the persona (config archetype='fish'),
+    # but a *seat* only carries the `archetype='fish'` stamp when it's built
+    # via `ai_slot_fish`. Rebuilding fish seats through plain `ai_slot` here
+    # stripped that stamp every hand on the human's table — so the casino
+    # read as fishless, the `dead` push fired on everyone, and the fish lost
+    # their `_coerce_fish_movement` pin. Re-derive fish-ness from the persona
+    # (not the seat) so the rebuild re-stamps it — self-healing for seats a
+    # prior hand already stripped.
+    from cash_mode.closed_economy import load_fish_ids
+
+    fish_pids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+
+    def _synced_ai_slot(pid: str, chips: int, prev: Optional[Dict] = None) -> Dict:
+        out = ai_slot_fish(pid, chips) if pid in fish_pids else ai_slot(pid, chips)
+        # Carry the per-seat dwell/rebuy counters across this rebuild — the
+        # human-table sync re-creates the slot every hand, so without this
+        # the dwell floor and rebuy-decay counters would reset each hand.
+        if prev is not None:
+            for _k in ("hands_here", "rebuys_here"):
+                if _k in prev:
+                    out[_k] = prev[_k]
+        return out
+
     synced_seats: List[Dict] = []
     for i, slot in enumerate(table.seats):
         if slot["kind"] == "ai":
             if i in reseat_map:
+                # A fresh AI took a busted seat — counters start at 0.
                 new_pid = reseat_map[i]
-                synced_seats.append(ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
+                synced_seats.append(_synced_ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
             elif i in leftover_busted:
                 synced_seats.append(open_slot())
             else:
                 pid = slot["personality_id"]
                 new_chips = pid_to_chips.get(pid, int(slot.get("chips", 0)))
-                synced_seats.append(ai_slot(pid, new_chips))
+                synced_seats.append(_synced_ai_slot(pid, new_chips, prev=slot))
         elif slot["kind"] == "human" and human_owner_id:
             synced_seats.append(human_slot(human_owner_id, human_chips))
         else:
@@ -1708,6 +1726,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         next_tier_min_buy_in=next_tier_min_buy_in,
         defer_freshly_vacated_live_fill=True,
         psych_lookup=_psych_lookup,
+        # Robust fish detection by persona identity (re-uses the set we
+        # built for the seat re-stamp above) so a missing `archetype='fish'`
+        # stamp can't spuriously fire the dead-push or drop a fish's rebuy.
+        fish_ids=fish_pids,
     )
 
     # Apply rebuy decisions: debit each AI's bankroll for the top-up
@@ -1908,8 +1930,12 @@ def _scene_top_up_cast(game_id: str, game_data: dict, state_machine) -> None:
         amount = target - cur
         try:
             debited = debit_bankroll_for_seat(
-                bankroll_repo, pid, amount, sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo, now=now,
+                bankroll_repo,
+                pid,
+                amount,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
             )
         except Exception:
             logger.warning("[SCENE] cast top-up debit failed for %r", pid, exc_info=True)
@@ -2120,9 +2146,7 @@ def _fire_career_first_vouch(game_id: str, game_data: dict) -> None:
         from cash_mode.activity import serialize_event
         from flask_app.services import presence
 
-        socketio.emit(
-            'world_event', serialize_event(event), to=presence.lobby_room_name(owner_id)
-        )
+        socketio.emit('world_event', serialize_event(event), to=presence.lobby_room_name(owner_id))
     except Exception:
         logger.warning("[CAREER] scene completion emit failed", exc_info=True)
 
@@ -2150,9 +2174,7 @@ def _advance_scene(game_id: str, game_data: dict, state_machine) -> None:
     cur = scene.hand_for_index(game_data.get('scene_idx', -1))
     if cur is not None and cur.lesson:
         hero_name = roles.get('hero')
-        hero = next(
-            (p for p in state_machine.game_state.players if p.name == hero_name), None
-        )
+        hero = next((p for p in state_machine.game_state.players if p.name == hero_name), None)
         folded = hero is None or hero.is_folded
         # 'folded' lessons (discipline) pass when the hero laid it down; the
         # rest (value / bluff-catch) pass when the hero stayed in.
@@ -3346,8 +3368,15 @@ def _run_async_narration(game_id: str, game_data: dict, pending: list) -> None:
         try:
             controller.psychology.generate_narration(**req.kwargs)
             if controller.psychology.emotional:
-                game_repo.save_emotional_state(
-                    game_id, req.player_name, controller.psychology.emotional
+                # Persist the freshly narrated emotional state via the unified
+                # controller_state row (psychology_json carries narrative/
+                # inner_voice). The emotional_state table was retired in v136.
+                prompt_config = getattr(controller, 'prompt_config', None)
+                game_repo.save_controller_state(
+                    game_id,
+                    req.player_name,
+                    psychology=controller.psychology.to_dict(),
+                    prompt_config=prompt_config.to_dict() if prompt_config else None,
                 )
         except Exception as e:
             logger.warning(
@@ -3483,6 +3512,51 @@ def _apply_player_table_rake(
     return game_state
 
 
+def _record_cash_scalps(game_data: dict, game_state, winner_name: str) -> None:
+    """Record this hand's eliminations at a human-occupied cash table (scalp
+    tracker §3b). Eliminator = the headline pot winner (the human's `owner_id`
+    or an AI `personality_id`); victims = non-human players busted (stack 0) by
+    the just-applied award. Headline-winner rule, consistent with the world-sim
+    path. Pure best-effort — the caller wraps it; this also self-guards so a
+    missing repo / unmapped id degrades to a no-op."""
+    from flask_app import extensions
+
+    repo = getattr(extensions, "cash_scalps_repo", None)
+    if repo is None:
+        return
+    sandbox_id = _sandbox_id_for(game_data)
+    if not sandbox_id:
+        return
+    cash_pids = game_data.get("cash_personality_ids") or {}  # display name -> pid
+
+    winner_player = next((p for p in game_state.players if p.name == winner_name), None)
+    if winner_player is None:
+        return
+    eliminator_id = (
+        game_data.get("owner_id")
+        if getattr(winner_player, "is_human", False)
+        else cash_pids.get(winner_name)
+    )
+    if not eliminator_id:
+        return
+
+    victim_ids = [
+        cash_pids[p.name]
+        for p in game_state.players
+        if not getattr(p, "is_human", False) and p.stack == 0 and p.name in cash_pids
+    ]
+    if not victim_ids:
+        return
+
+    from datetime import datetime
+
+    from cash_mode.scalps import eliminations_from_human_hand
+
+    scalps = eliminations_from_human_hand(eliminator_id, victim_ids)
+    if scalps:
+        repo.record_many(sandbox_id, scalps, now=datetime.now().isoformat())
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -3519,6 +3593,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if not winning_player_names:
         logger.error(f"[Game {game_id}] No winning player names found in pot_breakdown")
         return game_state, False
+
+    # Scalp attribution (CASH_MODE_SCALP_TRACKER.md §3b): record eliminations at
+    # the human's table now that the award is applied (stacks final). Best-effort
+    # — never let scalp recording taint the hand flow.
+    if game_data.get('cash_mode'):
+        try:
+            _record_cash_scalps(game_data, game_state, winning_player_names[0])
+        except Exception:
+            logger.debug("[CASH] scalp record failed (non-fatal)", exc_info=True)
 
     # Prepare winner announcement data
     winning_players_string = (
@@ -3988,6 +4071,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     try:
         state_machine.run_until_player_action()
+        # Flush any top-up the human staged mid-hand now that the fresh
+        # stack exists. Done before set_game/emit so the credited stack is
+        # what gets persisted and shown for the new hand.
+        _flush_pending_topup(game_id, game_data, state_machine)
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
@@ -4039,6 +4126,102 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         return state_machine.game_state, True
 
     return state_machine.game_state, False
+
+
+def _flush_pending_topup(game_id: str, game_data: dict, state_machine) -> None:
+    """Apply a cash top-up the human staged mid-hand, at the next deal.
+
+    A human who clicks "Top up" mid-hand (folded or still in the pot)
+    can't have their live stack touched, so ``/api/cash/topup`` parks the
+    amount in ``game_data['pending_topup']`` instead of racing the
+    auto-dealt next hand (which used to make the request hang on the game
+    lock and then 400). This runs right after the next hand is dealt: it
+    debits the bankroll and credits the fresh stack.
+
+    Debiting *here* — not at request time — is deliberate: until the
+    chips actually land on the stack no money has left the bankroll, so a
+    leave / bust / session-drop before this point can't strand committed
+    chips. The bankroll debit is persisted before the stack credit so a
+    failure can't mint chips; on any error the stage is left intact and
+    retried at the following deal. Best-effort: never raises into the
+    hand-progression flow.
+    """
+    try:
+        pending = int(game_data.get('pending_topup', 0) or 0)
+    except (TypeError, ValueError):
+        pending = 0
+    if pending <= 0:
+        return
+
+    human_idx = next(
+        (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
+        None,
+    )
+    if human_idx is None:
+        # Human isn't seated this deal (e.g. just left). Nothing was
+        # debited, so no chips are at risk — leave the stage parked.
+        return
+
+    try:
+        from cash_mode.bankroll import PlayerBankrollState
+        from flask_app.extensions import bankroll_repo
+
+        if bankroll_repo is None:
+            return
+        owner_id, _owner_name = game_state_service.get_game_owner_info(game_id)
+        bankroll = bankroll_repo.load_player_bankroll(owner_id)
+        if bankroll is None or bankroll.chips <= 0:
+            # No bankroll to draw from — drop the stale stage so it can't
+            # silently apply later.
+            game_data.pop('pending_topup', None)
+            return
+
+        applied = min(pending, bankroll.chips)
+        # Debit the persistent side first; only credit the live stack once
+        # the debit is committed.
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=bankroll.chips - applied,
+                starting_bankroll=bankroll.starting_bankroll,
+            )
+        )
+        new_stack = state_machine.game_state.players[human_idx].stack + applied
+        state_machine.game_state = state_machine.game_state.update_player(
+            human_idx, stack=new_stack
+        )
+        game_data.pop('pending_topup', None)
+    except Exception as e:
+        logger.error(
+            "[CASH] Failed to flush staged top-up game_id=%r: %s",
+            game_id,
+            e,
+            exc_info=True,
+        )
+        return
+
+    # Mirror the immediate top-up path: count it toward leave-time P&L and
+    # emit the paired buy-in ledger row. Best-effort — the chips are
+    # already on the stack, so accounting hiccups must not unwind them.
+    try:
+        from flask_app.routes.cash_routes import _increment_cash_session_buy_in
+
+        _increment_cash_session_buy_in(game_id, applied)
+    except Exception as e:
+        logger.error(
+            "[CASH] Staged top-up buy-in accounting failed game_id=%r: %s",
+            game_id,
+            e,
+            exc_info=True,
+        )
+
+    logger.info(
+        "[CASH] Flushed staged top-up game_id=%r applied=%d new_stack=%d",
+        game_id,
+        applied,
+        new_stack,
+    )
+    send_message(game_id, "Table", f"You topped up ${applied:,}.", "table")
 
 
 def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
@@ -4683,7 +4866,9 @@ def handle_ai_action(game_id: str) -> None:
     # the lesson is reliable (the bot decision is bypassed for them).
     scene0_scripted = None
     try:
-        scene0_scripted = _scene_scripted_action(current_game_data, state_machine, current_player, _scene)
+        scene0_scripted = _scene_scripted_action(
+            current_game_data, state_machine, current_player, _scene
+        )
     except Exception:
         logger.warning("[SCENE] scripted-action resolve failed", exc_info=True)
     try:

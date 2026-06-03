@@ -393,7 +393,7 @@ def delete_personality(name):
         #     so the chips recycle (the zombie-persona drift class).
         #   - PRESENCE (R3b): open any casino seat it occupies (drives
         #     RETURN_TO_POOL/GO_OFFLINE) so the seat can't outlive the persona —
-        #     what lets _reclaim_zombie_casino_seats retire.
+        #     what let the (now-retired) _reclaim_zombie_casino_seats reconciler go.
         try:
             pid = extensions.personality_repo.resolve_name_to_personality_id(name)
             if pid:
@@ -416,7 +416,9 @@ def delete_personality(name):
                 if returned:
                     logger.info(
                         "[CASH] persona delete %r (pid=%s): returned %d chips to pool",
-                        name, pid, returned,
+                        name,
+                        pid,
+                        returned,
                     )
         except Exception as e:
             logger.warning("[CASH] persona-delete settle failed for %r: %s", name, e)

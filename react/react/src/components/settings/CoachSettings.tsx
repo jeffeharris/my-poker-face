@@ -8,7 +8,11 @@ type CoachMode = 'off' | 'reactive' | 'proactive';
 const OPTIONS: { value: CoachMode; label: string; desc: string }[] = [
   { value: 'off', label: 'Off', desc: 'No coaching — you play uncoached.' },
   { value: 'reactive', label: 'Ask', desc: 'The coach only chimes in when you ask for a read.' },
-  { value: 'proactive', label: 'Auto', desc: 'The coach offers tips on its own as hands play out.' },
+  {
+    value: 'proactive',
+    label: 'Auto',
+    desc: 'The coach offers tips on its own as hands play out.',
+  },
 ];
 
 function isMode(v: unknown): v is CoachMode {
@@ -35,7 +39,10 @@ export function CoachSettings() {
       try {
         const res = await adminFetch('/api/profile');
         const data = await res.json();
-        if (!cancelled) setMode(data.success && isMode(data.coach_default_mode) ? data.coach_default_mode : 'off');
+        if (!cancelled)
+          setMode(
+            data.success && isMode(data.coach_default_mode) ? data.coach_default_mode : 'off'
+          );
       } catch (err) {
         if (!cancelled) {
           logger.warn('[Settings] failed to load coach default', err);

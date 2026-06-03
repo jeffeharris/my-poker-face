@@ -10,7 +10,9 @@ import './PreflopDrill.css';
 // A 169-hand shorthand → two concrete cards for display. Suited = same suit;
 // offsuit / pair = two different suits (black + red reads clearest). 'T' → '10'
 // (the Card component's rank notation).
-function handToCards(hand: string): [{ rank: string; suit: string }, { rank: string; suit: string }] {
+function handToCards(
+  hand: string
+): [{ rank: string; suit: string }, { rank: string; suit: string }] {
   const isPair = hand.length === 2;
   const norm = (r: string) => (r === 'T' ? '10' : r);
   const r1 = norm(hand[0]);
@@ -194,7 +196,11 @@ export function PreflopDrill({ onBack }: PreflopDrillProps) {
       <MenuBar showUserInfo />
       <PageLayout variant="top" glowColor="emerald" maxWidth="sm" hasMenuBar>
         <BackButton onClick={onBack} />
-        <PageHeader title="Preflop Drill" subtitle="Practice the spot you leak" titleVariant="primary" />
+        <PageHeader
+          title="Preflop Drill"
+          subtitle="Practice the spot you leak"
+          titleVariant="primary"
+        />
 
         {/* Always offer picking any spot (not just your confirmed leaks). */}
         <div className="pfd-pick-bar">
@@ -235,8 +241,15 @@ export function PreflopDrill({ onBack }: PreflopDrillProps) {
             {!grade ? (
               <div className="pfd-actions">
                 {ACTIONS.map((a) => (
-                  <button key={a} className={`pfd-btn pfd-btn--${a}`} onClick={() => answer(a)} disabled={grading}>
-                    {a === 'call' && spot.scenario === 'rfi' ? 'Limp/Call' : a[0].toUpperCase() + a.slice(1)}
+                  <button
+                    key={a}
+                    className={`pfd-btn pfd-btn--${a}`}
+                    onClick={() => answer(a)}
+                    disabled={grading}
+                  >
+                    {a === 'call' && spot.scenario === 'rfi'
+                      ? 'Limp/Call'
+                      : a[0].toUpperCase() + a.slice(1)}
                   </button>
                 ))}
               </div>
@@ -248,8 +261,8 @@ export function PreflopDrill({ onBack }: PreflopDrillProps) {
                   {grade.verdict === 'leak' && 'Leak — the solver rarely does this.'}
                 </div>
                 <div className="pfd-freqs">
-                  solver: raise {pct(grade.chart_freq.raise)}% · call {pct(grade.chart_freq.call)}% · fold{' '}
-                  {pct(grade.chart_freq.fold)}%
+                  solver: raise {pct(grade.chart_freq.raise)}% · call {pct(grade.chart_freq.call)}%
+                  · fold {pct(grade.chart_freq.fold)}%
                 </div>
                 <button className="pfd-next" onClick={next}>
                   {idx + 1 >= spots.length ? 'Finish' : 'Next hand'}

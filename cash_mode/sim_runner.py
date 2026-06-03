@@ -84,6 +84,12 @@ class SimConfig:
     # tourist injection). 0 disables. Drift-safe via the paired ledger
     # rows in `record_bank_pool_sim_seed_pair`.
     initial_bank_pool_seed: int = 0
+    # Vice mechanism the sim drives. Default 'real' so the sim runs the
+    # SAME wealth-tax as production (cast-median concentration, via the
+    # templated narrator — no LLM). Set 'fake' for the LLM-free stub or
+    # 'off' to disable. Field-relative behaviour for both is controlled
+    # by economy_flags.LEVER_REFERENCE_MODE.
+    vice_mode: str = 'real'
 
 
 @dataclass(frozen=True)
@@ -98,7 +104,18 @@ class TickMetrics:
     tick: int
     now: str  # ISO 8601
 
-    # Wealth distribution (AI bankrolls in this sandbox)
+    # Wealth distribution (AI bankrolls in this sandbox).
+    #
+    # CAVEAT — these are OFF-TABLE BANKROLL only, NOT net worth. Chips a
+    # player has bought into a table SEAT are debited from bankroll and do
+    # not appear here until cashed out. So an AI actively climbing at a
+    # table reads as POOR, and the bias is worst for small-stack climbers
+    # while flattering the rich (who hold large off-table reserves). Any
+    # mobility / "can a player climb" analysis MUST use net worth
+    # (bankroll + seat stacks) instead — see
+    # flask_app/services/holdings_view.compute_holdings_snapshot. Verified
+    # 2026-06-02: a blackbeard seeded at 8000 read 3000 here (5000 was in
+    # his seat). gini/percentiles below inherit the same bias.
     ai_count: int
     total_chips: int
     p10_chips: int
@@ -129,6 +146,11 @@ class TickMetrics:
     # Per-personality bankroll trajectory. Wide data — written to a
     # JSONL sidecar rather than the CSV (one row per (tick, pid)).
     per_pid_chips: Dict[str, int]
+
+    # Per-personality NET WORTH = bankroll + seat stacks (the metric the
+    # bankroll-only fields above mis-state for seated players). Use this
+    # for any mobility / climb analysis.
+    per_pid_networth: Dict[str, int]
 
     # Closed-economy state (see docs/plans/CASH_MODE_CLOSED_ECONOMY.md).
     # `bank_pool_chips`: virtual pool depth, computed from ledger.
@@ -211,9 +233,16 @@ def run_sim(
     chip_ledger_repo = repos['chip_ledger_repo']
     # Side-hustle repo (optional in the dict for back-compat). With
     # passive regen retired, the side hustle is the broke-AI recovery
-    # path, so the closed-loop sim drives it. Vice stays sim-faked
-    # (resolve_closed_economy) so no vice_repo is wired here.
+    # path, so the closed-loop sim drives it.
     side_hustle_repo = repos.get('side_hustle_state_repo')
+    # Vice repo: wiring it lets the sim run PRODUCTION's real vice
+    # (cast-median concentration) instead of the fake stub, so the sim's
+    # wealth-tax matches the live game. Real vice runs with the templated
+    # narrator (vice_use_llm_narration=False below) — no LLM in the sim.
+    vice_repo = repos.get('vice_state_repo') if config.vice_mode == 'real' else None
+    # Renown-v2 B4: only consulted when PRESTIGE_SEEKING_ENABLED is on (else the
+    # marquee term is inert). Optional in the dict for back-compat.
+    prestige_snapshots_repo = repos.get('prestige_snapshots_repo')
     db_path = repos['db_path']
 
     rng = random.Random(config.rng_seed)
@@ -263,11 +292,17 @@ def run_sim(
             relationship_repo=relationship_repo,
             stake_repo=stake_repo,
             side_hustle_repo=side_hustle_repo,
-            # The sim has no LLM, so real vice (which narrates per fire)
-            # can't run here — force the fake-vice stub as the pool-deposit
-            # source. Mutually exclusive with real vice; live paths default
-            # to economy_flags.VICE_MODE ('real').
-            vice_mode='fake',
+            prestige_snapshots_repo=prestige_snapshots_repo,
+            vice_repo=vice_repo,
+            # Run the SAME vice as production (default 'real' = cast-median
+            # concentration). The sim has no LLM, so real vice runs with the
+            # deterministic templated narrator instead of narrating per fire.
+            # Supersedes the earlier fake-vice-only stub: polish made real vice
+            # LLM-free via the templated narrator, so the sim's wealth-tax now
+            # matches the live game.
+            vice_mode=config.vice_mode,
+            vice_use_llm_narration=False,
+            hustle_use_llm_narration=False,
         )
 
         # 2. Metrics capture (every N ticks). The very first and very
@@ -407,24 +442,34 @@ def _capture_tick_metrics(
     casino_seated_total_chips = 0
     casino_closing_count = 0
     fish_seat_chips = 0  # fish holdings on the felt (fish are casino-only)
+    seat_chips_by_pid: Dict[str, int] = {}  # all AI seat stacks, any table
     # Reuse the run-level db_path (already in scope as a kwarg) for a
     # short-lived CashTableRepository — the per-tick walk is read-only.
     cash_table_repo = CashTableRepository(db_path)
     for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
-        if table.table_type != 'casino':
-            continue
-        casino_count += 1
-        if is_closing(cash_table_repo, sandbox_id, table.table_id):
-            casino_closing_count += 1
+        is_casino = table.table_type == 'casino'
+        if is_casino:
+            casino_count += 1
+            if is_closing(cash_table_repo, sandbox_id, table.table_id):
+                casino_closing_count += 1
         for slot in table.seats:
             if slot.get('kind') != 'ai':
                 continue
             pid = slot.get('personality_id')
             chips = int(slot.get('chips', 0))
-            casino_seated_total_chips += chips
-            if pid in fish_ids_set:
-                casino_seated_fish_count += 1
-                fish_seat_chips += chips
+            if pid:
+                seat_chips_by_pid[pid] = seat_chips_by_pid.get(pid, 0) + chips
+            if is_casino:
+                casino_seated_total_chips += chips
+                if pid in fish_ids_set:
+                    casino_seated_fish_count += 1
+                    fish_seat_chips += chips
+
+    # Net worth = off-table bankroll + chips sitting in seats.
+    per_pid_networth: Dict[str, int] = {
+        pid: per_pid_chips.get(pid, 0) + seat_chips_by_pid.get(pid, 0)
+        for pid in set(per_pid_chips) | set(seat_chips_by_pid)
+    }
 
     hungry_grinder_count = len(
         list_hungry_grinders(
@@ -466,6 +511,7 @@ def _capture_tick_metrics(
         ledger_delta=ledger_delta,
         decisions=dict(decisions),
         per_pid_chips=per_pid_chips,
+        per_pid_networth=per_pid_networth,
         bank_pool_chips=bank_pool_chips,
         fish_bankroll_total=fish_bankroll_total,
         fish_count=len(fish_ids_set),

@@ -96,7 +96,12 @@ def _ensure_position_groups() -> None:
     from poker.hand_ranges import Position
 
     _POSITION_GROUP_BY_NAME.update(
-        {'early': Position.EARLY, 'middle': Position.MIDDLE, 'late': Position.LATE, 'blind': Position.BLIND}
+        {
+            'early': Position.EARLY,
+            'middle': Position.MIDDLE,
+            'late': Position.LATE,
+            'blind': Position.BLIND,
+        }
     )
 
 
@@ -114,7 +119,11 @@ def position_to_group(position: Optional[str]) -> Optional[str]:
     if 'blind' in p or p in ('sb', 'bb'):
         return 'blind'
     # Long game keys → reuse hand_ranges' own mapper for the openers.
-    if p in ('button', 'cutoff') or p.startswith('under_the_gun') or p.startswith('middle_position'):
+    if (
+        p in ('button', 'cutoff')
+        or p.startswith('under_the_gun')
+        or p.startswith('middle_position')
+    ):
         try:
             from poker.hand_ranges import get_position_group
 
@@ -140,7 +149,12 @@ def _ensure_group_names() -> None:
     from poker.hand_ranges import Position
 
     _GROUP_NAME_BY_ENUM.update(
-        {Position.EARLY: 'early', Position.MIDDLE: 'middle', Position.LATE: 'late', Position.BLIND: 'blind'}
+        {
+            Position.EARLY: 'early',
+            Position.MIDDLE: 'middle',
+            Position.LATE: 'late',
+            Position.BLIND: 'blind',
+        }
     )
 
 
@@ -205,9 +219,7 @@ def compute_preflop_leaks(
             agg[(group, canon)][0] += 1
 
     # Per-position rollup (ungated — VPIP context + total loose-play count).
-    pos: dict[str, dict] = defaultdict(
-        lambda: {'decisions': 0, 'voluntary': 0, 'loose_plays': 0}
-    )
+    pos: dict[str, dict] = defaultdict(lambda: {'decisions': 0, 'voluntary': 0, 'loose_plays': 0})
     leaks: list[PreflopLeak] = []
     sampled = 0
     for (group, canon), (vol, n) in agg.items():
@@ -225,7 +237,13 @@ def compute_preflop_leaks(
                 status = 'confirmed' if n >= CONFIRM_MIN_SEEN else 'watching'
                 leaks.append(
                     PreflopLeak(
-                        group, canon, 'too_loose', n, round(100.0 * vol / n, 1), plays_ref, vol,
+                        group,
+                        canon,
+                        'too_loose',
+                        n,
+                        round(100.0 * vol / n, 1),
+                        plays_ref,
+                        vol,
                         status=status,
                     )
                 )
@@ -251,94 +269,6 @@ def compute_preflop_leaks(
         sampled_combos=sampled,
         by_position_summary=by_position_summary,
     )
-
-
-_POSITION_LABEL = {
-    'early': 'Early position (UTG/MP)',
-    'middle': 'Middle position (HJ)',
-    'late': 'Late position (CO/BTN)',
-    'blind': 'Blinds (SB/BB)',
-}
-
-
-def format_leaks_for_prompt(report: PreflopLeakReport) -> str:
-    """Render a leak report as a plain-text preflop PROFILE for the coach prompt.
-
-    A description of the player's range tendencies (strengths + weaknesses) the
-    LLM coach can interpret — grounded so it explains real data instead of
-    inventing leaks. Honest framing: VPIP is labeled as play-frequency (includes
-    calls/defense), and the reference is an opening range shown for orientation;
-    the actionable weaknesses are the specific below-range hands.
-    """
-    if report.total_decisions == 0:
-        return "No preflop history yet for this player."
-
-    lines = [
-        f"PREFLOP PROFILE — from {report.total_decisions} of the player's real preflop decisions.",
-        "",
-        "Play frequency by position (this VPIP includes calls and blind defense; "
-        "the 'standard opens' figure is a tight-aggressive OPENING range, shown for "
-        "orientation only — not a target):",
-    ]
-    for g in ('early', 'middle', 'late', 'blind'):
-        s = report.by_position_summary.get(g)
-        if not s:
-            continue
-        lines.append(
-            f"- {_POSITION_LABEL[g]}: plays {s['vpip_pct']}% of hands "
-            f"(standard opens ~{s['reference_vpip_pct']}%), over {s['decisions']} decisions; "
-            f"{s['loose_plays']} below-range play(s)."
-        )
-
-    loose = [lk for lk in report.leaks if lk.leak_type == 'too_loose']
-    lines.append("")
-    if loose:
-        confirmed = [lk for lk in loose if lk.status == 'confirmed']
-        watching = [lk for lk in loose if lk.status != 'confirmed']
-
-        def _line(lk):
-            return (
-                f"- {lk.canon} from {_POSITION_LABEL[lk.position_group]}: "
-                f"dealt {lk.n} time(s), played it {lk.severity} of those."
-            )
-
-        if confirmed:
-            lines.append(
-                "CONFIRMED LEAKS — enough hands to be sure; below-range and played repeatedly:"
-            )
-            lines.extend(_line(lk) for lk in confirmed[:10])
-        if watching:
-            lines.append("")
-            lines.append(
-                "WATCHING — small sample so far (could be variance); keep an eye on these, "
-                "don't state them as certain leaks:"
-            )
-            lines.extend(_line(lk) for lk in watching[:10])
-    else:
-        lines.append(
-            "STRENGTH — no habitual below-range hands flagged; preflop hand selection "
-            "looks disciplined."
-        )
-    return "\n".join(lines)
-
-
-def get_owner_leak_set(db_path: str, owner_id: str) -> dict[tuple[str, str], str]:
-    """The player's recurring preflop leaks: {(position_group, canon): status}.
-
-    For live recall: load once per session, then a turn-time lookup is O(1) and
-    carries the confidence tier ('confirmed' | 'watching') so the live nudge can
-    hedge a small-sample watch-item. Only too_loose leaks. Best-effort.
-    """
-    try:
-        report = compute_preflop_leaks(load_owner_preflop_decisions(db_path, owner_id))
-        return {
-            (lk.position_group, lk.canon): lk.status
-            for lk in report.leaks
-            if lk.leak_type == 'too_loose'
-        }
-    except Exception as e:
-        logger.warning("get_owner_leak_set failed for %s: %s", owner_id, e)
-        return {}
 
 
 def load_owner_preflop_decisions(db_path: str, owner_id: str) -> list[dict]:

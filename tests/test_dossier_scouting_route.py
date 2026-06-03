@@ -24,9 +24,9 @@ import pytest
 pytestmark = pytest.mark.integration
 
 from flask_app import create_app
+from flask_app.services import sandbox_resolver
 from poker.repositories import create_repos
 from poker.repositories.schema_manager import SchemaManager
-from flask_app.services import sandbox_resolver
 
 OBSERVER = "obs_jeff"
 PERSONALITY = "greg"
@@ -35,10 +35,14 @@ PERSONALITY = "greg"
 def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
     """Insert a per-game opponent_models row with `hands` observed."""
     counts = {
-        'hands_dealt': hands, 'hands_observed': hands,
-        '_vpip_count': max(1, hands // 3), '_pfr_count': max(1, hands // 5),
-        '_bet_raise_count': max(1, hands // 4), '_call_count': max(1, hands // 6),
-        '_showdowns': max(1, hands // 10), '_showdowns_won': max(0, hands // 20),
+        'hands_dealt': hands,
+        'hands_observed': hands,
+        '_vpip_count': max(1, hands // 3),
+        '_pfr_count': max(1, hands // 5),
+        '_bet_raise_count': max(1, hands // 4),
+        '_call_count': max(1, hands // 6),
+        '_showdowns': max(1, hands // 10),
+        '_showdowns_won': max(0, hands // 20),
         # Deep postflop opportunity counts (v125) scaled to hands so the
         # Tier-2 sample gates clear at high hand counts (a 500-hand sample has
         # plenty of c-bets, barrels, equity reads).
@@ -56,6 +60,31 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
         '_equity_betting_count': max(1, hands // 4),
         '_equity_raising_count': max(1, hands // 6),
         '_equity_calling_count': max(1, hands // 5),
+        # Preflop opportunity counts (limp_rate gate's denominator) + the
+        # limp numerator, scaled to hands so the limp_rate tier clears at
+        # high hand counts.
+        '_preflop_voluntary_action_count': max(1, hands // 3),
+        '_preflop_voluntary_opportunities': max(1, hands // 2),
+        '_preflop_open_raise_count': max(1, hands // 5),
+        '_preflop_open_opportunities': max(1, hands // 2),
+        '_limp_count': max(1, hands // 6),
+        # Sizing-aware counts/sums (v133), scaled so the sizing tiers clear at
+        # high hand counts (big bets faced + both equity bins).
+        '_big_bet_faced_count': max(1, hands // 5),
+        '_fold_to_big_bet_count': max(1, hands // 8),
+        '_equity_betting_big_count': max(1, hands // 6),
+        '_equity_betting_small_count': max(1, hands // 6),
+        '_equity_betting_big_sum': max(1, hands // 6) * 0.8,
+        '_equity_betting_small_sum': max(1, hands // 6) * 0.3,
+        # Postflop aggression-axis counts (v134), scaled so the axis tiers
+        # clear at high hand counts.
+        '_facing_bet_opportunities': max(1, hands // 3),
+        '_all_ins_facing_bet': max(1, hands // 12),
+        '_postflop_open_opportunities': max(1, hands // 3),
+        '_postflop_jam_opens': max(1, hands // 15),
+        # Flop-check-barrel counts (v135).
+        '_flop_check_barrel_count': max(1, hands // 10),
+        '_flop_check_barrel_opportunity_count': max(1, hands // 6),
     }
     conn = sqlite3.connect(db_path)
     try:
@@ -66,8 +95,7 @@ def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
                  opponent_id, hands_observed, tendencies_json)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (game_id, "Jeff", "Greg", observer_id, opponent_id, hands,
-             json.dumps(counts)),
+            (game_id, "Jeff", "Greg", observer_id, opponent_id, hands, json.dumps(counts)),
         )
         conn.commit()
     finally:
@@ -83,6 +111,7 @@ class TestDossierScoutingRoute(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, repo in self.repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = repo
@@ -119,17 +148,48 @@ class TestDossierScoutingRoute(unittest.TestCase):
         sandbox_resolver.clear_cache()
 
     def _fold(self, hands):
-        _seed_opponent_model(
-            self.test_db.name, "g1", OBSERVER, PERSONALITY, hands
-        )
-        self.repos['game_repo'].fold_observations_into_lifetime(
-            "g1", self.sandbox_id
-        )
+        _seed_opponent_model(self.test_db.name, "g1", OBSERVER, PERSONALITY, hands)
+        self.repos['game_repo'].fold_observations_into_lifetime("g1", self.sandbox_id)
 
     def _dossier(self):
         resp = self.client.get(f'/api/character/{PERSONALITY}/dossier')
         self.assertEqual(resp.status_code, 200)
         return resp.get_json()
+
+    # --- B1: AI renown badge (Renown v2) ------------------------------------
+
+    def test_reputation_absent_when_no_ai_row(self):
+        # No persisted AI renown → reputation is null (badge doesn't render).
+        body = self._dossier()
+        self.assertIn('reputation', body)
+        self.assertIsNone(body['reputation'])
+
+    def test_reputation_present_when_ai_v2_row_exists(self):
+        # Persist a v2-native AI row for this personality in the resolved
+        # sandbox; the dossier surfaces it as the reputation block.
+        self.repos['prestige_snapshots_repo'].record_ai_many(
+            sandbox_id=self.sandbox_id,
+            captured_at="2026-06-02T12:00:00Z",
+            rows=[
+                {
+                    'owner_id': PERSONALITY,
+                    'renown_v2': 42.0,
+                    'regard': -0.3,
+                    'quadrant': 'Infamous Villain',
+                    'victim_percentile': 0.81,
+                    'high_cut': 30.0,
+                    'components': {'scalps': 18.0},
+                    'field_size': 12,
+                }
+            ],
+        )
+        rep = self._dossier()['reputation']
+        self.assertIsNotNone(rep)
+        self.assertEqual(rep['formula_version'], 'v2')
+        self.assertEqual(rep['quadrant'], 'Infamous Villain')
+        self.assertAlmostEqual(rep['renown_v2'], 42.0)
+        self.assertAlmostEqual(rep['victim_percentile'], 0.81)
+        self.assertEqual(rep['field_size'], 12)
 
     def test_below_floor_classified(self):
         self._fold(10)
@@ -163,6 +223,7 @@ class TestDossierScoutingRoute(unittest.TestCase):
 
     def _seed_bankroll(self, chips):
         from cash_mode.bankroll import PlayerBankrollState
+
         self.repos['bankroll_repo'].save_player_bankroll(
             PlayerBankrollState(player_id=OBSERVER, chips=chips, starting_bankroll=chips)
         )
@@ -174,16 +235,14 @@ class TestDossierScoutingRoute(unittest.TestCase):
         )
 
     def test_informant_buy_debits_and_unlocks(self):
-        self._fold(5)            # below floor — track_record locked by grind
+        self._fold(5)  # below floor — track_record locked by grind
         self._seed_bankroll(5000)
 
-        resp = self._buy('track_record')   # price 1000
+        resp = self._buy('track_record')  # price 1000
         self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
         body = resp.get_json()
-        self.assertEqual(body['bankroll'], 4000)        # 5000 - 1000 debited
-        self.assertNotIn(
-            'track_record', {o['id'] for o in body['scouting']['informant_offers']}
-        )
+        self.assertEqual(body['bankroll'], 4000)  # 5000 - 1000 debited
+        self.assertNotIn('track_record', {o['id'] for o in body['scouting']['informant_offers']})
         # The purchase persists across requests: the dossier no longer offers
         # the bought section, and its items count as unlocked despite < floor.
         dossier = self._dossier()
@@ -198,25 +257,19 @@ class TestDossierScoutingRoute(unittest.TestCase):
         self._seed_bankroll(5000)
         self.assertEqual(self._buy('track_record').status_code, 200)
         again = self._buy('track_record')
-        self.assertEqual(again.status_code, 409)        # already owned
+        self.assertEqual(again.status_code, 409)  # already owned
         # Bankroll only debited once.
-        self.assertEqual(
-            self.repos['bankroll_repo'].load_player_bankroll(OBSERVER).chips, 4000
-        )
+        self.assertEqual(self.repos['bankroll_repo'].load_player_bankroll(OBSERVER).chips, 4000)
 
     def test_informant_insufficient_bankroll(self):
         self._fold(5)
-        self._seed_bankroll(100)                        # < 1000
+        self._seed_bankroll(100)  # < 1000
         resp = self._buy('track_record')
         self.assertEqual(resp.status_code, 402)
         # Nothing charged, nothing unlocked.
+        self.assertEqual(self.repos['bankroll_repo'].load_player_bankroll(OBSERVER).chips, 100)
         self.assertEqual(
-            self.repos['bankroll_repo'].load_player_bankroll(OBSERVER).chips, 100
-        )
-        self.assertEqual(
-            self.repos['game_repo'].load_informant_unlocks(
-                self.sandbox_id, OBSERVER, PERSONALITY
-            ),
+            self.repos['game_repo'].load_informant_unlocks(self.sandbox_id, OBSERVER, PERSONALITY),
             set(),
         )
 
@@ -285,10 +338,22 @@ class TestDossierScoutingRoute(unittest.TestCase):
         # Tier-2 opportunity columns the roster exposes; saturate greg so the
         # sample-gated deep reads fully unlock, leave cleo at 0.
         sample_cols = (
-            'cbet_faced_count', 'postflop_seen_as_pfr_count',
-            'postflop_bet_raise_count', 'postflop_call_count',
-            'barrel_opportunity_count', 'equity_betting_count',
-            'equity_raising_count', 'equity_calling_count',
+            'cbet_faced_count',
+            'postflop_seen_as_pfr_count',
+            'postflop_bet_raise_count',
+            'postflop_call_count',
+            'barrel_opportunity_count',
+            'equity_betting_count',
+            'equity_raising_count',
+            'equity_calling_count',
+            'preflop_open_opportunities',
+            'showdowns_seen',
+            'big_bet_faced_count',
+            'equity_betting_big_count',
+            'equity_betting_small_count',
+            'facing_bet_opportunities',
+            'postflop_open_opportunities',
+            'flop_check_barrel_opportunity_count',
         )
         col_sql = ", ".join(sample_cols)
         ph = ", ".join("?" for _ in sample_cols)
@@ -301,8 +366,7 @@ class TestDossierScoutingRoute(unittest.TestCase):
                     f" hands_dealt, {col_sql}, first_seen, last_updated) "
                     f"VALUES (?, ?, ?, ?, ?, {ph}, "
                     f"        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    (self.sandbox_id, OBSERVER, oid, hands, hands,
-                     *([samp] * len(sample_cols))),
+                    (self.sandbox_id, OBSERVER, oid, hands, hands, *([samp] * len(sample_cols))),
                 )
             conn.commit()
         finally:

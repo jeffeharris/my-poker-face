@@ -11,9 +11,9 @@ from __future__ import annotations
 import pytest
 
 from poker.memory.opponent_model import (
-    OpponentTendencies,
     SIZING_BIG_BET_POT_RATIO,
     SIZING_MIN_BIN_SAMPLE,
+    OpponentTendencies,
 )
 
 
@@ -89,6 +89,46 @@ class TestFoldToBigBet:
         assert "over-folds to big bets" in t.get_summary()
 
 
+class TestSizingTellMixing:
+    """The Phase B kill switch: recent big bets weakening vs the lifetime mean."""
+
+    def test_stable_tell_is_not_mixing(self):
+        t = OpponentTendencies()
+        for _ in range(10):
+            t.update_equity_at_bet_size(0.85, bet_fraction=1.2)  # consistently strong big
+            t.update_equity_at_bet_size(0.40, bet_fraction=0.4)  # small
+        assert t.sizing_tell_is_mixing() is False
+
+    def test_recent_weakening_reads_as_mixing(self):
+        t = OpponentTendencies()
+        # Establish a strong lifetime big-bet mean...
+        for _ in range(12):
+            t.update_equity_at_bet_size(0.85, bet_fraction=1.2)
+            t.update_equity_at_bet_size(0.40, bet_fraction=0.4)
+        assert t.sizing_tell_is_mixing() is False
+        # ...then the last window of big bets collapses (they start bluffing big).
+        for _ in range(6):
+            t.update_equity_at_bet_size(0.20, bet_fraction=1.2)
+        assert t.sizing_tell_is_mixing() is True
+
+    def test_insufficient_recent_window_is_not_mixing(self):
+        t = OpponentTendencies()
+        for _ in range(3):  # below SIZING_RECENT_WINDOW
+            t.update_equity_at_bet_size(0.10, bet_fraction=1.2)
+            t.update_equity_at_bet_size(0.40, bet_fraction=0.4)
+        assert t.sizing_tell_is_mixing() is False
+
+    def test_mixing_state_survives_serialization(self):
+        t = OpponentTendencies()
+        for _ in range(12):
+            t.update_equity_at_bet_size(0.85, bet_fraction=1.2)
+            t.update_equity_at_bet_size(0.40, bet_fraction=0.4)
+        for _ in range(6):
+            t.update_equity_at_bet_size(0.20, bet_fraction=1.2)
+        restored = OpponentTendencies.from_dict(t.to_dict())
+        assert restored.sizing_tell_is_mixing() is True
+
+
 class TestSerializationRoundTrip:
     def test_round_trip_preserves_sizing_state(self):
         t = OpponentTendencies()
@@ -135,12 +175,24 @@ def _hand_with_big_and_small_bets():
         hole_cards={"Alice": ["7h", "2d"], "Bob": ["Kh", "Kd"]},
         community_cards=("3s", "8c", "Kc", "2h", "9d"),
         actions=(
-            RecordedAction(player_name="Alice", action="call", amount=100, phase="PRE_FLOP", pot_after=200),
-            RecordedAction(player_name="Bob", action="check", amount=0, phase="PRE_FLOP", pot_after=200),
-            RecordedAction(player_name="Bob", action="bet", amount=150, phase="FLOP", pot_after=350),
-            RecordedAction(player_name="Alice", action="call", amount=150, phase="FLOP", pot_after=500),
-            RecordedAction(player_name="Bob", action="bet", amount=300, phase="TURN", pot_after=800),
-            RecordedAction(player_name="Alice", action="call", amount=300, phase="TURN", pot_after=1100),
+            RecordedAction(
+                player_name="Alice", action="call", amount=100, phase="PRE_FLOP", pot_after=200
+            ),
+            RecordedAction(
+                player_name="Bob", action="check", amount=0, phase="PRE_FLOP", pot_after=200
+            ),
+            RecordedAction(
+                player_name="Bob", action="bet", amount=150, phase="FLOP", pot_after=350
+            ),
+            RecordedAction(
+                player_name="Alice", action="call", amount=150, phase="FLOP", pot_after=500
+            ),
+            RecordedAction(
+                player_name="Bob", action="bet", amount=300, phase="TURN", pot_after=800
+            ),
+            RecordedAction(
+                player_name="Alice", action="call", amount=300, phase="TURN", pot_after=1100
+            ),
         ),
         winners=(),
         pot_size=1100,

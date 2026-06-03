@@ -17,15 +17,17 @@ Three independent variables:
     off-grid side hustle on lobby refresh and return with a lump drawn
     from the bank pool. See `cash_mode/ai_side_hustle.py`.
 
-  - `RAKE_ENABLED`: the table-side sink. When True, a fraction of every
-    pot is destroyed (ledger reason `table_rake`, sink = central_bank)
-    at award time. Default off so the live deployment behaviour is
-    unchanged until we flip it.
+  - `RAKE_ENABLED`: the table-side skim. When True, a fraction of every
+    pot is taken at award time (ledger reason `table_rake`). The chips
+    are NOT destroyed — `table_rake` is a `BANK_POOL_DEPOSIT_REASON`, so
+    the rake RECYCLES into the bank pool that funds fish / side-hustle
+    (see CASH_MODE_SIDE_HUSTLE.md). Default ON.
 
-  - `RAKE_PLAYER_TABLES`: when False, rake only fires at AI-only sim
-    tables (`cash_mode/full_sim.play_one_hand`). When True, the same
-    rake also applies at tables with a human seated. Keeping this off
-    preserves the "sandbox" feel for players.
+  - `RAKE_PLAYER_TABLES`: when False, rake only fires at AI-only tables
+    (`cash_mode/full_sim.play_one_hand`); when True, it also applies at
+    tables with a human seated. Currently True — the human IS raked at
+    the rake-eligible tiers. (Setting it False would preserve a pure
+    "sandbox" feel for players; that's a live product choice.)
 
   - `RAKE_STAKE_BIG_BLINDS`: the stake tiers rake applies at, keyed by
     big blind (the 1:1 proxy for a stake label — see
@@ -37,7 +39,7 @@ Three independent variables:
 
 Tuning levers:
 
-  - `RAKE_RATE`: fraction of pot destroyed per hand. 0.02 = 2%.
+  - `RAKE_RATE`: fraction of pot skimmed to the pool per hand. 0.02 = 2%.
   - `RAKE_CAP_BB`: hard cap on rake per hand, expressed in big blinds.
     Mirrors the cap real cardrooms enforce so a single huge pot can't
     delete half the universe.
@@ -98,6 +100,48 @@ SIDE_HUSTLE_ENABLED: bool = True
 # mode, so existing off-grid AIs still return when the mode is switched.
 VICE_MODE: str = 'real'
 VICE_MODES = ('real', 'fake', 'off')
+
+
+# --- Lever reference mode (field-relative vs own-start) -------------------
+#
+# Controls how the three closed-economy wealth levers (real vice,
+# side-hustle, grinder-hunger) measure wealth:
+#
+#   'own_start'    — default; bit-for-bit current behaviour. Each lever
+#                    keys off the AI's OWN starting_bankroll (vice off the
+#                    cast-median of bankrolls; side-hustle/grinder off
+#                    starting_bankroll). Inconsistent and anti-mobility.
+#   'field_liquid' — all three key off the FIELD's LIQUID net worth
+#                    (bankroll + seat stack) distribution at evaluation
+#                    time, via a single per-tick FieldWealthSnapshot:
+#                      * vice: concentration = liquid / field-median,
+#                        tax above FIELD_CONCENTRATION_FLOOR×
+#                      * side-hustle: eligible in the bottom decile of
+#                        field liquid; tops up toward a field percentile
+#                      * grinder-hunger: hungry below a field percentile
+#
+# Default 'own_start' so production is unchanged until flipped. The
+# levers share one economic model and flip together (no per-lever flag).
+LEVER_REFERENCE_MODE: str = os.environ.get('LEVER_REFERENCE_MODE', 'own_start').strip().lower()
+
+# Tunables used only in 'field_liquid' mode (validate in sim before flip):
+FIELD_CONCENTRATION_FLOOR: float = 2.5  # vice fires above N× field median
+MIN_FIELD_MEDIAN_FOR_VICE: int = 5_000  # suppress vice when field is broke
+FIELD_HUSTLE_ELIGIBLE_PERCENTILE: float = 0.10  # bottom 10% of field → hustle candidate
+FIELD_HUSTLE_TARGET_PERCENTILE: float = 0.25  # hustle tops up toward this field pct
+FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry grinder
+
+
+def lever_field_mode() -> bool:
+    """True when the levers should use the field-liquid reference.
+
+    Reads the env at call time (not just the import-time module global)
+    so a sim/experiment can flip it per-run regardless of import order.
+    """
+    return (
+        os.environ.get('LEVER_REFERENCE_MODE', LEVER_REFERENCE_MODE).strip().lower()
+        == 'field_liquid'
+    )
 
 
 # --- Sink (table rake) ----------------------------------------------------
@@ -219,6 +263,45 @@ CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
 # on to make the ledger authoritative for reads after validating int==derived
 # via scripts/audit_ledger_completeness.py. See CASH_MODE_CHIP_CUSTODY_SCOPE.md (D2).
 CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
+
+
+# --- Player-prestige Renown-v2 (read-side field scorer) -------------------
+
+# Kill switch for the Renown-v2 field-relative scoreboard. Default **False** —
+# the v2 layer (cash_mode/prestige.py: score_renown_field +
+# quadrant_label_relative + build_renown_inputs_from_repos) is computed-but-
+# UNCONSUMED until this flips. v1's compute_prestige + absolute quadrant_label
+# stay the live human path; the 4 reputation hooks keep reading v1's quadrant
+# string. This flag is the seam the DEFERRED stage flips: once field-wide
+# persistence + ticker surgery land (schema/ticker changes that must be
+# sim-stress-validated), the hooks switch from quadrant_label (absolute 0.40)
+# to quadrant_label_relative(renown, regard, high_cut) with a zero-residual
+# kill switch. NOW it gates nothing live. See
+# docs/plans/CASH_MODE_PLAYER_PRESTIGE.md ("v2 implemented" note).
+# Env-flippable (committed default stays False so production is unaffected):
+# set RENOWN_V2_ENABLED=1 in a dev .env to turn the field-relative gauge on.
+RENOWN_V2_ENABLED: bool = _env_flag("RENOWN_V2_ENABLED", False)
+
+# Persist a field-relative renown row for every AI entity (not just the human)
+# each ticker recompute. The field scorer already computes every AI's renown and
+# discards it; this writes those rows so AI fame can be surfaced (dossier badge,
+# marquee table, whereabouts). Pure infrastructure — produces DATA, changes no
+# behavior on its own; the consumers are separate (Stage B). IMPLIES
+# RENOWN_V2_ENABLED (the overlay only scores the field when that's on). Its own
+# kill switch so the per-AI write fan-out can be disabled independently of the
+# human gauge. MUST be stress-validated (50+ AIs under CYCLE_BUDGET_MS) before
+# enabling on a real field. Default OFF. See
+# docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A).
+RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
+
+# Prestige-seeking movement (Renown-v2 B4). When on, the autonomous seat-fill
+# adds the marquee term to table attractiveness: status-seeking AIs (own renown
+# + showman traits) are pulled toward tables seating high-renown players. Reads
+# persisted per-AI renown, so it IMPLIES RENOWN_V2_PERSIST_AI (no renown data →
+# the term is 0 → no effect). A real chip-flow/movement change → sim-validate
+# before enabling. Own kill switch; default OFF. See
+# docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage B / B4).
+PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 
 
 def compute_rake(pot: int, big_blind: int) -> int:

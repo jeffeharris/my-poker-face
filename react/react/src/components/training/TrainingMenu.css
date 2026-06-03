@@ -36,7 +36,10 @@
   color: var(--color-text, #e5e7eb);
   text-align: left;
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+  transition:
+    transform 0.12s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 .training-menu__review:hover {
   transform: translateY(-1px);
@@ -97,7 +100,10 @@
   font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .training-menu__chip:hover:not(:disabled) {
@@ -153,7 +159,9 @@
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
-  transition: filter 0.15s ease, transform 0.12s ease;
+  transition:
+    filter 0.15s ease,
+    transform 0.12s ease;
 }
 
 .training-menu__primary:hover:not(:disabled) {
@@ -165,4 +173,3 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
-

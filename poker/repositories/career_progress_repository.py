@@ -1,4 +1,4 @@
-"""Repository for the v124 `career_progress` surface.
+"""Repository for the v141 `career_progress` surface.
 
 Per-(sandbox, owner) narrative state for the Act-1 career-progression spine
 (`docs/plans/CASH_MODE_CAREER_PROGRESSION.md`). The lobby is a *keyring*, not a
@@ -22,7 +22,7 @@ One JSON blob per row so the shape can evolve without a migration per field:
 The world economy runs across ALL tables regardless of this state — the lobby
 just filters what it RENDERS — so nothing here gates the sim. Sandbox-keyed so a
 fresh save restarts the keyring. Schema is created by
-`SchemaManager.ensure_schema()` (v124 migration); this class only touches data.
+`SchemaManager.ensure_schema()` (v141 migration); this class only touches data.
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ class CareerProgress:
         )
 
     @classmethod
-    def from_row(cls, sandbox_id: str, owner_id: str, progress_json: str) -> "CareerProgress":
+    def from_row(cls, sandbox_id: str, owner_id: str, progress_json: str) -> CareerProgress:
         """Decode a stored row into a `CareerProgress`.
 
         Tolerant of a malformed/empty blob (degrades to defaults) so a bad

@@ -85,6 +85,7 @@ TABLE_PRESETS: dict[str, TablePreset] = {
     ),
 }
 
+
 @dataclass(frozen=True)
 class ScriptedSpot:
     """A fixed drill: specific hole cards, board, stacks, and a villain line.

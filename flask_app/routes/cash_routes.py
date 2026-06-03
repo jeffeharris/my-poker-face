@@ -21,6 +21,7 @@ Spec: docs/plans/CASH_MODE_AND_RELATIONSHIPS.md Part 2.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -350,34 +351,20 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
     return len(purged)
 
 
-def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
-    """Reset any cash_tables human OR reserved seat owned by `owner_id` to open.
+def _release_own_reserved_holds(owner_id: str, *, sandbox_id: str) -> int:
+    """Open any `"reserved"` sponsorship seat-hold owned by `owner_id`.
 
-    PRESENCE CUTOVER — RETIRE CANDIDATE (confirmed quiet, not yet removable).
-    Under the authority flip this reconciler's save_table already drives presence,
-    and a clean human lifecycle leaves no ghost — it fired 0× over a multi-hour
-    authority soak. But it still guards a CROSS-system case presence can't prevent
-    (the cash-* game row purged/deleted while the persisted seat survives). Keep
-    as cheap insurance until that case is covered by a presence-backed read; see
-    docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md "Reconciler retirement".
+    A real UX need NOT covered by the read-side projection: the sit/sponsor
+    paths call this before claiming a new seat so a leftover hold from a
+    previously-tapped seat (player tapped seat A, opened the SponsorModal,
+    then tapped seat B instead) is freed rather than stranding seat A
+    against live-fill.
 
-    Used by the memory-miss leave path and the boot reconcile to catch
-    the case where the cash-* game row is gone (purged or deleted) but
-    the persisted seat survives. Without this, the lobby renders the
-    player as still seated at a vanished table and won't let them
-    actually enter the (deleted) game.
-
-    Also clears the player's own `"reserved"` sponsorship seat-holds:
-    the sit/sponsor paths call this before claiming a new seat, so a
-    leftover hold from a previously-tapped seat (player tapped seat A,
-    opened the SponsorModal, then tapped seat B instead) is freed
-    rather than stranding seat A against live-fill.
-
-    No chip refund — the persisted seat's `chips` field is the last
-    hand-boundary sync, not the true exit stack. The bankroll already
-    reflects the buy-in debit; the game's final settlement path
-    (full leave_table_locked) is the only source of truth for refund,
-    and we only fall back here when that path can't run.
+    Only `"reserved"` slots owned by this player are touched. Stale `"human"`
+    ghost seats are no longer swept here — the D1 read-side occupancy
+    projection renders an unconfirmed cache slot `open` on read, and the
+    deletion cascade frees the seat at the delete source; both self-heal on
+    the next save_table.
     """
     from cash_mode.tables import open_slot
     from flask_app.extensions import cash_table_repo
@@ -386,17 +373,15 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
         tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
     except Exception as e:
         logger.warning(
-            "[CASH] _free_ghost_human_seats: list_all_tables failed: %s",
+            "[CASH] _release_own_reserved_holds: list_all_tables failed: %s",
             e,
         )
         return 0
 
     freed = 0
-    ghost_human_freed = 0  # 'human' clears — the orphan R3a now prevents at source
     for table in tables:
         for idx, slot in enumerate(table.seats):
-            kind = slot.get("kind")
-            if kind not in ("human", "reserved"):
+            if slot.get("kind") != "reserved":
                 continue
             if slot.get("personality_id") != owner_id:
                 continue
@@ -406,31 +391,20 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
                     sandbox_id=sandbox_id,
                 )
                 logger.info(
-                    "[CASH] _free_ghost_human_seats: freed %s table=%r seat=%d owner=%r",
-                    kind, table.table_id, idx, owner_id,
+                    "[CASH] _release_own_reserved_holds: freed reserved "
+                    "table=%r seat=%d owner=%r",
+                    table.table_id,
+                    idx,
+                    owner_id,
                 )
                 freed += 1
-                if kind == "human":
-                    ghost_human_freed += 1
             except Exception as e:
                 logger.warning(
-                    "[CASH] _free_ghost_human_seats: save_table failed " "for %r:%d: %s",
+                    "[CASH] _release_own_reserved_holds: save_table failed " "for %r:%d: %s",
                     table.table_id,
                     idx,
                     e,
                 )
-    # RETIREMENT MONITOR (R4): clearing a 'reserved' hold is normal UX (abandoned
-    # SponsorModal). Clearing a 'human' ghost seat is the orphan R3a now prevents
-    # at the deletion source — so a non-zero count here post-R3 means a deletion
-    # path slipped past the sweep. Alert on it; once this stays 0 over a soak the
-    # ghost-seat half of this reconciler is dead (see CASH_MODE_TECH_DEBT.md §5 / R4).
-    if ghost_human_freed:
-        logger.warning(
-            "[CASH LIFECYCLE] _free_ghost_human_seats cleared %d HUMAN ghost seat(s) "
-            "for owner=%r — R3a should have freed these at the delete source; "
-            "investigate the deletion path that bypassed the sweep",
-            ghost_human_freed, owner_id,
-        )
     return freed
 
 
@@ -444,7 +418,7 @@ def _first_open_seat_index(table) -> Optional[int]:
     UI surfaced as a silently-disabled button), the sit/sponsor paths
     fall back to whatever seat IS open on the same table via this helper.
     Only a genuinely full table 409s. Part of the cash-seat-conflict
-    hardening — see `_free_ghost_human_seats` for the sibling sweep.
+    hardening — see `_release_own_reserved_holds` for the sibling helper.
     """
     for idx, slot in enumerate(table.seats):
         if slot.get("kind") == "open":
@@ -1280,13 +1254,13 @@ def sit_at_table():
         ), 409
 
     # Belt-and-suspenders against orphaned seats: the duplicate-session
-    # check above guards against duplicate game rows, but a stale human
-    # slot on `cash_tables` (left over after a leave path skipped its
-    # seat revert, or a purge that cleaned the game row without freeing
-    # the seat) won't show up there. Sweep any seats this owner is
-    # still occupying before claiming the new one — otherwise the
-    # `with_seat` below succeeds and the user double-seats.
-    _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+    # check above guards against duplicate game rows. A stale human slot on
+    # `cash_tables` no longer needs sweeping here — the read-side occupancy
+    # projection renders an unconfirmed cache slot `open` and self-heals on
+    # the next save_table. We DO release this player's own leftover
+    # `"reserved"` sponsorship hold (abandoned SponsorModal on another seat)
+    # so it can't strand a seat against live-fill before the new claim.
+    _release_own_reserved_holds(owner_id, sandbox_id=sandbox_id)
 
     # Affordability + sponsor-eligibility branching.
     player_bankroll = _load_or_seed_player_bankroll(owner_id)
@@ -1301,8 +1275,8 @@ def sit_at_table():
             #
             # Hold the per-sandbox seat lock for the read-check-reserve-save
             # — same race window as the self-funded claim below. The
-            # `_free_ghost_human_seats` sweep above already cleared any
-            # prior hold this player left on another seat.
+            # `_release_own_reserved_holds` above already cleared any
+            # prior reserved hold this player left on another seat.
             from cash_mode.tables import reserved_slot
             from flask_app.services import game_state_service
 
@@ -1362,13 +1336,11 @@ def sit_at_table():
     # updated table.
     #
     # Re-load the table here: `table` was the snapshot taken at the
-    # top of the route (line ~1005), but `_free_ghost_human_seats`
-    # above may have just rewritten the row to clear an orphan human
-    # slot. Using the stale snapshot would re-introduce the orphan
-    # when we `.with_seat()` + save below — last-write-wins on the
-    # `cash_tables` row. That's the regression that recreated a
-    # "ghost me" seat on session resume, which then survived the
-    # next leave and blocked AI live-fill on the abandoned chair.
+    # top of the route (line ~1005), but `_release_own_reserved_holds`
+    # above may have just rewritten the row to clear a leftover reserved
+    # hold. Using the stale snapshot would re-introduce the hold when we
+    # `.with_seat()` + save below — last-write-wins on the `cash_tables`
+    # row.
     from cash_mode.tables import human_slot
     from flask_app.services import game_state_service
 
@@ -1402,9 +1374,11 @@ def sit_at_table():
         # sit — preventing a double-book the cache alone would allow. Gated:
         # authority-off keeps the pure cash_tables check unchanged.
         from cash_mode import economy_flags as _ef
+
         if _ef.PRESENCE_AUTHORITY_ENABLED:
-            from flask_app.extensions import entity_presence_repo as _epr
             from cash_mode.presence import player_entity_id as _peid
+            from flask_app.extensions import entity_presence_repo as _epr
+
             if _epr is not None:
                 _me = _peid(owner_id)
 
@@ -1414,8 +1388,11 @@ def sit_at_table():
 
                 if not _presence_free(seat_index):
                     alt = next(
-                        (i for i, s in enumerate(table.seats)
-                         if s.get("kind") == "open" and _presence_free(i)),
+                        (
+                            i
+                            for i, s in enumerate(table.seats)
+                            if s.get("kind") == "open" and _presence_free(i)
+                        ),
                         None,
                     )
                     if alt is None:
@@ -1433,6 +1410,7 @@ def sit_at_table():
         # collide in the partial-unique index. Inside the sandbox lock per the
         # §6.1 atomicity contract.
         from cash_mode.lobby import _shadow_reconcile_table
+
         _shadow_reconcile_table(claimed_table, sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
@@ -2310,12 +2288,11 @@ def sponsor_and_sit():
         # /api/cash/sit 402 path reserved this seat for them while the
         # SponsorModal was open, so it'll read `"reserved"` (theirs)
         # rather than `"open"` here. Any other non-open kind is a real
-        # conflict. The `_free_ghost_human_seats` sweep inside the lock
+        # conflict. The `_release_own_reserved_holds` call inside the lock
         # below converts that hold back to "open" before we claim it.
         pre_kind = table.seats[seat_index]["kind"]
         held_by_me = (
-            pre_kind == "reserved"
-            and table.seats[seat_index].get("personality_id") == owner_id
+            pre_kind == "reserved" and table.seats[seat_index].get("personality_id") == owner_id
         )
         if pre_kind != "open" and not held_by_me:
             # The reservation lapsed (TTL) and the seat filled, or the
@@ -2331,19 +2308,18 @@ def sponsor_and_sit():
                     }
                 ), 409
             seat_index = alt
-        # Sweep any orphan human / reserved seats for this owner BEFORE
+        # Release this player's own leftover `"reserved"` hold BEFORE
         # claiming the new one — same defense sit_at_table uses, and it's
         # what converts this player's own hold back to "open" so the
-        # claim below succeeds. Reload after the sweep because it may
+        # claim below succeeds. Reload after the release because it may
         # have rewritten this table's row; building `with_seat` from a
-        # stale snapshot would resurrect the orphan (the regression we
-        # just fixed in sit). Hold the per-sandbox seat lock around the
-        # whole claim so the world ticker's live-fill can't clobber it
-        # (same race as sit).
+        # stale snapshot would resurrect the hold. Hold the per-sandbox
+        # seat lock around the whole claim so the world ticker's live-fill
+        # can't clobber it (same race as sit).
         from flask_app.services import game_state_service
 
         with game_state_service.get_sandbox_lock(sandbox_id):
-            _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+            _release_own_reserved_holds(owner_id, sandbox_id=sandbox_id)
             table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
             if table is None:
                 return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
@@ -2368,6 +2344,7 @@ def sponsor_and_sit():
             # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
             # sponsored human SIT, same rationale as the self-funded sit path.
             from cash_mode.lobby import _shadow_reconcile_table
+
             _shadow_reconcile_table(claimed_table, sandbox_id)
         preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
             claimed_table=claimed_table,
@@ -4309,9 +4286,7 @@ def offer_stake_to_ai():
                     "FAILED for %r; chip-ledger audit is the backstop",
                     target_pid,
                 )
-            return jsonify(
-                {"error": "Failed to record the stake — your chips were refunded."}
-            ), 500
+            return jsonify({"error": "Failed to record the stake — your chips were refunded."}), 500
 
     # STAKE_OFFERED event: actor=player, target=AI. Mirrors the
     # personality-staker path's event firing. Player extends trust;
@@ -4774,7 +4749,9 @@ def _leave_table_locked(owner_id: str, game_id: str):
             game_repo.delete_game(game_id)
         except Exception as e:
             logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
-        _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+        # (No human-seat sweep needed: the read-side occupancy projection
+        # renders a stale human slot `open` and it self-heals on the next
+        # save_table.)
         _purge_other_cash_rows(owner_id, except_game_id=None)
         bankroll_now = _load_or_seed_player_bankroll(owner_id).chips
         already_summary = _build_session_summary(
@@ -4825,13 +4802,10 @@ def _leave_table_locked(owner_id: str, game_id: str):
         except Exception as e:
             logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
         _purge_other_cash_rows(owner_id, except_game_id=None)
-        # Free any cash_tables human seat owned by this user — without
-        # this the lobby keeps rendering them as seated at a ghost table
-        # (the cash row is gone but the persisted seat survives). Chips
-        # on the seat are notional only (last hand-boundary sync); the
-        # bankroll already reflects the actual loss from buy-in, so we
-        # don't refund here.
-        _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+        # (No human-seat sweep needed: the cash row is gone, so the read-side
+        # occupancy projection renders the orphaned persisted seat `open`,
+        # and it self-heals on the next save_table. Chips on the seat are
+        # notional only — the bankroll already reflects the buy-in loss.)
         # Build a real summary from the durable cash_sessions row even
         # though we have no live state machine. The user spent time at
         # the table (buy-in, hands played) — surface what we know
@@ -5165,6 +5139,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
             # is illegal and swallowed — fine, the human is already gone.
             from cash_mode import presence_shadow
             from cash_mode.presence import PresenceEvent, player_entity_id
+
             presence_shadow.shadow_transition(
                 entity_id=player_entity_id(owner_id),
                 sandbox_id=sandbox_id,
@@ -5212,16 +5187,10 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     e,
                 )
 
-    # Cross-table sweep: catch human seats owned by this user that
-    # survived on ANY table (an earlier session ended without a clean
-    # leave — back-arrow, browser close, crashed Flask — or this very
-    # session had cash_table_id=NULL so the seat-specific free above
-    # never ran). Runs unconditionally: previously this was nested
-    # inside `if cash_table_id is not None:`, so sponsor sessions
-    # (which wrote NULL cash_table_id) leaked their lobby seat on
-    # leave. The helper walks every table, so it's safe and correct
-    # to call regardless of whether we knew this session's table.
-    _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+    # (No cross-table human-seat sweep needed here: the read-side occupancy
+    # projection renders any human slot this session left behind — including
+    # the cash_table_id=NULL sponsor-session case — as `open` on read, and it
+    # self-heals on the next save_table.)
 
     game_state_service.delete_game(game_id)
     # Best-effort: drop the persisted row too so the cash game doesn't
@@ -5337,29 +5306,12 @@ def top_up():
             return jsonify({"error": "Player not seated"}), 400
         human_player = state_machine.game_state.players[human_idx]
 
-        # Phase gate: between-hands phases are always safe. Mid-hand we
-        # only allow it once the human has folded — they can't act this
-        # hand, so the new chips just sit on the stack until the next
-        # deal. A still-active player topping up mid-hand would shift
-        # call/raise math underneath the AI opponents.
-        between_hands = state_machine.current_phase in (
-            PokerPhase.INITIALIZING_GAME,
-            PokerPhase.INITIALIZING_HAND,
-            PokerPhase.HAND_OVER,
-        )
-        if not between_hands and not human_player.is_folded:
-            return jsonify(
-                {
-                    "error": "Top up is only allowed between hands or after folding",
-                }
-            ), 400
-
-        bankroll = bankroll_repo.load_player_bankroll(owner_id)
-        if bankroll is None or bankroll.chips < amount:
-            return jsonify({"error": "Insufficient bankroll"}), 400
         # Mingling bankroll chips with stake chips would corrupt the
         # leave-time math (your top-up money would be taxed by the
-        # staker's cut). Force the player to settle first.
+        # staker's cut). Force the player to settle first. Checked before
+        # the phase branch so it applies to staged top-ups too — and it
+        # guarantees a session carrying a pending_topup never also has an
+        # active stake (the leave path relies on that).
         if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
             return jsonify(
                 {
@@ -5367,24 +5319,54 @@ def top_up():
                 }
             ), 400
 
-        new_stack = state_machine.game_state.players[human_idx].stack + amount
-        state_machine.game_state = state_machine.game_state.update_player(
-            human_idx,
-            stack=new_stack,
+        bankroll = bankroll_repo.load_player_bankroll(owner_id)
+        # Count chips already staged this hand so two quick clicks can't
+        # commit more than the bankroll can cover.
+        already_pending = int(game_data.get("pending_topup", 0) or 0)
+        if bankroll is None or bankroll.chips < amount + already_pending:
+            return jsonify({"error": "Insufficient bankroll"}), 400
+
+        # Phase gate. Between hands we add the chips to the live stack
+        # right now. Mid-hand — whether the player has folded or is still
+        # in the pot — we must NOT touch the live stack: it would shift
+        # the call/raise math under the opponents, and racing the
+        # auto-dealt next hand is exactly what used to make this request
+        # hang on the game lock and then 400. So we *stage* the chips:
+        # park the amount and let the next-hand dealer flush it. The
+        # bankroll is debited at flush time, not here, so a leave / bust /
+        # session-drop before the next deal can't strand committed chips.
+        between_hands = state_machine.current_phase in (
+            PokerPhase.INITIALIZING_GAME,
+            PokerPhase.INITIALIZING_HAND,
+            PokerPhase.HAND_OVER,
         )
 
-        new_bankroll = PlayerBankrollState(
-            player_id=bankroll.player_id,
-            chips=bankroll.chips - amount,
-            starting_bankroll=bankroll.starting_bankroll,
-            # Loan fields are 0 by virtue of the guard above; no need to copy.
-        )
-        bankroll_repo.save_player_bankroll(new_bankroll)
-
-        # Bump the durable session's total_buy_in so leave-time P&L counts
-        # this top-up as money put in (not won). Skipped silently if the
-        # session row doesn't exist (legacy game predating cash_sessions).
-        _increment_cash_session_buy_in(game_id, amount)
+        if between_hands:
+            new_stack = human_player.stack + amount
+            state_machine.game_state = state_machine.game_state.update_player(
+                human_idx,
+                stack=new_stack,
+            )
+            new_bankroll = PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=bankroll.chips - amount,
+                starting_bankroll=bankroll.starting_bankroll,
+                # Loan fields are 0 by virtue of the stake guard above.
+            )
+            bankroll_repo.save_player_bankroll(new_bankroll)
+            # Bump the durable session's total_buy_in so leave-time P&L
+            # counts this as money put in (not won), and emit the paired
+            # buy-in ledger row. Skipped silently if the session row is
+            # missing (legacy game predating cash_sessions).
+            _increment_cash_session_buy_in(game_id, amount)
+            staged_total = 0
+            response_bankroll = new_bankroll.chips
+        else:
+            staged_total = already_pending + amount
+            game_data["pending_topup"] = staged_total
+            game_state_service.set_game(game_id, game_data)
+            new_stack = human_player.stack
+            response_bankroll = bankroll.chips
 
     # Emit outside the lock — update_and_emit_game_state only reads, and the
     # game lock is non-reentrant.
@@ -5395,7 +5377,9 @@ def top_up():
     return jsonify(
         {
             "stack": new_stack,
-            "bankroll": new_bankroll.chips,
+            "bankroll": response_bankroll,
+            "staged": staged_total > 0,
+            "pending_topup": staged_total,
         }
     )
 
@@ -5410,16 +5394,22 @@ WHALE_BANKROLL_MULTIPLE = 20
 def _reputation_payload_from_snapshot(snap: Dict[str, Any]) -> Dict[str, Any]:
     """Shape a `prestige_snapshots` row into the lobby `reputation` payload.
 
-    The only rename is `captured_at` → `computed_at`; the renown_*/regard_*
-    columns are nested under `components` for the panel's explain affordance.
+    The v1 renames `captured_at` → `computed_at` and nests the renown_*/regard_*
+    columns under `components` for the panel's explain affordance. When the row
+    was written by the v2 formula (`formula_version == 'v2'`) it also carries the
+    uncapped `renown_v2`, the field `high_cut`, the human's `victim_percentile`,
+    the `field_size`, and the v2 driver breakdown under `renown_v2_components`;
+    the panel branches on `formula_version` to render the uncapped gauge instead
+    of the [0,1] bar. The v1 columns stay populated as a baseline either way.
     Named so the DB-column → wire-format mapping is in one testable place.
     """
-    return {
+    payload: Dict[str, Any] = {
         "renown": snap["renown"],
         "regard": snap["regard"],
         "quadrant": snap["quadrant"],
         "opponent_count": snap["opponent_count"],
         "computed_at": snap["captured_at"],
+        "formula_version": snap.get("formula_version") or "v1",
         "components": {
             "breadth": snap["renown_breadth"],
             "tenure": snap["renown_tenure"],
@@ -5431,6 +5421,20 @@ def _reputation_payload_from_snapshot(snap: Dict[str, Any]) -> Dict[str, Any]:
             "heat": snap["regard_heat"],
         },
     }
+    if (snap.get("formula_version") == "v2") and snap.get("renown_v2") is not None:
+        v2_components: Dict[str, Any] = {}
+        raw = snap.get("renown_v2_components")
+        if raw:
+            try:
+                v2_components = json.loads(raw)
+            except (ValueError, TypeError):
+                v2_components = {}
+        payload["renown_v2"] = snap["renown_v2"]
+        payload["high_cut"] = snap.get("high_cut")
+        payload["victim_percentile"] = snap.get("victim_percentile")
+        payload["field_size"] = snap.get("field_size")
+        payload["renown_v2_components"] = v2_components
+    return payload
 
 
 def _resolve_human_regard(sandbox_id: str, owner_id: str) -> Optional[float]:
@@ -5531,7 +5535,7 @@ def get_lobby():
         chip_ledger_repo=_chip_ledger_repo,
     )
 
-    # Career progression (v124): decide new-vs-legacy BEFORE ensure_lobby_seeded
+    # Career progression (v141): decide new-vs-legacy BEFORE ensure_lobby_seeded
     # creates the cardrooms. A truly brand-new sandbox (no cash_tables rows yet)
     # enters the Act-1 keyring flow — Scene 0 is seeded below and the lobby
     # filters to revealed rooms. An existing sandbox is grandfathered to the
@@ -5686,10 +5690,10 @@ def get_lobby():
             seated_table_id = active_game.get("cash_table_id")
             seated_stake_label = active_game.get("cash_stake_label")
             for name, controller in (active_game.get("ai_controllers") or {}).items():
-                emotional_state = getattr(controller, "emotional_state", None)
-                if emotional_state:
+                psych = getattr(controller, "psychology", None)
+                if psych is not None:
                     try:
-                        active_emotions[name] = emotional_state.get_display_emotion()
+                        active_emotions[name] = psych.get_display_emotion()
                     except Exception:
                         active_emotions[name] = "confident"
                 else:
@@ -5763,8 +5767,7 @@ def get_lobby():
         and bankroll.chips > 0
     ):
         try:
-            from core.economy.ledger import player as _player_entity
-            from core.economy.ledger import record_bank_pool_deposit
+            from core.economy.ledger import player as _player_entity, record_bank_pool_deposit
 
             record_bank_pool_deposit(
                 _chip_ledger_repo,
@@ -5783,7 +5786,7 @@ def get_lobby():
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
-    # Career keyring (v124): a player in the Act-1 flow sees only their scripted
+    # Career keyring (v141): a player in the Act-1 flow sees only their scripted
     # Scene-0 table + cardrooms they've been vouched into. Off (the default for
     # legacy/grandfathered sandboxes) this is a no-op and the full lobby shows.
     # The world economy still ran across ALL tables above (refresh/seed) — this

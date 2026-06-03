@@ -21,7 +21,6 @@ swallowed and the on-demand `/ask` path still works.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 
 logger = logging.getLogger(__name__)
@@ -86,9 +85,9 @@ def _build_proactive_payload(game_id: str, game_data: dict) -> dict | None:
     result = coach.get_proactive_tip(stats or {})
     coach_action = result.get('action')
     coach_raise_to = result.get('raise_to')
-    if os.getenv('COACH_HIGHLIGHT_SOURCE', 'coach') == 'coach' and coach_action and stats:
-        stats['recommendation'] = coach_action
-        stats['raise_to'] = coach_raise_to
+    from flask_app.services.coach_assistant import apply_coach_highlight
+
+    apply_coach_highlight(stats, coach_action, coach_raise_to)
     return {
         'answer': result.get('advice', ''),
         'coach_action': coach_action,

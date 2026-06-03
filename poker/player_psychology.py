@@ -57,6 +57,7 @@ from .psychology_model import (  # noqa: F401
     ComposureState,
     EmotionalAxes,
     EmotionalQuadrant,
+    EmotionFamily,
     PersonalityAnchors,
     PokerFaceZone,
     _clamp,
@@ -64,6 +65,7 @@ from .psychology_model import (  # noqa: F401
     compute_baseline_confidence,
     compute_modifiers,
     create_poker_face_zone,
+    get_emotion_family,
     get_quadrant,
 )
 from .zone_config import (  # noqa: F401
@@ -184,6 +186,17 @@ _PRESSURE_IMPACTS: Dict[str, Dict[str, float]] = {
     # ploy and bristle (composure dip). 'unmoved' never fires an event.
     'social_flattery_vain': {'confidence': 0.08, 'energy': 0.05},
     'social_flattery_seen_through': {'composure': -0.03},
+    # Emotional-layer quick-chat weapons (mid-hand intimidate / dare). These
+    # move the target's *play* and carry no relationship-axis effect. The
+    # asymmetry each is named for falls out of apply_pressure_event's filters
+    # for free, no extra classifier:
+    #   - intimidate: composure-led, so the (1-poise) filter makes the timid
+    #     rattle (→ play scared / fold) while the composed shrug it off.
+    #   - dare: confidence-led, so the EGO filter makes the proud puff up with
+    #     bravado (→ overplay / loose call) while the modest barely register —
+    #     the inverted asymmetry ("you can't dare a humble man into a call").
+    'social_intimidate': {'composure': -0.10, 'confidence': -0.04},
+    'social_dare': {'confidence': 0.08, 'energy': 0.04},
     # Player-prestige hook 4 (AI demeanor): sitting at a high-renown
     # human's table, applied once per hand. The villain press is
     # composure-led, so the (1-poise) filter in apply_pressure_event
@@ -467,6 +480,23 @@ class PlayerPsychology:
     _FLATTERY_VAIN_EGO_FLOOR = 0.60
     _FLATTERY_PERCEPTIVE_ADAPT_FLOOR = 0.50
 
+    # Sarcasm detection rides the same read-the-opponent trait as flattery's
+    # 'sees_through' (adaptation_bias). Below the floor the dry register flies
+    # over the character's head and they take the literal surface.
+    _SARCASM_DETECTION_ADAPT_FLOOR = 0.45
+
+    def _detects_sarcasm(self) -> bool:
+        """Whether this character catches sarcasm vs. taking it literally.
+
+        Pure function of adaptation_bias (the opponent-reading trait) — the
+        same axis that lets the perceptive 'see through' flattery. Below the
+        floor the register is missed and the recipient reacts to the LITERAL
+        message: a backhanded compliment lands as sincere praise, friendly
+        banter lands as a real jab. That inversion is what makes sarcasm a
+        read-dependent tool rather than a universally-understood one.
+        """
+        return self.anchors.adaptation_bias >= self._SARCASM_DETECTION_ADAPT_FLOOR
+
     def _classify_flattery_disposition(self) -> str:
         """Map this character's anchors to how it takes flattery (insincere or
         over-the-top praise).
@@ -520,6 +550,14 @@ class PlayerPsychology:
                 event_name = 'social_flattery_seen_through'
             else:
                 return  # unmoved — flattery washes over them
+        elif stimulus == 'intimidate':
+            # Composure-led press; the (1-poise) filter rattles the timid into
+            # playing scared (→ fold) and leaves the composed unmoved.
+            event_name = 'social_intimidate'
+        elif stimulus == 'dare':
+            # Confidence-led bravado spike; the ego filter makes the PROUD puff
+            # up and overplay (→ loose call) while the modest barely register.
+            event_name = 'social_dare'
         else:
             return
         self.apply_pressure_event(event_name, opponent=opponent, multiplier=multiplier)
@@ -1196,7 +1234,28 @@ class PlayerPsychology:
         """
         if self.is_severely_tilted or not self.emotional:
             return ""
-        return self.emotional.to_prompt_section()
+
+        # Quadrant-derived emotional block (replaces the deprecated 4D
+        # scalar section). The displayed feeling, composure category, and
+        # energy band come straight from the psychology axes; the narrative
+        # and inner_voice are the LLM's per-hand narration.
+        feeling = self.get_display_emotion(use_expression_filter=False).replace('_', ' ')
+        energy = self.axes.energy
+        energy_word = 'high' if energy >= 0.66 else 'moderate' if energy >= 0.33 else 'low'
+
+        lines = ["[YOUR EMOTIONAL STATE]"]
+        if self.emotional.narrative:
+            lines.append(self.emotional.narrative)
+            lines.append("")
+        lines.append(f"How you're feeling right now: {feeling}")
+        lines.append(f"  - Composure: {self.composure_category}")
+        lines.append(f"  - Energy: {energy_word}")
+        if self.emotional.inner_voice:
+            lines.append("")
+            lines.append(f'What\'s echoing in your head: "{self.emotional.inner_voice}"')
+        lines.append("")
+        lines.append("Let this influence your thinking and behavior - but you decide how much.")
+        return "\n".join(lines)
 
     def apply_zone_effects(self, prompt: str) -> str:
         """
@@ -1439,23 +1498,80 @@ class PlayerPsychology:
 
     # === AVATAR DISPLAY ===
 
+    # Family x quadrant x energy emotion vocabulary.
+    # The quadrant fixes the internal feeling; the temperament family (from
+    # anchors) chooses the surface emotion. Each cell is (high_energy,
+    # low_energy); energy > _TRUE_EMOTION_ENERGY_SPLIT picks the louder label.
+    # FUN_LOVER/STOIC are the new palettes; COMPETITOR/ANXIOUS preserve the
+    # historical behavior for the rest of the roster.
+    _EMOTION_MATRIX = {
+        EmotionFamily.COMPETITOR: {
+            EmotionalQuadrant.COMMANDING: ('smug', 'confident'),
+            EmotionalQuadrant.OVERHEATED: ('angry', 'frustrated'),
+            EmotionalQuadrant.GUARDED: ('nervous', 'thinking'),
+            EmotionalQuadrant.SHAKEN: ('shocked', 'nervous'),
+        },
+        EmotionFamily.FUN_LOVER: {
+            EmotionalQuadrant.COMMANDING: ('elated', 'happy'),
+            EmotionalQuadrant.OVERHEATED: ('giddy', 'gleeful'),
+            EmotionalQuadrant.GUARDED: ('happy', 'happy'),
+            EmotionalQuadrant.SHAKEN: ('sheepish', 'sheepish'),
+        },
+        EmotionFamily.STOIC: {
+            EmotionalQuadrant.COMMANDING: ('confident', 'poker_face'),
+            EmotionalQuadrant.OVERHEATED: ('frustrated', 'thinking'),
+            EmotionalQuadrant.GUARDED: ('thinking', 'poker_face'),
+            EmotionalQuadrant.SHAKEN: ('nervous', 'poker_face'),
+        },
+        EmotionFamily.ANXIOUS: {
+            EmotionalQuadrant.COMMANDING: ('confident', 'thinking'),
+            EmotionalQuadrant.OVERHEATED: ('frustrated', 'nervous'),
+            EmotionalQuadrant.GUARDED: ('nervous', 'thinking'),
+            EmotionalQuadrant.SHAKEN: ('nervous', 'nervous'),
+        },
+    }
+    _TRUE_EMOTION_ENERGY_SPLIT = 0.6
+
+    @property
+    def is_fish(self) -> bool:
+        """Persona-level fish archetype (the oblivious-tourist marks).
+
+        Distinct from the playstyle `archetype` property (TAG/LAG/Rock/Fish
+        derived from tightness x aggression) — this reads the curated persona's
+        declared archetype from its config.
+        """
+        return (self.personality_config or {}).get('archetype') == 'fish'
+
     def _get_true_emotion(self) -> str:
-        """Get the player's true emotional state (before expression filtering)."""
+        """Get the player's true emotional state (before expression filtering).
+
+        The quadrant (confidence x composure) determines the internal feeling;
+        the persona's emotion family (from anchors) determines which surface
+        emotion that feeling reads as. Energy picks the louder vs softer label
+        within the family/quadrant cell.
+        """
         quadrant = self.quadrant
         energy = self.axes.energy
-        aggression = self.effective_aggression
+        family = get_emotion_family(self.anchors)
 
-        if quadrant == EmotionalQuadrant.OVERHEATED and aggression > 0.6 and energy > 0.5:
-            return "angry"
+        cell = self._EMOTION_MATRIX.get(family, {}).get(quadrant)
+        if cell is None:
+            return "poker_face"
 
-        emotion_map = {
-            EmotionalQuadrant.COMMANDING: 'smug' if energy > 0.6 else 'confident',
-            EmotionalQuadrant.OVERHEATED: 'frustrated' if energy < 0.6 else 'angry',
-            EmotionalQuadrant.GUARDED: 'thinking' if energy < 0.5 else 'nervous',
-            EmotionalQuadrant.SHAKEN: 'nervous' if energy < 0.6 else 'shocked',
-        }
+        # Fish are written as relentlessly oblivious-happy ("Aw, ya got me —
+        # great hand, buddy! Deal again, deal again."). They never figure out
+        # they're the mark, so even a losing/SHAKEN fish stays cheerful instead
+        # of sheepish. Gated to archetype=='fish'; ordinary fun-lovers still feel
+        # the "oops" (sheepish) of a real beat.
+        if (
+            self.is_fish
+            and family is EmotionFamily.FUN_LOVER
+            and quadrant is EmotionalQuadrant.SHAKEN
+        ):
+            return 'gleeful' if energy > self._TRUE_EMOTION_ENERGY_SPLIT else 'happy'
 
-        return emotion_map.get(quadrant, "poker_face")
+        high_energy, low_energy = cell
+        return high_energy if energy > self._TRUE_EMOTION_ENERGY_SPLIT else low_energy
 
     def get_display_emotion(self, use_expression_filter: bool = True) -> str:
         """Get emotion for avatar display, with optional expression filtering."""

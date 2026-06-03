@@ -28,7 +28,15 @@ import { io } from 'socket.io-client';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play } from 'lucide-react';
 import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
-import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, sponsorAndSit, setWorldPace } from './api';
+import {
+  getLobby,
+  getState,
+  leaveTable,
+  releaseSeat,
+  sitAtTable,
+  sponsorAndSit,
+  setWorldPace,
+} from './api';
 import { SponsorModal } from './SponsorModal';
 import { LuckyStackIntake } from './LuckyStackIntake';
 import { TableCard } from './TableCard';
@@ -604,7 +612,10 @@ export function Lobby() {
     setSponsorState(null);
     if (held) {
       releaseSeat(held.tableId, held.seatIndex).catch((e) => {
-        logger.warn('Failed to release sponsorship seat-hold:', e instanceof Error ? e.message : String(e));
+        logger.warn(
+          'Failed to release sponsorship seat-hold:',
+          e instanceof Error ? e.message : String(e)
+        );
       });
     }
   }, [sponsorState]);
@@ -775,37 +786,37 @@ export function Lobby() {
 
           <div className="cash-entry__venues">
             {!inTutorial && (
-            <div className="cash-entry__tabs" role="tablist" aria-label="Table venues">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeVenue === 'cardroom'}
-                className={`cash-entry__tab${activeVenue === 'cardroom' ? ' is-active' : ''}`}
-                onClick={() => setActiveVenue('cardroom')}
-              >
-                <Spade size={15} aria-hidden="true" />
-                Cardroom
-                <span className="cash-entry__tab-count">{cardroomTables.length}</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeVenue === 'casino'}
-                className={`cash-entry__tab${activeVenue === 'casino' ? ' is-active' : ''}`}
-                onClick={() => setActiveVenue('casino')}
-              >
-                <Dices size={15} aria-hidden="true" />
-                Casino
-                <span className="cash-entry__tab-count">{casinoTables.length}</span>
-                {casinoClosingCount > 0 && (
-                  <Clock
-                    size={13}
-                    className="cash-entry__tab-closing"
-                    aria-label={`${casinoClosingCount} table${casinoClosingCount === 1 ? '' : 's'} closing`}
-                  />
-                )}
-              </button>
-            </div>
+              <div className="cash-entry__tabs" role="tablist" aria-label="Table venues">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeVenue === 'cardroom'}
+                  className={`cash-entry__tab${activeVenue === 'cardroom' ? ' is-active' : ''}`}
+                  onClick={() => setActiveVenue('cardroom')}
+                >
+                  <Spade size={15} aria-hidden="true" />
+                  Cardroom
+                  <span className="cash-entry__tab-count">{cardroomTables.length}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeVenue === 'casino'}
+                  className={`cash-entry__tab${activeVenue === 'casino' ? ' is-active' : ''}`}
+                  onClick={() => setActiveVenue('casino')}
+                >
+                  <Dices size={15} aria-hidden="true" />
+                  Casino
+                  <span className="cash-entry__tab-count">{casinoTables.length}</span>
+                  {casinoClosingCount > 0 && (
+                    <Clock
+                      size={13}
+                      className="cash-entry__tab-closing"
+                      aria-label={`${casinoClosingCount} table${casinoClosingCount === 1 ? '' : 's'} closing`}
+                    />
+                  )}
+                </button>
+              </div>
             )}
 
             {activeVenue === 'cardroom' ? (
@@ -949,7 +960,7 @@ export function Lobby() {
           character={dossier?.dossier ?? { name: '' }}
           origin={dossier?.origin}
           identifier={dossier?.identifier}
-          circuitContext  /* the lobby is always the Circuit */
+          circuitContext /* the lobby is always the Circuit */
           // Refresh the lobby intel surfaces (incl. the file cabinet behind
           // this card) after an informant purchase so unlock state updates.
           onIntelChanged={() => setStakablePanelTick((t) => t + 1)}

@@ -115,6 +115,23 @@ export interface DossierFieldPosition {
   af_label?: string;
 }
 
+/** B1 (Renown v2) — this AI's field-relative renown standing in the sandbox.
+ *  Null until the per-AI renown persist path has run (RENOWN_V2_PERSIST_AI on,
+ *  migration applied, the ticker has scored the field). Read-only. */
+export interface DossierReputation {
+  formula_version: 'v2';
+  /** "Beloved Legend" | "Infamous Villain" | "Up-and-comer" | "Disliked Nobody" */
+  quadrant: string;
+  /** Uncapped lifetime renown points (own-scale ratchet). */
+  renown_v2: number;
+  /** This AI's renown percentile across the field [0,1]. */
+  victim_percentile: number | null;
+  /** Field-wide "high renown" cut at capture time (gap to "figure"). */
+  high_cut: number | null;
+  /** Entities scored that cycle. */
+  field_size: number | null;
+}
+
 /** One relationship-event tally (clash or banter). */
 export interface DossierHistoryEvent {
   event: string;
@@ -241,6 +258,8 @@ export interface DossierResponse {
   cash_pair_stats: DossierCashPairStats | null;
   memorable_hands: DossierMemorableHand[];
   note: string | null;
+  /** B1 (Renown v2) AI standing badge. Null when not yet persisted. */
+  reputation?: DossierReputation | null;
   /** Scouting gate state (Phase 2). Null/absent when the dossier is
    *  ungated (no Circuit sandbox context). */
   scouting?: DossierScouting | null;

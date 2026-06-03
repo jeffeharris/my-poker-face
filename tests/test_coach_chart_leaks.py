@@ -143,13 +143,14 @@ class TestGatesAndTiers:
         assert big.leaks[0].status == 'confirmed'
 
     def test_ranked_worst_first(self):
-        ref = _ref({
-            '72o': {'fold': 0.95, 'call': 0.03, 'raise': 0.02},
-            'J5o': {'fold': 0.95, 'call': 0.03, 'raise': 0.02},
-        })
-        decisions = (
-            _decisions('72o', 'UTG', 'rfi', 'call', 8)
-            + _decisions('J5o', 'CO', 'rfi', 'call', 4)
+        ref = _ref(
+            {
+                '72o': {'fold': 0.95, 'call': 0.03, 'raise': 0.02},
+                'J5o': {'fold': 0.95, 'call': 0.03, 'raise': 0.02},
+            }
+        )
+        decisions = _decisions('72o', 'UTG', 'rfi', 'call', 8) + _decisions(
+            'J5o', 'CO', 'rfi', 'call', 4
         )
         rep = compute_chart_leaks(decisions, ref)
         assert [lk.hand for lk in rep.leaks] == ['72o', 'J5o']  # higher severity first
@@ -187,12 +188,20 @@ class TestCoverageAndSkips:
 
 
 class TestRecencySliceAndDiff:
-    def _dec(self, hand, action, n, *, scenario='rfi', position='SB', created=1, eff_bb=100, nplayers=6):
+    def _dec(
+        self, hand, action, n, *, scenario='rfi', position='SB', created=1, eff_bb=100, nplayers=6
+    ):
         return [
             {
-                'hand': hand, 'position': position, 'scenario': scenario, 'opener': None,
-                'effective_stack_bb': eff_bb, 'num_players': nplayers, 'action': action,
-                'created_at': f'2026-01-{created:02d} 00:00:00', 'hand_number': i,
+                'hand': hand,
+                'position': position,
+                'scenario': scenario,
+                'opener': None,
+                'effective_stack_bb': eff_bb,
+                'num_players': nplayers,
+                'action': action,
+                'created_at': f'2026-01-{created:02d} 00:00:00',
+                'hand_number': i,
             }
             for i in range(n)
         ]
@@ -243,9 +252,15 @@ class TestTrendAndDepth:
     def _dec(self, action, n, *, hand='72o', position='SB', eff_bb=100, start=0):
         return [
             {
-                'hand': hand, 'position': position, 'scenario': 'rfi', 'opener': None,
-                'effective_stack_bb': eff_bb, 'num_players': 6, 'action': action,
-                'created_at': '2026-01-01 00:00:00', 'hand_number': start + i,
+                'hand': hand,
+                'position': position,
+                'scenario': 'rfi',
+                'opener': None,
+                'effective_stack_bb': eff_bb,
+                'num_players': 6,
+                'action': action,
+                'created_at': '2026-01-01 00:00:00',
+                'hand_number': start + i,
             }
             for i in range(n)
         ]
@@ -316,6 +331,7 @@ class TestPromptText:
 class TestEffectivenessBaseline:
     def test_followed_solver_line_rules(self):
         from flask_app.services.coach_chart_leaks import followed_solver_line as f
+
         assert f('limp', 'raise') and f('limp', 'fold') and not f('limp', 'call')
         assert f('too_loose', 'fold') and not f('too_loose', 'call')
         assert f('over_fold', 'call') and not f('over_fold', 'fold')
@@ -323,10 +339,13 @@ class TestEffectivenessBaseline:
 
     def test_baseline_only_counts_leak_spots(self):
         from flask_app.services.coach_chart_leaks import compute_baseline_follow_rates
+
         decs = (
             [{'scenario': 'rfi', 'position': 'SB', 'action': 'call'} for _ in range(4)]
             + [{'scenario': 'rfi', 'position': 'SB', 'action': 'raise'} for _ in range(6)]
-            + [{'scenario': 'rfi', 'position': 'BTN', 'action': 'call'} for _ in range(5)]  # not a leak spot
+            + [
+                {'scenario': 'rfi', 'position': 'BTN', 'action': 'call'} for _ in range(5)
+            ]  # not a leak spot
         )
         ls = {'by_spot': {('rfi', 'SB'): {'kind': 'limp'}}}
         base = compute_baseline_follow_rates(decs, ls)
@@ -336,6 +355,7 @@ class TestEffectivenessBaseline:
 
     def test_merge_computes_lift(self):
         from flask_app.services.coach_chart_leaks import merge_effectiveness
+
         nudged = {
             'by_kind': {'limp': {'nudges': 5, 'followed': 4, 'follow_rate': 0.8}},
             'overall': {'nudges': 5, 'followed': 4, 'follow_rate': 0.8},
@@ -352,6 +372,7 @@ class TestEffectivenessBaseline:
 
     def test_merge_lift_none_when_missing(self):
         from flask_app.services.coach_chart_leaks import merge_effectiveness
+
         nudged = {'by_kind': {}, 'overall': {'nudges': 0, 'follow_rate': None}}
         baseline = {'by_kind': {}, 'overall': {'n': 0, 'rate': None}}
         assert merge_effectiveness(nudged, baseline)['overall']['lift'] is None

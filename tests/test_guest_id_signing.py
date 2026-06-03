@@ -63,8 +63,16 @@ class TestForgeryResistance:
         monkeypatch.setenv('FLASK_ENV', 'production')
 
         signed = auth_manager._sign_guest_id('guest_' + 'c' * 32)
-        # Tamper with the last character of the signature
-        tampered = signed[:-1] + ('A' if signed[-1] != 'A' else 'B')
+        # Tamper with the FIRST character of the signature segment. NOT the
+        # last char of the whole value: the signature is base64url without
+        # padding, so its final char carries "don't-care" low bits — flipping
+        # it decodes to the same HMAC bytes ~7% of the time (a no-op, not a
+        # real tamper), which made this assertion flaky depending on the
+        # timestamp-derived signature. The first signature char is fully
+        # significant, so the tamper is always detected.
+        sig_start = signed.rfind('.') + 1
+        flipped = 'A' if signed[sig_start] != 'A' else 'B'
+        tampered = signed[:sig_start] + flipped + signed[sig_start + 1 :]
         result = auth_manager._unsign_guest_id(tampered)
         assert result is None
 

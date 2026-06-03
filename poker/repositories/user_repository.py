@@ -403,6 +403,50 @@ class UserRepository(BaseRepository):
                 'last_active': last_active,
             }
 
+    def get_all_user_stats(self) -> Dict[str, Dict[str, Any]]:
+        """Get stats for every user in two batched aggregations.
+
+        Equivalent to calling get_user_stats() per user, but avoids the N+1
+        problem (which ran 4 aggregations over api_usage/games per user).
+        Returns a dict mapping user_id -> stats. Users with no activity are
+        absent from the dict; callers should default to zeroed stats.
+        """
+        with self._get_connection() as conn:
+            usage_rows = conn.execute(
+                """
+                SELECT owner_id,
+                       COALESCE(SUM(estimated_cost), 0) AS total_cost,
+                       SUM(CASE WHEN call_type = 'player_decision' THEN 1 ELSE 0 END)
+                           AS hands_played,
+                       MAX(created_at) AS last_active
+                FROM api_usage
+                WHERE owner_id IS NOT NULL
+                GROUP BY owner_id
+            """
+            ).fetchall()
+            usage = {row['owner_id']: row for row in usage_rows}
+
+            games_rows = conn.execute(
+                """
+                SELECT owner_id, COUNT(DISTINCT game_id) AS games_completed
+                FROM games
+                WHERE owner_id IS NOT NULL
+                GROUP BY owner_id
+            """
+            ).fetchall()
+            games = {row['owner_id']: row['games_completed'] for row in games_rows}
+
+        stats: Dict[str, Dict[str, Any]] = {}
+        for owner_id in set(usage) | set(games):
+            u = usage.get(owner_id)
+            stats[owner_id] = {
+                'total_cost': round(u['total_cost'], 4) if u else 0,
+                'hands_played': (u['hands_played'] or 0) if u else 0,
+                'games_completed': games.get(owner_id, 0),
+                'last_active': u['last_active'] if u else None,
+            }
+        return stats
+
     def initialize_admin_from_env(self) -> Optional[str]:
         """Assign admin group to user with INITIAL_ADMIN_EMAIL.
 

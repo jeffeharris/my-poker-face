@@ -120,21 +120,15 @@ def _allin_ctx() -> DecisionContext:
 
 
 def _facing_strategy() -> StrategyProfile:
-    return StrategyProfile(
-        action_probabilities={'fold': 0.20, 'call': 0.50, 'raise_75': 0.30}
-    )
+    return StrategyProfile(action_probabilities={'fold': 0.20, 'call': 0.50, 'raise_75': 0.30})
 
 
 def _open_strategy() -> StrategyProfile:
-    return StrategyProfile(
-        action_probabilities={'check': 0.30, 'raise_50': 0.30, 'raise_75': 0.40}
-    )
+    return StrategyProfile(action_probabilities={'check': 0.30, 'raise_50': 0.30, 'raise_75': 0.40})
 
 
 def _oop_facing_strategy() -> StrategyProfile:
-    return StrategyProfile(
-        action_probabilities={'fold': 0.10, 'call': 0.60, 'raise_75': 0.30}
-    )
+    return StrategyProfile(action_probabilities={'fold': 0.10, 'call': 0.60, 'raise_75': 0.30})
 
 
 # ── Assertion helper ───────────────────────────────────────────────
@@ -211,41 +205,44 @@ class TestFacingBetInduceGolden:
             'call': 0.7666666666666666,
             'raise_75': 0.2333333333333334,
         }
-        _assert_trace(trace, {
-            'layer': 'induce_override',
-            'rule_id': 'default',
-            'layer_order': 2,
-            'fired': True,
-            'operation': 'override',
-            'effect': 'smooth_call',
-            'effect_size': 0.5333333333333332,
-            'action_changed': False,
-            'primary_action_before': 'call',
-            'primary_action_after': 'call',
-            'reason_code': 'induced_flop_facing_bet',
-            'rationale': (
-                'induce override: nuts IP on flop, barrel_freq=0.90, '
-                'barrel_opps=20, call_prob=0.77, stack=100.0 BB '
-                '→ smooth-call to induce barrel'
-            ),
-            'inputs': {
-                'hand_strength': 'nuts',
-                'nut_status': 'actual_nuts',
-                'street': 'flop',
-                'position': 'IP',
-                'danger_flag_count': 0,
-                'effective_stack_bb': 100.0,
-                'active_opponent_count': 1,
-                'barrel_frequency': 0.9,
-                'barrel_opportunities': 20,
-                'third_barrel_frequency': 0.5,
-                'third_barrel_opportunities': 0,
-                'call_probability': 0.7667,
-                'hands_observed': 30,
+        _assert_trace(
+            trace,
+            {
+                'layer': 'induce_override',
+                'rule_id': 'default',
+                'layer_order': 2,
+                'fired': True,
+                'operation': 'override',
+                'effect': 'smooth_call',
+                'effect_size': 0.5333333333333332,
+                'action_changed': False,
+                'primary_action_before': 'call',
+                'primary_action_after': 'call',
+                'reason_code': 'induced_flop_facing_bet',
+                'rationale': (
+                    'induce override: nuts IP on flop, barrel_freq=0.90, '
+                    'barrel_opps=20, call_prob=0.77, stack=100.0 BB '
+                    '→ smooth-call to induce barrel'
+                ),
+                'inputs': {
+                    'hand_strength': 'nuts',
+                    'nut_status': 'actual_nuts',
+                    'street': 'flop',
+                    'position': 'IP',
+                    'danger_flag_count': 0,
+                    'effective_stack_bb': 100.0,
+                    'active_opponent_count': 1,
+                    'barrel_frequency': 0.9,
+                    'barrel_opportunities': 20,
+                    'third_barrel_frequency': 0.5,
+                    'third_barrel_opportunities': 0,
+                    'call_probability': 0.7667,
+                    'hands_observed': 30,
+                },
+                'input_strategy_summary': {'call': 0.5, 'fold': 0.2, 'raise_75': 0.3},
+                'output_strategy_summary': {'call': 0.7667, 'raise_75': 0.2333},
             },
-            'input_strategy_summary': {'call': 0.5, 'fold': 0.2, 'raise_75': 0.3},
-            'output_strategy_summary': {'call': 0.7667, 'raise_75': 0.2333},
-        })
+        )
 
     def test_noop_facing_all_in(self):
         strategy = _facing_strategy()
@@ -296,46 +293,49 @@ class TestOpenSpotInduceGolden:
             'raise_50': 0.15000000000000002,
             'raise_75': 0.15000000000000002,
         }
-        _assert_trace(trace, {
-            'layer': 'induce_override',
-            'rule_id': 'default',
-            'layer_order': 2,
-            'fired': True,
-            'operation': 'override',
-            'effect': 'check_back',
-            'effect_size': 0.7999999999999999,
-            'action_changed': True,
-            'primary_action_before': 'raise_75',
-            'primary_action_after': 'check',
-            'reason_code': 'induced_flop_open_spot',
-            'rationale': (
-                'induce override: nuts IP on flop open spot, fcb_rate=0.80, '
-                'fcb_opps=20, stack=100.0 BB → check back to induce barrel'
-            ),
-            'inputs': {
-                'hand_strength': 'nuts',
-                'nut_status': 'actual_nuts',
-                'street': 'flop',
-                'position': 'IP',
-                'danger_flag_count': 0,
-                'effective_stack_bb': 100.0,
-                'active_opponent_count': 1,
-                'flop_check_then_barrel_rate': 0.8,
-                'flop_check_barrel_opportunities': 20,
-                'check_probability': 0.7,
-                'hands_observed': 30,
+        _assert_trace(
+            trace,
+            {
+                'layer': 'induce_override',
+                'rule_id': 'default',
+                'layer_order': 2,
+                'fired': True,
+                'operation': 'override',
+                'effect': 'check_back',
+                'effect_size': 0.7999999999999999,
+                'action_changed': True,
+                'primary_action_before': 'raise_75',
+                'primary_action_after': 'check',
+                'reason_code': 'induced_flop_open_spot',
+                'rationale': (
+                    'induce override: nuts IP on flop open spot, fcb_rate=0.80, '
+                    'fcb_opps=20, stack=100.0 BB → check back to induce barrel'
+                ),
+                'inputs': {
+                    'hand_strength': 'nuts',
+                    'nut_status': 'actual_nuts',
+                    'street': 'flop',
+                    'position': 'IP',
+                    'danger_flag_count': 0,
+                    'effective_stack_bb': 100.0,
+                    'active_opponent_count': 1,
+                    'flop_check_then_barrel_rate': 0.8,
+                    'flop_check_barrel_opportunities': 20,
+                    'check_probability': 0.7,
+                    'hands_observed': 30,
+                },
+                'input_strategy_summary': {
+                    'check': 0.3,
+                    'raise_50': 0.3,
+                    'raise_75': 0.4,
+                },
+                'output_strategy_summary': {
+                    'check': 0.7,
+                    'raise_50': 0.15,
+                    'raise_75': 0.15,
+                },
             },
-            'input_strategy_summary': {
-                'check': 0.3,
-                'raise_50': 0.3,
-                'raise_75': 0.4,
-            },
-            'output_strategy_summary': {
-                'check': 0.7,
-                'raise_50': 0.15,
-                'raise_75': 0.15,
-            },
-        })
+        )
 
     def test_noop_facing_all_in(self):
         strategy = _open_strategy()
@@ -386,47 +386,50 @@ class TestOOPTrapCheckGolden:
             'raise_50': 0.09999999999999998,
             'raise_75': 0.09999999999999998,
         }
-        _assert_trace(trace, {
-            'layer': 'induce_override',
-            'rule_id': 'default',
-            'layer_order': 2,
-            'fired': True,
-            'operation': 'override',
-            'effect': 'trap_check',
-            'effect_size': 1.0,
-            'action_changed': True,
-            'primary_action_before': 'raise_75',
-            'primary_action_after': 'check',
-            'reason_code': 'induced_flop_oop_trap_check',
-            'rationale': (
-                'induce override: nuts OOP on flop open spot, '
-                'cbet_attempt_rate=0.90, pfr_seen=15, stack=100.0 BB '
-                '→ check to set check-raise trap'
-            ),
-            'inputs': {
-                'hand_strength': 'nuts',
-                'nut_status': 'actual_nuts',
-                'street': 'flop',
-                'position': 'OOP',
-                'danger_flag_count': 0,
-                'effective_stack_bb': 100.0,
-                'active_opponent_count': 1,
-                'cbet_attempt_rate': 0.9,
-                'postflop_seen_as_pfr_count': 15,
-                'check_probability': 0.8,
-                'hands_observed': 30,
+        _assert_trace(
+            trace,
+            {
+                'layer': 'induce_override',
+                'rule_id': 'default',
+                'layer_order': 2,
+                'fired': True,
+                'operation': 'override',
+                'effect': 'trap_check',
+                'effect_size': 1.0,
+                'action_changed': True,
+                'primary_action_before': 'raise_75',
+                'primary_action_after': 'check',
+                'reason_code': 'induced_flop_oop_trap_check',
+                'rationale': (
+                    'induce override: nuts OOP on flop open spot, '
+                    'cbet_attempt_rate=0.90, pfr_seen=15, stack=100.0 BB '
+                    '→ check to set check-raise trap'
+                ),
+                'inputs': {
+                    'hand_strength': 'nuts',
+                    'nut_status': 'actual_nuts',
+                    'street': 'flop',
+                    'position': 'OOP',
+                    'danger_flag_count': 0,
+                    'effective_stack_bb': 100.0,
+                    'active_opponent_count': 1,
+                    'cbet_attempt_rate': 0.9,
+                    'postflop_seen_as_pfr_count': 15,
+                    'check_probability': 0.8,
+                    'hands_observed': 30,
+                },
+                'input_strategy_summary': {
+                    'check': 0.3,
+                    'raise_50': 0.3,
+                    'raise_75': 0.4,
+                },
+                'output_strategy_summary': {
+                    'check': 0.8,
+                    'raise_50': 0.1,
+                    'raise_75': 0.1,
+                },
             },
-            'input_strategy_summary': {
-                'check': 0.3,
-                'raise_50': 0.3,
-                'raise_75': 0.4,
-            },
-            'output_strategy_summary': {
-                'check': 0.8,
-                'raise_50': 0.1,
-                'raise_75': 0.1,
-            },
-        })
+        )
 
     def test_noop_facing_all_in(self):
         strategy = _open_strategy()
@@ -476,45 +479,48 @@ class TestOOPCheckRaiseGolden:
             'call': 0.19999999999999996,
             'raise_75': 0.8,
         }
-        _assert_trace(trace, {
-            'layer': 'induce_override',
-            'rule_id': 'default',
-            'layer_order': 2,
-            'fired': True,
-            'operation': 'override',
-            'effect': 'check_raise',
-            'effect_size': 1.0,
-            'action_changed': True,
-            'primary_action_before': 'call',
-            'primary_action_after': 'raise_75',
-            'reason_code': 'induced_flop_oop_check_raise',
-            'rationale': (
-                'induce override: nuts OOP on flop facing cbet, '
-                'cbet_attempt_rate=0.90, barrel_freq=0.80, pfr_seen=15, '
-                'stack=100.0 BB → check-raise to complete trap'
-            ),
-            'inputs': {
-                'hand_strength': 'nuts',
-                'nut_status': 'actual_nuts',
-                'street': 'flop',
-                'position': 'OOP',
-                'danger_flag_count': 0,
-                'effective_stack_bb': 100.0,
-                'active_opponent_count': 1,
-                'cbet_attempt_rate': 0.9,
-                'postflop_seen_as_pfr_count': 15,
-                'barrel_frequency': 0.8,
-                'barrel_opportunities': 10,
-                'raise_probability': 0.8,
-                'hands_observed': 30,
+        _assert_trace(
+            trace,
+            {
+                'layer': 'induce_override',
+                'rule_id': 'default',
+                'layer_order': 2,
+                'fired': True,
+                'operation': 'override',
+                'effect': 'check_raise',
+                'effect_size': 1.0,
+                'action_changed': True,
+                'primary_action_before': 'call',
+                'primary_action_after': 'raise_75',
+                'reason_code': 'induced_flop_oop_check_raise',
+                'rationale': (
+                    'induce override: nuts OOP on flop facing cbet, '
+                    'cbet_attempt_rate=0.90, barrel_freq=0.80, pfr_seen=15, '
+                    'stack=100.0 BB → check-raise to complete trap'
+                ),
+                'inputs': {
+                    'hand_strength': 'nuts',
+                    'nut_status': 'actual_nuts',
+                    'street': 'flop',
+                    'position': 'OOP',
+                    'danger_flag_count': 0,
+                    'effective_stack_bb': 100.0,
+                    'active_opponent_count': 1,
+                    'cbet_attempt_rate': 0.9,
+                    'postflop_seen_as_pfr_count': 15,
+                    'barrel_frequency': 0.8,
+                    'barrel_opportunities': 10,
+                    'raise_probability': 0.8,
+                    'hands_observed': 30,
+                },
+                'input_strategy_summary': {
+                    'call': 0.6,
+                    'fold': 0.1,
+                    'raise_75': 0.3,
+                },
+                'output_strategy_summary': {'call': 0.2, 'raise_75': 0.8},
             },
-            'input_strategy_summary': {
-                'call': 0.6,
-                'fold': 0.1,
-                'raise_75': 0.3,
-            },
-            'output_strategy_summary': {'call': 0.2, 'raise_75': 0.8},
-        })
+        )
 
     def test_noop_facing_all_in(self):
         strategy = _oop_facing_strategy()

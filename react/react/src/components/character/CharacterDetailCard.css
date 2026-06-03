@@ -608,6 +608,66 @@
 }
 
 /* ───────────────────────────────────────────────────────────────
+   Renown badge (B1 — field-relative AI standing)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__renown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  border-left: 3px solid var(--ink-soft);
+  background: var(--paper-lo);
+}
+
+.dossier__renown-glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.dossier__renown-quadrant {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.dossier__renown-score {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.dossier__renown-pct {
+  flex-basis: 100%;
+  font-size: 9px;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+/* Quadrant treatments — borrow the existing palette. */
+.dossier__renown--legend {
+  border-left-color: var(--gold-leaf);
+  color: var(--gold-bright);
+}
+.dossier__renown--villain {
+  border-left-color: var(--crimson);
+  color: var(--crimson-wet);
+}
+.dossier__renown--comer {
+  border-left-color: var(--emerald);
+  color: var(--emerald-deep);
+}
+.dossier__renown--nobody {
+  border-left-color: var(--ink-faint);
+  color: var(--ink-soft);
+}
+
+/* ───────────────────────────────────────────────────────────────
    Section rule (— PROFILE —)
    ─────────────────────────────────────────────────────────────── */
 
@@ -1354,7 +1414,9 @@
   border-radius: 3px;
   padding: 0.3rem 0.55rem;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.05s ease;
+  transition:
+    background 0.15s ease,
+    transform 0.05s ease;
 }
 .dossier__informant-buy-price {
   font-family: 'JetBrains Mono', monospace;

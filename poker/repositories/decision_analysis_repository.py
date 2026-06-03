@@ -48,7 +48,6 @@ class DecisionAnalysisRepository(BaseRepository):
                     hand_rank, relative_strength,
                     equity_vs_ranges, opponent_positions,
                     tilt_level, tilt_source,
-                    valence, arousal, control, focus,
                     display_emotion, elastic_aggression, elastic_bluff_tendency,
                     elastic_tightness, elastic_confidence, elastic_composure, elastic_table_talk,
                     opponent_ranges_json, board_texture_json,
@@ -63,7 +62,7 @@ class DecisionAnalysisRepository(BaseRepository):
                     intervention_trace_json,
                     strategy_pipeline_snapshot_json,
                     preflop_node_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     data.get('request_id'),
@@ -102,10 +101,6 @@ class DecisionAnalysisRepository(BaseRepository):
                     data.get('opponent_positions'),
                     data.get('tilt_level'),
                     data.get('tilt_source'),
-                    data.get('valence'),
-                    data.get('arousal'),
-                    data.get('control'),
-                    data.get('focus'),
                     data.get('display_emotion'),
                     data.get('elastic_aggression'),
                     data.get('elastic_bluff_tendency'),
@@ -245,7 +240,7 @@ class DecisionAnalysisRepository(BaseRepository):
                 SELECT *
                 FROM player_decision_analysis
                 {where_clause}
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
             """
             params.extend([limit, offset])

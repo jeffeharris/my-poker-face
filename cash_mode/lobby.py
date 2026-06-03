@@ -29,13 +29,23 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
+# authoritative `save_table` seat write into the dormant `entity_presence`
+# table via `presence_shadow.shadow_transition`, which is a guarded no-op
+# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
+# in try/except so it can never break the real seat write it shadows. See
+# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
+from cash_mode import presence_shadow
 from cash_mode.attractiveness import (
     CASINO_VENUE_APPEAL,
     DEFAULT_SEEK_RATE,
     FillableTable,
     SeatSeeker,
     assign_seats_greedy,
+    glory_appetite,
+    occ_prestige,
     seeker_buy_in,
+    status_appetite,
 )
 from cash_mode.bankroll import (
     AIBankrollState,
@@ -58,6 +68,8 @@ from cash_mode.movement import (
     refresh_table_roster,
     reseat_readiness,
 )
+from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
+from cash_mode.scalps import eliminations_from_sim
 from cash_mode.seat_registry import SeatOccupancyRegistry
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
@@ -73,15 +85,6 @@ from cash_mode.tables import (
     ai_slot,
     open_slot,
 )
-
-# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
-# authoritative `save_table` seat write into the dormant `entity_presence`
-# table via `presence_shadow.shadow_transition`, which is a guarded no-op
-# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
-# in try/except so it can never break the real seat write it shadows. See
-# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
-from cash_mode import presence_shadow
-from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +140,19 @@ def _shadow_repo():
         return None
 
 
+def _cash_scalps_repo():
+    """Lazily resolve the durable scalp counter from extensions (mirrors the
+    entity-presence getter so the lobby stays import-light / Flask-free in
+    tests). Returns None when unwired (sim / cold boot / tests) — scalp
+    recording then degrades to a no-op, never breaking the world tick."""
+    try:
+        from flask_app import extensions
+
+        return getattr(extensions, "cash_scalps_repo", None)
+    except Exception:  # noqa: BLE001 — scalp recording must never break the tick
+        return None
+
+
 def _shadow_reconcile_table(
     table: CashTableState,
     sandbox_id: Optional[str],
@@ -182,6 +198,7 @@ def _shadow_reconcile_table(
     # So skip entirely once authority is on; the chokepoint is the sole seat
     # writer. (Off-grid mirroring still runs via presence_shadow.)
     from cash_mode import economy_flags
+
     if getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
         return
     if repo is None:
@@ -204,7 +221,8 @@ def _shadow_reconcile_table(
     # SEATED at THIS table who is not still in the new map at the same seat.
     try:
         seated_here = [
-            s for s in repo.list_for_sandbox(sandbox_id)
+            s
+            for s in repo.list_for_sandbox(sandbox_id)
             if s.is_seated and s.table_id == table.table_id
         ]
     except Exception:  # noqa: BLE001 — read failure must not break the real path
@@ -764,6 +782,7 @@ def _process_global_greedy_fills(
     rng,
     seek_rate: float = DEFAULT_SEEK_RATE,
     human_headroom: int = 0,
+    renown_percentiles: Optional[Dict[str, float]] = None,
 ) -> None:
     """The loop inversion (CASH_MODE_TABLE_ATTRACTIVENESS.md §2).
 
@@ -813,12 +832,24 @@ def _process_global_greedy_fills(
             continue
         is_lobby = tbl.table_type == "lobby"
         grinders = fish_chips = whale_chips = 0
+        occ_pcts: List[float] = []  # seated entities' renown percentiles (B4 marquee)
         for s in tbl.seats:
-            if s.get("kind") != "ai":
+            kind = s.get("kind")
+            # Marquee (Renown-v2 B4): collect every seated entity's field-renown
+            # percentile — AIs by personality_id, the human by owner/user id —
+            # so a famous occupant makes the table a draw. occ_prestige ignores
+            # missing/zero, so this is inert until renown is persisted.
+            if renown_percentiles is not None and kind in ("ai", "human"):
+                sid = s.get("personality_id") or s.get("owner_id") or s.get("user_id")
+                if sid:
+                    occ_pcts.append(renown_percentiles.get(sid, 0.0))
+            if kind != "ai":
                 continue
-            if s.get("archetype") == "fish":
+            if s.get("personality_id") in fish_ids:
                 # A fish at a lobby table IS the whale (regular fish are
-                # casino-only); weigh it as a whale.
+                # casino-only); weigh it as a whale. Count by persona
+                # identity (not the `archetype='fish'` seat stamp) so an
+                # un-stamped fish seat can't masquerade as a grinder.
                 if is_lobby:
                     whale_chips += int(s.get("chips", 0))
                 else:
@@ -838,6 +869,7 @@ def _process_global_greedy_fills(
             # baseline, but the fish draw rides over it and it stays a valid
             # open-to-all fallback (CASINO_VENUE_APPEAL).
             venue_appeal=CASINO_VENUE_APPEAL if tbl.table_type == "casino" else 1.0,
+            marquee_prestige=occ_prestige(occ_pcts) if renown_percentiles is not None else 0.0,
         )
         fill_indices[tid] = usable
     if not tables_state:
@@ -849,6 +881,25 @@ def _process_global_greedy_fills(
         if pid not in _knobs_cache:
             _knobs_cache[pid] = bankroll_repo.load_personality_knobs(pid)
         return _knobs_cache[pid]
+
+    # B4 prestige-seeking: the showman trait factor for `status_appetite`,
+    # from the personality's expressiveness + ego anchors (neutral 0.5 on any
+    # miss). Loaded only for actual seekers (a handful per tick) and cached.
+    _glory_cache: Dict[str, float] = {}
+
+    def _glory(pid: str) -> float:
+        if pid not in _glory_cache:
+            expr = ego = 0.5
+            try:
+                cfg = personality_repo.load_personality_by_id(pid) or {}
+                anchors = cfg.get("anchors")
+                if isinstance(anchors, dict):
+                    expr = float(anchors.get("expressiveness", 0.5))
+                    ego = float(anchors.get("ego", 0.5))
+            except Exception:
+                pass  # neutral default on any miss
+            _glory_cache[pid] = glory_appetite(expressiveness=expr, ego=ego)
+        return _glory_cache[pid]
 
     def _recovery_fraction(pid: str, left_at) -> float:
         """Recovery toward baseline for an idle AI (1.0 = fully rested) —
@@ -875,9 +926,7 @@ def _process_global_greedy_fills(
             projected = project_idle_energy(stored, baseline, idle_seconds)
         return 1.0 if baseline <= 0 else min(1.0, projected / baseline)
 
-    def _can_afford_target(
-        target_stake: str, projected: int, buy_in_multiplier: float
-    ) -> bool:
+    def _can_afford_target(target_stake: str, projected: int, buy_in_multiplier: float) -> bool:
         """Whether `projected` covers this AI's ACTUAL buy-in at `target_stake`.
 
         Must mirror the placement gate (`assign_seats_greedy` →
@@ -939,14 +988,23 @@ def _process_global_greedy_fills(
                 entry is not None
                 and entry.target_stake is not None
                 and entry.target_stake != ft.stake_label
-                and _can_afford_target(
-                    entry.target_stake, projected, knobs.buy_in_multiplier
-                )
+                and _can_afford_target(entry.target_stake, projected, knobs.buy_in_multiplier)
             ):
                 continue  # target-stake stickiness (relaxed if can't afford target)
             allowed.add(tid)
         if not allowed:
             continue
+        # B4: this AI's prestige-seeking rank — its own renown percentile
+        # blended with its showman (glory) trait. 0 when prestige-seeking is
+        # off (renown_percentiles is None), making the marquee term inert.
+        appetite = (
+            status_appetite(
+                own_percentile=renown_percentiles.get(pid, 0.0),
+                glory=_glory(pid),
+            )
+            if renown_percentiles is not None
+            else 0.0
+        )
         seekers.append(
             SeatSeeker(
                 personality_id=pid,
@@ -955,6 +1013,7 @@ def _process_global_greedy_fills(
                 comfort_zone=knobs.stake_comfort_zone or STAKES_ORDER[0],
                 allowed_table_ids=frozenset(allowed),
                 buy_in_multiplier=knobs.buy_in_multiplier,
+                status_appetite=appetite,
             )
         )
         if entry is not None:
@@ -1067,12 +1126,27 @@ def refresh_unseated_tables(
     # When None, the side hustle is disabled. Optional for the same
     # back-compat reason as vice_repo. See CASH_MODE_SIDE_HUSTLE.md.
     side_hustle_repo=None,
+    # Renown-v2 B4 (prestige-seeking). When provided AND
+    # PRESTIGE_SEEKING_ENABLED, the global greedy fill adds the marquee term:
+    # status-seeking AIs are pulled toward tables seating high-renown players.
+    # None (or flag off) → no renown read, no marquee effect. Optional for the
+    # back-compat reason as the other repos.
+    prestige_snapshots_repo=None,
     # Vice mode — which vice mechanism (if any) feeds the bank pool this
     # refresh: one of `economy_flags.VICE_MODES` ('real' | 'fake' | 'off'),
     # mutually exclusive by construction. None → use the live default
     # `economy_flags.VICE_MODE`. The sim passes 'fake' (real vice needs an
     # LLM call per fire). See economy_flags.VICE_MODE / CASH_MODE_SIDE_HUSTLE.md.
     vice_mode: Optional[str] = None,
+    # When real vice fires, narrate each event with the LLM-backed
+    # narrator (live default). Set False to use the deterministic
+    # templated narrator instead — lets the headless sim run the REAL
+    # vice economics (cast-median concentration) without an LLM call per
+    # fire, so the sim's wealth dynamics match production.
+    vice_use_llm_narration: bool = True,
+    # Same switch for side-hustle narration. False → the deterministic
+    # templated narrator (no LLM call per hustle), used by the headless sim.
+    hustle_use_llm_narration: bool = True,
     # Personas the human is actively playing in a live in-memory hand
     # (from `game_handler.live_cash_seated_pids`). The world sim's
     # `seated_globally` is derived only from the persisted `cash_tables`
@@ -1272,6 +1346,23 @@ def refresh_unseated_tables(
     from cash_mode.closed_economy import load_fish_ids
 
     _fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+
+    # Field-relative wealth snapshot (LEVER_REFERENCE_MODE='field_liquid').
+    # One per tick: liquid net worth (bankroll + seat) for every non-fish
+    # AI. Shared by vice, side-hustle, and grinder-hunger so they all key
+    # off the field instead of each AI's own starting bankroll. None in
+    # the default 'own_start' mode → every lever keeps prior behaviour.
+    _field_snapshot = None
+    if economy_flags.lever_field_mode():
+        from cash_mode.field_wealth import build_field_wealth_snapshot
+
+        _field_snapshot = build_field_wealth_snapshot(
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            sandbox_id=sandbox_id,
+            now=now,
+            fish_ids=_fish_ids,
+        )
 
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
@@ -1505,15 +1596,23 @@ def refresh_unseated_tables(
             compute_vice_probability,
         )
 
-        try:
-            _vice_cast_median = compute_cast_median(
-                bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
-            )
-        except Exception as exc:
-            logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
-            _vice_cast_median = 0
+        # Field-liquid mode: the cast median is the field's LIQUID net
+        # worth median (bankroll+seat), from the shared snapshot — so
+        # seated AIs count their stacks and don't depress the reference.
+        if _field_snapshot is not None:
+            _vice_cast_median = _field_snapshot.median()
+            _vice_min_median = economy_flags.MIN_FIELD_MEDIAN_FOR_VICE
+        else:
+            try:
+                _vice_cast_median = compute_cast_median(
+                    bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
+                )
+            except Exception as exc:
+                logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
+                _vice_cast_median = 0
+            _vice_min_median = MIN_CAST_MEDIAN_FOR_VICE
 
-        if _vice_cast_median >= MIN_CAST_MEDIAN_FOR_VICE:
+        if _vice_cast_median >= _vice_min_median:
 
             def _vice_prob_lookup(pid: str) -> float:
                 # Refractory window: no urge to celebrate right after one.
@@ -1527,7 +1626,15 @@ def refresh_unseated_tables(
                     return 0.0
                 if not current or current <= 0:
                     return 0.0
-                excess = compute_excess_ratio(current, _vice_cast_median)
+                if _field_snapshot is not None:
+                    # Measure this AI by its liquid standing in the field.
+                    excess = max(
+                        0.0,
+                        _field_snapshot.concentration(pid)
+                        - economy_flags.FIELD_CONCENTRATION_FLOOR,
+                    )
+                else:
+                    excess = compute_excess_ratio(current, _vice_cast_median)
                 if excess <= 0:
                     return 0.0
                 psych = _load_psych_snapshot(
@@ -1697,6 +1804,12 @@ def refresh_unseated_tables(
         agg_stake_creations = []
         agg_leave_signals: Dict[str, str] = {}
         agg_vice_bound: List[str] = []
+        # Scalp attribution (Renown-v2 / CASH_MODE_SCALP_TRACKER.md §3a): record
+        # AI-vs-AI eliminations from each sim hand. This is the full-sim world
+        # path, so busts are real. Resolved once; best-effort — a scalp-write
+        # failure must never break the world tick.
+        scalps_repo = _cash_scalps_repo()
+        scalp_now = now.isoformat() if now is not None else None
         for _ in range(burst_n):
             # Rotate the dealer button to the next occupied seat for
             # this hand. Matters for seat-choice UX — when a player
@@ -1721,6 +1834,7 @@ def refresh_unseated_tables(
                 bankroll_repo=bankroll_repo,
                 chip_ledger_repo=chip_ledger_repo,
                 table_id=getattr(table, 'table_id', None),
+                table_max_buy_in=table_max_buy_in,
             )
             if r.delta > 0:
                 table.seats = r.new_seats
@@ -1734,6 +1848,16 @@ def refresh_unseated_tables(
             if r.dealer_seat_idx is not None:
                 table.dealer_idx = r.dealer_seat_idx
             sim_results.append(r)
+
+            # Record scalps for this hand (rare — only hands with a bust emit
+            # any). Best-effort: never let it break the tick.
+            if scalps_repo is not None and sandbox_id:
+                hand_scalps = eliminations_from_sim(r)
+                if hand_scalps:
+                    try:
+                        scalps_repo.record_many(sandbox_id, hand_scalps, now=scalp_now)
+                    except Exception:  # noqa: BLE001
+                        logger.debug("scalp record failed (non-fatal)", exc_info=True)
 
             # (The casino closing countdown is no longer decremented here.
             # A casino only enters closing once it's empty of fish, so it
@@ -1785,6 +1909,11 @@ def refresh_unseated_tables(
                 table_max_buy_in=table_max_buy_in,
                 next_tier_min_buy_in=next_tier_min_buy_in,
                 psych_lookup=_psych_lookup_sim,
+                # Fish-ness by persona identity, robust to a missing seat
+                # stamp (fish leaked onto lobby tables via plain `ai_slot`
+                # fills lose their stamp; identity keeps the dead-push and
+                # rebuy-instead-of-bust correct regardless).
+                fish_ids=_fish_ids,
                 # Phase 4: intercept forced_leave with take_stake when
                 # peer AIs are willing to fund the busting borrower.
                 # Wired only when callers pass relationship_repo and
@@ -2020,6 +2149,22 @@ def refresh_unseated_tables(
     # --- GLOBAL greedy fill (the loop inversion, spec §2) ---
     # Step 1 above ran movement only; now seat idle/eligible AIs across ALL
     # tables at once, each picking its most attractive affordable open table.
+    # B4 prestige-seeking: load the field's renown percentiles once (behind the
+    # flag) so the greedy fill can score marquee tables + status appetite. None
+    # when off / no repo / no data → the marquee term stays inert. Best-effort:
+    # a read failure must never break the world tick.
+    _renown_percentiles: Optional[Dict[str, float]] = None
+    if (
+        economy_flags.PRESTIGE_SEEKING_ENABLED
+        and prestige_snapshots_repo is not None
+        and sandbox_id
+    ):
+        try:
+            _renown_percentiles = prestige_snapshots_repo.load_latest_field_percentiles(sandbox_id)
+        except Exception:
+            logger.warning("[LOBBY] renown percentile load failed; marquee inert")
+            _renown_percentiles = None
+
     _process_global_greedy_fills(
         fill_ctx=fill_ctx,
         idle_pool=idle_pool,
@@ -2036,6 +2181,7 @@ def refresh_unseated_tables(
         rng=rng,
         seek_rate=seek_rate,
         human_headroom=human_headroom,
+        renown_percentiles=_renown_percentiles,
     )
 
     # Emit the last-stand predator signal for AIs newly committed since
@@ -2190,6 +2336,10 @@ def refresh_unseated_tables(
                     personality_repo=personality_repo,
                 )
 
+            # narrate_fn=None → resolve_ai_vice_spending uses its
+            # deterministic templated narrator (no LLM). The headless sim
+            # passes vice_use_llm_narration=False so it can run the real
+            # vice economics without an LLM call per fire.
             vice_starts = resolve_ai_vice_spending(
                 candidates=candidates,
                 vice_repo=vice_repo,
@@ -2198,7 +2348,8 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
-                narrate_fn=_vice_narrate,
+                narrate_fn=_vice_narrate if vice_use_llm_narration else None,
+                field_snapshot=_field_snapshot,
             )
 
             # Leave-vice commits: AIs whose discretionary leave a vice roll
@@ -2221,7 +2372,7 @@ def refresh_unseated_tables(
                         sandbox_id=sandbox_id,
                         rng=rng,
                         now=now,
-                        narrate_fn=_vice_narrate,
+                        narrate_fn=_vice_narrate if vice_use_llm_narration else None,
                     )
                     if committed is not None:
                         vice_starts.append(committed)
@@ -2290,7 +2441,16 @@ def refresh_unseated_tables(
                 if projected is None:
                     continue
                 threshold = round(cheapest_min_buy_in * knobs.buy_in_multiplier)
-                if projected < threshold:
+                # Field-liquid mode broadens (never narrows) eligibility:
+                # also a candidate if in the bottom decile of field liquid,
+                # even if it could technically afford the cheapest table.
+                eligible_field = (
+                    _field_snapshot is not None
+                    and pid in _field_snapshot.liquid_chips
+                    and _field_snapshot.pct_rank(pid)
+                    < economy_flags.FIELD_HUSTLE_ELIGIBLE_PERCENTILE
+                )
+                if projected < threshold or eligible_field:
                     candidates.add(pid)
 
             def _hustle_narrate(pid, amount):
@@ -2310,7 +2470,8 @@ def refresh_unseated_tables(
                     sandbox_id=sandbox_id,
                     rng=rng,
                     now=now,
-                    narrate_fn=_hustle_narrate,
+                    narrate_fn=_hustle_narrate if hustle_use_llm_narration else None,
+                    field_snapshot=_field_snapshot,
                 )
         except Exception as exc:
             logger.warning(
@@ -2351,6 +2512,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
+                field_snapshot=_field_snapshot,
             )
         except Exception as exc:
             logger.warning(
@@ -2379,6 +2541,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
+                field_snapshot=_field_snapshot,
             )
         except Exception as exc:
             logger.warning(
@@ -3924,7 +4087,9 @@ def _settle_orphan_seat_to_bankroll(
             "[CASH LIFECYCLE] settle-before-delete: seat %r holds %d chips but "
             "owner %r has no bankroll row — LEAVING the balance in the ledger "
             "(not forfeiting); needs operator attention",
-            game_id, bal, owner_id,
+            game_id,
+            bal,
+            owner_id,
         )
         return 0
     from cash_mode.bankroll import PlayerBankrollState
@@ -3947,7 +4112,9 @@ def _settle_orphan_seat_to_bankroll(
     logger.info(
         "[CASH][LOBBY] settle-before-delete recovered %d chips for owner %r "
         "from seat %r (chip forfeiture prevented)",
-        bal, owner_id, game_id,
+        bal,
+        owner_id,
+        game_id,
     )
     return bal
 
@@ -4105,8 +4272,9 @@ def _boot_sweep_stale_cash_rows(
                 )
                 # 1c. Presence half (R3a): open the human's persisted seat so the
                 # deleted row can't leave a ghost seat (save_table drives
-                # GO_OFFLINE under authority). Makes _free_ghost_human_seats'
-                # orphan unrepresentable at this — the documented — source.
+                # GO_OFFLINE under authority). Makes the orphan the retired
+                # _free_ghost_human_seats used to sweep unrepresentable at this
+                # — the documented — source.
                 _sweep_sb = session.sandbox_id if session else None
                 if cash_table_repo is not None and row.owner_id and _sweep_sb:
                     from cash_mode.presence_sweep import free_human_seat_on_delete
@@ -4778,8 +4946,7 @@ def _process_aspiration_asks(
                     )
             except Exception as refund_exc:
                 logger.warning(
-                    "[CASH][LOBBY] aspiration: staker refund failed "
-                    "staker=%r principal=%d: %s",
+                    "[CASH][LOBBY] aspiration: staker refund failed " "staker=%r principal=%d: %s",
                     staker_id,
                     principal,
                     refund_exc,

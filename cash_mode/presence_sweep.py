@@ -1,11 +1,12 @@
 """Deletion-time presence/seat sweeps (read-side completion R3).
 
-The reconcilers `_free_ghost_human_seats` / `_reclaim_zombie_casino_seats` exist
-because a game-row or persona delete can leave a seat behind that presence never
-saw freed. These sweeps close that at the SOURCE: on the delete, open the entity's
-seat via `save_table` (which under `PRESENCE_AUTHORITY_ENABLED` atomically drives
-the GO_OFFLINE / RETURN_TO_POOL transition), making the orphan unrepresentable
-instead of swept later. That's what lets the reconcilers retire (R4).
+The reconcilers `_free_ghost_human_seats` / `_reclaim_zombie_casino_seats` used to
+exist because a game-row or persona delete can leave a seat behind that presence
+never saw freed (both were retired 2026-06-01 / R4). These sweeps close that at the
+SOURCE: on the delete, open the entity's seat via `save_table` (which under
+`PRESENCE_AUTHORITY_ENABLED` atomically drives the GO_OFFLINE / RETURN_TO_POOL
+transition), making the orphan unrepresentable instead of swept later. That, plus
+the read-side occupancy projection, is what let the reconcilers retire (R4).
 
 Both are best-effort + gated on authority (a sweep failure must never block the
 delete). They take the `repos` dict so they work from any layer without importing
@@ -13,6 +14,7 @@ flask extensions. The CHIP halves of these deletes already shipped (Phase-3 reap
 settle for games, Phase-5 `settle_ai_bankroll_to_pool_on_delete` for personas);
 these are the PRESENCE/occupancy halves that compose beside them.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,17 +42,16 @@ def _open_seat(cash_table_repo, *, sandbox_id, table_id, seat_index, expect_id_f
     slot = table.seats[seat_index]
     if slot.get(expect_id_field) != expect_value:
         return False  # seat already changed hands; nothing to free here
-    cash_table_repo.save_table(
-        table.with_seat(seat_index, open_slot()), sandbox_id=sandbox_id
-    )
+    cash_table_repo.save_table(table.with_seat(seat_index, open_slot()), sandbox_id=sandbox_id)
     return True
 
 
 def free_human_seat_on_delete(*, owner_id: str, sandbox_id: str, repos: Dict[str, Any]) -> int:
     """Open a human's persisted cash seat when their game row is deleted (R3a).
 
-    Mirrors `_free_ghost_human_seats` but fires AT the deletion (reaper / purge)
-    so the ghost seat never persists. Under authority `save_table` also drives the
+    Replaces the retired `_free_ghost_human_seats` sweep: fires AT the deletion
+    (reaper / purge) so the ghost seat never persists. Under authority `save_table`
+    also drives the
     `GO_OFFLINE` presence transition, clearing the stale presence row. Best-effort;
     requires `sandbox_id` (callers have it). Returns the count of seats freed.
     """
@@ -75,12 +76,16 @@ def free_human_seat_on_delete(*, owner_id: str, sandbox_id: str, repos: Dict[str
                     freed += 1
                     logger.info(
                         "[CASH][SWEEP] freed human seat on delete: table=%r seat=%d owner=%r",
-                        table.table_id, idx, owner_id,
+                        table.table_id,
+                        idx,
+                        owner_id,
                     )
                 except Exception as e:
                     logger.warning(
                         "[CASH][SWEEP] free_human_seat save_table failed %r:%d: %s",
-                        table.table_id, idx, e,
+                        table.table_id,
+                        idx,
+                        e,
                     )
     return freed
 
@@ -107,16 +112,17 @@ def sweep_presence_on_persona_delete(*, personality_id: str, repos: Dict[str, An
     try:
         seated = presence_repo.seated_rows_for_entity(eid)
     except Exception as e:
-        logger.warning("[CASH][SWEEP] persona-delete seated lookup failed for %r: %s",
-                       personality_id, e)
+        logger.warning(
+            "[CASH][SWEEP] persona-delete seated lookup failed for %r: %s", personality_id, e
+        )
         return 0
     for st in seated:
         try:
             # Conservation: return the seat's residual chips to the bank pool
-            # BEFORE opening (mirrors _reclaim_zombie_casino_seats — pool-funded
-            # casino chips must not vanish when the persona is deleted). Only
-            # open the seat if the return succeeds (or there were none); a failed
-            # return leaves the seat for the reconciler to retry, never vanishing
+            # BEFORE opening (same pattern the retired _reclaim_zombie_casino_seats
+            # used — pool-funded casino chips must not vanish when the persona is
+            # deleted). Only open the seat if the return succeeds (or there were
+            # none); a failed return leaves the seat to retry, never vanishing
             # chips.
             if not _return_seat_chips_to_pool(
                 cash_table_repo, chip_ledger_repo, personality_id=personality_id, st=st
@@ -124,12 +130,16 @@ def sweep_presence_on_persona_delete(*, personality_id: str, repos: Dict[str, An
                 logger.warning(
                     "[CASH][SWEEP] persona-delete seat-chip return deferred for "
                     "%r sandbox=%r — leaving seat for the reconciler",
-                    personality_id, st.sandbox_id,
+                    personality_id,
+                    st.sandbox_id,
                 )
                 continue
             opened = _open_seat(
-                cash_table_repo, sandbox_id=st.sandbox_id, table_id=st.table_id,
-                seat_index=st.seat_index, expect_id_field="personality_id",
+                cash_table_repo,
+                sandbox_id=st.sandbox_id,
+                table_id=st.table_id,
+                seat_index=st.seat_index,
+                expect_id_field="personality_id",
                 expect_value=personality_id,
             )
             if not opened:
@@ -138,11 +148,14 @@ def sweep_presence_on_persona_delete(*, personality_id: str, repos: Dict[str, An
             swept += 1
             logger.info(
                 "[CASH][SWEEP] freed AI seat on persona delete: pid=%r sandbox=%r seat=%s",
-                personality_id, st.sandbox_id, st.seat_index,
+                personality_id,
+                st.sandbox_id,
+                st.seat_index,
             )
         except Exception as e:
-            logger.warning("[CASH][SWEEP] persona-delete sweep failed for %r: %s",
-                           personality_id, e)
+            logger.warning(
+                "[CASH][SWEEP] persona-delete sweep failed for %r: %s", personality_id, e
+            )
     return swept
 
 

@@ -83,7 +83,15 @@ interface LLMConfig {
   ai_chat?: boolean;
 }
 
-type BotType = 'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'regplus' | 'gto_lite' | 'baseline_solver';
+type BotType =
+  | 'chaos'
+  | 'standard'
+  | 'lean'
+  | 'sharp'
+  | 'casebot'
+  | 'regplus'
+  | 'gto_lite'
+  | 'baseline_solver';
 
 interface CustomGameConfigProps {
   onStartGame: (

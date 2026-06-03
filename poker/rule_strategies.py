@@ -688,13 +688,21 @@ def _strategy_case_based_v2(context: Dict) -> Dict:
     # other spot delegates to v1 (keep the wide range + call-down that win).
     def bet(fraction: float) -> Dict:
         size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def do_raise(target_to: int) -> Dict:
         size = max(context['min_raise'], min(int(target_to), context['max_raise']))
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': size}
-        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     if phase == 'PRE_FLOP':
         facing_raise = cost > 0 and highest_bet > bb
@@ -765,19 +773,35 @@ def _reg_decision(context: Dict, anti_maniac: bool) -> Dict:
         size = max(context['min_raise'], min(int(target_to), context['max_raise']))
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': size}
-        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def bet(fraction: float) -> Dict:
         size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def call() -> Dict:
         if 'call' in valid:
             return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     def check_or_fold() -> Dict:
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     # ── PREFLOP: tight raise-or-fold; anti-maniac DEFENDS wide vs a raise ──
     if phase == 'PRE_FLOP':
@@ -807,7 +831,9 @@ def _reg_decision(context: Dict, anti_maniac: bool) -> Dict:
         if hand == 'premium':
             return bet(0.75)  # raise for value
         if hand == 'strong':
-            return do_raise(int(highest_bet * 2.5)) if anti_maniac else call()  # raise back vs a maniac
+            return (
+                do_raise(int(highest_bet * 2.5)) if anti_maniac else call()
+            )  # raise back vs a maniac
         if hand == 'medium':
             thresh = pot_odds * (0.7 if anti_maniac else 1.0)
             return call() if equity >= thresh else {'action': 'fold', 'raise_to': 0}
@@ -883,19 +909,35 @@ def _strategy_polar_value(context: Dict) -> Dict:
         size = max(context['min_raise'], min(int(target_to), context['max_raise']))
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': size}
-        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def bet(fraction: float) -> Dict:
         size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def call() -> Dict:
         if 'call' in valid:
             return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     def check_or_fold() -> Dict:
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     if phase == 'PRE_FLOP':
         facing_raise = cost > 0 and highest_bet > bb
@@ -916,6 +958,97 @@ def _strategy_polar_value(context: Dict) -> Dict:
     # Checked to: BIG value bet with strong+, otherwise check. NEVER bluff → the
     # big bet is a perfect face-up tell.
     if hand in ('premium', 'strong'):
+        return bet(1.2)
+    return check_or_fold()
+
+
+def _strategy_loose_value(context: Dict) -> Dict:
+    """LooseFaceUp — the LOOSE face-up value bettor (sizing-aware §B human-regime probe).
+
+    PolarValue (`_strategy_polar_value`) is face-up but bets big ONLY with the nuts
+    (strong+), so it big-bets *rarely* — and the 2026-05-31 §B measurement found
+    folding to it saves almost nothing (CaseBotV2 *out-earned* RegPlus against it,
+    because the EV is in stealing its many checks, not in the rare fold-to-value).
+
+    LooseFaceUp models the OTHER regime the §B doc flagged as "human-only,
+    unmeasurable here": a station-ish recreational player who value-bets big with a
+    WIDE range (medium+), OFTEN, and STILL never bluffs. The big bet is just as
+    face-up, but now it fires frequently AND its value range overlaps the marginal
+    hands a sizing-blind bot pays off with. THIS is where folding-to-big-bets pays:
+    every big bet you face is value you're behind, and you face them constantly.
+
+    A sizing-aware opponent (Phase B) should fold its medium/weak bluff-catchers to
+    the frequent big bet (saving real EV each time) while still stabbing the checks.
+    A pay-off-happy bot (CaseBotV2) bleeds. So if §B is worth building for the loose
+    human, RegPlus / a B-enabled tiered bot should BEAT CaseBotV2 here — the inverse
+    of the PolarValue bracket. Eval-only; never seeded in production.
+    """
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    hand = _equity_category(context['equity'])
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
+
+    def check_or_fold() -> Dict:
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
+
+    if phase == 'PRE_FLOP':
+        # Loose-passive: see lots of flops. Open premium/strong, limp-or-call the
+        # rest cheaply so it reaches the postflop big-bet spots that drive the read.
+        facing_raise = cost > 0 and highest_bet > bb
+        if hand in ('premium', 'strong'):
+            return do_raise(int(3.0 * highest_bet) if facing_raise else int(3.0 * bb))
+        if hand in ('medium', 'weak') and not facing_raise:
+            return call() if cost > 0 else do_raise(int(2.0 * bb))
+        if hand == 'medium' and facing_raise:
+            return call()  # loose flat
+        return check_or_fold()
+
+    # Facing a bet: continue with value only — wide enough to be loose (medium+),
+    # but never bluff-catches air. Still face-up: it doesn't raise-bluff.
+    if cost > 0:
+        if hand == 'premium':
+            return bet(1.0)  # raise for value
+        if hand in ('strong', 'medium'):
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # Checked to: BIG value bet with a WIDE range (medium+) — fires OFTEN, never a
+    # bluff. The frequent, wide, face-up big bet is the whole point of this probe.
+    if hand in ('premium', 'strong', 'medium'):
         return bet(1.2)
     return check_or_fold()
 
@@ -984,26 +1117,46 @@ def _strategy_reg_plus(context: Dict) -> Dict:
         size = max(context['min_raise'], min(int(target_to), context['max_raise']))
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': size}
-        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def bet(fraction: float) -> Dict:
         size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def shove() -> Dict:
         if 'all_in' in valid:
             return {'action': 'all_in', 'raise_to': 0}
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': context['max_raise']}
-        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def call() -> Dict:
         if 'call' in valid:
             return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     def check_or_fold() -> Dict:
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     # ── PREFLOP: iso the limpers for value (don't bleed), tighten vs a raise ──
     if phase == 'PRE_FLOP':
@@ -1043,7 +1196,11 @@ def _strategy_reg_plus(context: Dict) -> Dict:
             return call()  # call down — ahead of most value bets
         if hand == 'medium':
             # Bluff-catch a SMALL/thin bet by price; fold to a big polarized bet.
-            return call() if (not big_bet and equity >= pot_odds) else {'action': 'fold', 'raise_to': 0}
+            return (
+                call()
+                if (not big_bet and equity >= pot_odds)
+                else {'action': 'fold', 'raise_to': 0}
+            )
         if hand == 'weak' and not big_bet and equity >= pot_odds * 1.1:
             return call()  # only the cheapest, best-priced bluff-catches
         return {'action': 'fold', 'raise_to': 0}
@@ -1085,15 +1242,27 @@ def _strategy_tricky_reg(context: Dict) -> Dict:
 
     def bet(fraction: float) -> Dict:
         size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def call() -> Dict:
         if 'call' in valid:
             return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     def check_or_fold() -> Dict:
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     # Preflop: borrow RegPlus's disciplined entry (iso limpers, tighten vs raise).
     if phase == 'PRE_FLOP':
@@ -1147,19 +1316,35 @@ def _strategy_tricky_aggro(context: Dict) -> Dict:
         size = max(context['min_raise'], min(int(target_to), context['max_raise']))
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': size}
-        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def bet(fraction: float) -> Dict:
         size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def call() -> Dict:
         if 'call' in valid:
             return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     def check_or_fold() -> Dict:
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     # PREFLOP: seize the initiative — raise/3-bet WIDE so we are the aggressor.
     if phase == 'PRE_FLOP':
@@ -1231,19 +1416,35 @@ def _strategy_exploiter(context: Dict) -> Dict:
         size = max(context['min_raise'], min(int(target_to), context['max_raise']))
         if 'raise' in valid:
             return {'action': 'raise', 'raise_to': size}
-        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'call', 'raise_to': 0}
+            if 'call' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def bet(fraction: float) -> Dict:
         size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
-        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+        return (
+            {'action': 'raise', 'raise_to': size}
+            if 'raise' in valid
+            else {'action': 'check', 'raise_to': 0}
+        )
 
     def call() -> Dict:
         if 'call' in valid:
             return {'action': 'call', 'raise_to': 0}
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     def check_or_fold() -> Dict:
-        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+        return (
+            {'action': 'check', 'raise_to': 0}
+            if 'check' in valid
+            else {'action': 'fold', 'raise_to': 0}
+        )
 
     # PREFLOP: 3-bet relentlessly (the target over-folds to 3-bets).
     if phase == 'PRE_FLOP':
@@ -1514,6 +1715,7 @@ BUILT_IN_STRATEGIES = {
     'reg': _strategy_reg,
     'reg_plus': _strategy_reg_plus,
     'polar_value': _strategy_polar_value,
+    'loose_value': _strategy_loose_value,
     'tricky_reg': _strategy_tricky_reg,
     'tricky_aggro': _strategy_tricky_aggro,
     'exploiter': _strategy_exploiter,

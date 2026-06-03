@@ -61,6 +61,7 @@ from .intervention_trace import (
     l1_distance,
     layer_order_for,
     make_disabled_trace,
+    make_no_op_trace,
     primary_action,
     summarize_strategy,
 )
@@ -806,6 +807,148 @@ def compute_bluff_catch_strategy(
         tier_label=tier_label,
         max_total_shift=max_total_shift,
         config=CONFIG,
+    )
+    return clamped, trace
+
+
+# ── Phase B: sizing defense (fold-more vs a face-up big bettor) ──────────────
+# SIZING_AWARE_OPPONENT_MODELING.md §B. The dual of bluff_catch: instead of
+# CALLING MORE vs a confirmed over-bluffer, FOLD MORE vs a confirmed face-up
+# value bettor (one whose big bets are never bluffs). Fires at the DEFAULT clamp
+# tier — the EXTREME bluff-catch gate keys on vpip/AF and would re-trap the
+# effect in the sizing dead zone; the sizing-polarization read is orthogonal to
+# aggression frequency, so its consumption must be too. The transform scales the
+# baseline's call/continue mass DOWN toward fold and clamps to the DEFAULT
+# envelope — bounded, never a pure-fold replacement.
+
+DEFAULT_SIZING_DEFENSE_CALL_MULTIPLIER = 0.55
+
+
+def proportional_call_multiplier(
+    polar_score: float, *, min_polar: float, full_polar: float, floor: float
+) -> float:
+    """The call-retention multiplier, scaled by HOW face-up the read is.
+
+    Linear ramp: 1.0 (no fold-more) at ``min_polar`` → ``floor`` (the most
+    aggressive retention) at ``full_polar`` and above. A barely-face-up read
+    (just over the gate) barely changes anything; a blatantly face-up one folds
+    hard. This bounds the misfire cost on weak / small-sample reads (which rarely
+    score high) and shrinks the surface an adapting adversary can exploit. With
+    ``floor == 1.0`` it's a no-op; passing ``full_polar <= min_polar`` recovers a
+    flat ``floor`` multiplier (degenerate ramp → always saturated).
+    """
+    floor = max(0.0, min(1.0, floor))
+    span = full_polar - min_polar
+    if span <= 1e-9:
+        return floor
+    frac = max(0.0, min(1.0, (polar_score - min_polar) / span))
+    return 1.0 - (1.0 - floor) * frac
+
+
+def compute_sizing_defense_strategy(
+    strategy: StrategyProfile,
+    *,
+    polar_score: float,
+    min_polar: float,
+    full_polar: float,
+    call_multiplier_floor: float,
+    bet_ratio: float,
+    hand_strength: str,
+    max_total_shift: float,
+    legal_actions=None,
+    disable_rules=None,
+) -> Tuple[StrategyProfile, InterventionTrace]:
+    """Shift call/continue mass toward fold vs a face-up big bettor, clamped.
+
+    Reads the baseline ``strategy``'s probability on the call-equivalent action
+    (``call``, or ``all_in`` when call is illegal) and multiplies it by a
+    PROPORTIONAL retention multiplier — ``proportional_call_multiplier`` scales
+    from 1.0 (no change) at the ``min_polar`` gate down to ``call_multiplier_floor``
+    at ``full_polar`` — so the fold-more commitment tracks how face-up the read
+    actually is. The freed mass moves to ``fold``. Raise/check mass is left
+    untouched — this layer only governs the call-vs-fold bluff-catch decision,
+    mirroring ``compute_bluff_catch_strategy``'s action vocabulary. The proposal is
+    then ``_clamp_to_envelope``d against the baseline so the L1 shift never exceeds
+    the active (DEFAULT) tier cap.
+
+    Returns ``(strategy, trace)``. When ablation-disabled, returns the strategy
+    unchanged with a ``disabled_by_ablation`` no-op trace.
+    """
+    if is_rule_disabled(disable_rules, 'sizing_defense', 'default'):
+        return strategy, make_disabled_trace(
+            layer='sizing_defense',
+            rule_id='default',
+            layer_order=layer_order_for('sizing_defense'),
+        )
+
+    call_action = abstract_call_token(legal_actions)
+    in_probs = strategy.action_probabilities
+    base_call = in_probs.get(call_action, 0.0)
+    # Nothing to fold away (already fold-heavy / no call mass) → no-op.
+    if base_call <= 0.0:
+        return strategy, make_no_op_trace(
+            layer='sizing_defense',
+            rule_id='default',
+            layer_order=layer_order_for('sizing_defense'),
+            reason_code='no_call_mass',
+        )
+
+    mult = proportional_call_multiplier(
+        polar_score, min_polar=min_polar, full_polar=full_polar, floor=call_multiplier_floor
+    )
+    new_call = base_call * mult
+    freed = base_call - new_call
+
+    # Preserve all non-call mass (raise/check/bet variants), drop the call to its
+    # damped level, and route the freed mass to fold.
+    proposed_probs = {a: p for a, p in in_probs.items() if a != call_action}
+    proposed_probs[call_action] = new_call
+    proposed_probs['fold'] = proposed_probs.get('fold', 0.0) + freed
+    proposed = StrategyProfile(action_probabilities=proposed_probs)
+
+    clamped = _clamp_to_envelope(proposed, strategy, max_total_shift)
+
+    out_probs = clamped.action_probabilities
+    primary_before = primary_action(in_probs)
+    primary_after = primary_action(out_probs)
+    rationale = (
+        f"{hand_strength} vs face-up bettor "
+        f"(sizing_polarization={polar_score:+.2f}), big bet {bet_ratio:.2f}x pot "
+        f"→ fold more (call ×{mult:.2f})"
+    )
+    trace = InterventionTrace(
+        layer='sizing_defense',
+        rule_id='default',
+        layer_order=layer_order_for('sizing_defense'),
+        fired=True,
+        operation=InterventionOperation.OVERRIDE.value,
+        effect='distribution_replaced',
+        effect_size=round(l1_distance(in_probs, out_probs), 4),
+        action_changed=(primary_before != primary_after),
+        primary_action_before=primary_before,
+        primary_action_after=primary_after,
+        amount_bucket_before='',
+        amount_bucket_after='',
+        replaced_prior_action=True,
+        prior_action_source='',  # filled by controller aggregation
+        preserved_prior_intent=False,
+        reason_code=f"{hand_strength}_vs_faceup_big_bet",
+        rationale=rationale,
+        confidence=1.0,
+        inputs={
+            'hand_strength': hand_strength,
+            'bet_size_pot_ratio': round(bet_ratio, 4),
+            'sizing_polarization_score': round(polar_score, 4),
+        },
+        input_strategy_summary=summarize_strategy(in_probs),
+        output_strategy_summary=summarize_strategy(out_probs),
+        config_snapshot={'call_multiplier': round(mult, 4)},
+        extra={
+            'call_action': call_action,
+            'base_call_prob': round(base_call, 4),
+            'damped_call_prob': round(new_call, 4),
+            'max_total_shift': round(max_total_shift, 4),
+        },
     )
     return clamped, trace
 

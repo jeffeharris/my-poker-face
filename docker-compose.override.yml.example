@@ -1,0 +1,50 @@
+# =============================================================================
+# DEVELOPMENT ONLY — template for docker-compose.override.yml
+# =============================================================================
+# docker-compose.override.yml is gitignored (each worktree needs its own copy
+# so the network pin below doesn't collide on merges). To use it:
+#
+#     cp docker-compose.override.yml.example docker-compose.override.yml
+#     # then pick an unused /24 subnet below (see the allocation note)
+#
+# Docker auto-loads docker-compose.override.yml on top of docker-compose.yml.
+# Do NOT use this file in production — it swaps in Flask's dev server, mounts
+# the source tree for hot reload, and disables nginx.
+# =============================================================================
+
+services:
+  backend:
+    # Use Flask's dev server with auto-reload (instead of the production entry point)
+    command: python -m flask_app.ui_web
+    # Additional volumes for hot reloading (beyond what's in main file)
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - /app/.pytest_cache
+
+  frontend:
+    # Vite cache for faster rebuilds
+    volumes:
+      - ./react/react:/app
+      - /app/node_modules
+      - /app/.vite
+
+  # Disable nginx in development
+  nginx:
+    profiles:
+      - never
+
+# Docker's default address pools (172.17-172.31/16 and the 192.168.x/20 set) are
+# fully subnetted by the many sibling worktree stacks on this host, so the auto
+# allocator errors with "all predefined address pools have been fully subnetted".
+# Pin this project's network to an explicit, unused 10.x subnet so it never draws
+# from the exhausted default pool.
+# NOTE: keep each simultaneously-running worktree on a distinct /24 or their
+# networks collide ("pool overlaps"). Pick a free /24 for THIS checkout, e.g.:
+#   .45 desktop | .46 my-poker-face (base) | .47 circuit-progression |
+#   .48 tournaments | .49 polish | .50 renown | .51 release-candidate
+networks:
+  poker-network:
+    ipam:
+      config:
+        - subnet: 10.123.46.0/24

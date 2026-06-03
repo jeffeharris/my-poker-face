@@ -480,11 +480,13 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         blinds_in_pot = 2 * big_blind  # bounds SB + BB posted at first action
         drift_delta = drift_after - drift_before
         self.assertGreaterEqual(
-            drift_delta, 0,
+            drift_delta,
+            0,
             f"chips destroyed: drift {drift_before} -> {drift_after}",
         )
         self.assertLessEqual(
-            drift_delta, blinds_in_pot,
+            drift_delta,
+            blinds_in_pot,
             f"principal {principal} minted? drift {drift_before} -> {drift_after} "
             f"(> posted-blinds residual {blinds_in_pot})",
         )
@@ -493,7 +495,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         # also happened to be seated, and slightly smaller only by any passive
         # regen that accrued meanwhile, bounded here by the blinds-scale slack).
         self.assertGreaterEqual(
-            nap_before - nap_after, principal - blinds_in_pot,
+            nap_before - nap_after,
+            principal - blinds_in_pot,
             f"lender bankroll didn't fund the principal (before={nap_before}, "
             f"after={nap_after}, principal={principal})",
         )
@@ -777,7 +780,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(after.seats[1]['personality_id'], 'a-different-player')
         # ...and we sat in a different (previously open) seat.
         human_seats = [
-            i for i, s in enumerate(after.seats)
+            i
+            for i, s in enumerate(after.seats)
             if s['kind'] == 'human' and s.get('personality_id') == PLAYER_OWNER_ID
         ]
         self.assertEqual(len(human_seats), 1)
@@ -897,7 +901,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         # Napoleon's seat is untouched; we landed in a previously-open seat.
         self.assertEqual(after.seats[0]['kind'], 'ai')
         human_seats = [
-            i for i, s in enumerate(after.seats)
+            i
+            for i, s in enumerate(after.seats)
             if s['kind'] == 'human' and s.get('personality_id') == PLAYER_OWNER_ID
         ]
         self.assertEqual(len(human_seats), 1)

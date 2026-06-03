@@ -227,6 +227,26 @@ class _CashSitRouteBase(unittest.TestCase):
             personality_repo=self.personality_repo,
         )
 
+        # Re-pin the cash-mode repos onto `extensions` for THIS test: other
+        # test files share the process-global `extensions` module and may have
+        # rebound these to their own (torn-down) tempdbs. The cash routes read
+        # `extensions.X` live, so without this the sit route can hit a stale
+        # DB missing `entity_presence` ("no such table") in a full-suite run.
+        import flask_app.extensions as _ext
+
+        for _key in (
+            'cash_table_repo',
+            'bankroll_repo',
+            'chip_ledger_repo',
+            'entity_presence_repo',
+            'sandbox_repo',
+            'stake_repo',
+            'personality_repo',
+            'game_repo',
+        ):
+            if _key in self.repos:
+                setattr(_ext, _key, self.repos[_key])
+
         user = {'id': PLAYER_OWNER_ID, 'name': 'Tester'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',
@@ -267,6 +287,14 @@ class _CashSitRouteBase(unittest.TestCase):
             conn.execute("DELETE FROM cash_tables")
             conn.execute("DELETE FROM cash_idle_pool")
             conn.execute("DELETE FROM games WHERE game_id LIKE 'cash-%'")
+            # Wipe presence too: tests that flip authority ON write
+            # `entity_presence` rows that would otherwise leak into the next
+            # test (which re-seeds the lobby under authority-OFF, leaving stale
+            # SEATED rows that the projection trusts).
+            try:
+                conn.execute("DELETE FROM entity_presence")
+            except Exception:
+                pass
         ensure_lobby_seeded(
             cash_table_repo=self.cash_table_repo,
             personality_repo=self.personality_repo,
@@ -280,6 +308,37 @@ class _CashSitRouteBase(unittest.TestCase):
                 chips=200,
                 starting_bankroll=200,
             )
+        )
+
+    def _reseed_lobby_under_authority(self):
+        """Wipe + re-seed the lobby with `PRESENCE_AUTHORITY_ENABLED` on so the
+        seeded AI seats get confirming `entity_presence` SEATED rows.
+
+        The class-level lobby is seeded in setUpClass with authority OFF (no
+        presence rows). A test that flips authority ON must call this first,
+        otherwise the read-side projection renders the unconfirmed seeded AI
+        seats `open` and the table reads empty ("no AI players to sit against").
+        """
+        from cash_mode.lobby import ensure_lobby_seeded
+        from poker.repositories.schema_manager import SchemaManager
+
+        # Guarantee the presence schema exists on this tempdb (the schema-
+        # template fast path can seed a copy that predates `entity_presence`
+        # when run in the full suite). ensure_schema is idempotent.
+        SchemaManager(self.repos['db_path']).ensure_schema()
+
+        with self.cash_table_repo._get_connection() as conn:
+            conn.execute("DELETE FROM cash_tables")
+            conn.execute("DELETE FROM cash_idle_pool")
+            try:
+                conn.execute("DELETE FROM entity_presence")
+            except Exception:
+                pass
+        ensure_lobby_seeded(
+            cash_table_repo=self.cash_table_repo,
+            personality_repo=self.personality_repo,
+            bankroll_repo=self.bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
 
 
@@ -335,9 +394,7 @@ class TestSitAll(_CashSitRouteBase):
         data = resp.get_json()
         # Claimed a real open seat, not the taken one.
         assert data["seat_index"] != 0
-        claimed = self.cash_table_repo.load_table(
-            "cash-table-2-001", sandbox_id="test-sandbox-1"
-        )
+        claimed = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert claimed.seats[data["seat_index"]]["kind"] == "human"
 
     def test_full_table_409(self):
@@ -398,9 +455,7 @@ class TestSitAll(_CashSitRouteBase):
         # AI" race). Response echoes the held seat for release/accept.
         assert data.get("table_id") == "cash-table-2-001"
         assert data.get("seat_index") == open_idx
-        held = self.cash_table_repo.load_table(
-            "cash-table-2-001", sandbox_id="test-sandbox-1"
-        )
+        held = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert held.seats[open_idx]["kind"] == "reserved"
         assert held.seats[open_idx]["personality_id"] == PLAYER_OWNER_ID
 
@@ -547,13 +602,27 @@ class TestSitAll(_CashSitRouteBase):
         assert resp2.status_code == 409
 
     def test_orphaned_seat_is_freed_on_subsequent_sit(self):
-        """Regression: a stale `human` slot on table A (game row gone but
-        seat never reverted) must NOT survive when the player sits at
-        table B. Reproduces the production case where a leave path
-        cleaned the game row but left the seat occupied, double-seating
-        the user across two tables.
+        """Regression (now under presence authority): a stale `human` slot on
+        table A — a raw `cash_tables` cache slot with NO confirming
+        `entity_presence` SEATED row (game row gone, seat never reverted) —
+        must NOT survive when the player sits at table B.
+
+        Under `PRESENCE_AUTHORITY_ENABLED` the D1 read-side occupancy
+        projection (`_project_table_occupancy`) renders that unconfirmed cache
+        slot `open` on read, so the player never reads as double-seated and the
+        new sit succeeds. The legacy `_free_ghost_human_seats` sweep that used
+        to handle this was retired 2026-06-01. The ghost self-heals on the next
+        save_table.
         """
+        import cash_mode.economy_flags as ef
         from flask_app.extensions import game_repo
+
+        # Run the whole test under presence authority (the committed default),
+        # and re-seed the lobby under it so the legit AI seats get confirming
+        # `entity_presence` rows. A ghost = a raw `cash_tables` slot whose
+        # presence row we then delete.
+        ef.PRESENCE_AUTHORITY_ENABLED = True
+        self._reseed_lobby_under_authority()
 
         self.bankroll_repo.save_player_bankroll(
             PlayerBankrollState(
@@ -563,7 +632,7 @@ class TestSitAll(_CashSitRouteBase):
             )
         )
 
-        # Phase 1: sit at $10 (happy path).
+        # Phase 1: sit at $10 (happy path) — writes a confirming presence row.
         table_a = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         open_idx_a = next(i for i, s in enumerate(table_a.seats) if s["kind"] == "open")
         resp_a = self.client.post(
@@ -577,20 +646,39 @@ class TestSitAll(_CashSitRouteBase):
         assert resp_a.status_code == 200, resp_a.get_data(as_text=True)
         sit_a_game_id = resp_a.get_json()["game_id"]
 
-        # Phase 2: orphan the seat by deleting the game row directly,
-        # leaving the human slot stranded on cash-table-10-001. Also
-        # remove the in-memory game so `_find_active_cash_game_id` can't
-        # find it and trip the 409 guard.
+        # Phase 2: orphan the seat into a GHOST — a raw human cache slot with
+        # NO confirming presence row. Delete the game row (memory + DB) AND
+        # the player's presence SEATED row, leaving the human slot stranded
+        # on cash-table-10-001 with nothing confirming it.
+        from cash_mode.presence import player_entity_id
         from flask_app.services import game_state_service
 
         game_state_service.delete_game(sit_a_game_id)
         game_repo.delete_game(sit_a_game_id)
-        stranded = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
-        assert (
-            stranded.seats[open_idx_a]["kind"] == "human"
-        ), "Seat should still be human before the fix sweeps it"
+        with self.cash_table_repo._get_connection() as conn:
+            conn.execute(
+                "DELETE FROM entity_presence WHERE entity_id = ? AND sandbox_id = ?",
+                (player_entity_id(PLAYER_OWNER_ID), "test-sandbox-1"),
+            )
 
-        # Phase 3: sit at $50 — this must succeed AND free the orphan.
+        # The raw stored slot is still `human` (no write fixed it yet)...
+        with self.cash_table_repo._get_connection() as conn:
+            raw = conn.execute(
+                "SELECT seats_json FROM cash_tables WHERE table_id = ? AND sandbox_id = ?",
+                ("cash-table-10-001", "test-sandbox-1"),
+            ).fetchone()
+        import json as _json
+
+        assert _json.loads(raw["seats_json"])[open_idx_a]["kind"] == "human"
+        # ...but the projection renders it `open` (no confirming presence row).
+        projected = self.cash_table_repo.load_table(
+            "cash-table-10-001", sandbox_id="test-sandbox-1"
+        )
+        assert (
+            projected.seats[open_idx_a]["kind"] == "open"
+        ), "projection should hide the unconfirmed ghost human slot"
+
+        # Phase 3: sit at $50 — this must succeed (player not double-seated).
         table_b = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
         open_idx_b = next(i for i, s in enumerate(table_b.seats) if s["kind"] == "open")
         resp_b = self.client.post(
@@ -603,34 +691,39 @@ class TestSitAll(_CashSitRouteBase):
         )
         assert resp_b.status_code == 200, resp_b.get_data(as_text=True)
 
-        # Phase 4: the $10 seat must now be open, $50 seat human.
+        # Phase 4: the $10 seat reads open (projection), $50 seat human.
         after_a = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         after_b = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
-        assert after_a.seats[open_idx_a]["kind"] == "open", "Orphaned $10 seat was not freed"
+        assert after_a.seats[open_idx_a]["kind"] == "open", "Orphaned $10 seat not hidden"
         assert after_b.seats[open_idx_b]["kind"] == "human"
         assert after_b.seats[open_idx_b]["personality_id"] == PLAYER_OWNER_ID
-        # Sanity: owner has no other human slot anywhere.
+        # Sanity: owner reads no other human slot anywhere (projection-aware).
         humans_for_owner = [
             (t.table_id, i)
-            for t in self.cash_table_repo.list_all_tables()
+            for t in self.cash_table_repo.list_all_tables(sandbox_id="test-sandbox-1")
             for i, s in enumerate(t.seats)
             if s.get("kind") == "human" and s.get("personality_id") == PLAYER_OWNER_ID
         ]
         assert humans_for_owner == [("cash-table-50-001", open_idx_b)]
 
     def test_orphaned_seat_on_same_table_is_freed_on_subsequent_sit(self):
-        """Regression: a stale `human` slot at index X on the SAME table
-        the player is sitting back down at (different index Y) must NOT
+        """Regression (now under presence authority): a stale `human` slot at
+        index X on the SAME table the player sits back down at (different index
+        Y) — a raw cache slot with NO confirming presence row — must NOT
         survive the new sit.
 
-        Pre-fix, `sit_at_table` loaded the table once before calling
-        `_free_ghost_human_seats`, then built `claimed_table` from that
-        stale snapshot — the save resurrected the just-cleared orphan.
-        This is the production scenario where the user resumed a
-        session, was placed at a fresh seat, and ended up double-
-        seated on the same table.
+        Under `PRESENCE_AUTHORITY_ENABLED` the projection renders the
+        unconfirmed orphan `open` on read, and the new sit's save_table
+        self-heals the raw row. The retired `_free_ghost_human_seats` sweep is
+        no longer involved.
         """
+        import cash_mode.economy_flags as ef
         from flask_app.extensions import game_repo
+
+        # Run under presence authority + re-seed the lobby under it so legit
+        # AI seats carry confirming presence rows.
+        ef.PRESENCE_AUTHORITY_ENABLED = True
+        self._reseed_lobby_under_authority()
 
         self.bankroll_repo.save_player_bankroll(
             PlayerBankrollState(
@@ -647,9 +740,10 @@ class TestSitAll(_CashSitRouteBase):
         assert len(open_indices) >= 2, "need ≥2 open seats for this case"
         orphan_idx, new_idx = open_indices[0], open_indices[1]
 
-        # Phase 1: sit at orphan_idx (legit), then strand it by deleting
-        # the game row in both memory and DB. The cash_tables row keeps
-        # the human slot — the ghost.
+        # Phase 1: sit at orphan_idx (legit — writes a presence row), then turn
+        # it into a GHOST: delete the game row (memory + DB) AND the player's
+        # presence SEATED row. The cash_tables row keeps the human slot with
+        # nothing confirming it.
         resp_a = self.client.post(
             "/api/cash/sit",
             json={
@@ -661,15 +755,24 @@ class TestSitAll(_CashSitRouteBase):
         assert resp_a.status_code == 200, resp_a.get_data(as_text=True)
         sit_a_game_id = resp_a.get_json()["game_id"]
 
+        from cash_mode.presence import player_entity_id
         from flask_app.services import game_state_service
 
         game_state_service.delete_game(sit_a_game_id)
         game_repo.delete_game(sit_a_game_id)
-        stranded = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
-        assert stranded.seats[orphan_idx]["kind"] == "human"
+        with self.cash_table_repo._get_connection() as conn:
+            conn.execute(
+                "DELETE FROM entity_presence WHERE entity_id = ? AND sandbox_id = ?",
+                (player_entity_id(PLAYER_OWNER_ID), "test-sandbox-1"),
+            )
+
+        projected = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
+        assert (
+            projected.seats[orphan_idx]["kind"] == "open"
+        ), "projection should hide the unconfirmed ghost human slot at orphan_idx"
 
         # Phase 2: sit at new_idx on the SAME table — must succeed and
-        # leave only the new seat human.
+        # leave only the new seat human (orphan stays projected open).
         resp_b = self.client.post(
             "/api/cash/sit",
             json={
@@ -684,13 +787,12 @@ class TestSitAll(_CashSitRouteBase):
         assert after.seats[new_idx]["kind"] == "human"
         assert after.seats[new_idx]["personality_id"] == PLAYER_OWNER_ID
         assert after.seats[orphan_idx]["kind"] == "open", (
-            f"orphan at idx {orphan_idx} was resurrected by the stale-"
-            f"snapshot save in sit_at_table — got "
-            f"{after.seats[orphan_idx]!r}"
+            f"orphan at idx {orphan_idx} should read open under the projection — "
+            f"got {after.seats[orphan_idx]!r}"
         )
         humans_for_owner = [
             (t.table_id, i)
-            for t in self.cash_table_repo.list_all_tables()
+            for t in self.cash_table_repo.list_all_tables(sandbox_id="test-sandbox-1")
             for i, s in enumerate(t.seats)
             if s.get("kind") == "human" and s.get("personality_id") == PLAYER_OWNER_ID
         ]

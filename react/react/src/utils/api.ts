@@ -170,9 +170,11 @@ export const gameAPI = {
   getPostRoundChatSuggestions: async (
     gameId: string,
     playerName: string,
-    tone: PostRoundTone
+    tone: PostRoundTone,
+    intensity?: ChatIntensity
   ): Promise<PostRoundSuggestionsResponse> => {
-    // Backend now derives all context from RecordedHand - only need playerName and tone
+    // Backend derives hand context from RecordedHand — we send playerName,
+    // tone, and (for the warm tones) the optional sarcastic register.
     const response = await fetch(
       `${config.API_URL}/api/game/${gameId}/post-round-chat-suggestions`,
       {
@@ -184,6 +186,7 @@ export const gameAPI = {
         body: JSON.stringify({
           playerName,
           tone,
+          ...(intensity ? { intensity } : {}),
         }),
       }
     );

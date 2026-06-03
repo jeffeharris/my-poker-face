@@ -2,8 +2,8 @@
 
 from flask_app.services.dossier_signals import build_temperament, field_position
 
-
 # ── B3: temperament (the emotional read) ────────────────────────────────────
+
 
 def test_rattly_and_tilting_reads():
     t = build_temperament(
@@ -13,9 +13,9 @@ def test_rattly_and_tilting_reads():
     assert t['tilt_label'] == 'On tilt'
     assert t['tilt_score'] == 0.72
     joined = ' '.join(t['lines']).lower()
-    assert 'rattles easily' in joined        # low poise
-    assert 'runs hot' in joined              # high tilt
-    assert 'table talk' in joined            # high expressiveness
+    assert 'rattles easily' in joined  # low poise
+    assert 'runs hot' in joined  # high tilt
+    assert 'table talk' in joined  # high expressiveness
 
 
 def test_composed_stone_faced_read():
@@ -56,6 +56,7 @@ def test_temperament_anchors_only_no_pressure():
 
 
 # ── B4: field-relative percentiles ──────────────────────────────────────────
+
 
 def test_field_position_loose_and_aggressive():
     fp = field_position(0.45, 1.0)

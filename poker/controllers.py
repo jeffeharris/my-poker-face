@@ -1573,10 +1573,7 @@ class AIPlayerController:
                 )
                 if equity is not None:
                     hand_equity = equity  # Store for drama detection
-                    is_tilted = False
-                    if self.psychology and self.psychology.emotional:
-                        valence = self.psychology.emotional.valence
-                        is_tilted = valence < -0.2
+                    is_tilted = bool(self.psychology and self.psychology.is_tilted)
 
                     if equity >= 0.80:
                         hand_strength = evaluate_hand_strength(hole_cards, community_cards)
@@ -2132,10 +2129,6 @@ class AIPlayerController:
                     'tilt_source': psych.tilt.tilt_source if psych.tilt else None,
                 }
                 if psych.emotional:
-                    snapshot['valence'] = psych.emotional.valence
-                    snapshot['arousal'] = psych.emotional.arousal
-                    snapshot['control'] = psych.emotional.control
-                    snapshot['focus'] = psych.emotional.focus
                     snapshot['display_emotion'] = psych.get_display_emotion()
                 traits = psych.traits
                 # New 5-trait model
@@ -2237,6 +2230,23 @@ class AIPlayerController:
             )
 
             self._decision_analysis_repo.save_decision_analysis(analysis)
+
+            # Stamp this decision so the handler-level fallback analyzer
+            # (analyze_player_decision) can detect that this richer
+            # controller-side row already exists and skip its impoverished
+            # duplicate (no capture_id, psychology, or menu compliance).
+            # Keyed on the same pre-normalization fields the handler
+            # reconstructs; consumed there on match so a stale stamp can
+            # never wrongly skip a later decision that didn't self-analyze.
+            phase_name = (
+                self.state_machine.current_phase.name if self.state_machine.current_phase else None
+            )
+            self._last_analyzed_decision = (
+                self.current_hand_number,
+                phase_name,
+                response_dict.get('action'),
+            )
+
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
             menu_str = (
                 f", menu_best={analysis.menu_picked_best}"

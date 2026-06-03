@@ -199,6 +199,7 @@ class AIMemoryManager:
             # different sandbox doesn't poison this hand's reads.
             stack_dom_max: Optional[int] = None
             stack_dom_lookup: Optional[Callable[[str, str], int]] = None
+            hands_played_lookup: Optional[Callable[[str, str], int]] = None
             if self._cash_mode and self._table_max_buy_in and self._sandbox_id is not None:
                 stack_dom_max = self._table_max_buy_in
                 relationship_repo = self._relationship_repo
@@ -212,11 +213,22 @@ class AIMemoryManager:
                     )
                     return stats.cumulative_pnl if stats is not None else 0
 
+                # Shared-hand volume gate for the RIVAL/NEMESIS tiers — the
+                # persisted per-pair hand count (symmetric).
+                def hands_played_lookup(a_id: str, b_id: str) -> int:
+                    stats = relationship_repo.load_cash_pair_stats(
+                        a_id,
+                        b_id,
+                        sandbox_id=sandbox_id,
+                    )
+                    return stats.hands_played_cash if stats is not None else 0
+
             events = self.hand_outcome_detector.detect_events(
                 recorded_hand,
                 equity_history=equity_history,
                 max_buy_in=stack_dom_max,
                 cash_pnl_lookup=stack_dom_lookup,
+                hands_played_lookup=hands_played_lookup,
             )
             # Cash pair PnL feeds from every chip flow (no big-pot
             # gate), independent of whether relationship-axis events
@@ -675,6 +687,7 @@ class AIMemoryManager:
         ai_players: Dict[str, Any] = None,
         skip_commentary: bool = False,
         equity_history=None,
+        record_showdown_equity: bool = True,
     ) -> Dict[str, HandCommentary]:
         """Process end of hand - record history, update models, optionally generate commentary.
 
@@ -683,6 +696,13 @@ class AIMemoryManager:
             game_state: Current game state
             ai_players: Dict mapping player names to their AIPokerPlayer objects
             skip_commentary: If True, skip commentary generation (for async flow)
+            record_showdown_equity: If False, skip the showdown
+                equity-at-actions enrichment (`_record_showdown_equity_at_actions`).
+                That step runs inline eval7 (iterations=400 per postflop
+                showdown action) and is the dominant cost of this method;
+                it only feeds opponent-model equity buckets, not the
+                relationship detector. The cash lobby sim passes False so
+                relationship-simming stays write-light on the hot path.
             equity_history: Optional HandEquityHistory built by the
                 caller before this method runs. Forwarded to the
                 relationship detector to enable BAD_BEAT detection.
@@ -747,7 +767,13 @@ class AIMemoryManager:
                 except Exception as e:
                     logger.warning(f"Polarization Phase A equity recording failed: {e}")
 
-            if ASYNC_EQUITY_TELEMETRY:
+            if not record_showdown_equity:
+                # Lean path (cash lobby sim): skip the eval7 enrichment
+                # entirely — it's the dominant per-hand cost and the
+                # opponent-model equity buckets it feeds are not needed
+                # for relationship detection.
+                pass
+            elif ASYNC_EQUITY_TELEMETRY:
                 # Live: off the hand-completion path (best-effort enrichment).
                 try:
                     _EQUITY_TELEMETRY_EXECUTOR.submit(_record)
@@ -763,6 +789,13 @@ class AIMemoryManager:
             self._record_fold_to_big_bet(recorded_hand)
         except Exception as e:
             logger.warning(f"Sizing-aware fold_to_big_bet recording failed: {e}")
+
+        # §5j: stab frequency — bet rate when CHECKED TO postflop (gates the
+        # stab-defense). Not showdown-gated; runs on all hands like fold_to_big_bet.
+        try:
+            self._record_stab_frequency(recorded_hand)
+        except Exception as e:
+            logger.warning(f"Stab-frequency recording failed: {e}")
 
         # Phase 3: relationship event detection + dispatch. Runs only
         # when a relationship_repo is wired; tournament-only games
@@ -1266,6 +1299,39 @@ class AIMemoryManager:
                 committed[(name, phase)] = prior + max(0, action.amount)
                 current_level[phase] = max(level, committed[(name, phase)])
             running_pot = action.pot_after
+
+    def _record_stab_frequency(self, recorded_hand) -> None:
+        """§5j: live (all-hands) stab-frequency tracking — how often a player BETS
+        when CHECKED TO postflop (the capped-checking dual of fold_to_big_bet).
+
+        Replays in action order. A "stab opportunity" = a player acts postflop with
+        nothing to call (cost_to_call == 0) AND is NOT first to act on the street
+        (so a prior player checked — it is checked TO them, not leading). Betting
+        there = a stab. High stab_frequency ⇒ a frequent stabber → the bot widens
+        its defense facing that opponent's bets into its checked range.
+        """
+        current_level: Dict[str, int] = {}  # phase -> highest bet-to level
+        acted_this_phase: Dict[str, int] = {}  # phase -> count of actions so far
+        for action in recorded_hand.actions:
+            phase = action.phase
+            name = action.player_name
+            level = current_level.get(phase, 0)
+            n_prior = acted_this_phase.get(phase, 0)
+
+            if phase in ('FLOP', 'TURN', 'RIVER') and level == 0 and n_prior > 0:
+                # Checked to this player (no bet yet, but others acted = checked).
+                stabbed = action.action in ('bet', 'raise', 'all_in')
+                if stabbed or action.action == 'check':
+                    for observer in self.initialized_players:
+                        if observer != name:
+                            model = self.opponent_model_manager.get_model(observer, name)
+                            model.tendencies.update_stab(stabbed)
+
+            if action.action in ('bet', 'raise'):
+                current_level[phase] = max(level, action.amount)
+            elif action.action == 'all_in':
+                current_level[phase] = max(level, action.amount)
+            acted_this_phase[phase] = n_prior + 1
 
     def _count_non_folded_per_phase(self, recorded_hand) -> Dict[str, int]:
         """For each postflop phase, count players who hadn't folded yet

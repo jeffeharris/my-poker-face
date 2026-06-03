@@ -1,0 +1,26 @@
+name: quick_chat_trash_talk
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: TRASH TALK. Open hostility — get under their skin, rattle them, tilt
+    them. This is the unfiltered needle. (If the delivery is sarcastic, the edge
+    comes off and it reads as playful ribbing instead — banter, not a knife.)
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "That was painful to watch, {target_first_name}."
+    - "Are you even trying?"
+    - "I've seen better folds at a laundromat."
+    - "Stick to checkers, champ."
+
+    Make it sting. Personality and specifics land harder than generic insults.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "trash_talk"}}, {{"text": "...", "tone": "trash_talk"}}], "targetPlayer": "{target_player}"}}

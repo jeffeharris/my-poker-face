@@ -24,8 +24,8 @@ DRILL_DEPTH_BB = 100
 DRILL_PLAYERS = 6
 
 # Verdict tiers by how often the chart takes the player's chosen action.
-GOOD_MIN = 0.30   # a real part of the solver's strategy here
-THIN_MIN = 0.10   # occasionally fine, but not the main line
+GOOD_MIN = 0.30  # a real part of the solver's strategy here
+THIN_MIN = 0.10  # occasionally fine, but not the main line
 # below THIN_MIN → 'leak' (the solver almost never does this)
 
 _ACTIONS = ('fold', 'call', 'raise')
@@ -33,9 +33,7 @@ _ACTIONS = ('fold', 'call', 'raise')
 
 def _reference(scenario: str, position: str, hand: str) -> Optional[Dict[str, float]]:
     """Bucketed chart freqs for a drill spot (opener-agnostic, baseline depth)."""
-    return reference_strategy(
-        hand, position, scenario, None, DRILL_DEPTH_BB, DRILL_PLAYERS
-    )
+    return reference_strategy(hand, position, scenario, None, DRILL_DEPTH_BB, DRILL_PLAYERS)
 
 
 def sample_drill_spots(

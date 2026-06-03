@@ -20,6 +20,7 @@ helpers (no app, no real DB). The lobby's shadow path resolves its
 so each flag-on test wires the tempdb-backed repo there via monkeypatch.
 Conventions per `tests/CLAUDE.md`: integration marker, `tmp_path`, no real DB.
 """
+
 from __future__ import annotations
 
 import json
@@ -45,6 +46,7 @@ SANDBOX = "test-sandbox"
 # --------------------------------------------------------------------------
 # Local helpers (mirror test_lobby_seeding.py — tempdb, no shared fixtures)
 # --------------------------------------------------------------------------
+
 
 def _insert_personality(db_path: str, personality_id: str, *, name=None, knobs=None):
     config = {"bankroll_knobs": knobs} if knobs is not None else {}
@@ -142,6 +144,7 @@ def _make_table(table_id: str, ai_pids):
 # Flag OFF — no shadow writes at all
 # --------------------------------------------------------------------------
 
+
 def test_reconcile_flag_off_writes_nothing(tmp_path, monkeypatch):
     db_path = str(tmp_path / "cash.db")
     _, _, _, presence_repo = _make_repos(db_path)
@@ -170,6 +173,7 @@ def test_seed_flag_off_writes_nothing(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 # Flag ON — shadow mirrors the seat map
 # --------------------------------------------------------------------------
+
 
 def test_reconcile_records_seated_occupants(tmp_path, monkeypatch):
     db_path = str(tmp_path / "cash.db")

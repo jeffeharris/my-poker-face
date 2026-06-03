@@ -179,9 +179,9 @@ export function SponsorModal({
 
           {backingRestricted && offers && (
             <div className="sponsor-modal__restricted" role="note">
-              Your reputation precedes you. No one here will personally back a
-              player like you right now — only the house will deal. Win back the
-              room's regard and the named backers return.
+              Your reputation precedes you. No one here will personally back a player like you right
+              now — only the house will deal. Win back the room's regard and the named backers
+              return.
             </div>
           )}
 

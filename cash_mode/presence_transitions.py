@@ -38,6 +38,7 @@ actor's destination from its slot:
 All writes go through the pure machine (`cash_mode.presence.transition`) for
 legality, then UPSERT/DELETE directly on the passed-in connection.
 """
+
 from __future__ import annotations
 
 import json
@@ -186,7 +187,10 @@ def _apply(
             raise
         logger.warning(
             "[PRESENCE] illegal transition skipped (entity=%s sandbox=%s event=%s): %s",
-            entity_id, sandbox_id, getattr(event, "value", event), e,
+            entity_id,
+            sandbox_id,
+            getattr(event, "value", event),
+            e,
         )
         return current
     try:
@@ -199,7 +203,10 @@ def _apply(
             raise
         logger.warning(
             "[PRESENCE] integrity conflict swallowed (entity=%s sandbox=%s event=%s): %s",
-            entity_id, sandbox_id, getattr(event, "value", event), e,
+            entity_id,
+            sandbox_id,
+            getattr(event, "value", event),
+            e,
         )
         return current
     return new_state
@@ -209,18 +216,27 @@ def _apply(
 
 
 def _idle_meta_write(
-    conn: sqlite3.Connection, entity_id: str, sandbox_id: str,
-    idle_metadata: Optional[Dict[str, Any]], now_iso: Optional[str],
+    conn: sqlite3.Connection,
+    entity_id: str,
+    sandbox_id: str,
+    idle_metadata: Optional[Dict[str, Any]],
+    now_iso: Optional[str],
 ) -> None:
     """Record an AI's idle routing payload (reason/target_stake) when it lands in
     IDLE. `idle_metadata` is keyed by personality_id; unknown callers default the
     reason to 'forced_leave' (state is correct, reason imprecise — documented)."""
     if not entity_id.startswith("ai:"):
         return
-    pid = entity_id[len("ai:"):]
+    pid = entity_id[len("ai:") :]
     entry = (idle_metadata or {}).get(pid)
-    reason = getattr(entry, "reason", None) or (entry.get("reason") if isinstance(entry, dict) else None) or "forced_leave"
-    target = getattr(entry, "target_stake", None) or (entry.get("target_stake") if isinstance(entry, dict) else None)
+    reason = (
+        getattr(entry, "reason", None)
+        or (entry.get("reason") if isinstance(entry, dict) else None)
+        or "forced_leave"
+    )
+    target = getattr(entry, "target_stake", None) or (
+        entry.get("target_stake") if isinstance(entry, dict) else None
+    )
     conn.execute(
         """
         INSERT INTO cash_idle_metadata (personality_id, sandbox_id, reason, target_stake, left_at)
@@ -237,7 +253,7 @@ def _idle_meta_write(
 def _idle_meta_delete(conn: sqlite3.Connection, entity_id: str, sandbox_id: str) -> None:
     if not entity_id.startswith("ai:"):
         return
-    pid = entity_id[len("ai:"):]
+    pid = entity_id[len("ai:") :]
     conn.execute(
         "DELETE FROM cash_idle_metadata WHERE personality_id = ? AND sandbox_id = ?",
         (pid, sandbox_id),
@@ -247,10 +263,10 @@ def _idle_meta_delete(conn: sqlite3.Connection, entity_id: str, sandbox_id: str)
 def _departure_event(entity_id: str, old_slot: Optional[Dict[str, Any]]) -> PresenceEvent:
     """Where does a vacated seat's occupant go? Derived from the slot it left."""
     if entity_id.startswith("player:"):
-        return PresenceEvent.GO_OFFLINE          # human cashes out of the sandbox
+        return PresenceEvent.GO_OFFLINE  # human cashes out of the sandbox
     if old_slot is not None and old_slot.get("archetype") == "fish":
-        return PresenceEvent.RETURN_TO_POOL      # pool-funded fish
-    return PresenceEvent.LEAVE                    # cash AI → idle pool
+        return PresenceEvent.RETURN_TO_POOL  # pool-funded fish
+    return PresenceEvent.LEAVE  # cash AI → idle pool
 
 
 # --- the engine -----------------------------------------------------------
@@ -303,8 +319,9 @@ def emit_presence_transitions_for_save(
             if d is not None and d[0] == seat:
                 continue  # still correctly seated here
             event = _departure_event(eid, old_slots.get(eid))
-            result = _apply(conn, sandbox_id, eid, event, now_iso=now_iso,
-                            raise_on_integrity=authority)
+            result = _apply(
+                conn, sandbox_id, eid, event, now_iso=now_iso, raise_on_integrity=authority
+            )
             if result.state is Presence.IDLE:
                 _idle_meta_write(conn, eid, sandbox_id, idle_metadata, now_iso)
 
@@ -317,22 +334,45 @@ def emit_presence_transitions_for_save(
 
             if cur.state is Presence.SEATED:
                 # Seated elsewhere (a move): LEAVE the old seat first.
-                _apply(conn, sandbox_id, eid, PresenceEvent.LEAVE, now_iso=now_iso,
-                       raise_on_integrity=authority)
+                _apply(
+                    conn,
+                    sandbox_id,
+                    eid,
+                    PresenceEvent.LEAVE,
+                    now_iso=now_iso,
+                    raise_on_integrity=authority,
+                )
             elif cur.state in (Presence.SIDE_HUSTLE, Presence.VICE):
                 # Returning off-grid AI: END_OFFGRID → IDLE first.
-                _apply(conn, sandbox_id, eid, PresenceEvent.END_OFFGRID, now_iso=now_iso,
-                       raise_on_integrity=authority)
+                _apply(
+                    conn,
+                    sandbox_id,
+                    eid,
+                    PresenceEvent.END_OFFGRID,
+                    now_iso=now_iso,
+                    raise_on_integrity=authority,
+                )
 
             cur = _load_state(conn, eid, sandbox_id)
             if cur.state is Presence.OFFLINE and slot.get("archetype") == "fish":
                 # Fresh pool-funded fish: SEED → POOL before SIT.
-                _apply(conn, sandbox_id, eid, PresenceEvent.SEED, now_iso=now_iso,
-                       raise_on_integrity=authority)
+                _apply(
+                    conn,
+                    sandbox_id,
+                    eid,
+                    PresenceEvent.SEED,
+                    now_iso=now_iso,
+                    raise_on_integrity=authority,
+                )
 
             _apply(
-                conn, sandbox_id, eid, PresenceEvent.SIT,
-                table_id=table_id, seat_index=seat, now_iso=now_iso,
+                conn,
+                sandbox_id,
+                eid,
+                PresenceEvent.SIT,
+                table_id=table_id,
+                seat_index=seat,
+                now_iso=now_iso,
                 raise_on_integrity=authority,
             )
             _idle_meta_delete(conn, eid, sandbox_id)  # no longer idle
@@ -346,5 +386,6 @@ def emit_presence_transitions_for_save(
             raise
         logger.warning(
             "[PRESENCE] transition emit failed (shadow) sandbox=%s: %s — real write unaffected",
-            sandbox_id, e,
+            sandbox_id,
+            e,
         )

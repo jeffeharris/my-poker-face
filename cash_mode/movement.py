@@ -25,7 +25,9 @@ Spec: `docs/plans/CASH_MODE_LOBBY_HANDOFF.md` §"Lobby maintenance".
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import random
 import threading
 from dataclasses import dataclass, field
@@ -83,6 +85,25 @@ LEAVE_K = 2.0  # curve shape: at pressure=1.0, leave prob ≈ 0.33
 # Anchored to the table's min buy-in (not the AI's current buy-in) so the
 # threshold is table-relative and doesn't drift if the AI bought in below max.
 FORCED_LEAVE_RATIO = 0.3
+
+# Dwell floor (medium ramp). A freshly-seated AI's DISCRETIONARY leave
+# pressure (stake_up / dead / tenure / detached) ramps in linearly over this
+# many hands at the table, so it won't bolt the instant it sits down. Busts
+# (forced_leave) and short-stack leaves bypass it. Because leaving is a
+# per-hand roll against the damped probability, the exact hand an AI wanders
+# off varies — no synchronized exodus.
+DWELL_PATIENCE_HANDS = 6.0
+
+# Grinder rebuy-on-bust (non-fish). When a grinder busts but can still afford
+# a reload, it *sometimes* rebuys instead of leaving — but a rebuy means it's
+# losing, so we throttle "stop the bleeding": each prior rebuy at the SAME
+# table decays the next one's odds, and a thin bankroll (only just affordable)
+# pulls back too. When it declines, it `take_break`s (rests, may return) rather
+# than leaving for good. Fish are unaffected (they reload until dry).
+GRINDER_REBUY_BASE_PROB = 0.65  # first reload when comfortably funded
+GRINDER_REBUY_DECAY = 0.5  # ×prob per prior rebuy at this table
+GRINDER_REBUY_CUSHION_BUYINS = 3.0  # full confidence once the bankroll covers
+# this many buy-ins beyond the reload
 
 # Per-hand fill probability per open seat. Replaces the per-poll roll;
 # now ticks once per real or sim hand. With 2 opens this averages ~10
@@ -198,6 +219,13 @@ class MovementContext:
     # loop-inversion step; defaults to 0 (neutral) so pre-inversion callers
     # and tests are unchanged.
     table_deadness: float = 0.0
+    # Dwell floor: hands this AI has completed at THIS table. 0 = just sat
+    # (discretionary leave pressure fully damped); ramps to full at
+    # DWELL_PATIENCE_HANDS. Carried on the seat across rebuilds.
+    hands_here: int = 0
+    # Rebuys this AI has done at THIS table — decays the grinder rebuy odds
+    # ("stop the bleeding"). Carried on the seat across rebuilds.
+    rebuys_here: int = 0
 
 
 def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
@@ -229,16 +257,23 @@ def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
     # energy=0 ("exhausted") tenure_raw=1.0. Without this gate, a fresh
     # default-0.5 AI generated ~5% leaves/hand just from tenure.
     tenure_raw = max(0.0, (0.5 - ctx.energy) * 2.0)
+    # Dwell floor: discretionary leave pressure ramps in over the AI's first
+    # few hands at the table (0 when freshly seated → 1 at DWELL_PATIENCE_HANDS),
+    # so it settles in before it'll wander off. `short` is NOT damped — a
+    # genuinely short/broke stack is free to leave or rebuy immediately.
+    dwell_damp = (
+        min(1.0, ctx.hands_here / DWELL_PATIENCE_HANDS) if DWELL_PATIENCE_HANDS > 0 else 1.0
+    )
     return {
-        "stake_up": W_STAKE_UP * stake_up_raw,
+        "stake_up": W_STAKE_UP * stake_up_raw * dwell_damp,
         "short": W_SHORT * short_raw,
-        "detached": W_DETACHED * detached_raw,
-        "tenure": W_TENURE * tenure_raw,
+        "detached": W_DETACHED * detached_raw * dwell_damp,
+        "tenure": W_TENURE * tenure_raw * dwell_damp,
         # Dead-table push: 0 at a juicy table, rising toward a dead
         # all-shark one — extra pressure to go find fish. Routes to
         # `bored_move` when dominant (see evaluate_ai_movement). Neutral
         # until the seating path populates ctx.table_deadness (Phase C).
-        "dead": W_DEAD * max(0.0, min(1.0, ctx.table_deadness)),
+        "dead": W_DEAD * max(0.0, min(1.0, ctx.table_deadness)) * dwell_damp,
     }
 
 
@@ -348,16 +383,16 @@ def _coerce_fish_movement(
       for real. Net effect: the entire pool-funded stake is lost at the
       table rather than recycled back to the pool on a cash-out.
 
-    - **Upset fish** (intensity at/above the threshold): table manners
-      failed. A fish already busting just goes; otherwise it may storm off
-      *with its remaining chips*, the chance rising with how tilted it is.
-      Keep the fish content and this branch never fires.
+    - **Tilt no longer empties the seat**: a fish that got upset used to
+      storm off *with its remaining chips* (`take_break`) once its
+      `emotional_intensity` crossed `FISH_TILT_LEAVE_THRESHOLD`. That emptied
+      open casino seats a player had just sat down to feed on — the donor
+      walking away from the table mid-session. Tilt now changes how the fish
+      *plays*, not whether it keeps its seat: an upset fish follows the same
+      content path below, so the ONLY way a fish leaves an open casino is a
+      genuine bust (bankroll can't fund a reload). Casino close is handled
+      separately by the lifecycle, not here.
     """
-    if ctx.emotional_intensity >= FISH_TILT_LEAVE_THRESHOLD:
-        if decision == "forced_leave":
-            return "forced_leave"
-        return "take_break" if rng.random() < ctx.emotional_intensity else "stay"
-
     if decision in ("stake_up", "bored_move"):
         return "stay"
     if decision in ("take_break", "forced_leave"):
@@ -424,6 +459,54 @@ def _coerce_predator_retention(
     if decision == "bored_move":
         return "stay"
     return decision
+
+
+def _grinder_rebuy_cushion(projected_bankroll: int, buy_in: int) -> float:
+    """How freely a grinder reloads given its bankroll cushion, in [0, 1].
+
+    0 when the bankroll only just covers one more reload (don't shove your
+    last reserve into a losing table), ramping to 1 once it covers
+    `GRINDER_REBUY_CUSHION_BUYINS` buy-ins *beyond* the reload. Pure.
+    """
+    if buy_in <= 0:
+        return 1.0
+    extra_buyins_after_reload = projected_bankroll / buy_in - 1.0
+    return max(0.0, min(1.0, extra_buyins_after_reload / GRINDER_REBUY_CUSHION_BUYINS))
+
+
+def _coerce_grinder_rebuy(
+    decision: MovementDecision,
+    ctx: MovementContext,
+    rng: random.Random,
+) -> MovementDecision:
+    """Let a busted non-fish grinder sometimes reload instead of leaving.
+
+    A rebuy means the grinder is *losing*, so this is throttled toward
+    stopping the bleeding:
+      - Hard gate: if the bankroll can't fund a reload, it's a real bust →
+        `forced_leave` stands.
+      - Each prior rebuy at this table decays the odds (`GRINDER_REBUY_DECAY
+        ** rebuys_here`) — chasing fewer reloads each time.
+      - A thin bankroll (only just affordable) pulls the odds down too
+        (`_grinder_rebuy_cushion`).
+      - When it declines, it `take_break`s (rests in the idle pool, may
+        return recovered) rather than leaving for good.
+
+    Only intercepts the hard `forced_leave` (true bust). Short-stack leaves
+    keep their existing leave-vs-rebuy split (`decide_leave_or_rebuy`). Fish
+    are handled by `_coerce_fish_movement` and never reach here.
+    """
+    if decision != "forced_leave":
+        return decision
+    buy_in = max(1, ctx.min_buy_in)
+    if ctx.projected_bankroll < buy_in:
+        return "forced_leave"  # truly busted — nothing left to reload with
+    prob = (
+        GRINDER_REBUY_BASE_PROB
+        * (GRINDER_REBUY_DECAY ** max(0, ctx.rebuys_here))
+        * _grinder_rebuy_cushion(ctx.projected_bankroll, buy_in)
+    )
+    return "rebuy" if rng.random() < prob else "take_break"
 
 
 def resolve_dominant_signal(
@@ -926,6 +1009,84 @@ def _movement_decision_to_idle_reason(decision: MovementDecision) -> str:
     return decision
 
 
+def _emit_movement_trace(
+    *,
+    table: CashTableState,
+    pre_ai_pids: List[str],
+    decisions: Dict[str, str],
+    leave_signals: Dict[str, str],
+    freshly_seated: List[str],
+    trace_inputs: Dict[str, Dict[str, Any]],
+    now: datetime,
+) -> None:
+    """Best-effort observability for the player's seated table (MOVEMENT_TRACE).
+
+    Emits one record per hand-boundary refresh capturing which AIs *left*
+    (with the dominant pressure signal + the full weighted breakdown that
+    drove the decision) and which *arrived* via live-fill — so the "everyone
+    scatters within a few hands of me sitting down" pattern is traceable from
+    `docker logs`. Scoped by the caller to tables with a human seat, so the
+    autonomous world never spams. Never raises: instrumentation must not be
+    able to break a hand from advancing. Kill switch: env `MOVEMENT_TRACE=0`.
+    """
+    try:
+        left: List[Dict[str, Any]] = []
+        stayed: List[str] = []
+        for pid in pre_ai_pids:
+            decision = decisions.get(pid, "stay")
+            if decision == "stay":
+                stayed.append(pid)
+                continue
+            left.append(
+                {
+                    "pid": pid,
+                    "decision": decision,
+                    "dominant": leave_signals.get(pid),
+                    **trace_inputs.get(pid, {}),
+                }
+            )
+        # Quiet when nothing moved — only record actual churn.
+        if not left and not freshly_seated:
+            return
+        summary = (
+            ", ".join(
+                f"{row['pid']}→{row['decision']}"
+                f"[{row.get('dominant')}] P={row.get('pressures')}"
+                for row in left
+            )
+            or "—"
+        )
+        logger.info(
+            "[MOVE_TRACE] %s [%s %s] seated_before=%d | LEFT(%d): %s | ARRIVED: %s | stayed=%d",
+            table.table_id,
+            table.table_type,
+            table.stake_label,
+            len(pre_ai_pids),
+            len(left),
+            summary,
+            list(freshly_seated) or "—",
+            len(stayed),
+        )
+        record = {
+            "ts": now.isoformat(),
+            "table_id": table.table_id,
+            "table_type": table.table_type,
+            "stake": table.stake_label,
+            "seated_before": pre_ai_pids,
+            "left": left,
+            "arrived": list(freshly_seated),
+            "stayed": stayed,
+        }
+        path = os.getenv("MOVEMENT_TRACE_FILE", "data/movement_trace.jsonl")
+        try:
+            with open(path, "a") as fh:
+                fh.write(json.dumps(record) + "\n")
+        except OSError:
+            pass  # log line already emitted; file is a best-effort bonus
+    except Exception as exc:  # pragma: no cover - never break the refresh
+        logger.debug("movement trace emit failed: %s", exc)
+
+
 def refresh_table_roster(
     table: CashTableState,
     *,
@@ -990,6 +1151,15 @@ def refresh_table_roster(
     # decision becomes `go_vice` and the AI goes straight off-grid instead
     # of into the idle pool. Omit → no vice interception (prior behavior).
     vice_prob_lookup: Optional[Callable[[str], float]] = None,
+    # Fish identity by PERSONA, not by the per-seat `archetype='fish'` stamp.
+    # The stamp is fragile — several seat-builders (live-fill, take_stake,
+    # lobby fills) create fish seats via plain `ai_slot`, dropping it — so a
+    # fish can momentarily read as a grinder, spuriously triggering the
+    # casino `dead` push and losing its rebuy-instead-of-bust protection.
+    # Passing the curated fish-persona set lets us decide fish-ness by
+    # identity (mirrors `casino_provisioning._count_seated_fish`), which is
+    # robust to a missing stamp. Omit → fall back to the seat stamp alone.
+    fish_ids: Optional[Set[str]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -1065,18 +1235,39 @@ def refresh_table_roster(
         if s.get("kind") == "ai" and s.get("personality_id")
     ]
 
+    # Movement trace (debug, OPT-IN): when enabled, record why each AI
+    # leaves / who arrives so the "AIs scatter after I sit down" pattern is
+    # observable from logs. OFF by default — set MOVEMENT_TRACE=1 to turn it
+    # on; the full machinery stays in place either way.
+    human_present = any(s.get("kind") == "human" for s in new_seats)
+    # With MOVEMENT_TRACE=1, traces only the player's seated table (no
+    # world-tick spam). Add MOVEMENT_TRACE_ALL=1 to ALSO trace the autonomous
+    # world refresh (`refresh_unseated_tables` / lobby-load reshuffle) — the
+    # "tables empty when I open the lobby" path, where no human is seated.
+    trace_all = os.getenv("MOVEMENT_TRACE_ALL", "0") != "0"
+    trace_enabled = (human_present or trace_all) and os.getenv("MOVEMENT_TRACE", "0") != "0"
+    trace_inputs: Dict[str, Dict[str, Any]] = {}
+
+    # Fish-ness by persona identity, robust to a missing per-seat stamp
+    # (see the `fish_ids` param). A seat is a fish if its `archetype='fish'`
+    # stamp is present OR its persona is in the curated fish set.
+    _fids = fish_ids or set()
+
+    def _seat_is_fish(slot: Dict[str, Any]) -> bool:
+        return slot.get("kind") == "ai" and (
+            slot.get("archetype") == "fish" or slot.get("personality_id") in _fids
+        )
+
     # Is there a fish to farm at this table? Drives predator retention:
     # grinders stay to feast instead of booking the win and leaving.
     # Fish are casino-only, so this is non-trivial only at casinos.
-    table_has_fish = any(s.get("kind") == "ai" and s.get("archetype") == "fish" for s in new_seats)
+    table_has_fish = any(_seat_is_fish(s) for s in new_seats)
 
     # Dead-table push (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): a casino that
     # has lost its fish pushes its stuck grinders to go find action. Computed
     # once per table from the current seats; fed to each seated AI's
     # MovementContext below (fish ignore it — their movement is coerced).
-    _grinder_count = sum(
-        1 for s in new_seats if s.get("kind") == "ai" and s.get("archetype") != "fish"
-    )
+    _grinder_count = sum(1 for s in new_seats if s.get("kind") == "ai" and not _seat_is_fish(s))
     _deadness = table_deadness(
         is_casino=(table.table_type == "casino"),
         has_fish=table_has_fish,
@@ -1093,7 +1284,7 @@ def refresh_table_roster(
         # run normal movement — short-stack → re-buy from that bankroll,
         # or go home when it's dry — but their tier-drift decisions are
         # suppressed below so they never wander to another stake or table.
-        is_fish = slot.get("archetype") == "fish"
+        is_fish = _seat_is_fish(slot)
         # buy_in_lookup gives this AI's table-specific buy-in (honors
         # per-personality buy-in multipliers). table_min_buy_in /
         # table_max_buy_in are absolute and feed pressure thresholds.
@@ -1111,7 +1302,27 @@ def refresh_table_roster(
             hands_in_detached_zone=int(psych.get("hands_in_detached_zone", 0)),
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
             table_deadness=_deadness,
+            hands_here=int(slot.get("hands_here", 0)),
+            rebuys_here=int(slot.get("rebuys_here", 0)),
         )
+        if trace_enabled:
+            _pressures = compute_leave_pressure(ctx)
+            _total = sum(_pressures.values())
+            trace_inputs[pid] = {
+                "is_fish": is_fish,
+                "chips": ai_chips,
+                "bankroll": projected,
+                "max_buy_in": table_max_buy_in,
+                "min_buy_in": table_min_buy_in,
+                "energy": round(ctx.energy, 3),
+                "zone": ctx.zone,
+                "hands_detached": ctx.hands_in_detached_zone,
+                "deadness": round(ctx.table_deadness, 3),
+                "stack_over_tier": round(ai_chips / max(1, table_max_buy_in) - 1.0, 3),
+                "wealth_over_tier": round(projected / max(1, table_max_buy_in) - 1.0, 3),
+                "pressures": {k: round(v, 3) for k, v in _pressures.items()},
+                "leave_prob": round(_total / (_total + LEAVE_K), 3) if _total > 0 else 0.0,
+            }
         decision = evaluate_ai_movement(ctx, rng)
         # Fish are casino-bound chip donors: they reload from their
         # pool-funded bankroll and stay until the whole stake is gone,
@@ -1128,6 +1339,10 @@ def refresh_table_roster(
             decision = _coerce_predator_retention(
                 decision, table_has_fish, ctx.energy, wealth_excess=wealth_excess
             )
+            # Stop-the-bleeding rebuy: a busted grinder with bankroll left may
+            # reload (decaying with prior rebuys + bankroll cushion) instead of
+            # leaving; on decline it takes a break rather than leaving for good.
+            decision = _coerce_grinder_rebuy(decision, ctx, rng)
         # Vice-on-leave: a discretionary leaver who is rich enough goes
         # straight off-grid to a vice instead of the idle pool. Rolling
         # the existing wealth×psych vice probability HERE (at the leave)
@@ -1262,6 +1477,9 @@ def refresh_table_roster(
             continue
 
         if decision == "stay":
+            # Dwell-floor tenure: count this survived hand so the AI's
+            # discretionary leave pressure keeps ramping toward full.
+            new_seats[i] = {**slot, "hands_here": int(slot.get("hands_here", 0)) + 1}
             continue
         if decision == "rebuy":
             # Top up at the same seat. The persisted seat shows the new
@@ -1294,7 +1512,12 @@ def refresh_table_roster(
             # would quietly turn into a wandering grinder holding a deep
             # pool-funded stack. A fish reloads until its bankroll is dry,
             # so this fires often; keep it a fish the whole way down.
-            new_seats[i] = ai_slot_fish(pid, new_chips) if is_fish else ai_slot(pid, new_chips)
+            _reloaded = ai_slot_fish(pid, new_chips) if is_fish else ai_slot(pid, new_chips)
+            # The AI stays at the table through a reload — keep its dwell
+            # tenure, and count the rebuy so the grinder rebuy odds decay.
+            _reloaded["hands_here"] = int(slot.get("hands_here", 0))
+            _reloaded["rebuys_here"] = int(slot.get("rebuys_here", 0)) + 1
+            new_seats[i] = _reloaded
             rebuy_changes.append(
                 RebuyChange(
                     personality_id=pid,
@@ -1494,6 +1717,17 @@ def refresh_table_roster(
                     personality_id=pid,
                 )
             )
+
+    if trace_enabled:
+        _emit_movement_trace(
+            table=table,
+            pre_ai_pids=pre_movement_ai_pids,
+            decisions=decisions,
+            leave_signals=leave_signals,
+            freshly_seated=freshly_seated,
+            trace_inputs=trace_inputs,
+            now=now,
+        )
 
     new_table = CashTableState(
         table_id=table.table_id,

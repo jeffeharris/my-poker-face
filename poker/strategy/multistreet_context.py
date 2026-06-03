@@ -301,6 +301,10 @@ def apply_multistreet_context(
     h1_classes: Optional[frozenset] = None,
     h1_streets: Optional[frozenset] = None,
     street: Optional[str] = None,
+    air_barrel_target: float = 0.0,
+    air_barrel_fold_to_big_bet: Optional[float] = None,
+    air_barrel_min_ftbb: float = 0.6,
+    air_barrel_streets: Optional[frozenset] = None,
     prior_layer_fired: bool = False,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
@@ -340,6 +344,52 @@ def apply_multistreet_context(
     # a folder and a reg (the "strong draw" has resolved by the river → bluffing
     # busted equity into a caller), while flop/turn continuation captures fold
     # equity vs over-folders. Pass {'FLOP','TURN'} to drop the toxic river leg.
+    # ── H1-air: gated turn air-barrel (river-air SUPPLY build) ───────────────
+    # Pure air (air_no_draw) is deliberately ABSENT from H1_BARREL_TARGET — the
+    # bot gives it up on the turn, which starves the river bluff (T2): even
+    # promoting 100% of give-up-air river checks tops out at ~31% bluff share
+    # (< the ~37% GTO target) because little air survives to the river. This
+    # branch barrels a fraction of TURN air so more of it reaches the checked-to
+    # river for T2 to convert. Gated on a detected over-folder (fold_to_big_bet
+    # >= min) + HU + turn-only — vs a caller / cold-start it never fires (the
+    # barrel would just bleed). OFF by default (air_barrel_target=0.0) →
+    # byte-identical. Sits before standard H1 (air_no_draw isn't an H1 class).
+    air_reader = (
+        air_barrel_fold_to_big_bet is not None and air_barrel_fold_to_big_bet >= air_barrel_min_ftbb
+    )
+    air_barrel_applies = (
+        h1_enabled
+        and air_barrel_target > 0.0
+        and air_reader
+        and signals.was_prev_street_aggressor
+        and action_context == 'unopened'
+        and active_count <= H1_MAX_ACTIVE_PLAYERS
+        and hand_class == 'air_no_draw'
+        and (street or '').upper() in (air_barrel_streets or frozenset({'TURN'}))
+    )
+    if air_barrel_applies:
+        if is_rule_disabled(disable_rules, LAYER, 'barrel'):
+            return strategy, make_disabled_trace(LAYER, 'barrel', order)
+        new = _pump_bet(strategy, air_barrel_target)
+        if new is not strategy:
+            return new, _fire_trace(
+                strategy,
+                new,
+                rule_id='barrel',
+                effect='pump_bet_air',
+                reason_code='air_barrel_turn',
+                signals=signals,
+                hand_class=hand_class,
+                action_context=action_context,
+                target=air_barrel_target,
+            )
+        return strategy, make_no_op_trace(
+            LAYER,
+            'barrel',
+            order,
+            reason_code='no_bet_action_or_above_target',
+        )
+
     barrel_classes = h1_classes if h1_classes is not None else H1_BARREL_TARGET.keys()
     h1_applies = (
         h1_enabled

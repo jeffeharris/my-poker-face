@@ -111,6 +111,28 @@ class EmotionalQuadrant(Enum):
     SHAKEN = "shaken"
 
 
+class EmotionFamily(Enum):
+    """
+    Temperament family that selects HOW a quadrant is expressed.
+
+    The quadrant (confidence x composure) decides the *internal* feeling;
+    the family — derived from personality anchors — decides which surface
+    emotion that feeling becomes. Two players in the same OVERHEATED
+    quadrant read very differently: a high-ego competitor looks ``angry``
+    while a low-ego fun-lover looks ``giddy``/``gleeful``.
+
+    - COMPETITOR: high ego — cares about being outplayed, sharp emotions
+    - FUN_LOVER: low ego — playful, takes losses cheerfully
+    - STOIC: low expressiveness — muted, compresses toward poker face
+    - ANXIOUS: middling ego — default, nervier reads
+    """
+
+    COMPETITOR = "competitor"
+    FUN_LOVER = "fun_lover"
+    STOIC = "stoic"
+    ANXIOUS = "anxious"
+
+
 @dataclass(frozen=True)
 class PersonalityAnchors:
     """
@@ -131,6 +153,12 @@ class PersonalityAnchors:
     adaptation_bias: float  # Opponent adjustment rate (0=static, 1=adaptive)
     baseline_energy: float  # Baseline energy level (0=reserved, 1=animated)
     recovery_rate: float  # Axis decay speed (0=slow, 1=fast)
+    # Felt confidence independent of actual skill/ego — the "bravado/delusion"
+    # dial. 0.5 = neutral (no offset); >0.5 = overconfident (e.g. the tourist
+    # sure he's crushing while stacking off). Optional + neutral default so
+    # existing personas are unchanged. Lets confidence rise without raising ego
+    # (which would also make them anger-prone/brittle).
+    self_belief: float = 0.5
 
     def __post_init__(self):
         """Validate all anchors are in [0, 1]."""
@@ -144,6 +172,7 @@ class PersonalityAnchors:
             'adaptation_bias',
             'baseline_energy',
             'recovery_rate',
+            'self_belief',
         ]:
             val = getattr(self, name)
             if not isinstance(val, int | float):
@@ -163,6 +192,7 @@ class PersonalityAnchors:
             'adaptation_bias': self.adaptation_bias,
             'baseline_energy': self.baseline_energy,
             'recovery_rate': self.recovery_rate,
+            'self_belief': self.self_belief,
         }
 
     @classmethod
@@ -178,6 +208,7 @@ class PersonalityAnchors:
             adaptation_bias=float(data.get('adaptation_bias', 0.5)),
             baseline_energy=float(data.get('baseline_energy', 0.5)),
             recovery_rate=float(data.get('recovery_rate', 0.15)),
+            self_belief=float(data.get('self_belief', 0.5)),
         )
 
 
@@ -439,13 +470,20 @@ def compute_baseline_confidence(anchors: PersonalityAnchors) -> float:
             + baseline_aggression * 0.25  (aggressive = confident)
             + risk_identity * 0.20        (risk-seekers expect to win)
             + ego * 0.25                  (high ego = high self-regard)
+            + (self_belief - 0.5) * 0.4   (bravado/delusion, decoupled from ego)
 
     Returns:
         Baseline confidence clamped to a safe range to stay outside
-        penalty zones (TIMID and OVERCONFIDENT thresholds).
+        penalty zones (TIMID and OVERCONFIDENT thresholds). The clamp also
+        caps `self_belief` so even a maxed-out tourist stays below the
+        OVERCONFIDENT zone rather than auto-tilting.
     """
     baseline = (
-        0.3 + anchors.baseline_aggression * 0.25 + anchors.risk_identity * 0.20 + anchors.ego * 0.25
+        0.3
+        + anchors.baseline_aggression * 0.25
+        + anchors.risk_identity * 0.20
+        + anchors.ego * 0.25
+        + (anchors.self_belief - 0.5) * 0.4
     )
     # Clamp to stay safely outside penalty zones using tunable thresholds
     margin = 0.10
@@ -499,6 +537,37 @@ def get_quadrant(confidence: float, composure: float) -> EmotionalQuadrant:
         return EmotionalQuadrant.COMMANDING if composure > 0.5 else EmotionalQuadrant.OVERHEATED
     else:
         return EmotionalQuadrant.GUARDED if composure > 0.5 else EmotionalQuadrant.SHAKEN
+
+
+# Family thresholds (anchor-space). See EmotionFamily for rationale.
+FAMILY_STOIC_EXPRESSIVENESS = 0.40
+FAMILY_FUN_LOVER_EGO = 0.40
+FAMILY_COMPETITOR_EGO = 0.55
+
+
+def get_emotion_family(anchors: "PersonalityAnchors") -> EmotionFamily:
+    """
+    Derive a player's emotion family from static personality anchors.
+
+    Pure function of identity anchors (never changes during a session), so
+    the same quadrant always expresses through the same vocabulary for a
+    given persona. Precedence: stoicism (low expressiveness) wins first
+    because such players show little regardless of ego; then ego splits the
+    expressive players into playful (low) / sharp (high) / nervy (middle).
+
+    Args:
+        anchors: PersonalityAnchors with ``ego`` and ``expressiveness``.
+
+    Returns:
+        EmotionFamily for this persona.
+    """
+    if anchors.expressiveness < FAMILY_STOIC_EXPRESSIVENESS:
+        return EmotionFamily.STOIC
+    if anchors.ego < FAMILY_FUN_LOVER_EGO:
+        return EmotionFamily.FUN_LOVER
+    if anchors.ego > FAMILY_COMPETITOR_EGO:
+        return EmotionFamily.COMPETITOR
+    return EmotionFamily.ANXIOUS
 
 
 def compute_modifiers(
