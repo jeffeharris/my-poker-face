@@ -80,6 +80,68 @@ class TestSchemaManager(unittest.TestCase):
 
         self.assertEqual(mode, 'wal')
 
+    def test_fresh_db_avatar_images_is_pid_only(self):
+        """v138: a fresh DB builds avatar_images keyed solely on personality_id —
+        no legacy personality_name column."""
+        sm = SchemaManager(self.test_db.name)
+        sm.ensure_schema()
+
+        conn = sqlite3.connect(self.test_db.name)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        idx = {row[1] for row in conn.execute("PRAGMA index_list(avatar_images)")}
+        conn.close()
+
+        self.assertIn('personality_id', cols)
+        self.assertNotIn('personality_name', cols)
+        self.assertIn('idx_avatar_pid', idx)
+
+    def test_v138_drops_name_column_and_orphans(self):
+        """v138 migration: rebuild a pre-v138 (v137-shape) avatar_images keyed on
+        personality_id — drop the personality_name column, preserve rows with a
+        backfilled pid, drop NULL-pid orphans."""
+        # Build a minimal v137-era schema and stamp the version at 137.
+        conn = sqlite3.connect(self.test_db.name)
+        conn.executescript(
+            """
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, description TEXT);
+            CREATE TABLE personalities (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL, config_json TEXT NOT NULL,
+                created_at TIMESTAMP, updated_at TIMESTAMP, is_generated BOOLEAN DEFAULT 1,
+                source TEXT, times_used INTEGER DEFAULT 0, elasticity_config TEXT,
+                owner_id TEXT, visibility TEXT, personality_id TEXT UNIQUE);
+            CREATE TABLE avatar_images (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                personality_name TEXT NOT NULL, personality_id TEXT, emotion TEXT NOT NULL,
+                image_data BLOB NOT NULL, content_type TEXT DEFAULT 'image/png',
+                width INTEGER, height INTEGER, file_size INTEGER, full_image_data BLOB,
+                full_width INTEGER, full_height INTEGER, full_file_size INTEGER,
+                created_at TIMESTAMP, updated_at TIMESTAMP, UNIQUE(personality_name, emotion));
+            INSERT INTO personalities (name, config_json, personality_id)
+                VALUES ('Napoleon', '{}', 'napoleon');
+            INSERT INTO avatar_images (personality_name, personality_id, emotion, image_data)
+                VALUES ('Napoleon', 'napoleon', 'happy', X'AABB');
+            INSERT INTO avatar_images (personality_name, personality_id, emotion, image_data)
+                VALUES ('GhostName', NULL, 'angry', X'CCDD');
+            INSERT INTO schema_version (version, description) VALUES (137, 'pre-v138 stamp');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        SchemaManager(self.test_db.name).ensure_schema()
+
+        conn = sqlite3.connect(self.test_db.name)
+        version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        rows = conn.execute(
+            "SELECT personality_id, emotion FROM avatar_images ORDER BY emotion"
+        ).fetchall()
+        conn.close()
+
+        self.assertEqual(version, SCHEMA_VERSION)
+        self.assertNotIn('personality_name', cols)  # legacy column dropped
+        self.assertEqual(rows, [('napoleon', 'happy')])  # matched kept, orphan dropped
+
     def test_games_table_has_coach_mode(self):
         """Games table should have coach_mode column (v62 migration)."""
         sm = SchemaManager(self.test_db.name)

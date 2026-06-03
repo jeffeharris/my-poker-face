@@ -149,7 +149,15 @@ def test_seed_personalities_file_not_found(repo):
 # --- Avatar CRUD ---
 
 
+# v138: avatar_images is keyed SOLELY on `personality_id`. An avatar can only be
+# stored for a real persona (a row in `personalities`); a key matching no persona
+# is a no-op. So these tests seed the persona first. `save_personality` assigns
+# the slug pid, and avatar methods accept EITHER the display name or the pid (both
+# resolve to the same canonical id at the storage boundary).
+
+
 def test_save_and_load_avatar(repo):
+    repo.save_personality("TestBot", {"play_style": "aggressive"})
     image_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
     repo.save_avatar_image("TestBot", "happy", image_data)
 
@@ -161,42 +169,48 @@ def test_load_avatar_not_found(repo):
     assert repo.load_avatar_image("Nobody", "happy") is None
 
 
-def test_avatar_rekeyed_on_personality_id(repo, db_path):
-    """v137: avatars key on the stable `personality_id`. A save (by id OR display
-    name) populates both columns, and a load resolves by EITHER key — so a
-    tournament (looks up by `personality_id`) and a cash game (looks up by display
-    name) both find the SAME avatar instead of the tournament missing+regenerating."""
+def test_save_for_non_persona_is_noop(repo):
+    """v138: avatars are keyed on personality_id, so a key matching no persona
+    can't be stored (nothing to key it on) — the save is a logged no-op."""
+    repo.save_avatar_image("NotAPersona", "happy", b"\x00" * 10)
+    assert repo.load_avatar_image("NotAPersona", "happy") is None
+    assert repo.has_avatar_image("NotAPersona", "happy") is False
+
+
+def test_avatar_keyed_on_personality_id(repo, db_path):
+    """v138: avatars key SOLELY on the stable `personality_id`. A save by id OR
+    display name resolves to the same canonical id, and a load by EITHER key finds
+    the SAME avatar — so a tournament (looks up by id) and a cash game (looks up by
+    display name) hit one shared avatar. The legacy `personality_name` column is
+    gone; storage is pid-only."""
     import sqlite3
 
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO personalities (name, personality_id, config_json, visibility, circulating) "
-        "VALUES ('Napoleon', 'napoleon', '{}', 'public', 1)"
-    )
-    conn.commit()
-    conn.close()
+    pid = repo.save_personality("Napoleon", {"play_style": "aggressive"})
 
     img = b"\x89PNG" + b"\x00" * 20
-    repo.save_avatar_image("napoleon", "happy", img)  # written by the id (tournament path)
+    repo.save_avatar_image(pid, "happy", img)  # written by the id (tournament path)
 
-    assert repo.load_avatar_image("napoleon", "happy") == img  # tournament lookup
-    assert repo.load_avatar_image("Napoleon", "happy") == img  # cash lookup (display name)
-    assert repo.has_avatar_image("napoleon", "happy")
+    assert repo.load_avatar_image(pid, "happy") == img  # tournament lookup (id)
+    assert repo.load_avatar_image("Napoleon", "happy") == img  # cash lookup (name)
+    assert repo.has_avatar_image(pid, "happy")
 
-    # Both columns are populated regardless of which key the write came in on.
+    # Storage is keyed on personality_id; the legacy name column no longer exists.
     conn = sqlite3.connect(db_path)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(avatar_images)")}
     row = conn.execute(
-        "SELECT personality_name, personality_id FROM avatar_images WHERE emotion='happy'"
+        "SELECT personality_id FROM avatar_images WHERE emotion='happy'"
     ).fetchone()
     conn.close()
-    assert row == ("Napoleon", "napoleon")
+    assert "personality_name" not in cols  # legacy column dropped (v138)
+    assert row == (pid,)
 
     # A save BY DISPLAY NAME resolves to the same id.
     repo.save_avatar_image("Napoleon", "angry", b"X")
-    assert repo.load_avatar_image("napoleon", "angry") == b"X"
+    assert repo.load_avatar_image(pid, "angry") == b"X"
 
 
 def test_load_avatar_with_metadata(repo):
+    repo.save_personality("MetaBot", {})
     image_data = b"\x89PNG" + b"\x00" * 50
     repo.save_avatar_image("MetaBot", "confident", image_data, width=128, height=128)
 
@@ -209,6 +223,7 @@ def test_load_avatar_with_metadata(repo):
 
 
 def test_save_and_load_full_avatar(repo):
+    repo.save_personality("FullBot", {})
     icon = b"\x89PNG_icon"
     full = b"\x89PNG_full_image_much_larger"
     repo.save_avatar_image(
@@ -220,12 +235,15 @@ def test_save_and_load_full_avatar(repo):
 
 
 def test_has_avatar_image(repo):
-    assert repo.has_avatar_image("NoBot", "happy") is False
+    repo.save_personality("HasBot", {})
+    assert repo.has_avatar_image("HasBot", "happy") is False
     repo.save_avatar_image("HasBot", "happy", b"\x00" * 10)
     assert repo.has_avatar_image("HasBot", "happy") is True
 
 
 def test_has_full_avatar_image(repo):
+    repo.save_personality("PartialBot", {})
+    repo.save_personality("FullBot", {})
     repo.save_avatar_image("PartialBot", "happy", b"\x00" * 10)
     assert repo.has_full_avatar_image("PartialBot", "happy") is False
 
@@ -241,6 +259,7 @@ def test_has_full_avatar_image(repo):
 
 
 def test_get_available_avatar_emotions(repo):
+    repo.save_personality("EmotionBot", {})
     repo.save_avatar_image("EmotionBot", "happy", b"\x00" * 10)
     repo.save_avatar_image("EmotionBot", "angry", b"\x00" * 10)
     repo.save_avatar_image("EmotionBot", "confident", b"\x00" * 10)
@@ -250,7 +269,8 @@ def test_get_available_avatar_emotions(repo):
 
 
 def test_has_all_avatar_emotions(repo):
-    assert repo.has_all_avatar_emotions("IncompleteBot") is False
+    repo.save_personality("CompleteBot", {})
+    assert repo.has_all_avatar_emotions("CompleteBot") is False
 
     for emotion in ["confident", "happy", "thinking", "nervous", "angry", "shocked"]:
         repo.save_avatar_image("CompleteBot", emotion, b"\x00" * 10)
@@ -259,6 +279,7 @@ def test_has_all_avatar_emotions(repo):
 
 
 def test_delete_avatar_images(repo):
+    repo.save_personality("DeleteBot", {})
     repo.save_avatar_image("DeleteBot", "happy", b"\x00" * 10)
     repo.save_avatar_image("DeleteBot", "angry", b"\x00" * 10)
 
@@ -268,6 +289,8 @@ def test_delete_avatar_images(repo):
 
 
 def test_list_personalities_with_avatars(repo):
+    repo.save_personality("AvatarBot1", {})
+    repo.save_personality("AvatarBot2", {})
     repo.save_avatar_image("AvatarBot1", "happy", b"\x00" * 10)
     repo.save_avatar_image("AvatarBot1", "angry", b"\x00" * 10)
     repo.save_avatar_image("AvatarBot2", "happy", b"\x00" * 10)
@@ -282,6 +305,7 @@ def test_get_avatar_stats(repo):
     stats = repo.get_avatar_stats()
     assert stats["total_images"] == 0
 
+    repo.save_personality("StatsBot", {})
     repo.save_avatar_image("StatsBot", "happy", b"\x00" * 100)
     repo.save_avatar_image("StatsBot", "angry", b"\x00" * 200)
 

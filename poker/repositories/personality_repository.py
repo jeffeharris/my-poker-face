@@ -840,21 +840,22 @@ class PersonalityRepository(BaseRepository):
 
     # --- Avatar CRUD ---
 
-    def _resolve_avatar_identity(self, key: str) -> tuple:
-        """Given an avatar key (a `personality_id` slug OR a display name), return
-        `(personality_id, display_name)` so a write populates BOTH the canonical id
-        column (v137) and the legacy name column. Slugs and display names never
-        collide (different case/spacing). Best-effort: an unknown key (orphan /
-        synthetic seat) yields `(None, key)`."""
+    def _resolve_avatar_pid(self, key: Optional[str]) -> Optional[str]:
+        """Resolve an avatar key (a `personality_id` slug OR a display name) to the
+        canonical `personality_id` — the SOLE key `avatar_images` is stored and
+        looked up by (v138). Both `personalities.personality_id` and `.name` are
+        UNIQUE, so the lookup is unambiguous. Returns None for a key that matches
+        no persona (a guest / synthetic `P##` seat / orphan): such an entity has no
+        persona art, so its avatar is neither stored nor found — by design."""
+        if not key:
+            return None
         with self._get_connection() as conn:
             row = conn.execute(
-                "SELECT personality_id, name FROM personalities "
+                "SELECT personality_id FROM personalities "
                 "WHERE personality_id = ? OR name = ? LIMIT 1",
                 (key, key),
             ).fetchone()
-        if row:
-            return row['personality_id'], row['name']
-        return None, key
+        return row['personality_id'] if row and row['personality_id'] else None
 
     def save_avatar_image(
         self,
@@ -868,22 +869,28 @@ class PersonalityRepository(BaseRepository):
         full_width: Optional[int] = None,
         full_height: Optional[int] = None,
     ) -> None:
-        """Save an avatar image to the database. `personality_name` may be a
-        display name (legacy / cash) or a `personality_id` slug (tournaments) —
-        either is resolved so BOTH the id (v137 canonical key) and the display
-        name are stored; the upsert dedups on `(personality_name, emotion)`."""
-        pid, display = self._resolve_avatar_identity(personality_name)
+        """Save an avatar image. `personality_name` is an avatar KEY — a display
+        name (cash/regular) or a `personality_id` slug (tournaments) — resolved to
+        the canonical `personality_id` (v138). The upsert dedups on
+        `(personality_id, emotion)`. A key that matches no persona is skipped (an
+        avatar can't be keyed without a pid)."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            logger.warning(
+                "save_avatar_image: %r matches no persona — skipping (avatars are "
+                "keyed by personality_id)", personality_name
+            )
+            return
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO avatar_images
-                (personality_name, personality_id, emotion, image_data, content_type,
+                (personality_id, emotion, image_data, content_type,
                  width, height, file_size,
                  full_image_data, full_width, full_height, full_file_size, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
                 (
-                    display,
                     pid,
                     emotion,
                     image_data,
@@ -899,14 +906,16 @@ class PersonalityRepository(BaseRepository):
             )
 
     def load_avatar_image(self, personality_name: str, emotion: str) -> Optional[bytes]:
-        """Load avatar image data from database."""
+        """Load avatar image data. `personality_name` is an avatar key (name or
+        pid) resolved to the canonical `personality_id`."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return None
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT image_data FROM avatar_images
-                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
-            """,
-                (personality_name, personality_name, emotion),
+                "SELECT image_data FROM avatar_images "
+                "WHERE personality_id = ? AND emotion = ?",
+                (pid, emotion),
             )
 
             row = cursor.fetchone()
@@ -916,14 +925,14 @@ class PersonalityRepository(BaseRepository):
         self, personality_name: str, emotion: str
     ) -> Optional[Dict[str, Any]]:
         """Load avatar image with metadata from database."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return None
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT image_data, content_type, width, height, file_size
-                FROM avatar_images
-                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
-            """,
-                (personality_name, personality_name, emotion),
+                "SELECT image_data, content_type, width, height, file_size "
+                "FROM avatar_images WHERE personality_id = ? AND emotion = ?",
+                (pid, emotion),
             )
 
             row = cursor.fetchone()
@@ -940,13 +949,14 @@ class PersonalityRepository(BaseRepository):
 
     def load_full_avatar_image(self, personality_name: str, emotion: str) -> Optional[bytes]:
         """Load full uncropped avatar image from database."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return None
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT full_image_data FROM avatar_images
-                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
-            """,
-                (personality_name, personality_name, emotion),
+                "SELECT full_image_data FROM avatar_images "
+                "WHERE personality_id = ? AND emotion = ?",
+                (pid, emotion),
             )
 
             row = cursor.fetchone()
@@ -956,14 +966,15 @@ class PersonalityRepository(BaseRepository):
         self, personality_name: str, emotion: str
     ) -> Optional[Dict[str, Any]]:
         """Load full avatar image with metadata from database."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return None
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT full_image_data, content_type, full_width, full_height, full_file_size
-                FROM avatar_images
-                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
-            """,
-                (personality_name, personality_name, emotion),
+                "SELECT full_image_data, content_type, full_width, full_height, "
+                "full_file_size FROM avatar_images "
+                "WHERE personality_id = ? AND emotion = ?",
+                (pid, emotion),
             )
 
             row = cursor.fetchone()
@@ -980,38 +991,39 @@ class PersonalityRepository(BaseRepository):
 
     def has_full_avatar_image(self, personality_name: str, emotion: str) -> bool:
         """Check if a full avatar image exists for the given personality and emotion."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return False
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT 1 FROM avatar_images
-                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ? AND full_image_data IS NOT NULL
-            """,
-                (personality_name, personality_name, emotion),
+                "SELECT 1 FROM avatar_images "
+                "WHERE personality_id = ? AND emotion = ? AND full_image_data IS NOT NULL",
+                (pid, emotion),
             )
             return cursor.fetchone() is not None
 
     def has_avatar_image(self, personality_name: str, emotion: str) -> bool:
         """Check if an avatar image exists for the given personality and emotion."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return False
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT 1 FROM avatar_images
-                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
-            """,
-                (personality_name, personality_name, emotion),
+                "SELECT 1 FROM avatar_images WHERE personality_id = ? AND emotion = ?",
+                (pid, emotion),
             )
             return cursor.fetchone() is not None
 
     def get_available_avatar_emotions(self, personality_name: str) -> List[str]:
         """Get list of emotions that have avatar images for a personality."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return []
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT emotion FROM avatar_images
-                WHERE personality_id = ? OR personality_name = ?
-                ORDER BY emotion
-            """,
-                (personality_name, personality_name),
+                "SELECT emotion FROM avatar_images "
+                "WHERE personality_id = ? ORDER BY emotion",
+                (pid,),
             )
             return [row[0] for row in cursor.fetchall()]
 
@@ -1027,26 +1039,36 @@ class PersonalityRepository(BaseRepository):
         Returns:
             Number of images deleted
         """
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            return 0
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                DELETE FROM avatar_images WHERE personality_id = ? OR personality_name = ?
-            """,
-                (personality_name, personality_name),
+                "DELETE FROM avatar_images WHERE personality_id = ?",
+                (pid,),
             )
             return cursor.rowcount
 
     def list_personalities_with_avatars(self) -> List[Dict[str, Any]]:
-        """Get list of all personalities that have at least one avatar image."""
+        """Get list of all personalities that have at least one avatar image.
+        Keyed by `personality_id` (v138); the display name is joined from
+        `personalities` for the response (falls back to the id if unmatched)."""
         with self._get_connection() as conn:
             cursor = conn.execute("""
-                SELECT personality_name, COUNT(*) as emotion_count
-                FROM avatar_images
-                GROUP BY personality_name
-                ORDER BY personality_name
+                SELECT a.personality_id AS pid,
+                       COALESCE(p.name, a.personality_id) AS display_name,
+                       COUNT(*) as emotion_count
+                FROM avatar_images a
+                LEFT JOIN personalities p ON p.personality_id = a.personality_id
+                GROUP BY a.personality_id
+                ORDER BY display_name
             """)
             return [
-                {'personality_name': row['personality_name'], 'emotion_count': row['emotion_count']}
+                {
+                    'personality_id': row['pid'],
+                    'personality_name': row['display_name'],
+                    'emotion_count': row['emotion_count'],
+                }
                 for row in cursor.fetchall()
             ]
 
@@ -1060,14 +1082,14 @@ class PersonalityRepository(BaseRepository):
             total_size = cursor.fetchone()['total_size'] or 0
 
             cursor = conn.execute(
-                "SELECT COUNT(DISTINCT personality_name) as count FROM avatar_images"
+                "SELECT COUNT(DISTINCT personality_id) as count FROM avatar_images"
             )
             personality_count = cursor.fetchone()['count']
 
             cursor = conn.execute("""
                 SELECT COUNT(*) as count FROM (
-                    SELECT personality_name FROM avatar_images
-                    GROUP BY personality_name
+                    SELECT personality_id FROM avatar_images
+                    GROUP BY personality_id
                     HAVING COUNT(DISTINCT emotion) = 6
                 )
             """)
@@ -1125,16 +1147,20 @@ class PersonalityRepository(BaseRepository):
 
     def assign_avatar(self, personality_name: str, emotion: str, image_data: bytes) -> None:
         """Assign an avatar image to a personality, updating if one already exists.
-        `personality_name` may be a display name or a `personality_id` — both
-        columns are populated (v137)."""
-        pid, display = self._resolve_avatar_identity(personality_name)
+        `personality_name` is an avatar key (display name or `personality_id`)
+        resolved to the canonical `personality_id` (v138). A key that matches no
+        persona is skipped."""
+        pid = self._resolve_avatar_pid(personality_name)
+        if pid is None:
+            logger.warning(
+                "assign_avatar: %r matches no persona — skipping (avatars are keyed "
+                "by personality_id)", personality_name
+            )
+            return
         with self._get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT id FROM avatar_images
-                WHERE (personality_id = ? OR personality_name = ?) AND emotion = ?
-            """,
-                (pid, display, emotion),
+                "SELECT id FROM avatar_images WHERE personality_id = ? AND emotion = ?",
+                (pid, emotion),
             )
 
             existing = cursor.fetchone()
@@ -1142,17 +1168,17 @@ class PersonalityRepository(BaseRepository):
                 conn.execute(
                     """
                     UPDATE avatar_images
-                    SET image_data = ?, personality_id = ?, content_type = 'image/png',
+                    SET image_data = ?, content_type = 'image/png',
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """,
-                    (image_data, pid, existing['id']),
+                    (image_data, existing['id']),
                 )
             else:
                 conn.execute(
                     """
-                    INSERT INTO avatar_images (personality_name, personality_id, emotion, image_data, content_type)
-                    VALUES (?, ?, ?, ?, 'image/png')
+                    INSERT INTO avatar_images (personality_id, emotion, image_data, content_type)
+                    VALUES (?, ?, ?, 'image/png')
                 """,
-                    (display, pid, emotion, image_data),
+                    (pid, emotion, image_data),
                 )

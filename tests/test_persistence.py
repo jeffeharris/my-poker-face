@@ -597,6 +597,8 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_save_and_load_avatar_image(self):
         """Test saving and loading avatar image bytes."""
         image_data = self._create_test_image_bytes()
+        # v138: avatars key on personality_id, so the persona must exist first.
+        self.personality_repo.save_personality("Bob Ross", {})
 
         # Save
         self.personality_repo.save_avatar_image(
@@ -616,6 +618,7 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_has_avatar_image(self):
         """Test checking if avatar exists."""
         image_data = self._create_test_image_bytes()
+        self.personality_repo.save_personality("Bob Ross", {})
 
         # Should not exist initially
         self.assertFalse(self.personality_repo.has_avatar_image("Bob Ross", "happy"))
@@ -632,6 +635,7 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_get_available_emotions(self):
         """Test listing available emotions for personality."""
         image_data = self._create_test_image_bytes()
+        self.personality_repo.save_personality("Batman", {})
 
         # Save multiple emotions
         self.personality_repo.save_avatar_image("Batman", "confident", image_data)
@@ -649,6 +653,7 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_has_all_avatar_emotions(self):
         """Test checking if personality has all 6 emotions."""
         image_data = self._create_test_image_bytes()
+        self.personality_repo.save_personality("Joker", {})
 
         # Add only 3 emotions
         for emotion in ["confident", "happy", "thinking"]:
@@ -665,6 +670,7 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_delete_avatar_images(self):
         """Test deleting all avatars for a personality."""
         image_data = self._create_test_image_bytes()
+        self.personality_repo.save_personality("Villain", {})
 
         # Save multiple emotions
         for emotion in ["confident", "happy", "angry"]:
@@ -682,6 +688,7 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_load_avatar_with_metadata(self):
         """Test loading avatar image with metadata."""
         image_data = self._create_test_image_bytes()
+        self.personality_repo.save_personality("Hero", {})
 
         self.personality_repo.save_avatar_image(
             personality_name="Hero",
@@ -703,6 +710,8 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_get_avatar_stats(self):
         """Test getting avatar statistics."""
         image_data = self._create_test_image_bytes()
+        self.personality_repo.save_personality("Complete Player", {})
+        self.personality_repo.save_personality("Incomplete Player", {})
 
         # Add some avatars
         for emotion in EMOTIONS:
@@ -721,6 +730,8 @@ class TestAvatarPersistence(unittest.TestCase):
     def test_list_personalities_with_avatars(self):
         """Test listing personalities that have avatars."""
         image_data = self._create_test_image_bytes()
+        self.personality_repo.save_personality("Alice", {})
+        self.personality_repo.save_personality("Bob", {})
 
         self.personality_repo.save_avatar_image("Alice", "confident", image_data)
         self.personality_repo.save_avatar_image("Alice", "happy", image_data)

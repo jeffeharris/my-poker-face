@@ -285,7 +285,7 @@ _test_schema_template_path = None
 #       one open invite per owner that they accept (→ play it), decline, or let
 #       expire (→ runs autonomously). Durable so a scheduled window survives
 #       navigation / restart. See `docs/plans/TOURNAMENT_CIRCUIT_SURFACING.md`.
-SCHEMA_VERSION = 137
+SCHEMA_VERSION = 138
 
 
 class SchemaManager:
@@ -940,12 +940,12 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_career_stats_player ON player_career_stats(player_name)"
             )
 
-            # 17. Avatar images (v5, v28 added full_image columns)
+            # 17. Avatar images (v5; v28 added full_image columns; v137 added
+            # personality_id; v138 made it the SOLE key + dropped personality_name)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS avatar_images (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    personality_name TEXT NOT NULL,
-                    personality_id TEXT,
+                    personality_id TEXT NOT NULL,
                     emotion TEXT NOT NULL,
                     image_data BLOB NOT NULL,
                     content_type TEXT DEFAULT 'image/png',
@@ -958,22 +958,20 @@ class SchemaManager:
                     full_file_size INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(personality_name, emotion)
+                    UNIQUE(personality_id, emotion)
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_avatar_personality ON avatar_images(personality_name)"
-            )
-            # v137: avatars are keyed by the stable `personality_id` (the slug
-            # everything else uses) — `personality_name` (display name) becomes a
-            # legacy/debug column. The id is the lookup key going forward. Guarded
-            # on the column existing: `_init_db` runs BEFORE migrations, so on a
-            # pre-v137 DB the `CREATE TABLE IF NOT EXISTS` above is a no-op and the
-            # existing table has no `personality_id` yet — the v137 migration adds
-            # the column AND this index. On a fresh DB the table was just created
-            # with the column, so the index is built here.
+            # v138: avatars are keyed SOLELY by the stable `personality_id` (the
+            # slug everything else uses); the legacy `personality_name` display-name
+            # column + dual-key reads are gone. On a fresh DB the table is created
+            # in this final shape here; on a pre-v138 DB the `CREATE TABLE IF NOT
+            # EXISTS` is a no-op and the v138 migration rebuilds the old table into
+            # this shape. The index guard tolerates BOTH orderings (init runs before
+            # migrations): a pre-v138 table still has `personality_name` and no
+            # NOT-NULL `personality_id`, so only build the pid index once the table
+            # is in the new shape — the migration builds it otherwise.
             avatar_cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
-            if 'personality_id' in avatar_cols:
+            if 'personality_name' not in avatar_cols:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
                 )
@@ -2211,6 +2209,10 @@ class SchemaManager:
                 self._migrate_v137_avatar_personality_id,
                 "Re-key avatar_images on the stable `personality_id` (the slug used by bankrolls/ledger/relationships/dossiers/tournaments) instead of `personality_name` (the display name). Adds the column + backfills it by joining personalities on name (names are unique), so existing avatars keep matching while tournaments — which look up by id — stop missing + regenerating. personality_name kept as a legacy/debug column; reads tolerate either key during the transition.",
             ),
+            138: (
+                self._migrate_v138_avatar_drop_personality_name,
+                "Complete the avatar re-key: make `personality_id` the SOLE key of avatar_images (NOT NULL, UNIQUE(personality_id, emotion)) and DROP the legacy `personality_name` column + the dual-key `OR personality_name` reads. Rebuilds the table; rows whose personality_id is NULL (orphans the v137 name-join couldn't match) are dropped — they were already unreachable by the id-keyed path. Idempotent: a no-op once personality_name is gone.",
+            ),
         }
 
         with self._get_connection() as conn:
@@ -2447,7 +2449,13 @@ class SchemaManager:
         )
 
     def _migrate_v5_add_avatar_images_table(self, conn: sqlite3.Connection) -> None:
-        """Migration v5: Add avatar_images table for storing character images in DB."""
+        """Migration v5: Add avatar_images table for storing character images in DB.
+
+        On a real pre-v5 DB this creates the original name-keyed table. On a FRESH
+        DB (which runs every migration 1→N over the CURRENT `_init_db` schema), the
+        table already exists in the v138 pid-only shape, so the CREATE is a no-op
+        and the legacy `personality_name` index is guarded on the column existing
+        (v138 dropped it — see `_migrate_v138_avatar_drop_personality_name`)."""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS avatar_images (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2464,10 +2472,12 @@ class SchemaManager:
             )
         """)
 
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_avatar_personality
-            ON avatar_images(personality_name)
-        """)
+        avatar_cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        if 'personality_name' in avatar_cols:
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_avatar_personality
+                ON avatar_images(personality_name)
+            """)
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_avatar_emotion
@@ -7166,21 +7176,30 @@ class SchemaManager:
 
         Additive + idempotent (guarded ALTER, backfill only touches NULLs). Rows
         whose name doesn't match any persona (orphans) keep `personality_id` NULL
-        and are simply unreachable by the new id-keyed path — logged, not deleted."""
+        and are simply unreachable by the new id-keyed path — logged, not deleted.
+
+        NOTE: the name-join backfill is guarded on `personality_name` existing.
+        Fresh DBs run every migration 1→N over the CURRENT `_init_db` schema, and
+        as of v138 `_init_db` builds avatar_images WITHOUT `personality_name` —
+        so on a fresh DB this backfill is a skipped no-op (personality_id is
+        already the canonical key); on a real pre-v137 DB the column is present
+        and the backfill runs."""
         existing = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
         if 'personality_id' not in existing:
             conn.execute("ALTER TABLE avatar_images ADD COLUMN personality_id TEXT")
-        # Backfill from the unique display-name join (only fill the NULLs).
-        conn.execute(
-            """
-            UPDATE avatar_images
-               SET personality_id = (
-                   SELECT p.personality_id FROM personalities p
-                    WHERE p.name = avatar_images.personality_name
-               )
-             WHERE personality_id IS NULL
-            """
-        )
+        # Backfill from the unique display-name join (only fill the NULLs) —
+        # only when the legacy display-name column is actually present.
+        if 'personality_name' in existing:
+            conn.execute(
+                """
+                UPDATE avatar_images
+                   SET personality_id = (
+                       SELECT p.personality_id FROM personalities p
+                        WHERE p.name = avatar_images.personality_name
+                   )
+                 WHERE personality_id IS NULL
+                """
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
         )
@@ -7190,6 +7209,76 @@ class SchemaManager:
         logger.info(
             "Migration v137 complete: avatar_images re-keyed on personality_id "
             "(%d row(s) left unmatched/orphan, reachable only by legacy name)", orphans
+        )
+
+    def _migrate_v138_avatar_drop_personality_name(self, conn: sqlite3.Connection) -> None:
+        """Migration v138: make `personality_id` the SOLE key of avatar_images and
+        drop the legacy `personality_name` column.
+
+        v137 added `personality_id` + backfilled it but kept `personality_name`
+        (and dual-key reads) for a safe transition. This completes the cut: rebuild
+        the table keyed on `personality_id` (NOT NULL, UNIQUE(personality_id,
+        emotion)), dropping the name column and its index. Rows with a NULL
+        `personality_id` (orphans the v137 name-join couldn't resolve) are DROPPED
+        — they were already unreachable by the id-keyed path.
+
+        SQLite can't drop a column that's part of a UNIQUE constraint in-place, so
+        this is the standard 12-step table rebuild. Idempotent: if
+        `personality_name` is already gone (fresh DB created by `_init_db` in the
+        new shape, or a re-run), it's a no-op."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        if 'personality_name' not in cols:
+            return  # already in the new shape — nothing to do
+
+        dropped = conn.execute(
+            "SELECT COUNT(*) FROM avatar_images "
+            "WHERE personality_id IS NULL OR personality_id = ''"
+        ).fetchone()[0]
+
+        conn.execute("""
+            CREATE TABLE avatar_images_v138 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                personality_id TEXT NOT NULL,
+                emotion TEXT NOT NULL,
+                image_data BLOB NOT NULL,
+                content_type TEXT DEFAULT 'image/png',
+                width INTEGER DEFAULT 256,
+                height INTEGER DEFAULT 256,
+                file_size INTEGER,
+                full_image_data BLOB,
+                full_width INTEGER,
+                full_height INTEGER,
+                full_file_size INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(personality_id, emotion)
+            )
+        """)
+        # Copy only rows that resolved to a real personality_id. INSERT OR IGNORE
+        # guards the (unlikely) case of two legacy name rows that backfilled to the
+        # same pid+emotion — keep the first, drop the dup.
+        conn.execute("""
+            INSERT OR IGNORE INTO avatar_images_v138
+                (personality_id, emotion, image_data, content_type, width, height,
+                 file_size, full_image_data, full_width, full_height, full_file_size,
+                 created_at, updated_at)
+            SELECT personality_id, emotion, image_data, content_type, width, height,
+                   file_size, full_image_data, full_width, full_height, full_file_size,
+                   created_at, updated_at
+            FROM avatar_images
+            WHERE personality_id IS NOT NULL AND personality_id != ''
+        """)
+        conn.execute("DROP TABLE avatar_images")
+        conn.execute("ALTER TABLE avatar_images_v138 RENAME TO avatar_images")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)"
+        )
+        logger.info(
+            "Migration v138 complete: avatar_images keyed solely on personality_id "
+            "(dropped personality_name column + %d orphan row(s) with no pid)", dropped
         )
 
     def _migrate_v136_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:

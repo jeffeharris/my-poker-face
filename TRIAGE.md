@@ -2,7 +2,7 @@
 purpose: Deferred issues and tech debt identified during review, triaged by priority tier
 type: reference
 created: 2026-02-04
-last_updated: 2026-05-26
+last_updated: 2026-06-03
 ---
 
 # Triage: Deferred Issues
@@ -152,3 +152,37 @@ old saved games — but are no longer selectable from the game.
 - **Why deferred:** removing now would 500 on persisted games still holding the
   old mode, and the LLM bots still consume these presets in Custom Game.
 - **Added:** Controller-consolidation / settings cleanup, 2026-05-26.
+
+## Full pid-native avatars (banish the display name as a lookup) *(low priority)*
+
+Avatars are now keyed SOLELY on `personality_id` in storage (v138 — dropped the
+legacy `personality_name` column + the dual-key `OR personality_name` reads). But
+the avatar layer still ACCEPTS a display name as an input key and resolves it to a
+pid once at the storage boundary (`PersonalityRepository._resolve_avatar_pid`), and
+the served URL is still `/api/avatar/<name-or-id>/<emotion>`. So the name lives on
+as a lookup *input*, trusting the `personalities.name UNIQUE` invariant.
+
+This item finishes the job — make the name play **zero** role in avatar identity:
+- **Storage/repo:** already pid-only ✅ (done in the v138 cut).
+- **Service/handler/routes:** stop accepting a name; require a `personality_id`.
+  URL becomes `/api/avatar/<personality_id>/<emotion>`. Generation
+  (`CharacterImageService.generate_images` → `_get_description` →
+  `PersonalityGenerator.get_*`) keys appearance lookup on pid.
+- **Backend payloads (the cascade):** the live `GameState.players[]` must carry
+  `personality_id` (the `Player` type/payload has none today); the `avatar_update`
+  socket event must include `personality_id`; `/api/personalities` must return
+  each persona's `id`.
+- **Frontend (~3 components + types):** `ChatTargetSelector` (uses `player.name`),
+  `CustomGameConfig` (slot/persona names), admin `PersonalityManager` — switch their
+  `/api/avatar/<name>/…` builders to use `personality_id`. The
+  `avatarUrlForEmotion` regex helper is already identity-agnostic (no change).
+
+- **Why deferred (2026-06-03):** the only thing the surviving name-resolver buys
+  over full pid-native is immunity to a name collision — which
+  `personalities.name TEXT UNIQUE NOT NULL` already makes impossible. It's a
+  ~15-file cross-stack change + a public URL-contract flip for ~zero functional
+  gain *today* (no users need it yet). Storage is already rename-proof and
+  pid-keyed. Investigated in full; see the avatar-surface maps in the session and
+  `docs/plans/MAIN_EVENT_TABLE_HUMANIZE_HANDOFF.md` §P3.9b. This was deliberately
+  chosen as the follow-up over doing it now ("Option 2").
+- **Added:** Avatar legacy-kill follow-up, 2026-06-03.

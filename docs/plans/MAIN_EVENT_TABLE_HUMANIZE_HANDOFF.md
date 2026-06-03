@@ -2,8 +2,8 @@
 purpose: Single-entry handoff to finish "humanizing" the human Main Event table — wire tournament hands into the opponent-dossier grind, finish the avatar re-key, then (larger) give the live table real persona play. Start here.
 type: guide
 created: 2026-06-02
-last_updated: 2026-06-02
-status: Identity unification (names + avatars) DONE + pushed on `tournaments`. **P3.9a (dossier/observation wiring) committed `790a69e3`. P3.9c (real persona play) DONE — uncommitted, full test_tournament/ 284+2 green.** P3.9b reduced to a prod backfill safety check (code-migration deferred — not worth it; see §P3.9b). Remaining follow-ons: relationship-aware field selection + P4 carry-out. Circuit is ACTIVATED on dev.
+last_updated: 2026-06-03
+status: Identity unification (names + avatars) DONE + pushed on `tournaments`. **P3.9a (dossier wiring) `790a69e3` + P3.9c (real persona play) `9b13b0d9` pushed. P3.9b avatar dual-key kill DONE as schema v138 (pid-only storage; personality_name column + OR reads gone) — uncommitted.** Full pid-native (name as lookup input) deferred to TRIAGE.md. Prod is months behind on a legacy migration system (`PROD_MERGE_PLAN.md`). Remaining follow-ons: relationship-aware field selection + P4 carry-out. Circuit is ACTIVATED on dev.
 ---
 
 # Humanize the Main Event Table — Remaining Work (START HERE)
@@ -184,7 +184,29 @@ tolerate either `personality_id` OR the legacy `personality_name`. To finish it:
 This is optional for correctness (the tolerant reads already work) — it just
 completes the migration and removes the dual-key surface.
 
-**UPDATE (2026-06-02 — investigated, recommend DEFER the code change).** The
+**UPDATE (2026-06-03 — DONE the dual-key kill; full pid-native deferred).**
+Shipped the storage-side cut as **schema v138**: `avatar_images` is now keyed
+SOLELY on `personality_id` (NOT NULL, `UNIQUE(personality_id, emotion)`), the
+legacy `personality_name` column + every `OR personality_name` dual-key read are
+GONE, and the repo resolves any incoming key (name or pid) to a pid once at the
+storage boundary (`_resolve_avatar_pid`). Writes for a key matching no persona are
+a logged no-op (an avatar can't be keyed without a pid). v138 rebuilds the table
+and drops NULL-pid orphan rows; v5/v137 guarded so the fresh-DB migration chain
+(which runs over the new `_init_db` shape) doesn't reference the dropped column.
+Tests: repo avatar tests reworked to seed personas + a `test_v138_*` migration
+test + `test_fresh_db_avatar_images_is_pid_only`. The remaining **full pid-native**
+step (banish the name as a lookup INPUT too — URL `/api/avatar/<pid>/…`, payload +
+frontend plumbing) is **deferred to `TRIAGE.md`** ("Full pid-native avatars") — a
+~15-file cross-stack change for ~zero gain over the UNIQUE-name invariant; no user
+needs it yet.
+
+**PROD note (checked 2026-06-03):** the prod backfill safety check below is MOOT
+on the current prod — prod is months behind on a different migration system and
+has no `personality_id` column at all (see `PROD_MERGE_PLAN.md` /
+`project_prod_schema_drift`). The v137+v138 avatar backfill runs FRESH at the
+eventual prod upgrade; orphan/dupe checks matter THEN.
+
+**ORIGINAL recommendation (superseded — kept for context):** The
 "small caller swap" framing was wrong. Two findings:
 - **The write path is already canonical.** `save_avatar_image` / `assign_avatar`
   route through `_resolve_avatar_identity`, which normalizes whatever the caller
