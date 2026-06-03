@@ -20,7 +20,6 @@ from poker.ai_resilience import (
 from poker.betting_context import BettingContext
 from poker.card_utils import card_to_string
 from poker.config import AI_MESSAGE_CONTEXT_LIMIT, MIN_RAISE
-from poker.emotional_state import EmotionalState
 from poker.equity_snapshot import HandEquityHistory
 from poker.equity_tracker import EquityTracker
 from poker.game_helpers import should_clear_player_options
@@ -355,7 +354,6 @@ def restore_ai_controllers(
     bot_types = bot_types or {}
 
     controller_states = {}
-    emotional_states = {}
     try:
         # The loaders now skip individual corrupt rows internally, so an
         # empty dict here means "no saved state" (a fresh/legacy game) —
@@ -363,7 +361,6 @@ def restore_ai_controllers(
         # (e.g. DB/connection error): every AI silently reverts to default
         # tilt/emotion, so log it loudly (error + traceback), not as a warning.
         controller_states = game_repo.load_all_controller_states(game_id)
-        emotional_states = game_repo.load_all_emotional_states(game_id)
     except Exception as e:
         logger.error(
             f"Failed to load controller/emotional states for {game_id}; "
@@ -407,9 +404,7 @@ def restore_ai_controllers(
                     debug_logging=True,
                     default_strategy=strategy,
                 )
-                logger.info(
-                    f"[RESTORE] Created controller for {player.name} (bot_type={strategy})"
-                )
+                logger.info(f"[RESTORE] Created controller for {player.name} (bot_type={strategy})")
             else:
                 # No bot_types entry — match the new-game route's default of
                 # 'sharp' (the tiered solver bot, the core engine). Legacy
@@ -476,11 +471,9 @@ def restore_ai_controllers(
                         controller.psychology.tilt = ComposureState.from_tilt_state(
                             ctrl_state['tilt_state']
                         )
-                    # Note: elastic_personality is deprecated - new system uses anchors/axes
-                    if player.name in emotional_states:
-                        controller.psychology.emotional = EmotionalState.from_dict(
-                            emotional_states[player.name]
-                        )
+                    # Note: elastic_personality is deprecated - new system uses anchors/axes.
+                    # The legacy emotional_state table was retired in v136; narrative/
+                    # inner_voice now restore from psychology_json on the primary path above.
 
                 # Restore prompt_config (toggleable prompt components)
                 if ctrl_state.get('prompt_config'):
@@ -1282,8 +1275,8 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
 
     if _ef.PRESENCE_AUTHORITY_ENABLED:
         try:
-            from flask_app.extensions import entity_presence_repo as _epr
             from cash_mode.presence import Presence, player_entity_id
+            from flask_app.extensions import entity_presence_repo as _epr
 
             if _epr is not None:
                 st = _epr.load(player_entity_id(cs.owner_id), cs.sandbox_id)
@@ -1292,14 +1285,15 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
                         logger.info(
                             "[CASH][PRESENCE] cold-load binding from presence %r:%s "
                             "(cash_sessions had %r:%s) for %r",
-                            st.table_id, st.seat_index,
-                            cs.cash_table_id, cs.cash_seat_index, game_id,
+                            st.table_id,
+                            st.seat_index,
+                            cs.cash_table_id,
+                            cs.cash_seat_index,
+                            game_id,
                         )
                     resolved_table_id, resolved_seat = st.table_id, st.seat_index
         except Exception as e:  # noqa: BLE001 — presence read must not block recovery
-            logger.warning(
-                "[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e
-            )
+            logger.warning("[CASH][PRESENCE] presence binding lookup failed for %r: %s", game_id, e)
     if resolved_table_id is None:
         return None
     game_data['cash_table_id'] = resolved_table_id
@@ -1453,7 +1447,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     from cash_mode.movement import refresh_table_roster
     from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
-    from cash_mode.tables import ai_slot, human_slot, open_slot
+    from cash_mode.tables import ai_slot, ai_slot_fish, human_slot, open_slot
     from flask_app.extensions import bankroll_repo, cash_table_repo, personality_repo
 
     sandbox_id = _sandbox_id_for(game_data)
@@ -1513,18 +1507,42 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     leftover_busted = busted_slot_indices[len(fresh_pids_needing_slot) :]
 
     # 2. Sync: rewrite each persisted slot using game-state truth.
+    # Fish identity is intrinsic to the persona (config archetype='fish'),
+    # but a *seat* only carries the `archetype='fish'` stamp when it's built
+    # via `ai_slot_fish`. Rebuilding fish seats through plain `ai_slot` here
+    # stripped that stamp every hand on the human's table — so the casino
+    # read as fishless, the `dead` push fired on everyone, and the fish lost
+    # their `_coerce_fish_movement` pin. Re-derive fish-ness from the persona
+    # (not the seat) so the rebuild re-stamps it — self-healing for seats a
+    # prior hand already stripped.
+    from cash_mode.closed_economy import load_fish_ids
+
+    fish_pids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+
+    def _synced_ai_slot(pid: str, chips: int, prev: Optional[Dict] = None) -> Dict:
+        out = ai_slot_fish(pid, chips) if pid in fish_pids else ai_slot(pid, chips)
+        # Carry the per-seat dwell/rebuy counters across this rebuild — the
+        # human-table sync re-creates the slot every hand, so without this
+        # the dwell floor and rebuy-decay counters would reset each hand.
+        if prev is not None:
+            for _k in ("hands_here", "rebuys_here"):
+                if _k in prev:
+                    out[_k] = prev[_k]
+        return out
+
     synced_seats: List[Dict] = []
     for i, slot in enumerate(table.seats):
         if slot["kind"] == "ai":
             if i in reseat_map:
+                # A fresh AI took a busted seat — counters start at 0.
                 new_pid = reseat_map[i]
-                synced_seats.append(ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
+                synced_seats.append(_synced_ai_slot(new_pid, pid_to_chips.get(new_pid, 0)))
             elif i in leftover_busted:
                 synced_seats.append(open_slot())
             else:
                 pid = slot["personality_id"]
                 new_chips = pid_to_chips.get(pid, int(slot.get("chips", 0)))
-                synced_seats.append(ai_slot(pid, new_chips))
+                synced_seats.append(_synced_ai_slot(pid, new_chips, prev=slot))
         elif slot["kind"] == "human" and human_owner_id:
             synced_seats.append(human_slot(human_owner_id, human_chips))
         else:
@@ -1670,6 +1688,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         next_tier_min_buy_in=next_tier_min_buy_in,
         defer_freshly_vacated_live_fill=True,
         psych_lookup=_psych_lookup,
+        # Robust fish detection by persona identity (re-uses the set we
+        # built for the seat re-stamp above) so a missing `archetype='fish'`
+        # stamp can't spuriously fire the dead-push or drop a fish's rebuy.
+        fish_ids=fish_pids,
     )
 
     # Apply rebuy decisions: debit each AI's bankroll for the top-up
@@ -2734,8 +2756,15 @@ def _run_async_narration(game_id: str, game_data: dict, pending: list) -> None:
         try:
             controller.psychology.generate_narration(**req.kwargs)
             if controller.psychology.emotional:
-                game_repo.save_emotional_state(
-                    game_id, req.player_name, controller.psychology.emotional
+                # Persist the freshly narrated emotional state via the unified
+                # controller_state row (psychology_json carries narrative/
+                # inner_voice). The emotional_state table was retired in v136.
+                prompt_config = getattr(controller, 'prompt_config', None)
+                game_repo.save_controller_state(
+                    game_id,
+                    req.player_name,
+                    psychology=controller.psychology.to_dict(),
+                    prompt_config=prompt_config.to_dict() if prompt_config else None,
                 )
         except Exception as e:
             logger.warning(
@@ -2871,6 +2900,51 @@ def _apply_player_table_rake(
     return game_state
 
 
+def _record_cash_scalps(game_data: dict, game_state, winner_name: str) -> None:
+    """Record this hand's eliminations at a human-occupied cash table (scalp
+    tracker §3b). Eliminator = the headline pot winner (the human's `owner_id`
+    or an AI `personality_id`); victims = non-human players busted (stack 0) by
+    the just-applied award. Headline-winner rule, consistent with the world-sim
+    path. Pure best-effort — the caller wraps it; this also self-guards so a
+    missing repo / unmapped id degrades to a no-op."""
+    from flask_app import extensions
+
+    repo = getattr(extensions, "cash_scalps_repo", None)
+    if repo is None:
+        return
+    sandbox_id = _sandbox_id_for(game_data)
+    if not sandbox_id:
+        return
+    cash_pids = game_data.get("cash_personality_ids") or {}  # display name -> pid
+
+    winner_player = next((p for p in game_state.players if p.name == winner_name), None)
+    if winner_player is None:
+        return
+    eliminator_id = (
+        game_data.get("owner_id")
+        if getattr(winner_player, "is_human", False)
+        else cash_pids.get(winner_name)
+    )
+    if not eliminator_id:
+        return
+
+    victim_ids = [
+        cash_pids[p.name]
+        for p in game_state.players
+        if not getattr(p, "is_human", False) and p.stack == 0 and p.name in cash_pids
+    ]
+    if not victim_ids:
+        return
+
+    from datetime import datetime
+
+    from cash_mode.scalps import eliminations_from_human_hand
+
+    scalps = eliminations_from_human_hand(eliminator_id, victim_ids)
+    if scalps:
+        repo.record_many(sandbox_id, scalps, now=datetime.now().isoformat())
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -2907,6 +2981,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if not winning_player_names:
         logger.error(f"[Game {game_id}] No winning player names found in pot_breakdown")
         return game_state, False
+
+    # Scalp attribution (CASH_MODE_SCALP_TRACKER.md §3b): record eliminations at
+    # the human's table now that the award is applied (stacks final). Best-effort
+    # — never let scalp recording taint the hand flow.
+    if game_data.get('cash_mode'):
+        try:
+            _record_cash_scalps(game_data, game_state, winning_player_names[0])
+        except Exception:
+            logger.debug("[CASH] scalp record failed (non-fatal)", exc_info=True)
 
     # Prepare winner announcement data
     winning_players_string = (

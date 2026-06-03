@@ -269,7 +269,6 @@ class GameRepository(BaseRepository):
             # them along with the live game row (full 35-hand sessions
             # ending with zero rows), which contradicted the docstring's
             # "historical data preserved" promise.
-            conn.execute("DELETE FROM emotional_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM games WHERE game_id = ?", (game_id,))
 
@@ -400,125 +399,6 @@ class GameRepository(BaseRepository):
     # --- Emotional State ---
 
     @retry_on_lock()
-    def save_emotional_state(self, game_id: str, player_name: str, emotional_state) -> None:
-        """Save emotional state for a player.
-
-        Args:
-            game_id: The game identifier
-            player_name: The player's name
-            emotional_state: EmotionalState object or dict from EmotionalState.to_dict()
-        """
-        if hasattr(emotional_state, 'to_dict'):
-            state_dict = emotional_state.to_dict()
-        else:
-            state_dict = emotional_state
-
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO emotional_state
-                (game_id, player_name, valence, arousal, control, focus,
-                 narrative, inner_voice, generated_at_hand, source_events,
-                 metadata_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-                (
-                    game_id,
-                    player_name,
-                    state_dict.get('valence', 0.0),
-                    state_dict.get('arousal', 0.5),
-                    state_dict.get('control', 0.5),
-                    state_dict.get('focus', 0.5),
-                    state_dict.get('narrative', ''),
-                    state_dict.get('inner_voice', ''),
-                    state_dict.get('generated_at_hand', 0),
-                    json.dumps(state_dict.get('source_events', [])),
-                    json.dumps(
-                        {
-                            'created_at': state_dict.get('created_at'),
-                            'used_fallback': state_dict.get('used_fallback', False),
-                        }
-                    ),
-                ),
-            )
-
-    @staticmethod
-    def _build_emotional_state_dict(row) -> Dict[str, Any]:
-        """Build an emotional state dict from a database row."""
-        metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
-        return {
-            'valence': row['valence'],
-            'arousal': row['arousal'],
-            'control': row['control'],
-            'focus': row['focus'],
-            'narrative': row['narrative'] or '',
-            'inner_voice': row['inner_voice'] or '',
-            'generated_at_hand': row['generated_at_hand'],
-            'source_events': json.loads(row['source_events']) if row['source_events'] else [],
-            'created_at': metadata.get('created_at'),
-            'used_fallback': metadata.get('used_fallback', False),
-        }
-
-    def load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
-        """Load emotional state for a player.
-
-        Returns:
-            Dict suitable for EmotionalState.from_dict(), or None if not found
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM emotional_state
-                WHERE game_id = ? AND player_name = ?
-            """,
-                (game_id, player_name),
-            )
-
-            row = cursor.fetchone()
-            if not row:
-                return None
-
-            return self._build_emotional_state_dict(row)
-
-    def load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all emotional states for a game.
-
-        Returns:
-            Dict mapping player_name -> emotional_state dict
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM emotional_state
-                WHERE game_id = ?
-            """,
-                (game_id,),
-            )
-
-            # Per-row guard: one corrupt emotional_state_json must not wipe
-            # every player's restored emotion. Log+skip the bad row, keep the
-            # good ones. (Without this a single bad row threw and the caller's
-            # wholesale except left ALL AIs at default emotion.)
-            states: Dict[str, Dict[str, Any]] = {}
-            for row in cursor.fetchall():
-                player_name = row['player_name']
-                try:
-                    states[player_name] = self._build_emotional_state_dict(row)
-                except Exception as e:
-                    logger.error(
-                        "Skipping corrupt emotional_state row for %r in game %r: %s",
-                        player_name,
-                        game_id,
-                        e,
-                        exc_info=True,
-                    )
-            return states
-
-    def delete_emotional_state_for_game(self, game_id: str) -> None:
-        """Delete all emotional states for a game."""
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM emotional_state WHERE game_id = ?", (game_id,))
-
     def delete_controller_state_for_game(self, game_id: str) -> None:
         """Delete all controller states for a game."""
         with self._get_connection() as conn:
@@ -875,6 +755,27 @@ class GameRepository(BaseRepository):
         '_preflop_voluntary_opportunities': 'preflop_voluntary_opportunities',
         '_preflop_open_raise_count': 'preflop_open_raise_count',
         '_preflop_open_opportunities': 'preflop_open_opportunities',
+        # v132 limp counter — numerator for limp_rate; the denominator
+        # (preflop_open_opportunities) is already folded above, so this is a
+        # single new column. Rate derives on read via OpponentTendencies.
+        '_limp_count': 'limp_count',
+        # v133 sizing-aware counts — feed sizing_polarization_score (big/small
+        # equity bins) and fold_to_big_bet; the equity SUMS are folded in
+        # _LIFETIME_SUM_FIELDS. Rates derive on read.
+        '_equity_betting_big_count': 'equity_betting_big_count',
+        '_equity_betting_small_count': 'equity_betting_small_count',
+        '_fold_to_big_bet_count': 'fold_to_big_bet_count',
+        '_big_bet_faced_count': 'big_bet_faced_count',
+        # v134 postflop aggression-axis counts — feed all_in_per_facing_bet
+        # (response aggression) and postflop_jam_open_rate (open aggression).
+        '_facing_bet_opportunities': 'facing_bet_opportunities',
+        '_all_ins_facing_bet': 'all_ins_facing_bet',
+        '_postflop_open_opportunities': 'postflop_open_opportunities',
+        '_postflop_jam_opens': 'postflop_jam_opens',
+        # v135 flop-check-then-barrel counts — feed flop_check_then_barrel_rate
+        # (the trap read).
+        '_flop_check_barrel_count': 'flop_check_barrel_count',
+        '_flop_check_barrel_opportunity_count': 'flop_check_barrel_opportunity_count',
     }
 
     # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
@@ -884,11 +785,13 @@ class GameRepository(BaseRepository):
         '_equity_betting_sum': 'equity_betting_sum',
         '_equity_raising_sum': 'equity_raising_sum',
         '_equity_calling_sum': 'equity_calling_sum',
+        # v133 sizing-aware equity sums (big/small bet bins); the polarization
+        # means derive on read as sum / count.
+        '_equity_betting_big_sum': 'equity_betting_big_sum',
+        '_equity_betting_small_sum': 'equity_betting_small_sum',
     }
 
-    def fold_observations_into_lifetime(
-        self, game_id: str, sandbox_id: Optional[str]
-    ) -> int:
+    def fold_observations_into_lifetime(self, game_id: str, sandbox_id: Optional[str]) -> int:
         """Fold this game's per-opponent observation counts into the durable
         per-sandbox `opponent_observation_lifetime` rows (Phase 1).
 
@@ -944,13 +847,14 @@ class GameRepository(BaseRepository):
 
                 # Current counts (int) + sums (float), keyed by tendencies key.
                 current = {
-                    src: int(current_raw.get(src, 0) or 0)
-                    for src in self._LIFETIME_COUNT_FIELDS
+                    src: int(current_raw.get(src, 0) or 0) for src in self._LIFETIME_COUNT_FIELDS
                 }
-                current.update({
-                    src: float(current_raw.get(src, 0.0) or 0.0)
-                    for src in self._LIFETIME_SUM_FIELDS
-                })
+                current.update(
+                    {
+                        src: float(current_raw.get(src, 0.0) or 0.0)
+                        for src in self._LIFETIME_SUM_FIELDS
+                    }
+                )
                 # Per-column deltas vs the high-water mark. Column order is
                 # taken from the field maps so the INSERT below stays in sync
                 # automatically as new fields are added.
@@ -961,10 +865,12 @@ class GameRepository(BaseRepository):
                     col: current[src] - int(applied.get(src, 0) or 0)
                     for src, col in self._LIFETIME_COUNT_FIELDS.items()
                 }
-                deltas.update({
-                    col: current[src] - float(applied.get(src, 0.0) or 0.0)
-                    for src, col in self._LIFETIME_SUM_FIELDS.items()
-                })
+                deltas.update(
+                    {
+                        col: current[src] - float(applied.get(src, 0.0) or 0.0)
+                        for src, col in self._LIFETIME_SUM_FIELDS.items()
+                    }
+                )
                 if not any(deltas.values()):
                     continue  # nothing new since last fold
 
@@ -985,7 +891,9 @@ class GameRepository(BaseRepository):
                         last_updated    = CURRENT_TIMESTAMP
                     """,
                     (
-                        sandbox_id, observer_id, opponent_id,
+                        sandbox_id,
+                        observer_id,
+                        opponent_id,
                         *(deltas[col] for col in all_cols),
                     ),
                 )
@@ -1000,8 +908,10 @@ class GameRepository(BaseRepository):
 
         if folded:
             logger.debug(
-                "Folded %d opponent observation(s) into lifetime for game %s "
-                "(sandbox %s)", folded, game_id, sandbox_id
+                "Folded %d opponent observation(s) into lifetime for game %s " "(sandbox %s)",
+                folded,
+                game_id,
+                sandbox_id,
             )
         return folded
 
@@ -1048,6 +958,15 @@ class GameRepository(BaseRepository):
         'postflop_bet_raise_count', 'postflop_call_count',
         'barrel_opportunity_count', 'equity_betting_count',
         'equity_raising_count', 'equity_calling_count',
+        # v132 limp_rate gate + showdown_win_rate gate sample denominators.
+        'preflop_open_opportunities', 'showdowns_seen',
+        # v133 sizing-read gate sample denominators.
+        'big_bet_faced_count', 'equity_betting_big_count',
+        'equity_betting_small_count',
+        # v134 postflop-axis gate sample denominators.
+        'facing_bet_opportunities', 'postflop_open_opportunities',
+        # v135 flop-check-barrel gate sample denominator.
+        'flop_check_barrel_opportunity_count',
     )
 
     def list_observation_lifetime_for_observer(
@@ -1185,9 +1104,7 @@ class GameRepository(BaseRepository):
 
         return {'counts': counts, 'defining': defining}
 
-    def load_informant_unlocks(
-        self, sandbox_id: str, observer_id: str, opponent_id: str
-    ) -> set:
+    def load_informant_unlocks(self, sandbox_id: str, observer_id: str, opponent_id: str) -> set:
         """Return the set of dossier section_ids the observer has bought from
         the informant for this opponent in this sandbox (Phase 3)."""
         with self._get_connection() as conn:
@@ -1219,8 +1136,12 @@ class GameRepository(BaseRepository):
         return out
 
     def record_informant_unlock(
-        self, sandbox_id: str, observer_id: str, opponent_id: str,
-        section_id: str, price_paid: int,
+        self,
+        sandbox_id: str,
+        observer_id: str,
+        opponent_id: str,
+        section_id: str,
+        price_paid: int,
     ) -> bool:
         """Persist an informant section purchase. Idempotent: a section
         already owned is left as-is (INSERT OR IGNORE) and returns False so

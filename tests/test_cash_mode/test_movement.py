@@ -24,7 +24,6 @@ import pytest
 
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
-    FISH_TILT_LEAVE_THRESHOLD,
     FORCED_LEAVE_RATIO,
     LEAVE_K,
     MIN_COOLDOWN_SECONDS,
@@ -83,6 +82,11 @@ def _neutral_ctx(**overrides) -> MovementContext:
         zone="neutral",
         hands_in_detached_zone=0,
         emotional_intensity=0.0,
+        # Settled in: past the dwell floor (DWELL_PATIENCE_HANDS=6) so the
+        # discretionary-pressure dwell_damp is 1.0 and these formula/routing
+        # tests see undamped pressure. Tests that exercise the dwell ramp
+        # override this explicitly.
+        hands_here=20,
     )
     base.update(overrides)
     return MovementContext(**base)
@@ -590,11 +594,13 @@ class TestCoercePredatorRetention:
 
 
 class TestCoerceFishMovement:
-    """Fish stay-and-reload until bust, with an emotional escape hatch.
+    """Fish stay-and-reload until they genuinely bust.
 
-    Content fish reload from the bankroll instead of leaving (so the whole
-    pool-funded stake feeds the table); upset fish are released and may
-    storm off with their chips — making table manners an economic lever.
+    A fish reloads from the bankroll instead of leaving (so the whole
+    pool-funded stake feeds the table). Tilt (`emotional_intensity`) changes
+    how the fish *plays*, not whether it keeps its seat (0402d88c removed the
+    storm-off path), so the only exit from an open casino is a real bust —
+    a bankroll too thin to fund a reload.
     """
 
     def _ctx(
@@ -642,34 +648,32 @@ class TestCoerceFishMovement:
         ctx = self._ctx(projected_bankroll=800)
         assert _coerce_fish_movement("stay", ctx, random.Random(0)) == "stay"
 
-    # --- upset fish: released, may storm off with chips ---
-    def test_upset_fish_busting_just_goes(self):
+    # --- tilt no longer empties the seat (0402d88c) ---
+    # emotional_intensity changes how a fish *plays*, not whether it keeps its
+    # seat: an upset fish follows the same content path as a calm one. The only
+    # way a fish leaves an open casino is a genuine bust (can't fund a reload).
+    def test_upset_fish_reloads_when_funded(self):
         ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
-        assert _coerce_fish_movement("forced_leave", ctx, random.Random(0)) == "forced_leave"
+        assert _coerce_fish_movement("take_break", ctx, _force_rng([0.0])) == "rebuy"
+        assert _coerce_fish_movement("forced_leave", ctx, _force_rng([0.0])) == "rebuy"
 
-    def test_upset_fish_storms_off_with_chips(self):
-        # Roll below intensity → leaves, even though the bankroll could reload.
+    def test_upset_fish_never_storms_off_from_stay(self):
+        # Tilt no longer converts a stay into a leave, at any roll.
         ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
-        assert _coerce_fish_movement("take_break", ctx, _force_rng([0.1])) == "take_break"
-
-    def test_upset_fish_rage_quits_even_from_stay(self):
-        ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
-        assert _coerce_fish_movement("stay", ctx, _force_rng([0.1])) == "take_break"
-
-    def test_upset_fish_may_hold_when_roll_high(self):
-        # Roll above intensity → doesn't storm off this hand.
-        ctx = self._ctx(projected_bankroll=800, emotional_intensity=0.8)
+        assert _coerce_fish_movement("stay", ctx, _force_rng([0.0])) == "stay"
         assert _coerce_fish_movement("stay", ctx, _force_rng([0.99])) == "stay"
 
-    def test_threshold_boundary(self):
-        # Exactly at threshold counts as upset.
-        at = self._ctx(projected_bankroll=800, emotional_intensity=FISH_TILT_LEAVE_THRESHOLD)
-        assert _coerce_fish_movement("take_break", at, _force_rng([0.0])) == "take_break"
-        # Just below → content → reloads.
-        below = self._ctx(
-            projected_bankroll=800, emotional_intensity=FISH_TILT_LEAVE_THRESHOLD - 0.01
-        )
-        assert _coerce_fish_movement("take_break", below, random.Random(0)) == "rebuy"
+    def test_upset_fish_leaves_only_on_genuine_bust(self):
+        # The single exit: bankroll can't fund a reload.
+        ctx = self._ctx(projected_bankroll=100, emotional_intensity=0.8)  # < min 400
+        assert _coerce_fish_movement("forced_leave", ctx, _force_rng([0.0])) == "forced_leave"
+
+    def test_tilt_does_not_change_movement(self):
+        # Identical decision + RNG across the whole tilt range → identical
+        # outcome. Regression guard for the FISH_TILT_LEAVE_THRESHOLD removal.
+        for intensity in (0.0, 0.49, 0.5, 0.8, 1.0):
+            ctx = self._ctx(projected_bankroll=800, emotional_intensity=intensity)
+            assert _coerce_fish_movement("take_break", ctx, _force_rng([0.0])) == "rebuy"
 
 
 class TestRefreshForcedLeave:
@@ -683,15 +687,17 @@ class TestRefreshForcedLeave:
             open_slot(),
         ]
         table = _make_table(seats)
-        # Napoleon forced_leave (no roll consumed); zeus stay (no roll).
-        # 5 open seats → 5 live-fill rolls (high to avoid fill).
+        # Napoleon is TRULY busted — chips 0 AND bankroll < min_buy_in, so the
+        # grinder self-rebuy hard-gate leaves forced_leave standing (no roll
+        # consumed); zeus stay (no roll). 5 open seats → 5 live-fill rolls
+        # (high to avoid fill).
         rng = _force_rng([0.99] * 5)
         result = refresh_table_roster(
             table,
             idle_pool=[],
             eligible_candidates=[],
             seated_globally={"napoleon", "zeus"},
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000, "zeus": 5000}),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 0, "zeus": 5000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
@@ -844,8 +850,13 @@ class TestDeadTablePush:
     that's lost its fish pushes its grinders to go find action."""
 
     def _grinder_seats(self):
-        # Two grinders (mid stack → no short / no seat stake_up), rest open.
-        return [ai_slot("g1", 600), ai_slot("g2", 600)] + [open_slot() for _ in range(4)]
+        # Two grinders (mid stack → no short / no seat stake_up), settled past
+        # the dwell floor (hands_here ≥ DWELL_PATIENCE_HANDS) so the dead-table
+        # pressure isn't damped to zero; rest open.
+        return [
+            {**ai_slot("g1", 600), "hands_here": 20},
+            {**ai_slot("g2", 600), "hands_here": 20},
+        ] + [open_slot() for _ in range(4)]
 
     def _run(self, table_type):
         table = CashTableState(
@@ -906,7 +917,9 @@ class TestRefreshHumanSeatPreserved:
             idle_pool=[],
             eligible_candidates=[],
             seated_globally={"napoleon"},
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
+            # Truly broke (bankroll < min_buy_in) so the grinder self-rebuy
+            # gate leaves forced_leave standing and draws no rebuy roll.
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 0}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
@@ -943,7 +956,9 @@ class TestRefreshDeferFreshlyVacated:
                 {"personality_id": "zeus", "name": "Zeus"},
             ],
             seated_globally={"napoleon"},
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000, "zeus": 5000}),
+            # napoleon truly broke so it forced_leaves (vacates) rather than
+            # drawing a self-rebuy roll off the 0.0 fill sequence.
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 0, "zeus": 5000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
@@ -1092,8 +1107,9 @@ def _rng_seq(values, default=0.99):
 def _tenure_leaver_table():
     # One AI with a comfortable stack (not short, not stake-up-able) at a
     # near-empty table; low energy gives it a small tenure leave-pressure
-    # so it rolls a discretionary bored_move.
-    seats = [ai_slot("whale", 500)] + [open_slot() for _ in range(5)]
+    # so it rolls a discretionary bored_move. Settled past the dwell floor
+    # (hands_here ≥ DWELL_PATIENCE_HANDS) so that tenure pressure isn't damped.
+    seats = [{**ai_slot("whale", 500), "hands_here": 20}] + [open_slot() for _ in range(5)]
     return _make_table(seats)
 
 

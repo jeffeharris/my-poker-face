@@ -16,6 +16,7 @@ from poker.strategy.strategy_table import (
     load_hu_strategy_table,
     load_strategy_table,
 )
+from poker.strategy.skill_tiers import DEFAULT_SKILL_TIER, apply_skill_tier
 from poker.tiered_bot_controller import BaselineSolverBot, TieredBotController
 
 logger = logging.getLogger(__name__)
@@ -33,12 +34,17 @@ def build_tiered_controller(
     expression_enabled: bool = True,
     debug_logging: bool = False,
     baseline: bool = False,
+    skill: str = DEFAULT_SKILL_TIER,
 ) -> TieredBotController:
     """Build a TieredBotController, optionally with the Layer 3 expression generator wired.
 
     Args:
         baseline: If True, instantiate BaselineSolverBot (pure solver, no personality
             distortion, no expression layer regardless of expression_enabled).
+        skill: Named skill tier (see poker.strategy.skill_tiers). Default is the
+            no-op ceiling tier, so behavior is unchanged until a weaker tier is
+            assigned (Phase 4 roster work). Sets the bot's exploitation/river-bluff/
+            stab-defense/overbet intensities post-construction.
     """
     llm_config = llm_config or {}
     strategy_table = load_strategy_table()
@@ -63,6 +69,10 @@ def build_tiered_controller(
         decision_analysis_repo=decision_analysis_repo,
         debug_logging=debug_logging,
     )
+
+    # Apply the skill tier post-construction (same seam the fish path uses for
+    # _deviation_profile). No-op for the default ceiling tier — see skill_tiers.
+    apply_skill_tier(controller, skill)
 
     # Baseline solver intentionally skips the expression layer — it's the
     # "pure GTO, no personality" option.
@@ -117,6 +127,7 @@ def build_controller(
     fish_leak=None,
     stake_label: Optional[str] = None,
     default_strategy: Optional[str] = None,
+    skill: str = DEFAULT_SKILL_TIER,
 ):
     """Construct the AI controller for a given ``bot_type``.
 
@@ -184,6 +195,8 @@ def build_controller(
             None, build_fish_controller reverse-looks-it-up from the big blind.
         debug_logging: Forwarded to ``build_tiered_controller`` (sharp /
             baseline_solver branches).
+        skill: Named skill tier forwarded to the ``'sharp'`` branch (see
+            poker.strategy.skill_tiers). Defaults to the no-op ceiling tier.
     """
     llm_config = llm_config or {}
 
@@ -215,6 +228,7 @@ def build_controller(
             decision_analysis_repo=decision_analysis_repo,
             expression_enabled=expression_enabled,
             debug_logging=debug_logging,
+            skill=skill,
         )
 
     if bot_type == 'baseline_solver':

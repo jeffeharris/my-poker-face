@@ -920,6 +920,81 @@ def _strategy_polar_value(context: Dict) -> Dict:
     return check_or_fold()
 
 
+def _strategy_loose_value(context: Dict) -> Dict:
+    """LooseFaceUp — the LOOSE face-up value bettor (sizing-aware §B human-regime probe).
+
+    PolarValue (`_strategy_polar_value`) is face-up but bets big ONLY with the nuts
+    (strong+), so it big-bets *rarely* — and the 2026-05-31 §B measurement found
+    folding to it saves almost nothing (CaseBotV2 *out-earned* RegPlus against it,
+    because the EV is in stealing its many checks, not in the rare fold-to-value).
+
+    LooseFaceUp models the OTHER regime the §B doc flagged as "human-only,
+    unmeasurable here": a station-ish recreational player who value-bets big with a
+    WIDE range (medium+), OFTEN, and STILL never bluffs. The big bet is just as
+    face-up, but now it fires frequently AND its value range overlaps the marginal
+    hands a sizing-blind bot pays off with. THIS is where folding-to-big-bets pays:
+    every big bet you face is value you're behind, and you face them constantly.
+
+    A sizing-aware opponent (Phase B) should fold its medium/weak bluff-catchers to
+    the frequent big bet (saving real EV each time) while still stabbing the checks.
+    A pay-off-happy bot (CaseBotV2) bleeds. So if §B is worth building for the loose
+    human, RegPlus / a B-enabled tiered bot should BEAT CaseBotV2 here — the inverse
+    of the PolarValue bracket. Eval-only; never seeded in production.
+    """
+    cost = context['cost_to_call']
+    pot = context['pot_total']
+    valid = context['valid_actions']
+    phase = context.get('phase', 'PRE_FLOP')
+    bb = context.get('big_blind', 100) or 100
+    highest_bet = context.get('highest_bet', bb) or bb
+    hand = _equity_category(context['equity'])
+
+    def do_raise(target_to: int) -> Dict:
+        size = max(context['min_raise'], min(int(target_to), context['max_raise']))
+        if 'raise' in valid:
+            return {'action': 'raise', 'raise_to': size}
+        return {'action': 'call', 'raise_to': 0} if 'call' in valid else {'action': 'check', 'raise_to': 0}
+
+    def bet(fraction: float) -> Dict:
+        size = max(context['min_raise'], min(int(pot * fraction), context['max_raise']))
+        return {'action': 'raise', 'raise_to': size} if 'raise' in valid else {'action': 'check', 'raise_to': 0}
+
+    def call() -> Dict:
+        if 'call' in valid:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    def check_or_fold() -> Dict:
+        return {'action': 'check', 'raise_to': 0} if 'check' in valid else {'action': 'fold', 'raise_to': 0}
+
+    if phase == 'PRE_FLOP':
+        # Loose-passive: see lots of flops. Open premium/strong, limp-or-call the
+        # rest cheaply so it reaches the postflop big-bet spots that drive the read.
+        facing_raise = cost > 0 and highest_bet > bb
+        if hand in ('premium', 'strong'):
+            return do_raise(int(3.0 * highest_bet) if facing_raise else int(3.0 * bb))
+        if hand in ('medium', 'weak') and not facing_raise:
+            return call() if cost > 0 else do_raise(int(2.0 * bb))
+        if hand == 'medium' and facing_raise:
+            return call()  # loose flat
+        return check_or_fold()
+
+    # Facing a bet: continue with value only — wide enough to be loose (medium+),
+    # but never bluff-catches air. Still face-up: it doesn't raise-bluff.
+    if cost > 0:
+        if hand == 'premium':
+            return bet(1.0)  # raise for value
+        if hand in ('strong', 'medium'):
+            return call()
+        return {'action': 'fold', 'raise_to': 0}
+
+    # Checked to: BIG value bet with a WIDE range (medium+) — fires OFTEN, never a
+    # bluff. The frequent, wide, face-up big bet is the whole point of this probe.
+    if hand in ('premium', 'strong', 'medium'):
+        return bet(1.2)
+    return check_or_fold()
+
+
 def _strategy_reg_plus(context: Dict) -> Dict:
     """Reg+ — the COMPETENT YARDSTICK (keystone, docs/plans/BUILD_A_BETTER_BOT.md §2).
 
@@ -1514,6 +1589,7 @@ BUILT_IN_STRATEGIES = {
     'reg': _strategy_reg,
     'reg_plus': _strategy_reg_plus,
     'polar_value': _strategy_polar_value,
+    'loose_value': _strategy_loose_value,
     'tricky_reg': _strategy_tricky_reg,
     'tricky_aggro': _strategy_tricky_aggro,
     'exploiter': _strategy_exploiter,

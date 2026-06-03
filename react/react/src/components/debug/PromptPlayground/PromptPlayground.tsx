@@ -34,6 +34,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   const [stats, setStats] = useState<PlaygroundStats | null>(null);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
@@ -84,6 +85,9 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
       if (filters.provider) params.append('provider', filters.provider);
       if (filters.limit) params.append('limit', String(filters.limit));
       if (filters.offset) params.append('offset', String(filters.offset));
+      // Skip the expensive bundled stats so the list paints fast; stats are
+      // fetched separately via fetchStats().
+      params.append('include_stats', 'false');
 
       const response = await adminAPI.fetch(`/admin/api/playground/captures?${params}`);
       const data = await response.json();
@@ -91,7 +95,6 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
       if (data.success) {
         setCaptures(data.captures);
         setTotal(data.total);
-        setStats(data.stats);
       } else {
         setError(data.error || 'Failed to fetch captures');
       }
@@ -101,6 +104,23 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
       setLoading(false);
     }
   }, [filters]);
+
+  // Lazy-load the full-table stats aggregation separately from the list.
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const response = await adminAPI.fetch('/admin/api/playground/stats');
+      const data = await response.json();
+      if (data.success) {
+        setStats(data.stats);
+      }
+    } catch (err) {
+      // Stats are supplementary to the list; ignore failures.
+      logger.error('Failed to fetch playground stats:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
 
   // Fetch image providers
   const fetchImageProviders = useCallback(async () => {
@@ -274,6 +294,11 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
     fetchImageProviders();
   }, [fetchCaptures, fetchImageProviders]);
 
+  // Stats are global (unfiltered) — load once after mount so the list isn't blocked.
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
   // Get models for selected provider (with fallback)
   const providerModels = getModelsForProvider(replayProvider);
 
@@ -293,6 +318,11 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
           </button>
         )}
         {!embedded && <h1>Prompt Playground</h1>}
+        {!stats && statsLoading && (
+          <div className="stats-summary">
+            <span className="stat-badge">Loading stats…</span>
+          </div>
+        )}
         {stats && (
           <div className="stats-summary">
             <span className="stat-badge">{stats.total} captures</span>

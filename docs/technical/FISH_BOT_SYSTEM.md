@@ -2,7 +2,7 @@
 purpose: How the fish (casino-tourist) rule bot decides, the leak catalog, how to configure fish personas, and how to simulate/validate them
 type: reference
 created: 2026-05-26
-last_updated: 2026-05-26
+last_updated: 2026-06-01
 ---
 
 # Fish Bot System
@@ -166,6 +166,11 @@ constructs `RuleBotController(strategy="fish", fish_leak=...)`. This happens in:
 - `flask_app/routes/cash_routes.py` (sit-down / cash table seating)
 - `flask_app/handlers/game_handler.py` (live-game refill)
 
+> Those three fields configure the fish's **decisions**. Its **personality and
+> emotional read** — the `anchors` block, emotion family, the `self_belief`
+> overconfidence dial, and the cheerful-loss override — are configured separately;
+> see [`FISH_PERSONALITY_CONFIGURATION.md`](FISH_PERSONALITY_CONFIGURATION.md).
+
 ### Current roster (9 fish)
 
 | Persona | Leak |
@@ -261,6 +266,7 @@ docker compose exec backend python -m experiments.sng_runner \
 
 ## Related docs
 
+- `docs/technical/FISH_PERSONALITY_CONFIGURATION.md` — fish anchors / emotion family / `self_belief` / cheerful-loss (the personality side of this doc)
 - `docs/plans/CASH_MODE_FISH_AS_PERSONAS.md` — fish as permanent pool-funded personas
 - `docs/plans/CASH_MODE_EPHEMERAL_TOURISTS.md` — original designated-leak spec
 - `docs/technical/CASH_MODE_ECONOMY.md` — where fish sit in the chip economy

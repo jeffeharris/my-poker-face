@@ -24,6 +24,7 @@ import {
   type DossierScouting,
 } from './api';
 import { useNicknameOverridesStore } from '../../stores/nicknameOverridesStore';
+import { OpponentSizingTell } from './OpponentSizingTell';
 import './CharacterDetailCard.css';
 
 export type RelationshipKind =
@@ -138,6 +139,21 @@ function monogram(name: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+/** Map a Renown-v2 quadrant to a badge glyph + modifier class. Unknown
+ *  quadrants fall back to the neutral "up-and-comer" treatment. */
+function renownBadgeStyle(quadrant: string): { glyph: string; mod: string } {
+  switch (quadrant) {
+    case 'Beloved Legend':
+      return { glyph: '★', mod: 'legend' };
+    case 'Infamous Villain':
+      return { glyph: '☠', mod: 'villain' };
+    case 'Disliked Nobody':
+      return { glyph: '·', mod: 'nobody' };
+    default: // "Up-and-comer"
+      return { glyph: '↗', mod: 'comer' };
+  }
 }
 
 /** Tally strip: 10 marks, the first `value*10` filled with hand-drawn ticks. */
@@ -709,6 +725,9 @@ export function CharacterDetailCard({
       temperament.expressiveness != null);
   const fieldPos = fetched?.field_position ?? null;
   const hasFieldPos = !!fieldPos && (!!fieldPos.vpip_label || !!fieldPos.af_label);
+  // B1 (Renown v2) — field-relative renown standing. Null until the per-AI
+  // persist path has run; the badge then renders under the subject name.
+  const reputation = fetched?.reputation ?? null;
   // "The history" — rivalry read.
   const history = fetched?.relationship_history ?? null;
   const hasHistory =
@@ -961,6 +980,35 @@ export function CharacterDetailCard({
                   return null;
                 })()}
                 {merged.playStyle && <div className="dossier__archetype">{merged.playStyle}</div>}
+                {reputation &&
+                  (() => {
+                    const { glyph, mod } = renownBadgeStyle(reputation.quadrant);
+                    const pct =
+                      reputation.victim_percentile != null
+                        ? Math.round(reputation.victim_percentile * 100)
+                        : null;
+                    return (
+                      <div
+                        className={`dossier__renown dossier__renown--${mod}`}
+                        title={
+                          pct != null
+                            ? `Field-relative renown — ahead of ${pct}% of the field`
+                            : 'Field-relative renown'
+                        }
+                      >
+                        <span className="dossier__renown-glyph" aria-hidden="true">
+                          {glyph}
+                        </span>
+                        <span className="dossier__renown-quadrant">{reputation.quadrant}</span>
+                        <span className="dossier__renown-score">
+                          renown {Math.round(reputation.renown_v2)}
+                        </span>
+                        {pct != null && (
+                          <span className="dossier__renown-pct">ahead of {pct}% of the field</span>
+                        )}
+                      </div>
+                    );
+                  })()}
               </div>
             </section>
 
@@ -1001,6 +1049,21 @@ export function CharacterDetailCard({
                 </section>
               </>
             )}
+
+            {/* Surface B (SIZING_COACH_SURFACES.md): how readable this opponent's
+                bet sizing is, over time. Self-fetches + self-titles; renders
+                nothing until it has a gradeable read (no orphan section header).
+                Reconciled with the scouting economy: shown only when the
+                `sizing_polarization` read is unlocked (grind OR informant) — the
+                dossier computes that authoritatively server-side. Outside the
+                Circuit there's no scouting block, so it's ungated (as the rest of
+                the dossier is). When locked, the scouting strip's "Sizing tell"
+                teaser already advertises it as earnable. */}
+            {character.name &&
+              (!fetched?.scouting ||
+                fetched.scouting.unlocked.includes('sizing_polarization')) && (
+                <OpponentSizingTell opponent={character.name} />
+              )}
 
             {hasStanding && fetched?.relationship && (
               <>

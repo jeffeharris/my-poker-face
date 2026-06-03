@@ -764,6 +764,13 @@ class AIMemoryManager:
         except Exception as e:
             logger.warning(f"Sizing-aware fold_to_big_bet recording failed: {e}")
 
+        # §5j: stab frequency — bet rate when CHECKED TO postflop (gates the
+        # stab-defense). Not showdown-gated; runs on all hands like fold_to_big_bet.
+        try:
+            self._record_stab_frequency(recorded_hand)
+        except Exception as e:
+            logger.warning(f"Stab-frequency recording failed: {e}")
+
         # Phase 3: relationship event detection + dispatch. Runs only
         # when a relationship_repo is wired; tournament-only games
         # without persistence stay detector-silent. Wrapped in
@@ -1266,6 +1273,39 @@ class AIMemoryManager:
                 committed[(name, phase)] = prior + max(0, action.amount)
                 current_level[phase] = max(level, committed[(name, phase)])
             running_pot = action.pot_after
+
+    def _record_stab_frequency(self, recorded_hand) -> None:
+        """§5j: live (all-hands) stab-frequency tracking — how often a player BETS
+        when CHECKED TO postflop (the capped-checking dual of fold_to_big_bet).
+
+        Replays in action order. A "stab opportunity" = a player acts postflop with
+        nothing to call (cost_to_call == 0) AND is NOT first to act on the street
+        (so a prior player checked — it is checked TO them, not leading). Betting
+        there = a stab. High stab_frequency ⇒ a frequent stabber → the bot widens
+        its defense facing that opponent's bets into its checked range.
+        """
+        current_level: Dict[str, int] = {}  # phase -> highest bet-to level
+        acted_this_phase: Dict[str, int] = {}  # phase -> count of actions so far
+        for action in recorded_hand.actions:
+            phase = action.phase
+            name = action.player_name
+            level = current_level.get(phase, 0)
+            n_prior = acted_this_phase.get(phase, 0)
+
+            if phase in ('FLOP', 'TURN', 'RIVER') and level == 0 and n_prior > 0:
+                # Checked to this player (no bet yet, but others acted = checked).
+                stabbed = action.action in ('bet', 'raise', 'all_in')
+                if stabbed or action.action == 'check':
+                    for observer in self.initialized_players:
+                        if observer != name:
+                            model = self.opponent_model_manager.get_model(observer, name)
+                            model.tendencies.update_stab(stabbed)
+
+            if action.action in ('bet', 'raise'):
+                current_level[phase] = max(level, action.amount)
+            elif action.action == 'all_in':
+                current_level[phase] = max(level, action.amount)
+            acted_this_phase[phase] = n_prior + 1
 
     def _count_non_folded_per_phase(self, recorded_hand) -> Dict[str, int]:
         """For each postflop phase, count players who hadn't folded yet

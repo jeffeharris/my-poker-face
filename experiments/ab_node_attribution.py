@@ -240,6 +240,11 @@ LOCAL_ROSTERS = {
     # that confounds the leak. (Baseline can't carry a spot tendency — it skips
     # the personality layer.)
     'tag': ['TAG'] * 5,
+    # LooseFaceUp — the loose face-up value bettor (sizing-aware §B). value-bets big
+    # with a WIDE range (medium+), OFTEN, never bluffs. The opponent the Phase B
+    # sizing-defense (fold-more-vs-face-up) is meant to exploit; HU vs this is the
+    # paired-CRN B measurement (--sizing-defense-b).
+    'loose_faceup': ['LooseFaceUp'] * 5,
     # Self-play reference for personality pricing: the bare max-EV chart bot
     # (BaselineSolverBot, no personality, no overbet/multistreet hero-layers).
     # Pricing a personality vs THIS = its intrinsic "distance from optimal",
@@ -268,6 +273,10 @@ def _run_one_hand(
     disable_rules=None,
     hero_spot_tendencies=None,
     opp_spot_tendencies=None,
+    overbet_bluff=0.0,
+    river_bluff=0.0,
+    river_bluff_ftbb=None,
+    sizing_polar=None,
 ):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
@@ -304,7 +313,27 @@ def _run_one_hand(
     # Overbet runtime layer flag (default off; production __init__ also defaults
     # False until validated). Set per-arm so the gate can A/B the LAYER on the
     # SAME chart — symmetric to the multistreet flag-flavor arm.
-    controllers[0].enable_overbet_context = overbet
+    controllers[0].enable_overbet_context = overbet or river_bluff > 0.0
+    # Overbet BLUFF side (OVERBET_BALANCING.md T1): per-arm air→overbet fraction.
+    controllers[0].overbet_bluff_fraction = overbet_bluff
+    # River-bluff side (T2): per-arm give-up-air check→bet fraction. CREATES the
+    # river bluff supply T1 can't (no river air bet-mass to relabel). Bluffs go to
+    # bet_<overbet_size> (1.5x) → the oracle (folds ≥1.2x) now folds into them.
+    controllers[0].river_bluff_fraction = river_bluff
+    # Regime-gate read override (no model manager here): synthetic fold_to_big_bet
+    # so the gate sees a reader (high) vs caller (low). None → gate never fires.
+    if river_bluff_ftbb is not None:
+        controllers[0].river_bluff_ftbb_override = river_bluff_ftbb
+    # Phase B sizing defense (SIZING_AWARE_OPPONENT_MODELING.md §B): per-arm. When
+    # set, enable the fold-more-vs-face-up layer + force the face-up read (no model
+    # manager here). arm A (None) = off, arm B = on → the paired delta is B's pure
+    # EV vs the face-up bettor. Production defaults match __init__.
+    if sizing_polar is not None:
+        controllers[0].sizing_defense_enabled = True
+        controllers[0].sizing_defense_polar_override = sizing_polar
+        controllers[0].sizing_defense_min_polar = 0.15
+        controllers[0].sizing_defense_call_multiplier = 0.55
+        controllers[0].sizing_defense_min_bet_ratio = 0.75
     for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
         opp = make_controller(seat, cfg, opp_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1))
         # Opponent-side leak (attacker eval): configure a spot tendency on each
@@ -360,6 +389,13 @@ def _run_seed(args):
         b_disable,
         hero_spot,
         opp_spot,
+        a_overbet_bluff,
+        b_overbet_bluff,
+        a_river_bluff,
+        b_river_bluff,
+        river_bluff_ftbb,
+        a_sizing_polar,
+        b_sizing_polar,
     ) = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
@@ -409,6 +445,10 @@ def _run_seed(args):
             a_disable,
             hero_spot,
             opp_spot,
+            a_overbet_bluff,
+            a_river_bluff,
+            river_bluff_ftbb,
+            a_sizing_polar,
         )
         db, tb = _run_one_hand(
             hero_name,
@@ -426,6 +466,10 @@ def _run_seed(args):
             b_disable,
             hero_spot,
             opp_spot,
+            b_overbet_bluff,
+            b_river_bluff,
+            river_bluff_ftbb,
+            b_sizing_polar,
         )
         paired = db - da
         div = _first_divergence(ta, tb)
@@ -581,6 +625,57 @@ def main():
         "opponents (no personality layer).",
     )
     p.add_argument(
+        '--overbet-bluff-a',
+        type=float,
+        default=0.0,
+        help="arm A: fraction of AIR bet-mass routed to the overbet size "
+        "(OVERBET_BALANCING.md T1 — polarizes the overbet so a sizing-reader "
+        "can't fold to it). 0 = value-only. Pair with --overbet-a.",
+    )
+    p.add_argument(
+        '--overbet-bluff-b',
+        type=float,
+        default=0.0,
+        help="arm B: air→overbet fraction (see --overbet-bluff-a).",
+    )
+    p.add_argument(
+        '--river-bluff-a',
+        type=float,
+        default=0.0,
+        help="arm A: fraction of give-up-air river CHECK mass promoted to a "
+        "bet at the overbet size (OVERBET_BALANCING.md T2 — CREATES river "
+        "bluff supply, the only fix for the face-up river). 0 = off.",
+    )
+    p.add_argument(
+        '--sizing-defense-a',
+        type=float,
+        default=None,
+        help="arm A: Phase B sizing-defense forced face-up read (sizing_polarization_"
+        "score). None/omit = OFF (the baseline arm). See SIZING_AWARE §B.",
+    )
+    p.add_argument(
+        '--sizing-defense-b',
+        type=float,
+        default=None,
+        help="arm B: Phase B sizing-defense forced face-up read (e.g. 0.3 = clearly "
+        "face-up). Pair with `--roster loose_faceup --hero TAG --heads-up`: the "
+        "paired delta is B's pure EV (fold-more vs a face-up big bettor).",
+    )
+    p.add_argument(
+        '--river-bluff-b',
+        type=float,
+        default=0.0,
+        help="arm B: river give-up-air check→bet fraction (see --river-bluff-a).",
+    )
+    p.add_argument(
+        '--river-bluff-ftbb',
+        type=float,
+        default=None,
+        help="regime-gate read: synthetic opponent fold_to_big_bet (no model "
+        "manager in eval). >=0.6 = reader → river bluff fires; <0.6 = caller → "
+        "value-only. Unset → gate never fires. Same read on both arms.",
+    )
+    p.add_argument(
         '--adaptive-opp',
         action='store_true',
         help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
@@ -623,6 +718,13 @@ def main():
             b_disable,
             hero_spot,
             opp_spot,
+            args.overbet_bluff_a,
+            args.overbet_bluff_b,
+            args.river_bluff_a,
+            args.river_bluff_b,
+            args.river_bluff_ftbb,
+            args.sizing_defense_a,
+            args.sizing_defense_b,
         )
         for s in seeds
     ]

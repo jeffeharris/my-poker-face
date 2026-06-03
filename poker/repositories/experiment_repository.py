@@ -1007,17 +1007,9 @@ class ExperimentRepository(BaseRepository):
 
     # ==================== Live Stats & Analytics Methods ====================
 
-    def _load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all emotional states for a game. Delegates to GameRepository."""
-        return self._game_repo.load_all_emotional_states(game_id)
-
     def _load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all controller states for a game. Delegates to GameRepository."""
         return self._game_repo.load_all_controller_states(game_id)
-
-    def _load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
-        """Load emotional state for a player. Delegates to GameRepository."""
-        return self._game_repo.load_emotional_state(game_id, player_name)
 
     def _load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a player. Delegates to GameRepository."""
@@ -1443,7 +1435,6 @@ class ExperimentRepository(BaseRepository):
 
                 # Load psychology data for all players in this game
                 psychology_data = self._load_all_controller_states(game_id)
-                emotional_data = self._load_all_emotional_states(game_id)
 
                 # Load LLM debug info from most recent api_usage records per player
                 llm_debug_cursor = conn.execute(
@@ -1478,7 +1469,9 @@ class ExperimentRepository(BaseRepository):
 
                     # Get psychology for this player
                     ctrl_state = psychology_data.get(player_name, {})
-                    emo_state = emotional_data.get(player_name, {})
+                    # Emotional narrative now lives in psychology_json (the
+                    # emotional_state table was retired in v136).
+                    emo_state = (ctrl_state.get('psychology') or {}).get('emotional') or {}
 
                     # Merge tilt and emotional data into psychology
                     tilt_state = ctrl_state.get('tilt_state', {}) if ctrl_state else {}
@@ -1595,7 +1588,11 @@ class ExperimentRepository(BaseRepository):
 
             # Get psychology data
             ctrl_state = self._load_controller_state(game_id, player_name)
-            emo_state = self._load_emotional_state(game_id, player_name)
+            # Emotional narrative now lives in psychology_json (the
+            # emotional_state table was retired in v136).
+            emo_state = (
+                (ctrl_state.get('psychology') or {}).get('emotional') or {} if ctrl_state else {}
+            )
 
             tilt_state = ctrl_state.get('tilt_state', {}) if ctrl_state else {}
             psychology = {

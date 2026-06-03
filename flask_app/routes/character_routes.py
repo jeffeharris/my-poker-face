@@ -314,127 +314,39 @@ def _observation_from_lifetime(counts: Optional[dict]) -> Optional[dict]:
 
 
 def _tendencies_from_lifetime(counts: Optional[dict]):
-    """Reconstruct a full `OpponentTendencies` from the durable lifetime
-    COUNTS (the single rebuild both `deeper_reads` and "the read" share).
+    """Reconstruct a full `OpponentTendencies` from the durable lifetime COUNTS.
 
-    Sets every persisted counter — headline (v123), deep postflop (v125), and
-    preflop opportunity (v126) — then `_recalculate_stats()` so the derived
-    rates match the live path exactly. The equity polarization MEANS aren't
-    recomputed by `_recalculate_stats` (the live path updates them incrementally
-    in `record_equity_at_action`), so they're set explicitly here as sum/count
-    — keeping the reconstructed object fully faithful for any consumer (e.g. the
-    exploitation detectors behind "the read").
-
-    Returns None when there's no lifetime row or no hands yet.
+    Thin back-compat shim — the implementation moved to
+    `flask_app.services.opponent_reads.reconstruct_tendencies_from_lifetime`
+    so the coach (a service) can share it without importing this route module.
+    Kept under the original name for the dossier callers and tests that import
+    it from here.
     """
-    if not counts or not counts.get('hands_observed'):
-        return None
+    from flask_app.services.opponent_reads import (
+        reconstruct_tendencies_from_lifetime,
+    )
 
-    from poker.memory.opponent_model import OpponentTendencies
-
-    t = OpponentTendencies()
-    t.hands_dealt = counts.get('hands_dealt', 0)
-    t.hands_observed = counts.get('hands_observed', 0)
-    t._vpip_count = counts.get('vpip_count', 0)
-    t._pfr_count = counts.get('pfr_count', 0)
-    t._bet_raise_count = counts.get('bet_raise_count', 0)
-    t._call_count = counts.get('call_count', 0)
-    t._showdowns = counts.get('showdowns_seen', 0)
-    t._showdowns_won = counts.get('showdowns_won', 0)
-    # Deep postflop counters (v125).
-    t._all_in_count = counts.get('all_in_count', 0)
-    t._fold_to_cbet_count = counts.get('fold_to_cbet_count', 0)
-    t._cbet_faced_count = counts.get('cbet_faced_count', 0)
-    t._cbet_attempt_count = counts.get('cbet_attempt_count', 0)
-    t._postflop_seen_as_pfr_count = counts.get('postflop_seen_as_pfr_count', 0)
-    t._barrel_count = counts.get('barrel_count', 0)
-    t._barrel_opportunity_count = counts.get('barrel_opportunity_count', 0)
-    t._third_barrel_count = counts.get('third_barrel_count', 0)
-    t._third_barrel_opportunity_count = counts.get('third_barrel_opportunity_count', 0)
-    t._postflop_bet_raise_count = counts.get('postflop_bet_raise_count', 0)
-    t._postflop_call_count = counts.get('postflop_call_count', 0)
-    t._equity_betting_count = counts.get('equity_betting_count', 0)
-    t._equity_raising_count = counts.get('equity_raising_count', 0)
-    t._equity_calling_count = counts.get('equity_calling_count', 0)
-    t._equity_betting_sum = counts.get('equity_betting_sum', 0.0)
-    t._equity_raising_sum = counts.get('equity_raising_sum', 0.0)
-    t._equity_calling_sum = counts.get('equity_calling_sum', 0.0)
-    # Preflop opportunity counters (v126) — drive vpip_per_voluntary_opportunity
-    # / pfr_per_open_opportunity, the signals the station/nit detectors gate on.
-    t._preflop_voluntary_action_count = counts.get('preflop_voluntary_action_count', 0)
-    t._preflop_voluntary_opportunities = counts.get('preflop_voluntary_opportunities', 0)
-    t._preflop_open_raise_count = counts.get('preflop_open_raise_count', 0)
-    t._preflop_open_opportunities = counts.get('preflop_open_opportunities', 0)
-    t._recalculate_stats()
-
-    # Equity-at-action means (recalc doesn't touch these — see docstring).
-    def _eq(total, n):
-        return total / n if n else 0.5
-    t.equity_when_betting_postflop = _eq(t._equity_betting_sum, t._equity_betting_count)
-    t.equity_when_raising_postflop = _eq(t._equity_raising_sum, t._equity_raising_count)
-    t.equity_when_calling_postflop = _eq(t._equity_calling_sum, t._equity_calling_count)
-    return t
+    return reconstruct_tendencies_from_lifetime(counts)
 
 
 def _deeper_reads_from_lifetime(counts: Optional[dict]) -> Optional[dict]:
     """Shape the durable lifetime COUNTS into the dossier's `deeper_reads`
-    block — the Tier-2 postflop reads (fold-to-cbet, c-bet %, barreling,
-    all-in frequency, postflop aggression, polarization).
+    block — the Tier-2 reads (fold-to-cbet, c-bet %, barreling, all-in
+    frequency, postflop aggression, polarization, limp rate, showdown win
+    rate). Each rate is `None` until its own spot is observed (rather than
+    the model's neutral prior) so the gated UI shows "—".
 
-    Rates derive through the canonical `OpponentTendencies._recalculate_stats()`
-    (via `_tendencies_from_lifetime`) so they match the live path exactly. A
-    rate is `None` until at least one opportunity is observed (rather than the
-    model's neutral 0.5 prior), so the gated UI shows "—" not a misleading
-    default.
-
-    Returns None when there's no lifetime row or no hands yet.
+    Delegates the shaping to the shared `deep_reads_from_tendencies` (also used
+    by the coach) so the read definitions never drift. Returns None when there's
+    no lifetime row or no hands yet.
     """
-    t = _tendencies_from_lifetime(counts)
-    if t is None:
+    from flask_app.services.opponent_reads import deep_reads_from_tendencies
+
+    reads = deep_reads_from_tendencies(_tendencies_from_lifetime(counts))
+    if reads is None:
         return None
-
-    def _mean(total, n):
-        return round(total / n, 2) if n else None
-
-    return {
-        'fold_to_cbet': (
-            round(t.fold_to_cbet, 2) if counts.get('cbet_faced_count') else None
-        ),
-        'cbet_attempt_rate': (
-            round(t.cbet_attempt_rate, 2)
-            if counts.get('postflop_seen_as_pfr_count') else None
-        ),
-        'barrel_frequency': (
-            round(t.barrel_frequency, 2)
-            if counts.get('barrel_opportunity_count') else None
-        ),
-        'third_barrel_frequency': (
-            round(t.third_barrel_frequency, 2)
-            if counts.get('third_barrel_opportunity_count') else None
-        ),
-        # all-in freq uses hands_dealt as denominator (>0 here); 0% is a
-        # legitimate read, so it's never None once there are hands.
-        'all_in_frequency': round(t.all_in_frequency, 3),
-        'aggression_factor_postflop': (
-            round(t.aggression_factor_postflop, 2)
-            if (counts.get('postflop_bet_raise_count')
-                or counts.get('postflop_call_count')) else None
-        ),
-        # Polarization: mean equity the opponent held at each action type.
-        'equity_when_betting': _mean(
-            counts.get('equity_betting_sum', 0.0),
-            counts.get('equity_betting_count', 0),
-        ),
-        'equity_when_raising': _mean(
-            counts.get('equity_raising_sum', 0.0),
-            counts.get('equity_raising_count', 0),
-        ),
-        'equity_when_calling': _mean(
-            counts.get('equity_calling_sum', 0.0),
-            counts.get('equity_calling_count', 0),
-        ),
-        'lifetime': True,
-    }
+    reads['lifetime'] = True
+    return reads
 
 
 def _build_pressure_summary(game_data: dict, player_name: str) -> Optional[dict]:
@@ -703,7 +615,35 @@ def get_dossier(identifier: str):
         'cash_pair_stats': None,
         'memorable_hands': _build_memorable_hands(game_data, player_name),
         'note': None,
+        'reputation': None,
     }
+
+    # AI renown (Renown-v2, field-relative). Sandbox-scoped and
+    # viewer-agnostic — this AI's own standing in the sandbox's field, not a
+    # per-observer relationship axis — so it's populated before the anonymous
+    # early-return. Present only when the per-AI persist path has run
+    # (RENOWN_V2_PERSIST_AI on + the migration applied + the ticker has scored
+    # the field at least once); null otherwise, so the badge simply doesn't
+    # render. Read-only; never blocks the dossier.
+    if sandbox_id:
+        try:
+            from flask_app.extensions import prestige_snapshots_repo
+
+            snap = prestige_snapshots_repo.load_latest(
+                sandbox_id, personality_id, entity_kind='ai'
+            )
+            if (snap and snap.get('formula_version') == 'v2'
+                    and snap.get('renown_v2') is not None):
+                response['reputation'] = {
+                    'formula_version': 'v2',
+                    'quadrant': snap['quadrant'],
+                    'renown_v2': snap['renown_v2'],
+                    'victim_percentile': snap.get('victim_percentile'),
+                    'high_cut': snap.get('high_cut'),
+                    'field_size': snap.get('field_size'),
+                }
+        except Exception as e:
+            logger.debug("[CHARACTER] reputation load failed: %s", e)
 
     if not observer_id:
         # Anonymous read: relationship-derived sections drop, but

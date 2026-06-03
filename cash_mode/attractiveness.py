@@ -30,16 +30,22 @@ fish/whale draw rides on top ("which of those is juiciest"), driven by
 already exist (a tier rank and the AI's bankroll), pulling the rich
 upward to glamorous rooms.
 
-Occupant/social ("marquee") prestige is **deferred to v2** and is NOT in
-this module — see the spec's "Deferred to v2" section. All constants
-below are sim-tunable starting points, not calibrated values.
+Occupant/social ("marquee") prestige — the spec's "Deferred to v2" layer —
+is now implemented as the optional `W_MARQUEE · occ_prestige(table) ·
+status_appetite(ai)` term, added into the base attractor. It is fed by the
+Renown-v2 stat (`victim_percentile`, a field-relative renown percentile) and
+gated by `economy_flags.PRESTIGE_SEEKING_ENABLED` at the lobby layer — this
+pure module just takes the two scalars (both default 0, so the term vanishes
+when the flag is off or there's no renown data). See
+`docs/plans/RENOWN_V2_AI_WIRING_PLAN.md` (Stage B / B4). All constants below
+are sim-tunable starting points, not calibrated values.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
 
@@ -64,6 +70,33 @@ W_CLIMB = 1.0  # strength of the rich → prestigious-room pull
 ROOM_PRESTIGE_CURVE_EXP = 2.0  # >1 makes the top room stand out (squared)
 # `wealth_over_tier` at which `wealth(ai)` reaches 0.5 (saturating curve).
 WEALTH_KNEE = 5.0
+
+# --- Occupant ("marquee") prestige: status-seekers chase famous tables ---
+# Renown-v2 B4. A table seating high-renown players draws status-seekers; the
+# bonus `W_MARQUEE · occ_prestige(table) · status_appetite(ai)` is added into
+# the base attractor (so it composes with hunger / fish-draw like the climb
+# term). Both inputs are field-relative renown PERCENTILES in [0,1] (persisted
+# `victim_percentile`), so the term is scale-stable and degrades to 0 with no
+# renown data. Gated at the lobby by `PRESTIGE_SEEKING_ENABLED`.
+# strength of the occupant-prestige pull. CALIBRATED 2026-06-02 via the
+# event-level probe (scripts/sim_prestige_probe.py): the marquee bonus is linear
+# in W, so one instrumented run measures, per seat decision, the W at which it
+# swings the pick to a higher-prestige table. Influence rate vs W (238 contested
+# decisions): W=1 -> 17%, W=1.5 -> ~28%, W=2 -> 40%, saturating ~80% by W>=8.
+# The "felt but not domineering" band (~15-35%) centers at W~1.5, which lifts the
+# mean prestige of the chosen table from 0.24 (no marquee) to ~0.45. (The earlier
+# "1.0 too weak" note was an ARTIFACT of the churn A/B's decoherence; the probe
+# is the trustworthy instrument -- see RENOWN_V2_AI_WIRING_PLAN.md.) Fish-table
+# starvation separately ruled out (Hetzner sweep: fish-table grinders stayed
+# 108-131% of baseline at every W). Flag still default OFF.
+W_MARQUEE = 1.5
+P_LINEUP = 0.25   # damped weight on additional notables beyond the top occupant
+# `status_appetite` is a per-AI "how much do I chase prestige" rank — a weighted
+# blend of NAMED factors, deliberately extensible (add a factor + weight here).
+# renown: the famous chase the famous; glory: showmen (expressive, big ego)
+# chase the spotlight. Start ~50/50, sim-tune.
+W_APPETITE_RENOWN = 0.5
+W_APPETITE_GLORY = 0.5
 
 # --- stake_fit shape ---
 # Attractiveness lost per *tier* of distance from the AI's fit center.
@@ -268,6 +301,52 @@ def table_deadness(*, is_casino: bool, has_fish: bool, grinder_count: int) -> fl
     return _clamp01(grinder_count / CASINO_DEAD_GRINDER_SCALE)
 
 
+def occ_prestige(occupant_percentiles: Sequence[float]) -> float:
+    """Table marquee draw in [0,1] — how famous the table's occupants are.
+
+    The single biggest name dominates; additional notables add a damped bonus
+    (`P_LINEUP`), so a table with a Beloved Legend AND a rival reads as a bigger
+    event than either alone. Inputs are each seated entity's persisted
+    field-renown percentile (`victim_percentile`, AI or human). Empty / all-zero
+    → 0 (no marquee), so the term vanishes when nobody notable is seated.
+    """
+    vals = sorted((p for p in occupant_percentiles if p and p > 0.0), reverse=True)
+    if not vals:
+        return 0.0
+    return _clamp01(vals[0] + P_LINEUP * sum(vals[1:]))
+
+
+def glory_appetite(*, expressiveness: float = 0.5, ego: float = 0.5) -> float:
+    """The showman/status-hunger trait factor in [0,1] for `status_appetite`.
+
+    A glory-hunter — expressive and big-egoed — chases the spotlight. Pure blend
+    of two curated personality anchors; the 0.5 defaults give a neutral appetite
+    when anchors are missing.
+    """
+    return _clamp01(0.5 * _clamp01(expressiveness) + 0.5 * _clamp01(ego))
+
+
+def status_appetite(
+    *,
+    own_percentile: float = 0.0,
+    glory: float = 0.0,
+    w_renown: float = W_APPETITE_RENOWN,
+    w_glory: float = W_APPETITE_GLORY,
+) -> float:
+    """A per-AI "how much do I chase prestige" rank in [0,1].
+
+    A weighted blend of named factors — deliberately a small composite so more
+    factors (a rivalry signal, a heater, a tilt) can be added without touching
+    the call sites: just extend the blend. The two seeded factors:
+      - `own_percentile` — this AI's own field-renown percentile (the famous
+        chase the famous).
+      - `glory` — the showman trait from :func:`glory_appetite`.
+    Returns 0 when both are 0; combined with `occ_prestige` (also 0 with no
+    renown), the whole marquee term then vanishes — a clean no-op default.
+    """
+    return _clamp01(w_renown * _clamp01(own_percentile) + w_glory * _clamp01(glory))
+
+
 def base_attractor(
     *,
     projected_bankroll: int,
@@ -310,6 +389,8 @@ def table_attractiveness(
     buy_in_multiplier: float = 1.0,
     prestige_override: float | None = None,
     venue_appeal: float = 1.0,
+    marquee_prestige: float = 0.0,
+    status_appetite: float = 0.0,
 ) -> float:
     """Full attractiveness of a table for an AI (spec §1).
 
@@ -335,6 +416,12 @@ def table_attractiveness(
         buy_in_multiplier=buy_in_multiplier,
         prestige_override=prestige_override,
     )
+    # Marquee pull (Renown-v2 B4): a status-seeking AI is drawn to a table
+    # seating famous players. Added into the base attractor so it rides the
+    # hunger / fish-draw multipliers like the climb term. Both scalars default
+    # to 0 (flag off / no renown), so this is a no-op until prestige-seeking is
+    # enabled and the field has renown.
+    base += W_MARQUEE * marquee_prestige * status_appetite
     # A hungry grinder is pulled harder toward *any* live bait — a fish OR
     # a whale (both are chips to be farmed). Gate on either being present.
     bait_present = 1.0 if (fish_chips > 0 or whale_chips > 0) else 0.0
@@ -386,6 +473,10 @@ class SeatSeeker:
     comfort_zone: str
     allowed_table_ids: frozenset
     buy_in_multiplier: float = 1.0
+    # Renown-v2 B4: this AI's prestige-seeking rank in [0,1] (see
+    # `status_appetite`). 0 = doesn't chase marquee tables (the default, so the
+    # marquee term is inert until the lobby populates it behind the flag).
+    status_appetite: float = 0.0
 
 
 @dataclass
@@ -406,6 +497,10 @@ class FillableTable:
     whale_chips: int = 0
     prestige_override: Optional[float] = None
     venue_appeal: float = 1.0
+    # Renown-v2 B4: occupant marquee draw in [0,1] (see `occ_prestige`). 0 = no
+    # notable occupants (the default, so the marquee term is inert until the
+    # lobby populates it behind the flag).
+    marquee_prestige: float = 0.0
 
 
 def seeker_buy_in(table: FillableTable, buy_in_multiplier: float) -> int:
@@ -451,6 +546,8 @@ def assign_seats_greedy(
                 buy_in_multiplier=seeker.buy_in_multiplier,
                 prestige_override=table.prestige_override,
                 venue_appeal=table.venue_appeal,
+                marquee_prestige=table.marquee_prestige,
+                status_appetite=seeker.status_appetite,
             )
             if best_score is None or score > best_score:
                 best_score = score
