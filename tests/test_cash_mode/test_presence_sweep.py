@@ -39,11 +39,7 @@ def _save(repos, seats):
 
 
 def _seated_ids(repos):
-    return {
-        s.entity_id
-        for s in repos["entity_presence_repo"].list_for_sandbox(SB)
-        if s.is_seated
-    }
+    return {s.entity_id for s in repos["entity_presence_repo"].list_for_sandbox(SB) if s.is_seated}
 
 
 class TestFreeHumanSeatOnDelete:
@@ -52,9 +48,7 @@ class TestFreeHumanSeatOnDelete:
         _save(repos, [human_slot("guest_x", 500), open_slot(), open_slot()])
         assert player_entity_id("guest_x") in _seated_ids(repos)
 
-        freed = free_human_seat_on_delete(
-            owner_id="guest_x", sandbox_id=SB, repos=repos
-        )
+        freed = free_human_seat_on_delete(owner_id="guest_x", sandbox_id=SB, repos=repos)
 
         assert freed == 1
         table = repos["cash_table_repo"].load_table(TID, sandbox_id=SB)

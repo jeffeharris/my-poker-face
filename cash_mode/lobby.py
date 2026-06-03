@@ -198,6 +198,7 @@ def _shadow_reconcile_table(
     # So skip entirely once authority is on; the chokepoint is the sole seat
     # writer. (Off-grid mirroring still runs via presence_shadow.)
     from cash_mode import economy_flags
+
     if getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
         return
     if repo is None:
@@ -220,7 +221,8 @@ def _shadow_reconcile_table(
     # SEATED at THIS table who is not still in the new map at the same seat.
     try:
         seated_here = [
-            s for s in repo.list_for_sandbox(sandbox_id)
+            s
+            for s in repo.list_for_sandbox(sandbox_id)
             if s.is_seated and s.table_id == table.table_id
         ]
     except Exception:  # noqa: BLE001 — read failure must not break the real path
@@ -924,9 +926,7 @@ def _process_global_greedy_fills(
             projected = project_idle_energy(stored, baseline, idle_seconds)
         return 1.0 if baseline <= 0 else min(1.0, projected / baseline)
 
-    def _can_afford_target(
-        target_stake: str, projected: int, buy_in_multiplier: float
-    ) -> bool:
+    def _can_afford_target(target_stake: str, projected: int, buy_in_multiplier: float) -> bool:
         """Whether `projected` covers this AI's ACTUAL buy-in at `target_stake`.
 
         Must mirror the placement gate (`assign_seats_greedy` →
@@ -988,9 +988,7 @@ def _process_global_greedy_fills(
                 entry is not None
                 and entry.target_stake is not None
                 and entry.target_stake != ft.stake_label
-                and _can_afford_target(
-                    entry.target_stake, projected, knobs.buy_in_multiplier
-                )
+                and _can_afford_target(entry.target_stake, projected, knobs.buy_in_multiplier)
             ):
                 continue  # target-stake stickiness (relaxed if can't afford target)
             allowed.add(tid)
@@ -2106,11 +2104,13 @@ def refresh_unseated_tables(
     # when off / no repo / no data → the marquee term stays inert. Best-effort:
     # a read failure must never break the world tick.
     _renown_percentiles: Optional[Dict[str, float]] = None
-    if economy_flags.PRESTIGE_SEEKING_ENABLED and prestige_snapshots_repo is not None and sandbox_id:
+    if (
+        economy_flags.PRESTIGE_SEEKING_ENABLED
+        and prestige_snapshots_repo is not None
+        and sandbox_id
+    ):
         try:
-            _renown_percentiles = prestige_snapshots_repo.load_latest_field_percentiles(
-                sandbox_id
-            )
+            _renown_percentiles = prestige_snapshots_repo.load_latest_field_percentiles(sandbox_id)
         except Exception:
             logger.warning("[LOBBY] renown percentile load failed; marquee inert")
             _renown_percentiles = None
@@ -4020,7 +4020,9 @@ def _settle_orphan_seat_to_bankroll(
             "[CASH LIFECYCLE] settle-before-delete: seat %r holds %d chips but "
             "owner %r has no bankroll row — LEAVING the balance in the ledger "
             "(not forfeiting); needs operator attention",
-            game_id, bal, owner_id,
+            game_id,
+            bal,
+            owner_id,
         )
         return 0
     from cash_mode.bankroll import PlayerBankrollState
@@ -4043,7 +4045,9 @@ def _settle_orphan_seat_to_bankroll(
     logger.info(
         "[CASH][LOBBY] settle-before-delete recovered %d chips for owner %r "
         "from seat %r (chip forfeiture prevented)",
-        bal, owner_id, game_id,
+        bal,
+        owner_id,
+        game_id,
     )
     return bal
 
@@ -4875,8 +4879,7 @@ def _process_aspiration_asks(
                     )
             except Exception as refund_exc:
                 logger.warning(
-                    "[CASH][LOBBY] aspiration: staker refund failed "
-                    "staker=%r principal=%d: %s",
+                    "[CASH][LOBBY] aspiration: staker refund failed " "staker=%r principal=%d: %s",
                     staker_id,
                     principal,
                     refund_exc,

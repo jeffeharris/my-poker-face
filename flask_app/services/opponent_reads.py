@@ -95,9 +95,7 @@ def reconstruct_tendencies_from_lifetime(counts: Optional[dict]):
     t._postflop_jam_opens = counts.get('postflop_jam_opens', 0)
     # v135 flop-check-then-barrel counters (rate derives in _recalculate_stats).
     t._flop_check_barrel_count = counts.get('flop_check_barrel_count', 0)
-    t._flop_check_barrel_opportunity_count = counts.get(
-        'flop_check_barrel_opportunity_count', 0
-    )
+    t._flop_check_barrel_opportunity_count = counts.get('flop_check_barrel_opportunity_count', 0)
 
     def _eq(total, n):
         return total / n if n else 0.5
@@ -149,34 +147,26 @@ def deep_reads_from_tendencies(t) -> Optional[Dict[str, Any]]:
     )
 
     return {
-        'fold_to_cbet': (
-            round(t.fold_to_cbet, 2) if t._cbet_faced_count else None
-        ),
+        'fold_to_cbet': (round(t.fold_to_cbet, 2) if t._cbet_faced_count else None),
         'cbet_attempt_rate': (
             round(t.cbet_attempt_rate, 2) if t._postflop_seen_as_pfr_count else None
         ),
-        'barrel_frequency': (
-            round(t.barrel_frequency, 2) if t._barrel_opportunity_count else None
-        ),
+        'barrel_frequency': (round(t.barrel_frequency, 2) if t._barrel_opportunity_count else None),
         'third_barrel_frequency': (
-            round(t.third_barrel_frequency, 2)
-            if t._third_barrel_opportunity_count else None
+            round(t.third_barrel_frequency, 2) if t._third_barrel_opportunity_count else None
         ),
         # all-in freq uses hands_dealt as denominator; 0% is a legitimate read,
         # so it's never None once there are hands.
         'all_in_frequency': round(t.all_in_frequency, 3),
         'aggression_factor_postflop': (
             round(t.aggression_factor_postflop, 2)
-            if (t._postflop_bet_raise_count or t._postflop_call_count) else None
+            if (t._postflop_bet_raise_count or t._postflop_call_count)
+            else None
         ),
         # Limp rate (v132) — over open spots. None until an open spot is seen.
-        'limp_rate': (
-            round(t.limp_rate, 2) if t._preflop_open_opportunities else None
-        ),
+        'limp_rate': (round(t.limp_rate, 2) if t._preflop_open_opportunities else None),
         # Showdown win rate — already tracked/persisted; None until a showdown.
-        'showdown_win_rate': (
-            round(t.showdown_win_rate, 2) if t._showdowns else None
-        ),
+        'showdown_win_rate': (round(t.showdown_win_rate, 2) if t._showdowns else None),
         # Sizing tells (v133). polarization > 0 ⇒ bets bigger with stronger
         # hands (face-up); fold_to_big_bet high ⇒ over-folds to overbets.
         'sizing_polarization_score': (
@@ -184,22 +174,22 @@ def deep_reads_from_tendencies(t) -> Optional[Dict[str, Any]]:
         ),
         'fold_to_big_bet': (
             round(t.fold_to_big_bet, 2)
-            if t._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED else None
+            if t._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED
+            else None
         ),
         # Postflop aggression axes (v134). None until an opportunity is seen;
         # 0.0 (had chances, never jammed) is a legitimate read once observed.
         'all_in_per_facing_bet': (
-            round(t.all_in_per_facing_bet, 2)
-            if t._facing_bet_opportunities else None
+            round(t.all_in_per_facing_bet, 2) if t._facing_bet_opportunities else None
         ),
         'postflop_jam_open_rate': (
-            round(t.postflop_jam_open_rate, 2)
-            if t._postflop_open_opportunities else None
+            round(t.postflop_jam_open_rate, 2) if t._postflop_open_opportunities else None
         ),
         # Trap read (v135): checks flop OOP then bets turn after a check-through.
         'flop_check_then_barrel_rate': (
             round(t.flop_check_then_barrel_rate, 2)
-            if t._flop_check_barrel_opportunity_count else None
+            if t._flop_check_barrel_opportunity_count
+            else None
         ),
         # Polarization: mean equity the opponent held at each action type.
         'equity_when_betting': _mean(t._equity_betting_sum, t._equity_betting_count),

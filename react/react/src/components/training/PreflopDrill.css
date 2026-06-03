@@ -114,7 +114,9 @@
   font-weight: 700;
   cursor: pointer;
   color: #04150f;
-  transition: filter 0.15s ease, transform 0.05s ease;
+  transition:
+    filter 0.15s ease,
+    transform 0.05s ease;
 }
 .pfd-btn:hover:not(:disabled) {
   filter: brightness(1.08);

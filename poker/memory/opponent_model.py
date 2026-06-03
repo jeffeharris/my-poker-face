@@ -917,6 +917,7 @@ class OpponentTendencies:
             return 'unknown'
 
         from ..archetypes import play_style_label
+
         return play_style_label(self.vpip, self.aggression_factor)
 
     def get_summary(self) -> str:
@@ -951,10 +952,7 @@ class OpponentTendencies:
         # the score self-gates to 0.0 below SIZING_MIN_BIN_SAMPLE).
         if self.sizing_polarization_score > 0.15:
             parts.append("face-up sizing")  # bets big with strength → exploitable
-        if (
-            self._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED
-            and self.fold_to_big_bet > 0.6
-        ):
+        if self._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED and self.fold_to_big_bet > 0.6:
             parts.append("over-folds to big bets")
 
         return ", ".join(parts)
@@ -2068,7 +2066,9 @@ class OpponentModelManager:
         self._apply_one_side(
             observer_id=target_id,
             other_id=actor_id,
-            shift=mirror_shift_override if mirror_shift_override is not None else mirror_shift(event),
+            shift=mirror_shift_override
+            if mirror_shift_override is not None
+            else mirror_shift(event),
             context_multiplier=context_multiplier,
             now=now,
         )

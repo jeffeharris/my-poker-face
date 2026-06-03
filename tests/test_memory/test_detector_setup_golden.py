@@ -81,9 +81,7 @@ def _hand(
 
 def _events_of(events, kind) -> List[Tuple]:
     """Return a sorted list of (actor_id, target_id, narrative) for `kind`."""
-    return sorted(
-        (e.actor_id, e.target_id, e.narrative) for e in events if e.event is kind
-    )
+    return sorted((e.actor_id, e.target_id, e.narrative) for e in events if e.event is kind)
 
 
 COMMUNITY_DRY = ("2c", "5h", "8c", "Tc", "Jd")
@@ -337,8 +335,8 @@ class TestDominatedShowdownGolden:
 #   bob   Qd 8d -> Q-high straight  (rank 6)
 # alice wins; 5 < 6, both <= 7 -> strict cooler.
 COMMUNITY_COOLER = ("7c", "8c", "9d", "Tc", "Jh")
-HOLE_TT = ["Ac", "2c"]   # flush (winner)
-HOLE_99 = ["Qd", "8d"]   # straight (loser)
+HOLE_TT = ["Ac", "2c"]  # flush (winner)
+HOLE_99 = ["Qd", "8d"]  # straight (loser)
 
 
 class TestCoolerGolden:
@@ -487,9 +485,7 @@ class TestFullEmissionGolden:
             pot_size=100,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        got = sorted(
-            (e.event.name, e.actor_id, e.target_id, e.narrative) for e in events
-        )
+        got = sorted((e.event.name, e.actor_id, e.target_id, e.narrative) for e in events)
         assert got == [
             (
                 "DOMINATED_SHOWDOWN",

@@ -31,16 +31,14 @@ _ARCHETYPE_BADGES: Dict[str, Dict[str, str]] = {
 # Detected pattern → the exploit line shown to the human. Keyed by the labels
 # `classify_detected_patterns` returns.
 _PATTERN_TIPS: Dict[str, str] = {
-    'high_fold_to_cbet': 'Folds to c-bets — barrel relentlessly, '
-                         'give up far less than usual.',
+    'high_fold_to_cbet': 'Folds to c-bets — barrel relentlessly, ' 'give up far less than usual.',
     'hyper_passive': 'Calls too much and rarely raises — value-bet thin '
-                     'and stop bluffing into them.',
+    'and stop bluffing into them.',
     'passive_with_jams': 'Passive but jam-happy — keep value-betting, but '
-                         "treat their raise as the real thing; don't bluff-raise.",
-    'tight_nit': 'Folds most hands preflop — steal wider and fold to '
-                 'their aggression.',
+    "treat their raise as the real thing; don't bluff-raise.",
+    'tight_nit': 'Folds most hands preflop — steal wider and fold to ' 'their aggression.',
     'hyper_aggressive': 'Over-aggressive — let them keep bluffing into you '
-                        'and call down lighter.',
+    'and call down lighter.',
 }
 
 # `compute_pattern_intensity` only returns ramps for these keys; others
@@ -88,11 +86,13 @@ def build_the_read(tendencies) -> Dict[str, Any]:
         if not text:
             continue  # detector fired but we don't surface this label as advice
         intensity = intensities.get(pattern)
-        tips.append({
-            'pattern': pattern,
-            'text': text,
-            'intensity': round(intensity, 2) if intensity is not None else None,
-        })
+        tips.append(
+            {
+                'pattern': pattern,
+                'text': text,
+                'intensity': round(intensity, 2) if intensity is not None else None,
+            }
+        )
 
     archetype_label = classify_opponent_archetype(stats)
     archetype = _ARCHETYPE_BADGES.get(archetype_label) if archetype_label else None

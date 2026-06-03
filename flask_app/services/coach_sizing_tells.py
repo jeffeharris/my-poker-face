@@ -135,8 +135,7 @@ def self_advice(verdict: str) -> Optional[str]:
         )
     if verdict == 'reverse':
         return (
-            "Your big bets skew weak — you may be over-bluffing big. "
-            "Tighten your big-bet value."
+            "Your big bets skew weak — you may be over-bluffing big. " "Tighten your big-bet value."
         )
     return None
 
@@ -188,10 +187,8 @@ def compute_opponent_sizing_tell(
 
     # Per-block score (oldest→newest); equal contiguous chunks so each point's
     # sample is comparable. None where a block lacks one of the two bins.
-    ordered = sorted(
-        valid, key=lambda d: (d.get('created_at') or '', d.get('hand_number') or 0)
-    )
-    chunks = [ordered[i * n // blocks:(i + 1) * n // blocks] for i in range(blocks)]
+    ordered = sorted(valid, key=lambda d: (d.get('created_at') or '', d.get('hand_number') or 0))
+    chunks = [ordered[i * n // blocks : (i + 1) * n // blocks] for i in range(blocks)]
     series: List[Optional[float]] = []
     for ch in chunks:
         s, nb, ns, _, _ = _grade(ch)

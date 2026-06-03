@@ -828,9 +828,7 @@ class PersonalityRepository(BaseRepository):
                 # and start with an empty opponent pool. (Re-seeds of an
                 # existing row go through update_personality_config above,
                 # which leaves circulating untouched = preserved.)
-                self.save_personality(
-                    name, config, source='personalities.json', circulating=True
-                )
+                self.save_personality(name, config, source='personalities.json', circulating=True)
                 added += 1
 
         logger.info(

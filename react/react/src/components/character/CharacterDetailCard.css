@@ -1414,7 +1414,9 @@
   border-radius: 3px;
   padding: 0.3rem 0.55rem;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.05s ease;
+  transition:
+    background 0.15s ease,
+    transform 0.05s ease;
 }
 .dossier__informant-buy-price {
   font-family: 'JetBrains Mono', monospace;

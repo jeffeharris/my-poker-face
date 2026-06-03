@@ -10,13 +10,13 @@ from typing import Optional
 
 from core.llm import CallType, LLMClient
 from poker.strategy.expression_generator import ExpressionGenerator
+from poker.strategy.skill_tiers import DEFAULT_SKILL_TIER, apply_skill_tier
 from poker.strategy.strategy_table import (
     load_archetype_preflop_tables,
     load_depth_strategy_tables,
     load_hu_strategy_table,
     load_strategy_table,
 )
-from poker.strategy.skill_tiers import DEFAULT_SKILL_TIER, apply_skill_tier
 from poker.tiered_bot_controller import BaselineSolverBot, TieredBotController
 
 logger = logging.getLogger(__name__)

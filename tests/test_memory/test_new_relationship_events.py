@@ -168,9 +168,7 @@ class TestNemesis:
 
     def test_no_fire_below_threshold(self):
         det = HandOutcomeDetector()
-        fired = self._run_losses(
-            det, NEMESIS_BIG_LOSS_COUNT - 1, loser="bob", winner="alice"
-        )
+        fired = self._run_losses(det, NEMESIS_BIG_LOSS_COUNT - 1, loser="bob", winner="alice")
         assert not fired
 
     def test_reachable_at_low_stakes(self):
@@ -212,9 +210,7 @@ class TestNemesis:
         # bob loses repeatedly to alice; alice never loses to bob. Only bob
         # gets the nemesis — alice, who's crushing bob, does not.
         det = HandOutcomeDetector()
-        fired = self._run_losses(
-            det, NEMESIS_BIG_LOSS_COUNT + 2, loser="bob", winner="alice"
-        )
+        fired = self._run_losses(det, NEMESIS_BIG_LOSS_COUNT + 2, loser="bob", winner="alice")
         directed = {(e.actor_id, e.target_id) for e in fired}
         assert directed == {("bob", "alice")}
 
@@ -272,9 +268,7 @@ class TestRival:
             max_buy_in=5000,
         )
         assert not [
-            e
-            for e in evs
-            if e.event in (RelationshipEvent.RIVAL, RelationshipEvent.NEMESIS)
+            e for e in evs if e.event in (RelationshipEvent.RIVAL, RelationshipEvent.NEMESIS)
         ]
 
 

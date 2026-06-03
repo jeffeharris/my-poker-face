@@ -56,8 +56,11 @@ def _inject_ghost(repos, table_id, idx, slot):
 
 def test_presence_confirmed_seats_are_kept(repos, authority_on):
     repos["cash_table_repo"].save_table(
-        CashTableState(table_id=TID, stake_label="$10",
-                       seats=_seats(ai_slot("zeus", 1000), human_slot("guest_x", 500))),
+        CashTableState(
+            table_id=TID,
+            stake_label="$10",
+            seats=_seats(ai_slot("zeus", 1000), human_slot("guest_x", 500)),
+        ),
         sandbox_id=SB,
     )
     t = repos["cash_table_repo"].load_table(TID, sandbox_id=SB)
@@ -73,11 +76,12 @@ def test_ghost_slot_projected_open(repos, authority_on):
     # A pid with no presence row, injected straight into the cache.
     _inject_ghost(repos, TID, 1, ai_slot("ghost_pid", 999))
     t = repos["cash_table_repo"].load_table(TID, sandbox_id=SB)
-    assert t.seats[0]["kind"] == "ai"           # zeus confirmed → kept
-    assert t.seats[1]["kind"] == "open"          # ghost → projected open
+    assert t.seats[0]["kind"] == "ai"  # zeus confirmed → kept
+    assert t.seats[1]["kind"] == "open"  # ghost → projected open
     # list_all_tables projects identically.
-    lt = next(x for x in repos["cash_table_repo"].list_all_tables(sandbox_id=SB)
-              if x.table_id == TID)
+    lt = next(
+        x for x in repos["cash_table_repo"].list_all_tables(sandbox_id=SB) if x.table_id == TID
+    )
     assert lt.seats[1]["kind"] == "open"
 
 

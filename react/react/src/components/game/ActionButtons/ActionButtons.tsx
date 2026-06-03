@@ -62,9 +62,7 @@ export function ActionButtons({
   const handleBetRaise = () => {
     // Pre-fill with coach's suggested amount if valid, otherwise use default raise
     const suggestedAmount =
-      raiseToAmount &&
-      raiseToAmount >= calc.safeMinRaiseTo &&
-      raiseToAmount <= calc.safeMaxRaiseTo
+      raiseToAmount && raiseToAmount >= calc.safeMinRaiseTo && raiseToAmount <= calc.safeMaxRaiseTo
         ? raiseToAmount
         : calc.getDefaultRaise();
     setShowBetInterface(true);

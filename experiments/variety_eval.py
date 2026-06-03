@@ -118,7 +118,9 @@ def run_grid(cells, hands, seeds):
             # _run_seed_worker arg tuple:
             # (hero, opponents, n_hands, seed, mode, entry, clone_profile,
             #  h1_classes, stack_bb, preflop_chart)
-            work.append((hero, roster, hands, s, 'off', 'default', clone_profile, None, depth, None))
+            work.append(
+                (hero, roster, hands, s, 'off', 'default', clone_profile, None, depth, None)
+            )
             work_index.append(ck)
 
     # Accumulate per-cell stats + per-seed deltas.
@@ -130,7 +132,9 @@ def run_grid(cells, hands, seeds):
 
     max_workers = min(len(work), os.cpu_count() or 1)
     with ProcessPoolExecutor(max_workers=max_workers) as ex:
-        for (seed, deltas, stats), ck in zip(ex.map(_run_seed_worker, work), work_index):
+        for (seed, deltas, stats), ck in zip(
+            ex.map(_run_seed_worker, work), work_index, strict=False
+        ):
             _aggregate(agg[ck], stats)
             deltas_by_cell[ck].append(deltas)
 
@@ -143,13 +147,13 @@ A_DEPTHS = [100, 50, 25]
 
 
 def sweep_A(hands, seeds):
-    cells = [
-        (h, FOLDY_FIELD, 'foldy', d) for h in A_ARCHETYPES for d in A_DEPTHS
-    ]
+    cells = [(h, FOLDY_FIELD, 'foldy', d) for h in A_ARCHETYPES for d in A_DEPTHS]
     res = run_grid(cells, hands, seeds)
     print("\n" + "=" * 72)
-    print(f"# SWEEP A — short-stack validation (vs foldy Baseline×5, "
-          f"{hands}h × {len(seeds)} seeds)")
+    print(
+        f"# SWEEP A — short-stack validation (vs foldy Baseline×5, "
+        f"{hands}h × {len(seeds)} seeds)"
+    )
     print("=" * 72)
     print("\nMetric columns: VPIP% / PFR% / jam% / avgOpen(bb) / AF / bb100")
     for h in A_ARCHETYPES:
@@ -159,8 +163,10 @@ def sweep_A(hands, seeds):
         for d in A_DEPTHS:
             s = res[_cell_key(h, 'foldy', d)]
             warn = " ⚠SIGN" if s['sign_disagree'] else ""
-            print(f"| {d}bb | {s['vpip']:.0f} | {s['pfr']:.0f} | {s['jam']:.1f} | "
-                  f"{s['avg_open']:.1f} | {s['af']:.2f} | {s['bb100']:+.1f}{warn} |")
+            print(
+                f"| {d}bb | {s['vpip']:.0f} | {s['pfr']:.0f} | {s['jam']:.1f} | "
+                f"{s['avg_open']:.1f} | {s['af']:.2f} | {s['bb100']:+.1f}{warn} |"
+            )
     _flag_A(res)
     return res
 
@@ -176,7 +182,9 @@ def _flag_A(res):
         # high while stacks are short (100bb-wide ranges shoved at 25bb).
         jam_jump = s25['jam'] - s100['jam']
         if s25['jam'] > 25:
-            flags.append(f"- **{h}**: jam% {s25['jam']:.1f} at 25bb (>25% — check for blind jamming)")
+            flags.append(
+                f"- **{h}**: jam% {s25['jam']:.1f} at 25bb (>25% — check for blind jamming)"
+            )
         if jam_jump > 20:
             flags.append(f"- **{h}**: jam% +{jam_jump:.1f}pts 100→25bb")
         if s25['bb100'] < -150:
@@ -193,13 +201,12 @@ D_DEPTHS = [40, 60, 80, 100]
 
 
 def sweep_D(hands, seeds):
-    cells = [
-        (h, TAG_GRINDER_FIELD, 'tag', d) for h in D_ARCHETYPES for d in D_DEPTHS
-    ]
+    cells = [(h, TAG_GRINDER_FIELD, 'tag', d) for h in D_ARCHETYPES for d in D_DEPTHS]
     res = run_grid(cells, hands, seeds)
     print("\n" + "=" * 72)
-    print(f"# SWEEP D — buy-in depth diff (fish vs TAG-grinder×5, "
-          f"{hands}h × {len(seeds)} seeds)")
+    print(
+        f"# SWEEP D — buy-in depth diff (fish vs TAG-grinder×5, " f"{hands}h × {len(seeds)} seeds)"
+    )
     print("=" * 72)
     print("\nDrain (bb/100, negative = fish loses) vs effective depth:")
     print("\n| archetype | 40bb | 60bb | 80bb | 100bb |")
@@ -219,8 +226,8 @@ def sweep_D(hands, seeds):
 B_ARCHETYPES = ['Maniac', 'LAG', 'StationPBlind', 'Calling Station']
 B_DEPTHS = [40, 100]
 B_FIELDS = [
-    (FOLDY_FIELD, 'foldy'),       # over-folds — the optimistic number
-    (JEFF_FIELD, 'jeff'),         # realistic calls-down human — the honest number
+    (FOLDY_FIELD, 'foldy'),  # over-folds — the optimistic number
+    (JEFF_FIELD, 'jeff'),  # realistic calls-down human — the honest number
     (NEVERFOLD_FIELD, 'neverfold'),  # always-call — bluff-punishing upper bound
 ]
 
@@ -235,9 +242,11 @@ def sweep_B(hands, seeds):
     print("\n" + "=" * 72)
     print(f"# SWEEP B — aggression priced across fields, {hands}h × {len(seeds)} seeds")
     print("=" * 72)
-    print("\nbb/100 by field. FOLDY=Baseline×5 (over-folds), JEFF=Jeff_clone×5 "
-          "(realistic calls-down human), NEVERFOLD=CallStation×5 (always_call — "
-          "punishes bluffs hardest).")
+    print(
+        "\nbb/100 by field. FOLDY=Baseline×5 (over-folds), JEFF=Jeff_clone×5 "
+        "(realistic calls-down human), NEVERFOLD=CallStation×5 (always_call — "
+        "punishes bluffs hardest)."
+    )
     print("\nThe honest cost the foldy field hid = (FOLDY − JEFF) and (FOLDY − NEVERFOLD).")
     for h in B_ARCHETYPES:
         print(f"\n**{h}**")
@@ -250,8 +259,11 @@ def sweep_B(hands, seeds):
 
             def w(s):
                 return f"{s['bb100']:+.1f}" + ("⚠" if s['sign_disagree'] else "")
-            print(f"| {d}bb | {w(sf)} | {w(sj)} | {w(sn)} | "
-                  f"{sf['bb100']-sj['bb100']:+.1f} | {sf['bb100']-sn['bb100']:+.1f} |")
+
+            print(
+                f"| {d}bb | {w(sf)} | {w(sj)} | {w(sn)} | "
+                f"{sf['bb100']-sj['bb100']:+.1f} | {sf['bb100']-sn['bb100']:+.1f} |"
+            )
     return res
 
 
@@ -270,12 +282,16 @@ def sweep_P(hands, seeds):
             cells.append((h, FOLDY_FIELD, 'foldy', d))  # contrast (over-folder)
     res = run_grid(cells, hands, seeds)
     print("\n" + "=" * 72)
-    print(f"# SWEEP P — priced vs the PUNISHER (competent folder+barreler), "
-          f"{hands}h × {len(seeds)} seeds")
+    print(
+        f"# SWEEP P — priced vs the PUNISHER (competent folder+barreler), "
+        f"{hands}h × {len(seeds)} seeds"
+    )
     print("=" * 72)
-    print("\nbb/100. PUNISHER=Punisher_clone×5 (folds correctly AND barrels air — "
-          "the only field that prices over-bluffing honestly). FOLDY=Baseline×5 "
-          "(over-folder) for contrast.")
+    print(
+        "\nbb/100. PUNISHER=Punisher_clone×5 (folds correctly AND barrels air — "
+        "the only field that prices over-bluffing honestly). FOLDY=Baseline×5 "
+        "(over-folder) for contrast."
+    )
     print("\n| hero | depth | vs PUNISHER | vs FOLDY | punisher−foldy |")
     print("|---|---|---|---|---|")
     for h in P_ARCHETYPES:
@@ -283,8 +299,10 @@ def sweep_P(hands, seeds):
             sp = res[_cell_key(h, 'punisher', d)]
             sf = res[_cell_key(h, 'foldy', d)]
             warn = "⚠" if sp['sign_disagree'] else ""
-            print(f"| {h} | {d}bb | {sp['bb100']:+.1f}{warn} | {sf['bb100']:+.1f} | "
-                  f"{sp['bb100']-sf['bb100']:+.1f} |")
+            print(
+                f"| {h} | {d}bb | {sp['bb100']:+.1f}{warn} | {sf['bb100']:+.1f} | "
+                f"{sp['bb100']-sf['bb100']:+.1f} |"
+            )
     # Lever isolations vs the punisher (marginal cost of each leak).
     print("\n**Lever isolation vs PUNISHER** (hero − Calling Station baseline):")
     print("\n| lever | depth | Δ bb/100 vs punisher |")

@@ -72,7 +72,7 @@ class TestForgeryResistance:
         # significant, so the tamper is always detected.
         sig_start = signed.rfind('.') + 1
         flipped = 'A' if signed[sig_start] != 'A' else 'B'
-        tampered = signed[:sig_start] + flipped + signed[sig_start + 1:]
+        tampered = signed[:sig_start] + flipped + signed[sig_start + 1 :]
         result = auth_manager._unsign_guest_id(tampered)
         assert result is None
 

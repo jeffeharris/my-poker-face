@@ -140,7 +140,12 @@ export function PlayerCommandCenter({
                   } as React.CSSProperties
                 }
               >
-                <Card card={displayCards[0]} faceDown={false} size="xlarge" className="command-card" />
+                <Card
+                  card={displayCards[0]}
+                  faceDown={false}
+                  size="xlarge"
+                  className="command-card"
+                />
               </div>
               <div
                 className="command-center__card-wrapper"
@@ -154,7 +159,12 @@ export function PlayerCommandCenter({
                   } as React.CSSProperties
                 }
               >
-                <Card card={displayCards[1]} faceDown={false} size="xlarge" className="command-card" />
+                <Card
+                  card={displayCards[1]}
+                  faceDown={false}
+                  size="xlarge"
+                  className="command-card"
+                />
               </div>
             </>
           ) : displayCards?.[0] && displayCards?.[1] ? (
@@ -173,15 +183,16 @@ export function PlayerCommandCenter({
                     transform: `rotate(${cardTransforms.card1.rotation}deg) translateX(${cardTransforms.card1.offsetX}px) translateY(${cardTransforms.card1.offsetY}px)`,
                     transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                     cursor: 'pointer',
-                    animation: heroCommitted || heroRetreating
-                      ? heroCardAnimation(
-                          'Left',
-                          { heroRetreating, heroCommitted, isDealing: false },
-                          'cmd'
-                        )
-                      : isDealing
-                        ? 'cmdDealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both'
-                        : 'none',
+                    animation:
+                      heroCommitted || heroRetreating
+                        ? heroCardAnimation(
+                            'Left',
+                            { heroRetreating, heroCommitted, isDealing: false },
+                            'cmd'
+                          )
+                        : isDealing
+                          ? 'cmdDealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both'
+                          : 'none',
                     opacity: player.is_folded ? 0.5 : 1,
                     '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
                     '--deal-start-rotation': `${cardTransforms.card1.startRotation}deg`,
@@ -190,7 +201,12 @@ export function PlayerCommandCenter({
                   } as React.CSSProperties
                 }
               >
-                <Card card={displayCards[0]} faceDown={false} size="xlarge" className="command-card" />
+                <Card
+                  card={displayCards[0]}
+                  faceDown={false}
+                  size="xlarge"
+                  className="command-card"
+                />
               </div>
               <div
                 className={`command-center__card-wrapper${heroCommitted ? ' cmd-hero-committed' : ''}`}
@@ -200,15 +216,16 @@ export function PlayerCommandCenter({
                     transform: `rotate(${cardTransforms.card2.rotation}deg) translateX(${cardTransforms.card2.offsetX}px) translateY(${cardTransforms.card2.offsetY}px)`,
                     transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                     cursor: 'pointer',
-                    animation: heroCommitted || heroRetreating
-                      ? heroCardAnimation(
-                          'Right',
-                          { heroRetreating, heroCommitted, isDealing: false },
-                          'cmd'
-                        )
-                      : isDealing
-                        ? 'cmdDealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both'
-                        : 'none',
+                    animation:
+                      heroCommitted || heroRetreating
+                        ? heroCardAnimation(
+                            'Right',
+                            { heroRetreating, heroCommitted, isDealing: false },
+                            'cmd'
+                          )
+                        : isDealing
+                          ? 'cmdDealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both'
+                          : 'none',
                     opacity: player.is_folded ? 0.5 : 1,
                     '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
                     '--deal-start-rotation': `${cardTransforms.card2.startRotation}deg`,
@@ -217,7 +234,12 @@ export function PlayerCommandCenter({
                   } as React.CSSProperties
                 }
               >
-                <Card card={displayCards[1]} faceDown={false} size="xlarge" className="command-card" />
+                <Card
+                  card={displayCards[1]}
+                  faceDown={false}
+                  size="xlarge"
+                  className="command-card"
+                />
               </div>
             </>
           ) : (

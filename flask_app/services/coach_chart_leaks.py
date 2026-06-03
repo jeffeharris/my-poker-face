@@ -46,9 +46,7 @@ PUSH_FOLD_FLOOR_BB = 15.0
 
 # A reference resolver: (hand, position, scenario, opener, eff_bb, num_players)
 # -> {fold, call, raise} freqs, or None when the chart has no entry.
-ReferenceResolver = Callable[
-    [str, str, str, Optional[str], float, int], Optional[Dict[str, float]]
-]
+ReferenceResolver = Callable[[str, str, str, Optional[str], float, int], Optional[Dict[str, float]]]
 
 
 @dataclass
@@ -77,6 +75,7 @@ class ChartLeakReport:
 
 
 # ── Action bucketing ────────────────────────────────────────────────────
+
 
 def bucket_action(action_taken: Optional[str]) -> Optional[str]:
     """Human ``action_taken`` → ``fold`` | ``call`` | ``raise`` (or None).
@@ -141,6 +140,7 @@ def _classify(
 
 
 # ── Grading ─────────────────────────────────────────────────────────────
+
 
 def compute_chart_leaks(
     decisions: List[dict],
@@ -259,9 +259,7 @@ def _grade_groups(
             continue
         scen, pos = key[0], key[1]
         hand = key[3] if by_hand else ''
-        your = {
-            k: sum(1 for a in g['actions'] if a == k) / n for k in ('fold', 'call', 'raise')
-        }
+        your = {k: sum(1 for a in g['actions'] if a == k) / n for k in ('fold', 'call', 'raise')}
         chart = {k: sum(r[k] for r in g['refs']) / n for k in ('fold', 'call', 'raise')}
         # deviation_min=-inf → always return the dominant (kind, gap), unthresholded.
         verdict = _classify(scen, your, chart, float('-inf'))
@@ -385,16 +383,12 @@ def compute_leak_trend(
     if n == 0 or blocks < 1:
         return {}
     # Equal contiguous chunks; boundaries via i*n//blocks so sizes differ by ≤1.
-    chunks = [ordered[i * n // blocks:(i + 1) * n // blocks] for i in range(blocks)]
-    block_metrics = [
-        _grade_groups(ch, resolve_ref, group_by=group_by)[0] for ch in chunks
-    ]
+    chunks = [ordered[i * n // blocks : (i + 1) * n // blocks] for i in range(blocks)]
+    block_metrics = [_grade_groups(ch, resolve_ref, group_by=group_by)[0] for ch in chunks]
     keys: set = set()
     for bm in block_metrics:
         keys |= set(bm.keys())
-    return {
-        k: [(bm[k]['gap'] if k in bm else None) for bm in block_metrics] for k in keys
-    }
+    return {k: [(bm[k]['gap'] if k in bm else None) for bm in block_metrics] for k in keys}
 
 
 # ── Prompt text ─────────────────────────────────────────────────────────
@@ -429,10 +423,7 @@ def _leak_line(lk: ChartLeak) -> str:
             f"{_pct(_vpip(lk.chart_freq))}%"
         )
     else:  # too_passive
-        detail = (
-            f"you just call; the solver raises {_pct(lk.chart_freq['raise'])}% "
-            "of the time"
-        )
+        detail = f"you just call; the solver raises {_pct(lk.chart_freq['raise'])}% " "of the time"
     return f"- {subject}: {detail} (seen {lk.n}×)"
 
 
@@ -471,6 +462,7 @@ def format_chart_leaks_for_prompt(report: ChartLeakReport) -> str:
 
 
 # ── Effectiveness: did nudges move play vs the player's baseline? ─────────
+
 
 def followed_solver_line(kind: str, action: Optional[str]) -> bool:
     """Did `action` move toward the solver line for a leak of `kind`?

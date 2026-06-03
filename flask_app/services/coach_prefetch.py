@@ -86,6 +86,7 @@ def _build_proactive_payload(game_id: str, game_data: dict) -> dict | None:
     coach_action = result.get('action')
     coach_raise_to = result.get('raise_to')
     from flask_app.services.coach_assistant import apply_coach_highlight
+
     apply_coach_highlight(stats, coach_action, coach_raise_to)
     return {
         'answer': result.get('advice', ''),

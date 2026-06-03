@@ -558,9 +558,7 @@ Respond with ONLY a JSON object in this exact format:
             # after the anchors fallback above so adaptation_bias is present.
             result.setdefault(
                 'skill',
-                skill_tier_for_adaptation_bias(
-                    result['anchors'].get('adaptation_bias')
-                ),
+                skill_tier_for_adaptation_bias(result['anchors'].get('adaptation_bias')),
             )
 
             return result
@@ -612,9 +610,7 @@ Respond with ONLY a JSON object in this exact format:
             "anchors": _default_anchors(),
             # Derived from the default anchors' adaptation_bias (0.50 -> `reg`),
             # keeping skill consistent with the rest of this fallback config.
-            "skill": skill_tier_for_adaptation_bias(
-                _default_anchors().get('adaptation_bias')
-            ),
+            "skill": skill_tier_for_adaptation_bias(_default_anchors().get('adaptation_bias')),
         }
 
     def bulk_generate(self, names: list[str], save: bool = True) -> Dict[str, Dict[str, Any]]:

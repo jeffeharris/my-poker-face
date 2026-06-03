@@ -399,6 +399,7 @@ def _maybe_v2_overlay(owner_id, sandbox_id, v1_score, now):
     """
     try:
         from cash_mode import economy_flags
+
         if not getattr(economy_flags, "RENOWN_V2_ENABLED", False):
             return None
         from cash_mode.prestige import (
@@ -453,17 +454,18 @@ def _maybe_v2_overlay(owner_id, sandbox_id, v1_score, now):
                     continue
                 ai_regard = regard_of_v2(field[eid])
                 ai_rv2 = max(ai_peaks.get(eid, 0.0), fr.renown_total)
-                ai_rows.append({
-                    "owner_id": eid,
-                    "renown_v2": round(ai_rv2, 4),
-                    "regard": round(ai_regard, 4),
-                    "quadrant": quadrant_label_relative(
-                        ai_rv2, ai_regard, fr.high_cut),
-                    "victim_percentile": round(fr.victim_percentile, 4),
-                    "high_cut": round(fr.high_cut, 4),
-                    "components": {k: round(v, 4) for k, v in fr.components.items()},
-                    "field_size": field_size,
-                })
+                ai_rows.append(
+                    {
+                        "owner_id": eid,
+                        "renown_v2": round(ai_rv2, 4),
+                        "regard": round(ai_regard, 4),
+                        "quadrant": quadrant_label_relative(ai_rv2, ai_regard, fr.high_cut),
+                        "victim_percentile": round(fr.victim_percentile, 4),
+                        "high_cut": round(fr.high_cut, 4),
+                        "components": {k: round(v, 4) for k, v in fr.components.items()},
+                        "field_size": field_size,
+                    }
+                )
             out["ai_rows"] = ai_rows
 
         return out
@@ -553,9 +555,10 @@ def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
                     )
                 except Exception as exc:
                     logger.warning(
-                        "[TICKER] renown-v2 AI fan-out persist failed "
-                        "(sandbox=%s, %d rows): %s",
-                        sandbox_id, len(ai_rows), exc,
+                        "[TICKER] renown-v2 AI fan-out persist failed " "(sandbox=%s, %d rows): %s",
+                        sandbox_id,
+                        len(ai_rows),
+                        exc,
                     )
         else:
             repo.record(

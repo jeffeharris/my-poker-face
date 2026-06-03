@@ -187,9 +187,9 @@ def test_seat_occupancy_and_conservation_hold_across_ticks(tmp_path, seed):
 
     initial_total = _total_chips(cash_table_repo, bankroll_repo)
     # The seeded lobby itself must already be single-seat + dupe-free.
-    assert not _double_seated(_seat_occupancy(cash_table_repo)), (
-        f"[seed {seed}] lobby seed produced a double-seat before any tick"
-    )
+    assert not _double_seated(
+        _seat_occupancy(cash_table_repo)
+    ), f"[seed {seed}] lobby seed produced a double-seat before any tick"
 
     rng = random.Random(seed)
     for tick in range(TICKS_PER_SEED):
@@ -216,12 +216,8 @@ def test_seat_occupancy_and_conservation_hold_across_ticks(tmp_path, seed):
         placements = _seat_occupancy(cash_table_repo)
         cross = _double_seated(placements)
         within = _within_table_dupes(cash_table_repo)
-        assert not cross, (
-            f"[seed {seed} tick {tick}] DOUBLE-SEAT (cross-table): {cross}"
-        )
-        assert not within, (
-            f"[seed {seed} tick {tick}] DUPLICATE seat within a table: {within}"
-        )
+        assert not cross, f"[seed {seed} tick {tick}] DOUBLE-SEAT (cross-table): {cross}"
+        assert not within, f"[seed {seed} tick {tick}] DUPLICATE seat within a table: {within}"
 
         # (B) chip conservation — exact (integer transfers, no regen).
         total = _total_chips(cash_table_repo, bankroll_repo)

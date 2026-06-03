@@ -30,5 +30,8 @@ repos:
     hooks:
       - id: prettier
         files: '^react/react/src/.*\.(ts|tsx|js|jsx|css|json|md)$'
+        # Keep in sync with react/react/package.json's prettier (CI runs the
+        # project's prettier via `npm run format:check`); a version skew here
+        # would let pre-commit format files CI then rejects.
         additional_dependencies:
-          - prettier@3.3.0
+          - prettier@3.8.3

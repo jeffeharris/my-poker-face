@@ -45,11 +45,14 @@ def _presence(conn, entity_id, state, table_id=None, seat_index=None):
 
 
 def test_consistent_when_presence_and_slots_agree(conn):
-    _seat(conn, [
-        {"kind": "ai", "personality_id": "zeus", "chips": 1000},
-        {"kind": "human", "owner_id": "guest_x", "chips": 500},
-        {"kind": "open"},
-    ])
+    _seat(
+        conn,
+        [
+            {"kind": "ai", "personality_id": "zeus", "chips": 1000},
+            {"kind": "human", "owner_id": "guest_x", "chips": 500},
+            {"kind": "open"},
+        ],
+    )
     _presence(conn, "ai:zeus", "seated", TID, 0)
     _presence(conn, "player:guest_x", "seated", TID, 1)
     assert check_presence_seat_consistency(conn, SB) == []

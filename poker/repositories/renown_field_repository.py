@@ -38,6 +38,7 @@ from collections import defaultdict
 from typing import Dict
 
 from cash_mode.prestige import RenownInputsV2
+
 from .base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ class RenownFieldRepository(BaseRepository):
             (sandbox_id,),
         ):
             pair[obs][opp] = hands
-            roster_net[obs] += (pnl or 0)
+            roster_net[obs] += pnl or 0
         entities = set(pair) | {human_id}
 
         # --- holdings: peak net worth + presence (distinct tick count = the
@@ -141,9 +142,9 @@ class RenownFieldRepository(BaseRepository):
             "SELECT staker_id, principal, status, staker_payout FROM stakes "
             "WHERE staker_id IS NOT NULL AND staker_id != 'anonymous'"
         ):
-            backing_vol[sid] += (principal or 0)
+            backing_vol[sid] += principal or 0
             if status == "settled" and payout is not None:
-                backing_profit[sid] += (payout - (principal or 0))
+                backing_profit[sid] += payout - (principal or 0)
 
         # --- per-tier hands + tenure, per owner (in practice the human; AIs
         # have no cash_sessions rows). ---
@@ -153,7 +154,7 @@ class RenownFieldRepository(BaseRepository):
             "WHERE sandbox_id=? AND ended_at IS NOT NULL",
             (sandbox_id,),
         ):
-            stakes_hands[owner][label] += (hands or 0)
+            stakes_hands[owner][label] += hands or 0
 
         # --- inbound regard edges (relationship_states is not sandbox-scoped). ---
         inbound: Dict[str, list] = defaultdict(list)  # target -> [(lik,resp,heat)]

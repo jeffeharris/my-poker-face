@@ -39,8 +39,12 @@ def test_disabled_is_a_noop(repo):
     """Default off: a shadow call writes nothing."""
     eid = player_entity_id("jeff")
     presence_shadow.shadow_transition(
-        entity_id=eid, sandbox_id="sb", event=PresenceEvent.SIT,
-        table_id="t1", seat_index=2, repo=repo,
+        entity_id=eid,
+        sandbox_id="sb",
+        event=PresenceEvent.SIT,
+        table_id="t1",
+        seat_index=2,
+        repo=repo,
     )
     assert repo.load(eid, "sb").state.value == "offline"
 
@@ -49,8 +53,12 @@ def test_enabled_writes_the_transition(repo):
     economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
     eid = player_entity_id("jeff")
     presence_shadow.shadow_transition(
-        entity_id=eid, sandbox_id="sb", event=PresenceEvent.SIT,
-        table_id="t1", seat_index=2, repo=repo,
+        entity_id=eid,
+        sandbox_id="sb",
+        event=PresenceEvent.SIT,
+        table_id="t1",
+        seat_index=2,
+        repo=repo,
     )
     st = repo.load(eid, "sb")
     assert st.state.value == "seated"
@@ -64,13 +72,21 @@ def test_illegal_transition_is_swallowed_state_intact(repo):
     economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
     eid = player_entity_id("jeff")
     presence_shadow.shadow_transition(
-        entity_id=eid, sandbox_id="sb", event=PresenceEvent.SIT,
-        table_id="t1", seat_index=2, repo=repo,
+        entity_id=eid,
+        sandbox_id="sb",
+        event=PresenceEvent.SIT,
+        table_id="t1",
+        seat_index=2,
+        repo=repo,
     )
     # SIT again (illegal — must LEAVE first). Must be swallowed.
     presence_shadow.shadow_transition(
-        entity_id=eid, sandbox_id="sb", event=PresenceEvent.SIT,
-        table_id="t9", seat_index=5, repo=repo,
+        entity_id=eid,
+        sandbox_id="sb",
+        event=PresenceEvent.SIT,
+        table_id="t9",
+        seat_index=5,
+        repo=repo,
     )
     st = repo.load(eid, "sb")
     assert st.state.value == "seated"
@@ -82,12 +98,20 @@ def test_double_seat_is_swallowed(repo):
     second; the helper swallows it and the first occupant stands."""
     economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
     presence_shadow.shadow_transition(
-        entity_id=player_entity_id("jeff"), sandbox_id="sb",
-        event=PresenceEvent.SIT, table_id="t1", seat_index=2, repo=repo,
+        entity_id=player_entity_id("jeff"),
+        sandbox_id="sb",
+        event=PresenceEvent.SIT,
+        table_id="t1",
+        seat_index=2,
+        repo=repo,
     )
     presence_shadow.shadow_transition(
-        entity_id=ai_entity_id("bot"), sandbox_id="sb",
-        event=PresenceEvent.SIT, table_id="t1", seat_index=2, repo=repo,
+        entity_id=ai_entity_id("bot"),
+        sandbox_id="sb",
+        event=PresenceEvent.SIT,
+        table_id="t1",
+        seat_index=2,
+        repo=repo,
     )
     occupant = repo.seat_occupant("sb", "t1", 2)
     assert occupant is not None
@@ -99,8 +123,12 @@ def test_missing_repo_is_swallowed(repo):
     economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
     # Explicit repo=None and no extensions singleton in test context.
     presence_shadow.shadow_transition(
-        entity_id=player_entity_id("jeff"), sandbox_id="sb",
-        event=PresenceEvent.SIT, table_id="t1", seat_index=2, repo=None,
+        entity_id=player_entity_id("jeff"),
+        sandbox_id="sb",
+        event=PresenceEvent.SIT,
+        table_id="t1",
+        seat_index=2,
+        repo=None,
     )
     # Nothing to assert beyond "did not raise".
 

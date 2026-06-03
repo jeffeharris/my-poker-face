@@ -355,8 +355,7 @@ def apply_multistreet_context(
     # barrel would just bleed). OFF by default (air_barrel_target=0.0) →
     # byte-identical. Sits before standard H1 (air_no_draw isn't an H1 class).
     air_reader = (
-        air_barrel_fold_to_big_bet is not None
-        and air_barrel_fold_to_big_bet >= air_barrel_min_ftbb
+        air_barrel_fold_to_big_bet is not None and air_barrel_fold_to_big_bet >= air_barrel_min_ftbb
     )
     air_barrel_applies = (
         h1_enabled
@@ -385,7 +384,10 @@ def apply_multistreet_context(
                 target=air_barrel_target,
             )
         return strategy, make_no_op_trace(
-            LAYER, 'barrel', order, reason_code='no_bet_action_or_above_target',
+            LAYER,
+            'barrel',
+            order,
+            reason_code='no_bet_action_or_above_target',
         )
 
     barrel_classes = h1_classes if h1_classes is not None else H1_BARREL_TARGET.keys()

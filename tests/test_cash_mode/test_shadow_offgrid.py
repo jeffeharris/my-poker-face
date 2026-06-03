@@ -26,6 +26,7 @@ in-memory fakes (no chip schema needed) and assert against a REAL
 ``EntityPresenceRepository`` on a temp SQLite DB, wired in as the shadow
 helper's default via ``flask_app.extensions.entity_presence_repo``.
 """
+
 from __future__ import annotations
 
 import random
@@ -35,12 +36,10 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from cash_mode import ai_side_hustle, ai_vice_spending
-from cash_mode import economy_flags
+from cash_mode import ai_side_hustle, ai_vice_spending, economy_flags
 from cash_mode.presence import Presence, PresenceEvent, ai_entity_id
 from poker.repositories.entity_presence_repository import EntityPresenceRepository
 from poker.repositories.schema_manager import SchemaManager
-
 
 SANDBOX = "sbx_test"
 PID = "ada_lovelace"
@@ -142,17 +141,13 @@ def presence_repo(tmp_path):
 @pytest.fixture(autouse=True)
 def _flag_default_off(monkeypatch):
     """Default the kill switch OFF around every test (restored after)."""
-    monkeypatch.setattr(
-        economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False
-    )
+    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False)
 
 
 @pytest.fixture()
 def shadow_on(monkeypatch, presence_repo):
     """Flag on + route the helper's default repo to our temp presence repo."""
-    monkeypatch.setattr(
-        economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", True, raising=False
-    )
+    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", True, raising=False)
     import flask_app.extensions as ext
 
     monkeypatch.setattr(ext, "entity_presence_repo", presence_repo, raising=False)
@@ -161,9 +156,7 @@ def shadow_on(monkeypatch, presence_repo):
 
 @pytest.fixture()
 def shadow_off(monkeypatch, presence_repo):
-    monkeypatch.setattr(
-        economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False
-    )
+    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False)
     import flask_app.extensions as ext
 
     monkeypatch.setattr(ext, "entity_presence_repo", presence_repo, raising=False)
@@ -176,9 +169,7 @@ def _state(repo):
 
 def _seed_idle(repo):
     """Drive the shadow store to IDLE via legal events (SIT then LEAVE)."""
-    repo.persist_transition(
-        ENTITY, SANDBOX, PresenceEvent.SIT, table_id="t1", seat_index=0
-    )
+    repo.persist_transition(ENTITY, SANDBOX, PresenceEvent.SIT, table_id="t1", seat_index=0)
     repo.persist_transition(ENTITY, SANDBOX, PresenceEvent.LEAVE)
     assert _state(repo) is Presence.IDLE
 

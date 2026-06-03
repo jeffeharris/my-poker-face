@@ -51,7 +51,9 @@ def apply_stab_defense(
     order = layer_order_for(LAYER)
 
     if prior_layer_fired:
-        return strategy, make_no_op_trace(LAYER, 'default', order, reason_code='prior_override_active')
+        return strategy, make_no_op_trace(
+            LAYER, 'default', order, reason_code='prior_override_active'
+        )
 
     gate_ok = (
         intensity > 0.0

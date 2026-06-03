@@ -11,9 +11,9 @@ from __future__ import annotations
 import pytest
 
 from poker.memory.opponent_model import (
-    OpponentTendencies,
     SIZING_BIG_BET_POT_RATIO,
     SIZING_MIN_BIN_SAMPLE,
+    OpponentTendencies,
 )
 
 
@@ -175,12 +175,24 @@ def _hand_with_big_and_small_bets():
         hole_cards={"Alice": ["7h", "2d"], "Bob": ["Kh", "Kd"]},
         community_cards=("3s", "8c", "Kc", "2h", "9d"),
         actions=(
-            RecordedAction(player_name="Alice", action="call", amount=100, phase="PRE_FLOP", pot_after=200),
-            RecordedAction(player_name="Bob", action="check", amount=0, phase="PRE_FLOP", pot_after=200),
-            RecordedAction(player_name="Bob", action="bet", amount=150, phase="FLOP", pot_after=350),
-            RecordedAction(player_name="Alice", action="call", amount=150, phase="FLOP", pot_after=500),
-            RecordedAction(player_name="Bob", action="bet", amount=300, phase="TURN", pot_after=800),
-            RecordedAction(player_name="Alice", action="call", amount=300, phase="TURN", pot_after=1100),
+            RecordedAction(
+                player_name="Alice", action="call", amount=100, phase="PRE_FLOP", pot_after=200
+            ),
+            RecordedAction(
+                player_name="Bob", action="check", amount=0, phase="PRE_FLOP", pot_after=200
+            ),
+            RecordedAction(
+                player_name="Bob", action="bet", amount=150, phase="FLOP", pot_after=350
+            ),
+            RecordedAction(
+                player_name="Alice", action="call", amount=150, phase="FLOP", pot_after=500
+            ),
+            RecordedAction(
+                player_name="Bob", action="bet", amount=300, phase="TURN", pot_after=800
+            ),
+            RecordedAction(
+                player_name="Alice", action="call", amount=300, phase="TURN", pot_after=1100
+            ),
         ),
         winners=(),
         pot_size=1100,

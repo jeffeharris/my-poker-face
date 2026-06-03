@@ -724,10 +724,7 @@ class TestLobbySimEvolvesRelationships:
         # big-pot gate (pot up to 3000 vs 0.75*1500 = 1125 threshold).
         seats = _build_seats(1500, 2)
         for _ in range(120):
-            live = [
-                s for s in seats
-                if s.get("kind") == "ai" and s.get("chips", 0) > 0
-            ]
+            live = [s for s in seats if s.get("kind") == "ai" and s.get("chips", 0) > 0]
             if len(live) < 2:
                 seats = _build_seats(1500, 2)
             result = play_one_hand(
@@ -746,12 +743,8 @@ class TestLobbySimEvolvesRelationships:
 
         conn = sqlite3.connect(db_path)
         try:
-            cash_pairs = conn.execute(
-                "SELECT COUNT(*) FROM cash_pair_stats"
-            ).fetchone()[0]
-            rel_rows = conn.execute(
-                "SELECT COUNT(*) FROM relationship_states"
-            ).fetchone()[0]
+            cash_pairs = conn.execute("SELECT COUNT(*) FROM cash_pair_stats").fetchone()[0]
+            rel_rows = conn.execute("SELECT COUNT(*) FROM relationship_states").fetchone()[0]
             moved = conn.execute(
                 "SELECT COUNT(*) FROM relationship_states "
                 "WHERE heat > 0 OR respect != 0.5 OR likability != 0.5"

@@ -225,6 +225,7 @@ def coach_ask(game_id: str):
 
     # Point the recommendation highlight at the coach's pick (env-gated).
     from flask_app.services.coach_assistant import apply_coach_highlight
+
     apply_coach_highlight(stats, coach_action, coach_raise_to)
 
     payload = {
@@ -251,6 +252,8 @@ def coach_preflop_leaks():
     direction is deliberately not graded (can't tell opens from correct folds to
     a raise). See flask_app/services/coach_leaks for the scope caveats.
     """
+    from poker.strategy.preflop_reference import reference_strategy
+
     from ..services import preflop_leak_cache
     from ..services.coach_chart_data import load_owner_chart_decisions
     from ..services.coach_chart_leaks import (
@@ -266,7 +269,6 @@ def coach_preflop_leaks():
         count_owner_preflop_decisions,
         load_owner_preflop_decisions,
     )
-    from poker.strategy.preflop_reference import reference_strategy
 
     owner_id = _get_current_user_id()
     if not owner_id:
@@ -292,7 +294,9 @@ def coach_preflop_leaks():
         vpip_report = compute_preflop_leaks(load_owner_preflop_decisions(db_path, owner_id))
         # Load chart decisions ONCE; depth-slice, then reuse for every pass.
         all_decisions = load_owner_chart_decisions(db_path, owner_id)
-        deep_n = sum(1 for d in all_decisions if (d.get('effective_stack_bb') or 0) >= DEEP_FLOOR_BB)
+        deep_n = sum(
+            1 for d in all_decisions if (d.get('effective_stack_bb') or 0) >= DEEP_FLOOR_BB
+        )
         short_n = sum(
             1 for d in all_decisions if 0 < (d.get('effective_stack_bb') or 0) < DEEP_FLOOR_BB
         )
@@ -358,9 +362,7 @@ def coach_preflop_leaks():
         # Cache the computed report per (owner, depth, window); the owner's
         # PRE_FLOP count gates staleness, so a new hand self-invalidates it.
         count = count_owner_preflop_decisions(db_path, owner_id)
-        report = preflop_leak_cache.get_or_compute(
-            (owner_id, depth, recent_hands), count, _build
-        )
+        report = preflop_leak_cache.get_or_compute((owner_id, depth, recent_hands), count, _build)
     except Exception as e:
         logger.error(f"preflop-leaks failed for {owner_id}: {e}", exc_info=True)
         return jsonify({'error': 'Could not compute leaks'}), 500
@@ -397,8 +399,9 @@ def _sizing_tell_locked(observer_id: str, opponent: str) -> bool:
         purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
         return not is_read_unlocked(life, 'sizing_polarization', purchased)
     except Exception as e:  # noqa: BLE001 — gate must never break the coach surface
-        logger.debug("sizing-tell scouting gate failed (fail-open) for %s/%s: %s",
-                     observer_id, opponent, e)
+        logger.debug(
+            "sizing-tell scouting gate failed (fail-open) for %s/%s: %s", observer_id, opponent, e
+        )
         return False
 
 
@@ -555,10 +558,11 @@ def coach_preflop_leaks_feedback():
     the text description to the coach (Assistant tier). The coach explains real,
     computed data — it can't invent leaks. User-initiated (one LLM call/click).
     """
+    from poker.strategy.preflop_reference import reference_strategy
+
     from ..services.coach_assistant import CoachAssistant
     from ..services.coach_chart_data import load_owner_chart_decisions
     from ..services.coach_chart_leaks import compute_chart_leaks, format_chart_leaks_for_prompt
-    from poker.strategy.preflop_reference import reference_strategy
 
     owner_id = _get_current_user_id()
     if not owner_id:
@@ -573,7 +577,9 @@ def coach_preflop_leaks_feedback():
         if report.graded == 0:
             return jsonify({'feedback': "Play some hands first — there's nothing to review yet."})
         profile_text = format_chart_leaks_for_prompt(report)
-        coach = CoachAssistant(game_id=f'preflop-leaks-{owner_id}', owner_id=owner_id, mode='review')
+        coach = CoachAssistant(
+            game_id=f'preflop-leaks-{owner_id}', owner_id=owner_id, mode='review'
+        )
         feedback = coach.review_preflop_leaks(profile_text)
     except TimeoutError:
         return jsonify({'error': 'Coach is taking too long, please try again'}), 504

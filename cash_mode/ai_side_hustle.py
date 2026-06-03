@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, List, Optional, Set, Tuple
 
+from cash_mode import presence_shadow
+
 # Shared off-grid duration helpers — the bucket model is identical to
 # vice's (the LLM picks short/medium/long; the exact delta is sampled
 # within the bucket). Reused rather than duplicated; if hustles ever need
@@ -45,7 +47,6 @@ from cash_mode.ai_vice_spending import (
     DURATION_RANGES,
     duration_for_bucket,
 )
-from cash_mode import presence_shadow
 from cash_mode.presence import PresenceEvent, ai_entity_id
 
 logger = logging.getLogger(__name__)

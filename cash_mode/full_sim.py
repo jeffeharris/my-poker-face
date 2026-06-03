@@ -908,8 +908,7 @@ def _play_one_hand_inner(
     # (once wired) relationship-simming. Prefer `db_path`, keep `_db_path`
     # as a defensive fallback for any custom repo that exposes it.
     db_path_for_memory = (
-        getattr(bankroll_repo, 'db_path', None)
-        or getattr(bankroll_repo, '_db_path', None)
+        getattr(bankroll_repo, 'db_path', None) or getattr(bankroll_repo, '_db_path', None)
         if bankroll_repo is not None
         else None
     )

@@ -416,12 +416,8 @@ class TestStackDominanceWiring:
         mgr = AIMemoryManager(game_id="g1", db_path=None)
         mgr.initialize_for_player("alice")
         mgr.initialize_for_player("bob")
-        mgr.set_relationship_repo(
-            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000
-        )
-        repo.apply_cash_pair_pnl(
-            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1"
-        )
+        mgr.set_relationship_repo(repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000)
+        repo.apply_cash_pair_pnl(winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1")
 
         # Consecutive hands within one cooldown window → only the first fires.
         for hand_number in range(1, STACK_DOMINANCE_COOLDOWN_HANDS + 1):

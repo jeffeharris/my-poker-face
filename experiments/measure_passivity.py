@@ -121,7 +121,9 @@ def _ensure_clone_registered(profile_path: str, oracle_punish_overbets: bool = F
     (which re-register without the kwarg) and the `--oracle-opp` CLI flag both turn
     the clone into the oracle without threading a flag through the work tuple.
     """
-    oracle_punish_overbets = oracle_punish_overbets or bool(os.environ.get('ORACLE_PUNISH_OVERBETS'))
+    oracle_punish_overbets = oracle_punish_overbets or bool(
+        os.environ.get('ORACLE_PUNISH_OVERBETS')
+    )
     from poker.human_clone import load_profile_from_file, register_clone_strategy
 
     profile = load_profile_from_file(profile_path)
@@ -236,9 +238,7 @@ class PassivityStats:
     size_strength: Dict[Tuple[str, str], Counter] = field(
         default_factory=lambda: defaultdict(Counter)
     )
-    size_frac_sum: Dict[Tuple[str, str], float] = field(
-        default_factory=lambda: defaultdict(float)
-    )
+    size_frac_sum: Dict[Tuple[str, str], float] = field(default_factory=lambda: defaultdict(float))
 
     # Diagnostic: overbet_context trace outcomes (fired effect / no-op reason).
     overbet_outcomes: Counter = field(default_factory=Counter)
@@ -448,11 +448,7 @@ def run_passivity_hand(
                 stats.pf_raise_n += 1
             # 3-bet readability: bucket the decision's hand by tier, keyed by
             # (scenario, action). vs_open+raise = the 3-bet range composition.
-            hole = (
-                [card_to_string(c) for c in current_player.hand]
-                if current_player.hand
-                else []
-            )
+            hole = [card_to_string(c) for c in current_player.hand] if current_player.hand else []
             if len(hole) == 2:
                 canon = _get_canonical_hand(hole)
                 if canon:
@@ -548,11 +544,7 @@ def run_passivity_hand(
                         # Feed the adaptive sizing-reader: record the hero's
                         # RIVER overbet (>=1.2x) class so the BR (perfect
                         # observation) learns the hero's overbet bluff freq.
-                        if (
-                            hero_overbet_obs is not None
-                            and phase_name == 'RIVER'
-                            and frac >= 1.2
-                        ):
+                        if hero_overbet_obs is not None and phase_name == 'RIVER' and frac >= 1.2:
                             hero_overbet_obs.append(hand_strength)
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
@@ -572,7 +564,7 @@ def run_passivity_hand(
             for tr in getattr(controller, '_last_intervention_trace', []):
                 if getattr(tr, 'layer', None) != 'overbet_context':
                     continue
-                tag = (tr.effect if tr.fired else f'noop:{tr.reason_code}')
+                tag = tr.effect if tr.fired else f'noop:{tr.reason_code}'
                 if phase_name == 'RIVER':
                     stats.overbet_outcomes[f'RIVER/{tag}'] += 1
                 else:
@@ -714,7 +706,9 @@ def run_passivity_matchup(
 
         profile = load_profile_from_file(PUNISHER_CLONE_PROFILE)
         stab_on = os.environ.get('STABBER_BLUFF', '1') != '0'
-        _sthr = float(os.environ.get('STABBER_THRESHOLD', '0.34'))  # half-pot breakeven; 0 = relentless
+        _sthr = float(
+            os.environ.get('STABBER_THRESHOLD', '0.34')
+        )  # half-pot breakeven; 0 = relentless
         adaptive_stabber_state = register_adaptive_stabber(
             'clone_adaptive_stabber', profile, bluff_stab=stab_on, threshold=_sthr
         )
@@ -822,9 +816,7 @@ def run_passivity_matchup(
             controllers[0].river_bluff_ftbb_override = float(
                 os.environ.get('RIVER_BLUFF_FTBB', '1.0')
             )
-            controllers[0].stab_defense_override = float(
-                os.environ.get('STAB_DEFENSE_READ', '1.0')
-            )
+            controllers[0].stab_defense_override = float(os.environ.get('STAB_DEFENSE_READ', '1.0'))
         # Range-aware prototype: turn on equity-vs-range for the hero and feed it
         # perfect-read field stats (uniform-field assumption: all opponents share
         # the first opponent archetype's stats). Concept-test ceiling.
@@ -998,12 +990,8 @@ def print_tell_map(stats: PassivityStats, min_n: int = 15):
     a frequently-used big size = a high-value readability leak. `read` flags it.
     """
     print("\n── SIZE→STRENGTH TELL MAP (the hero's own sizing readability) ──")
-    print(
-        "  value=nuts+strong  bluff=air*  merge=rest.  bluff%/polar = bluff/(bluff+value)."
-    )
-    print(
-        "  ctx=bet (first-in/checked-to) vs raise (facing a bet/raise — the raise range)."
-    )
+    print("  value=nuts+strong  bluff=air*  merge=rest.  bluff%/polar = bluff/(bluff+value).")
+    print("  ctx=bet (first-in/checked-to) vs raise (facing a bet/raise — the raise range).")
     print(
         f"  {'street':<6} {'ctx':<5} {'size':<4} {'~x pot':>6} {'n':>5}  "
         f"{'val%':>5} {'blf%':>5} {'mrg%':>5} | {'blf/pol':>7} {'gto':>5} {'gap':>5}  read"
