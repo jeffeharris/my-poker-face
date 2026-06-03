@@ -93,6 +93,77 @@ class TestSelectPersonaField:
         field.assert_conservation()
 
 
+class TestScoredOrder:
+    """tournaments-as-a-draw: the invite's draw-ranked reserved_pids order the
+    field (reserved-and-eligible first) instead of a blind shuffle."""
+
+    def test_reserved_seated_first_in_rank_order(self):
+        repo = FakePersonalityRepo([f'p{i}' for i in range(10)])
+        entries = select_persona_field(
+            personality_repo=repo,
+            owner_id='x',
+            field_size=3,
+            rng_seed=1,
+            scored_order=['p7', 'p2', 'p5'],
+        )
+        # The top-3 draws take the seats, in draw order.
+        assert list(entries) == ['p7', 'p2', 'p5']
+
+    def test_excluded_reserved_persona_is_skipped(self):
+        # p7 is reserved-top but still cash-seated (excluded) → fail-closed: it's
+        # skipped and fill takes over; the remaining reserved keep their order.
+        repo = FakePersonalityRepo([f'p{i}' for i in range(10)])
+        entries = select_persona_field(
+            personality_repo=repo,
+            owner_id='x',
+            field_size=3,
+            rng_seed=1,
+            scored_order=['p7', 'p2', 'p5'],
+            exclude={'p7'},
+        )
+        assert 'p7' not in entries
+        # p2, p5 stay first (in order); the 3rd seat fills from the rest.
+        assert list(entries)[:2] == ['p2', 'p5']
+        assert len(entries) == 3
+
+    def test_reserved_short_fills_remaining_seats(self):
+        repo = FakePersonalityRepo([f'p{i}' for i in range(10)])
+        entries = select_persona_field(
+            personality_repo=repo,
+            owner_id='x',
+            field_size=4,
+            rng_seed=1,
+            scored_order=['p3'],  # only one reserved
+        )
+        assert list(entries)[0] == 'p3'
+        assert len(entries) == 4  # rest filled from the pool
+
+    def test_human_first_then_reserved(self):
+        repo = FakePersonalityRepo([f'p{i}' for i in range(10)])
+        entries = select_persona_field(
+            personality_repo=repo,
+            owner_id='x',
+            field_size=3,
+            rng_seed=1,
+            human_id='human:x',
+            scored_order=['p8', 'p1'],
+        )
+        assert list(entries) == ['human:x', 'p8', 'p1']
+
+    def test_unknown_reserved_ids_ignored(self):
+        # reserved ids not in the eligible pool (busted/ineligible) just drop out.
+        repo = FakePersonalityRepo(['p0', 'p1', 'p2'])
+        entries = select_persona_field(
+            personality_repo=repo,
+            owner_id='x',
+            field_size=2,
+            rng_seed=1,
+            scored_order=['ghost', 'p1'],
+        )
+        assert list(entries)[0] == 'p1'
+        assert len(entries) == 2
+
+
 @pytest.mark.skipif(ARCHETYPES is None, reason="engine archetypes unavailable")
 def test_default_archetypes_are_valid_engine_keys():
     """The funny-money EngineHandResolver requires every archetype VALUE to be a

@@ -104,19 +104,40 @@ The riskiest seam, proven in isolation, wired to nothing.
   was OOM-killing test runs at handoff time — **FIRST next step: re-run on a
   stable container** `test_tournament/test_invites.py` + `test_repositories/test_schema_manager.py`
   + a fresh-build schema smoke (SCHEMA_VERSION==148, cols present), then **push**.
-- **B3 — NOT STARTED** (the effectful wiring):
-  - `flask_app/services/tournament_draw.py`: add an effectful `build_draw_inputs`
-    (injected repos: bankroll `ai_bankroll_state`, renown `prestige_snapshots`
-    renown-v2, cash seat/`cash_pair_stats` for `cash_comfort`; `prize_pool` from
-    `core/economy` / the invite). Maps the candidate pool → `list[DrawInputs]`.
-  - `tournament_invites.offer()` / `maybe_offer_main_event()`: after writing the
-    invite, `build_draw_inputs` → `rank_field` → `invite_repo.set_reserved_pids`
-    (flag-gated `TOURNAMENT_DRAW_ENABLED`).
-  - `tournament_spawn.draft_exclusions`: union `invite_repo.reserved_pids_for_owner`
-    so a reserved persona isn't drafted into a concurrent tournament.
-  - `spawn_autonomous_tournament` / `create_human_tournament`: use the reserved
-    field instead of a fresh shuffle (add `include`/`scored_order` to
-    `select_persona_field`).
+- **B3 — ✅ DONE (2026-06-03, verified, uncommitted)** — the effectful wiring,
+  fully inert with `TOURNAMENT_DRAW_ENABLED` off (default):
+  - `flask_app/services/tournament_draw.py`: effectful `build_draw_inputs` +
+    `DrawContext` (bundles the 5 repos as ONE optional dep). Per-term best-effort
+    reads: bankroll `load_ai_bankroll_current`; renown `load_renown_v2_peaks`
+    field-normalized 0..1 (both renown terms → 0 when `RENOWN_V2_PERSIST_AI`
+    off); `cash_comfort` = **seat-stack depth** `clamp(seat_chips/starting_stack)`;
+    `prize_pool` via `econ.plan_funding(...)` (read-only); `status_appetite` =
+    the `ego` anchor via a NEW side-effect-free `PersonalityRepository.load_ego_by_ids`
+    (no `times_used` bump). Pure scorer above it untouched.
+  - `tournament_invites.offer()`/`maybe_offer_main_event()`: optional `draw_ctx`;
+    on the happy create path `_reserve_draw_field` (flag-gated, best-effort —
+    never breaks the offer) → `rank_field` → `invite_repo.set_reserved_pids`.
+    New `draw_context()` builder. `accept`/`_resolve_autonomously` pass
+    `invite['reserved_pids']` + `invite_repo` to the spawners.
+  - `tournament_spawn.draft_exclusions(invite_repo=…)`: unions
+    `reserved_pids_for_owner` (fail-closed). No-op for the consuming spawn (invite
+    already claimed → empty). `reserved_pids_for_owner` got a PRAGMA column guard
+    so it returns `set()` (not OperationalError→DraftScanError→abort-all-spawns)
+    on a pre-v148 DB — the union fires on every spawn, not just flag-on.
+  - `select_persona_field(scored_order=…)`: orders eligible (exclude-subtracted)
+    personas by draw rank, reserved-first, random-fills the rest. A
+    reserved-but-still-seated persona is skipped (fail-closed) until Phase C
+    vacates it. Spawners thread `reserved_pids` → `scored_order`.
+  - Call sites wired: `ticker_service` + `tournament_routes` build a `DrawContext`
+    from `extensions.*` and pass it (inert behind the flag).
+  - Tests: `test_tournament_draw.py::TestBuildDrawInputs`,
+    `test_persona_field.py::TestScoredOrder`,
+    `test_invites.py::{TestDrawReserve,TestDraftExclusionsReserved}`. Full
+    `test_tournament/` + `test_cash_mode/test_movement.py` + schema = **395 green**;
+    ruff clean. **Defaults noted:** renown read = peak (only thing exposed);
+    `renown_on_offer` = `DEFAULT_RENOWN_ON_OFFER` const (Phase D sizes the real
+    grant); reserve = top `field_size`; `field_top_renown` = field-relative
+    binary (1 when any big in pool). All sim-tunable.
 
 ### Phase C — ticker trickle-vacate + spawn + whereabouts surfacing
 - **`ticker_service._tick_sandbox`**: thread the open invite's

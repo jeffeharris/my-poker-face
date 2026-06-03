@@ -19,6 +19,7 @@ and `tournament_economy_service` (the escrow/payout authority). Caller holds
 from __future__ import annotations
 
 import logging
+import random
 import secrets
 import sqlite3
 from datetime import datetime, timedelta
@@ -26,6 +27,7 @@ from typing import Optional
 
 from core.economy import economy_signal
 from flask_app.services import tournament_spawn
+from flask_app.services.tournament_draw import DrawContext, build_draw_inputs, rank_field
 from poker.repositories.tournament_invite_repository import (
     STATUS_ACCEPTED,
     STATUS_DECLINED,
@@ -33,6 +35,68 @@ from poker.repositories.tournament_invite_repository import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def draw_context(
+    *,
+    personality_repo,
+    bankroll_repo,
+    prestige_repo,
+    cash_table_repo,
+    ledger_repo,
+) -> Optional[DrawContext]:
+    """Bundle the draw repos into a `DrawContext` for `offer()`/`maybe_offer…`,
+    or None if an essential repo is unwired (keeps the offer path inert rather
+    than half-built). Cheap — just holds references; the actual draw work is
+    flag-gated downstream, so call sites can always build and pass this."""
+    if personality_repo is None or bankroll_repo is None or ledger_repo is None:
+        return None
+    return DrawContext(
+        personality_repo=personality_repo,
+        bankroll_repo=bankroll_repo,
+        prestige_repo=prestige_repo,
+        cash_table_repo=cash_table_repo,
+        ledger_repo=ledger_repo,
+    )
+
+
+def _reserve_draw_field(
+    invite_repo,
+    *,
+    invite_id: str,
+    owner_id: str,
+    sandbox_id: str,
+    field_size: int,
+    buy_in: int,
+    starting_stack: int,
+    seed: int,
+    draw_ctx: Optional[DrawContext],
+) -> None:
+    """Score the eligible pool and store the top-`field_size` draw as the invite's
+    `reserved_pids` — the field the cash→tournament migration will pull off the
+    felt (see docs/plans/TOURNAMENTS_AS_A_DRAW.md).
+
+    Flag-gated and best-effort: a None context, the flag off, or ANY failure
+    leaves the invite with no reserved field, so spawn falls back to the legacy
+    random draft. The draw must never break offering an invite."""
+    from cash_mode import economy_flags
+
+    if draw_ctx is None or not economy_flags.TOURNAMENT_DRAW_ENABLED:
+        return
+    try:
+        inputs = build_draw_inputs(
+            draw_ctx,
+            sandbox_id=sandbox_id,
+            owner_id=owner_id,
+            field_size=field_size,
+            buy_in=buy_in,
+            starting_stack=starting_stack,
+        )
+        reserved = rank_field(inputs, field_size, weights=draw_ctx.weights, rng=random.Random(seed))
+        if reserved:
+            invite_repo.set_reserved_pids(invite_id, reserved)
+    except Exception:  # noqa: BLE001 — surfacing is best-effort; never break the offer
+        logger.exception("draw: reserve failed for invite=%s owner=%s", invite_id, owner_id)
 
 
 class CannotFieldTournamentError(Exception):
@@ -69,10 +133,15 @@ def offer(
     starting_stack: int = 10_000,
     seed: int = 0,
     expires_at: Optional[str] = None,
+    draw_ctx: Optional[DrawContext] = None,
 ) -> Optional[dict]:
     """Offer a Main Event to the owner — unless one is already open OR a
     tournament is already active for them (one at a time). Returns the new
-    invite dict, or None if suppressed."""
+    invite dict, or None if suppressed.
+
+    When `draw_ctx` is supplied AND `TOURNAMENT_DRAW_ENABLED`, the eligible pool
+    is scored and the top-`field_size` draw is stored as the invite's
+    `reserved_pids` (the cash→tournament migration field). Inert otherwise."""
     if invite_repo is None:
         return None
     if invite_repo.active_for_owner(owner_id) is not None:
@@ -97,10 +166,25 @@ def offer(
         # The one-open-invite-per-owner partial unique index (schema v136) fired:
         # a concurrent worker won the race between the active_for_owner check above
         # and this insert. The other offer stands — surface theirs, not an error.
+        # (Don't reserve here — the worker that WON the insert owns the draw.)
         logger.info(
             "offer race for owner=%s lost to a concurrent offer; using the open one", owner_id
         )
         return invite_repo.active_for_owner(owner_id)
+
+    # We won the insert → compute this invite's draw-reserved field (flag-gated,
+    # best-effort: a failure leaves reserved_pids unset, spawn falls back to random).
+    _reserve_draw_field(
+        invite_repo,
+        invite_id=invite_id,
+        owner_id=owner_id,
+        sandbox_id=sandbox_id,
+        field_size=field_size,
+        buy_in=buy_in,
+        starting_stack=starting_stack,
+        seed=seed,
+        draw_ctx=draw_ctx,
+    )
     return invite_repo.load(invite_id)
 
 
@@ -127,6 +211,7 @@ def maybe_offer_main_event(
     cooldown_seconds: int = economy_signal.MAIN_EVENT_COOLDOWN_SECONDS,
     expiry_seconds: Optional[int] = economy_signal.MAIN_EVENT_REGISTRATION_WINDOW_SECONDS,
     spec: economy_signal.EventSpec = economy_signal.DEFAULT_MAIN_EVENT,
+    draw_ctx: Optional[DrawContext] = None,
 ) -> Optional[dict]:
     """The chairman-driven trigger: offer a Main Event iff the bank is FLUSH and
     the cooldown has elapsed (`economy_signal.should_offer_event`). This is what
@@ -163,6 +248,7 @@ def maybe_offer_main_event(
         table_size=event.table_size,
         starting_stack=event.starting_stack,
         expires_at=expires_at,
+        draw_ctx=draw_ctx,
     )
 
 
@@ -207,6 +293,8 @@ def accept(
             starting_stack=invite['starting_stack'],
             seed=invite['seed'],
             rng_seed=invite['seed'],
+            invite_repo=invite_repo,
+            reserved_pids=invite.get('reserved_pids') or None,
         )
     except Exception:
         # Build/charge failed (e.g. InsufficientFundsError, raised before any
@@ -265,6 +353,8 @@ def _resolve_autonomously(invite: dict, *, status: str, repos: dict) -> Optional
         starting_stack=invite['starting_stack'],
         seed=invite['seed'],
         rng_seed=invite['seed'],
+        invite_repo=repos['invite_repo'],
+        reserved_pids=invite.get('reserved_pids') or None,
     )
     tid = spawned['tournament_id'] if spawned else None
     repos['invite_repo'].resolve(invite['invite_id'], status=status, tournament_id=tid)

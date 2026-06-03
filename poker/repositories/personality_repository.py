@@ -350,6 +350,42 @@ class PersonalityRepository(BaseRepository):
             ).fetchall()
             return {row['personality_id']: row['name'] for row in rows if row['personality_id']}
 
+    def load_ego_by_ids(self, personality_ids) -> Dict[str, float]:
+        """Map a set of personality_ids → their `ego` anchor (0..1 status-seeking).
+
+        Side-effect-free (unlike `load_personality_by_id`, which bumps
+        `times_used`) so it's safe to call across the whole eligible pool on a
+        hot path — the tournament "draw" scorer reads it for every candidate on
+        each offer (see `flask_app/services/tournament_draw.py`). Ids absent from
+        the table, or with no parseable `anchors.ego`, are simply omitted; the
+        caller supplies its own default (the draw uses 0.5, neutral appetite).
+        """
+        ids = [pid for pid in dict.fromkeys(personality_ids) if pid]
+        if not ids:
+            return {}
+        with self._get_connection() as conn:
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)")]
+            if 'personality_id' not in columns:
+                return {}
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"SELECT personality_id, config_json FROM personalities "
+                f"WHERE personality_id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        out: Dict[str, float] = {}
+        for row in rows:
+            pid = row['personality_id']
+            if not pid or not row['config_json']:
+                continue
+            try:
+                ego = (json.loads(row['config_json']).get('anchors') or {}).get('ego')
+            except (TypeError, ValueError):
+                continue
+            if isinstance(ego, (int | float)):
+                out[pid] = float(ego)
+        return out
+
     def list_personalities(
         self,
         limit: int = 50,

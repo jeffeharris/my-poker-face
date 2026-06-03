@@ -410,6 +410,7 @@ def _economy_repos():
         bankroll_repo=extensions.bankroll_repo,
         personality_repo=extensions.personality_repo,
         cash_table_repo=extensions.cash_table_repo,
+        prestige_repo=getattr(extensions, 'prestige_snapshots_repo', None),
     )
 
 
@@ -460,6 +461,13 @@ def get_invite():
                 ledger_repo=repos['ledger_repo'],
                 owner_id=owner_id,
                 sandbox_id=sandbox_id,
+                draw_ctx=invites.draw_context(
+                    personality_repo=repos['personality_repo'],
+                    bankroll_repo=repos['bankroll_repo'],
+                    prestige_repo=repos['prestige_repo'],
+                    cash_table_repo=repos['cash_table_repo'],
+                    ledger_repo=repos['ledger_repo'],
+                ),
             )
         except Exception:  # noqa: BLE001 — surfacing is best-effort; never 500 the lobby
             logger.exception("invite offer/expire sweep failed for %s", owner_id)

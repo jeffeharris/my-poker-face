@@ -130,8 +130,18 @@ class TournamentInviteRepository(BaseRepository):
     def reserved_pids_for_owner(self, owner_id: str) -> set:
         """The reserved field of the owner's OPEN (offered) invite, as a set.
         Empty when there's no open invite or it has no draw-selected field.
-        The exclusion source that keeps a reserved persona out of other drafts."""
+        The exclusion source that keeps a reserved persona out of other drafts.
+
+        Reads the column defensively (PRAGMA guard, like `_row_to_dict`): on a DB
+        where the v148 `reserved_pids` column hasn't been migrated yet this
+        returns `set()` rather than throwing — important because the spawners run
+        this on EVERY draft (not just when the draw flag is on), so a bare SELECT
+        of a missing column would otherwise abort all tournament spawns (the scan
+        is wrapped fail-closed in `draft_exclusions`)."""
         with self._get_connection() as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(tournament_invites)")}
+            if 'reserved_pids' not in cols:
+                return set()
             row = conn.execute(
                 "SELECT reserved_pids FROM tournament_invites "
                 "WHERE owner_id = ? AND status = ? LIMIT 1",

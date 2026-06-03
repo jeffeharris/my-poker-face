@@ -66,10 +66,21 @@ def _seated_cash_pids(cash_table_repo, sandbox_id: str) -> set:
         raise DraftScanError(f"seated-pid scan failed for sandbox {sandbox_id}") from e
 
 
-def draft_exclusions(*, cash_table_repo, session_repo, owner_id: str, sandbox_id: str) -> set:
+def draft_exclusions(
+    *, cash_table_repo, session_repo, owner_id: str, sandbox_id: str, invite_repo=None
+) -> set:
     """Personas we must NOT draft into a new tournament field: those currently
-    seated at a cash table, plus those already in an active tournament. Keeps a
-    persona in exactly one place — the double-presence / ghost-seat guard.
+    seated at a cash table, plus those already in an active tournament, plus
+    (when `invite_repo` is given) those reserved by the owner's OPEN invite's
+    draw. Keeps a persona in exactly one place — the double-presence / ghost-seat
+    guard.
+
+    The reserved-invite union (tournaments-as-a-draw) protects a draw-reserved
+    persona from being grabbed by a different draft while their invite is still
+    open. It's a no-op for the spawn that CONSUMES that invite: the invite is
+    already claimed (status != 'offered') before spawn runs, so
+    `reserved_pids_for_owner` returns empty there — the reserved field flows in
+    via `select_persona_field(scored_order=...)`, not past this exclusion.
 
     Fails CLOSED: a scan error raises `DraftScanError` (the spawners catch it and
     abort) rather than returning a partial set that could let a busy persona be
@@ -80,6 +91,11 @@ def draft_exclusions(*, cash_table_repo, session_repo, owner_id: str, sandbox_id
             excl |= session_repo.active_participant_pids(owner_id)
         except Exception as e:  # noqa: BLE001
             raise DraftScanError(f"active-participant scan failed for owner {owner_id}") from e
+    if invite_repo is not None:
+        try:
+            excl |= invite_repo.reserved_pids_for_owner(owner_id)
+        except Exception as e:  # noqa: BLE001
+            raise DraftScanError(f"reserved-invite scan failed for owner {owner_id}") from e
     return excl
 
 
@@ -98,10 +114,17 @@ def spawn_autonomous_tournament(
     seed: int = 0,
     rng_seed: int = 0,
     archetypes: tuple[str, ...] = DEFAULT_FIELD_ARCHETYPES,
+    invite_repo=None,
+    reserved_pids: Optional[list[str]] = None,
 ) -> Optional[dict]:
     """Build + fund an autonomous real-persona tournament. Returns a dict
     `{tournament_id, session, entries, plan}` or None if the sandbox can't field
     at least `MIN_FIELD` distinct personas.
+
+    `reserved_pids` (the invite's draw-ranked field, tournaments-as-a-draw) is
+    passed to `select_persona_field` as `scored_order`, so the drawn personas
+    take seats first (still subject to the exclusion guard). `invite_repo` adds
+    the open-invite reserve union to the exclusion scan. Both inert when None.
 
     Caller holds `get_sandbox_lock(sandbox_id)` (the economy snapshot → decide →
     apply-transfers must be atomic). The returned `session` is funny-money only;
@@ -118,6 +141,7 @@ def spawn_autonomous_tournament(
             session_repo=session_repo,
             owner_id=owner_id,
             sandbox_id=sandbox_id,
+            invite_repo=invite_repo,
         )
     except DraftScanError:
         logger.exception(
@@ -134,6 +158,7 @@ def spawn_autonomous_tournament(
         rng_seed=rng_seed,
         human_id=None,
         exclude=exclude,
+        scored_order=reserved_pids,
     )
     if len(entries) < MIN_FIELD:
         logger.info(
@@ -232,9 +257,15 @@ def create_human_tournament(
     rng_seed: int = 0,
     archetypes: tuple[str, ...] = DEFAULT_FIELD_ARCHETYPES,
     register: bool = True,
+    invite_repo=None,
+    reserved_pids: Optional[list[str]] = None,
 ) -> Optional[dict]:
     """Build a tournament the human plays IN — a real-persona field with the
     human in seat 0 — and charge their buy-in to the escrow.
+
+    `reserved_pids` (the invite's draw-ranked field) seats the drawn personas
+    first (the human always takes seat 0); `invite_repo` adds the open-invite
+    reserve union to the exclusion scan. Both inert when None.
 
     Returns `{tournament_id, session, entries, plan, human_id}` or None if the
     sandbox can't field at least `MIN_FIELD` seats. Raises
@@ -253,6 +284,7 @@ def create_human_tournament(
             session_repo=session_repo,
             owner_id=owner_id,
             sandbox_id=sandbox_id,
+            invite_repo=invite_repo,
         )
     except DraftScanError:
         logger.exception(
@@ -269,6 +301,7 @@ def create_human_tournament(
         rng_seed=rng_seed,
         human_id=human_id,
         exclude=exclude,
+        scored_order=reserved_pids,
     )
     if len(entries) < MIN_FIELD:
         logger.info(

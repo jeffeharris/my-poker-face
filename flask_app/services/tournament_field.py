@@ -52,6 +52,7 @@ def select_persona_field(
     rng_seed: int = 0,
     human_id: Optional[str] = None,
     exclude: Optional[set] = None,
+    scored_order: Optional[list[str]] = None,
 ) -> dict[str, str]:
     """Build a real-persona `entries` map for a tournament of (up to) `field_size`.
 
@@ -62,6 +63,15 @@ def select_persona_field(
     the double-presence guard), shuffles it deterministically by `rng_seed` (so
     successive Main Events field a varied cast), and assigns archetypes by
     cycling `archetypes`.
+
+    When `scored_order` is given (the invite's draw-`reserved_pids`, highest pull
+    first — tournaments-as-a-draw), the eligible pool is ordered by that ranking
+    instead of shuffled: reserved personas that are STILL eligible take seats
+    first in draw order, then any remaining seats fill from the rest of the pool
+    (deterministically shuffled). A reserved persona that's in `exclude` (e.g.
+    still cash-seated, not yet vacated) is simply skipped — fail-closed against
+    double-presence — so until the Phase-C vacate runs the field just falls back
+    to fill. Empty/None `scored_order` keeps the legacy random draft.
 
     When `human_id` is given the human takes one seat (prize-eligible, live-
     driven — its archetype is a placeholder the resolver never consults) and the
@@ -86,6 +96,15 @@ def select_persona_field(
     # Deterministic shuffle off a local RNG (no global-state mutation).
     rng = random.Random(rng_seed)
     rng.shuffle(persona_ids)
+    if scored_order:
+        # Reorder by draw rank: reserved-and-eligible first (in scored_order),
+        # then the shuffled remainder. `persona_ids` is already exclude-filtered,
+        # so a reserved persona that's still seated/busy never sneaks in here.
+        rank = {pid: i for i, pid in enumerate(scored_order)}
+        eligible = set(persona_ids)
+        ranked = sorted((p for p in scored_order if p in eligible), key=lambda p: rank[p])
+        rest = [p for p in persona_ids if p not in rank]
+        persona_ids = ranked + rest
 
     seats_for_personas = field_size - (1 if human_id else 0)
     if seats_for_personas < 0:

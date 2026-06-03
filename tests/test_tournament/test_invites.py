@@ -427,6 +427,94 @@ class TestDeclineSpawnFailure:
         assert kit['invite_repo'].load(result_invite_id(kit))['status'] == 'declined'
 
 
+class TestDrawReserve:
+    """tournaments-as-a-draw (Phase B3): offer() stores the draw-ranked field as
+    reserved_pids when wired + flag on, and is fully inert otherwise."""
+
+    def _draw_ctx(self, kit):
+        return inv.draw_context(
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            prestige_repo=None,
+            cash_table_repo=None,
+            ledger_repo=kit['ledger_repo'],
+        )
+
+    def test_offer_reserves_top_field_when_flag_on(self, kit, monkeypatch):
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', True)
+        invite = _offer(kit, buy_in=0, draw_ctx=self._draw_ctx(kit))
+        reserved = kit['invite_repo'].load(invite['invite_id'])['reserved_pids']
+        assert len(reserved) == 6  # top field_size of the 8-persona pool
+        assert set(reserved) <= {f'persona_{i}' for i in range(8)}
+
+    def test_offer_inert_when_flag_off(self, kit, monkeypatch):
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', False)
+        invite = _offer(kit, buy_in=0, draw_ctx=self._draw_ctx(kit))
+        assert kit['invite_repo'].load(invite['invite_id'])['reserved_pids'] == []
+
+    def test_offer_inert_without_draw_ctx(self, kit, monkeypatch):
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', True)
+        invite = _offer(kit, buy_in=0)  # no draw_ctx passed
+        assert kit['invite_repo'].load(invite['invite_id'])['reserved_pids'] == []
+
+    def test_reserved_field_flows_through_decline_spawn(self, kit, monkeypatch):
+        from cash_mode import economy_flags
+
+        monkeypatch.setattr(economy_flags, 'TOURNAMENT_DRAW_ENABLED', True)
+        _offer(kit, buy_in=0, draw_ctx=self._draw_ctx(kit))
+        # decline threads invite['reserved_pids'] → spawn → select_persona_field;
+        # it must still field the autonomous run without error.
+        spawned = inv.decline(
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            owner_id=OWNER,
+        )
+        assert spawned is not None and spawned['tournament_id'] is not None
+
+
+class TestDraftExclusionsReserved:
+    """draft_exclusions unions the owner's open-invite reserved field (B3.3)."""
+
+    def test_unions_reserved_pids_for_owner(self, kit):
+        from flask_app.services.tournament_spawn import draft_exclusions
+
+        kit['invite_repo'].create(
+            invite_id='iv',
+            owner_id=OWNER,
+            sandbox_id=SB,
+            buy_in=0,
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+            reserved_pids=['persona_1', 'persona_2'],
+        )
+        excl = draft_exclusions(
+            cash_table_repo=None,
+            session_repo=None,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+        )
+        assert {'persona_1', 'persona_2'} <= excl
+
+    def test_inert_without_invite_repo(self, kit):
+        from flask_app.services.tournament_spawn import draft_exclusions
+
+        excl = draft_exclusions(
+            cash_table_repo=None, session_repo=None, owner_id=OWNER, sandbox_id=SB
+        )
+        assert excl == set()
+
+
 class TestAcceptCannotField:
     def test_accept_raises_cannot_field_when_no_personas(self, kit):
         """Accept with an empty draft pool re-opens the invite and raises

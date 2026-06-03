@@ -704,8 +704,18 @@ def _maybe_tick_tournament(owner_id: str, sandbox_id: str) -> None:
         bankroll_repo = getattr(extensions, "bankroll_repo", None)
         personality_repo = getattr(extensions, "personality_repo", None)
         cash_table_repo = getattr(extensions, "cash_table_repo", None)
+        prestige_repo = getattr(extensions, "prestige_snapshots_repo", None)
         if invite_repo is None or session_repo is None or ledger_repo is None:
             return  # persistence not wired (e.g. unit context) — nothing to do
+        # The cash→tournament draw context (tournaments-as-a-draw); flag-gated
+        # downstream, so this is inert unless TOURNAMENT_DRAW_ENABLED.
+        draw_ctx = invites.draw_context(
+            personality_repo=personality_repo,
+            bankroll_repo=bankroll_repo,
+            prestige_repo=prestige_repo,
+            cash_table_repo=cash_table_repo,
+            ledger_repo=ledger_repo,
+        )
 
         events: list = []
         with game_state_service.get_sandbox_lock(sandbox_id):
@@ -725,6 +735,7 @@ def _maybe_tick_tournament(owner_id: str, sandbox_id: str) -> None:
                     ledger_repo=ledger_repo,
                     owner_id=owner_id,
                     sandbox_id=sandbox_id,
+                    draw_ctx=draw_ctx,
                 )
             except Exception:  # noqa: BLE001 — surfacing is best-effort
                 logger.exception("[TICKER] invite sweep failed for owner=%s", owner_id)
