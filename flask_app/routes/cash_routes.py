@@ -864,6 +864,20 @@ def _build_cash_game(
         )
         ai_controllers[player.name] = controller
 
+    # T3-77 — seat each persona in the mood the cash world left it in. Hydrate
+    # the freshly-built controller from the per-persona emotional_state_json
+    # (schema v97); the leave/settle path flushes the evolved mood back, so a
+    # cash table is two-way. No-op for a persona the world hasn't touched yet
+    # (NULL column → baseline) and for the human (no persona blob). Fresh-seat
+    # only — cold-load restores the per-game psychology_json instead, so it must
+    # not run here (this is the build path, not the restore path).
+    from cash_mode.psychology_persistence import hydrate_persona_psychology
+
+    for ai in selected_ai:
+        ctrl = ai_controllers.get(ai["name"])
+        if ctrl is not None and ai.get("personality_id"):
+            hydrate_persona_psychology(ctrl, ai["personality_id"], bankroll_repo, sandbox_id)
+
     # 4. Memory manager (cash_mode=True wires Phase 3 cash_pair_stats).
     pressure_event_repo = PressureEventRepository(persistence_db_path)
     pressure_detector = PressureEventDetector()
@@ -4636,6 +4650,26 @@ def _leave_table_locked(owner_id: str, game_id: str):
             }
         )
     state_machine = game_data["state_machine"]
+
+    # T3-77 — flush each persona's evolved mood back to the cash world on leave.
+    # A cash table is two-way: whatever emotional state the opponents built while
+    # playing you carries back into emotional_state_json (schema v97) so the
+    # lobby card + off-screen sim see it. Done here while controllers are still
+    # live (before teardown). Best-effort; resolves the persona id the same way
+    # the seat build did.
+    try:
+        from cash_mode.psychology_persistence import flush_persona_psychology
+
+        for name, ctrl in (game_data.get("ai_controllers") or {}).items():
+            try:
+                flush_pid = personality_repo.resolve_name_to_personality_id(name)
+            except Exception:
+                flush_pid = None
+            if flush_pid:
+                flush_persona_psychology(ctrl, flush_pid, bankroll_repo, sandbox_id)
+    except Exception as e:
+        logger.warning("[CASH] psychology flush on leave failed for %r: %s", game_id, e)
+
     human_player = next(
         (p for p in state_machine.game_state.players if p.is_human),
         None,
