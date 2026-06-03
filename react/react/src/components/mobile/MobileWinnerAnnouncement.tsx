@@ -1,17 +1,5 @@
 import { memo, useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  PartyPopper,
-  Smile,
-  Angry,
-  Handshake,
-  Award,
-  HeartHandshake,
-  Clover,
-  Swords,
-  ArrowLeft,
-  Check,
-  type LucideIcon,
-} from 'lucide-react';
+import { ArrowLeft, Check } from 'lucide-react';
 import { Card } from '../cards';
 import { INTERHAND_TIMING } from '../../constants/interhandTiming';
 import { gameAPI } from '../../utils/api';
@@ -20,6 +8,7 @@ import { config } from '../../config';
 import { getOrdinal, type BackendCard } from '../../types/tournament';
 import type { PostRoundTone, PostRoundSuggestion, ChatIntensity } from '../../types/chat';
 import type { Player } from '../../types/player';
+import { buildToneOptions, SARCASM_ABLE_POST_ROUND } from './postRoundTones';
 import './MobileWinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -66,12 +55,6 @@ interface CommentaryItem {
   timestamp: number;
 }
 
-interface ToneOption {
-  id: PostRoundTone;
-  icon: LucideIcon;
-  label: string;
-}
-
 interface MobileWinnerAnnouncementProps {
   winnerInfo: WinnerInfo | null;
   commentary?: CommentaryItem[];
@@ -83,32 +66,6 @@ interface MobileWinnerAnnouncementProps {
    *  emotion-aware avatar chips next to each showdown name. */
   players?: Player[];
 }
-
-// After a WIN: gloat (tilt the loser) · gracious · humble · commiserate
-// (warm to a bystander who also lost). 'props' is shared with the loss side.
-const WINNER_TONES: ToneOption[] = [
-  { id: 'gloat', icon: PartyPopper, label: 'Gloat' },
-  { id: 'gracious', icon: Handshake, label: 'Gracious' },
-  { id: 'humble', icon: Smile, label: 'Humble' },
-  { id: 'commiserate', icon: HeartHandshake, label: 'Commiserate' },
-];
-
-// After a LOSS: salty · props · cry_luck (ego poke) · vow (poise rattle).
-const LOSER_TONES: ToneOption[] = [
-  { id: 'salty', icon: Angry, label: 'Salty' },
-  { id: 'props', icon: Award, label: 'Props' },
-  { id: 'cry_luck', icon: Clover, label: 'Cry Luck' },
-  { id: 'vow', icon: Swords, label: 'Vow' },
-];
-
-// Post-round tones that take the sarcastic register (a warm surface to
-// invert). gracious → fake-nice, humble → dry self-deprecation, commiserate →
-// fake sympathy. The hostile/emotional tones are sincere-only.
-const SARCASM_ABLE_POST_ROUND: ReadonlySet<PostRoundTone> = new Set<PostRoundTone>([
-  'gracious',
-  'humble',
-  'commiserate',
-]);
 
 // Offline fallbacks per tone, used when the suggestion API is unreachable or
 // required params are missing. One source for both error paths.
@@ -127,7 +84,7 @@ const POST_ROUND_FALLBACKS: Record<PostRoundTone, PostRoundSuggestion[]> = {
   ],
   commiserate: [
     { text: 'Tough beat, man.', tone: 'commiserate' },
-    { text: "Brutal spot — you played it fine.", tone: 'commiserate' },
+    { text: 'Brutal spot — you played it fine.', tone: 'commiserate' },
   ],
   salty: [
     { text: 'Unreal.', tone: 'salty' },
@@ -182,9 +139,46 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const [selectedTone, setSelectedTone] = useState<PostRoundTone | null>(null);
   const [sarcastic, setSarcastic] = useState(false);
 
-  // Determine if human player won
+  // Situational read of the hand, so the post-round tones fit what happened.
   const playerWon = winnerInfo?.winners.includes(playerName) ?? false;
-  const toneOptions = playerWon ? WINNER_TONES : LOSER_TONES;
+  const winnerName = winnerInfo?.winners?.[0];
+  const isShowdown = !!winnerInfo?.showdown;
+  const humanAtShowdown = !!winnerInfo?.players_showdown?.[playerName];
+
+  // A fellow loser to commiserate with: prefer someone who lost at showdown,
+  // else any seated opponent who isn't the winner. Undefined heads-up (the
+  // only non-winner is you) → Commiserate is suppressed.
+  const fellowLoser = useMemo(() => {
+    if (!winnerInfo) return undefined;
+    const isWinner = (n: string) => winnerInfo.winners.includes(n);
+    const showdownLoser = winnerInfo.players_showdown
+      ? Object.keys(winnerInfo.players_showdown).find((n) => n !== playerName && !isWinner(n))
+      : undefined;
+    if (showdownLoser) return showdownLoser;
+    return (players ?? []).find((p) => !p.is_human && !isWinner(p.name))?.name;
+  }, [winnerInfo, players, playerName]);
+
+  const toneOptions = useMemo(
+    () =>
+      buildToneOptions({
+        playerWon,
+        isShowdown,
+        humanAtShowdown,
+        hasFellowLoser: !!fellowLoser,
+      }),
+    [playerWon, isShowdown, humanAtShowdown, fellowLoser]
+  );
+
+  // Who a given tone is aimed at: Commiserate → the fellow loser; the
+  // loss-side reactions → the winner who beat you; win-side tones broadcast.
+  const addressingForTone = useCallback(
+    (tone: PostRoundTone): string[] | undefined => {
+      if (tone === 'commiserate') return fellowLoser ? [fellowLoser] : undefined;
+      if (!playerWon && winnerName) return [winnerName];
+      return undefined;
+    },
+    [fellowLoser, playerWon, winnerName]
+  );
 
   const fetchSuggestions = useCallback(
     async (tone: PostRoundTone, useSarcastic: boolean) => {
@@ -237,15 +231,11 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   };
 
   const handleSuggestionClick = (text: string, tone: PostRoundTone) => {
-    // Post-round addressing: a loser's reaction is naturally
-    // directed at the hand's winner — derive addressing from
-    // winnerInfo so the backend can route the relationship event
-    // to the right pair. The winner's reaction is left unaddressed
-    // (no easy "primary loser" inference from the current props):
-    // the backend treats tone + empty addressing as a broadcast,
-    // fanning the emotional reaction out to the seated AIs at a
-    // reduced scale while skipping the pairwise relationship update.
-    const addressing = !playerWon && winnerInfo?.winners?.[0] ? [winnerInfo.winners[0]] : undefined;
+    // Addressing is per tone (see addressingForTone): Commiserate goes to a
+    // fellow loser, the loss-side reactions to the winner, win-side tones
+    // broadcast. An unaddressed send is treated by the backend as a broadcast
+    // (emotional reaction fans out, no pairwise relationship update).
+    const addressing = addressingForTone(tone);
     // Forward the sarcastic register so the dispatch flips the reception
     // (gracious → fake-nice barb, humble → self-mockery, commiserate → fake
     // sympathy). Sincere sends omit intensity.
@@ -291,9 +281,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         setShowCards(false);
         onComplete();
       },
-      winnerInfo.showdown
-        ? INTERHAND_TIMING.showdownResultMs
-        : INTERHAND_TIMING.foldoutResultMs
+      winnerInfo.showdown ? INTERHAND_TIMING.showdownResultMs : INTERHAND_TIMING.foldoutResultMs
     );
 
     return () => {
