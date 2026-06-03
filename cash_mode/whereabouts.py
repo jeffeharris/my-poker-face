@@ -45,6 +45,11 @@ STATUS_IDLE = "idle"
 STATUS_SIDE_HUSTLE = "side_hustle"
 STATUS_VICE = "vice"
 STATUS_UNKNOWN = "unknown"
+# Tournaments-as-a-draw (cash→tournament migration). Defined now (Phase A) as
+# the wire contract; build_whereabouts starts surfacing them in a later phase
+# once the reserve/spawn lifecycle populates the sources.
+STATUS_TOURNAMENT = "tournament"  # currently IN an active tournament
+STATUS_TOURNAMENT_BOUND = "tournament_bound"  # drawn/reserved, en route — not yet vacated
 
 # --- stuck-flag values ---
 #
