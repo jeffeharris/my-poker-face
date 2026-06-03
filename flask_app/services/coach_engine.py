@@ -293,7 +293,10 @@ def _load_cross_session_historical(human_name: str, user_id: Optional[str]) -> d
 
 
 def _build_opponent_infos(
-    game_data: dict, game_state, human_name: str, user_id: Optional[str] = None,
+    game_data: dict,
+    game_state,
+    human_name: str,
+    user_id: Optional[str] = None,
     historical_data: Optional[dict] = None,
 ) -> List[OpponentInfo]:
     """Build OpponentInfo objects for active opponents (for range-based equity).
@@ -443,8 +446,9 @@ def _opponent_deep_reads(tendencies, model, memory_manager, user_id):
     return deep_reads_from_tendencies(read_tendencies)
 
 
-def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None,
-                        historical_data: Optional[dict] = None) -> List[Dict]:
+def _get_opponent_stats(
+    game_data: dict, human_name: str, user_id: str = None, historical_data: Optional[dict] = None
+) -> List[Dict]:
     """Extract opponent stats from memory manager, including stack and all-in status.
 
     Args:
@@ -934,7 +938,6 @@ def _annotate_known_preflop_leak(result, game_data, game_state, player_idx, rang
     """
     try:
         from flask_app import extensions
-
         from poker.strategy.preflop_classifier import build_preflop_node
 
         from .coach_chart_data import get_owner_chart_leak_set

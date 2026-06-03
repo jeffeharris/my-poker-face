@@ -460,9 +460,7 @@ def _board_play_level(hole_cards: List[str], community_cards: List[str]) -> str:
     """
     if len(community_cards) < 5:
         return _USES_HOLE
-    board_eval = HandEvaluator(
-        [_parse_card(c) for c in community_cards]
-    ).evaluate_hand()
+    board_eval = HandEvaluator([_parse_card(c) for c in community_cards]).evaluate_hand()
     hero_eval = HandEvaluator(
         [_parse_card(c) for c in hole_cards + community_cards]
     ).evaluate_hand()

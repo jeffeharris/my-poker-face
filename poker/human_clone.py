@@ -560,7 +560,9 @@ def register_clone_strategy(
 # measure the LIVE benefit of the river-bluff balancing (OVERBET_BALANCING.md §5g).
 
 OVERBET_DETECT_RATIO_BR = 1.2  # bet / pot-before >= this = an overbet (same as the oracle)
-_BR_VALUE_EQUITY = 0.85  # equity-vs-random at/above which the BR's hand beats the value range → call
+_BR_VALUE_EQUITY = (
+    0.85  # equity-vs-random at/above which the BR's hand beats the value range → call
+)
 _BR_TRASH_EQUITY = 0.40  # below this the BR's hand can't even catch bluffs → fold
 _BR_MIN_OBS = 10  # overbets observed before trusting the empirical bluff freq (else assume face-up)
 

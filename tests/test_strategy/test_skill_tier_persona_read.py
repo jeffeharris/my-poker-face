@@ -9,26 +9,39 @@ ceiling) must be byte-identical to today.
 import pytest
 
 from flask_app.handlers.tiered_factory import build_tiered_controller
+from poker.personality_generator import PersonalityGenerator
 from poker.poker_game import initialize_game_state
 from poker.poker_player import AIPokerPlayer
 from poker.poker_state_machine import PokerStateMachine
-from poker.personality_generator import PersonalityGenerator
 
 pytestmark = pytest.mark.integration
 
 _BASE_ANCHORS = {
-    "baseline_aggression": 0.5, "baseline_looseness": 0.5, "ego": 0.5, "poise": 0.5,
-    "expressiveness": 0.5, "risk_identity": 0.5, "adaptation_bias": 0.5,
-    "baseline_energy": 0.5, "recovery_rate": 0.2,
+    "baseline_aggression": 0.5,
+    "baseline_looseness": 0.5,
+    "ego": 0.5,
+    "poise": 0.5,
+    "expressiveness": 0.5,
+    "risk_identity": 0.5,
+    "adaptation_bias": 0.5,
+    "baseline_energy": 0.5,
+    "recovery_rate": 0.2,
 }
 
 
 def _persona(skill=None):
     cfg = {
-        "play_style": "x", "default_confidence": "y", "default_attitude": "z",
+        "play_style": "x",
+        "default_confidence": "y",
+        "default_attitude": "z",
         "anchors": dict(_BASE_ANCHORS),
-        "personality_traits": {"tightness": .5, "aggression": .5, "confidence": .5,
-                               "composure": .7, "table_talk": .5},
+        "personality_traits": {
+            "tightness": 0.5,
+            "aggression": 0.5,
+            "confidence": 0.5,
+            "composure": 0.7,
+            "table_talk": 0.5,
+        },
     }
     if skill:
         cfg["skill"] = skill
@@ -39,15 +52,21 @@ def _persona(skill=None):
 def build_with_skill():
     """Build a tiered controller for a persona whose config carries `skill`,
     injecting the persona into the shared generator cache (no DB needed)."""
+
     def _build(name, skill):
         AIPokerPlayer._personality_generator = PersonalityGenerator()
         AIPokerPlayer._personality_generator._cache[name] = _persona(skill)
         gs = initialize_game_state(player_names=[name, "Opp1", "Opp2"])
         sm = PokerStateMachine(game_state=gs)
         return build_tiered_controller(
-            player_name=name, state_machine=sm, llm_config={},
-            game_id=None, owner_id=None, expression_enabled=False,
+            player_name=name,
+            state_machine=sm,
+            llm_config={},
+            game_id=None,
+            owner_id=None,
+            expression_enabled=False,
         )
+
     yield _build
     AIPokerPlayer._personality_generator = None  # don't leak the cache
 

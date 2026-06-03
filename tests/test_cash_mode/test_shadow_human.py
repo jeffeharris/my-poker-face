@@ -23,6 +23,7 @@ OFFLINE (row deleted), not in the AI-only IDLE pool.
 Conventions per `tests/CLAUDE.md` + `test_shadow_lobby.py`: tempdb, no app,
 monkeypatch the flag + `flask_app.extensions.entity_presence_repo`.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -89,6 +90,7 @@ def _leave(owner: str = OWNER):
 # Flag OFF — inert
 # --------------------------------------------------------------------------
 
+
 def test_human_sit_flag_off_writes_nothing(tmp_path, monkeypatch):
     db_path, repo = _presence_repo(tmp_path)
     _wire(monkeypatch, repo, enabled=False)
@@ -99,6 +101,7 @@ def test_human_sit_flag_off_writes_nothing(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 # Human SIT — the bug the merged reader had (human slot was skipped entirely)
 # --------------------------------------------------------------------------
+
 
 def test_human_sit_records_seated_row(tmp_path, monkeypatch):
     db_path, repo = _presence_repo(tmp_path)
@@ -128,6 +131,7 @@ def test_human_sit_no_double_seat(tmp_path, monkeypatch):
 # §C protection: a stale occupant must not strand the human's SIT
 # --------------------------------------------------------------------------
 
+
 def test_human_sit_clears_stale_seat_occupant(tmp_path, monkeypatch):
     db_path, repo = _presence_repo(tmp_path)
     _wire(monkeypatch, repo, enabled=True)
@@ -135,8 +139,11 @@ def test_human_sit_clears_stale_seat_occupant(tmp_path, monkeypatch):
     # Simulate an AI that previously sat in seat 2 but left WITHOUT a shadowed
     # LEAVE — a stale SEATED row holding the seat in the partial-unique index.
     repo.persist_transition(
-        ai_entity_id("ghost"), SANDBOX, PresenceEvent.SIT,
-        table_id="cash-table-2-001", seat_index=2,
+        ai_entity_id("ghost"),
+        SANDBOX,
+        PresenceEvent.SIT,
+        table_id="cash-table-2-001",
+        seat_index=2,
     )
 
     # Human now legitimately takes seat 2. Without the §C reconcile clear, the
@@ -153,6 +160,7 @@ def test_human_sit_clears_stale_seat_occupant(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 # Human LEAVE — GO_OFFLINE, not the AI idle pool
 # --------------------------------------------------------------------------
+
 
 def test_human_leave_goes_offline(tmp_path, monkeypatch):
     db_path, repo = _presence_repo(tmp_path)
@@ -183,6 +191,7 @@ def test_human_coldload_leave_no_presence_row_is_safe(tmp_path, monkeypatch):
 # Full lifecycle — sit → leave → re-sit → leave stays consistent
 # --------------------------------------------------------------------------
 
+
 def test_human_full_lifecycle_no_ghost(tmp_path, monkeypatch):
     db_path, repo = _presence_repo(tmp_path)
     _wire(monkeypatch, repo, enabled=True)
@@ -198,8 +207,7 @@ def test_human_full_lifecycle_no_ghost(tmp_path, monkeypatch):
     st = repo.load(player_entity_id(OWNER), SANDBOX)
     assert st.state is Presence.SEATED and st.seat_index == 5
     human_rows = [
-        s for s in repo.list_for_sandbox(SANDBOX)
-        if s.entity_id == player_entity_id(OWNER)
+        s for s in repo.list_for_sandbox(SANDBOX) if s.entity_id == player_entity_id(OWNER)
     ]
     assert len(human_rows) == 1, "exactly one presence row per entity (compound PK)"
 

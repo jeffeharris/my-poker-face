@@ -1,14 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Sliders,
-  Database,
-  HardDrive,
-  DollarSign,
-  Menu,
-  Check,
-  Palette,
-  Bell,
-} from 'lucide-react';
+import { Sliders, Database, HardDrive, DollarSign, Menu, Check, Palette, Bell } from 'lucide-react';
 import { adminFetch } from '../../utils/api';
 import { useAdminResource } from '../../hooks/useAdminResource';
 import { useViewport } from '../../hooks/useViewport';

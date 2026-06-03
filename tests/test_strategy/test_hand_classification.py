@@ -596,15 +596,15 @@ def _best_eval(cards):
 # Curated complete (5-card) boards covering every family where a hand's
 # strength can be supplied by the board rather than the hole cards.
 _SWEEP_BOARDS = [
-    ['3h', 'Qd', 'Ks', 'Tc', 'Th'],   # the bug: paired board (tens)
-    ['Kh', 'Ks', '7c', '7d', '9s'],   # double-paired board
-    ['Qh', 'Qc', '7h', '4h', '2s'],   # paired + 3-flush
-    ['Kh', 'Qh', '7h', '4h', '2h'],   # monotone (board is a flush)
-    ['Th', 'Jc', 'Qd', 'Ks', 'Ah'],   # board is broadway straight
-    ['4h', '5c', '6d', '7s', '8h'],   # board is a low straight
-    ['Ah', 'Ac', 'Ad', '2h', '2c'],   # board is a full house
-    ['9h', '9c', '9d', '2s', '5h'],   # board is trips
-    ['Ks', '9d', '4c', '2h', '7s'],   # dry unpaired control (genuine value OK)
+    ['3h', 'Qd', 'Ks', 'Tc', 'Th'],  # the bug: paired board (tens)
+    ['Kh', 'Ks', '7c', '7d', '9s'],  # double-paired board
+    ['Qh', 'Qc', '7h', '4h', '2s'],  # paired + 3-flush
+    ['Kh', 'Qh', '7h', '4h', '2h'],  # monotone (board is a flush)
+    ['Th', 'Jc', 'Qd', 'Ks', 'Ah'],  # board is broadway straight
+    ['4h', '5c', '6d', '7s', '8h'],  # board is a low straight
+    ['Ah', 'Ac', 'Ad', '2h', '2c'],  # board is a full house
+    ['9h', '9c', '9d', '2s', '5h'],  # board is trips
+    ['Ks', '9d', '4c', '2h', '7s'],  # dry unpaired control (genuine value OK)
 ]
 
 _RANKS = '23456789TJQKA'
@@ -649,22 +649,17 @@ class TestBoardIsNeverPrivateHand:
                 checked += 1
                 r = classify_hand_full(hole, board)
                 assert r.made_tier == 'air', (
-                    f'{hole} on {board} ties the naked board but was '
-                    f'classified {r.made_tier!r}'
+                    f'{hole} on {board} ties the naked board but was ' f'classified {r.made_tier!r}'
                 )
-                assert r.nut_status == NUT_BLUFF_CATCHER, (
-                    f'{hole} on {board} plays the board but nut_status={r.nut_status!r}'
-                )
+                assert (
+                    r.nut_status == NUT_BLUFF_CATCHER
+                ), f'{hole} on {board} plays the board but nut_status={r.nut_status!r}'
         assert checked > 0  # guard: the precondition actually fired
 
     def test_board_topped_two_pair_is_never_value(self):
         checked = 0
         for board in _SWEEP_BOARDS:
-            board_pairs = {
-                _RANK_VAL[c[0]]
-                for c in board
-                if [b[0] for b in board].count(c[0]) >= 2
-            }
+            board_pairs = {_RANK_VAL[c[0]] for c in board if [b[0] for b in board].count(c[0]) >= 2}
             if not board_pairs:
                 continue
             for hole in _holes_for_board(board):

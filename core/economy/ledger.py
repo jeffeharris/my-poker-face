@@ -424,8 +424,7 @@ def record_transfer(
         amount_int = int(amount)
     except (TypeError, ValueError):
         logger.warning(
-            "chip ledger: rejecting record_transfer() with non-int amount=%r "
-            "(reason=%s)",
+            "chip ledger: rejecting record_transfer() with non-int amount=%r " "(reason=%s)",
             amount,
             reason,
         )
@@ -460,8 +459,7 @@ def record_transfer(
         # Best-effort: a missing history row is a forensics gap, not a
         # conservation problem (the move is bank-neutral). Log, don't raise.
         logger.error(
-            "[LEDGER] transfer record failed (reason=%s amount=%d source=%s "
-            "sink=%s): %s",
+            "[LEDGER] transfer record failed (reason=%s amount=%d source=%s " "sink=%s): %s",
             reason,
             amount_int,
             source,

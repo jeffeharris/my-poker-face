@@ -10,6 +10,7 @@ seated-elsewhere→LEAVE, fresh fish→SEED).
 
 Conventions per `tests/CLAUDE.md`: temp DB, no app, monkeypatch the flags.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -58,12 +59,17 @@ def _state(conn, entity_id):
 
 def _emit(conn, new_table, old_blob=None, idle_metadata=None):
     pt.emit_presence_transitions_for_save(
-        conn, SANDBOX, old_blob, new_table, now_iso="2026-01-01T00:00:00",
+        conn,
+        SANDBOX,
+        old_blob,
+        new_table,
+        now_iso="2026-01-01T00:00:00",
         idle_metadata=idle_metadata,
     )
 
 
 # --- flag off -------------------------------------------------------------
+
 
 def test_flag_off_writes_nothing(conn, monkeypatch):
     monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False)
@@ -73,6 +79,7 @@ def test_flag_off_writes_nothing(conn, monkeypatch):
 
 
 # --- arrivals: AI + human + fish all seated -------------------------------
+
 
 def test_seats_ai_human_and_fish(conn, monkeypatch):
     _authority(monkeypatch)
@@ -96,6 +103,7 @@ def test_no_double_seat(conn, monkeypatch):
 
 # --- departures -----------------------------------------------------------
 
+
 def test_ai_departure_goes_idle_with_metadata(conn, monkeypatch):
     _authority(monkeypatch)
     old = _table(TID, [ai_slot("alice", 100)])
@@ -104,6 +112,7 @@ def test_ai_departure_goes_idle_with_metadata(conn, monkeypatch):
     # alice leaves: new table has her seat open
     new = _table(TID, [open_slot()])
     import json
+
     meta = {"alice": {"reason": "take_break", "target_stake": "$5"}}
     _emit(conn, new, old_blob=json.dumps(old.seats), idle_metadata=meta)
     assert _state(conn, ai_entity_id("alice")) == ("idle", None, None)
@@ -120,6 +129,7 @@ def test_human_departure_goes_offline(conn, monkeypatch):
     _emit(conn, old)
     assert _state(conn, player_entity_id("jeff"))[0] == "seated"
     import json
+
     _emit(conn, _table(TID, [open_slot()]), old_blob=json.dumps(old.seats))
     # OFFLINE == no row
     assert _state(conn, player_entity_id("jeff")) is None
@@ -130,19 +140,24 @@ def test_fish_departure_returns_to_pool(conn, monkeypatch):
     old = _table(TID, [ai_slot_fish("nemo", 50)])
     _emit(conn, old)
     import json
+
     _emit(conn, _table(TID, [open_slot()]), old_blob=json.dumps(old.seats))
     assert _state(conn, ai_entity_id("nemo")) == ("pool", None, None)
 
 
 # --- precursor promotions (the gaps live shadowing surfaced) --------------
 
+
 def test_offgrid_ai_can_be_seated(conn, monkeypatch):
     _authority(monkeypatch)
     # put alice on a side hustle first (IDLE→START_HUSTLE)
-    from cash_mode.presence import transition, offline
-    s = transition(offline(ai_entity_id("alice"), SANDBOX), PresenceEvent.SIT, table_id=TID, seat_index=0)
+    from cash_mode.presence import offline, transition
+
+    s = transition(
+        offline(ai_entity_id("alice"), SANDBOX), PresenceEvent.SIT, table_id=TID, seat_index=0
+    )
     pt._write_state(conn, s)
-    pt._apply(conn, SANDBOX, ai_entity_id("alice"), PresenceEvent.LEAVE)        # → idle
+    pt._apply(conn, SANDBOX, ai_entity_id("alice"), PresenceEvent.LEAVE)  # → idle
     pt._apply(conn, SANDBOX, ai_entity_id("alice"), PresenceEvent.START_HUSTLE)  # → side_hustle
     assert _state(conn, ai_entity_id("alice"))[0] == "side_hustle"
     # now seat her — engine must END_OFFGRID then SIT (no illegal swallow)
@@ -152,7 +167,7 @@ def test_offgrid_ai_can_be_seated(conn, monkeypatch):
 
 def test_move_between_tables_no_ghost(conn, monkeypatch):
     _authority(monkeypatch)
-    _emit(conn, _table(TID, [ai_slot("alice", 100)]))   # seated at TID/0
+    _emit(conn, _table(TID, [ai_slot("alice", 100)]))  # seated at TID/0
     # alice now appears at TID2 seat 1 (a move) — TID2 save
     _emit(conn, _table(TID2, [open_slot(), ai_slot("alice", 100)]))
     assert _state(conn, ai_entity_id("alice")) == ("seated", TID2, 1)
@@ -175,21 +190,44 @@ def test_stale_occupant_cleared_lets_new_sit(conn, monkeypatch):
 
 # --- authority vs shadow integrity semantics ------------------------------
 
+
 def test_apply_integrity_raises_in_authority_swallows_in_shadow(conn):
     # seed bob SEATED at TID/0 directly
-    from cash_mode.presence import transition, offline
-    pt._write_state(conn, transition(offline(ai_entity_id("bob"), SANDBOX), PresenceEvent.SIT, table_id=TID, seat_index=0))
+    from cash_mode.presence import offline, transition
+
+    pt._write_state(
+        conn,
+        transition(
+            offline(ai_entity_id("bob"), SANDBOX), PresenceEvent.SIT, table_id=TID, seat_index=0
+        ),
+    )
     # alice (currently idle) tries to SIT the SAME occupied seat
-    pt._apply(conn, SANDBOX, ai_entity_id("alice"), PresenceEvent.SIT, table_id=TID2, seat_index=0)  # park elsewhere first? no — give her a state
+    pt._apply(
+        conn, SANDBOX, ai_entity_id("alice"), PresenceEvent.SIT, table_id=TID2, seat_index=0
+    )  # park elsewhere first? no — give her a state
     # force alice OFFLINE→SIT to TID/0 with raise → IntegrityError
     conn.execute("DELETE FROM entity_presence WHERE entity_id=?", (ai_entity_id("alice"),))
     with pytest.raises(sqlite3.IntegrityError):
-        pt._apply(conn, SANDBOX, ai_entity_id("alice"), PresenceEvent.SIT,
-                  table_id=TID, seat_index=0, raise_on_integrity=True)
+        pt._apply(
+            conn,
+            SANDBOX,
+            ai_entity_id("alice"),
+            PresenceEvent.SIT,
+            table_id=TID,
+            seat_index=0,
+            raise_on_integrity=True,
+        )
     # same with raise_on_integrity=False → swallowed, alice not seated there
     conn.execute("DELETE FROM entity_presence WHERE entity_id=?", (ai_entity_id("alice"),))
-    pt._apply(conn, SANDBOX, ai_entity_id("alice"), PresenceEvent.SIT,
-              table_id=TID, seat_index=0, raise_on_integrity=False)
+    pt._apply(
+        conn,
+        SANDBOX,
+        ai_entity_id("alice"),
+        PresenceEvent.SIT,
+        table_id=TID,
+        seat_index=0,
+        raise_on_integrity=False,
+    )
     assert _state(conn, ai_entity_id("alice")) is None  # swallowed
 
 
@@ -206,13 +244,16 @@ def test_apply_illegal_transition_raises_under_authority(conn):
     (authority) is set — the engine is the final guard — and be swallowed
     otherwise."""
     from cash_mode.presence import IllegalPresenceTransition
+
     # OFFLINE --end_offgrid--> is not a legal edge.
     with pytest.raises(IllegalPresenceTransition):
-        pt._apply(conn, SANDBOX, ai_entity_id("ghost"), PresenceEvent.END_OFFGRID,
-                  raise_on_integrity=True)
+        pt._apply(
+            conn, SANDBOX, ai_entity_id("ghost"), PresenceEvent.END_OFFGRID, raise_on_integrity=True
+        )
     # swallowed when not authoritative — entity stays OFFLINE (no row)
-    pt._apply(conn, SANDBOX, ai_entity_id("ghost"), PresenceEvent.END_OFFGRID,
-              raise_on_integrity=False)
+    pt._apply(
+        conn, SANDBOX, ai_entity_id("ghost"), PresenceEvent.END_OFFGRID, raise_on_integrity=False
+    )
     assert _state(conn, ai_entity_id("ghost")) is None
 
 
@@ -221,20 +262,27 @@ def test_coldload_binding_prefers_presence_over_stale_cash_session(tmp_path, mon
     the seat from the authoritative entity_presence row, overriding a STALE
     cash_sessions binding (e.g. the player moved seats after sit)."""
     from unittest.mock import MagicMock
-    from poker.repositories.entity_presence_repository import EntityPresenceRepository
+
     import flask_app.extensions as ext
     import flask_app.services.game_state_service as gss
     from flask_app.handlers import game_handler
+    from poker.repositories.entity_presence_repository import EntityPresenceRepository
 
     db = str(tmp_path / "cl.db")
     SchemaManager(db).ensure_schema()
     epr = EntityPresenceRepository(db)
     # Authoritative presence: jeff is SEATED at the LIVE seat.
-    epr.persist_transition(player_entity_id("jeff"), SANDBOX, PresenceEvent.SIT,
-                           table_id="cash-table-2-009", seat_index=4)
+    epr.persist_transition(
+        player_entity_id("jeff"),
+        SANDBOX,
+        PresenceEvent.SIT,
+        table_id="cash-table-2-009",
+        seat_index=4,
+    )
     # cash_sessions has a STALE binding (sit-time seat, since moved).
-    cs = MagicMock(owner_id="jeff", sandbox_id=SANDBOX,
-                   cash_table_id="cash-table-2-001", cash_seat_index=0)
+    cs = MagicMock(
+        owner_id="jeff", sandbox_id=SANDBOX, cash_table_id="cash-table-2-001", cash_seat_index=0
+    )
     fake_session_repo = MagicMock()
     fake_session_repo.load.return_value = cs
 
@@ -245,7 +293,7 @@ def test_coldload_binding_prefers_presence_over_stale_cash_session(tmp_path, mon
 
     gd: dict = {}
     resolved = game_handler._restore_cash_table_binding("cash-jeff-1", gd)
-    assert resolved == "cash-table-2-009"            # presence (authority) wins
+    assert resolved == "cash-table-2-009"  # presence (authority) wins
     assert gd["cash_table_id"] == "cash-table-2-009"
     assert gd["cash_seat_index"] == 4
 
@@ -262,19 +310,25 @@ def test_list_idle_derives_from_presence_excludes_hustlers(tmp_path, monkeypatch
     pool. Authority-off keeps reading the physical cash_idle_pool."""
     from poker.repositories.cash_table_repository import CashTableRepository
     from poker.repositories.entity_presence_repository import EntityPresenceRepository
+
     db = str(tmp_path / "i.db")
     SchemaManager(db).ensure_schema()
     ctr = CashTableRepository(db)
     epr = EntityPresenceRepository(db)
     # alice → IDLE (sit then leave) with routing metadata
-    epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=0)
+    epr.persist_transition(
+        ai_entity_id("alice"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=0
+    )
     epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.LEAVE)
     sqlite3.connect(db).execute(
         "INSERT INTO cash_idle_metadata (personality_id,sandbox_id,reason,target_stake,left_at) "
-        "VALUES ('alice',?,'stake_up_queued','$5','2026-01-01T00:00:00')", (SANDBOX,)
+        "VALUES ('alice',?,'stake_up_queued','$5','2026-01-01T00:00:00')",
+        (SANDBOX,),
     ).connection.commit()
     # bob → SIDE_HUSTLE (idle then start) — must NOT be offered as idle
-    epr.persist_transition(ai_entity_id("bob"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=1)
+    epr.persist_transition(
+        ai_entity_id("bob"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=1
+    )
     epr.persist_transition(ai_entity_id("bob"), SANDBOX, PresenceEvent.LEAVE)
     epr.persist_transition(ai_entity_id("bob"), SANDBOX, PresenceEvent.START_HUSTLE)
 
@@ -297,18 +351,23 @@ def test_delete_idle_clears_stale_presence_but_not_seated(tmp_path, monkeypatch)
     re-seat already moved it via save_table)."""
     from poker.repositories.cash_table_repository import CashTableRepository
     from poker.repositories.entity_presence_repository import EntityPresenceRepository
+
     db = str(tmp_path / "d.db")
     SchemaManager(db).ensure_schema()
     ctr = CashTableRepository(db)
     epr = EntityPresenceRepository(db)
     monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
 
-    epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=0)
+    epr.persist_transition(
+        ai_entity_id("alice"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=0
+    )
     epr.persist_transition(ai_entity_id("alice"), SANDBOX, PresenceEvent.LEAVE)  # IDLE
     ctr.delete_idle("alice", sandbox_id=SANDBOX)
     assert epr.load(ai_entity_id("alice"), SANDBOX).state is Presence.OFFLINE  # stale cleared
 
-    epr.persist_transition(ai_entity_id("carol"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=2)
+    epr.persist_transition(
+        ai_entity_id("carol"), SANDBOX, PresenceEvent.SIT, table_id="t", seat_index=2
+    )
     ctr.delete_idle("carol", sandbox_id=SANDBOX)  # re-seat cleanup must not offline her
     assert epr.load(ai_entity_id("carol"), SANDBOX).state is Presence.SEATED
 
@@ -319,10 +378,12 @@ def test_reconcile_skipped_under_authority(tmp_path, monkeypatch):
     reconcile risks a spurious LEAVE in a TOCTOU window)."""
     from cash_mode import lobby
     from poker.repositories.entity_presence_repository import EntityPresenceRepository
+
     db = str(tmp_path / "r.db")
     SchemaManager(db).ensure_schema()
     repo = EntityPresenceRepository(db)
     import flask_app.extensions as ext
+
     monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
     monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False)
     monkeypatch.setattr(ext, "entity_presence_repo", repo, raising=False)

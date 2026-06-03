@@ -1222,11 +1222,7 @@ class HandOutcomeDetector:
         `final_stack` to be populated on the recorded players; paths that don't
         capture it (final_stack=None) simply never fire KNOCKOUT.
         """
-        busted = {
-            p.name
-            for p in hand.players
-            if p.final_stack is not None and p.final_stack <= 0
-        }
+        busted = {p.name for p in hand.players if p.final_stack is not None and p.final_stack <= 0}
         if not busted:
             return []
         # Largest taker from each busted loser = the buster.
@@ -1353,11 +1349,7 @@ class HandOutcomeDetector:
         if REGULAR_COOLDOWN_HANDS <= 0 or len(hand.players) < 2:
             return []
         clashed = {frozenset((e.actor_id, e.target_id)) for e in prior_events}
-        ids = [
-            pid
-            for pid in (self._resolve_id(p.name) for p in hand.players)
-            if pid is not None
-        ]
+        ids = [pid for pid in (self._resolve_id(p.name) for p in hand.players) if pid is not None]
         hn = hand.hand_number
         events: List[DetectedEvent] = []
         for i in range(len(ids)):

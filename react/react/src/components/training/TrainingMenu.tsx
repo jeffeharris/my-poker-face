@@ -19,13 +19,15 @@ const DIFFICULTIES: DifficultyOption[] = [
   {
     id: 'easy',
     title: 'Easy',
-    blurb: 'Loose, passive opponents — stations and over-folders. Practice value-betting and punishing leaks.',
+    blurb:
+      'Loose, passive opponents — stations and over-folders. Practice value-betting and punishing leaks.',
     icon: Sprout,
   },
   {
     id: 'medium',
     title: 'Medium',
-    blurb: 'Solid, predictable bots that play by pot odds and a sound baseline. Hone your fundamentals.',
+    blurb:
+      'Solid, predictable bots that play by pot odds and a sound baseline. Hone your fundamentals.',
     icon: Target,
   },
   {
@@ -106,9 +108,8 @@ export function TrainingMenu({
         />
 
         <div className="training-menu__intro">
-          Pick how tough the table is, {playerName} — it applies to free play and
-          drills alike. The coach is on the whole time; nothing here touches your
-          bankroll, reputation, or stats.
+          Pick how tough the table is, {playerName} — it applies to free play and drills alike. The
+          coach is on the whole time; nothing here touches your bankroll, reputation, or stats.
         </div>
 
         <button type="button" className="training-menu__review" onClick={onReviewGame}>

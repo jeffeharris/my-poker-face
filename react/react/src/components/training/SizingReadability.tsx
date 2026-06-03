@@ -141,7 +141,9 @@ export function SizingReadability() {
 
       {r.advice && <p className="sizing-tell__exploit">→ {r.advice}</p>}
       {r.verdict === 'balanced' && (
-        <p className="sizing-tell__exploit">✓ Opponents can&rsquo;t read your hand from your bet size.</p>
+        <p className="sizing-tell__exploit">
+          ✓ Opponents can&rsquo;t read your hand from your bet size.
+        </p>
       )}
 
       {r.stability === 'mixing' && r.verdict === 'face_up' && (

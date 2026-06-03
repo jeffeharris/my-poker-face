@@ -41,7 +41,8 @@ export function GameplaySettings() {
       try {
         const res = await adminFetch('/api/profile');
         const data = await res.json();
-        if (!cancelled) setSpeed(data.success && isSpeed(data.game_speed) ? data.game_speed : 'standard');
+        if (!cancelled)
+          setSpeed(data.success && isSpeed(data.game_speed) ? data.game_speed : 'standard');
       } catch (err) {
         if (!cancelled) {
           logger.warn('[Settings] failed to load game speed', err);

@@ -24,9 +24,7 @@ class TestProportionalDampener:
     """The retention multiplier scales with how face-up the read is."""
 
     def _m(self, polar, floor=0.55):
-        return proportional_call_multiplier(
-            polar, min_polar=0.15, full_polar=0.40, floor=floor
-        )
+        return proportional_call_multiplier(polar, min_polar=0.15, full_polar=0.40, floor=floor)
 
     def test_no_effect_at_threshold(self):
         # At the gate, a barely-face-up read keeps the full call range (mult 1.0).
@@ -100,9 +98,7 @@ class TestTransform:
 
     def test_preserves_raise_and_check_mass(self):
         # Only call→fold is touched; a raise/check mix is left intact.
-        s = StrategyProfile(
-            action_probabilities={'call': 0.5, 'raise': 0.3, 'fold': 0.2}
-        )
+        s = StrategyProfile(action_probabilities={'call': 0.5, 'raise': 0.3, 'fold': 0.2})
         out, _ = _call(s)
         probs = out.action_probabilities
         assert probs['raise'] == pytest.approx(0.3, abs=1e-6)
@@ -161,8 +157,13 @@ class TestControllerGating:
         bot.sizing_defense_enabled = False
         s = StrategyProfile(action_probabilities={'call': 0.8, 'fold': 0.2})
         out, trace = bot._apply_sizing_defense(
-            s, game_state=None, player_idx=0, valid_actions=['call', 'fold'],
-            anchors=object(), hand_strength='medium_made', prior_layer_fired=False,
+            s,
+            game_state=None,
+            player_idx=0,
+            valid_actions=['call', 'fold'],
+            anchors=object(),
+            hand_strength='medium_made',
+            prior_layer_fired=False,
         )
         assert not trace.fired
         assert trace.reason_code == 'disabled'
@@ -172,8 +173,13 @@ class TestControllerGating:
         bot = self._bot()
         s = StrategyProfile(action_probabilities={'call': 0.8, 'fold': 0.2})
         _, trace = bot._apply_sizing_defense(
-            s, game_state=None, player_idx=0, valid_actions=['call', 'fold'],
-            anchors=object(), hand_strength='medium_made', prior_layer_fired=True,
+            s,
+            game_state=None,
+            player_idx=0,
+            valid_actions=['call', 'fold'],
+            anchors=object(),
+            hand_strength='medium_made',
+            prior_layer_fired=True,
         )
         assert not trace.fired
         assert trace.reason_code == 'prior_layer_fired'
@@ -182,8 +188,13 @@ class TestControllerGating:
         bot = self._bot()
         s = StrategyProfile(action_probabilities={'call': 0.8, 'fold': 0.2})
         _, trace = bot._apply_sizing_defense(
-            s, game_state=None, player_idx=0, valid_actions=['call', 'fold'],
-            anchors=object(), hand_strength='nuts', prior_layer_fired=False,
+            s,
+            game_state=None,
+            player_idx=0,
+            valid_actions=['call', 'fold'],
+            anchors=object(),
+            hand_strength='nuts',
+            prior_layer_fired=False,
         )
         assert not trace.fired
         assert trace.reason_code == 'hand_class_not_eligible'
@@ -200,13 +211,16 @@ class TestControllerGating:
         from types import SimpleNamespace
 
         # Stub the decision context so a big bet is "faced".
-        bot._build_decision_context = lambda gs, idx: SimpleNamespace(
-            bet_size_pot_ratio=1.2
-        )
+        bot._build_decision_context = lambda gs, idx: SimpleNamespace(bet_size_pot_ratio=1.2)
         s = StrategyProfile(action_probabilities={'call': 0.8, 'fold': 0.2})
         _, trace = bot._apply_sizing_defense(
-            s, game_state=None, player_idx=0, valid_actions=['call', 'fold'],
-            anchors=object(), hand_strength='medium_made', prior_layer_fired=False,
+            s,
+            game_state=None,
+            player_idx=0,
+            valid_actions=['call', 'fold'],
+            anchors=object(),
+            hand_strength='medium_made',
+            prior_layer_fired=False,
         )
         assert not trace.fired
         assert trace.reason_code == 'not_face_up'
@@ -216,13 +230,16 @@ class TestControllerGating:
         bot.sizing_defense_polar_override = 0.3
         from types import SimpleNamespace
 
-        bot._build_decision_context = lambda gs, idx: SimpleNamespace(
-            bet_size_pot_ratio=1.2
-        )
+        bot._build_decision_context = lambda gs, idx: SimpleNamespace(bet_size_pot_ratio=1.2)
         s = StrategyProfile(action_probabilities={'call': 0.8, 'fold': 0.2})
         out, trace = bot._apply_sizing_defense(
-            s, game_state=None, player_idx=0, valid_actions=['call', 'fold'],
-            anchors=object(), hand_strength='medium_made', prior_layer_fired=False,
+            s,
+            game_state=None,
+            player_idx=0,
+            valid_actions=['call', 'fold'],
+            anchors=object(),
+            hand_strength='medium_made',
+            prior_layer_fired=False,
         )
         assert trace.fired
         assert out.action_probabilities['call'] < 0.8
@@ -237,8 +254,13 @@ class TestControllerGating:
         )
         s = StrategyProfile(action_probabilities={'call': 0.8, 'fold': 0.2})
         _, trace = bot._apply_sizing_defense(
-            s, game_state=None, player_idx=0, valid_actions=['call', 'fold'],
-            anchors=object(), hand_strength='medium_made', prior_layer_fired=False,
+            s,
+            game_state=None,
+            player_idx=0,
+            valid_actions=['call', 'fold'],
+            anchors=object(),
+            hand_strength='medium_made',
+            prior_layer_fired=False,
         )
         assert not trace.fired
         assert trace.reason_code == 'not_a_big_bet'

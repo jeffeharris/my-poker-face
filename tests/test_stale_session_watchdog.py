@@ -153,9 +153,7 @@ def test_sweeps_dead_closed_session_row():
     swept, game_repo, sessions = _run_watchdog(
         rows=[_row("cash-dead", _STALE_AGE)],
         sessions={
-            "cash-dead": _session(
-                "cash-dead", session_state="closed", ended_at=datetime.utcnow()
-            )
+            "cash-dead": _session("cash-dead", session_state="closed", ended_at=datetime.utcnow())
         },
         in_memory={},
         mono=1000.0,

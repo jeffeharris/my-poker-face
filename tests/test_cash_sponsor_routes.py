@@ -697,7 +697,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(after.seats[1]['personality_id'], 'a-different-player')
         # ...and we sat in a different (previously open) seat.
         human_seats = [
-            i for i, s in enumerate(after.seats)
+            i
+            for i, s in enumerate(after.seats)
             if s['kind'] == 'human' and s.get('personality_id') == PLAYER_OWNER_ID
         ]
         self.assertEqual(len(human_seats), 1)
@@ -817,7 +818,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         # Napoleon's seat is untouched; we landed in a previously-open seat.
         self.assertEqual(after.seats[0]['kind'], 'ai')
         human_seats = [
-            i for i, s in enumerate(after.seats)
+            i
+            for i, s in enumerate(after.seats)
             if s['kind'] == 'human' and s.get('personality_id') == PLAYER_OWNER_ID
         ]
         self.assertEqual(len(human_seats), 1)

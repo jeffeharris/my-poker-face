@@ -46,9 +46,7 @@ def build_file_cabinet(
     }
     rels = relationship_repo.load_all_relationships(observer_id, now=now)
     names = personality_repo.display_names_by_ids(opponent_ids)
-    purchases = game_repo.load_all_informant_unlocks_for_observer(
-        sandbox_id, observer_id
-    )
+    purchases = game_repo.load_all_informant_unlocks_for_observer(sandbox_id, observer_id)
 
     people: List[Dict[str, Any]] = []
     dossiers_unlocked = 0
@@ -64,23 +62,23 @@ def build_file_cabinet(
 
         pnl = pnl_by_opp.get(oid)
         rel = rels.get(oid)
-        people.append({
-            'personality_id': oid,
-            'name': names.get(oid, oid),
-            'hands_observed': r['hands_observed'],
-            'net_pnl': pnl.cumulative_pnl if pnl else 0,
-            'hands_played_cash': pnl.hands_played_cash if pnl else 0,
-            'heat': rel.heat if rel else 0.0,
-            'respect': rel.respect if rel else 0.5,
-            'likability': rel.likability if rel else 0.5,
-            'last_seen': (
-                rel.last_seen.isoformat() if rel and rel.last_seen else None
-            ),
-            'reads_unlocked': reads_unlocked,
-            'reads_total': _READS_TOTAL,
-            'floor_met': scouting['floor_met'],
-            'fully_unlocked': fully,
-        })
+        people.append(
+            {
+                'personality_id': oid,
+                'name': names.get(oid, oid),
+                'hands_observed': r['hands_observed'],
+                'net_pnl': pnl.cumulative_pnl if pnl else 0,
+                'hands_played_cash': pnl.hands_played_cash if pnl else 0,
+                'heat': rel.heat if rel else 0.0,
+                'respect': rel.respect if rel else 0.5,
+                'likability': rel.likability if rel else 0.5,
+                'last_seen': (rel.last_seen.isoformat() if rel and rel.last_seen else None),
+                'reads_unlocked': reads_unlocked,
+                'reads_total': _READS_TOTAL,
+                'floor_met': scouting['floor_met'],
+                'fully_unlocked': fully,
+            }
+        )
 
     return {
         'people': people,

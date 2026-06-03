@@ -90,7 +90,7 @@ WEALTH_KNEE = 5.0
 # starvation separately ruled out (Hetzner sweep: fish-table grinders stayed
 # 108-131% of baseline at every W). Flag still default OFF.
 W_MARQUEE = 1.5
-P_LINEUP = 0.25   # damped weight on additional notables beyond the top occupant
+P_LINEUP = 0.25  # damped weight on additional notables beyond the top occupant
 # `status_appetite` is a per-AI "how much do I chase prestige" rank — a weighted
 # blend of NAMED factors, deliberately extensible (add a factor + weight here).
 # renown: the famous chase the famous; glory: showmen (expressive, big ego)

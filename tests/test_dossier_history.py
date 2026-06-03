@@ -12,17 +12,23 @@ from flask_app.services.dossier_history import (
 from poker.repositories.game_repository import GameRepository
 from poker.repositories.schema_manager import SchemaManager
 
-
 # ── Service: build_relationship_history (pure) ──────────────────────────────
+
 
 def test_bad_blood_headline_and_split():
     hist = {
         'counts': {
-            'cooler': 2, 'bad_beat': 1, 'hero_call': 1,
-            'chat_trash_talk': 3, 'chat_props': 1,
+            'cooler': 2,
+            'bad_beat': 1,
+            'hero_call': 1,
+            'chat_trash_talk': 3,
+            'chat_props': 1,
         },
-        'defining': {'event': 'cooler', 'impact_score': 0.92,
-                     'narrative': 'kings into aces, all-in flop'},
+        'defining': {
+            'event': 'cooler',
+            'impact_score': 0.92,
+            'narrative': 'kings into aces, all-in flop',
+        },
     }
     out = build_relationship_history(hist)
     assert out['line'].lower().startswith('bad blood')
@@ -61,6 +67,7 @@ def test_empty_history_is_none():
 
 # ── Repo: load_relationship_history ─────────────────────────────────────────
 
+
 @pytest.fixture
 def repo(db_path):
     SchemaManager(db_path).ensure_schema()
@@ -93,12 +100,19 @@ def _seed(db_path, game_id, owner_id, owner_name, opponent, events):
 
 def test_load_relationship_history_counts_and_defining(repo):
     r, db_path = repo
-    _seed(db_path, "g1", "jeff", "Jeff", "Greg", [
-        ('cooler', 0.9, 'kings into aces'),
-        ('cooler', 0.6, 'sets cracked'),
-        ('bad_beat', 0.95, 'rivered two-outer'),
-        ('chat_trash_talk', 0.1, ''),
-    ])
+    _seed(
+        db_path,
+        "g1",
+        "jeff",
+        "Jeff",
+        "Greg",
+        [
+            ('cooler', 0.9, 'kings into aces'),
+            ('cooler', 0.6, 'sets cracked'),
+            ('bad_beat', 0.95, 'rivered two-outer'),
+            ('chat_trash_talk', 0.1, ''),
+        ],
+    )
 
     hist = r.load_relationship_history("jeff", "Greg", CLASH_EVENTS)
     assert hist['counts'] == {'cooler': 2, 'bad_beat': 1, 'chat_trash_talk': 1}

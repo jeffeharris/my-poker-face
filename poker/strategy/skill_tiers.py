@@ -62,13 +62,37 @@ class SkillTier:
 # and tunes from there.
 SKILL_TIERS = {
     # reads + balances + defends at full validated intensity — today's bot.
-    'shark': SkillTier('shark', exploitation_strength=1.0, river_bluff_fraction=1.0, stab_defense_intensity=0.5, overbet_fraction=1.0),
+    'shark': SkillTier(
+        'shark',
+        exploitation_strength=1.0,
+        river_bluff_fraction=1.0,
+        stab_defense_intensity=0.5,
+        overbet_fraction=1.0,
+    ),
     # solid: softer reads, still balanced + defends.
-    'reg': SkillTier('reg', exploitation_strength=0.7, river_bluff_fraction=1.0, stab_defense_intensity=0.5, overbet_fraction=1.0),
+    'reg': SkillTier(
+        'reg',
+        exploitation_strength=0.7,
+        river_bluff_fraction=1.0,
+        stab_defense_intensity=0.5,
+        overbet_fraction=1.0,
+    ),
     # half-baked: semi-face-up river, soft adapt, half-hearted defense + sizing.
-    'weak_reg': SkillTier('weak_reg', exploitation_strength=0.4, river_bluff_fraction=0.5, stab_defense_intensity=0.25, overbet_fraction=0.5),
+    'weak_reg': SkillTier(
+        'weak_reg',
+        exploitation_strength=0.4,
+        river_bluff_fraction=0.5,
+        stab_defense_intensity=0.25,
+        overbet_fraction=0.5,
+    ),
     # rec: face-up river, over-folds to stabs, barely adapts, no overbets.
-    'rec': SkillTier('rec', exploitation_strength=0.1, river_bluff_fraction=0.0, stab_defense_intensity=0.0, overbet_fraction=0.0),
+    'rec': SkillTier(
+        'rec',
+        exploitation_strength=0.1,
+        river_bluff_fraction=0.0,
+        stab_defense_intensity=0.0,
+        overbet_fraction=0.0,
+    ),
 }
 
 # The default/no-op tier: equals the constructor defaults, so leaving a bot at

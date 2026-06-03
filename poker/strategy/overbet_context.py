@@ -234,12 +234,13 @@ def apply_overbet_context(
         if is_rule_disabled(disable_rules, LAYER, 'overbet'):
             return strategy, make_disabled_trace(LAYER, 'overbet', order)
         river_key = f'bet_{river_bluff_size if river_bluff_size is not None else overbet_size}'
-        new = _promote_check_to_bet(
-            strategy, bet_key=river_key, fraction=river_bluff_fraction
-        )
+        new = _promote_check_to_bet(strategy, bet_key=river_key, fraction=river_bluff_fraction)
         if new is strategy:
             return strategy, make_no_op_trace(
-                LAYER, 'overbet', order, reason_code='no_check_mass',
+                LAYER,
+                'overbet',
+                order,
+                reason_code='no_check_mass',
             )
         return new, InterventionTrace(
             layer=LAYER,
@@ -249,7 +250,8 @@ def apply_overbet_context(
             operation=InterventionOperation.OVERRIDE.value,
             effect='promote_check_to_river_bluff',
             effect_size=l1_distance(
-                strategy.action_probabilities, new.action_probabilities,
+                strategy.action_probabilities,
+                new.action_probabilities,
             ),
             action_changed=(
                 primary_action(strategy.action_probabilities)
@@ -288,9 +290,7 @@ def apply_overbet_context(
     # Mutually exclusive per decision: a hand is either a value class or a bluff
     # class. The bluff side is what de-face-up's the overbet (OVERBET_BALANCING.md).
     is_value = street_ok and hand_class in value_classes
-    is_bluff = (
-        street_ok and overbet_bluff_fraction > 0.0 and hand_class in bluff_classes
-    )
+    is_bluff = street_ok and overbet_bluff_fraction > 0.0 and hand_class in bluff_classes
     if not (is_value or is_bluff):
         return strategy, make_no_op_trace(
             LAYER,

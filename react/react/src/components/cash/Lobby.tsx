@@ -492,7 +492,10 @@ export function Lobby() {
     setSponsorState(null);
     if (held) {
       releaseSeat(held.tableId, held.seatIndex).catch((e) => {
-        logger.warn('Failed to release sponsorship seat-hold:', e instanceof Error ? e.message : String(e));
+        logger.warn(
+          'Failed to release sponsorship seat-hold:',
+          e instanceof Error ? e.message : String(e)
+        );
       });
     }
   }, [sponsorState]);
@@ -832,7 +835,7 @@ export function Lobby() {
           character={dossier?.dossier ?? { name: '' }}
           origin={dossier?.origin}
           identifier={dossier?.identifier}
-          circuitContext  /* the lobby is always the Circuit */
+          circuitContext /* the lobby is always the Circuit */
           // Refresh the lobby intel surfaces (incl. the file cabinet behind
           // this card) after an informant purchase so unlock state updates.
           onIntelChanged={() => setStakablePanelTick((t) => t + 1)}

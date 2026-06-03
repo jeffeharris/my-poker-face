@@ -179,7 +179,9 @@ class _TestBase:
             )
             conn.commit()
         repos['bankroll_repo'].save_ai_bankroll(
-            AIBankrollState(personality_id=TARGET_PID, chips=AI_START_CHIPS, last_regen_tick=ANCHOR),
+            AIBankrollState(
+                personality_id=TARGET_PID, chips=AI_START_CHIPS, last_regen_tick=ANCHOR
+            ),
             sandbox_id=self.sandbox_id,
         )
         # Met-before relationship with friendly axes so all gates clear.
@@ -199,9 +201,7 @@ class _TestBase:
         # One $50 table with a single open seat (index 0); the rest are
         # filled by throwaway AIs so the route's random seat pick is
         # deterministic (only seat 0 is open).
-        seats = [open_slot()] + [
-            ai_slot(f"filler_{i}", PRINCIPAL) for i in range(1, 6)
-        ]
+        seats = [open_slot()] + [ai_slot(f"filler_{i}", PRINCIPAL) for i in range(1, 6)]
         repos['cash_table_repo'].save_table(
             CashTableState(table_id=TABLE_ID, stake_label=STAKE_LABEL, seats=seats),
             sandbox_id=self.sandbox_id,
@@ -287,6 +287,7 @@ class TestOfferStakeOrphanWindow(_TestBase):
         stake row (a settlement-time chip-loss for the player). Post-fix:
         player refunded AND seat reverted to open.
         """
+
         def boom(*args, **kwargs):  # noqa: ANN001
             raise RuntimeError("simulated create_stake failure")
 
@@ -304,8 +305,7 @@ class TestOfferStakeOrphanWindow(_TestBase):
             "AI seated with principal but no backing stake row."
         )
         assert self._seat0_kind() == 'open', (
-            "Window C orphan: seat left occupied by an AI with no backing "
-            "stake row."
+            "Window C orphan: seat left occupied by an AI with no backing " "stake row."
         )
         assert self._stake_count() == 0
 

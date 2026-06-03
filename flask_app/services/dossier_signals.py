@@ -57,20 +57,21 @@ def build_temperament(
         elif poise >= 0.70:
             lines.append("Hard to rattle — pressure won't shake them off a hand.")
     if tilt is not None and tilt >= 0.60:
-        lines.append("Runs hot — a history of tilting after a bad beat; "
-                     "expect loose, sticky play when they're stung.")
+        lines.append(
+            "Runs hot — a history of tilting after a bad beat; "
+            "expect loose, sticky play when they're stung."
+        )
     if expressiveness is not None:
         if expressiveness >= 0.70:
-            lines.append("Wears it on their sleeve — table talk and timing "
-                         "give away where they're at.")
+            lines.append(
+                "Wears it on their sleeve — table talk and timing " "give away where they're at."
+            )
         elif expressiveness <= 0.30:
             lines.append("Stone-faced — few tells; trust the math over reads.")
 
     tilt_label = None
     if tilt is not None:
-        tilt_label = (
-            'On tilt' if tilt >= 0.66 else 'Runs hot' if tilt >= 0.40 else 'Composed'
-        )
+        tilt_label = 'On tilt' if tilt >= 0.66 else 'Runs hot' if tilt >= 0.40 else 'Composed'
 
     return {
         'tilt_score': round(tilt, 2) if tilt is not None else None,
@@ -91,14 +92,60 @@ def build_temperament(
 # so the percentile is apples-to-apples.
 
 _FIELD_VPIP = [
-    0.1022, 0.1080, 0.1189, 0.1647, 0.1722, 0.2106, 0.2127, 0.2216, 0.2248,
-    0.2266, 0.2406, 0.2510, 0.2587, 0.2911, 0.3252, 0.3380, 0.3403, 0.3753,
-    0.3813, 0.3908, 0.4534, 0.4563, 0.4979, 0.5734, 0.6961, 0.8138,
+    0.1022,
+    0.1080,
+    0.1189,
+    0.1647,
+    0.1722,
+    0.2106,
+    0.2127,
+    0.2216,
+    0.2248,
+    0.2266,
+    0.2406,
+    0.2510,
+    0.2587,
+    0.2911,
+    0.3252,
+    0.3380,
+    0.3403,
+    0.3753,
+    0.3813,
+    0.3908,
+    0.4534,
+    0.4563,
+    0.4979,
+    0.5734,
+    0.6961,
+    0.8138,
 ]
 _FIELD_AF = [
-    0.5486, 0.5497, 0.5820, 0.6085, 0.6405, 0.6489, 0.6642, 0.6715, 0.6724,
-    0.6761, 0.6893, 0.6904, 0.7078, 0.7486, 0.7542, 0.7583, 0.7983, 0.8807,
-    0.8929, 0.9473, 1.0339, 1.0913, 1.1673, 1.2008, 1.7565, 1.9277,
+    0.5486,
+    0.5497,
+    0.5820,
+    0.6085,
+    0.6405,
+    0.6489,
+    0.6642,
+    0.6715,
+    0.6724,
+    0.6761,
+    0.6893,
+    0.6904,
+    0.7078,
+    0.7486,
+    0.7542,
+    0.7583,
+    0.7983,
+    0.8807,
+    0.8929,
+    0.9473,
+    1.0339,
+    1.0913,
+    1.1673,
+    1.2008,
+    1.7565,
+    1.9277,
 ]
 
 
@@ -110,9 +157,7 @@ def _percentile(sorted_vals: List[float], x: Optional[float]) -> Optional[int]:
     return round(100 * below / len(sorted_vals))
 
 
-def field_position(
-    vpip: Optional[float], aggression_factor: Optional[float]
-) -> Optional[dict]:
+def field_position(vpip: Optional[float], aggression_factor: Optional[float]) -> Optional[dict]:
     """Where the opponent sits in the LLM field for VPIP and aggression.
 
     Returns `{vpip_pct, vpip_label, af_pct, af_label}` (each pair present only
@@ -127,13 +172,15 @@ def field_position(
     if vp is not None:
         out['vpip_pct'] = vp
         out['vpip_label'] = (
-            f"Looser than {vp}% of the field" if vp >= 50
+            f"Looser than {vp}% of the field"
+            if vp >= 50
             else f"Tighter than {100 - vp}% of the field"
         )
     if ap is not None:
         out['af_pct'] = ap
         out['af_label'] = (
-            f"More aggressive than {ap}% of the field" if ap >= 50
+            f"More aggressive than {ap}% of the field"
+            if ap >= 50
             else f"More passive than {100 - ap}% of the field"
         )
     return out

@@ -187,8 +187,10 @@ export function MobilePokerTable({
     onGameLoadFailed,
   });
 
-  const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } =
-    useGuestChatLimit(awaitingAction, handleSendMessage);
+  const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } = useGuestChatLimit(
+    awaitingAction,
+    handleSendMessage
+  );
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();
@@ -242,7 +244,11 @@ export function MobilePokerTable({
         if (!prev) return prev;
         return prev.map((p) =>
           p.name === playerName
-            ? { ...p, avatar_emotion: emotion, avatar_url: avatarUrlForEmotion(p.avatar_url, emotion) }
+            ? {
+                ...p,
+                avatar_emotion: emotion,
+                avatar_url: avatarUrlForEmotion(p.avatar_url, emotion),
+              }
             : p
         );
       });
