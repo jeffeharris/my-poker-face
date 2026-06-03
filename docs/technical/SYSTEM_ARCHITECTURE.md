@@ -1,3 +1,10 @@
+---
+purpose: High-level system structure — core components, data flow, and module layout
+type: architecture
+created: 2026-02-03
+last_updated: 2026-02-06
+---
+
 # System Architecture
 
 This document provides a comprehensive overview of the My Poker Face application architecture.

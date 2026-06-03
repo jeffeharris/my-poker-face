@@ -1,3 +1,10 @@
+---
+purpose: Frontend architecture — React app structure, state management, and component layout
+type: architecture
+created: 2025-06-07
+last_updated: 2026-02-02
+---
+
 # Frontend Architecture Documentation
 
 This document describes the organization and architecture of the React frontend for My Poker Face.

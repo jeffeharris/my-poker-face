@@ -1,3 +1,10 @@
+---
+purpose: Reference for assembling AI avatar image-generation prompts from personality config
+type: reference
+created: 2026-02-08
+last_updated: 2026-02-08
+---
+
 # Image Prompt Factory
 
 The Image Prompt Factory is a structured system for generating consistent, controllable avatar images for AI poker players. It replaces the old hardcoded prompt templates with a data-driven approach where each personality carries visual identity data that feeds into prompt assembly.

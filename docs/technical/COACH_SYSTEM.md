@@ -1,3 +1,10 @@
+---
+purpose: Architecture of the coaching system — engine, routes, skills, and coaching modes
+type: architecture
+created: 2026-02-04
+last_updated: 2026-02-04
+---
+
 # Coach System Architecture
 
 This document describes the poker coaching system that provides real-time guidance to human players. The coach calculates equity, analyzes opponents, recommends actions, and tracks skill progression.

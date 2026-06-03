@@ -1,3 +1,10 @@
+---
+purpose: Historical summary of betting-UI improvements (archive candidate — see docs/technical/TODO.md)
+type: guide
+created: 2025-06-07
+last_updated: 2026-01-20
+---
+
 # Betting UI Improvements Summary
 
 ## Overview

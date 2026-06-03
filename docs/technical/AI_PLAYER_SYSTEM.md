@@ -1,3 +1,10 @@
+---
+purpose: Architecture of the AI poker player — personality model, decision flow, and LLM integration
+type: architecture
+created: 2025-06-01
+last_updated: 2026-02-06
+---
+
 # AI Player System Documentation
 
 ## Overview

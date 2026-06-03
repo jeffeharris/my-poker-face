@@ -1,3 +1,10 @@
+---
+purpose: How AI player prompts are assembled, from personality config through the LLM assistant layer
+type: architecture
+created: 2026-01-04
+last_updated: 2026-02-04
+---
+
 # AI Prompt System Architecture
 
 This document describes the different systems that work together to create prompts for the AI poker players.

@@ -1,3 +1,10 @@
+---
+purpose: Scaling thresholds, bottlenecks, and migration paths for the application
+type: guide
+created: 2026-02-03
+last_updated: 2026-02-03
+---
+
 # Scaling Guide
 
 This document outlines scaling thresholds and migration paths for My Poker Face.

@@ -1,3 +1,10 @@
+---
+purpose: Requirements and milestone spec for the coach progression system
+type: spec
+created: 2026-02-01
+last_updated: 2026-02-02
+---
+
 # Coach Progression System – Requirements
 
 ## Document Purpose

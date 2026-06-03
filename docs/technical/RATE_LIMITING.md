@@ -1,3 +1,10 @@
+---
+purpose: Rate-limiting configuration for HTTP and socket endpoints
+type: reference
+created: 2025-06-08
+last_updated: 2026-01-20
+---
+
 # Rate Limiting Configuration
 
 ## Overview

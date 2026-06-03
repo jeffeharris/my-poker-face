@@ -1,3 +1,10 @@
+---
+purpose: How opponent models persist and reload across sessions for AI memory
+type: spec
+created: 2026-02-03
+last_updated: 2026-02-03
+---
+
 # Cross-Session Opponent Modeling
 
 ## Document Purpose

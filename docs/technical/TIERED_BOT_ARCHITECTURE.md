@@ -2,7 +2,7 @@
 purpose: Architecture design for the 3-layer tiered bot (solver baselines + personality distortion + LLM expression)
 type: architecture
 created: 2026-02-16
-last_updated: 2026-05-12T15:30:00
+last_updated: 2026-05-12
 ---
 
 # Tiered Bot Architecture

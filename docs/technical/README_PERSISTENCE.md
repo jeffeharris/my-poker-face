@@ -1,3 +1,10 @@
+---
+purpose: Overview of game-state persistence (predates the repositories refactor — see docs/technical/TODO.md)
+type: architecture
+created: 2025-06-01
+last_updated: 2026-01-20
+---
+
 # Poker Game Persistence
 
 This poker game now supports persistent storage using SQLite. Games are automatically saved after each action and can be resumed later.

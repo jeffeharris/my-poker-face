@@ -1,3 +1,10 @@
+---
+purpose: Architecture for the coach progression system (Milestone 1) — skills, gates, and evidence tracking
+type: architecture
+created: 2026-02-01
+last_updated: 2026-02-02
+---
+
 # Coach Progression System - Milestone 1 Architecture
 
 ## Overview
