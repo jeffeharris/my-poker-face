@@ -1,8 +1,8 @@
 ---
 purpose: Tune the four tournaments-as-a-draw DrawWeights so the drawn Main Event field is redistribution-aligned, and confirm every term actually moves the ranking
 type: experiment
-status: planned
-hypothesis_summary: There exists a DrawWeights vector that pulls a field whose median bankroll is ≤ 80% of the eligible-pool median, with all four draw terms measurably firing
+status: complete
+hypothesis_summary: There exists a DrawWeights vector that pulls a field whose median bankroll is ≤ 80% of the eligible-pool median, with all four draw terms measurably firing — CONFIRMED (default weights hit 0.14; all 4 terms fire on a renown-bearing pool)
 created: 2026-06-03
 last_updated: 2026-06-03
 ---
@@ -217,7 +217,53 @@ an active player; the formal weight sweep (all four terms live) waits until a
 renown distribution has accumulated — re-run `sim_tournament_draw_weights.py` once
 `renown data present: True`.
 
-*Formal four-term sweep to be filled once renown has accrued on dev.*
+**Formal four-term sweep (2026-06-03, renown accrued).** Built a renown-bearing
+pool: WAL-safe copy of the (schema-fixed) dev DB → `sim_renown_accrual.py` 50
+ticks (real cash play + the production renown recompute). Renown stabilized fast
+— **89 AIs with renown_v2, min/median/max ≈ 3.3 / 25.4 / 62.5, flat by ~tick 10**.
+Then the weight grid at a 2×-median overlay (`--prize-pool 12916`, seeds=30):
+
+- **H3 — ALL FOUR TERMS NOW FIRE** (zero-one-term Δ vs default field):
+  `prize` 22, `renown` 12, `field` 10, `cash_comfort` 12 changed members. The
+  renown/field terms — dead on the renown-less pool — move the field once renown
+  exists. **H3 met.** (Contrast the renown-off run: prize/renown/field all
+  `fires=False`.)
+- **H1 — met, with margin.** Default weights `.40/.25/.15/.20` →
+  redistribution **0.140** (≪ the 0.80 target). Best grid vector reached **0.079**.
+- **Secondary (reported):** comfort-resistance **1.0** (settled deep-stack seated
+  personas avoid the field) and variety **30/30** across seeds at the default and
+  across the top vectors.
+- **Tension noted:** the lowest-redistribution vectors crank `renown`/`field`
+  weight — but those terms reward LOW own-renown (`×(1−own_renown)`), so maxing
+  them pulls *more* small fish and *fewer* high-renown "bigs" into the field, i.e.
+  redistribution and "bigs present" trade off. Maximizing redistribution alone
+  would Goodhart away the marquee. The defaults sit in the balanced middle.
+
+## Conclusion
+
+- **H1 ✓ / H3 ✓.** On a renown-bearing pool every term fires and the draw fields
+  a redistribution-aligned cast (default 0.140, tunable to 0.079); comfort and
+  variety guardrails hold. The mechanism works end-to-end.
+- **The current default weights are validated** — they already clear H1 by a wide
+  margin, fire all four terms, keep comfort-resistance perfect and variety full,
+  and don't Goodhart the field into fish-only. No retune is required to ship.
+- **Pre-req learned:** the renown/field weights are only tunable/meaningful once
+  `RENOWN_V2_PERSIST_AI` is on AND renown has accrued; on a renown-less pool the
+  draw collapses to prize − comfort (still redistribution-valid, just weight-flat).
+- **Overlay size is a first-class lever** co-equal with the weights (redistribution
+  ran 0.06→0.66 across 0.25×→10× median overlays) — tune the Main Event overlay
+  alongside, not just the weights.
+
+## Decisions made / next steps
+
+- **Keep `DEFAULT_WEIGHTS` as-is** (`prize=.40, renown=.25, field=.15,
+  cash_comfort=.20`). Validated; no change shipped.
+- **Before flipping `TOURNAMENT_DRAW_ENABLED` in any environment:** ensure
+  `RENOWN_V2_PERSIST_AI` is on and renown has had time to accrue (else the renown
+  half of the draw is inert), and pick the Main Event **overlay** deliberately
+  (it sets redistribution intensity).
+- Re-runnable any time: `sim_renown_accrual.py` then `sim_tournament_draw_weights.py`
+  (`--prize-pool` / `--overlay-sweep`). Harness + data committed.
 
 ## Conclusion
 
