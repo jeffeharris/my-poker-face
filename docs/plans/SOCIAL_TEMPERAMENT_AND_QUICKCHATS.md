@@ -162,6 +162,25 @@ surface event) and is keyed on the recipient's social disposition:
 - **Self (self-directed → self-mockery):** disarming regardless of
   disposition — a small likability bump, never a barb (you're the target).
 
+**Detection gate (built 2026-06-03).** Not everyone *catches* the sarcasm.
+A recipient only gets the transforms above if they **perceive** the register;
+one who misses it reacts to the **literal surface** — the inversion that makes
+sarcasm read-dependent. Detection keys on `adaptation_bias` (floor `0.45`),
+the same read-the-opponent trait flattery uses for `sees_through`
+(`PlayerPsychology._detects_sarcasm`). Gated per recipient on **both** layers
+in `chat_relationship.py` (`_perceives_sarcasm`):
+
+- **Missed backhanded Props** → falls through to the literal `PROPS`
+  reception: respect + likability **up** (they took the barb as a sincere
+  compliment), emotional `praise`.
+- **Missed banter (sarcastic Trash Talk)** → literal `TRASH_TALK`: heat
+  **up** (your friendly ribbing landed as a real jab).
+
+So the same *"oh, masterful play"* nets respect ↑ on an oblivious fish and
+respect ↓ on a sharp reader. Flag `SARCASM_DETECTION_ENABLED` (default ON) to
+A/B or cool it. The actor side is unchanged either way (sender's feelings
+don't depend on whether the target got it).
+
 ### 4. UX interaction: tone-primary, register-yields
 
 Settled rules (the register groundwork below #1–#2 is already built; the
