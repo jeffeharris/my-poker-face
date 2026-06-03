@@ -43,8 +43,12 @@ class TestRenownV2Wiring(unittest.TestCase):
         # Point the extensions globals the ticker reads at our temp repos.
         self._saved = {
             k: getattr(extensions, k, None)
-            for k in ("renown_field_repo", "prestige_snapshots_repo",
-                      "relationship_repo", "cash_session_repo")
+            for k in (
+                "renown_field_repo",
+                "prestige_snapshots_repo",
+                "relationship_repo",
+                "cash_session_repo",
+            )
         }
         extensions.renown_field_repo = self.repos["renown_field_repo"]
         extensions.prestige_snapshots_repo = self.repos["prestige_snapshots_repo"]
@@ -72,7 +76,8 @@ class TestRenownV2Wiring(unittest.TestCase):
             rows += [(SB, "rivalA", HUMAN, -50, 5), (SB, "rivalB", HUMAN, -50, 5)]
             c.executemany(
                 "INSERT INTO cash_pair_stats (sandbox_id, observer_id, opponent_id, "
-                "cumulative_pnl, hands_played_cash) VALUES (?,?,?,?,?)", rows,
+                "cumulative_pnl, hands_played_cash) VALUES (?,?,?,?,?)",
+                rows,
             )
             # inbound heat → the human reads hostile (Infamous Villain when high).
             c.executemany(
@@ -83,7 +88,9 @@ class TestRenownV2Wiring(unittest.TestCase):
 
     def _v1_score(self):
         return compute_prestige(
-            owner_id=HUMAN, sandbox_id=SB, now=datetime(2026, 6, 1, 12, 0, 0),
+            owner_id=HUMAN,
+            sandbox_id=SB,
+            now=datetime(2026, 6, 1, 12, 0, 0),
             relationship_repo=self.repos["relationship_repo"],
             cash_session_repo=self.repos["cash_session_repo"],
         )
@@ -91,16 +98,20 @@ class TestRenownV2Wiring(unittest.TestCase):
     def test_overlay_returns_none_when_flag_off(self):
         economy_flags.RENOWN_V2_ENABLED = False
         out = ticker_service._maybe_v2_overlay(
-            HUMAN, SB, self._v1_score(), datetime(2026, 6, 1, 12, 0, 0))
+            HUMAN, SB, self._v1_score(), datetime(2026, 6, 1, 12, 0, 0)
+        )
         self.assertIsNone(out)
 
     def test_overlay_scores_field_when_flag_on(self):
         economy_flags.RENOWN_V2_ENABLED = True
         out = ticker_service._maybe_v2_overlay(
-            HUMAN, SB, self._v1_score(), datetime(2026, 6, 1, 12, 0, 0))
+            HUMAN, SB, self._v1_score(), datetime(2026, 6, 1, 12, 0, 0)
+        )
         self.assertIsNotNone(out)
-        self.assertIn(out["quadrant"], (
-            "Beloved Legend", "Infamous Villain", "Up-and-comer", "Disliked Nobody"))
+        self.assertIn(
+            out["quadrant"],
+            ("Beloved Legend", "Infamous Villain", "Up-and-comer", "Disliked Nobody"),
+        )
         self.assertGreater(out["renown_v2"], 0.0)
         self.assertGreaterEqual(out["field_size"], 3)  # human + 2 rivals + opps
         self.assertIn("breadth", out["components"])
@@ -111,12 +122,19 @@ class TestRenownV2Wiring(unittest.TestCase):
         v1 = self._v1_score()
         out = ticker_service._maybe_v2_overlay(HUMAN, SB, v1, now)
         from dataclasses import replace
+
         score = replace(v1, quadrant=out["quadrant"])
         self.repos["prestige_snapshots_repo"].record(
-            captured_at=score.computed_at, sandbox_id=SB, owner_id=HUMAN, score=score,
-            formula_version="v2", renown_v2=out["renown_v2"],
-            victim_percentile=out["victim_percentile"], high_cut=out["high_cut"],
-            renown_v2_components=out["components"], field_size=out["field_size"],
+            captured_at=score.computed_at,
+            sandbox_id=SB,
+            owner_id=HUMAN,
+            score=score,
+            formula_version="v2",
+            renown_v2=out["renown_v2"],
+            victim_percentile=out["victim_percentile"],
+            high_cut=out["high_cut"],
+            renown_v2_components=out["components"],
+            field_size=out["field_size"],
         )
         snap = self.repos["prestige_snapshots_repo"].load_latest(SB, HUMAN)
         payload = _reputation_payload_from_snapshot(snap)
@@ -130,7 +148,8 @@ class TestRenownV2Wiring(unittest.TestCase):
         # A v1 (flag-off) row exposes formula_version but no v2 fields.
         v1 = self._v1_score()
         self.repos["prestige_snapshots_repo"].record(
-            captured_at=v1.computed_at, sandbox_id=SB, owner_id=HUMAN, score=v1)
+            captured_at=v1.computed_at, sandbox_id=SB, owner_id=HUMAN, score=v1
+        )
         snap = self.repos["prestige_snapshots_repo"].load_latest(SB, HUMAN)
         payload = _reputation_payload_from_snapshot(snap)
         self.assertEqual(payload["formula_version"], "v1")
@@ -143,7 +162,8 @@ class TestRenownV2Wiring(unittest.TestCase):
         economy_flags.RENOWN_V2_ENABLED = True
         economy_flags.RENOWN_V2_PERSIST_AI = False
         out = ticker_service._maybe_v2_overlay(
-            HUMAN, SB, self._v1_score(), datetime(2026, 6, 1, 12, 0, 0))
+            HUMAN, SB, self._v1_score(), datetime(2026, 6, 1, 12, 0, 0)
+        )
         self.assertNotIn("ai_rows", out)
 
     def test_ai_rows_built_and_persist_round_trip(self):
@@ -157,14 +177,14 @@ class TestRenownV2Wiring(unittest.TestCase):
         ai_rows = out["ai_rows"]
         self.assertEqual({r["owner_id"] for r in ai_rows}, {"rivalA", "rivalB"})
         for r in ai_rows:
-            self.assertIn(r["quadrant"], (
-                "Beloved Legend", "Infamous Villain",
-                "Up-and-comer", "Disliked Nobody"))
+            self.assertIn(
+                r["quadrant"],
+                ("Beloved Legend", "Infamous Villain", "Up-and-comer", "Disliked Nobody"),
+            )
             self.assertIn("breadth", r["components"])
 
         repo = self.repos["prestige_snapshots_repo"]
-        n = repo.record_ai_many(sandbox_id=SB, captured_at="2026-06-01T12:00:00Z",
-                                rows=ai_rows)
+        n = repo.record_ai_many(sandbox_id=SB, captured_at="2026-06-01T12:00:00Z", rows=ai_rows)
         self.assertEqual(n, 2)
         snap = repo.load_latest(SB, "rivalA", entity_kind="ai")
         self.assertEqual(snap["entity_kind"], "ai")

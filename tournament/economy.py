@@ -82,9 +82,7 @@ def compute_payout_schedule(
     residual = prize_pool - sum(amounts)
     amounts[0] += residual  # rounding crumbs → the winner; escrow nets to 0
     return [
-        {'finishing_position': i + 1, 'amount': amt}
-        for i, amt in enumerate(amounts)
-        if amt > 0
+        {'finishing_position': i + 1, 'amount': amt} for i, amt in enumerate(amounts) if amt > 0
     ]
 
 

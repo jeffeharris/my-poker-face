@@ -52,7 +52,7 @@ MAX_BUY_IN_BB = 100
 WEAK_FISH_STAKES: frozenset = frozenset({"$2"})
 
 
-def stake_label_for_big_blind(big_blind) -> "str | None":
+def stake_label_for_big_blind(big_blind) -> str | None:
     """Reverse-map a game's big_blind to its casino stake label ($2/$10/...),
     or None if it isn't a ladder stake (custom / non-casino game)."""
     for label, cfg in STAKES_LADDER.items():

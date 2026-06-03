@@ -5,8 +5,8 @@ move correctly as the field thins — with no poker engine involved.
 """
 
 from tournament.seating import (
-    SeatingManager,
     Seating,
+    SeatingManager,
     Table,
     build_initial_seating,
 )

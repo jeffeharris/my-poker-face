@@ -323,10 +323,14 @@ def reconcile_stuck_payouts(
                     real_persona_ids=real_persona_ids,
                 )
                 balance = ledger_repo.balance_of(tournament_account(tid), sandbox_id=sandbox_id)
-            results.append({
-                'tournament_id': tid, 'owner_id': owner,
-                'reconciled': bool(ok), 'escrow_balance': balance,
-            })
+            results.append(
+                {
+                    'tournament_id': tid,
+                    'owner_id': owner,
+                    'reconciled': bool(ok),
+                    'escrow_balance': balance,
+                }
+            )
         except Exception:  # noqa: BLE001 — one bad row must not abort the sweep
             logger.exception("reconcile sweep: failed for tournament %s", tid)
     return results

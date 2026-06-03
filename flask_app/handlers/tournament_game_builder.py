@@ -123,8 +123,6 @@ def build_tournament_seat_controller(
     return make_tournament_ai_controller(name, state_machine, game_id=game_id, owner_id=owner_id)
 
 
-
-
 def build_tournament_game(
     session: TournamentSession,
     *,
@@ -155,7 +153,9 @@ def build_tournament_game(
             stack=s.stack,
             is_human=s.is_human,
             nickname=resolve_display_name(
-                s.player_id, is_human=s.is_human, owner_name=owner_name,
+                s.player_id,
+                is_human=s.is_human,
+                owner_name=owner_name,
                 personality_repo=extensions.personality_repo,
             ),
         )
@@ -300,7 +300,9 @@ def build_tournament_game(
     # `player_llm_configs` (provider/model) so each persona seat rebuilds WITH
     # table talk and a valid config. The game_routes `tourney-` guard reads this
     # persisted `ai_chat` (defaulting False for legacy rows that saved none).
-    llm_configs = _build_seat_llm_configs(is_persona_field, ai_controllers, bot_types, player_llm_configs)
+    llm_configs = _build_seat_llm_configs(
+        is_persona_field, ai_controllers, bot_types, player_llm_configs
+    )
     extensions.game_repo.save_game(
         game_id, state_machine._state_machine, owner_id, owner_name, llm_configs=llm_configs
     )
@@ -378,7 +380,9 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
     from .tournament_handler import _real_persona_ids_for_session
 
     session = game_data.get("tournament_session")
-    real_persona_ids = _real_persona_ids_for_session(session) if session is not None else frozenset()
+    real_persona_ids = (
+        _real_persona_ids_for_session(session) if session is not None else frozenset()
+    )
     is_persona_field = game_data.get("tournament_is_persona_field", bool(real_persona_ids))
     bot_types = game_data.setdefault("tournament_bot_types", {})
     player_llm_configs = game_data.setdefault("tournament_player_llm_configs", {})
@@ -402,7 +406,9 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
         # with its bot_type + config (the live save path uses COALESCE, so an
         # llm_configs-less save would otherwise keep the stale pre-balance blob).
         _persist_seat_llm_configs(game_id, game_data, state_machine, bot_types, player_llm_configs)
-    _emit_tournament(game_data, outcome, RELOCATED=RELOCATED, HUMAN_OUT=HUMAN_OUT, COMPLETE=COMPLETE)
+    _emit_tournament(
+        game_data, outcome, RELOCATED=RELOCATED, HUMAN_OUT=HUMAN_OUT, COMPLETE=COMPLETE
+    )
     if outcome.kind == COMPLETE:
         # Distribute the prize pool the moment the field locks every finishing
         # position (the play-out route + advance carry the same idempotent call

@@ -2,7 +2,7 @@
 purpose: Technical reference for the cash-mode chip economy as implemented — pools, flow paths, conservation invariant, audit, and tuning levers.
 type: reference
 created: 2026-05-19
-last_updated: 2026-05-21
+last_updated: 2026-06-03
 ---
 
 # Cash Mode Economy
@@ -18,6 +18,12 @@ in `docs/plans/`; this doc captures the system **as built**, not as
 originally specified. Discrepancies between this doc and any
 individual handoff should be resolved in favor of this doc + the
 code (handoffs were forward-looking).
+
+This doc is the **accounting** layer (where chips come from / go, the
+conservation invariant, the audit). For the **policy** layer — the
+wealth levers (vice / side-hustle / grinder-hunger / rake) and the
+`own_start` vs `field_liquid` reference model that decides who gains and
+loses over time — see `CASH_MODE_WEALTH_LEVERS.md`.
 
 ## The conservation invariant
 

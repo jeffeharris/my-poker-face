@@ -18,6 +18,7 @@ the ~2s world ticker (the seat write and presence commit are atomic, but a
 snapshot taken mid-`save_table` across two connections can straddle them). Callers
 auditing live state should double-read and keep only violations present in both.
 """
+
 from __future__ import annotations
 
 import json
@@ -94,38 +95,48 @@ def check_presence_seat_consistency(
     for entity_id, (table_id, seat_index) in presence_by_entity.items():
         occupant = seat_occupants.get((table_id, seat_index))
         if occupant is None:
-            violations.append({
-                "kind": "presence_seated_no_slot", "entity_id": entity_id,
-                "table_id": table_id, "seat_index": seat_index,
-                "detail": "presence SEATED but slot is open/reserved",
-            })
+            violations.append(
+                {
+                    "kind": "presence_seated_no_slot",
+                    "entity_id": entity_id,
+                    "table_id": table_id,
+                    "seat_index": seat_index,
+                    "detail": "presence SEATED but slot is open/reserved",
+                }
+            )
         elif occupant != entity_id:
-            violations.append({
-                "kind": "seat_entity_mismatch", "entity_id": entity_id,
-                "table_id": table_id, "seat_index": seat_index,
-                "detail": f"presence SEATED here but slot holds {occupant!r}",
-            })
+            violations.append(
+                {
+                    "kind": "seat_entity_mismatch",
+                    "entity_id": entity_id,
+                    "table_id": table_id,
+                    "seat_index": seat_index,
+                    "detail": f"presence SEATED here but slot holds {occupant!r}",
+                }
+            )
 
     # 3b. Every occupied slot must have a matching SEATED presence row.
     for (table_id, seat_index), entity_id in seat_occupants.items():
         seated = presence_by_seat.get((table_id, seat_index))
         if seated != entity_id:
-            violations.append({
-                "kind": "slot_no_presence", "entity_id": entity_id,
-                "table_id": table_id, "seat_index": seat_index,
-                "detail": (
-                    "occupied slot with no matching SEATED presence row"
-                    if seated is None
-                    else f"slot holds {entity_id!r} but presence seats {seated!r} here"
-                ),
-            })
+            violations.append(
+                {
+                    "kind": "slot_no_presence",
+                    "entity_id": entity_id,
+                    "table_id": table_id,
+                    "seat_index": seat_index,
+                    "detail": (
+                        "occupied slot with no matching SEATED presence row"
+                        if seated is None
+                        else f"slot holds {entity_id!r} but presence seats {seated!r} here"
+                    ),
+                }
+            )
 
     return violations
 
 
-def assert_presence_seat_consistency(
-    conn: sqlite3.Connection, sandbox_id: str
-) -> None:
+def assert_presence_seat_consistency(conn: sqlite3.Connection, sandbox_id: str) -> None:
     """Raise AssertionError listing any presence ⇔ seat-map violations. For tests
     and assert-on-flip checks; production audits call `check_*` and report."""
     violations = check_presence_seat_consistency(conn, sandbox_id)

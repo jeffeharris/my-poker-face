@@ -45,16 +45,26 @@ def kit():
             personality_repo=FakePersonalityRepo([f'persona_{i}' for i in range(8)]),
         )
         yield repos
-        for r in (repos['ledger_repo'], repos['bankroll_repo'],
-                  repos['session_repo'], repos['invite_repo']):
+        for r in (
+            repos['ledger_repo'],
+            repos['bankroll_repo'],
+            repos['session_repo'],
+            repos['invite_repo'],
+        ):
             r.close()
 
 
 def _offer(kit, **kw):
     return inv.offer(
-        invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-        owner_id=OWNER, sandbox_id=SB, field_size=6, table_size=3,
-        starting_stack=10_000, seed=4, **kw,
+        invite_repo=kit['invite_repo'],
+        session_repo=kit['session_repo'],
+        owner_id=OWNER,
+        sandbox_id=SB,
+        field_size=6,
+        table_size=3,
+        starting_stack=10_000,
+        seed=4,
+        **kw,
     )
 
 
@@ -78,9 +88,12 @@ class TestAccept:
         )
         _offer(kit, buy_in=500)
         result = inv.accept(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], owner_id=OWNER,
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            owner_id=OWNER,
         )
         assert result is not None
         tid = result['tournament_id']
@@ -100,29 +113,41 @@ class TestAccept:
         _offer(kit, buy_in=500)
         with pytest.raises(econ.InsufficientFundsError):
             inv.accept(
-                invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-                bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-                session_repo=kit['session_repo'], owner_id=OWNER,
+                invite_repo=kit['invite_repo'],
+                personality_repo=kit['personality_repo'],
+                bankroll_repo=kit['bankroll_repo'],
+                ledger_repo=kit['ledger_repo'],
+                session_repo=kit['session_repo'],
+                owner_id=OWNER,
             )
         # Nothing consumed; invite still open; no debit.
         assert inv.active_invite(kit['invite_repo'], OWNER) is not None
         assert kit['bankroll_repo'].load_player_bankroll(OWNER).chips == 100
 
     def test_accept_with_no_open_invite_is_none(self, kit):
-        assert inv.accept(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], owner_id=OWNER,
-        ) is None
+        assert (
+            inv.accept(
+                invite_repo=kit['invite_repo'],
+                personality_repo=kit['personality_repo'],
+                bankroll_repo=kit['bankroll_repo'],
+                ledger_repo=kit['ledger_repo'],
+                session_repo=kit['session_repo'],
+                owner_id=OWNER,
+            )
+            is None
+        )
 
 
 class TestDeclineExpire:
     def test_decline_spawns_autonomous(self, kit):
         _offer(kit, buy_in=0)
         spawned = inv.decline(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], owner_id=OWNER,
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            owner_id=OWNER,
         )
         assert spawned is not None
         assert inv.active_invite(kit['invite_repo'], OWNER) is None  # consumed
@@ -135,9 +160,12 @@ class TestDeclineExpire:
         # Offer with a past expiry → the sweep expires it autonomously.
         _offer(kit, buy_in=0, expires_at='2000-01-01T00:00:00')
         spawned = inv.expire_due(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], now_iso='2026-06-01T00:00:00',
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            now_iso='2026-06-01T00:00:00',
         )
         assert len(spawned) == 1
         assert inv.active_invite(kit['invite_repo'], OWNER) is None
@@ -146,9 +174,12 @@ class TestDeclineExpire:
     def test_future_expiry_not_swept(self, kit):
         _offer(kit, buy_in=0, expires_at='2099-01-01T00:00:00')
         spawned = inv.expire_due(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], now_iso='2026-06-01T00:00:00',
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            now_iso='2026-06-01T00:00:00',
         )
         assert spawned == []
         assert inv.active_invite(kit['invite_repo'], OWNER) is not None  # still open
@@ -213,9 +244,12 @@ class TestInviteClaimCAS:
         assert kit['invite_repo'].claim(iid, to_status='accepted', owner_id=OWNER) is True
         before = kit['bankroll_repo'].load_player_bankroll(OWNER).chips
         result = inv.accept(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], owner_id=OWNER,
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            owner_id=OWNER,
         )
         assert result is None  # loser bails
         assert kit['bankroll_repo'].load_player_bankroll(OWNER).chips == before  # no charge
@@ -226,26 +260,44 @@ class TestExpireScoping:
         # Owner A in SB (past-due) + owner B in another sandbox (past-due).
         _offer(kit, buy_in=0, expires_at='2000-01-01T00:00:00')
         inv.offer(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            owner_id='owner-B', sandbox_id='sb-B', field_size=6, table_size=3,
-            starting_stack=10_000, seed=4, buy_in=0, expires_at='2000-01-01T00:00:00',
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            owner_id='owner-B',
+            sandbox_id='sb-B',
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+            seed=4,
+            buy_in=0,
+            expires_at='2000-01-01T00:00:00',
         )
         # Sweep ONLY sandbox SB — owner B's invite (foreign sandbox) is untouched.
         spawned = inv.expire_due(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], now_iso='2026-06-01T00:00:00', sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            now_iso='2026-06-01T00:00:00',
+            sandbox_id=SB,
         )
         assert len(spawned) == 1
-        assert inv.active_invite(kit['invite_repo'], OWNER) is None        # A expired
+        assert inv.active_invite(kit['invite_repo'], OWNER) is None  # A expired
         assert inv.active_invite(kit['invite_repo'], 'owner-B') is not None  # B untouched
 
     def test_list_open_due_sandbox_filter(self, kit):
         _offer(kit, buy_in=0, expires_at='2000-01-01T00:00:00')
         inv.offer(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            owner_id='owner-B', sandbox_id='sb-B', field_size=6, table_size=3,
-            starting_stack=10_000, seed=4, buy_in=0, expires_at='2000-01-01T00:00:00',
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            owner_id='owner-B',
+            sandbox_id='sb-B',
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+            seed=4,
+            buy_in=0,
+            expires_at='2000-01-01T00:00:00',
         )
         repo = kit['invite_repo']
         assert len(repo.list_open_due(now_iso='2026-06-01T00:00:00')) == 2  # global
@@ -260,19 +312,47 @@ class TestOneOpenInviteIndex:
         import sqlite3
 
         repo = kit['invite_repo']
-        repo.create(invite_id='inv_a', owner_id=OWNER, sandbox_id=SB,
-                    buy_in=0, field_size=6, table_size=3, starting_stack=10_000)
+        repo.create(
+            invite_id='inv_a',
+            owner_id=OWNER,
+            sandbox_id=SB,
+            buy_in=0,
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+        )
         with pytest.raises(sqlite3.IntegrityError):
-            repo.create(invite_id='inv_b', owner_id=OWNER, sandbox_id=SB,
-                        buy_in=0, field_size=6, table_size=3, starting_stack=10_000)
+            repo.create(
+                invite_id='inv_b',
+                owner_id=OWNER,
+                sandbox_id=SB,
+                buy_in=0,
+                field_size=6,
+                table_size=3,
+                starting_stack=10_000,
+            )
 
     def test_resolving_frees_the_slot(self, kit):
         repo = kit['invite_repo']
-        repo.create(invite_id='inv_a', owner_id=OWNER, sandbox_id=SB,
-                    buy_in=0, field_size=6, table_size=3, starting_stack=10_000)
+        repo.create(
+            invite_id='inv_a',
+            owner_id=OWNER,
+            sandbox_id=SB,
+            buy_in=0,
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+        )
         repo.resolve('inv_a', status='expired')
-        repo.create(invite_id='inv_b', owner_id=OWNER, sandbox_id=SB,
-                    buy_in=0, field_size=6, table_size=3, starting_stack=10_000)
+        repo.create(
+            invite_id='inv_b',
+            owner_id=OWNER,
+            sandbox_id=SB,
+            buy_in=0,
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+        )
         assert repo.active_for_owner(OWNER)['invite_id'] == 'inv_b'
 
     def test_offer_handles_lost_race_gracefully(self, kit):
@@ -281,8 +361,15 @@ class TestOneOpenInviteIndex:
         repo = kit['invite_repo']
         # Insert an open invite directly (a concurrent worker's), bypassing offer()'s
         # active_for_owner guard to force the insert race.
-        repo.create(invite_id='other', owner_id=OWNER, sandbox_id=SB,
-                    buy_in=0, field_size=6, table_size=3, starting_stack=10_000)
+        repo.create(
+            invite_id='other',
+            owner_id=OWNER,
+            sandbox_id=SB,
+            buy_in=0,
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+        )
         # offer() sees it via active_for_owner and returns None (already open).
         assert _offer(kit, buy_in=0) is None
 
@@ -298,14 +385,25 @@ class TestDraftFailClosed:
                 raise RuntimeError("scan boom")
 
         # Fund a flush bank so funding isn't the reason for a None return.
-        kit['ledger_repo'].record('central_bank', 'player:u', 1_000_000, 'player_seed', sandbox_id=SB)
-        kit['ledger_repo'].record('ai:d', 'central_bank', 300_000, 'bank_pool_deposit', sandbox_id=SB)
+        kit['ledger_repo'].record(
+            'central_bank', 'player:u', 1_000_000, 'player_seed', sandbox_id=SB
+        )
+        kit['ledger_repo'].record(
+            'ai:d', 'central_bank', 300_000, 'bank_pool_deposit', sandbox_id=SB
+        )
         result = spawn_autonomous_tournament(
-            owner_id=OWNER, sandbox_id=SB,
-            personality_repo=kit['personality_repo'], bankroll_repo=kit['bankroll_repo'],
-            ledger_repo=kit['ledger_repo'], session_repo=kit['session_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
             cash_table_repo=BrokenCashTableRepo(),
-            field_size=6, table_size=3, starting_stack=10_000, seed=1, rng_seed=1,
+            field_size=6,
+            table_size=3,
+            starting_stack=10_000,
+            seed=1,
+            rng_seed=1,
         )
         assert result is None  # aborted, no tournament created
 
@@ -317,11 +415,14 @@ class TestDeclineSpawnFailure:
         kit['personality_repo'] = FakePersonalityRepo(['only_one'])  # < MIN_FIELD
         _offer(kit, buy_in=0)
         result = inv.decline(
-            invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-            bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-            session_repo=kit['session_repo'], owner_id=OWNER,
+            invite_repo=kit['invite_repo'],
+            personality_repo=kit['personality_repo'],
+            bankroll_repo=kit['bankroll_repo'],
+            ledger_repo=kit['ledger_repo'],
+            session_repo=kit['session_repo'],
+            owner_id=OWNER,
         )
-        assert result is not None            # not a misleading "no open invite"
+        assert result is not None  # not a misleading "no open invite"
         assert result['tournament_id'] is None
         assert kit['invite_repo'].load(result_invite_id(kit))['status'] == 'declined'
 
@@ -335,9 +436,12 @@ class TestAcceptCannotField:
         _offer(kit, buy_in=0)
         with pytest.raises(inv.CannotFieldTournamentError):
             inv.accept(
-                invite_repo=kit['invite_repo'], personality_repo=kit['personality_repo'],
-                bankroll_repo=kit['bankroll_repo'], ledger_repo=kit['ledger_repo'],
-                session_repo=kit['session_repo'], owner_id=OWNER,
+                invite_repo=kit['invite_repo'],
+                personality_repo=kit['personality_repo'],
+                bankroll_repo=kit['bankroll_repo'],
+                ledger_repo=kit['ledger_repo'],
+                session_repo=kit['session_repo'],
+                owner_id=OWNER,
             )
         # The invite is still open (re-opened by the revert) for a later retry.
         assert inv.active_invite(kit['invite_repo'], OWNER) is not None

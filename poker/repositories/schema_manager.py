@@ -1371,9 +1371,7 @@ class SchemaManager:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tournaments_owner ON tournaments(owner_id, status)"
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)")
 
             # 23c. Tournament invites (v135) — the circuit Main Event offer the
             # player accepts (→ they play it) / declines / lets expire (→ it runs
@@ -2321,8 +2319,7 @@ class SchemaManager:
             coach_collision = (
                 current_version >= 131
                 and conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' "
-                    "AND name='coach_tips'"
+                    "SELECT 1 FROM sqlite_master WHERE type='table' " "AND name='coach_tips'"
                 ).fetchone()
                 is None
             )
@@ -2352,8 +2349,7 @@ class SchemaManager:
             # lineage from a fresh build (version < 132 → loop adds it) or a
             # development DB (limp_count already present → no fire).
             lifetime_cols = {
-                row[1]
-                for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)")
+                row[1] for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)")
             }
             tourney_renumber_collision = (
                 current_version >= 132 and 'limp_count' not in lifetime_cols
@@ -7154,9 +7150,7 @@ class SchemaManager:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tournaments_owner ON tournaments(owner_id, status)"
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)")
         logger.info("Migration v141 complete: tournaments table created")
 
     def _migrate_v142_drop_tournament_tracker(self, conn: sqlite3.Connection) -> None:
@@ -7286,15 +7280,14 @@ class SchemaManager:
                  WHERE personality_id IS NULL
                 """
             )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)")
         orphans = conn.execute(
             "SELECT COUNT(*) FROM avatar_images WHERE personality_id IS NULL"
         ).fetchone()[0]
         logger.info(
             "Migration v146 complete: avatar_images re-keyed on personality_id "
-            "(%d row(s) left unmatched/orphan, reachable only by legacy name)", orphans
+            "(%d row(s) left unmatched/orphan, reachable only by legacy name)",
+            orphans,
         )
 
     def _migrate_v147_avatar_drop_personality_name(self, conn: sqlite3.Connection) -> None:
@@ -7356,15 +7349,12 @@ class SchemaManager:
         """)
         conn.execute("DROP TABLE avatar_images")
         conn.execute("ALTER TABLE avatar_images_v147 RENAME TO avatar_images")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)")
         logger.info(
             "Migration v147 complete: avatar_images keyed solely on personality_id "
-            "(dropped personality_name column + %d orphan row(s) with no pid)", dropped
+            "(dropped personality_name column + %d orphan row(s) with no pid)",
+            dropped,
         )
 
     def _migrate_v145_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:
@@ -7453,9 +7443,7 @@ class SchemaManager:
         cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
         columns = [row[1] for row in cursor.fetchall()]
         if 'preflop_node_key' not in columns:
-            conn.execute(
-                "ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT"
-            )
+            conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN preflop_node_key TEXT")
             logger.info("Added preflop_node_key column to player_decision_analysis")
         logger.info("Migration v130 complete: preflop_node_key added")
 
@@ -7500,14 +7488,10 @@ class SchemaManager:
             CREATE INDEX IF NOT EXISTS idx_coach_tips_join
                 ON coach_tips(game_id, hand_number, player_name)
         """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_coach_tips_owner ON coach_tips(owner_id)")
         logger.info("Migration v131 complete: coach_tips table created")
 
-    def _migrate_v132_add_limp_lifetime_count(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v132_add_limp_lifetime_count(self, conn: sqlite3.Connection) -> None:
         """Migration v132: add `limp_count` to `opponent_observation_lifetime`.
 
         The numerator for `OpponentTendencies.limp_rate` — how often an
@@ -7524,9 +7508,7 @@ class SchemaManager:
         new_columns = ['limp_count']
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -7536,14 +7518,11 @@ class SchemaManager:
                 )
 
         logger.info(
-            "Migration v132 complete: %d column(s) added to "
-            "opponent_observation_lifetime",
+            "Migration v132 complete: %d column(s) added to " "opponent_observation_lifetime",
             len(new_columns),
         )
 
-    def _migrate_v133_add_sizing_aware_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v133_add_sizing_aware_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v133: persist the sizing-aware counters/sums.
 
         The sizing tells were tracked live on `OpponentTendencies` but never
@@ -7572,9 +7551,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col, sql_type in new_columns:
             if col not in existing:
@@ -7589,9 +7566,7 @@ class SchemaManager:
             len(new_columns),
         )
 
-    def _migrate_v134_add_postflop_axis_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v134_add_postflop_axis_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v134: persist the postflop aggression-axis counters.
 
         These four counters were tracked live on `OpponentTendencies` but never
@@ -7617,9 +7592,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -7634,9 +7607,7 @@ class SchemaManager:
             len(new_columns),
         )
 
-    def _migrate_v135_add_flop_check_barrel_lifetime_counts(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v135_add_flop_check_barrel_lifetime_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v135: persist the flop-check-then-barrel counters.
 
         `flop_check_then_barrel_rate` (checks flop OOP, then bets turn after a
@@ -7656,9 +7627,7 @@ class SchemaManager:
         ]
         existing = {
             row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(opponent_observation_lifetime)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)").fetchall()
         }
         for col in new_columns:
             if col not in existing:
@@ -7709,9 +7678,7 @@ class SchemaManager:
         """)
         logger.info("Migration v137 complete: cash_scalps table created")
 
-    def _migrate_v138_add_prestige_v2_columns(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v138_add_prestige_v2_columns(self, conn: sqlite3.Connection) -> None:
         """Migration v138: extend `prestige_snapshots` with the Renown-v2 columns.
 
         v1 persisted a CAPPED [0,1] renown with a fixed absolute quadrant cut
@@ -7760,10 +7727,7 @@ class SchemaManager:
             ("field_size", "INTEGER", ""),
         ]
         existing = {
-            row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(prestige_snapshots)"
-            ).fetchall()
+            row[1] for row in conn.execute("PRAGMA table_info(prestige_snapshots)").fetchall()
         }
         added = 0
         for col, sql_type, default_clause in new_columns:
@@ -7774,14 +7738,11 @@ class SchemaManager:
                 )
                 added += 1
         logger.info(
-            "Migration v138 complete: %d Renown-v2 column(s) added to "
-            "prestige_snapshots",
+            "Migration v138 complete: %d Renown-v2 column(s) added to " "prestige_snapshots",
             added,
         )
 
-    def _migrate_v139_add_prestige_entity_kind(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v139_add_prestige_entity_kind(self, conn: sqlite3.Connection) -> None:
         """Migration v139: give `prestige_snapshots` an entity identity.
 
         Until now the table held only the human (keyed `(sandbox_id, owner_id)`,
@@ -7809,10 +7770,7 @@ class SchemaManager:
         docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A).
         """
         existing = {
-            row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(prestige_snapshots)"
-            ).fetchall()
+            row[1] for row in conn.execute("PRAGMA table_info(prestige_snapshots)").fetchall()
         }
         added = 0
         if "entity_kind" not in existing:
@@ -7826,14 +7784,11 @@ class SchemaManager:
                 ON prestige_snapshots(sandbox_id, entity_kind, owner_id, renown_v2)
         """)
         logger.info(
-            "Migration v139 complete: %d entity-kind column(s) added to "
-            "prestige_snapshots",
+            "Migration v139 complete: %d entity-kind column(s) added to " "prestige_snapshots",
             added,
         )
 
-    def _migrate_v140_add_holdings_peak_index(
-        self, conn: sqlite3.Connection
-    ) -> None:
+    def _migrate_v140_add_holdings_peak_index(self, conn: sqlite3.Connection) -> None:
         """Migration v140: covering index for the Renown-v2 peak-net-worth read.
 
         The v2 field build (`RenownFieldRepository`) aggregates the per-entity

@@ -61,9 +61,7 @@ def test_field_roundtrip_preserves_stacks_and_eliminations():
     restored = TournamentField.from_dict(json.loads(json.dumps(field.to_dict())))
     assert restored.stacks == field.stacks
     assert restored.entries == field.entries
-    assert [e.to_dict() for e in restored.eliminations] == [
-        e.to_dict() for e in field.eliminations
-    ]
+    assert [e.to_dict() for e in restored.eliminations] == [e.to_dict() for e in field.eliminations]
     assert restored.chip_sum() == field.chip_sum()
 
 
@@ -102,12 +100,17 @@ def test_real_persona_field_with_human_seat_roundtrips():
     field", crashing cold-load /sit and the autonomous ticker advance after any
     restart."""
     entries = {
-        'human:owner-x': 'You', 'einstein': 'Einstein', 'napoleon': 'Napoleon',
-        'batman': 'Batman', 'ada': 'Ada', 'sun_tzu': 'Sun Tzu',
+        'human:owner-x': 'You',
+        'einstein': 'Einstein',
+        'napoleon': 'Napoleon',
+        'batman': 'Batman',
+        'ada': 'Ada',
+        'sun_tzu': 'Sun Tzu',
     }
     cfg = TournamentConfig(field_size=len(entries), table_size=3, seed=2)
-    s = TournamentSession(cfg, ai_resolver=FakeHandResolver(),
-                          human_id='human:owner-x', entries=entries)
+    s = TournamentSession(
+        cfg, ai_resolver=FakeHandResolver(), human_id='human:owner-x', entries=entries
+    )
     restored = _roundtrip(s)  # would raise ValueError before the fix
     assert restored.human_id == 'human:owner-x'
     assert 'human:owner-x' in restored.entries

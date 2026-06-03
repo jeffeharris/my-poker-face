@@ -7,6 +7,7 @@ import pytest
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
+
 def _rebind_handler_globals(monkeypatch):
     """Repair import-copied extension globals across every already-imported
     `flask_app.handlers.*` module. Those modules do `from ..extensions import
@@ -27,7 +28,6 @@ def _rebind_handler_globals(monkeypatch):
         for name, value in live.items():
             if value is not None and getattr(mod, name, 'x') is None:
                 monkeypatch.setattr(mod, name, value, raising=False)
-
 
 
 @pytest.fixture(scope="module")
@@ -116,7 +116,9 @@ def test_completion_writes_career_stats_through_real_loop(app, monkeypatch):
 
             # The unified completion path ran: the human's career stats were
             # recorded exactly once, keyed to the owner + human seat.
-            assert len(fake_repo.career) == 1, f"expected 1 career write, got {len(fake_repo.career)}"
+            assert (
+                len(fake_repo.career) == 1
+            ), f"expected 1 career write, got {len(fake_repo.career)}"
             owner_id, player_name, result = fake_repo.career[0]
             assert owner_id == "itest-owner"
             assert player_name == session.human_id

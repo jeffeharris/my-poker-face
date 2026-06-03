@@ -220,7 +220,9 @@ def register_tournament():
         seed = int(body.get('seed', 0))
         buy_in = int(body.get('buy_in', 0))
     except (TypeError, ValueError):
-        return jsonify({'error': 'field_size/table_size/starting_stack/seed/buy_in must be integers'}), 400
+        return jsonify(
+            {'error': 'field_size/table_size/starting_stack/seed/buy_in must be integers'}
+        ), 400
 
     if not 2 <= field_size <= MAX_FIELD_SIZE:
         return jsonify({'error': f'field_size must be between 2 and {MAX_FIELD_SIZE}'}), 400
@@ -313,7 +315,11 @@ def register_tournament():
         except econ.InsufficientFundsError as exc:
             registry.delete(tournament_id)
             return jsonify(
-                {'error': 'insufficient_funds', 'required': exc.required, 'available': exc.available}
+                {
+                    'error': 'insufficient_funds',
+                    'required': exc.required,
+                    'available': exc.available,
+                }
             ), 402
         except Exception:  # noqa: BLE001 — undo registration on a hard chip failure
             logger.exception("tournament buy-in failed for %s; rolling back", tournament_id)
@@ -519,7 +525,11 @@ def accept_invite():
             )
         except econ.InsufficientFundsError as exc:
             return jsonify(
-                {'error': 'insufficient_funds', 'required': exc.required, 'available': exc.available}
+                {
+                    'error': 'insufficient_funds',
+                    'required': exc.required,
+                    'available': exc.available,
+                }
             ), 402
         except invites.CannotFieldTournamentError as exc:
             # The invite is still open; the field just couldn't be drafted (e.g.
@@ -652,11 +662,13 @@ def reconcile_payouts():
         # No grace window on the manual path — the operator is explicitly asking.
         older_than_iso=None,
     )
-    return jsonify({
-        'reconciled': sum(1 for r in results if r.get('reconciled')),
-        'total_stuck': len(results),
-        'results': results,
-    })
+    return jsonify(
+        {
+            'reconciled': sum(1 for r in results if r.get('reconciled')),
+            'total_stuck': len(results),
+            'results': results,
+        }
+    )
 
 
 @tournament_bp.route('/api/tournament/<tournament_id>', methods=['DELETE'])

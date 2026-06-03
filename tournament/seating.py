@@ -152,9 +152,7 @@ def build_initial_seating(player_ids: list[str], table_size: int) -> Seating:
     if n < 2:
         raise ValueError("need at least 2 players")
     num_tables = max(1, ceil(n / table_size))
-    tables = [
-        Table(table_id=i + 1, seats=[None] * table_size, button=0) for i in range(num_tables)
-    ]
+    tables = [Table(table_id=i + 1, seats=[None] * table_size, button=0) for i in range(num_tables)]
     for idx, pid in enumerate(player_ids):
         tables[idx % num_tables].add(pid)
     for t in tables:

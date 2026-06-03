@@ -320,7 +320,14 @@ function App() {
     gameMode?: string,
     botTypes?: Record<
       string,
-      'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'regplus' | 'gto_lite' | 'baseline_solver'
+      | 'chaos'
+      | 'standard'
+      | 'lean'
+      | 'sharp'
+      | 'casebot'
+      | 'regplus'
+      | 'gto_lite'
+      | 'baseline_solver'
     >
   ) => {
     if (isCreatingGame) return;

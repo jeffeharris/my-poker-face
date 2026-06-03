@@ -435,7 +435,11 @@ def _format_stats_for_prompt(data: Dict) -> str:
             'vs_open': 'facing a raise in',
             'vs_3bet': 'facing a 3-bet in',
         }.get(leak.get('scenario'), leak.get('scenario', ''))
-        subject = f"{leak['hand']} {spot} {leak['position']}" if leak.get('hand') else f"{spot} {leak['position']}"
+        subject = (
+            f"{leak['hand']} {spot} {leak['position']}"
+            if leak.get('hand')
+            else f"{spot} {leak['position']}"
+        )
         kind_desc = {
             'limp': "they tend to OPEN-LIMP here — the solver raises or folds, never limps",
             'too_loose': "they tend to PLAY hands the solver folds here",

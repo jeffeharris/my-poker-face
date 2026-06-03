@@ -158,7 +158,5 @@ def single_table_hand_boundary(
             "system",
         )
     elif complete and result['winner_name']:
-        send_message(
-            game_id, "Table", f"TOURNAMENT OVER! {result['winner_name']} wins!", "system"
-        )
+        send_message(game_id, "Table", f"TOURNAMENT OVER! {result['winner_name']} wins!", "system")
     return True

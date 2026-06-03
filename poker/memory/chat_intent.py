@@ -54,13 +54,50 @@ class ChatEventMapping:
 # speaker's own hand, not the opponent, so it doesn't move relationship
 # axes. Sends with tone="bluff" return None from `map_tone`.
 _MID_HAND_TONE_MAP: dict[str, ChatEventMapping] = {
+    # Canonical hostile tone (the consolidation of the retired
+    # tilt/goad/needle/bait near-duplicates, all of which still resolve here).
+    "trash_talk": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
     "tilt": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
     "goad": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
     "needle": ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
     "bait": ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
     "befriend": ChatEventMapping(RelationshipEvent.FRIENDLY_BANTER, 1.0),
     "props": ChatEventMapping(RelationshipEvent.PROPS, 1.0),
+    # NOTE: `intimidate` and `dare` are intentionally absent — they're
+    # emotional-layer tones (move composure/confidence, not relationship
+    # axes) and are dispatched directly in chat_relationship.py, not here.
+    # `flatter` is also absent (its own valence-flipping path).
 }
+
+
+# Tone → sarcasm surface-direction mode, used only when the delivery register
+# is `sarcastic`. The mode selects which reception transform applies (see
+# `sarcasm_mirror_shift` in relationship_events.py): a warm tone sharpens into
+# a barb, a hostile one softens into banter, a self-directed one becomes
+# self-mockery. Tones absent here take no sarcastic variant.
+_SARCASM_MODE_BY_TONE: dict[str, str] = {
+    # Mid-hand
+    "trash_talk": "soften",  # → banter
+    "props": "sharpen",  # → backhanded "nice play"
+    "flatter": "sharpen",  # → mocking (resolved on the flattery path)
+    # Post-round
+    "gracious": "sharpen",  # → fake-nice "wp"
+    "commiserate": "sharpen",  # → fake sympathy
+    "humble": "self",  # → dry self-deprecation
+}
+
+
+def sarcasm_mode_for_tone(tone: Optional[str]) -> Optional[str]:
+    """Return the sarcasm surface-direction mode for a tone, or None.
+
+    None means the tone has no sarcastic variant (the emotional-layer tones
+    and `bluff`), so a `sarcastic` register on it should fall back to the
+    neutral reception. Keyed by tone, not event, because the same event
+    (e.g. FRIENDLY_BANTER) backs both a warm tone and a self-directed one.
+    """
+    if tone is None:
+        return None
+    return _SARCASM_MODE_BY_TONE.get(tone)
 
 
 # Post-round tone → (event, multiplier). No intensity modifier applies
@@ -71,6 +108,12 @@ _POST_ROUND_TONE_MAP: dict[str, ChatEventMapping] = {
     "salty": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
     "gracious": ChatEventMapping(RelationshipEvent.COMPLIMENT, 1.0),
     "props": ChatEventMapping(RelationshipEvent.PROPS, 1.0),
+    # Consoling a bystander who lost — the warm color aimed at someone other
+    # than the player who beat you.
+    "commiserate": ChatEventMapping(RelationshipEvent.COMMISERATE, 1.0),
+    # NOTE: `cry_luck` and `vow` are post-round EMOTIONAL tones (ego poke /
+    # poise rattle on the winner) and are dispatched to psychology in
+    # chat_relationship.py, not mapped here.
 }
 
 

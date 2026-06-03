@@ -444,7 +444,10 @@ def reconcile_stuck_payout(
                 sink=sink,
                 tournament_id=tournament_id,
                 amount=delta,
-                context={'site': 'payout_reconcile', 'finishing_position': entry['finishing_position']},
+                context={
+                    'site': 'payout_reconcile',
+                    'finishing_position': entry['finishing_position'],
+                },
                 sandbox_id=sandbox_id,
             )
             if is_real_human:

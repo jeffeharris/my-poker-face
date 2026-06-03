@@ -13,11 +13,10 @@ engine-free for the pure unit tests.
 
 import random
 
-from poker.poker_game import Player, PokerGameState, create_deck
-from poker.poker_state_machine import PokerStateMachine
-
 from experiments.champion_challenger import run_cc_hand
 from experiments.simulate_bb100 import ARCHETYPES, make_controller
+from poker.poker_game import Player, PokerGameState, create_deck
+from poker.poker_state_machine import PokerStateMachine
 from poker.strategy.strategy_table import load_strategy_table
 
 from .blinds import BlindLevel
@@ -49,9 +48,7 @@ class EngineHandResolver:
         seed: int,
     ) -> dict[str, int]:
         big_blind = level.big_blind
-        players = tuple(
-            Player(name=pid, stack=stacks[pid], is_human=False) for pid in seat_order
-        )
+        players = tuple(Player(name=pid, stack=stacks[pid], is_human=False) for pid in seat_order)
         gs = PokerGameState(
             players=players,
             deck=create_deck(shuffled=True, random_seed=seed),

@@ -140,12 +140,20 @@ class FakeSession:
 
 def _register_with_economy(session_repo, *, buy_in, rake, overlay, prize_pool, status='pending'):
     session_repo.save(
-        tournament_id=TID, owner_id=OWNER, status='active',
-        resolver_kind='fake', session_json='{}', created_at='2026-06-01T00:00:00',
+        tournament_id=TID,
+        owner_id=OWNER,
+        status='active',
+        resolver_kind='fake',
+        session_json='{}',
+        created_at='2026-06-01T00:00:00',
     )
     session_repo.set_economy(
-        TID, buy_in=buy_in, rake=rake, bank_overlay=overlay,
-        prize_pool=prize_pool, payout_status=status,
+        TID,
+        buy_in=buy_in,
+        rake=rake,
+        bank_overlay=overlay,
+        prize_pool=prize_pool,
+        payout_status=status,
     )
 
 
@@ -153,13 +161,14 @@ def _fund_escrow(ledger_repo, *, buy_in_from_human, overlay):
     """Mirror escrow-in so the escrow holds buy_in + overlay before distribute."""
     if buy_in_from_human:
         L.record_tournament_buy_in(
-            ledger_repo, source=player(OWNER), tournament_id=TID,
-            amount=buy_in_from_human, sandbox_id=SB,
+            ledger_repo,
+            source=player(OWNER),
+            tournament_id=TID,
+            amount=buy_in_from_human,
+            sandbox_id=SB,
         )
     if overlay:
-        L.record_tournament_overlay(
-            ledger_repo, tournament_id=TID, amount=overlay, sandbox_id=SB
-        )
+        L.record_tournament_overlay(ledger_repo, tournament_id=TID, amount=overlay, sandbox_id=SB)
 
 
 class TestPayoutService:
@@ -173,12 +182,19 @@ class TestPayoutService:
         )
         # Human (P01) wins; rest are synthetic AI.
         session = FakeSession(
-            field_size=9, human_id='P01', winner='P01',
+            field_size=9,
+            human_id='P01',
+            winner='P01',
             eliminations=[FakeElim(f'P0{i}', 9 - i + 1) for i in range(2, 10)],
         )
         ran = econ.apply_payout_on_complete(
-            tournament_id=TID, session=session, human_owner_id=OWNER, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            session=session,
+            human_owner_id=OWNER,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         assert ran is True
         sched = compute_payout_schedule(9, 2500)
@@ -197,12 +213,19 @@ class TestPayoutService:
         # money, since paid_places=3 for a 9-field), so all paid seats are
         # synthetic AI.
         session = FakeSession(
-            field_size=9, human_id='P09', winner='P01',
+            field_size=9,
+            human_id='P09',
+            winner='P01',
             eliminations=[FakeElim(f'P{n:02d}', n) for n in range(2, 10)],
         )
         econ.apply_payout_on_complete(
-            tournament_id=TID, session=session, human_owner_id=OWNER, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            session=session,
+            human_owner_id=OWNER,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         # No human payout (P09 finished out of the money in a 9-field/3-paid).
         assert bankroll_repo.load_player_bankroll(OWNER) is None
@@ -219,12 +242,19 @@ class TestPayoutService:
             PlayerBankrollState(player_id=OWNER, chips=0, starting_bankroll=10_000)
         )
         session = FakeSession(
-            field_size=9, human_id='P01', winner='P01',
+            field_size=9,
+            human_id='P01',
+            winner='P01',
             eliminations=[FakeElim(f'P0{i}', 11 - i) for i in range(2, 10)],
         )
         kw = dict(
-            tournament_id=TID, session=session, human_owner_id=OWNER, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            session=session,
+            human_owner_id=OWNER,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         assert econ.apply_payout_on_complete(**kw) is True
         chips_after_first = bankroll_repo.load_player_bankroll(OWNER).chips
@@ -236,12 +266,19 @@ class TestPayoutService:
         ledger_repo, bankroll_repo, session_repo = repos
         _register_with_economy(session_repo, buy_in=0, rake=0, overlay=0, prize_pool=0)
         session = FakeSession(
-            field_size=9, human_id='P01', winner='P01',
+            field_size=9,
+            human_id='P01',
+            winner='P01',
             eliminations=[FakeElim(f'P0{i}', 11 - i) for i in range(2, 10)],
         )
         ran = econ.apply_payout_on_complete(
-            tournament_id=TID, session=session, human_owner_id=OWNER, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            session=session,
+            human_owner_id=OWNER,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         assert ran is False
         assert session_repo.load(TID)['payout_status'] == 'skipped'
@@ -255,12 +292,19 @@ class TestPayoutService:
             PlayerBankrollState(player_id=OWNER, chips=0, starting_bankroll=10_000)
         )
         session = FakeSession(
-            field_size=9, human_id='P01', winner='P01',
+            field_size=9,
+            human_id='P01',
+            winner='P01',
             eliminations=[FakeElim(f'P0{i}', 11 - i) for i in range(2, 10)],
         )
         econ.apply_payout_on_complete(
-            tournament_id=TID, session=session, human_owner_id=OWNER, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            session=session,
+            human_owner_id=OWNER,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         dest = ledger_repo.sum_destructions_by_reason(sandbox_id=SB)
         assert dest.get('table_rake') == 50  # rake skimmed to the pool
@@ -270,10 +314,22 @@ class TestPayoutService:
         ledger_repo, bankroll_repo, session_repo = repos
         _register_with_economy(session_repo, buy_in=500, rake=0, overlay=0, prize_pool=500)
         session = FakeSession(
-            field_size=9, human_id='P01', winner=None, eliminations=[], complete=False,
+            field_size=9,
+            human_id='P01',
+            winner=None,
+            eliminations=[],
+            complete=False,
         )
-        assert econ.apply_payout_on_complete(
-            tournament_id=TID, session=session, human_owner_id=OWNER, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
-        ) is False
+        assert (
+            econ.apply_payout_on_complete(
+                tournament_id=TID,
+                session=session,
+                human_owner_id=OWNER,
+                sandbox_id=SB,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=ledger_repo,
+                session_repo=session_repo,
+            )
+            is False
+        )
         assert session_repo.load(TID)['payout_status'] == 'pending'

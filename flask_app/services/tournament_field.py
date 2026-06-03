@@ -74,7 +74,9 @@ def select_persona_field(
     logged, not raised — the caller decides whether to fall back to a synthetic
     field or refuse.
     """
-    pool = personality_repo.list_eligible_for_cash_mode(user_id=owner_id) if personality_repo else []
+    pool = (
+        personality_repo.list_eligible_for_cash_mode(user_id=owner_id) if personality_repo else []
+    )
     blocked = exclude or set()
     persona_ids = [
         row['personality_id']

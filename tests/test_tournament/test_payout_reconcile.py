@@ -65,10 +65,17 @@ def _completed_autonomous(repos):
     _make_flush(ledger_repo)
     persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
     spawned = spawn_autonomous_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
-        field_size=6, table_size=3, starting_stack=10_000, seed=7, rng_seed=7,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+        field_size=6,
+        table_size=3,
+        starting_stack=10_000,
+        seed=7,
+        rng_seed=7,
     )
     spawned['session'].play_out()
     assert spawned['session'].is_complete()
@@ -88,12 +95,17 @@ def _pay_one_finisher_partially(repos, tid, session):
     winner = pos_to_player[first['finishing_position']]
     amount = first['amount']
     chip_ledger.record_tournament_payout(
-        ledger_repo, sink=ai(winner), tournament_id=tid, amount=amount,
-        context={'site': 'payout'}, sandbox_id=SB,
+        ledger_repo,
+        sink=ai(winner),
+        tournament_id=tid,
+        amount=amount,
+        context={'site': 'payout'},
+        sandbox_id=SB,
     )
     from datetime import datetime
 
     from cash_mode.bankroll import AIBankrollState
+
     bankroll_repo.save_ai_bankroll(
         AIBankrollState(personality_id=winner, chips=amount, last_regen_tick=datetime.utcnow()),
         sandbox_id=SB,
@@ -112,8 +124,13 @@ def test_reconcile_resumes_partial_payout(repos):
     assert ledger_repo.balance_of(tournament(tid), sandbox_id=SB) > 0
 
     ran = econ.reconcile_stuck_payout(
-        tournament_id=tid, session=session, human_owner_id=None, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+        tournament_id=tid,
+        session=session,
+        human_owner_id=None,
+        sandbox_id=SB,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
         real_persona_ids=frozenset(entries.keys()),
     )
     assert ran is True
@@ -139,24 +156,42 @@ def test_reconcile_is_idempotent(repos):
     tid, session, entries = _completed_autonomous(repos)
     _pay_one_finisher_partially(repos, tid, session)
 
-    assert econ.reconcile_stuck_payout(
-        tournament_id=tid, session=session, human_owner_id=None, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
-        real_persona_ids=frozenset(entries.keys()),
-    ) is True
+    assert (
+        econ.reconcile_stuck_payout(
+            tournament_id=tid,
+            session=session,
+            human_owner_id=None,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+            real_persona_ids=frozenset(entries.keys()),
+        )
+        is True
+    )
     credited_after_first = sum(
         bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB).chips
-        for pid in entries if bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB)
+        for pid in entries
+        if bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB)
     )
     # A second reconcile is a no-op: status is no longer 'in_progress'.
-    assert econ.reconcile_stuck_payout(
-        tournament_id=tid, session=session, human_owner_id=None, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
-        real_persona_ids=frozenset(entries.keys()),
-    ) is False
+    assert (
+        econ.reconcile_stuck_payout(
+            tournament_id=tid,
+            session=session,
+            human_owner_id=None,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+            real_persona_ids=frozenset(entries.keys()),
+        )
+        is False
+    )
     credited_after_second = sum(
         bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB).chips
-        for pid in entries if bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB)
+        for pid in entries
+        if bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB)
     )
     assert credited_after_first == credited_after_second  # no extra chips
 
@@ -167,11 +202,19 @@ def test_reconcile_ignores_non_stuck(repos):
     ledger_repo, bankroll_repo, session_repo = repos
     tid, session, entries = _completed_autonomous(repos)
     # payout_status is 'pending' (never started) — reconcile must not touch it.
-    assert econ.reconcile_stuck_payout(
-        tournament_id=tid, session=session, human_owner_id=None, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
-        real_persona_ids=frozenset(entries.keys()),
-    ) is False
+    assert (
+        econ.reconcile_stuck_payout(
+            tournament_id=tid,
+            session=session,
+            human_owner_id=None,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+            real_persona_ids=frozenset(entries.keys()),
+        )
+        is False
+    )
     assert session_repo.load(tid)['payout_status'] == 'pending'
 
 
@@ -189,11 +232,21 @@ def test_list_stuck_payouts(repos):
 def test_payouts_by_sink(repos):
     ledger_repo, _bankroll, _session = repos
     chip_ledger.record_tournament_overlay(  # fund the escrow first (bank → escrow)
-        ledger_repo, tournament_id='t1', amount=1000, context={}, sandbox_id=SB,
+        ledger_repo,
+        tournament_id='t1',
+        amount=1000,
+        context={},
+        sandbox_id=SB,
     ) if hasattr(chip_ledger, 'record_tournament_overlay') else None
-    chip_ledger.record_tournament_payout(ledger_repo, sink=ai('a'), tournament_id='t1', amount=300, context={}, sandbox_id=SB)
-    chip_ledger.record_tournament_payout(ledger_repo, sink=ai('b'), tournament_id='t1', amount=200, context={}, sandbox_id=SB)
-    chip_ledger.record_tournament_payout(ledger_repo, sink=ai('a'), tournament_id='t1', amount=50, context={}, sandbox_id=SB)
+    chip_ledger.record_tournament_payout(
+        ledger_repo, sink=ai('a'), tournament_id='t1', amount=300, context={}, sandbox_id=SB
+    )
+    chip_ledger.record_tournament_payout(
+        ledger_repo, sink=ai('b'), tournament_id='t1', amount=200, context={}, sandbox_id=SB
+    )
+    chip_ledger.record_tournament_payout(
+        ledger_repo, sink=ai('a'), tournament_id='t1', amount=50, context={}, sandbox_id=SB
+    )
     paid = ledger_repo.payouts_by_sink(tournament('t1'), reason='tournament_payout', sandbox_id=SB)
     assert paid == {ai('a'): 350, ai('b'): 200}
 
@@ -219,27 +272,44 @@ def test_failed_payout_leaves_status_active(repos, monkeypatch):
 
     # Force the distribution loop to blow up after claiming in_progress.
     import flask_app.services.tournament_economy_service as econ_mod
+
     real = econ_mod.compute_payout_schedule
-    monkeypatch.setattr(econ_mod, 'compute_payout_schedule',
-                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
+    monkeypatch.setattr(
+        econ_mod,
+        'compute_payout_schedule',
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')),
+    )
     tournament_spawn.settle_autonomous_tournament(
-        tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+        tournament_id=tid,
+        session=session,
+        entries=entries,
+        sandbox_id=SB,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
     )
     row = session_repo.load(tid)
-    assert row['payout_status'] == 'in_progress'   # wedged
-    assert row['status'] == 'active'               # NOT released — visible to recovery
+    assert row['payout_status'] == 'in_progress'  # wedged
+    assert row['status'] == 'active'  # NOT released — visible to recovery
 
     # Restore + reconcile → both terminal, field released.
     monkeypatch.setattr(econ_mod, 'compute_payout_schedule', real)
-    assert econ.reconcile_stuck_payout(
-        tournament_id=tid, session=session, human_owner_id=None, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
-        real_persona_ids=frozenset(entries.keys()),
-    ) is True
+    assert (
+        econ.reconcile_stuck_payout(
+            tournament_id=tid,
+            session=session,
+            human_owner_id=None,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+            real_persona_ids=frozenset(entries.keys()),
+        )
+        is True
+    )
     row = session_repo.load(tid)
     assert row['payout_status'] == 'complete'
-    assert row['status'] == 'complete'             # released after settle
+    assert row['status'] == 'complete'  # released after settle
 
 
 def test_active_participant_pids_recency_bound(repos):

@@ -80,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     final_level = director.round_reports[-1].level if director.round_reports else None
     print(
         f"  seat moves: {total_moves}   eliminations: {total_elims}"
-        + (f"   final blinds: {final_level.small_blind}/{final_level.big_blind}" if final_level else "")
+        + (
+            f"   final blinds: {final_level.small_blind}/{final_level.big_blind}"
+            if final_level
+            else ""
+        )
     )
     print("=" * 60)
     print(f"  {'pos':>4}  {'player':<6} {'archetype':<12}")

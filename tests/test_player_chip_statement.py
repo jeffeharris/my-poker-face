@@ -104,9 +104,7 @@ def test_cash_out_noop_on_zero_takehome():
     """A bust-out (0 take-home) writes NO row — the buy_in with no matching
     cash_out IS the record that the seat busted."""
     repo = _FakeRepo()
-    assert (
-        ledger.record_player_cash_out(repo, owner_id="jeff", game_id="cash-1", amount=0) is None
-    )
+    assert ledger.record_player_cash_out(repo, owner_id="jeff", game_id="cash-1", amount=0) is None
     assert repo.calls == []
 
 

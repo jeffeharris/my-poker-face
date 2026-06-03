@@ -71,9 +71,18 @@ class TournamentInviteRepository(BaseRepository):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 """,
                 (
-                    invite_id, owner_id, sandbox_id, STATUS_OFFERED, int(buy_in),
-                    int(field_size), int(table_size), int(starting_stack), int(seed),
-                    expires_at, now, now,
+                    invite_id,
+                    owner_id,
+                    sandbox_id,
+                    STATUS_OFFERED,
+                    int(buy_in),
+                    int(field_size),
+                    int(table_size),
+                    int(starting_stack),
+                    int(seed),
+                    expires_at,
+                    now,
+                    now,
                 ),
             )
 
@@ -159,11 +168,14 @@ class TournamentInviteRepository(BaseRepository):
         True iff it re-opened. Safe under concurrency: only the claim winner ever
         reaches a revert, and both accept revert triggers fire before chips move."""
         with self._get_connection() as conn:
-            return conn.execute(
-                "UPDATE tournament_invites SET status = ?, updated_at = ? "
-                "WHERE invite_id = ? AND status = ? AND tournament_id IS NULL",
-                (STATUS_OFFERED, _utcnow_iso(), invite_id, STATUS_ACCEPTED),
-            ).rowcount == 1
+            return (
+                conn.execute(
+                    "UPDATE tournament_invites SET status = ?, updated_at = ? "
+                    "WHERE invite_id = ? AND status = ? AND tournament_id IS NULL",
+                    (STATUS_OFFERED, _utcnow_iso(), invite_id, STATUS_ACCEPTED),
+                ).rowcount
+                == 1
+            )
 
     def resolve(
         self,

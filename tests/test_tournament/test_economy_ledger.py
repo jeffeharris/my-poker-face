@@ -105,7 +105,10 @@ class TestEscrowFlow:
             repo, sink=ai('villain'), tournament_id=TID, amount=900, sandbox_id=SB
         )
         L.record_table_rake(
-            repo, source=tournament(TID), amount=100, sandbox_id=SB,
+            repo,
+            source=tournament(TID),
+            amount=100,
+            sandbox_id=SB,
             context={'tournament_id': TID},
         )
         assert repo.balance_of(tournament(TID), sandbox_id=SB) == 0
@@ -118,12 +121,15 @@ class TestEscrowFlow:
         assert entry['context']['tournament_id'] == TID
 
     def test_zero_and_none_are_noops(self, repo):
-        assert L.record_tournament_buy_in(
-            repo, source=player('a'), tournament_id=TID, amount=0, sandbox_id=SB
-        ) is None
-        assert L.record_tournament_overlay(
-            None, tournament_id=TID, amount=100, sandbox_id=SB
-        ) is None
+        assert (
+            L.record_tournament_buy_in(
+                repo, source=player('a'), tournament_id=TID, amount=0, sandbox_id=SB
+            )
+            is None
+        )
+        assert (
+            L.record_tournament_overlay(None, tournament_id=TID, amount=100, sandbox_id=SB) is None
+        )
         assert repo.balance_of(tournament(TID), sandbox_id=SB) == 0
 
 
@@ -150,18 +156,30 @@ class TestV132Migration:
         """A routine session persist (save) must NOT wipe economy columns."""
         srepo = TournamentSessionRepository(db_path)
         srepo.save(
-            tournament_id=TID, owner_id='alice', status='active',
-            resolver_kind='fake', session_json='{}', created_at='2026-06-01T00:00:00',
+            tournament_id=TID,
+            owner_id='alice',
+            status='active',
+            resolver_kind='fake',
+            session_json='{}',
+            created_at='2026-06-01T00:00:00',
         )
         srepo.set_economy(
-            TID, buy_in=500, rake=0, bank_overlay=2_000, prize_pool=2_500,
+            TID,
+            buy_in=500,
+            rake=0,
+            bank_overlay=2_000,
+            prize_pool=2_500,
             payout_status='pending',
         )
         # Simulate a hand-boundary persist with new session_json.
         srepo.save(
-            tournament_id=TID, owner_id='alice', status='active',
-            resolver_kind='fake', session_json='{"rounds": 5}',
-            created_at='2026-06-01T00:00:00', game_id='g1',
+            tournament_id=TID,
+            owner_id='alice',
+            status='active',
+            resolver_kind='fake',
+            session_json='{"rounds": 5}',
+            created_at='2026-06-01T00:00:00',
+            game_id='g1',
         )
         row = srepo.load(TID)
         assert row['buy_in'] == 500
@@ -174,8 +192,12 @@ class TestV132Migration:
     def test_set_payout_status(self, db_path):
         srepo = TournamentSessionRepository(db_path)
         srepo.save(
-            tournament_id=TID, owner_id='alice', status='active',
-            resolver_kind='fake', session_json='{}', created_at='2026-06-01T00:00:00',
+            tournament_id=TID,
+            owner_id='alice',
+            status='active',
+            resolver_kind='fake',
+            session_json='{}',
+            created_at='2026-06-01T00:00:00',
         )
         srepo.set_payout_status(TID, 'in_progress')
         assert srepo.load(TID)['payout_status'] == 'in_progress'

@@ -253,9 +253,10 @@ def _maybe_run_payout_reconcile_watchdog(now_monotonic: Optional[float] = None) 
     if not economy_flags.TOURNAMENT_CIRCUIT_ENABLED:
         return 0
     now = now_monotonic if now_monotonic is not None else time.monotonic()
-    if _last_payout_reconcile_at is not None and (
-        now - _last_payout_reconcile_at
-    ) < PAYOUT_RECONCILE_INTERVAL_SECONDS:
+    if (
+        _last_payout_reconcile_at is not None
+        and (now - _last_payout_reconcile_at) < PAYOUT_RECONCILE_INTERVAL_SECONDS
+    ):
         return 0
     # Stamp BEFORE the work so a persistently-failing sweep backs off to cadence.
     _last_payout_reconcile_at = now
@@ -273,9 +274,7 @@ def _maybe_run_payout_reconcile_watchdog(now_monotonic: Optional[float] = None) 
     if session_repo is None or ledger_repo is None or bankroll_repo is None:
         return 0
 
-    grace_iso = (
-        datetime.utcnow() - timedelta(seconds=PAYOUT_RECONCILE_GRACE_SECONDS)
-    ).isoformat()
+    grace_iso = (datetime.utcnow() - timedelta(seconds=PAYOUT_RECONCILE_GRACE_SECONDS)).isoformat()
     results = tournament_ticker.reconcile_stuck_payouts(
         session_repo=session_repo,
         ledger_repo=ledger_repo,
@@ -287,8 +286,7 @@ def _maybe_run_payout_reconcile_watchdog(now_monotonic: Optional[float] = None) 
     )
     n = sum(1 for r in results if r.get('reconciled'))
     if results:
-        logger.info("[TICKER] payout-reconcile: %d/%d stuck tournaments resolved",
-                    n, len(results))
+        logger.info("[TICKER] payout-reconcile: %d/%d stuck tournaments resolved", n, len(results))
     return n
 
 
@@ -476,6 +474,7 @@ def _maybe_v2_overlay(owner_id, sandbox_id, v1_score, now):
     """
     try:
         from cash_mode import economy_flags
+
         if not getattr(economy_flags, "RENOWN_V2_ENABLED", False):
             return None
         from cash_mode.prestige import (
@@ -530,17 +529,18 @@ def _maybe_v2_overlay(owner_id, sandbox_id, v1_score, now):
                     continue
                 ai_regard = regard_of_v2(field[eid])
                 ai_rv2 = max(ai_peaks.get(eid, 0.0), fr.renown_total)
-                ai_rows.append({
-                    "owner_id": eid,
-                    "renown_v2": round(ai_rv2, 4),
-                    "regard": round(ai_regard, 4),
-                    "quadrant": quadrant_label_relative(
-                        ai_rv2, ai_regard, fr.high_cut),
-                    "victim_percentile": round(fr.victim_percentile, 4),
-                    "high_cut": round(fr.high_cut, 4),
-                    "components": {k: round(v, 4) for k, v in fr.components.items()},
-                    "field_size": field_size,
-                })
+                ai_rows.append(
+                    {
+                        "owner_id": eid,
+                        "renown_v2": round(ai_rv2, 4),
+                        "regard": round(ai_regard, 4),
+                        "quadrant": quadrant_label_relative(ai_rv2, ai_regard, fr.high_cut),
+                        "victim_percentile": round(fr.victim_percentile, 4),
+                        "high_cut": round(fr.high_cut, 4),
+                        "components": {k: round(v, 4) for k, v in fr.components.items()},
+                        "field_size": field_size,
+                    }
+                )
             out["ai_rows"] = ai_rows
 
         return out
@@ -630,9 +630,10 @@ def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
                     )
                 except Exception as exc:
                     logger.warning(
-                        "[TICKER] renown-v2 AI fan-out persist failed "
-                        "(sandbox=%s, %d rows): %s",
-                        sandbox_id, len(ai_rows), exc,
+                        "[TICKER] renown-v2 AI fan-out persist failed " "(sandbox=%s, %d rows): %s",
+                        sandbox_id,
+                        len(ai_rows),
+                        exc,
                     )
         else:
             repo.record(

@@ -61,7 +61,9 @@ def run_gauntlet(hero, hands, seeds, stack_bb=100):
     deltas_by_label = {label: [] for label, _ in BATTERY}
     max_workers = min(len(work), os.cpu_count() or 1)
     with ProcessPoolExecutor(max_workers=max_workers) as ex:
-        for (seed, deltas, _stats), label in zip(ex.map(_run_seed_worker, work), index):
+        for (seed, deltas, _stats), label in zip(
+            ex.map(_run_seed_worker, work), index, strict=False
+        ):
             deltas_by_label[label].append(compute_stats(deltas, big_blind=100).bb100)
 
     rows = []

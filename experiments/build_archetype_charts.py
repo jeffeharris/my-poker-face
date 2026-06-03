@@ -49,7 +49,22 @@ _SUITED_K = ['KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s
 _SUITED_Q = ['QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s', 'Q4s', 'Q3s', 'Q2s']
 _SUITED_J = ['JTs', 'J9s', 'J8s', 'J7s', 'J6s']
 _SUITED_T = ['T9s', 'T8s', 'T7s', 'T6s']
-_CONNECTORS = ['98s', '97s', '96s', '87s', '86s', '85s', '76s', '75s', '65s', '64s', '54s', '53s', '43s', '32s']
+_CONNECTORS = [
+    '98s',
+    '97s',
+    '96s',
+    '87s',
+    '86s',
+    '85s',
+    '76s',
+    '75s',
+    '65s',
+    '64s',
+    '54s',
+    '53s',
+    '43s',
+    '32s',
+]
 
 # ── Loose-aggressive RFI open sets (LAG / Maniac base width) ────────────────
 # Wide at EVERY position; maniacs/LAGs do not respect position much. These are
@@ -58,7 +73,8 @@ _CONNECTORS = ['98s', '97s', '96s', '87s', '86s', '85s', '76s', '75s', '65s', '6
 # table carries the VPIP envelope.
 
 _LOOSE_UTG = set(  # ~30%
-    _PAIRS + _SUITED_A
+    _PAIRS
+    + _SUITED_A
     + ['KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s']
     + ['QJs', 'QTs', 'Q9s', 'Q8s']
     + ['JTs', 'J9s', 'J8s']
@@ -82,8 +98,7 @@ _LOOSE_BTN = _LOOSE_CO | set(  # ~62%
     + ['K6o', 'K5o', 'K4o', 'Q7o', 'Q6o', 'J7o', 'T7o', '97o', '86o', '65o', '54o']
 )
 _LOOSE_SB = _LOOSE_CO | set(  # ~55% (no postflop position -> a touch tighter than BTN)
-    ['K2s', 'Q3s', 'Q2s', '95s', '74s']
-    + ['K6o', 'K5o', 'Q7o', 'J7o', 'T7o', '97o', '86o', '65o']
+    ['K2s', 'Q3s', 'Q2s', '95s', '74s'] + ['K6o', 'K5o', 'Q7o', 'J7o', 'T7o', '97o', '86o', '65o']
 )
 
 _LOOSE_RFI = {
@@ -139,7 +154,8 @@ def _vpip_pct(pos_dict: dict) -> float:
         c = _combos(hand)
         tot += c
         vpip += c * sum(
-            p for a, p in actions.items()
+            p
+            for a, p in actions.items()
             if a == 'call' or a.startswith('raise') or a in ('all_in', 'jam')
         )
     return 100.0 * vpip / tot if tot else 0.0

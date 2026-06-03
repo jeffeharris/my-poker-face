@@ -31,7 +31,10 @@ from tournament.session import TournamentSession
 
 def _session(field_size: int, table_size: int = 6, seed: int = 0) -> TournamentSession:
     config = TournamentConfig(
-        field_size=field_size, table_size=table_size, starting_stack=10_000, seed=seed,
+        field_size=field_size,
+        table_size=table_size,
+        starting_stack=10_000,
+        seed=seed,
         rounds_per_level=3,
     )
     return TournamentSession(config, ai_resolver=FakeHandResolver())

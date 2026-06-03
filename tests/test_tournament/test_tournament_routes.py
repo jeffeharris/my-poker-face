@@ -274,12 +274,20 @@ def _put_autonomous(owner_id, tid='tourney_auto'):
     config = TournamentConfig(field_size=6, table_size=3, starting_stack=10_000, seed=1)
     resolver = FakeHandResolver()
     # human_id is a nominal persona (NOT human:<owner>) → is_autonomous == True.
-    session = TournamentSession(config, ai_resolver=resolver,
-                               human_id=next(iter(entries)), entries=entries)
-    registry.put(tid, {
-        'session': session, 'owner_id': owner_id, 'created_at': 'now',
-        'resolver': resolver, 'resolver_kind': 'fake', 'game_id': None,
-    })
+    session = TournamentSession(
+        config, ai_resolver=resolver, human_id=next(iter(entries)), entries=entries
+    )
+    registry.put(
+        tid,
+        {
+            'session': session,
+            'owner_id': owner_id,
+            'created_at': 'now',
+            'resolver': resolver,
+            'resolver_kind': 'fake',
+            'game_id': None,
+        },
+    )
     return tid
 
 

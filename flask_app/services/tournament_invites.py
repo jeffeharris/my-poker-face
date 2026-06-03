@@ -97,12 +97,16 @@ def offer(
         # The one-open-invite-per-owner partial unique index (schema v136) fired:
         # a concurrent worker won the race between the active_for_owner check above
         # and this insert. The other offer stands — surface theirs, not an error.
-        logger.info("offer race for owner=%s lost to a concurrent offer; using the open one", owner_id)
+        logger.info(
+            "offer race for owner=%s lost to a concurrent offer; using the open one", owner_id
+        )
         return invite_repo.active_for_owner(owner_id)
     return invite_repo.load(invite_id)
 
 
-def _cooldown_elapsed(last_created_at_iso: Optional[str], now: datetime, cooldown_seconds: int) -> bool:
+def _cooldown_elapsed(
+    last_created_at_iso: Optional[str], now: datetime, cooldown_seconds: int
+) -> bool:
     if not last_created_at_iso:
         return True
     try:
@@ -139,9 +143,7 @@ def maybe_offer_main_event(
     if invite_repo is None or ledger_repo is None:
         return None
     now = now or datetime.utcnow()
-    cooldown_ok = _cooldown_elapsed(
-        invite_repo.last_created_at(owner_id), now, cooldown_seconds
-    )
+    cooldown_ok = _cooldown_elapsed(invite_repo.last_created_at(owner_id), now, cooldown_seconds)
     state = economy_signal.signal(ledger_repo, sandbox_id=sandbox_id)
     event = economy_signal.should_offer_event(state, cooldown_elapsed=cooldown_ok, spec=spec)
     if event is None:

@@ -145,7 +145,9 @@ def reconcile_live_table(
             # when threaded through (the frontend still renders the human's own
             # seat as "You"). All seats resolve through the one canonical path.
             nickname=resolve_display_name(
-                s.player_id, is_human=s.is_human, owner_name=owner_name,
+                s.player_id,
+                is_human=s.is_human,
+                owner_name=owner_name,
                 personality_repo=getattr(extensions, 'personality_repo', None),
             ),
         )
@@ -192,7 +194,9 @@ def reconcile_live_table(
     return added, removed
 
 
-def advance_tournament_after_hand(game_data: dict, state_machine, *, make_controller) -> BoundaryOutcome:
+def advance_tournament_after_hand(
+    game_data: dict, state_machine, *, make_controller
+) -> BoundaryOutcome:
     """Core hand-boundary step for the human's tournament game (no I/O).
 
     Reads the just-finished hand's stacks off the live game, folds them into the
@@ -221,9 +225,7 @@ def advance_tournament_after_hand(game_data: dict, state_machine, *, make_contro
         real_persona_ids=_real_persona_ids_for_session(session),
     )
     game_data['tournament_table_id'] = outcome.table_id
-    game_data['hand_start_stacks'] = {
-        p.name: p.stack for p in state_machine.game_state.players
-    }
+    game_data['hand_start_stacks'] = {p.name: p.stack for p in state_machine.game_state.players}
     return outcome
 
 

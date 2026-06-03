@@ -18,7 +18,7 @@ from typing import Protocol
 from .blinds import BlindLevel
 from .config import TournamentConfig
 from .field import Elimination, TournamentField, attribute_eliminators
-from .seating import Seating, SeatMove, SeatingManager, build_initial_seating
+from .seating import Seating, SeatingManager, SeatMove, build_initial_seating
 
 
 def build_initial_state(
@@ -249,7 +249,9 @@ class TournamentDirector:
 
     def _result(self, terminal_reason: str) -> TournamentResult:
         standings = self._standings()
-        winner = standings[0].player_id if standings and terminal_reason == TERMINAL_WINNER else None
+        winner = (
+            standings[0].player_id if standings and terminal_reason == TERMINAL_WINNER else None
+        )
         return TournamentResult(
             winner=winner,
             standings=tuple(standings),

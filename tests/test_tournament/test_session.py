@@ -149,9 +149,7 @@ def test_standings_view_is_wellformed_and_conserves():
     )
     assert total == session.config.total_chips
     # Exactly one human seat exists while the human is in.
-    human_seats = [
-        seat for t in view['tables'] for seat in t['seats'] if seat['is_human']
-    ]
+    human_seats = [seat for t in view['tables'] for seat in t['seats'] if seat['is_human']]
     assert len(human_seats) == 1
 
 

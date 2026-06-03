@@ -23,11 +23,12 @@ informant — Phase 3 — will unlock a whole section at once).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Tuple
 
 # The floor: earnable reads are fully classified below this many observed
 # hands. Equals the lowest threshold in the schedule by construction.
 FLOOR_HANDS = 25
+
 
 class ScoutingTier(NamedTuple):
     """One earnable dossier read and the condition that unlocks it.
@@ -45,6 +46,7 @@ class ScoutingTier(NamedTuple):
     floor keeps a high-variance opponent from trivializing a deep read after a
     short sit. `sample_noun` is the UI phrase for the opportunity.
     """
+
     id: str
     label: str
     hands: int
@@ -72,48 +74,76 @@ SCOUTING_SCHEDULE: List[ScoutingTier] = [
     # sample fields are the opportunity denominators stored on the lifetime
     # row (schema v125); they're summed when a read spans several action
     # buckets. all_in_freq is hand-only because its denominator IS hands.
-    ScoutingTier('fold_to_cbet', 'Fold to c-bet', 180,
-                 ('cbet_faced_count',), 20, 'c-bets faced'),
-    ScoutingTier('cbet_pct', 'C-bet frequency', 180,
-                 ('postflop_seen_as_pfr_count',), 15, 'flops as raiser'),
-    ScoutingTier('postflop_aggression', 'Postflop aggression', 200,
-                 ('postflop_bet_raise_count', 'postflop_call_count'), 30,
-                 'postflop actions'),
+    ScoutingTier('fold_to_cbet', 'Fold to c-bet', 180, ('cbet_faced_count',), 20, 'c-bets faced'),
+    ScoutingTier(
+        'cbet_pct', 'C-bet frequency', 180, ('postflop_seen_as_pfr_count',), 15, 'flops as raiser'
+    ),
+    ScoutingTier(
+        'postflop_aggression',
+        'Postflop aggression',
+        200,
+        ('postflop_bet_raise_count', 'postflop_call_count'),
+        30,
+        'postflop actions',
+    ),
     ScoutingTier('all_in_freq', 'All-in frequency', 300),
-    ScoutingTier('barrel', 'Barreling', 220,
-                 ('barrel_opportunity_count',), 12, 'barrel spots'),
-    ScoutingTier('polarization', 'Polarization', 260,
-                 ('equity_betting_count', 'equity_raising_count',
-                  'equity_calling_count'), 25, 'showdown-equity reads'),
+    ScoutingTier('barrel', 'Barreling', 220, ('barrel_opportunity_count',), 12, 'barrel spots'),
+    ScoutingTier(
+        'polarization',
+        'Polarization',
+        260,
+        ('equity_betting_count', 'equity_raising_count', 'equity_calling_count'),
+        25,
+        'showdown-equity reads',
+    ),
     # Limp rate (preflop, v132): how often they limp instead of opening.
     # Opportunity-gated on open spots, which are frequent, so it unlocks
     # earlier than the postflop reads — it's a preflop refinement of VPIP/PFR.
-    ScoutingTier('limp_rate', 'Limping', 100,
-                 ('preflop_open_opportunities',), 20, 'open spots'),
+    ScoutingTier('limp_rate', 'Limping', 100, ('preflop_open_opportunities',), 20, 'open spots'),
     # Showdown win rate: showdowns are sparse, so a higher hand floor plus a
     # real showdown sample before the number means anything.
-    ScoutingTier('showdown_win_rate', 'Showdown win rate', 200,
-                 ('showdowns_seen',), 15, 'showdowns'),
+    ScoutingTier(
+        'showdown_win_rate', 'Showdown win rate', 200, ('showdowns_seen',), 15, 'showdowns'
+    ),
     # Sizing tells (v133). fold_to_big_bet matures fast (every faced big bet
     # is a sample, not showdown-gated) — moderate floor. sizing_polarization
     # is showdown-gated (needs revealed cards in both size bins) so it matures
     # slowly — high floor, like the equity polarization read.
-    ScoutingTier('fold_to_big_bet', 'Fold to big bets', 180,
-                 ('big_bet_faced_count',), 6, 'big bets faced'),
-    ScoutingTier('sizing_polarization', 'Sizing tell', 260,
-                 ('equity_betting_big_count', 'equity_betting_small_count'),
-                 8, 'sized showdown reads'),
+    ScoutingTier(
+        'fold_to_big_bet', 'Fold to big bets', 180, ('big_bet_faced_count',), 6, 'big bets faced'
+    ),
+    ScoutingTier(
+        'sizing_polarization',
+        'Sizing tell',
+        260,
+        ('equity_betting_big_count', 'equity_betting_small_count'),
+        8,
+        'sized showdown reads',
+    ),
     # Postflop aggression axes (v134). Facing a bet is common so response
     # aggression samples fast; open-jams are rarer, so a higher opportunity
     # floor before the rate means anything.
-    ScoutingTier('jam_response', 'Jam-into-bet rate', 180,
-                 ('facing_bet_opportunities',), 15, 'bets faced'),
-    ScoutingTier('jam_open', 'Open-jam rate', 200,
-                 ('postflop_open_opportunities',), 20, 'postflop open spots'),
+    ScoutingTier(
+        'jam_response', 'Jam-into-bet rate', 180, ('facing_bet_opportunities',), 15, 'bets faced'
+    ),
+    ScoutingTier(
+        'jam_open',
+        'Open-jam rate',
+        200,
+        ('postflop_open_opportunities',),
+        20,
+        'postflop open spots',
+    ),
     # Trap read (v135): check-flop-then-barrel-turn. Opportunity-rare (needs the
     # flop to check through), so a real sample before the rate means anything.
-    ScoutingTier('flop_check_barrel', 'Trap line', 220,
-                 ('flop_check_barrel_opportunity_count',), 12, 'check-flop spots'),
+    ScoutingTier(
+        'flop_check_barrel',
+        'Trap line',
+        220,
+        ('flop_check_barrel_opportunity_count',),
+        12,
+        'check-flop spots',
+    ),
     # B2 "the read" — exploit advice + archetype badge, derived from the
     # tiered-bot exploitation detectors. Hand-only tiers: the per-pattern
     # detectors enforce their own sample minimums, so an unlocked-but-thin
@@ -154,9 +184,7 @@ _DEEPER_FIELDS: Dict[str, Tuple[str, ...]] = {
 
 # Every gateable field in the deeper_reads block (used to collapse a fully
 # redacted block to None so the client renders nothing).
-_ALL_DEEPER_FIELDS: Tuple[str, ...] = tuple(
-    f for fields in _DEEPER_FIELDS.values() for f in fields
-)
+_ALL_DEEPER_FIELDS: Tuple[str, ...] = tuple(f for fields in _DEEPER_FIELDS.values() for f in fields)
 
 # Informant sections (Phase 3): the chunkier units the informant sells. Each
 # bundles one or more grind item-ids; buying a section unlocks all of them at
@@ -188,11 +216,19 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
         'label': 'Deep postflop read',
         'price': 1500,
         'items': [
-            'fold_to_cbet', 'cbet_pct', 'postflop_aggression',
-            'all_in_freq', 'barrel', 'polarization',
-            'limp_rate', 'showdown_win_rate',
-            'fold_to_big_bet', 'sizing_polarization',
-            'jam_response', 'jam_open', 'flop_check_barrel',
+            'fold_to_cbet',
+            'cbet_pct',
+            'postflop_aggression',
+            'all_in_freq',
+            'barrel',
+            'polarization',
+            'limp_rate',
+            'showdown_win_rate',
+            'fold_to_big_bet',
+            'sizing_polarization',
+            'jam_response',
+            'jam_open',
+            'flop_check_barrel',
         ],
     },
     'tactical_read': {
@@ -262,7 +298,9 @@ def compute_scouting(observed, purchased_sections=None) -> Dict[str, Any]:
             unlocked.append(tier.id)
         else:
             entry: Dict[str, Any] = {
-                'id': tier.id, 'label': tier.label, 'unlocks_at': tier.hands,
+                'id': tier.id,
+                'label': tier.label,
+                'unlocks_at': tier.hands,
             }
             # Surface the sample requirement + progress so the UI can render
             # "Face them c-bet 20 times (12/20)" instead of a bare hand count.
@@ -327,9 +365,7 @@ def _redact_item(response: Dict[str, Any], item_id: str) -> None:
         _strip_observation_field(response, item_id)
     elif item_id == 'behavioral_index':
         personality = response.get('personality')
-        if isinstance(personality, dict) and isinstance(
-            personality.get('anchors'), dict
-        ):
+        if isinstance(personality, dict) and isinstance(personality.get('anchors'), dict):
             personality['anchors'] = {k: None for k in personality['anchors']}
     elif item_id == 'track_record':
         response['cash_pair_stats'] = None
@@ -373,17 +409,14 @@ def apply_scouting_gate(
     # already surfaces the hand count below the floor.
     obs = response.get('observation')
     if isinstance(obs, dict) and all(
-        obs.get(f) is None
-        for f in ('play_style', 'vpip', 'pfr', 'aggression_factor')
+        obs.get(f) is None for f in ('play_style', 'vpip', 'pfr', 'aggression_factor')
     ):
         response['observation'] = None
 
     # Same collapse for the deep-reads block: when every gateable field is
     # redacted the client renders nothing rather than an empty panel.
     deeper = response.get('deeper_reads')
-    if isinstance(deeper, dict) and all(
-        deeper.get(f) is None for f in _ALL_DEEPER_FIELDS
-    ):
+    if isinstance(deeper, dict) and all(deeper.get(f) is None for f in _ALL_DEEPER_FIELDS):
         response['deeper_reads'] = None
 
     response['scouting'] = scouting

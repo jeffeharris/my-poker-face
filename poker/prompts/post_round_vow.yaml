@@ -1,0 +1,27 @@
+name: post_round_vow
+version: 1.0.0
+sections:
+  instruction: |-
+    Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
+
+    HAND INFO:
+    {hand_context}
+
+    Read the HAND INFO carefully:
+      - OUTCOME — you LOST.
+      - WINNER / OPPONENTS AT SHOWDOWN — who took your chips.
+
+    GOAL: VOW REVENGE. You lost the pot — put the WINNER on notice. Defiant,
+    menacing, "this isn't over." You're coming back for that stack. Project
+    enough threat that a nervy opponent thinks twice next time. Reference the
+    real winner from WINNER / OPPONENTS AT SHOWDOWN. Do NOT invent opponents.
+
+    Style examples — match the spirit, don't copy verbatim:
+
+    ✓ "Enjoy those chips. They're on loan."
+    ✓ "I'm taking that stack back, one hand at a time."
+    ✓ "Remember this pot. I will."
+
+    Keep it SHORT (10-15 words max). First person.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "vow"}}, {{"text": "...", "tone": "vow"}}]}}

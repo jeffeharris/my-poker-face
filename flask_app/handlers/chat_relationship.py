@@ -29,6 +29,37 @@ logger = logging.getLogger(__name__)
 # any single player than a message aimed straight at them. Tunable.
 BROADCAST_REACTION_SCALE = 0.5
 
+# When True, a sarcastic message only reads as sarcasm to recipients who
+# *detect* it (via adaptation_bias). A low-awareness target misses the
+# register and reacts to the LITERAL surface — a backhanded compliment lands
+# as a sincere one, friendly banter lands as a real jab. When False, every
+# recipient is assumed to perceive the sarcasm (the prior behavior). Flip to
+# False to A/B the effect or if a sim shows the read-dependence runs too hot.
+SARCASM_DETECTION_ENABLED = True
+
+
+def _perceives_sarcasm(psychology) -> bool:
+    """Whether this recipient catches the sarcasm (vs. takes the surface).
+
+    With detection disabled, everyone is assumed to perceive it (prior
+    behavior). Otherwise it's the recipient's adaptation_bias gate.
+    """
+    if not SARCASM_DETECTION_ENABLED:
+        return True
+    return psychology._detects_sarcasm()
+
+
+# Emotional-layer tones: dispatched straight to the psychology axes (they
+# move composure/confidence, not relationship axes) via a coarse stimulus.
+# These never touch map_tone or the relationship repo.
+_EMOTIONAL_TONE_STIMULUS = {
+    'intimidate': 'intimidate',
+    'dare': 'dare',
+    # Post-round reskins of the same two weapons (the spec's mirror):
+    'vow': 'intimidate',  # "I'm coming for that stack" → poise rattle
+    'cry_luck': 'dare',  # "you got lucky" → ego poke (proud bristles)
+}
+
 
 def _stimulus_for_event(event) -> Optional[str]:
     """Reduce a RelationshipEvent to the coarse social stimulus the
@@ -42,9 +73,56 @@ def _stimulus_for_event(event) -> Optional[str]:
         RelationshipEvent.COMPLIMENT,
         RelationshipEvent.FRIENDLY_BANTER,
         RelationshipEvent.PROPS,
+        RelationshipEvent.COMMISERATE,
     ):
         return 'praise'
     return None
+
+
+def _sarcasm_emotional_stimulus(mode: Optional[str]) -> Optional[str]:
+    """Coarse emotional stimulus for a sarcastic message, by mode.
+
+    Overrides the event-derived stimulus so the recipient's *emotional*
+    reaction matches the sarcasm reading: a softened (banter) or self-mocking
+    message lands as 'praise' (warm), a sharpened backhand as a mild 'jab'.
+    None falls back to the event-derived stimulus.
+    """
+    if mode in ('soften', 'self'):
+        return 'praise'
+    if mode == 'sharpen':
+        return 'jab'
+    return None
+
+
+def _dispatch_emotional_tone(
+    game_data: dict,
+    sender: str,
+    addressing: Optional[List[str]],
+    stimulus: str,
+    intensity: Optional[str],
+) -> None:
+    """Fire an emotional-layer weapon (intimidate / dare) on the target(s).
+
+    Moves only the target's psychology axes — no relationship-axis effect, so
+    no opponent manager / repo is needed. Explicit targets take the full
+    stimulus; a broadcast fans out at the reduced scale. `sarcastic` has no
+    meaning here (no surface to read literally), so intensity only scales the
+    chill/spicy lever.
+    """
+    multiplier = 0.5 if intensity == 'chill' else 1.0
+    broadcast = not addressing
+    targets = _broadcast_targets(game_data, sender) if broadcast else addressing
+    scale = BROADCAST_REACTION_SCALE if broadcast else 1.0
+    controllers = game_data.get('ai_controllers') or {}
+    for target_name in targets:
+        if target_name == sender:
+            continue
+        psychology = getattr(controllers.get(target_name), 'psychology', None)
+        if psychology is None:
+            continue
+        psychology.react_to_social_stimulus(
+            stimulus, opponent=sender, multiplier=multiplier * scale
+        )
 
 
 def _apply_social_reactions(
@@ -53,6 +131,7 @@ def _apply_social_reactions(
     addressing: List[str],
     mapping,
     scale: float = 1.0,
+    sarcasm_mode: Optional[str] = None,
 ) -> None:
     """Move each addressed AI's emotional axes in response to the message.
 
@@ -62,11 +141,12 @@ def _apply_social_reactions(
     skipped because they have no controller in `ai_controllers`.
 
     `scale` further dampens the hit — used for broadcasts, where one
-    message is split across the whole table.
+    message is split across the whole table. When `sarcasm_mode` is set the
+    stimulus is resolved PER TARGET: a recipient who perceives the sarcasm
+    reacts to its reading (banter → 'praise', backhand → 'jab'); one who
+    misses it reacts to the literal event instead — so the same backhanded
+    compliment that needles a sharp reader pleases an oblivious one.
     """
-    stimulus = _stimulus_for_event(mapping.event)
-    if not stimulus:
-        return
     controllers = game_data.get('ai_controllers') or {}
     for target_name in addressing:
         if target_name == sender:
@@ -74,6 +154,12 @@ def _apply_social_reactions(
         controller = controllers.get(target_name)
         psychology = getattr(controller, 'psychology', None)
         if psychology is None:
+            continue
+        if sarcasm_mode is not None and _perceives_sarcasm(psychology):
+            stimulus = _sarcasm_emotional_stimulus(sarcasm_mode)
+        else:
+            stimulus = _stimulus_for_event(mapping.event)
+        if not stimulus:
             continue
         psychology.react_to_social_stimulus(
             stimulus,
@@ -103,23 +189,41 @@ def _broadcast_targets(game_data: dict, sender: str) -> List[str]:
     return sorted(names)
 
 
-def _temperament_mirror_override(game_data: dict, target_name: str, event):
-    """Resolve the recipient's temperament-reshaped mirror shift, or None.
+def _mirror_override(game_data: dict, target_name: str, tone: str, event, intensity):
+    """Resolve the recipient's mirror-side override for this message, or None.
 
-    Returns an `AxisShift` to override the neutral mirror side of the
-    bilateral update when the target is an AI whose social disposition
-    deviates from neutral for this needling event; returns None to leave
-    the global mirror table in force. Degrades to None (neutral) whenever
-    the target has no AI controller (the human), no psychology, or the
-    event isn't temperament-sensitive — so existing flows are unchanged.
+    Two sources, both keyed on the target's social disposition:
+      - `sarcastic` register on a tone with a sarcasm mode → the
+        disposition-keyed sarcasm transform REPLACES the neutral mirror
+        (props → backhand, trash talk → banter), but ONLY if the target
+        *perceives* the sarcasm. A recipient who misses it (low
+        adaptation_bias) falls through to the literal event's reception — so
+        a sarcastic compliment they take at face value genuinely warms them.
+        The actor side is left on the sincere event shift either way, same
+        asymmetry as the temperament overrides.
+      - otherwise → the temperament reshape for needling events.
+
+    Returns None (leave the global mirror table in force) whenever the target
+    has no AI controller (the human), no psychology, or neither source
+    applies — so existing flows are unchanged.
     """
     controllers = game_data.get('ai_controllers') or {}
     psychology = getattr(controllers.get(target_name), 'psychology', None)
     if psychology is None:
         return None
+    disposition = psychology._classify_social_disposition()
+
+    if intensity == 'sarcastic':
+        from poker.memory.chat_intent import sarcasm_mode_for_tone
+        from poker.memory.relationship_events import sarcasm_mirror_shift
+
+        mode = sarcasm_mode_for_tone(tone)
+        if mode is not None and _perceives_sarcasm(psychology):
+            return sarcasm_mirror_shift(mode, disposition)
+        # mode set but missed → fall through to the LITERAL event reception.
+
     from poker.memory.relationship_events import temperament_adjusted_mirror_shift
 
-    disposition = psychology._classify_social_disposition()
     return temperament_adjusted_mirror_shift(event, disposition)
 
 
@@ -245,17 +349,29 @@ def dispatch_chat_relationship_event(
         return
 
     try:
+        # Emotional-layer tones (intimidate/dare) move the target's play, not
+        # the relationship axes — dispatch them straight to psychology and stop.
+        emotional_stimulus = _EMOTIONAL_TONE_STIMULUS.get(tone)
+        if emotional_stimulus is not None:
+            _dispatch_emotional_tone(game_data, sender, addressing, emotional_stimulus, intensity)
+            return
+
         # Flattery is disposition-dependent (valence flips per target), so it
         # can't ride the fixed tone→event mapping — handle it on its own path.
         if tone == 'flatter':
             _dispatch_flattery(game_data, sender, addressing, intensity)
             return
 
-        from poker.memory.chat_intent import map_tone
+        from poker.memory.chat_intent import map_tone, sarcasm_mode_for_tone
 
         mapping = map_tone(tone, intensity)
         if mapping is None:
             return
+
+        # Sarcastic register: the reaction is resolved per target inside
+        # _apply_social_reactions — a recipient who perceives the sarcasm reacts
+        # to its reading, one who misses it reacts to the literal event.
+        sarcasm_mode = sarcasm_mode_for_tone(tone) if intensity == 'sarcastic' else None
 
         # Broadcast: tone with no specific target. Fan the emotional
         # reaction out to the seated AIs at a reduced scale; leave the
@@ -267,11 +383,12 @@ def dispatch_chat_relationship_event(
                 _broadcast_targets(game_data, sender),
                 mapping,
                 scale=BROADCAST_REACTION_SCALE,
+                sarcasm_mode=sarcasm_mode,
             )
             return
 
         # (1) Emotional reaction — in-memory, repo-independent.
-        _apply_social_reactions(game_data, sender, addressing, mapping)
+        _apply_social_reactions(game_data, sender, addressing, mapping, sarcasm_mode=sarcasm_mode)
 
         # (2) Bilateral relationship-axis update — needs the opponent manager.
         memory_manager = game_data.get('memory_manager')
@@ -302,8 +419,8 @@ def dispatch_chat_relationship_event(
                 context_multiplier=mapping.multiplier,
                 narrative=f"{sender} → {target_name}: {tone}",
                 hand_id=hand_id,
-                mirror_shift_override=_temperament_mirror_override(
-                    game_data, target_name, mapping.event
+                mirror_shift_override=_mirror_override(
+                    game_data, target_name, tone, mapping.event, intensity
                 ),
             )
     except Exception:

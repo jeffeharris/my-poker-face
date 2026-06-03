@@ -127,7 +127,9 @@ class TournamentSessionRepository(BaseRepository):
             ).fetchone()
             return self._row_to_dict(row) if row else None
 
-    def active_participant_pids(self, owner_id: str, *, active_since_iso: Optional[str] = None) -> set:
+    def active_participant_pids(
+        self, owner_id: str, *, active_since_iso: Optional[str] = None
+    ) -> set:
         """Every entrant id across the owner's currently-ACTIVE, *recently-touched*
         tournaments.
 
@@ -162,7 +164,9 @@ class TournamentSessionRepository(BaseRepository):
             ).fetchall()
         for row in rows:
             try:
-                entries = (json.loads(row['session_json']) or {}).get('field', {}).get('entries', {})
+                entries = (
+                    (json.loads(row['session_json']) or {}).get('field', {}).get('entries', {})
+                )
             except (TypeError, ValueError):
                 continue
             pids.update(entries.keys())
@@ -249,11 +253,14 @@ class TournamentSessionRepository(BaseRepository):
         pass the guard and double-distribute the escrow (the cash double-settle
         lesson). The distributor proceeds only on True."""
         with self._get_connection() as conn:
-            return conn.execute(
-                "UPDATE tournaments SET payout_status = 'in_progress', updated_at = ? "
-                "WHERE tournament_id = ? AND payout_status = 'pending'",
-                (_utcnow_iso(), tournament_id),
-            ).rowcount == 1
+            return (
+                conn.execute(
+                    "UPDATE tournaments SET payout_status = 'in_progress', updated_at = ? "
+                    "WHERE tournament_id = ? AND payout_status = 'pending'",
+                    (_utcnow_iso(), tournament_id),
+                ).rowcount
+                == 1
+            )
 
     def set_payout_status(self, tournament_id: str, status: str) -> None:
         """Advance the payout idempotency guard (skipped|pending|in_progress|

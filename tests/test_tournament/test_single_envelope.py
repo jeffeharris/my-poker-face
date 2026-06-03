@@ -8,9 +8,9 @@ interfere with the multi-table lobby's `find_active_for_owner`.
 
 import pytest
 
+from flask_app.services import tournament_registry as registry
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.tournament_session_repository import TournamentSessionRepository
-from flask_app.services import tournament_registry as registry
 
 
 @pytest.fixture

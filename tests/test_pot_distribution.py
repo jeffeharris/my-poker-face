@@ -459,24 +459,60 @@ class TestSidePots(unittest.TestCase):
         contributing 200/400/1000/1000. Every chip must be distributed.
         """
         p0 = Player(
-            name='P0', stack=0, is_human=False, bet=300, is_all_in=True,
-            hand=(Card('2', 'spades'), Card('3', 'hearts')), is_folded=False,
+            name='P0',
+            stack=0,
+            is_human=False,
+            bet=300,
+            is_all_in=True,
+            hand=(Card('2', 'spades'), Card('3', 'hearts')),
+            is_folded=False,
         )
         p1 = Player(
-            name='P1', stack=0, is_human=False, bet=2287,
-            hand=(Card('A', 'spades'), Card('A', 'hearts')), is_folded=False,
+            name='P1',
+            stack=0,
+            is_human=False,
+            bet=2287,
+            hand=(Card('A', 'spades'), Card('A', 'hearts')),
+            is_folded=False,
         )
-        p2 = Player(name='P2', stack=0, is_human=False, bet=200,
-                    hand=(Card('5', 'clubs'), Card('6', 'clubs')), is_folded=True)
-        p3 = Player(name='P3', stack=0, is_human=False, bet=400,
-                    hand=(Card('7', 'clubs'), Card('8', 'clubs')), is_folded=True)
-        p4 = Player(name='P4', stack=0, is_human=False, bet=1000,
-                    hand=(Card('9', 'clubs'), Card('10', 'clubs')), is_folded=True)
-        p5 = Player(name='P5', stack=0, is_human=False, bet=1000,
-                    hand=(Card('J', 'clubs'), Card('Q', 'clubs')), is_folded=True)
+        p2 = Player(
+            name='P2',
+            stack=0,
+            is_human=False,
+            bet=200,
+            hand=(Card('5', 'clubs'), Card('6', 'clubs')),
+            is_folded=True,
+        )
+        p3 = Player(
+            name='P3',
+            stack=0,
+            is_human=False,
+            bet=400,
+            hand=(Card('7', 'clubs'), Card('8', 'clubs')),
+            is_folded=True,
+        )
+        p4 = Player(
+            name='P4',
+            stack=0,
+            is_human=False,
+            bet=1000,
+            hand=(Card('9', 'clubs'), Card('10', 'clubs')),
+            is_folded=True,
+        )
+        p5 = Player(
+            name='P5',
+            stack=0,
+            is_human=False,
+            bet=1000,
+            hand=(Card('J', 'clubs'), Card('Q', 'clubs')),
+            is_folded=True,
+        )
         community_cards = (
-            Card('7', 'diamonds'), Card('8', 'spades'), Card('9', 'hearts'),
-            Card('2', 'diamonds'), Card('4', 'spades'),
+            Card('7', 'diamonds'),
+            Card('8', 'spades'),
+            Card('9', 'hearts'),
+            Card('2', 'diamonds'),
+            Card('4', 'spades'),
         )
         total_contributed = 300 + 2287 + 200 + 400 + 1000 + 1000  # 5187
         game_state = PokerGameState(

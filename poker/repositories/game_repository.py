@@ -954,17 +954,24 @@ class GameRepository(BaseRepository):
     # (hand count alone can't decide a sample-gated tier). Named here rather
     # than imported because this repo (poker/) must not depend on flask_app/.
     _ROSTER_SAMPLE_COLUMNS = (
-        'cbet_faced_count', 'postflop_seen_as_pfr_count',
-        'postflop_bet_raise_count', 'postflop_call_count',
-        'barrel_opportunity_count', 'equity_betting_count',
-        'equity_raising_count', 'equity_calling_count',
+        'cbet_faced_count',
+        'postflop_seen_as_pfr_count',
+        'postflop_bet_raise_count',
+        'postflop_call_count',
+        'barrel_opportunity_count',
+        'equity_betting_count',
+        'equity_raising_count',
+        'equity_calling_count',
         # v132 limp_rate gate + showdown_win_rate gate sample denominators.
-        'preflop_open_opportunities', 'showdowns_seen',
+        'preflop_open_opportunities',
+        'showdowns_seen',
         # v133 sizing-read gate sample denominators.
-        'big_bet_faced_count', 'equity_betting_big_count',
+        'big_bet_faced_count',
+        'equity_betting_big_count',
         'equity_betting_small_count',
         # v134 postflop-axis gate sample denominators.
-        'facing_bet_opportunities', 'postflop_open_opportunities',
+        'facing_bet_opportunities',
+        'postflop_open_opportunities',
         # v135 flop-check-barrel gate sample denominator.
         'flop_check_barrel_opportunity_count',
     )

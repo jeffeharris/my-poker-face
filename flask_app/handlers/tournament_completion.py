@@ -72,9 +72,7 @@ def build_completion_result(
         # single-table real name / a legible `P##` seat) when unresolved.
         if pid == human_id:
             return str(pid)
-        return resolve_display_name(
-            pid, personality_repo=personality_repo, humanize_fallback=False
-        )
+        return resolve_display_name(pid, personality_repo=personality_repo, humanize_fallback=False)
 
     standings: list[dict[str, Any]] = []
     if winner_id is not None:

@@ -96,10 +96,7 @@ def _lookup_bucketed(table, node: PreflopNode) -> Optional[Dict[str, float]]:
 
 def _average(profiles: List[Dict[str, float]]) -> Dict[str, float]:
     n = len(profiles)
-    return {
-        k: sum(p[k] for p in profiles) / n
-        for k in ('fold', 'call', 'raise')
-    }
+    return {k: sum(p[k] for p in profiles) / n for k in ('fold', 'call', 'raise')}
 
 
 def reference_strategy(
@@ -124,9 +121,7 @@ def reference_strategy(
 
     # Faced-raise scenarios need an opener for the matchup key.
     if opener:
-        return _lookup_bucketed(
-            table, PreflopNode(hand, position, scenario, opener)
-        )
+        return _lookup_bucketed(table, PreflopNode(hand, position, scenario, opener))
 
     # Opener unknown → average over every opener present in the chart.
     hits = [

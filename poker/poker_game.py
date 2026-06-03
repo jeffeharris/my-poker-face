@@ -931,9 +931,7 @@ def determine_winner(game_state: PokerGameState) -> Dict:
                 # uncalled and returned in the post-loop sweep below).
                 remaining_contributions[lone.name] = 0
                 for name in other_rems:
-                    remaining_contributions[name] -= min(
-                        remaining_contributions[name], lone_rem
-                    )
+                    remaining_contributions[name] -= min(remaining_contributions[name], lone_rem)
             active_players_sorted = [
                 p for p in active_players_sorted if remaining_contributions[p.name] > 0
             ]

@@ -191,9 +191,7 @@ def _run(*, bankroll_repo, stake_repo):
 
 def _from_seat_changes(result, pid):
     return [
-        c
-        for c in result.bankroll_changes
-        if c.direction == "from_seat" and c.personality_id == pid
+        c for c in result.bankroll_changes if c.direction == "from_seat" and c.personality_id == pid
     ]
 
 
@@ -273,7 +271,9 @@ def test_create_stake_failure_refunds_staker_and_keeps_seat():
     result, table = _run(bankroll_repo=bankroll_repo, stake_repo=stake_repo)
 
     # Staker refunded to original balance.
-    assert bankroll_repo.balances[STAKER] == 100_000, "staker not refunded after create_stake failure"
+    assert (
+        bankroll_repo.balances[STAKER] == 100_000
+    ), "staker not refunded after create_stake failure"
     # Seat still the asker's.
     assert table.seats[0]["kind"] == "ai"
     assert table.seats[0]["personality_id"] == ASKER

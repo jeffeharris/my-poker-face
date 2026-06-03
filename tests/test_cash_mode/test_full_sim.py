@@ -682,3 +682,83 @@ class TestHandEventDataclass:
     def test_showdown_hand_defaults(self):
         sd = ShowdownHand(personality_id="p1", hand_name="Pair of Kings")
         assert sd.hole_cards == []
+
+
+@pytest.mark.integration
+@pytest.mark.simulation
+class TestLobbySimEvolvesRelationships:
+    """The cash lobby sim must evolve AI<->AI relationships off-screen.
+
+    Regression guard for the lean Phase 3 wiring: with a real db_path
+    threaded in (via bankroll_repo), running background hands should
+    drive `on_hand_complete` -> relationship detection so that:
+
+      - `cash_pair_stats` accrues on EVERY pot (the every-pot chip-flow
+        dispatch), and
+      - `relationship_states` axes (heat/respect/likability) move once a
+        hand clears the big-pot event gate.
+
+    Short heads-up stacks are used so all-in pots reliably clear the
+    `pot > 0.75 * avg_stack` threshold within the hand budget.
+    """
+
+    def test_background_hands_write_relationship_rows(self, repos, db_path):
+        # `repos` builds the full schema on `db_path` (personalities,
+        # relationship_states, cash_pair_stats, ...).
+        import sqlite3
+
+        import cash_mode.full_sim as full_sim
+        from poker.repositories.bankroll_repository import BankrollRepository
+
+        sandbox_id = "rel-sim-sandbox"
+        # Isolate from any per-sandbox manager another test left cached
+        # (the cache is a module global keyed by sandbox_id).
+        full_sim._session_memory_managers.pop(sandbox_id, None)
+        full_sim._session_hand_counters.pop(sandbox_id, None)
+
+        bankroll_repo = BankrollRepository(db_path)
+        cache = LruControllerCache(max_size=20)
+        rng = random.Random(7)
+
+        # Heads-up, 15 BB deep: all-ins are frequent and clear the
+        # big-pot gate (pot up to 3000 vs 0.75*1500 = 1125 threshold).
+        seats = _build_seats(1500, 2)
+        for _ in range(120):
+            live = [s for s in seats if s.get("kind") == "ai" and s.get("chips", 0) > 0]
+            if len(live) < 2:
+                seats = _build_seats(1500, 2)
+            result = play_one_hand(
+                seats,
+                big_blind=100,
+                rng=rng,
+                sandbox_id=sandbox_id,
+                name_for=_identity_name_for,
+                controller_cache=cache,
+                bankroll_repo=bankroll_repo,
+                # Exercises set_table_max_buy_in -> STACK_DOMINANCE path
+                # (a stack growing past 1.5x cap resents seatmates).
+                table_max_buy_in=1500,
+            )
+            seats = result.new_seats
+
+        conn = sqlite3.connect(db_path)
+        try:
+            cash_pairs = conn.execute("SELECT COUNT(*) FROM cash_pair_stats").fetchone()[0]
+            rel_rows = conn.execute("SELECT COUNT(*) FROM relationship_states").fetchone()[0]
+            moved = conn.execute(
+                "SELECT COUNT(*) FROM relationship_states "
+                "WHERE heat > 0 OR respect != 0.5 OR likability != 0.5"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        # Every-pot dispatch: cash_pair_stats must accrue.
+        assert cash_pairs > 0, "lobby sim wrote no cash_pair_stats rows"
+        # Big-pot-gated axes: at least one confrontation should have moved
+        # heat/respect/likability off the neutral defaults.
+        assert rel_rows > 0, "lobby sim wrote no relationship_states rows"
+        assert moved > 0, "relationship axes never moved off 0.5/0.5/0.0"
+
+        # Clean up the module-cached manager so we don't leak into siblings.
+        full_sim._session_memory_managers.pop(sandbox_id, None)
+        full_sim._session_hand_counters.pop(sandbox_id, None)

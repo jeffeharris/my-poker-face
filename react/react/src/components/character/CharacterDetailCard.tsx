@@ -232,23 +232,15 @@ function ScoutingStrip({
     ? floor
     : locked.reduce<number | null>(
         (min, l) =>
-          l.unlocks_at > hands_observed && (min == null || l.unlocks_at < min)
-            ? l.unlocks_at
-            : min,
+          l.unlocks_at > hands_observed && (min == null || l.unlocks_at < min) ? l.unlocks_at : min,
         null
       );
   const pct = nextAt ? Math.min(100, Math.round((hands_observed / nextAt) * 100)) : 100;
 
   return (
-    <section
-      className={
-        'dossier__scouting' + (floor_met ? '' : ' dossier__scouting--classified')
-      }
-    >
+    <section className={'dossier__scouting' + (floor_met ? '' : ' dossier__scouting--classified')}>
       <div className="dossier__scouting-head">
-        <span className="dossier__scouting-stamp">
-          {floor_met ? 'CLEARANCE' : 'CLASSIFIED'}
-        </span>
+        <span className="dossier__scouting-stamp">{floor_met ? 'CLEARANCE' : 'CLASSIFIED'}</span>
         <span className="dossier__scouting-count">
           {hands_observed.toLocaleString()} {hands_observed === 1 ? 'hand' : 'hands'} observed
         </span>
@@ -256,8 +248,8 @@ function ScoutingStrip({
 
       {!floor_met ? (
         <p className="dossier__scouting-note">
-          Insufficient observation. Play <strong>{Math.max(0, floor - hands_observed)}</strong>{' '}
-          more {floor - hands_observed === 1 ? 'hand' : 'hands'} to open this file.
+          Insufficient observation. Play <strong>{Math.max(0, floor - hands_observed)}</strong> more{' '}
+          {floor - hands_observed === 1 ? 'hand' : 'hands'} to open this file.
         </p>
       ) : locked.length > 0 ? (
         <>
@@ -319,8 +311,7 @@ function ScoutingStrip({
                     key={o.id}
                     type="button"
                     className={
-                      'dossier__informant-buy' +
-                      (canAfford ? '' : ' dossier__informant-buy--cant')
+                      'dossier__informant-buy' + (canAfford ? '' : ' dossier__informant-buy--cant')
                     }
                     disabled={busy || !!buyingSection || !canAfford}
                     onClick={() => onBuy(o.id)}
@@ -332,7 +323,11 @@ function ScoutingStrip({
                   >
                     <span className="dossier__informant-buy-label">{o.label}</span>
                     <span className="dossier__informant-buy-price">
-                      {busy ? 'Paying…' : canAfford ? o.price.toLocaleString() : `−${short.toLocaleString()}`}
+                      {busy
+                        ? 'Paying…'
+                        : canAfford
+                          ? o.price.toLocaleString()
+                          : `−${short.toLocaleString()}`}
                     </span>
                   </button>
                 );
@@ -1060,8 +1055,7 @@ export function CharacterDetailCard({
                 the dossier is). When locked, the scouting strip's "Sizing tell"
                 teaser already advertises it as earnable. */}
             {character.name &&
-              (!fetched?.scouting ||
-                fetched.scouting.unlocked.includes('sizing_polarization')) && (
+              (!fetched?.scouting || fetched.scouting.unlocked.includes('sizing_polarization')) && (
                 <OpponentSizingTell opponent={character.name} />
               )}
 
@@ -1375,10 +1369,7 @@ export function CharacterDetailCard({
                     />
                   )}
                   {temperament.poise != null && (
-                    <DataRow
-                      label="Composure"
-                      value={`${Math.round(temperament.poise * 100)}%`}
-                    />
+                    <DataRow label="Composure" value={`${Math.round(temperament.poise * 100)}%`} />
                   )}
                   {temperament.expressiveness != null && (
                     <DataRow
@@ -1426,10 +1417,7 @@ export function CharacterDetailCard({
                         <span className="dossier__history-defining-tag">
                           {history.defining.label}
                         </span>
-                        <span
-                          className="dossier__history-defining-impact"
-                          title="impact score"
-                        >
+                        <span className="dossier__history-defining-impact" title="impact score">
                           {Math.round(history.defining.impact_score * 100)}
                         </span>
                       </div>

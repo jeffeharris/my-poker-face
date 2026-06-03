@@ -8,9 +8,9 @@ monkeypatched onto a temp DB.
 
 import pytest
 
+from flask_app.services import tournament_registry as registry
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.tournament_session_repository import TournamentSessionRepository
-from flask_app.services import tournament_registry as registry
 from tournament.config import TournamentConfig
 from tournament.director import FakeHandResolver
 from tournament.session import TournamentSession

@@ -118,23 +118,25 @@ def _trace_fingerprint(controller):
             }
         )
 
-    return _jsonable({
-        'phase': snap.get('phase'),
-        'node_key': snap.get('node_key'),
-        'base_strategy_probs': snap.get('base_strategy_probs'),
-        'hand_strength': snap.get('hand_strength'),
-        'nut_status': snap.get('nut_status'),
-        'danger_flags': snap.get('danger_flags'),
-        'bet_bucket': snap.get('bet_bucket'),
-        'required_equity': snap.get('required_equity'),
-        'effective_stack_bb': snap.get('effective_stack_bb'),
-        'sampled_abstract_action': snap.get('sampled_abstract_action'),
-        'resolved_action': snap.get('resolved_action'),
-        'resolved_raise_to': snap.get('resolved_raise_to'),
-        'push_fold_routed': snap.get('push_fold_routed'),
-        'legal_actions': snap.get('legal_actions'),
-        'trace': trace_fields,
-    })
+    return _jsonable(
+        {
+            'phase': snap.get('phase'),
+            'node_key': snap.get('node_key'),
+            'base_strategy_probs': snap.get('base_strategy_probs'),
+            'hand_strength': snap.get('hand_strength'),
+            'nut_status': snap.get('nut_status'),
+            'danger_flags': snap.get('danger_flags'),
+            'bet_bucket': snap.get('bet_bucket'),
+            'required_equity': snap.get('required_equity'),
+            'effective_stack_bb': snap.get('effective_stack_bb'),
+            'sampled_abstract_action': snap.get('sampled_abstract_action'),
+            'resolved_action': snap.get('resolved_action'),
+            'resolved_raise_to': snap.get('resolved_raise_to'),
+            'push_fold_routed': snap.get('push_fold_routed'),
+            'legal_actions': snap.get('legal_actions'),
+            'trace': trace_fields,
+        }
+    )
 
 
 def run_capture():
@@ -185,8 +187,10 @@ def _cmd_capture(path):
         json.dump(records, f, indent=0, sort_keys=True)
     postflop = sum(1 for r in records if r['fp'].get('phase') == 'POSTFLOP')
     preflop = sum(1 for r in records if r['fp'].get('phase') == 'PRE_FLOP')
-    print(f"Captured {len(records)} tiered decisions "
-          f"({preflop} preflop, {postflop} postflop) -> {path}")
+    print(
+        f"Captured {len(records)} tiered decisions "
+        f"({preflop} preflop, {postflop} postflop) -> {path}"
+    )
 
 
 def _cmd_compare(path):

@@ -57,7 +57,9 @@ def level_up_next_beat(level: BlindLevel, *, round_index: int) -> dict:
     }
 
 
-def level_transition_beats(schedule, *, prev_level: int, rounds: int, round_index: int) -> list[dict]:
+def level_transition_beats(
+    schedule, *, prev_level: int, rounds: int, round_index: int
+) -> list[dict]:
     """Blind-clock beats for one live boundary (pure).
 
     `prev_level` is the level of the hand just played; `rounds` is the session's

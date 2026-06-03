@@ -297,7 +297,11 @@ export function PokerTable({
         if (!prev) return prev;
         return prev.map((p) =>
           p.name === playerName
-            ? { ...p, avatar_emotion: emotion, avatar_url: avatarUrlForEmotion(p.avatar_url, emotion) }
+            ? {
+                ...p,
+                avatar_emotion: emotion,
+                avatar_url: avatarUrlForEmotion(p.avatar_url, emotion),
+              }
             : p
         );
       });
@@ -417,10 +421,7 @@ export function PokerTable({
     () => opponents.filter((p: Player) => !p.is_folded),
     [opponents]
   );
-  const foldedOpponents = useMemo(
-    () => opponents.filter((p: Player) => p.is_folded),
-    [opponents]
-  );
+  const foldedOpponents = useMemo(() => opponents.filter((p: Player) => p.is_folded), [opponents]);
   const isHeadsUpShowdownLayout =
     (gameState?.run_it_out || gameState?.phase === 'SHOWDOWN') && showdownOpponents.length === 2;
 
@@ -633,7 +634,6 @@ export function PokerTable({
                     gameState.phase !== 'HAND_OVER' &&
                     gameState.phase !== 'EVALUATING_HAND'
                   }
-                  playerFolded={!!humanPlayer.is_folded}
                 />
               )}
               <StatsPanel
@@ -869,10 +869,7 @@ export function PokerTable({
                 {foldedOpponents.map((p) => (
                   <div key={p.name} className="showdown-ghost-avatar" title={displayNickname(p)}>
                     {p.avatar_url ? (
-                      <img
-                        src={`${config.API_URL}${p.avatar_url}`}
-                        alt={displayNickname(p)}
-                      />
+                      <img src={`${config.API_URL}${p.avatar_url}`} alt={displayNickname(p)} />
                     ) : (
                       <span className="showdown-ghost-initial">
                         {p.name.charAt(0).toUpperCase()}

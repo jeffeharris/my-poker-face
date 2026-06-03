@@ -62,10 +62,17 @@ def test_autonomous_overlay_redistributes_to_personas(repos):
     persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
 
     spawned = spawn_autonomous_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
-        field_size=6, table_size=3, starting_stack=10_000, seed=7, rng_seed=7,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+        field_size=6,
+        table_size=3,
+        starting_stack=10_000,
+        seed=7,
+        rng_seed=7,
     )
     assert spawned is not None
     tid = spawned['tournament_id']
@@ -85,8 +92,13 @@ def test_autonomous_overlay_redistributes_to_personas(repos):
 
     # Distribute → real persona bankrolls.
     ran = settle_autonomous_tournament(
-        tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+        tournament_id=tid,
+        session=session,
+        entries=entries,
+        sandbox_id=SB,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
     )
     assert ran is True
 
@@ -104,8 +116,10 @@ def test_autonomous_overlay_redistributes_to_personas(repos):
     assert credited == plan.bank_overlay
     # Ledger-derived balance agrees with the cached bankroll (D2 consistency).
     winner = session.winner()
-    assert ledger_repo.balance_of(ai(winner), sandbox_id=SB) == \
-        bankroll_repo.load_ai_bankroll(winner, sandbox_id=SB).chips
+    assert (
+        ledger_repo.balance_of(ai(winner), sandbox_id=SB)
+        == bankroll_repo.load_ai_bankroll(winner, sandbox_id=SB).chips
+    )
 
 
 def test_incremental_advance_at_world_pace_then_settles(repos):
@@ -115,13 +129,23 @@ def test_incremental_advance_at_world_pace_then_settles(repos):
     _make_flush(ledger_repo)
     persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
     spawned = spawn_autonomous_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
-        field_size=6, table_size=3, starting_stack=10_000, seed=11, rng_seed=11,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+        field_size=6,
+        table_size=3,
+        starting_stack=10_000,
+        seed=11,
+        rng_seed=11,
     )
     tid, session, entries, plan = (
-        spawned['tournament_id'], spawned['session'], spawned['entries'], spawned['plan']
+        spawned['tournament_id'],
+        spawned['session'],
+        spawned['entries'],
+        spawned['plan'],
     )
 
     # Tick it like the world ticker would — one round at a time — until settled.
@@ -130,8 +154,13 @@ def test_incremental_advance_at_world_pace_then_settles(repos):
     total_reports = 0
     while True:
         result = advance_autonomous_tournament(
-            tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=tid,
+            session=session,
+            entries=entries,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
             rounds_per_tick=1,
         )
         total_reports += result['rounds']
@@ -162,16 +191,27 @@ def test_advance_after_complete_is_idempotent(repos):
     _make_flush(ledger_repo)
     persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
     spawned = spawn_autonomous_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
-        field_size=4, table_size=2, seed=5, rng_seed=5,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+        field_size=4,
+        table_size=2,
+        seed=5,
+        rng_seed=5,
     )
     tid, session, entries = spawned['tournament_id'], spawned['session'], spawned['entries']
     session.play_out()  # complete it in one shot
     first = advance_autonomous_tournament(
-        tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+        tournament_id=tid,
+        session=session,
+        entries=entries,
+        sandbox_id=SB,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
     )
     assert first['rounds'] == 0  # already complete → no rounds advanced
     credited_after_first = sum(
@@ -181,8 +221,13 @@ def test_advance_after_complete_is_idempotent(repos):
     )
     # Another tick must not pay again.
     advance_autonomous_tournament(
-        tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+        tournament_id=tid,
+        session=session,
+        entries=entries,
+        sandbox_id=SB,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
     )
     credited_after_second = sum(
         bankroll_repo.load_ai_bankroll(pid, sandbox_id=SB).chips
@@ -197,9 +242,12 @@ def test_too_few_personas_skips(repos):
     ledger_repo, bankroll_repo, session_repo = repos
     persona_repo = FakePersonalityRepo(['only_one'])
     spawned = spawn_autonomous_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
         field_size=6,
     )
     assert spawned is None
@@ -210,18 +258,26 @@ def test_neutral_bank_no_overlay_no_real_flow(repos):
     # Cold/empty ledger → NEUTRAL (no signal) → no overlay; pool is 0.
     persona_repo = FakePersonalityRepo([f'p{i}' for i in range(6)])
     spawned = spawn_autonomous_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
-        field_size=6, rng_seed=1,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+        field_size=6,
+        rng_seed=1,
     )
     assert spawned['plan'].bank_overlay == 0
     assert spawned['plan'].prize_pool == 0
     # Zero pool → payout marked skipped, no bankrolls created.
     spawned['session'].play_out()
     settle_autonomous_tournament(
-        tournament_id=spawned['tournament_id'], session=spawned['session'],
-        entries=spawned['entries'], sandbox_id=SB,
-        bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+        tournament_id=spawned['tournament_id'],
+        session=spawned['session'],
+        entries=spawned['entries'],
+        sandbox_id=SB,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
     )
     assert session_repo.load(spawned['tournament_id'])['payout_status'] == 'skipped'

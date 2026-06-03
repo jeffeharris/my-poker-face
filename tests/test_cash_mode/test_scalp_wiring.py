@@ -54,11 +54,13 @@ class _Ctx:
 
 def test_human_winner_scalps_busted_ai():
     with _Ctx() as repo:
-        gs = SimpleNamespace(players=[
-            _player("Jeff", 8000, is_human=True),
-            _player("Deadpool", 0),      # busted
-            _player("Batman", 3000),     # survives
-        ])
+        gs = SimpleNamespace(
+            players=[
+                _player("Jeff", 8000, is_human=True),
+                _player("Deadpool", 0),  # busted
+                _player("Batman", 3000),  # survives
+            ]
+        )
         game_handler._record_cash_scalps(_gd(), gs, "Jeff")
         assert repo.list_for_eliminator("sb", "guest_jeff") == [("deadpool", 1)]
 
@@ -66,11 +68,13 @@ def test_human_winner_scalps_busted_ai():
 def test_ai_winner_scalps_other_busted_ai():
     # AI-vs-AI bust at the human's table is recorded too (headline-winner rule).
     with _Ctx() as repo:
-        gs = SimpleNamespace(players=[
-            _player("Jeff", 2000, is_human=True),
-            _player("Batman", 9000),     # AI winner
-            _player("Deadpool", 0),      # busted by Batman
-        ])
+        gs = SimpleNamespace(
+            players=[
+                _player("Jeff", 2000, is_human=True),
+                _player("Batman", 9000),  # AI winner
+                _player("Deadpool", 0),  # busted by Batman
+            ]
+        )
         game_handler._record_cash_scalps(_gd(), gs, "Batman")
         assert repo.list_for_eliminator("sb", "batman") == [("deadpool", 1)]
 
@@ -78,20 +82,24 @@ def test_ai_winner_scalps_other_busted_ai():
 def test_human_victim_is_not_a_scalp():
     # The human hitting 0 is not a scalp victim (they leave, don't bust out).
     with _Ctx() as repo:
-        gs = SimpleNamespace(players=[
-            _player("Jeff", 0, is_human=True),   # human at 0 — excluded
-            _player("Batman", 9000),
-        ])
+        gs = SimpleNamespace(
+            players=[
+                _player("Jeff", 0, is_human=True),  # human at 0 — excluded
+                _player("Batman", 9000),
+            ]
+        )
         game_handler._record_cash_scalps(_gd(), gs, "Batman")
         assert repo.total_for("sb", "batman") == 0
 
 
 def test_no_busts_records_nothing():
     with _Ctx() as repo:
-        gs = SimpleNamespace(players=[
-            _player("Jeff", 5000, is_human=True),
-            _player("Deadpool", 4000),
-        ])
+        gs = SimpleNamespace(
+            players=[
+                _player("Jeff", 5000, is_human=True),
+                _player("Deadpool", 4000),
+            ]
+        )
         game_handler._record_cash_scalps(_gd(), gs, "Jeff")
         assert repo.total_for("sb", "guest_jeff") == 0
 
@@ -99,9 +107,11 @@ def test_no_busts_records_nothing():
 def test_unmapped_winner_skips():
     # Winner not in cash_personality_ids and not human → no eliminator → no-op.
     with _Ctx() as repo:
-        gs = SimpleNamespace(players=[
-            _player("Ghost", 9000),       # not in cash_pids, not human
-            _player("Deadpool", 0),
-        ])
+        gs = SimpleNamespace(
+            players=[
+                _player("Ghost", 9000),  # not in cash_pids, not human
+                _player("Deadpool", 0),
+            ]
+        )
         game_handler._record_cash_scalps(_gd(), gs, "Ghost")
         assert repo.victims_of("sb", "deadpool") == []

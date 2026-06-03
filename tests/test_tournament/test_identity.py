@@ -73,7 +73,9 @@ def test_repo_failure_is_best_effort():
     # The lookup raises, but display must not — and the value can't have come from
     # the repo (it always raises), so it's unambiguously the fallback path.
     assert resolve_display_name('sun_tzu', personality_repo=repo) == 'Sun Tzu'  # humanized
-    assert resolve_display_name('sun_tzu', personality_repo=repo, humanize_fallback=False) == 'sun_tzu'
+    assert (
+        resolve_display_name('sun_tzu', personality_repo=repo, humanize_fallback=False) == 'sun_tzu'
+    )
 
 
 def test_verbatim_fallback_preserves_unresolved_ids():
@@ -82,9 +84,10 @@ def test_verbatim_fallback_preserves_unresolved_ids():
     # seat). Only the repo or owner_name may replace it.
     assert resolve_display_name('McQueen', humanize_fallback=False) == 'McQueen'
     assert resolve_display_name('P07', humanize_fallback=False) == 'P07'
-    assert resolve_display_name(
-        'whatever', is_human=True, owner_name=None, humanize_fallback=False
-    ) == 'whatever'
+    assert (
+        resolve_display_name('whatever', is_human=True, owner_name=None, humanize_fallback=False)
+        == 'whatever'
+    )
 
 
 # --- resolve_display_names (batch) -------------------------------------------

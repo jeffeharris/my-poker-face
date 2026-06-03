@@ -107,3 +107,46 @@ class TestNoEffectTones:
     def test_unknown_tone_returns_none(self):
         assert map_tone("snarky") is None
         assert map_tone("") is None
+
+
+class TestCanonicalTrashTalk:
+    def test_trash_talk_maps_to_full_trash_talk(self):
+        result = map_tone("trash_talk", intensity="spicy")
+        assert result is not None
+        assert result.event is RelationshipEvent.TRASH_TALK
+        assert result.multiplier == pytest.approx(1.0)
+
+    def test_trash_talk_takes_intensity(self):
+        assert map_tone("trash_talk", intensity="chill").multiplier == pytest.approx(0.5)
+
+    def test_emotional_tones_have_no_relationship_mapping(self):
+        # intimidate/dare are dispatched to psychology, never to the repo.
+        assert map_tone("intimidate", intensity="spicy") is None
+        assert map_tone("dare", intensity="spicy") is None
+
+
+class TestSarcasmMode:
+    def test_warm_tones_sharpen(self):
+        from poker.memory.chat_intent import sarcasm_mode_for_tone
+
+        assert sarcasm_mode_for_tone("props") == "sharpen"
+        assert sarcasm_mode_for_tone("gracious") == "sharpen"
+
+    def test_hostile_softens(self):
+        from poker.memory.chat_intent import sarcasm_mode_for_tone
+
+        assert sarcasm_mode_for_tone("trash_talk") == "soften"
+
+    def test_self_directed(self):
+        from poker.memory.chat_intent import sarcasm_mode_for_tone
+
+        assert sarcasm_mode_for_tone("humble") == "self"
+
+    def test_emotional_and_unknown_have_no_mode(self):
+        from poker.memory.chat_intent import sarcasm_mode_for_tone
+
+        assert sarcasm_mode_for_tone("intimidate") is None
+        assert sarcasm_mode_for_tone("dare") is None
+        assert sarcasm_mode_for_tone("befriend") is None  # sincere-only for now
+        assert sarcasm_mode_for_tone(None) is None
+        assert sarcasm_mode_for_tone("nonsense") is None

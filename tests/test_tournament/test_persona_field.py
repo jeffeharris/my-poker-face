@@ -5,9 +5,8 @@ from __future__ import annotations
 import pytest
 
 from flask_app.services.tournament_field import assign_archetypes, select_persona_field
-from tournament.config import DEFAULT_FIELD_ARCHETYPES
+from tournament.config import DEFAULT_FIELD_ARCHETYPES, TournamentConfig
 from tournament.director import build_initial_state
-from tournament.config import TournamentConfig
 
 try:
     from experiments.simulate_bb100 import ARCHETYPES
@@ -48,8 +47,11 @@ class TestSelectPersonaField:
     def test_human_takes_a_seat_first(self):
         repo = FakePersonalityRepo([f'persona_{i}' for i in range(10)])
         entries = select_persona_field(
-            personality_repo=repo, owner_id='alice', field_size=6,
-            rng_seed=1, human_id='human:alice',
+            personality_repo=repo,
+            owner_id='alice',
+            field_size=6,
+            rng_seed=1,
+            human_id='human:alice',
         )
         assert len(entries) == 6
         assert list(entries)[0] == 'human:alice'  # human first

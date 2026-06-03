@@ -38,7 +38,10 @@ def test_leaderboard_orders_by_stack_and_flags_human():
 def test_payout_bubble_and_in_money_transitions():
     s = _session(field_size=18)  # paid_places = 3
     assert s.payout_view() == {
-        'paid_places': 3, 'players_to_money': 15, 'on_bubble': False, 'in_money': False
+        'paid_places': 3,
+        'players_to_money': 15,
+        'on_bubble': False,
+        'in_money': False,
     }
     # Bust down to 4 remaining -> on the bubble.
     for pid in [f'P{i:02d}' for i in range(5, 19)]:  # bust 14, leaving P01..P04

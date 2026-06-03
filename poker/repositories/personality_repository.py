@@ -828,9 +828,7 @@ class PersonalityRepository(BaseRepository):
                 # and start with an empty opponent pool. (Re-seeds of an
                 # existing row go through update_personality_config above,
                 # which leaves circulating untouched = preserved.)
-                self.save_personality(
-                    name, config, source='personalities.json', circulating=True
-                )
+                self.save_personality(name, config, source='personalities.json', circulating=True)
                 added += 1
 
         logger.info(
@@ -878,7 +876,8 @@ class PersonalityRepository(BaseRepository):
         if pid is None:
             logger.warning(
                 "save_avatar_image: %r matches no persona — skipping (avatars are "
-                "keyed by personality_id)", personality_name
+                "keyed by personality_id)",
+                personality_name,
             )
             return
         with self._get_connection() as conn:
@@ -913,8 +912,7 @@ class PersonalityRepository(BaseRepository):
             return None
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT image_data FROM avatar_images "
-                "WHERE personality_id = ? AND emotion = ?",
+                "SELECT image_data FROM avatar_images " "WHERE personality_id = ? AND emotion = ?",
                 (pid, emotion),
             )
 
@@ -1021,8 +1019,7 @@ class PersonalityRepository(BaseRepository):
             return []
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT emotion FROM avatar_images "
-                "WHERE personality_id = ? ORDER BY emotion",
+                "SELECT emotion FROM avatar_images " "WHERE personality_id = ? ORDER BY emotion",
                 (pid,),
             )
             return [row[0] for row in cursor.fetchall()]
@@ -1154,7 +1151,8 @@ class PersonalityRepository(BaseRepository):
         if pid is None:
             logger.warning(
                 "assign_avatar: %r matches no persona — skipping (avatars are keyed "
-                "by personality_id)", personality_name
+                "by personality_id)",
+                personality_name,
             )
             return
         with self._get_connection() as conn:

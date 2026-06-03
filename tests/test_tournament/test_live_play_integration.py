@@ -13,6 +13,7 @@ import pytest
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
+
 def _rebind_handler_globals(monkeypatch):
     """Repair import-copied extension globals across every already-imported
     `flask_app.handlers.*` module. Those modules do `from ..extensions import
@@ -33,7 +34,6 @@ def _rebind_handler_globals(monkeypatch):
         for name, value in live.items():
             if value is not None and getattr(mod, name, 'x') is None:
                 monkeypatch.setattr(mod, name, value, raising=False)
-
 
 
 @pytest.fixture(scope="module")
@@ -79,9 +79,9 @@ def test_build_persists_zero_llm_intent(app, monkeypatch):
         # Live controllers carry no expression layer (zero-LLM field).
         gd = game_state_service.get_game(game_id)
         for name, ctrl in gd["ai_controllers"].items():
-            assert getattr(ctrl, "expression_generator", None) is None, (
-                f"AI seat {name} has an expression generator — field is not zero-LLM"
-            )
+            assert (
+                getattr(ctrl, "expression_generator", None) is None
+            ), f"AI seat {name} has an expression generator — field is not zero-LLM"
 
 
 def test_persona_field_builds_talking_controllers(app, monkeypatch):
@@ -110,11 +110,16 @@ def test_persona_field_builds_talking_controllers(app, monkeypatch):
 
         cfg = TournamentConfig(field_size=2, table_size=2, starting_stack=8000, seed=5)
         session = TournamentSession(
-            cfg, ai_resolver=FakeHandResolver(),
-            human_id=human_id, entries={human_id: 'LAG', persona_id: 'CaseBot'},
+            cfg,
+            ai_resolver=FakeHandResolver(),
+            human_id=human_id,
+            entries={human_id: 'LAG', persona_id: 'CaseBot'},
         )
         game_id = build_tournament_game(
-            session, tournament_id="itest-persona", owner_id=owner_id, owner_name="Tester",
+            session,
+            tournament_id="itest-persona",
+            owner_id=owner_id,
+            owner_name="Tester",
         )
 
         # Cold-load contract: ai_chat on + the persona's real provider/model config.
@@ -123,16 +128,16 @@ def test_persona_field_builds_talking_controllers(app, monkeypatch):
         assert llm_configs.get("ai_chat") is True, "persona field must persist ai_chat=True"
         assert persona_id in (llm_configs.get("bot_types") or {})
         per_seat = llm_configs.get("player_llm_configs") or {}
-        assert per_seat.get(persona_id), (
-            "persona seat must persist a non-empty llm_config (provider/model) for cold-load"
-        )
+        assert per_seat.get(
+            persona_id
+        ), "persona seat must persist a non-empty llm_config (provider/model) for cold-load"
 
         # The live persona seat carries the expression (table-talk) layer.
         gd = game_state_service.get_game(game_id)
         ctrl = gd["ai_controllers"][persona_id]
-        assert getattr(ctrl, "expression_generator", None) is not None, (
-            "persona seat is missing its expression generator — no table talk"
-        )
+        assert (
+            getattr(ctrl, "expression_generator", None) is not None
+        ), "persona seat is missing its expression generator — no table talk"
 
 
 def test_human_plays_real_hands_to_a_terminal_state(app, monkeypatch):
@@ -267,8 +272,10 @@ def test_tournament_observations_fold_into_dossier(app, monkeypatch):
                 entries={human_id: 'LAG', persona_id: 'CaseBot'},
             )
             game_id = build_tournament_game(
-                session, tournament_id="itest-dossier",
-                owner_id=owner_id, owner_name=owner_name,
+                session,
+                tournament_id="itest-dossier",
+                owner_id=owner_id,
+                owner_name=owner_name,
             )
 
             # The built memory_manager must carry a sandbox (Break A) and have
@@ -278,9 +285,9 @@ def test_tournament_observations_fold_into_dossier(app, monkeypatch):
             assert mm.sandbox_id, "tournament memory_manager has no sandbox_id (Break A)"
             # The seat's Player.name IS persona_id (MTT bridge); it must register
             # under that same id so folds key the shared dossier row (Break B).
-            assert mm.get_opponent_model_manager()._name_to_id.get(persona_id) == persona_id, (
-                "persona seat did not register its personality_id (Break B)"
-            )
+            assert (
+                mm.get_opponent_model_manager()._name_to_id.get(persona_id) == persona_id
+            ), "persona seat did not register its personality_id (Break B)"
 
             def act_for_human():
                 gd = game_state_service.get_game(game_id)
@@ -310,16 +317,14 @@ def test_tournament_observations_fold_into_dossier(app, monkeypatch):
                     break
 
             sandbox_id = resolve_default_sandbox_for(owner_id, sandbox_repo=_ext.sandbox_repo)
-            lifetime = _ext.game_repo.load_observation_lifetime(
-                sandbox_id, owner_id, persona_id
-            )
+            lifetime = _ext.game_repo.load_observation_lifetime(sandbox_id, owner_id, persona_id)
             assert lifetime is not None, (
                 "no opponent_observation_lifetime row — tournament hands did not "
                 "fold into the dossier grind"
             )
-            assert lifetime.get('hands_dealt', 0) >= 1, (
-                f"lifetime row exists but recorded no hands dealt: {lifetime}"
-            )
+            assert (
+                lifetime.get('hands_dealt', 0) >= 1
+            ), f"lifetime row exists but recorded no hands dealt: {lifetime}"
         finally:
             if original_speed is not None:
                 cfgmod.ANIMATION_SPEED = original_speed

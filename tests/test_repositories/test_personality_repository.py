@@ -197,9 +197,7 @@ def test_avatar_keyed_on_personality_id(repo, db_path):
     # Storage is keyed on personality_id; the legacy name column no longer exists.
     conn = sqlite3.connect(db_path)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(avatar_images)")}
-    row = conn.execute(
-        "SELECT personality_id FROM avatar_images WHERE emotion='happy'"
-    ).fetchone()
+    row = conn.execute("SELECT personality_id FROM avatar_images WHERE emotion='happy'").fetchone()
     conn.close()
     assert "personality_name" not in cols  # legacy column dropped (v138)
     assert row == (pid,)

@@ -96,7 +96,12 @@ def _ensure_position_groups() -> None:
     from poker.hand_ranges import Position
 
     _POSITION_GROUP_BY_NAME.update(
-        {'early': Position.EARLY, 'middle': Position.MIDDLE, 'late': Position.LATE, 'blind': Position.BLIND}
+        {
+            'early': Position.EARLY,
+            'middle': Position.MIDDLE,
+            'late': Position.LATE,
+            'blind': Position.BLIND,
+        }
     )
 
 
@@ -114,7 +119,11 @@ def position_to_group(position: Optional[str]) -> Optional[str]:
     if 'blind' in p or p in ('sb', 'bb'):
         return 'blind'
     # Long game keys → reuse hand_ranges' own mapper for the openers.
-    if p in ('button', 'cutoff') or p.startswith('under_the_gun') or p.startswith('middle_position'):
+    if (
+        p in ('button', 'cutoff')
+        or p.startswith('under_the_gun')
+        or p.startswith('middle_position')
+    ):
         try:
             from poker.hand_ranges import get_position_group
 
@@ -140,7 +149,12 @@ def _ensure_group_names() -> None:
     from poker.hand_ranges import Position
 
     _GROUP_NAME_BY_ENUM.update(
-        {Position.EARLY: 'early', Position.MIDDLE: 'middle', Position.LATE: 'late', Position.BLIND: 'blind'}
+        {
+            Position.EARLY: 'early',
+            Position.MIDDLE: 'middle',
+            Position.LATE: 'late',
+            Position.BLIND: 'blind',
+        }
     )
 
 
@@ -205,9 +219,7 @@ def compute_preflop_leaks(
             agg[(group, canon)][0] += 1
 
     # Per-position rollup (ungated — VPIP context + total loose-play count).
-    pos: dict[str, dict] = defaultdict(
-        lambda: {'decisions': 0, 'voluntary': 0, 'loose_plays': 0}
-    )
+    pos: dict[str, dict] = defaultdict(lambda: {'decisions': 0, 'voluntary': 0, 'loose_plays': 0})
     leaks: list[PreflopLeak] = []
     sampled = 0
     for (group, canon), (vol, n) in agg.items():
@@ -225,7 +237,13 @@ def compute_preflop_leaks(
                 status = 'confirmed' if n >= CONFIRM_MIN_SEEN else 'watching'
                 leaks.append(
                     PreflopLeak(
-                        group, canon, 'too_loose', n, round(100.0 * vol / n, 1), plays_ref, vol,
+                        group,
+                        canon,
+                        'too_loose',
+                        n,
+                        round(100.0 * vol / n, 1),
+                        plays_ref,
+                        vol,
                         status=status,
                     )
                 )

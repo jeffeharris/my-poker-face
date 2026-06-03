@@ -465,11 +465,17 @@ def _two_lobby_tables(cash_table_repo, *, marquee_occupant, plain_occupant):
     'cash-zzz-marquee', so the greedy id-tiebreak picks plain when nothing else
     separates them; the marquee term has to OVERRIDE that to prove it works."""
     plain = CashTableState(
-        table_id="cash-aaa-plain", stake_label="$2", name="Plain", table_type="lobby",
+        table_id="cash-aaa-plain",
+        stake_label="$2",
+        name="Plain",
+        table_type="lobby",
         seats=[ai_slot(plain_occupant, 80)] + [open_slot() for _ in range(5)],
     )
     marquee = CashTableState(
-        table_id="cash-zzz-marquee", stake_label="$2", name="Marquee", table_type="lobby",
+        table_id="cash-zzz-marquee",
+        stake_label="$2",
+        name="Marquee",
+        table_type="lobby",
         seats=[ai_slot(marquee_occupant, 80)] + [open_slot() for _ in range(5)],
     )
     cash_table_repo.save_table(plain, sandbox_id=SB)
@@ -484,30 +490,46 @@ def _two_lobby_tables(cash_table_repo, *, marquee_occupant, plain_occupant):
 def _seek(db_path, cash_table_repo, bankroll_repo, now):
     """A rolled-up status-seeker (high glory anchors) sitting idle."""
     _insert_persona_with_anchors(
-        db_path, "seeker_s", name="Seeker",
-        knobs={"starting_bankroll": 5_000, "bankroll_rate": 0,
-               "buy_in_multiplier": 1.0, "stake_comfort_zone": "$2"},
+        db_path,
+        "seeker_s",
+        name="Seeker",
+        knobs={
+            "starting_bankroll": 5_000,
+            "bankroll_rate": 0,
+            "buy_in_multiplier": 1.0,
+            "stake_comfort_zone": "$2",
+        },
         anchors={"expressiveness": 0.9, "ego": 0.9},  # a glory-hunter
     )
     bankroll_repo.save_ai_bankroll(
-        AIBankrollState(personality_id="seeker_s", chips=5_000, last_regen_tick=None),
-        sandbox_id=SB)
-    idle = IdlePoolEntry(personality_id="seeker_s", left_at=now - timedelta(hours=6),
-                         reason="bored_move", target_stake=None)
+        AIBankrollState(personality_id="seeker_s", chips=5_000, last_regen_tick=None), sandbox_id=SB
+    )
+    idle = IdlePoolEntry(
+        personality_id="seeker_s",
+        left_at=now - timedelta(hours=6),
+        reason="bored_move",
+        target_stake=None,
+    )
     cash_table_repo.save_idle(idle, sandbox_id=SB)
     return idle
 
 
 def _run_fill(db_path, fill_ctx, idle, *, renown_percentiles, seated, now):
     _process_global_greedy_fills(
-        fill_ctx=fill_ctx, idle_pool=[idle], eligible=[], seated_globally=seated,
+        fill_ctx=fill_ctx,
+        idle_pool=[idle],
+        eligible=[],
+        seated_globally=seated,
         fish_ids=set(),
         bankroll_lookup=lambda pid: 5_000 if pid == "seeker_s" else None,
         bankroll_repo=BankrollRepository(db_path),
         cash_table_repo=CashTableRepository(db_path),
         chip_ledger_repo=ChipLedgerRepository(db_path),
         personality_repo=PersonalityRepository(db_path),
-        sandbox_id=SB, now=now, rng=random.Random(0), seek_rate=1.0,
+        sandbox_id=SB,
+        now=now,
+        rng=random.Random(0),
+        seek_rate=1.0,
         renown_percentiles=renown_percentiles,
     )
 
@@ -528,13 +550,19 @@ def test_marquee_routes_status_seeker_to_famous_table(db_path):
     cash_table_repo = CashTableRepository(db_path)
     bankroll_repo = BankrollRepository(db_path)
     now = datetime(2026, 6, 2, 12, 0, 0)
-    fill_ctx = _two_lobby_tables(cash_table_repo, marquee_occupant="legend_l",
-                                 plain_occupant="nobody_n")
+    fill_ctx = _two_lobby_tables(
+        cash_table_repo, marquee_occupant="legend_l", plain_occupant="nobody_n"
+    )
     idle = _seek(db_path, cash_table_repo, bankroll_repo, now)
     seated = {"legend_l", "nobody_n"}
-    _run_fill(db_path, fill_ctx, idle,
-              renown_percentiles={"legend_l": 0.90, "nobody_n": 0.15, "seeker_s": 0.5},
-              seated=seated, now=now)
+    _run_fill(
+        db_path,
+        fill_ctx,
+        idle,
+        renown_percentiles={"legend_l": 0.90, "nobody_n": 0.15, "seeker_s": 0.5},
+        seated=seated,
+        now=now,
+    )
 
     assert _seeker_table(db_path) == "cash-zzz-marquee"
     # Conservation: funded by an inline debit, no mint ($2 = 80 chips).
@@ -549,10 +577,12 @@ def test_marquee_inert_without_renown_seeks_by_tiebreak(db_path):
     cash_table_repo = CashTableRepository(db_path)
     bankroll_repo = BankrollRepository(db_path)
     now = datetime(2026, 6, 2, 12, 0, 0)
-    fill_ctx = _two_lobby_tables(cash_table_repo, marquee_occupant="legend_l",
-                                 plain_occupant="nobody_n")
+    fill_ctx = _two_lobby_tables(
+        cash_table_repo, marquee_occupant="legend_l", plain_occupant="nobody_n"
+    )
     idle = _seek(db_path, cash_table_repo, bankroll_repo, now)
-    _run_fill(db_path, fill_ctx, idle, renown_percentiles=None,
-              seated={"legend_l", "nobody_n"}, now=now)
+    _run_fill(
+        db_path, fill_ctx, idle, renown_percentiles=None, seated={"legend_l", "nobody_n"}, now=now
+    )
 
     assert _seeker_table(db_path) == "cash-aaa-plain"

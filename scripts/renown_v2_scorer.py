@@ -125,13 +125,13 @@ class Weights:
     # treadmill); 'hands' = the naive counterfactual we run to PROVE the lever.
     volume_denominator: str = "wallclock"
 
-    # relative quadrant. "High renown" = top-fraction of the field AND at least
-    # `median_multiple`× the field median renown. The percentile caps HOW MANY
-    # can be figures (prevents star-inflation as renown ratchets up forever);
-    # the median floor is a self-scaling QUALITY bar (a tourist-heavy field
-    # can't manufacture fake stars — the v1 absolute-threshold trap, avoided).
-    high_renown_top_fraction: float = 0.20
-    high_renown_median_multiple: float = 3.0
+    # relative quadrant. "High renown" = the top-fraction of the field by renown
+    # (a pure rank percentile). It caps HOW MANY can be figures (prevents star-
+    # inflation as renown ratchets up forever) and self-scales with the field.
+    # A retired `median_multiple`× floor was dropped: renown is concave/thin-
+    # tailed (max ~2.6× median on a real field), so a 3× MULTIPLICATIVE gate
+    # exceeded the field max → zero figures, and tightened as the field improved.
+    high_renown_top_fraction: float = 0.10
 
     # stake tiers, low->high, for stakes-mastery depth credit
     stake_order: Tuple[str, ...] = ("$2", "$10", "$50", "$200", "$1000")
@@ -352,14 +352,13 @@ def _median(values: List[float]) -> float:
 
 
 def high_renown_cut(renowns: List[float], w: Weights) -> float:
-    """Effective 'high renown' threshold = max(top-X% boundary, k×median).
+    """'High renown' threshold = the top-X% renown boundary (pure percentile).
 
-    A single number because (renown ≥ pct_cut) AND (renown ≥ floor) is just
-    (renown ≥ max(pct_cut, floor)). Both inputs are field-relative, so the cut
-    self-scales with the field and needs no absolute constant."""
-    pct = percentile_cut(renowns, w.high_renown_top_fraction)
-    floor = w.high_renown_median_multiple * _median(renowns)
-    return max(pct, floor)
+    Rank-based, so it self-scales with the field and is robust to renown's
+    concave/thin-tailed shape. A `k×median` floor was retired: on the concave
+    scale (max ~2.6× median) a 3× multiplicative gate exceeded the field max
+    (zero figures) and tightened as the field grew more accomplished."""
+    return percentile_cut(renowns, w.high_renown_top_fraction)
 
 
 # ---------------------------------------------------------------------------
@@ -515,8 +514,8 @@ def _print_board(title: str, entities, w: Weights):
     n_high = sum(1 for r in renowns.values() if r >= cut)
     print(f"\n{'='*92}\n{title}")
     print(f"(field={len(entities)}; volume denominator = {w.volume_denominator!r}; "
-          f"high-renown = top {int(w.high_renown_top_fraction*100)}% AND "
-          f"≥{w.high_renown_median_multiple:g}×median → renown ≥ {cut:.2f}; "
+          f"high-renown = top {int(w.high_renown_top_fraction*100)}% of the field "
+          f"→ renown ≥ {cut:.2f}; "
           f"{n_high} entities high)")
     print("-" * 92)
     hdr = f"{'#':>3} {'entity':24} {'renown':>7} {'quad':>16}  dominant driver"

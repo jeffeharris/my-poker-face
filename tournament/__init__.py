@@ -29,7 +29,7 @@ from .director import (
     TournamentResult,
 )
 from .field import Elimination, TournamentField
-from .seating import SeatMove, SeatingManager, Table, build_initial_seating
+from .seating import SeatingManager, SeatMove, Table, build_initial_seating
 from .session import TournamentSession
 
 __all__ = [

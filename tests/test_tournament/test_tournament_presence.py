@@ -71,7 +71,10 @@ class TestSelectExclude:
     def test_exclude_omits_personas(self):
         repo = FakePersonalityRepo([f'p{i}' for i in range(10)])
         entries = select_persona_field(
-            personality_repo=repo, owner_id=OWNER, field_size=6, rng_seed=1,
+            personality_repo=repo,
+            owner_id=OWNER,
+            field_size=6,
+            rng_seed=1,
             exclude={'p0', 'p1', 'p2', 'p3', 'p4'},
         )
         assert entries  # still fields from the remaining 5
@@ -83,8 +86,10 @@ class TestDraftExclusions:
         _, _, session_repo = repos
         cash = FakeCashTableRepo({'seated_a', 'seated_b'})
         excl = tournament_spawn.draft_exclusions(
-            cash_table_repo=cash, session_repo=session_repo,
-            owner_id=OWNER, sandbox_id=SB,
+            cash_table_repo=cash,
+            session_repo=session_repo,
+            owner_id=OWNER,
+            sandbox_id=SB,
         )
         assert excl == {'seated_a', 'seated_b'}
 
@@ -97,10 +102,17 @@ class TestSpawnNeverDraftsSeated:
         persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(6)])
         cash = FakeCashTableRepo({'persona_0', 'persona_1'})
         spawned = tournament_spawn.spawn_autonomous_tournament(
-            owner_id=OWNER, sandbox_id=SB,
-            personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-            ledger_repo=ledger_repo, session_repo=session_repo, cash_table_repo=cash,
-            field_size=6, table_size=3, seed=2, rng_seed=2,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            personality_repo=persona_repo,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+            cash_table_repo=cash,
+            field_size=6,
+            table_size=3,
+            seed=2,
+            rng_seed=2,
         )
         assert spawned is not None
         entries = spawned['entries']
@@ -117,10 +129,16 @@ class TestActiveParticipantsAndRelease:
         _flush(ledger_repo)
         persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
         spawned = tournament_spawn.spawn_autonomous_tournament(
-            owner_id=OWNER, sandbox_id=SB,
-            personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-            ledger_repo=ledger_repo, session_repo=session_repo,
-            field_size=6, table_size=3, seed=3, rng_seed=3,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            personality_repo=persona_repo,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
+            field_size=6,
+            table_size=3,
+            seed=3,
+            rng_seed=3,
         )
         tid, session, entries = spawned['tournament_id'], spawned['session'], spawned['entries']
 
@@ -131,15 +149,23 @@ class TestActiveParticipantsAndRelease:
 
         # And a fresh draft won't pick them (already in a tournament).
         excl = tournament_spawn.draft_exclusions(
-            cash_table_repo=None, session_repo=session_repo, owner_id=OWNER, sandbox_id=SB,
+            cash_table_repo=None,
+            session_repo=session_repo,
+            owner_id=OWNER,
+            sandbox_id=SB,
         )
         assert set(entries) <= excl
 
         # Play out + settle → released.
         session.play_out()
         tournament_spawn.settle_autonomous_tournament(
-            tournament_id=tid, session=session, entries=entries, sandbox_id=SB,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=tid,
+            session=session,
+            entries=entries,
+            sandbox_id=SB,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         assert session_repo.load(tid)['status'] == 'complete'
         assert session_repo.active_participant_pids(OWNER) == set()  # released

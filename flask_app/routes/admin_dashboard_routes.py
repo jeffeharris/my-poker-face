@@ -211,9 +211,7 @@ def api_playground_captures():
         # /api/playground/stats separately. Defaults true for back-compat.
         include_stats = request.args.get('include_stats', 'true').lower() != 'false'
         stats = (
-            extensions.prompt_capture_repo.get_playground_capture_stats()
-            if include_stats
-            else None
+            extensions.prompt_capture_repo.get_playground_capture_stats() if include_stats else None
         )
 
         return jsonify(

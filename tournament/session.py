@@ -47,6 +47,7 @@ def paid_places_for(field_size: int) -> int:
     """How many places are 'in the money' for a given field size (min 2)."""
     return max(2, round(field_size * IN_THE_MONEY_FRACTION))
 
+
 # Signature shared by the AI resolver's `.resolve` and the human-table callback.
 HandFn = Callable[..., dict[str, int]]
 
@@ -108,9 +109,7 @@ class TournamentSession:
         )
         return cls(config, FakeHandResolver(), human_id=human_id, entries=entries)
 
-    def fold_live_hand(
-        self, stacks_after: dict[str, int], eliminator: str | None = None
-    ) -> list:
+    def fold_live_hand(self, stacks_after: dict[str, int], eliminator: str | None = None) -> list:
         """Fold a completed live hand at the (single) table into the field and
         record any eliminations — without touching seating, blinds, or pacing.
 
@@ -261,7 +260,9 @@ class TournamentSession:
                 'table_id': ht.table_id if ht else None,
                 'in_money': self._human_in_money(payout['paid_places']),
             },
-            'tables': [self._table_view(t) for t in sorted(self.seating.tables, key=lambda t: t.table_id)],
+            'tables': [
+                self._table_view(t) for t in sorted(self.seating.tables, key=lambda t: t.table_id)
+            ],
             'recent_eliminations': [
                 {
                     'player_id': e.player_id,
@@ -353,9 +354,7 @@ class TournamentSession:
 
         self.field.assert_conservation()
 
-        busted = [
-            (pid, pre[pid]) for pid in self.field.active_ids() if self.field.stacks[pid] <= 0
-        ]
+        busted = [(pid, pre[pid]) for pid in self.field.active_ids() if self.field.stacks[pid] <= 0]
         gains_by_table: dict[int, dict[str, int]] = {}
         for pid, start in pre.items():
             tid = table_of_player.get(pid)
@@ -469,9 +468,7 @@ class TournamentSession:
         # or a real persona id) fails to rehydrate on cold load with
         # "human_id ... is not in the field". We then overwrite the mutable world
         # with the fully-restored field/seating/counters.
-        session = cls(
-            config, ai_resolver, human_id=d['human_id'], entries=d['field']['entries']
-        )
+        session = cls(config, ai_resolver, human_id=d['human_id'], entries=d['field']['entries'])
         session.field = TournamentField.from_dict(d['field'])
         session.seating = Seating.from_dict(d['seating'])
         session.entries = dict(session.field.entries)

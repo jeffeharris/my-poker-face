@@ -1,0 +1,30 @@
+name: post_round_commiserate
+version: 1.0.0
+sections:
+  instruction: |-
+    Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
+
+    HAND INFO:
+    {hand_context}
+
+    Read the HAND INFO carefully:
+      - OUTCOME — who won and who lost.
+      - WINNER / OPPONENTS AT SHOWDOWN — who took the pot and who got beat.
+
+    GOAL: COMMISERATE with someone who LOST a pot you weren't the winner of —
+    a bystander or a beaten opponent, NOT the player who beat you. Warm,
+    sympathetic, "we've all been there." Console them about a rough beat.
+    Reference real details — the hand they ran into, the board. Do NOT
+    invent opponents or cards, and do NOT congratulate the winner here.
+
+    {intensity_guidance}
+
+    Style examples — match the spirit, don't copy verbatim:
+
+    ✓ "Brutal spot, that flush was always getting there."
+    ✓ "Tough one — you played it right, just ran into it."
+    ✓ "Ouch. Set over set is the worst feeling in poker."
+
+    Keep it SHORT (10-15 words max). First person.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "commiserate"}}, {{"text": "...", "tone": "commiserate"}}]}}

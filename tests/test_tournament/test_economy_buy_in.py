@@ -35,8 +35,12 @@ def repos():
         session_repo = TournamentSessionRepository(path)
         # A registered (but pre-economy) tournament row to stamp economy onto.
         session_repo.save(
-            tournament_id=TID, owner_id=OWNER, status='active',
-            resolver_kind='fake', session_json='{}', created_at='2026-06-01T00:00:00',
+            tournament_id=TID,
+            owner_id=OWNER,
+            status='active',
+            resolver_kind='fake',
+            session_json='{}',
+            created_at='2026-06-01T00:00:00',
         )
         yield ledger_repo, bankroll_repo, session_repo
         ledger_repo.close()
@@ -86,8 +90,13 @@ class TestApplyBuyIn:
             ledger_repo=ledger_repo, sandbox_id=SB, field_size=9, buy_in=500, human_in=True
         )
         econ.apply_buy_in(
-            tournament_id=TID, owner_id=OWNER, sandbox_id=SB, plan=plan,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            plan=plan,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         assert bankroll_repo.load_player_bankroll(OWNER).chips == 4_500
         assert ledger_repo.balance_of(tournament(TID), sandbox_id=SB) == 500
@@ -105,8 +114,13 @@ class TestApplyBuyIn:
             ledger_repo=ledger_repo, sandbox_id=SB, field_size=9, buy_in=500, human_in=True
         )
         econ.apply_buy_in(
-            tournament_id=TID, owner_id=OWNER, sandbox_id=SB, plan=plan,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            plan=plan,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         # Escrow == buy-in + overlay.
         assert ledger_repo.balance_of(tournament(TID), sandbox_id=SB) == 500 + plan.bank_overlay
@@ -120,8 +134,13 @@ class TestApplyBuyIn:
         )
         with pytest.raises(econ.InsufficientFundsError) as exc:
             econ.apply_buy_in(
-                tournament_id=TID, owner_id=OWNER, sandbox_id=SB, plan=plan,
-                bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+                tournament_id=TID,
+                owner_id=OWNER,
+                sandbox_id=SB,
+                plan=plan,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=ledger_repo,
+                session_repo=session_repo,
             )
         assert exc.value.required == 500
         assert exc.value.available == 200
@@ -137,8 +156,13 @@ class TestApplyBuyIn:
             ledger_repo=ledger_repo, sandbox_id=SB, field_size=9, buy_in=0, human_in=True
         )
         econ.apply_buy_in(
-            tournament_id=TID, owner_id=OWNER, sandbox_id=SB, plan=plan,
-            bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=session_repo,
+            tournament_id=TID,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            plan=plan,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+            session_repo=session_repo,
         )
         assert bankroll_repo.load_player_bankroll(OWNER).chips == 5_000
         assert ledger_repo.balance_of(tournament(TID), sandbox_id=SB) == 0
@@ -157,8 +181,13 @@ class TestApplyBuyIn:
 
         with pytest.raises(RuntimeError):
             econ.apply_buy_in(
-                tournament_id=TID, owner_id=OWNER, sandbox_id=SB, plan=plan,
-                bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=BoomRepo(),
+                tournament_id=TID,
+                owner_id=OWNER,
+                sandbox_id=SB,
+                plan=plan,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=ledger_repo,
+                session_repo=BoomRepo(),
             )
         # Human re-credited; no orphan escrow row (ledger writes come AFTER set_economy).
         assert bankroll_repo.load_player_bankroll(OWNER).chips == 5_000
@@ -181,7 +210,8 @@ class TestApplyBuyIn:
                 cur = bankroll_repo.load_player_bankroll(OWNER)
                 bankroll_repo.save_player_bankroll(
                     PlayerBankrollState(
-                        player_id=OWNER, chips=cur.chips + 1_000,
+                        player_id=OWNER,
+                        chips=cur.chips + 1_000,
                         starting_bankroll=cur.starting_bankroll,
                     )
                 )
@@ -189,8 +219,13 @@ class TestApplyBuyIn:
 
         with pytest.raises(RuntimeError):
             econ.apply_buy_in(
-                tournament_id=TID, owner_id=OWNER, sandbox_id=SB, plan=plan,
-                bankroll_repo=bankroll_repo, ledger_repo=ledger_repo, session_repo=RacingRepo(),
+                tournament_id=TID,
+                owner_id=OWNER,
+                sandbox_id=SB,
+                plan=plan,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=ledger_repo,
+                session_repo=RacingRepo(),
             )
         # 5000 −500 (debit) +1000 (concurrent) +500 (rollback re-credit) = 6000.
         # A stale-snapshot rollback would wrongly restore 5000, losing the +1000.

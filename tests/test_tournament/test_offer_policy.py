@@ -73,8 +73,11 @@ class TestMaybeOfferMainEvent:
     def test_flush_offers_an_invite(self, kit):
         _make_flush(kit['ledger_repo'])
         invite = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
         )
         assert invite is not None
         assert invite['status'] == 'offered'
@@ -83,24 +86,33 @@ class TestMaybeOfferMainEvent:
     def test_neutral_offers_nothing(self, kit):
         # Cold ledger → NEUTRAL → no event.
         invite = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
         )
         assert invite is None
 
     def test_cooldown_blocks_back_to_back(self, kit):
         _make_flush(kit['ledger_repo'])
         first = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
         )
         assert first is not None
         # Resolve it so the "one open at a time" guard isn't what's blocking — we
         # want to prove the COOLDOWN blocks a fresh offer right after.
         kit['invite_repo'].resolve(first['invite_id'], status='declined')
         again = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
             now=datetime.utcnow(),  # ~immediately after → within cooldown
         )
         assert again is None
@@ -108,14 +120,20 @@ class TestMaybeOfferMainEvent:
     def test_offer_again_after_cooldown(self, kit):
         _make_flush(kit['ledger_repo'])
         first = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
         )
         kit['invite_repo'].resolve(first['invite_id'], status='declined')
         future = datetime.utcnow() + timedelta(seconds=chair.MAIN_EVENT_COOLDOWN_SECONDS + 60)
         again = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
             now=future,
         )
         assert again is not None
@@ -123,8 +141,11 @@ class TestMaybeOfferMainEvent:
     def test_expiry_window_stamped(self, kit):
         _make_flush(kit['ledger_repo'])
         invite = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
             expiry_seconds=3600,
         )
         assert invite['expires_at'] is not None
@@ -135,8 +156,12 @@ class TestMaybeOfferMainEvent:
         _make_flush(kit['ledger_repo'])
         now = datetime.utcnow()
         invite = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB, now=now,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
+            now=now,
         )
         assert invite['expires_at'] is not None
         expires = datetime.fromisoformat(invite['expires_at'])
@@ -148,8 +173,11 @@ class TestMaybeOfferMainEvent:
         """Passing expiry_seconds=None opts out of auto-expiry (wait for player)."""
         _make_flush(kit['ledger_repo'])
         invite = inv.maybe_offer_main_event(
-            invite_repo=kit['invite_repo'], session_repo=kit['session_repo'],
-            ledger_repo=kit['ledger_repo'], owner_id=OWNER, sandbox_id=SB,
+            invite_repo=kit['invite_repo'],
+            session_repo=kit['session_repo'],
+            ledger_repo=kit['ledger_repo'],
+            owner_id=OWNER,
+            sandbox_id=SB,
             expiry_seconds=None,
         )
         assert invite['expires_at'] is None

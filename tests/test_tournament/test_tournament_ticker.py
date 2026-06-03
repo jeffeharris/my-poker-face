@@ -175,10 +175,17 @@ def test_advance_owner_tournament_plays_out_and_surfaces_winner(repos, wired_ses
     _make_flush(ledger_repo)
     persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
     spawned = spawn_autonomous_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
-        field_size=6, table_size=3, starting_stack=10_000, seed=11, rng_seed=11,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+        field_size=6,
+        table_size=3,
+        starting_stack=10_000,
+        seed=11,
+        rng_seed=11,
     )
     assert spawned is not None
     _register_autonomous(spawned)
@@ -188,8 +195,12 @@ def test_advance_owner_tournament_plays_out_and_surfaces_winner(repos, wired_ses
     ticks = 0
     while not complete:
         result = tournament_ticker.advance_owner_tournament(
-            owner_id=OWNER, sandbox_id=SB, registry=tournament_registry,
-            session_repo=session_repo, bankroll_repo=bankroll_repo, ledger_repo=ledger_repo,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            registry=tournament_registry,
+            session_repo=session_repo,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
             personality_repo=persona_repo,
         )
         assert result is not None, "autonomous tournament should advance"
@@ -213,10 +224,17 @@ def test_advance_owner_tournament_plays_out_and_surfaces_winner(repos, wired_ses
     assert session_repo.load(spawned['tournament_id'])['payout_status'] == 'complete'
 
     # Once complete, the next tick finds nothing active to advance.
-    assert tournament_ticker.advance_owner_tournament(
-        owner_id=OWNER, sandbox_id=SB, registry=tournament_registry,
-        session_repo=session_repo, bankroll_repo=bankroll_repo, ledger_repo=ledger_repo,
-    ) is None
+    assert (
+        tournament_ticker.advance_owner_tournament(
+            owner_id=OWNER,
+            sandbox_id=SB,
+            registry=tournament_registry,
+            session_repo=session_repo,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+        )
+        is None
+    )
 
 
 def test_advance_skips_human_tournament(repos, wired_session_repo):
@@ -224,23 +242,45 @@ def test_advance_skips_human_tournament(repos, wired_session_repo):
     _make_flush(ledger_repo)
     persona_repo = FakePersonalityRepo([f'persona_{i}' for i in range(8)])
     built = create_human_tournament(
-        owner_id=OWNER, sandbox_id=SB,
-        personality_repo=persona_repo, bankroll_repo=bankroll_repo,
-        ledger_repo=ledger_repo, session_repo=session_repo,
-        buy_in=0, field_size=6, table_size=3, starting_stack=10_000, seed=5, rng_seed=5,
+        owner_id=OWNER,
+        sandbox_id=SB,
+        personality_repo=persona_repo,
+        bankroll_repo=bankroll_repo,
+        ledger_repo=ledger_repo,
+        session_repo=session_repo,
+        buy_in=0,
+        field_size=6,
+        table_size=3,
+        starting_stack=10_000,
+        seed=5,
+        rng_seed=5,
     )
     assert built is not None  # registers itself into the registry
 
     # The human's tournament is player-gated — the ticker must not advance it.
-    assert tournament_ticker.advance_owner_tournament(
-        owner_id=OWNER, sandbox_id=SB, registry=tournament_registry,
-        session_repo=session_repo, bankroll_repo=bankroll_repo, ledger_repo=ledger_repo,
-    ) is None
+    assert (
+        tournament_ticker.advance_owner_tournament(
+            owner_id=OWNER,
+            sandbox_id=SB,
+            registry=tournament_registry,
+            session_repo=session_repo,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+        )
+        is None
+    )
 
 
 def test_advance_returns_none_without_tournament(repos, wired_session_repo):
     ledger_repo, bankroll_repo, session_repo = repos
-    assert tournament_ticker.advance_owner_tournament(
-        owner_id=OWNER, sandbox_id=SB, registry=tournament_registry,
-        session_repo=session_repo, bankroll_repo=bankroll_repo, ledger_repo=ledger_repo,
-    ) is None
+    assert (
+        tournament_ticker.advance_owner_tournament(
+            owner_id=OWNER,
+            sandbox_id=SB,
+            registry=tournament_registry,
+            session_repo=session_repo,
+            bankroll_repo=bankroll_repo,
+            ledger_repo=ledger_repo,
+        )
+        is None
+    )

@@ -297,6 +297,103 @@
   color: white;
 }
 
+/* Larger, clearer toggle buttons (delivery register + length). Bumped tap
+   target and a consistent emoji+label layout so no option is a bare emoji. */
+.toggle-btn-lg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.6875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.toggle-btn-emoji {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Stacked toggle: emoji over label. Width is set by the label (not emoji +
+   label side by side), so equal-width siblings stay tidy and compact. */
+.toggle-btn-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1875rem;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.toggle-btn-stack .toggle-btn-emoji {
+  font-size: 1.05rem;
+}
+
+/* Delivery: every register the same (equal) width. The group grows to share
+   the row with Length; the three buttons split it evenly. */
+.delivery-group {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 15rem;
+}
+
+.delivery-group .toggle-group {
+  width: 100%;
+}
+
+.delivery-group .toggle-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Length boxes match the delivery box height so the row reads as even. */
+.length-group .toggle-btn-lg {
+  min-height: 2.75rem;
+}
+
+.toggle-btn.active .toggle-btn-emoji {
+  /* the chili/smirk read better at full saturation when selected */
+  filter: none;
+}
+
+/* Delivery + Length share one row: two labeled segmented controls sitting
+   side by side, centered, wrapping only on the narrowest screens. */
+.controls-row {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.625rem;
+  width: 100%;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* Live one-line explanation of the selected delivery register. The
+   mobile-friendly stand-in for a hover tooltip; min-height reserves space so
+   switching registers doesn't jump the layout. */
+.delivery-hint {
+  min-height: 1rem;
+  font-size: 0.6875rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  font-style: italic;
+  letter-spacing: 0.01em;
+  transition: color 0.2s ease;
+}
+
 /* Tone options */
 .tone-options {
   display: flex;
@@ -382,6 +479,54 @@
   border-color: #ffc107;
 }
 
+/* Six-tone palette (2026-06-03). Each keyed off a different recipient trait;
+   colors group by intent — emotional weapons cool/menacing, hostile hot,
+   warm tones bright. */
+.tone-btn.tone-intimidate {
+  border-color: rgba(120, 144, 156, 0.3);
+}
+.tone-btn.tone-intimidate:hover,
+.tone-btn.tone-intimidate.selected {
+  background: rgba(96, 125, 139, 0.3);
+  border-color: #78909c;
+}
+
+.tone-btn.tone-dare {
+  border-color: rgba(255, 179, 0, 0.3);
+}
+.tone-btn.tone-dare:hover,
+.tone-btn.tone-dare.selected {
+  background: rgba(255, 179, 0, 0.25);
+  border-color: #ffb300;
+}
+
+.tone-btn.tone-trash_talk {
+  border-color: rgba(244, 67, 54, 0.3);
+}
+.tone-btn.tone-trash_talk:hover,
+.tone-btn.tone-trash_talk.selected {
+  background: rgba(244, 67, 54, 0.25);
+  border-color: #f44336;
+}
+
+.tone-btn.tone-props {
+  border-color: rgba(38, 166, 154, 0.3);
+}
+.tone-btn.tone-props:hover,
+.tone-btn.tone-props.selected {
+  background: rgba(38, 166, 154, 0.25);
+  border-color: #26a69a;
+}
+
+.tone-btn.tone-flatter {
+  border-color: rgba(236, 64, 122, 0.3);
+}
+.tone-btn.tone-flatter:hover,
+.tone-btn.tone-flatter.selected {
+  background: rgba(236, 64, 122, 0.25);
+  border-color: #ec407a;
+}
+
 .tone-emoji {
   font-size: 1rem;
 }
@@ -458,6 +603,21 @@
 }
 .suggestion-pill.tone-befriend {
   border-left: 3px solid #ffc107;
+}
+.suggestion-pill.tone-intimidate {
+  border-left: 3px solid #78909c;
+}
+.suggestion-pill.tone-dare {
+  border-left: 3px solid #ffb300;
+}
+.suggestion-pill.tone-trash_talk {
+  border-left: 3px solid #f44336;
+}
+.suggestion-pill.tone-props {
+  border-left: 3px solid #26a69a;
+}
+.suggestion-pill.tone-flatter {
+  border-left: 3px solid #ec407a;
 }
 
 @keyframes suggestionFadeIn {

@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   MessageCircle,
   Flame,
   Award,
-  CircleDot,
+  Crosshair,
   Zap,
   Sparkles,
   Handshake,
@@ -13,6 +13,7 @@ import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
+import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { safeGetItem, safeSetItem } from '../../utils/storage';
 import { ChatTargetSelector } from './ChatTargetSelector';
 import './QuickChatSuggestions.css';
@@ -59,31 +60,64 @@ interface ToneOption {
   label: string;
 }
 
-// NOTE: 'bait' (→ 'props') and 'bluff' (→ 'flatter') are intentionally parked
-// (not shown). Their ChatTone entries, tone→event mappings, and YAML prompts
-// (quick_chat_bait.yaml / quick_chat_bluff.yaml) are all kept, so either is
-// restored by re-adding its entry below.
+// The six mid-hand intents, each keyed off a *different* recipient trait
+// (poise / ego / heat / respect / vanity / likability) so the set reads as a
+// toolkit. `intimidate` and `dare` are emotional-layer tones (they move the
+// target's composure/confidence, not the relationship axes). The retired
+// hostile near-duplicates (tilt/goad/needle/bait) are folded into
+// `trash_talk`; `bluff` is parked (no target effect). All retain ChatTone
+// entries + YAML prompts so any can be restored by re-adding an entry here.
+// See docs/plans/SOCIAL_TEMPERAMENT_AND_QUICKCHATS.md §5.
 const TONE_OPTIONS: ToneOption[] = [
-  { id: 'tilt', icon: Flame, label: 'Tilt' },
+  { id: 'intimidate', icon: Crosshair, label: 'Intimidate' },
+  { id: 'dare', icon: Zap, label: 'Dare' },
+  { id: 'trash_talk', icon: Flame, label: 'Trash Talk' },
   { id: 'props', icon: Award, label: 'Props' },
-  { id: 'needle', icon: CircleDot, label: 'Needle' },
-  { id: 'goad', icon: Zap, label: 'Goad' },
   { id: 'flatter', icon: Sparkles, label: 'Flatter' },
   { id: 'befriend', icon: Handshake, label: 'Befriend' },
 ];
 
-// Delivery register (chill/spicy) is remembered per tone — last used wins.
-// So a player who always needles spicy but gives props chill doesn't
-// re-toggle each time: picking a tone recalls how they last delivered it.
-// Stored as a { tone: register } map; a tone with no stored preference
-// cold-starts at 'chill'.
+// Tones that offer the `sarcastic` register — the relationship tones with a
+// surface to invert that ride the fixed tone→event dispatch path. Sarcasm
+// flips its effect by tone: trash_talk → banter (soften), props → backhand
+// (sharpen). The emotional-layer tones (intimidate/dare) have no surface to
+// read literally; `flatter` (its valence-flipping path needs separate surgery)
+// and `befriend` (passive-aggressive variant) are sincere-only for now —
+// both deferred follow-ups.
+const SARCASM_ABLE_TONES: ReadonlySet<ChatTone> = new Set<ChatTone>(['trash_talk', 'props']);
+
+function toneTakesSarcasm(tone: ChatTone | null): boolean {
+  return tone !== null && SARCASM_ABLE_TONES.has(tone);
+}
+
+// Delivery register (chill/spicy/sarcastic) is remembered per tone — last
+// used wins. So a player who always trash-talks spicy but gives props chill
+// doesn't re-toggle each time: picking a tone recalls how they last
+// delivered it. Stored as a { tone: register } map; a tone with no stored
+// preference cold-starts at 'chill'.
 const REGISTER_PREFS_KEY = 'quickchat_register_by_tone';
 const DEFAULT_REGISTER: ChatIntensity = 'chill';
 // Recognized delivery registers. Stored prefs are validated against this so a
 // corrupted / hand-edited / stale-schema value falls back to the default
-// rather than flowing through to the API as an unknown register. Extend this
-// when a new register (e.g. 'sarcastic') ships.
-const VALID_REGISTERS: readonly ChatIntensity[] = ['chill', 'spicy'];
+// rather than flowing through to the API as an unknown register. `sarcastic`
+// is additionally gated per-tone at recall time (only sarcasm-able tones may
+// resolve to it — see handleToneSelect).
+const VALID_REGISTERS: readonly ChatIntensity[] = ['chill', 'spicy', 'sarcastic'];
+
+// Display metadata for the delivery registers. Each carries an emoji (quick
+// visual ID), a spelled-out label (so no option is emoji-only and ambiguous),
+// and a one-line hint shown live beneath the row — the hint is how we teach
+// what each register actually does, especially `sarcastic`, on mobile where
+// :hover tooltips never fire.
+const REGISTER_META: Record<ChatIntensity, { emoji: string; label: string; hint: string }> = {
+  chill: { emoji: '😌', label: 'Chill', hint: 'Playful and light — soften the blow.' },
+  spicy: { emoji: '🌶️', label: 'Spicy', hint: 'No filter. Cut deep.' },
+  sarcastic: {
+    emoji: '😏',
+    label: 'Sarcastic',
+    hint: "Dry — say the opposite. They won't read it literally.",
+  },
+};
 
 function readRegisterPrefs(): Partial<Record<ChatTone, ChatIntensity>> {
   const raw = safeGetItem(REGISTER_PREFS_KEY);
@@ -159,7 +193,9 @@ export function QuickChatSuggestions({
   // Folded targets are still useful: the player can needle a busted opponent
   // or reach out to a friend who just mucked. Folded state is reflected
   // visually so the affordance is honest about who's still in the hand.
-  const aiPlayers = players.filter((p) => !p.is_human);
+  // Ordered the same way they sit around the felt relative to the human
+  // (clockwise from the human's left) so the picker mirrors the table.
+  const aiPlayers = useMemo(() => orderOpponentsRelativeToHuman(players), [players]);
   const fetchSuggestions = useCallback(
     async (target: string | null, tone: ChatTone, forceRefresh = false) => {
       // Block fetching when guest chat is disabled
@@ -262,8 +298,14 @@ export function QuickChatSuggestions({
     setSelectedTone(tone);
     // Recall how this tone was last delivered (last-used register), so the
     // delivery row reflects the player's habit for this intent. Falls back
-    // to 'chill' for a tone never delivered before.
-    setIntensity(readRegisterPrefs()[tone] ?? DEFAULT_REGISTER);
+    // to 'chill' for a tone never delivered before. Guard: if a stale/hand-
+    // edited pref resolves to 'sarcastic' on a tone that can't take it
+    // (the emotional-layer tones), coerce to 'spicy' so the invalid combo is
+    // unreachable — the delivery row never shows a sarcastic that the tone
+    // doesn't support.
+    const recalled = readRegisterPrefs()[tone] ?? DEFAULT_REGISTER;
+    const resolved = recalled === 'sarcastic' && !toneTakesSarcasm(tone) ? 'spicy' : recalled;
+    setIntensity(resolved);
     // The useEffect handles fetching/cache lookup when both target and tone are set
   };
 
@@ -303,6 +345,12 @@ export function QuickChatSuggestions({
       fetchSuggestions(selectedTarget, selectedTone, true);
     }
   };
+
+  // Registers offered for the current tone: chill/spicy always, sarcastic
+  // only where the tone has a surface to invert.
+  const availableRegisters: ChatIntensity[] = toneTakesSarcasm(selectedTone)
+    ? ['chill', 'spicy', 'sarcastic']
+    : ['chill', 'spicy'];
 
   // Collapsed state - just show the toggle button
   if (!isExpanded) {
@@ -366,25 +414,60 @@ export function QuickChatSuggestions({
         </div>
       </div>
 
-      {/* Delivery register — sits directly below the tone it modifies, and
-          appears as soon as a tone is picked. Remembered per-tone. */}
+      {/* Delivery + Length share one controls row, directly below the tone.
+          Appears as soon as a tone is picked. Delivery register is remembered
+          per-tone; sarcastic is offered only on tones with a surface to invert
+          (banter on trash talk, backhand on props). */}
       {selectedTone && (
         <div className="delivery-selector">
-          <div className="selector-label">Delivery?</div>
-          <div className="toggle-group">
-            <button
-              className={`toggle-btn ${intensity === 'chill' ? 'active' : ''}`}
-              onClick={() => selectIntensity('chill')}
-            >
-              Chill
-            </button>
-            <button
-              className={`toggle-btn ${intensity === 'spicy' ? 'active' : ''}`}
-              onClick={() => selectIntensity('spicy')}
-            >
-              🌶️
-            </button>
+          <div className="controls-row">
+            <div className="control-group delivery-group">
+              <div className="selector-label">Delivery</div>
+              <div className="toggle-group">
+                {availableRegisters.map((register) => {
+                  const meta = REGISTER_META[register];
+                  return (
+                    <button
+                      key={register}
+                      className={`toggle-btn toggle-btn-stack ${intensity === register ? 'active' : ''}`}
+                      onClick={() => selectIntensity(register)}
+                      title={`${meta.label} — ${meta.hint}`}
+                    >
+                      {/* Emoji over label, stacked — keeps every box the same
+                          (equal) width since the width is set by the label, not
+                          emoji+label side by side. */}
+                      <span className="toggle-btn-emoji" aria-hidden="true">
+                        {meta.emoji}
+                      </span>
+                      <span className="toggle-btn-text">{meta.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="control-group length-group">
+              <div className="selector-label">Length</div>
+              <div className="toggle-group">
+                <button
+                  className={`toggle-btn toggle-btn-lg ${length === 'short' ? 'active' : ''}`}
+                  onClick={() => setLength('short')}
+                  title="Short — a quick one-liner"
+                >
+                  Short
+                </button>
+                <button
+                  className={`toggle-btn toggle-btn-lg ${length === 'long' ? 'active' : ''}`}
+                  onClick={() => setLength('long')}
+                  title="Long — a fuller dig"
+                >
+                  Long
+                </button>
+              </div>
+            </div>
           </div>
+          {/* Live hint: teaches what the selected register does (esp. sarcastic,
+              the novel one) — the mobile-friendly stand-in for a tooltip. */}
+          <div className="delivery-hint">{REGISTER_META[intensity].hint}</div>
         </div>
       )}
 
@@ -393,22 +476,6 @@ export function QuickChatSuggestions({
         <div className="suggestions-section">
           <div className="suggestions-header">
             <div className="selector-label">Say:</div>
-            <div className="modifier-toggles">
-              <div className="toggle-group">
-                <button
-                  className={`toggle-btn ${length === 'short' ? 'active' : ''}`}
-                  onClick={() => setLength('short')}
-                >
-                  Short
-                </button>
-                <button
-                  className={`toggle-btn ${length === 'long' ? 'active' : ''}`}
-                  onClick={() => setLength('long')}
-                >
-                  Long
-                </button>
-              </div>
-            </div>
             <button
               className="refresh-btn"
               onPointerDown={(e) => {

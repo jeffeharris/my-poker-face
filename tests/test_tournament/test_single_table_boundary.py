@@ -90,7 +90,10 @@ def test_human_wins_heads_up_is_terminal(env):
     s = _session()
     # First Bob busts (Jeff survives), then Jeff wins heads-up.
     gd = {'tournament_session': s, 'owner_id': 'owner-x'}
-    assert _boundary(gd, [_P('Jeff', 15000, True), _P('Gordon', 15000), _P('Bob', 0)], ['Jeff']) is False
+    assert (
+        _boundary(gd, [_P('Jeff', 15000, True), _P('Gordon', 15000), _P('Bob', 0)], ['Jeff'])
+        is False
+    )
     stop = _boundary(gd, [_P('Jeff', 30000, True), _P('Gordon', 0)], ['Jeff'])
     assert stop is True
     assert s.winner() == 'Jeff'

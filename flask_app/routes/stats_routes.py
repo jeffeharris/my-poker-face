@@ -72,6 +72,11 @@ LENGTH_GUIDANCE = {
 INTENSITY_GUIDANCE = {
     'chill': 'Keep it playful and light.',
     'spicy': 'Go hard. No filter. Cut deep.',
+    # Sarcastic = "don't read it literally." Say the opposite of what you mean,
+    # dry and deadpan: a backhanded compliment on a warm tone, mock-friendly
+    # ribbing on a hostile one. The irony carries the edge, not volume.
+    'sarcastic': 'Be dry and sarcastic — say the opposite of what you mean. '
+    'Deadpan, ironic, a little theatrical. Let the subtext do the cutting.',
 }
 
 
@@ -319,28 +324,39 @@ def get_targeted_chat_suggestions(game_id):
         length = data.get('length', 'short')
         intensity = data.get('intensity', 'chill')
 
-        # Map tones to template names
+        # Map tones to template names. The live palette is the six trait-keyed
+        # intents (intimidate/dare/trash_talk/props/flatter/befriend); the
+        # retired hostile near-duplicates (tilt/bait/needle/goad) keep their
+        # templates for back-compat with stored prefs / in-flight requests.
         template_map = {
+            'intimidate': 'quick_chat_intimidate',
+            'dare': 'quick_chat_dare',
+            'trash_talk': 'quick_chat_trash_talk',
+            'props': 'quick_chat_props',
+            'flatter': 'quick_chat_flatter',
+            'befriend': 'quick_chat_befriend',
+            'bluff': 'quick_chat_bluff',
+            # Retired hostiles (folded into trash_talk):
             'tilt': 'quick_chat_tilt',
             'bait': 'quick_chat_bait',
             'needle': 'quick_chat_needle',
             'goad': 'quick_chat_goad',
-            'bluff': 'quick_chat_bluff',
-            'befriend': 'quick_chat_befriend',
-            'props': 'quick_chat_props',
-            'flatter': 'quick_chat_flatter',
         }
 
         # Tone descriptions for table talk (no target)
         tone_descriptions = {
+            'intimidate': 'Project dominance — make them think twice about tangling with you.',
+            'dare': 'Dare the table to act. Call them out for hesitating.',
+            'trash_talk': 'Needle the table. Be cutting.',
+            'props': 'Tip your cap to the table — genuine respect for the play.',
+            'flatter': 'Lay it on thick — over-the-top praise, sincere or not.',
+            'befriend': 'Be warm to the table.',
+            'bluff': 'Give false tells about your hand.',
+            # Retired hostiles:
             'tilt': 'Needle the table. Be cutting.',
             'bait': 'Sound mildly frustrated or grudgingly impressed by the competition.',
             'needle': 'Question what just happened. Be subtle.',
             'goad': 'Dare the table to act.',
-            'bluff': 'Give false tells about your hand.',
-            'befriend': 'Be warm to the table.',
-            'props': 'Tip your cap to the table — genuine respect for the play.',
-            'flatter': 'Lay it on thick — over-the-top praise, sincere or not.',
         }
 
         context_parts = []
@@ -529,10 +545,25 @@ def get_post_round_chat_suggestions(game_id):
         hand_number = memory_manager.hand_count if memory_manager else None
 
         player_name = data.get('playerName', 'Player')
-        tone = data.get('tone', 'gracious')  # gloat, humble, salty, gracious
+        tone = data.get('tone', 'gracious')
+        # Delivery register. Post-round tones encode their own intensity, so
+        # there's no chill/spicy here — but `sarcastic` rides on the warm ones
+        # (gracious/humble/commiserate). Default empty → no extra guidance,
+        # so sincere post-round text is unchanged.
+        intensity = data.get('intensity')
 
-        # Validate tone
-        allowed_tones = {'gloat', 'humble', 'salty', 'gracious', 'props'}
+        # Validate tone. After a WIN: gloat/gracious/humble/commiserate.
+        # After a LOSS: salty/props/cry_luck/vow. props is shared.
+        allowed_tones = {
+            'gloat',
+            'gracious',
+            'humble',
+            'commiserate',
+            'salty',
+            'props',
+            'cry_luck',
+            'vow',
+        }
         if tone not in allowed_tones:
             logger.warning("Invalid tone value received for post-round chat: %r", tone)
             return jsonify(
@@ -588,12 +619,17 @@ def get_post_round_chat_suggestions(game_id):
             logger.warning(f"[PostRound] No recorded hand available for game {game_id}")
             hand_context_str = "No hand data available."
 
-        # Build the prompt using the new template
+        # Build the prompt using the new template. intensity_guidance is passed
+        # to every post-round template but only the sarcasm-able ones
+        # (gracious/humble/commiserate) interpolate it; the rest ignore the
+        # extra kwarg (str.format drops unused keys). Empty default keeps
+        # sincere text unchanged.
         template_name = f'post_round_{tone}'
         prompt = _prompt_manager.render_prompt(
             template_name,
             player_name=player_name,
             hand_context=hand_context_str,
+            intensity_guidance=INTENSITY_GUIDANCE.get(intensity, ''),
         )
 
         if not os.environ.get("OPENAI_API_KEY"):

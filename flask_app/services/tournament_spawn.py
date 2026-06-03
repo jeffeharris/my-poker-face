@@ -114,13 +114,16 @@ def spawn_autonomous_tournament(
     """
     try:
         exclude = draft_exclusions(
-            cash_table_repo=cash_table_repo, session_repo=session_repo,
-            owner_id=owner_id, sandbox_id=sandbox_id,
+            cash_table_repo=cash_table_repo,
+            session_repo=session_repo,
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
         )
     except DraftScanError:
         logger.exception(
             "[TOURNAMENT] autonomous spawn aborted for owner=%s: exclusion scan failed "
-            "(fail-closed — won't risk drafting a seated persona)", owner_id
+            "(fail-closed — won't risk drafting a seated persona)",
+            owner_id,
         )
         return None
     entries = select_persona_field(
@@ -246,13 +249,16 @@ def create_human_tournament(
     human_id = human_seat_id(owner_id)
     try:
         exclude = draft_exclusions(
-            cash_table_repo=cash_table_repo, session_repo=session_repo,
-            owner_id=owner_id, sandbox_id=sandbox_id,
+            cash_table_repo=cash_table_repo,
+            session_repo=session_repo,
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
         )
     except DraftScanError:
         logger.exception(
             "[TOURNAMENT] human tournament aborted for owner=%s: exclusion scan failed "
-            "(fail-closed — won't risk drafting a seated persona)", owner_id
+            "(fail-closed — won't risk drafting a seated persona)",
+            owner_id,
         )
         return None
     entries = select_persona_field(
@@ -281,9 +287,7 @@ def create_human_tournament(
         seed=seed,
     )
     resolver = FakeHandResolver()
-    session = TournamentSession(
-        config, ai_resolver=resolver, human_id=human_id, entries=entries
-    )
+    session = TournamentSession(config, ai_resolver=resolver, human_id=human_id, entries=entries)
 
     tournament_id = _new_id()
     created_at = datetime.utcnow().isoformat()
@@ -326,8 +330,9 @@ def create_human_tournament(
             try:
                 session_repo.delete(tournament_id)
             except Exception:  # noqa: BLE001 — cleanup is best-effort
-                logger.exception("failed to clean up tournament row %s after buy-in failure",
-                                 tournament_id)
+                logger.exception(
+                    "failed to clean up tournament row %s after buy-in failure", tournament_id
+                )
         raise
 
     if register:
@@ -452,7 +457,8 @@ def settle_autonomous_tournament(
                 logger.warning(
                     "[TOURNAMENT] %s complete but payout_status=%s — leaving status "
                     "'active' for the reconcile watchdog (escrow stranded)",
-                    tournament_id, payout_status,
+                    tournament_id,
+                    payout_status,
                 )
         except Exception:  # noqa: BLE001 — release is best-effort; never break settle
             logger.exception("set_status complete failed for %s", tournament_id)

@@ -41,15 +41,12 @@ from cash_mode.prestige import (
     score_renown_field,
 )
 
-
 # --- load the offline oracle as a module (scripts/ is gitignored but present)
 
 
 def _load_scorer():
     here = os.path.dirname(__file__)
-    path = os.path.normpath(
-        os.path.join(here, "..", "..", "scripts", "renown_v2_scorer.py")
-    )
+    path = os.path.normpath(os.path.join(here, "..", "..", "scripts", "renown_v2_scorer.py"))
     spec = importlib.util.spec_from_file_location("renown_v2_scorer_oracle", path)
     mod = importlib.util.module_from_spec(spec)
     # Register before exec so the @dataclass machinery can resolve
@@ -96,9 +93,7 @@ def test_oracle_parity_renown_totals_match_scorer():
     """score_renown_field reproduces the scorer's exact renown totals."""
     oracle_field = scorer.build_archetypes()
     oracle_scored = scorer.score_field(oracle_field, scorer.Weights())
-    oracle_renowns = {
-        eid: scorer.total_renown(c) for eid, c in oracle_scored.items()
-    }
+    oracle_renowns = {eid: scorer.total_renown(c) for eid, c in oracle_scored.items()}
 
     prod_scored = score_renown_field(_archetypes_v2(), WeightsV2())
 
@@ -132,11 +127,20 @@ def test_oracle_parity_high_cut_matches_scorer():
     assert all(fr.high_cut == prod_cut for fr in prod.values())
 
 
-def test_rung1_four_routes_each_reach_high_renown():
+def test_rung1_dominant_routes_reach_high_renown():
     prod = score_renown_field(_archetypes_v2(), WeightsV2())
     cut = next(iter(prod.values())).high_cut
-    for route in ("Grinder", "Whale", "Patron", "Villain"):
+    # The strongest accomplishment routes clear the top-decile figure cut.
+    for route in ("Grinder", "Whale", "Villain"):
         assert prod[route].renown_total >= cut, f"{route} should be high renown"
+    # All four routes (incl. the patron/backer, the weakest) out-rank the passive
+    # control and the volume bogey — the scorer ranks accomplishment over grinding
+    # even when a route sits just outside the figure percentile.
+    control = prod["Up-and-comer"].renown_total
+    bogey = prod["Fast bot (volume bogey)"].renown_total
+    for route in ("Grinder", "Whale", "Patron", "Villain"):
+        assert prod[route].renown_total > control
+        assert prod[route].renown_total > bogey
 
 
 def test_rung1_control_below_cut():
@@ -159,12 +163,8 @@ def test_anti_treadmill_lever_fastbot_tops_board_under_hands_only():
     design = score_renown_field(_archetypes_v2(), WeightsV2(volume_denominator="wallclock"))
     naive = score_renown_field(_archetypes_v2(), WeightsV2(volume_denominator="hands"))
 
-    design_rank = (
-        sorted(design, key=lambda e: design[e].renown_total, reverse=True).index(fb) + 1
-    )
-    naive_rank = (
-        sorted(naive, key=lambda e: naive[e].renown_total, reverse=True).index(fb) + 1
-    )
+    design_rank = sorted(design, key=lambda e: design[e].renown_total, reverse=True).index(fb) + 1
+    naive_rank = sorted(naive, key=lambda e: naive[e].renown_total, reverse=True).index(fb) + 1
 
     assert naive_rank == 1, "under hand-count the volume bot should dominate"
     assert design_rank > naive_rank, "wall-clock must push the bogey down"
@@ -190,9 +190,8 @@ def test_no_single_driver_dominates_field_over_85pct():
 def test_renown_scalp_points_matches_closed_form():
     w = WeightsV2()
     pts = renown_scalp_points({"v1": 3, "v2": 1}, {"v1": 0.9, "v2": 0.1}, w)
-    expected = (
-        math.log1p(3) * (w.scalp_base + w.scalp_quality * 0.9)
-        + math.log1p(1) * (w.scalp_base + w.scalp_quality * 0.1)
+    expected = math.log1p(3) * (w.scalp_base + w.scalp_quality * 0.9) + math.log1p(1) * (
+        w.scalp_base + w.scalp_quality * 0.1
     )
     assert pts == pytest.approx(expected, rel=1e-12)
 
@@ -213,15 +212,18 @@ def test_scalping_a_legend_beats_scalping_nobodies():
     nobody = RenownInputsV2(label="nobody", wall_clock_hours=2, total_hands=200)
 
     base = dict(
-        wall_clock_hours=70, total_hands=14_000,
+        wall_clock_hours=70,
+        total_hands=14_000,
         breadth_opponents={"x": 220},
     )
     hunter = RenownInputsV2(label="hunter", scalps={"legend": 4}, **base)
     poacher = RenownInputsV2(label="poacher", scalps={"nob1": 4}, **base)
 
     field = {
-        "legend": legend, "nob1": nobody,
-        "hunter": hunter, "poacher": poacher,
+        "legend": legend,
+        "nob1": nobody,
+        "hunter": hunter,
+        "poacher": poacher,
     }
     # pad so percentiles are meaningful
     for i in range(6):
@@ -270,8 +272,9 @@ def test_quadrant_label_relative_returns_same_constants_as_v1():
 
 def test_high_renown_cut_single_entity_does_not_crash():
     # The human-alone case (a future ticker must not crash on a 1-entity field).
+    # Pure top-decile percentile of a 1-element field is that element.
     cut = high_renown_cut([5.0], WeightsV2())
-    assert cut == pytest.approx(max(5.0, 3.0 * 5.0))
+    assert cut == pytest.approx(5.0)
 
 
 def test_high_renown_cut_empty_field():
@@ -283,9 +286,13 @@ def test_field_relative_median_over_positive_values_only():
     median over POSITIVE values only (no collapse-to-zero)."""
     w = WeightsV2()
     field = {
-        "a": RenownInputsV2(label="a", backing_volume=10_000, wall_clock_hours=10, total_hands=1000),
+        "a": RenownInputsV2(
+            label="a", backing_volume=10_000, wall_clock_hours=10, total_hands=1000
+        ),
         "b": RenownInputsV2(label="b", backing_volume=0, wall_clock_hours=10, total_hands=1000),
-        "c": RenownInputsV2(label="c", backing_volume=20_000, wall_clock_hours=10, total_hands=1000),
+        "c": RenownInputsV2(
+            label="c", backing_volume=20_000, wall_clock_hours=10, total_hands=1000
+        ),
         "d": RenownInputsV2(label="d", backing_volume=0, wall_clock_hours=10, total_hands=1000),
     }
     scored = score_renown_field(field, w)
@@ -381,15 +388,19 @@ def _build(**kw):
 def test_builder_maps_all_sources():
     rel = _RelRepo(
         inbound={"a": _Edge(likability=0.8, respect=0.7, heat=0.2)},
-        pairs=[_Pair("a", cumulative_pnl=500, hands_played_cash=30),
-               _Pair("b", cumulative_pnl=-100, hands_played_cash=10),
-               _Pair("c", cumulative_pnl=0, hands_played_cash=0)],
+        pairs=[
+            _Pair("a", cumulative_pnl=500, hands_played_cash=30),
+            _Pair("b", cumulative_pnl=-100, hands_played_cash=10),
+            _Pair("c", cumulative_pnl=0, hands_played_cash=0),
+        ],
     )
-    sess = _SessionRepo([
-        _Session("$2", hands_played=100),
-        _Session("$2", hands_played=50),
-        _Session("$200", hands_played=20),
-    ])
+    sess = _SessionRepo(
+        [
+            _Session("$2", hands_played=100),
+            _Session("$2", hands_played=50),
+            _Session("$200", hands_played=20),
+        ]
+    )
     scalps = _ScalpRepo(rows=[("fish", 3), ("whale", 1)])
 
     inp = _build(relationship_repo=rel, cash_session_repo=sess, cash_scalps_repo=scalps)
@@ -481,21 +492,35 @@ def test_reputation_score_repo_record_reads_only_v1_fields():
     ReputationScore without touching the new optional fields (proves the
     14-field record() contract is unaffected)."""
     s = ReputationScore(
-        renown=0.5, regard=0.1, quadrant=QUADRANT_UP_AND_COMER,
-        renown_breadth=0.1, renown_tenure=0.1, renown_stake_tier=0.1,
-        renown_beat_respected=0.1, renown_high_stakes=0.1,
-        regard_likability=0.05, regard_respect=0.03, regard_heat=0.02,
-        opponent_count=3, computed_at="2026-06-01T12:00:00Z",
+        renown=0.5,
+        regard=0.1,
+        quadrant=QUADRANT_UP_AND_COMER,
+        renown_breadth=0.1,
+        renown_tenure=0.1,
+        renown_stake_tier=0.1,
+        renown_beat_respected=0.1,
+        renown_high_stakes=0.1,
+        regard_likability=0.05,
+        regard_respect=0.03,
+        regard_heat=0.02,
+        opponent_count=3,
+        computed_at="2026-06-01T12:00:00Z",
     )
     captured = {}
 
     def fake_record(*, captured_at, sandbox_id, owner_id, score):
         captured["row"] = (
-            float(score.renown), float(score.regard), score.quadrant,
-            float(score.renown_breadth), float(score.renown_tenure),
-            float(score.renown_stake_tier), float(score.renown_beat_respected),
-            float(score.renown_high_stakes), float(score.regard_likability),
-            float(score.regard_respect), float(score.regard_heat),
+            float(score.renown),
+            float(score.regard),
+            score.quadrant,
+            float(score.renown_breadth),
+            float(score.renown_tenure),
+            float(score.renown_stake_tier),
+            float(score.renown_beat_respected),
+            float(score.renown_high_stakes),
+            float(score.regard_likability),
+            float(score.regard_respect),
+            float(score.regard_heat),
             int(score.opponent_count),
         )
 

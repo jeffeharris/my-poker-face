@@ -83,8 +83,11 @@ def test_three_and_four_table_targets():
 
 def _director(field_size: int, table_size: int = 6, seed: int = 0):
     config = TournamentConfig(
-        field_size=field_size, table_size=table_size, starting_stack=10_000,
-        seed=seed, rounds_per_level=3,
+        field_size=field_size,
+        table_size=table_size,
+        starting_stack=10_000,
+        seed=seed,
+        rounds_per_level=3,
     )
     director = TournamentDirector(config, resolver=FakeHandResolver())
     director.run()

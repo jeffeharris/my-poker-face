@@ -21,7 +21,9 @@ def _report(round_index, *, eliminations=(), seat_moves=(), broken_tables=(), le
 
 
 def _elim(pid, pos, *, eliminator=None, rnd=0):
-    return Elimination(player_id=pid, finishing_position=pos, round_index=rnd, eliminator=eliminator)
+    return Elimination(
+        player_id=pid, finishing_position=pos, round_index=rnd, eliminator=eliminator
+    )
 
 
 def test_no_reports_no_beats():
@@ -38,8 +40,12 @@ def test_knockout_beat_with_eliminator_and_human_flag():
     beats = build_beats([r], paid_places=2, table_size=9, human_id='H', remaining_before=10)
     kos = [b for b in beats if b['type'] == 'knockout']
     assert kos[0] == {
-        'type': 'knockout', 'round': 3, 'player_id': 'P9',
-        'finishing_position': 9, 'eliminator': 'P2', 'is_human': False,
+        'type': 'knockout',
+        'round': 3,
+        'player_id': 'P9',
+        'finishing_position': 9,
+        'eliminator': 'P2',
+        'is_human': False,
     }
     assert kos[1]['player_id'] == 'H' and kos[1]['is_human'] is True
 
@@ -95,8 +101,12 @@ def test_final_table_milestone_when_table_size_is_three():
 def test_level_up_beat_shape():
     beat = level_up_beat(_level(4, 200, 400, 50), round_index=12)
     assert beat == {
-        'type': 'level_up', 'round': 12,
-        'level': 4, 'small_blind': 200, 'big_blind': 400, 'ante': 50,
+        'type': 'level_up',
+        'round': 12,
+        'level': 4,
+        'small_blind': 200,
+        'big_blind': 400,
+        'ante': 50,
     }
 
 
