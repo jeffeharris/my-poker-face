@@ -153,6 +153,26 @@ can't fund simply doesn't fire (the AI stays idle and retries) — see
 `resolve_ai_side_hustle` / `tick_side_hustle_expirations` in
 `cash_mode/ai_side_hustle.py`.
 
+### 1.6a Validation harness (built 2026-06-04)
+
+`scripts/sim_experiments/thermostat_validation.py` wires the whole stack —
+genesis seed + `VICE_RESERVE_GATED` + `RAKE_RESERVE_GATED` — into the cash sim and
+traces the reserves/holdings ratio over a run. It seeds a fresh tempdb sandbox,
+flips the flags, seeds genesis, then runs in chunks sampling `signal().ratio`.
+(It does NOT run the tournament overlay, so it measures the **climb rate** toward
+the 0.12 trigger — the cadence input — not the full sawtooth.)
+
+First reads:
+- Genesis seeds the pool to exactly 5% of holdings; the boot ratio is 0.05 (low
+  band). **Seeding is fast (~1.3s)** — the sim cost is the real hand play.
+- Over a short horizon reserves *hover* in the low band (~0.04) rather than
+  climbing: the refill faucet (rake $1000+$200 + vice) roughly balances the early
+  drains (casino spawns + side-hustle). Needs a long run to see the trend; if it
+  stays flat, the faucet is under-powered to reach the 0.12 trigger.
+- **Surfaced a real gap:** eligible-for-cash = 93 personas (incl. control bots +
+  `dr_seuss`/`bob_ross`), not the 76 cast — the seed-time `circulating` policy is
+  not yet applied (those should be `circulating=0`).
+
 ### 1.6 Open tuning questions (need a sim before flipping on)
 
 1. Faucet rate vs. floor→trigger gap → validate ~1–2 tournaments/day.
