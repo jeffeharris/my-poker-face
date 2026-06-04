@@ -172,6 +172,7 @@ def resolve_cast_action(
         big_blind=game_state.current_ante,
         size_frac=size_frac,
         allow_bust=getattr(hand, "bust_ok", False),
+        current_bet=current_player.bet,
     )
 
 
@@ -202,6 +203,7 @@ def hero_intent(intent: str) -> HeroChoice:
             # The hero never busts the runner cast by accident; a 'passive' hero
             # folds to an all-in unless we explicitly allow it (we don't here).
             allow_bust=False,
+            current_bet=player.bet,
         )
         return action
 

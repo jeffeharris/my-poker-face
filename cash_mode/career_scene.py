@@ -113,6 +113,7 @@ def resolve_scripted_action(
     big_blind: int,
     size_frac: float = 0.7,
     allow_bust: bool = False,
+    current_bet: int = 0,
 ) -> Optional[Dict]:
     """Turn a scripted intent into a concrete, legal action for the cast.
 
@@ -121,6 +122,12 @@ def resolve_scripted_action(
     'bluff'/'bet' downgrade to fold/check when bet into; 'passive' folds to an
     all-in rather than busting. Bet sizing is `size_frac` of the pot, capped at
     `MAX_SCRIPTED_BET_STACK_FRAC` of the stack (the no-bust guard).
+
+    ``current_bet`` is the actor's chips already committed THIS HAND. The engine's
+    raise amount is a raise-TO total and bets are cumulative, so a sized bet has to
+    add on top of `current_bet` — without it the "bet" collapses to a min-click
+    that ignores the current betting level (the fish "raises to 11 no matter the
+    level" bug). Callers pass the live player's bet; it defaults to 0.
 
     ``allow_bust`` (the Scene-0 FINALE) lifts the no-bust guard: bets aren't
     stack-capped, 'passive' CALLS an all-in instead of folding to it, and the
@@ -131,9 +138,13 @@ def resolve_scripted_action(
     facing_bet = cost_to_call > 0
 
     def _bet_amount() -> int:
-        by_pot = round(size_frac * max(pot_total, big_blind))
-        cap = stack if allow_bust else round(stack * MAX_SCRIPTED_BET_STACK_FRAC)
-        return int(min(stack, max(big_blind * 2, min(by_pot, cap))))
+        # Chips to put IN this street (a real pot-fraction bet, never a min-click).
+        add = max(round(size_frac * max(pot_total, big_blind)), big_blind * 2)
+        # No-bust guard caps the add at a fraction of the stack (unless allow_bust).
+        cap_add = stack if allow_bust else round(stack * MAX_SCRIPTED_BET_STACK_FRAC)
+        add = min(add, cap_add, stack)
+        # Raise-TO total = what's already committed + the new chips (cumulative).
+        return int(current_bet + add)
 
     if intent == "fold":
         if facing_bet and "fold" in va:
@@ -183,7 +194,7 @@ def resolve_scripted_action(
         if "all_in" in va:
             return {"action": "all_in", "amount": 0}
         if not facing_bet and "raise" in va:
-            return {"action": "raise", "amount": int(stack)}  # legacy fallback
+            return {"action": "raise", "amount": int(current_bet + stack)}  # legacy fallback
         if facing_bet and "call" in va:
             return {"action": "call", "amount": 0}
         if "check" in va:
