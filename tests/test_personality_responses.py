@@ -238,14 +238,16 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"  Actions: {', '.join(actions)}")
             print(f"  Strategy: {response['hand_strategy']}")
 
-        # Verify personality-based decisions. Scrooge's aggression was
-        # tuned 0.2 → 0.45 in the 9-anchor refactor (his tightness now
-        # lives in baseline_looseness=0.22); the new "call" outcome is
-        # semantically correct, not a regression.
+        # Verify personality-based decisions. The production launch-cast retune
+        # dropped Scrooge's baseline_aggression to 0.15 (miserly, "extremely
+        # tight and passive"), which puts him in the fold zone (<0.3) — the new
+        # "fold" outcome is semantically correct, not a regression.
         self.assertEqual(results["Queen of Hearts"]["action"], "raise")  # aggression=0.95
         self.assertIn(results["Blackbeard"]["action"], ["raise", "call"])  # aggression=0.90
         self.assertEqual(results["Bob Ross"]["action"], "fold")  # aggression=0.10
-        self.assertEqual(results["Ebenezer Scrooge"]["action"], "call")  # aggression=0.45 mid-range
+        self.assertEqual(
+            results["Ebenezer Scrooge"]["action"], "fold"
+        )  # aggression=0.15 → fold zone
 
         # Diversity invariant: a per-character mock should produce more
         # than one distinct action across these archetypes.
@@ -295,9 +297,9 @@ class TestPersonalityResponses(unittest.TestCase):
         test_same_scenario_different_responses.
         """
         bounds = {
-            "Ebenezer Scrooge": (0.30, 0.80),  # call zone
+            "Ebenezer Scrooge": (0.00, 0.30),  # fold zone (retuned to aggression 0.15)
             "Bob Ross": (0.00, 0.30),  # fold zone
-            "Blackbeard": (0.80, 1.00),  # raise zone
+            "Blackbeard": (0.70, 1.00),  # raise zone (aggression 0.78 + high bluff)
             "Queen of Hearts": (0.80, 1.00),  # raise zone
         }
         for name, (lo, hi) in bounds.items():
