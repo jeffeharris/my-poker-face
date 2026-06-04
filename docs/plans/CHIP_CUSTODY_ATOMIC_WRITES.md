@@ -84,10 +84,15 @@ of those connections (CP-19 uses the bankroll repo's).
 
 - **Goal:** every (int write + its paired ledger row[s]) commits in ONE
   transaction, so a failure rolls back both — divergence stops accumulating.
-- **Non-goal:** flipping `CHIP_CUSTODY_DERIVE_READS` on in prod. It does not
-  scale (O(rows/account) per read, no index) and stays a dev tripwire. The
-  end-state is **int-as-read + periodic reconcile**; atomic writes make that
-  reconcile converge to ~0 instead of fighting fresh drift.
+- **Read posture (updated 2026-06-04):** the scalable default is **int-as-read
+  (O(1)) + periodic reconcile** — atomic writes make that reconcile converge to
+  ~0 instead of fighting fresh drift. `CHIP_CUSTODY_DERIVE_READS` (read by
+  summing the ledger) is the tripwire on top. Originally "off in prod" because
+  the per-account sum was a full scan; **v151 added (source/sink) indexes** so
+  it's now an index seek (with `ANALYZE`). Decision: **enable `DERIVE_READS` on
+  prod at the custody merge and monitor** (accepted short-term; fall back to
+  int-as-read if read latency climbs). Already ON on dev. Unbounded ledger
+  growth is the remaining durability gap → **T3-88** (checkpoint/retention).
 
 ## Chokepoint inventory (int + ledger pairs to make atomic)
 
