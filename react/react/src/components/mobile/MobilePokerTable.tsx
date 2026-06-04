@@ -37,6 +37,7 @@ import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation
 import { useCoach } from '../../hooks/useCoach';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { useRunoutDirector } from '../../hooks/useRunoutDirector';
+import { useWinnerRevealGate } from '../../hooks/useWinnerRevealGate';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { heroCardAnimation } from './heroCardAnimation';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
@@ -153,6 +154,7 @@ export function MobilePokerTable({
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
   const runoutSchedule = useGameStore((state) => state.runoutSchedule);
+  const runoutDirectorActive = useGameStore((state) => state.runoutDirectorActive);
   const setRunoutDirectorActive = useGameStore((state) => state.setRunoutDirectorActive);
   const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const cashMode = useGameStore((state) => state.cashMode);
@@ -273,6 +275,19 @@ export function MobilePokerTable({
     fastForward,
     applyReaction: applyRunoutReaction,
     setActive: setRunoutDirectorActive,
+  });
+
+  // Hold the verdict overlay until the run-out / fold play-out has visually
+  // finished, so the winner doesn't spoil the board + reactions still landing.
+  // Fast-forward (manual FF / always / instant AI) drops the gate — that's Skip.
+  const { holdWinner } = useWinnerRevealGate({
+    hasWinner: !!winnerInfo,
+    isShowdown: !!winnerInfo?.showdown,
+    handNumber,
+    runItOut,
+    heroFolded: !!humanPlayer?.is_folded,
+    runoutDirectorActive,
+    rushing: fastForward || alwaysFastForward || aiInstant,
   });
 
   const handleResultComplete = useCallback(() => {
@@ -1129,7 +1144,7 @@ export function MobilePokerTable({
           the winner, so the overlay and shuffle never overlap. */}
           {/* The human is identified from the players list's is_human seat
               inside MobileWinnerAnnouncement; playerName is only a fallback. */}
-          {winnerInfo && winnerInfo.showdown && (
+          {winnerInfo && winnerInfo.showdown && !holdWinner && (
             <MobileWinnerAnnouncement
               winnerInfo={winnerInfo}
               onComplete={handleResultComplete}
