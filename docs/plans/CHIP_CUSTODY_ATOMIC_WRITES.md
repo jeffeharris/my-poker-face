@@ -7,6 +7,37 @@ last_updated: 2026-06-04
 
 # Chip-custody atomic writes (T3-82 Tier-2)
 
+## Status (2026-06-04)
+
+Implemented on branch `chip-custody-atomic-uow` (off `development`):
+
+- **A — primitives:** `BaseRepository.transaction()` (re-entrant, depth-aware
+  `_get_connection()`), `save_player_bankroll(conn=)`, `chip_unit_of_work()`,
+  and `conn=` threaded through every ledger helper used below.
+- **B — hottest:** `credit_ai_cash_out`, `debit_bankroll_for_seat`. ✅
+- **C — faucets/sinks/carry:** side-hustle, real vice, fake vice, carry
+  voluntary-payoff. ✅
+- **Bankruptcy:** `try_ai_bankruptcy` (two-pass: chips in the txn, stake_repo
+  discharges after). ✅
+- **D — casino:** fish prefund/drain. ✅  **D — tournament:** payouts
+  (`apply_payout_on_complete` + `reconcile_stuck_payout`). ✅
+
+**Deferred (documented, low-frequency, covered by Phase E reconcile):**
+- **Tournament buy-in** (`apply_buy_in`) — a deliberate
+  debit→`session_repo`→ledger→verify saga with explicit debit-reversal;
+  already conservation-safe, crash-atomicity needs a saga rewrite.
+- **Human `cash_routes`** sit/rebuy/leave + stake origination — many
+  interleaved seat/session/table/presence writes per route.
+
+**The hard constraint we hit (the lock lesson):** a unit-of-work may NOT span
+another repo's write to the same SQLite file — the open writer transaction on
+`bankroll_repo`'s connection deadlocks a `stake_repo`/`session_repo`/etc. write
+(single-writer + 5s busy_timeout → "database is locked"). So each UoW span must
+contain ONLY `bankroll_repo` int writes + ledger rows (which ride that same
+connection via `conn=`). Where other-repo writes interleave, either split into
+passes (bankruptcy) or defer (tournament buy-in, human routes). This is why the
+remaining paths are deferred rather than force-wrapped.
+
 ## Problem
 
 The AI/player **bankroll int** (the served authority) and its **`chip_ledger_entries`
