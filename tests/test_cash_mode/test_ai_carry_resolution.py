@@ -44,6 +44,7 @@ from cash_mode.ai_carry_resolution import (
     _payoff_score,
     _wealth_gap_factor,
     resolve_ai_carries,
+    try_ai_bankruptcy,
     try_ai_explicit_default,
     try_ai_forgiveness_ask,
     try_ai_voluntary_payoff,
@@ -1185,6 +1186,209 @@ class TestDispatcher:
         # First resolved carry must be the oldest (carry_1).
         assert len(batch.results) == 1  # at most one resolution per AI per refresh
         assert batch.results[0].stake_id == "carry_1"
+
+
+class TestBankruptcy:
+    """The terminal valve — insolvent borrower past the deadline.
+
+    Liquidates the bankroll pro-rata across all creditors, defaults the
+    remainder of every carry, zeroes the bankroll, and records the
+    bankruptcy on the per-sandbox credit history.
+    """
+
+    def _setup(self, tmp_path):
+        db = str(tmp_path / "bankruptcy.db")
+        SchemaManager(db).ensure_schema()
+        return (
+            db,
+            BankrollRepository(db),
+            StakeRepository(db),
+            ChipLedgerRepository(db),
+        )
+
+    def _carry(self, stake, stake_id, staker_id, staker_kind, amount, created_at, tier="$50"):
+        stake.create_stake(
+            Stake(
+                stake_id=stake_id,
+                session_id=f"sess_{stake_id}",
+                staker_id=staker_id,
+                staker_kind=staker_kind,
+                borrower_id="broke_ai",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                format=STAKE_FORMAT_PURE,
+                principal=amount,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.30,
+                status=STAKE_STATUS_CARRY,
+                carry_amount=amount,
+                stake_tier=tier,
+                created_at=created_at,
+            )
+        )
+
+    def _bankruptcy_count(self, db):
+        import sqlite3
+
+        conn = sqlite3.connect(db)
+        try:
+            row = conn.execute(
+                "SELECT bankruptcy_count, last_bankruptcy_at FROM ai_bankroll_state "
+                "WHERE personality_id = ? AND sandbox_id = ?",
+                ("broke_ai", SBX),
+            ).fetchone()
+        finally:
+            conn.close()
+        return row
+
+    def test_bankruptcy_discharges_all_carries_pro_rata(self, tmp_path):
+        db, bankroll, stake, ledger = self._setup(tmp_path)
+        now = ANCHOR + timedelta(days=8)
+        old = ANCHOR  # 8 days old → past the 7-day timer
+        # Insolvent borrower: 300 liquid vs 2,000 owed. last_regen_tick=now
+        # pins projection to stored chips (no regen inflation in the test).
+        bankroll.save_ai_bankroll(AIBankrollState("broke_ai", 300, now), sandbox_id=SBX)
+        # One AI creditor (pre-existing row, no regen) + one human creditor.
+        bankroll.save_ai_bankroll(AIBankrollState("ai_lender", 5_000, now), sandbox_id=SBX)
+        bankroll.save_player_bankroll(PlayerBankrollState("guest_h", 1_000, 1_000))
+        self._carry(stake, "c_ai", "ai_lender", STAKER_KIND_PERSONALITY, 400, old)
+        self._carry(stake, "c_human", "guest_h", STAKER_KIND_HUMAN, 1_600, old)
+
+        carries = stake.list_carries_for_borrower("broke_ai", BORROWER_KIND_PERSONALITY)
+        result = try_ai_bankruptcy(
+            personality_id="broke_ai",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=None,
+            chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            now=now,
+        )
+
+        # Result shape — aggregate beat, total debt + recovered.
+        assert result is not None
+        assert result.kind == "bankruptcy"
+        assert result.borrower_id == "broke_ai"
+        assert result.staker_id == ""
+        assert result.amount == 2_000  # total debt
+        assert result.recovered == 300  # full liquid distributed
+
+        # Pro-rata: 300 × 400/2000 = 60 to the AI lender; 300 × 1600/2000
+        # = 240 to the human. Sum == liquid, nothing destroyed.
+        assert bankroll.load_ai_bankroll("ai_lender", sandbox_id=SBX).chips == 5_060
+        assert bankroll.load_player_bankroll("guest_h").chips == 1_240
+
+        # Borrower liquidated to zero.
+        assert bankroll.load_ai_bankroll("broke_ai", sandbox_id=SBX).chips == 0
+
+        # Every carry discharged as a default; nothing left owed.
+        assert stake.list_carries_for_borrower("broke_ai", BORROWER_KIND_PERSONALITY) == []
+        for sid in ("c_ai", "c_human"):
+            row = stake.load_stake(sid)
+            assert row.status == STAKE_STATUS_DEFAULTED
+            assert row.carry_amount == 0
+
+        # Credit history recorded.
+        count, last_at = self._bankruptcy_count(db)
+        assert count == 1
+        assert last_at is not None
+
+    def test_solvent_borrower_does_not_go_bankrupt(self, tmp_path):
+        db, bankroll, stake, ledger = self._setup(tmp_path)
+        now = ANCHOR + timedelta(days=8)
+        # Can cover the debt → not bankrupt, even past the timer.
+        bankroll.save_ai_bankroll(AIBankrollState("broke_ai", 5_000, now), sandbox_id=SBX)
+        bankroll.save_ai_bankroll(AIBankrollState("ai_lender", 5_000, now), sandbox_id=SBX)
+        self._carry(stake, "c_ai", "ai_lender", STAKER_KIND_PERSONALITY, 2_000, ANCHOR)
+
+        carries = stake.list_carries_for_borrower("broke_ai", BORROWER_KIND_PERSONALITY)
+        result = try_ai_bankruptcy(
+            personality_id="broke_ai",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=None,
+            chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            now=now,
+        )
+        assert result is None
+        # Carry untouched, bankroll intact, no bankruptcy recorded.
+        assert stake.load_stake("c_ai").status == STAKE_STATUS_CARRY
+        assert bankroll.load_ai_bankroll("broke_ai", sandbox_id=SBX).chips == 5_000
+        assert self._bankruptcy_count(db)[0] == 0
+
+    def test_within_timer_does_not_go_bankrupt(self, tmp_path):
+        db, bankroll, stake, ledger = self._setup(tmp_path)
+        now = ANCHOR + timedelta(days=8)
+        recent = ANCHOR + timedelta(days=5)  # 3 days old → within the 7-day timer
+        bankroll.save_ai_bankroll(AIBankrollState("broke_ai", 300, now), sandbox_id=SBX)
+        bankroll.save_ai_bankroll(AIBankrollState("ai_lender", 5_000, now), sandbox_id=SBX)
+        self._carry(stake, "c_ai", "ai_lender", STAKER_KIND_PERSONALITY, 2_000, recent)
+
+        carries = stake.list_carries_for_borrower("broke_ai", BORROWER_KIND_PERSONALITY)
+        result = try_ai_bankruptcy(
+            personality_id="broke_ai",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=None,
+            chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            now=now,
+        )
+        assert result is None
+        assert stake.load_stake("c_ai").status == STAKE_STATUS_CARRY
+        assert self._bankruptcy_count(db)[0] == 0
+
+    def test_zero_liquid_discharges_with_no_recovery(self, tmp_path):
+        db, bankroll, stake, ledger = self._setup(tmp_path)
+        now = ANCHOR + timedelta(days=8)
+        # Stone broke: 0 chips. Creditors recover nothing; carries still
+        # discharge and the bankruptcy is still recorded.
+        bankroll.save_ai_bankroll(AIBankrollState("broke_ai", 0, now), sandbox_id=SBX)
+        bankroll.save_ai_bankroll(AIBankrollState("ai_lender", 5_000, now), sandbox_id=SBX)
+        self._carry(stake, "c_ai", "ai_lender", STAKER_KIND_PERSONALITY, 2_000, ANCHOR)
+
+        carries = stake.list_carries_for_borrower("broke_ai", BORROWER_KIND_PERSONALITY)
+        result = try_ai_bankruptcy(
+            personality_id="broke_ai",
+            carries=carries,
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=None,
+            chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            now=now,
+        )
+        assert result is not None
+        assert result.recovered == 0
+        assert result.amount == 2_000
+        assert bankroll.load_ai_bankroll("ai_lender", sandbox_id=SBX).chips == 5_000
+        assert stake.load_stake("c_ai").status == STAKE_STATUS_DEFAULTED
+        assert self._bankruptcy_count(db)[0] == 1
+
+    def test_dispatcher_routes_insolvent_borrower_to_bankruptcy_first(self, tmp_path):
+        db, bankroll, stake, ledger = self._setup(tmp_path)
+        now = ANCHOR + timedelta(days=10)
+        bankroll.save_ai_bankroll(AIBankrollState("broke_ai", 300, now), sandbox_id=SBX)
+        bankroll.save_ai_bankroll(AIBankrollState("ai_lender", 5_000, now), sandbox_id=SBX)
+        self._carry(stake, "c_ai", "ai_lender", STAKER_KIND_PERSONALITY, 2_000, ANCHOR)
+
+        batch = resolve_ai_carries(
+            bankroll_repo=bankroll,
+            stake_repo=stake,
+            relationship_repo=_RelHeat(heat=0.0),
+            chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            energy_lookup=lambda pid: 0.5,
+            rng=_AlwaysLowRng(),
+            now=now,
+        )
+        assert len(batch.results) == 1
+        assert batch.results[0].kind == "bankruptcy"
+        assert stake.load_stake("c_ai").status == STAKE_STATUS_DEFAULTED
 
 
 if __name__ == '__main__':

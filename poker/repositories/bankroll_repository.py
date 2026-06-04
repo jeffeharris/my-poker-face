@@ -458,6 +458,47 @@ class BankrollRepository(BaseRepository):
             )
             return cursor.rowcount > 0
 
+    def record_bankruptcy(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+        now: datetime,
+    ) -> int:
+        """Increment the AI's bankruptcy count and stamp the timestamp.
+
+        Called by the carry-resolution bankruptcy valve when an
+        insolvent borrower's carries are discharged. Bumps
+        `bankruptcy_count` and sets `last_bankruptcy_at = now` (v149
+        columns on `ai_bankroll_state`). Returns the new count.
+
+        Targets an existing row — the bankruptcy path has already
+        loaded and zeroed the bankroll, so the row is guaranteed to
+        exist. Returns 0 if no row matched (defensive; shouldn't
+        happen on the live path).
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE ai_bankroll_state
+                SET bankruptcy_count = COALESCE(bankruptcy_count, 0) + 1,
+                    last_bankruptcy_at = ?
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (now.isoformat(), personality_id, sandbox_id),
+            )
+            if cursor.rowcount <= 0:
+                return 0
+            row = conn.execute(
+                """
+                SELECT bankruptcy_count
+                FROM ai_bankroll_state
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (personality_id, sandbox_id),
+            ).fetchone()
+        return int(row["bankruptcy_count"]) if row else 0
+
     def sum_ai_bankroll_chips_stored(
         self,
         *,

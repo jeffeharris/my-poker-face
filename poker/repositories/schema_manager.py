@@ -336,7 +336,7 @@ _test_schema_template_path = None
 #       backfill by the unique display-name join). (was v137)
 # v147: Make `personality_id` the SOLE avatar key — drop the legacy
 #       `personality_name` column + dual-key reads. (was v138)
-SCHEMA_VERSION = 148
+SCHEMA_VERSION = 149
 
 
 class SchemaManager:
@@ -2285,6 +2285,10 @@ class SchemaManager:
             148: (
                 self._migrate_v148_invite_reserved_pids,
                 "Add reserved_pids + vacated_pids JSON columns to tournament_invites (tournaments-as-a-draw): the draw-selected field locked at offer time and the subset that has vacated cash en route. Additive nullable ALTERs; existing offers read NULL (random-shuffle field at spawn, unchanged).",
+            ),
+            149: (
+                self._migrate_v149_add_bankruptcy_history,
+                "Add bankruptcy_count (INTEGER DEFAULT 0) + last_bankruptcy_at (TEXT NULL) to ai_bankroll_state for the carry-resolution bankruptcy valve: the per-sandbox credit-history that drives post-bankruptcy loan-term penalties (with time-decay off last_bankruptcy_at) and the dossier's lifetime count. Additive; existing rows read 0 / NULL (never bankrupt).",
             ),
         }
 
@@ -6181,6 +6185,44 @@ class SchemaManager:
                 "ALTER TABLE ai_bankroll_state " "ADD COLUMN aspiration_cooldown_until TEXT"
             )
         logger.info("Migration v107 complete: ai_bankroll_state.aspiration_cooldown_until added")
+
+    def _migrate_v149_add_bankruptcy_history(self, conn: sqlite3.Connection) -> None:
+        """Migration v149: add bankruptcy credit-history to ai_bankroll_state.
+
+        The carry-resolution bankruptcy valve discharges a hopelessly-
+        underwater AI's carries (liquidate chips → pro-rata split →
+        default the rest → zero) past a deadline. Two additive columns
+        record the consequence so it isn't a free pass:
+
+          - `bankruptcy_count` (INTEGER DEFAULT 0): lifetime bankruptcies
+            in this sandbox. Surfaced on the dossier and drives the
+            post-bankruptcy loan-term penalty (lenders quote a bankrupt
+            borrower pricier money, not a lockout).
+          - `last_bankruptcy_at` (TEXT NULL): ISO-8601 UTC stamp of the
+            most recent bankruptcy. The hook for v1 time-decay — the
+            economic penalty fades with recency while the lifetime count
+            persists as history.
+
+        Both live on `ai_bankroll_state` (per-sandbox) so credit history
+        is scoped the same way chips/regen already are: an AI can be
+        bankrupt-and-expensive in one casino and clean in another.
+
+        Existing rows read 0 / NULL (never bankrupt). Idempotent:
+        PRAGMA-guarded ADDs.
+        """
+        cursor = conn.execute("PRAGMA table_info(ai_bankroll_state)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'bankruptcy_count' not in cols:
+            conn.execute(
+                "ALTER TABLE ai_bankroll_state "
+                "ADD COLUMN bankruptcy_count INTEGER NOT NULL DEFAULT 0"
+            )
+        if 'last_bankruptcy_at' not in cols:
+            conn.execute("ALTER TABLE ai_bankroll_state ADD COLUMN last_bankruptcy_at TEXT")
+        logger.info(
+            "Migration v149 complete: ai_bankroll_state.bankruptcy_count + "
+            "last_bankruptcy_at added"
+        )
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.

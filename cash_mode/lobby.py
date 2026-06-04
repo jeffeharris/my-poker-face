@@ -3842,11 +3842,13 @@ def _emit_carry_resolution_events(
 
     from cash_mode.activity import (
         AI_CARRY_TICKER_THRESHOLD,
+        EVENT_AI_BANKRUPTCY,
         EVENT_AI_DEFAULT,
         EVENT_AI_FORGIVEN,
         EVENT_AI_PAYOFF,
         EVENT_AI_REQUESTS_FORGIVENESS,
         LobbyEvent,
+        format_ai_bankruptcy_message,
         format_ai_explicit_default_message,
         format_ai_forgiven_message,
         format_ai_payoff_message,
@@ -3866,6 +3868,38 @@ def _emit_carry_resolution_events(
     ts = now.isoformat()
 
     for result in batch.results:
+        # Bankruptcy is an aggregate beat (no single staker) and a
+        # lifecycle rupture — surface it before the staker-name guard and
+        # the per-carry threshold gate that the other kinds pass through.
+        if result.kind == 'bankruptcy':
+            borrower_name = _name_for(result.borrower_id)
+            if not borrower_name:
+                continue
+            try:
+                record_event(
+                    LobbyEvent(
+                        type=EVENT_AI_BANKRUPTCY,
+                        table_id="",
+                        stake_label=result.stake_tier,
+                        personality_id=result.borrower_id,
+                        name=borrower_name,
+                        reason="",
+                        message=format_ai_bankruptcy_message(
+                            borrower_name,
+                            result.recovered or 0,
+                            result.amount,
+                        ),
+                        created_at=ts,
+                        sandbox_id=sandbox_id,
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] carry resolution event emit failed (bankruptcy): %s",
+                    exc,
+                )
+            continue
+
         if result.amount < AI_CARRY_TICKER_THRESHOLD:
             continue
         borrower_name = _name_for(result.borrower_id)

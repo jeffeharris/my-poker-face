@@ -104,6 +104,15 @@ ready to clear his tab" beat. Threshold-gated the same as
 EVENT_AI_STAKE/EVENT_AI_DEFAULT so small-stake payoffs (at $2 / $10
 tables) stay invisible."""
 
+EVENT_AI_BANKRUPTCY = "ai_bankruptcy"
+"""An insolvent AI declared bankruptcy: their liquid bankroll was
+liquidated and split pro-rata across every creditor, the remainder
+of each carry written off as a default, and chips zeroed. The
+terminal valve for a borrower who's underwater past the deadline and
+can neither pay nor be forced through the narrower explicit-default
+gate. Always surfaced on the ticker (bypasses the carry threshold) —
+it's a lifecycle rupture, not a routine payoff."""
+
 EVENT_AI_FORGIVEN = "ai_forgiven"
 """An AI forgave another AI's outstanding carry on request. Phase
 4.5 Commit 4 — the "generous staker writes off the debt" beat.
@@ -504,6 +513,24 @@ def format_ai_payoff_message(
     Phase 4.5 Commit 3. Reads as the AI doing the right thing —
     bankroll → staker, status flips to settled, STAKE_REPAID fires."""
     return f"{borrower_name} paid off ${amount:,} carry to {staker_name} at {stake_label}"
+
+
+def format_ai_bankruptcy_message(
+    borrower_name: str,
+    recovered: int,
+    total_debt: int,
+) -> str:
+    """Phrasing for an AI declaring bankruptcy.
+
+    The bankruptcy valve liquidates the AI's chips and splits them
+    pro-rata across all creditors; the rest is discharged as default.
+    `recovered` is what creditors got back in aggregate, `total_debt`
+    is what they were owed — the gap is the collective write-off. One
+    aggregate beat rather than per-creditor spam."""
+    return (
+        f"{borrower_name} declared bankruptcy — creditors recovered "
+        f"${recovered:,} of ${total_debt:,}"
+    )
 
 
 def format_ai_forgiven_message(

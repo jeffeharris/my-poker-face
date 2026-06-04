@@ -131,6 +131,19 @@ DEFAULT_RESPECT_FLOOR = -0.2
 """Staker's respect for borrower below this contributes +0.2
 pressure (already on bad terms — less reputation to lose)."""
 
+# Bankruptcy valve (the terminal escape hatch for insolvent borrowers).
+BANKRUPTCY_TIMER_DAYS = 7.0
+"""Age (in days) of a borrower's OLDEST carry past which, IF they are
+insolvent (liquid bankroll can't cover their total outstanding
+carries), they declare bankruptcy: liquidate chips → pro-rata split
+across all creditors → default the remainder → zero the bankroll.
+
+The deadline gives a borrower a week to recover or pay down through
+the voluntary-payoff / forgiveness / side-hustle paths first; only
+after it, and only when they genuinely can't pay, does the valve
+fire. Tunable — it's the single knob on how patient the credit market
+is before forcing a write-off."""
+
 # Threshold for surfacing payoff / forgiveness events on the lobby
 # ticker lives in `cash_mode.activity` (re-exported alongside the
 # Phase 4 AI_STAKE_TICKER_THRESHOLD so both surfaces share one drama
@@ -152,13 +165,16 @@ class CarryResolutionResult:
     transfer), and consumers branch on `kind`.
     """
 
-    kind: str  # 'payoff' | 'forgiven' | 'forgiveness_refused' | 'default'
+    kind: str  # 'payoff' | 'forgiven' | 'forgiveness_refused' | 'default' | 'bankruptcy'
     stake_id: str
-    staker_id: str
+    staker_id: str  # '' for 'bankruptcy' (aggregate across all creditors)
     borrower_id: str
     stake_tier: str
-    amount: int  # chips moved (payoff) OR carry cleared (forgiven/default)
+    amount: (
+        int  # chips moved (payoff) OR carry cleared (forgiven/default) OR total debt (bankruptcy)
+    )
     score: Optional[float] = None  # forgiveness score; None for non-forgiveness
+    recovered: Optional[int] = None  # bankruptcy only: chips creditors recovered in aggregate
 
 
 @dataclass
@@ -1158,6 +1174,265 @@ def try_ai_explicit_default(
     return None
 
 
+def try_ai_bankruptcy(
+    *,
+    personality_id: str,
+    carries: List[Stake],
+    bankroll_repo,
+    stake_repo,
+    relationship_repo,
+    chip_ledger_repo,
+    sandbox_id: Optional[str],
+    now: datetime,
+    timer_days: float = BANKRUPTCY_TIMER_DAYS,
+) -> Optional[CarryResolutionResult]:
+    """Declare bankruptcy for an insolvent borrower past the deadline.
+
+    The terminal valve. Fires only when BOTH gates pass:
+      - **Timer**: the borrower's oldest carry is at least `timer_days`
+        old (carries arrive sorted ASC by created_at). Gives the
+        voluntary-payoff / forgiveness / side-hustle paths a week to
+        resolve it the "good" way first.
+      - **Insolvency**: projected liquid bankroll can't cover their
+        TOTAL outstanding carries. A borrower who can pay isn't bankrupt
+        — they fall through to `try_ai_voluntary_payoff` instead.
+
+    On a fire, every carry is resolved at once:
+      1. Liquidate: split the liquid bankroll pro-rata across all
+         carries by `carry_amount` (rounding remainder to the largest
+         carry so the full amount distributes — no chip destruction).
+      2. Pay each creditor their slice (human → player_bankroll, AI →
+         bankroll), recording the `stake_payoff` transfer for custody.
+      3. Default the remainder of every carry (status → 'defaulted',
+         carry_amount → 0), firing STAKE_DEFAULTED per creditor.
+      4. Zero the bankroll (chips = projected − recovered, which is 0 in
+         the normal path) and `record_bankruptcy` (count++, stamp time).
+
+    The chips→0 outcome feeds straight into the side-hustle recovery
+    loop next refresh (the now-broke AI is the neediest candidate), so
+    bankruptcy is a fresh start, not a disappearance. The teeth — the
+    reputation hits and the recorded count — are what keep it from
+    being a free pass.
+
+    Returns a single aggregate `CarryResolutionResult` (kind=
+    'bankruptcy', `amount`=total debt, `recovered`=chips creditors got
+    back) so the dispatcher emits one ticker beat rather than N. None
+    when neither gate trips.
+
+    Note on scoping: like the other resolution paths, this operates on
+    the borrower's GLOBAL carry list (stakes carry no sandbox_id) but
+    liquidates the bankroll of the *ticking* sandbox. Whichever sandbox
+    refreshes first while both gates hold wins the bankruptcy; once the
+    carries flip to 'defaulted' they leave every sandbox's carry query.
+    """
+    if not carries:
+        return None
+    total_debt = _carries_sum(carries)
+    if total_debt <= 0:
+        return None
+
+    # Timer gate — oldest carry must be past the deadline.
+    oldest = carries[0]
+    if _carry_age_days(oldest, now) < timer_days:
+        return None
+
+    from cash_mode.bankroll import (
+        AIBankrollState,
+        PlayerBankrollState,
+        credit_ai_cash_out,
+        project_bankroll,
+    )
+
+    stored = bankroll_repo.load_ai_bankroll(personality_id, sandbox_id=sandbox_id)
+    if stored is None:
+        return None
+    knobs = bankroll_repo.load_personality_knobs(personality_id)
+    projected = max(
+        0,
+        project_bankroll(stored, knobs.starting_bankroll, knobs.bankroll_rate, now),
+    )
+
+    # Insolvency gate — a borrower who can cover their debts isn't
+    # bankrupt; let the payoff path handle them.
+    if projected >= total_debt:
+        return None
+    liquid = projected
+
+    # Pro-rata shares by carry_amount. Assign the rounding remainder to
+    # the largest carry so the full `liquid` distributes — keeps the
+    # zeroed-bankroll write balanced (no silent chip destruction).
+    shares: Dict[str, int] = {c.stake_id: 0 for c in carries}
+    if liquid > 0:
+        running = 0
+        for c in carries:
+            share = liquid * int(c.carry_amount) // total_debt
+            shares[c.stake_id] = share
+            running += share
+        remainder = liquid - running
+        if remainder > 0:
+            biggest = max(carries, key=lambda c: int(c.carry_amount))
+            shares[biggest.stake_id] += remainder
+
+    from cash_mode import economy_flags
+    from core.economy import ledger as chip_ledger
+
+    _custody = chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED
+
+    # The regen portion (projected − stored) enters the universe here
+    # before we distribute it, mirroring the voluntary-payoff path so
+    # the chip-ledger audit balances.
+    if chip_ledger_repo is not None and projected > stored.chips:
+        chip_ledger.record_ai_regen(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            stored_chips=stored.chips,
+            projected_chips=projected,
+            context={'site': 'ai_bankruptcy', 'sandbox_id': sandbox_id},
+            sandbox_id=sandbox_id,
+        )
+
+    mgr = None
+    if relationship_repo is not None:
+        from poker.memory import OpponentModelManager
+
+        mgr = OpponentModelManager(relationship_repo=relationship_repo)
+    from poker.memory.relationship_events import RelationshipEvent
+
+    recovered = 0
+    for c in carries:
+        share = shares.get(c.stake_id, 0)
+
+        # Pay the creditor their slice. A missing human bankroll row is
+        # the one case we can't credit — skip the payment (the chips
+        # stay on the bankrupt's row via the `projected − recovered`
+        # write below) but still discharge the carry.
+        if share > 0 and c.staker_id is not None:
+            if c.staker_kind == STAKER_KIND_HUMAN:
+                human = bankroll_repo.load_player_bankroll(c.staker_id)
+                if human is not None:
+                    bankroll_repo.save_player_bankroll(
+                        PlayerBankrollState(
+                            player_id=human.player_id,
+                            chips=human.chips + share,
+                            starting_bankroll=human.starting_bankroll,
+                        ),
+                    )
+                    if _custody:
+                        chip_ledger.record_stake_payoff(
+                            chip_ledger_repo,
+                            source=chip_ledger.ai(personality_id),
+                            sink=chip_ledger.player(human.player_id),
+                            amount=share,
+                            context={'stake_id': c.stake_id, 'site': 'ai_bankruptcy'},
+                            sandbox_id=sandbox_id,
+                        )
+                    recovered += share
+                else:
+                    logger.warning(
+                        "[CASH][AI_BANKRUPTCY] human staker bankroll missing — "
+                        "skipping payment staker=%r stake=%r",
+                        c.staker_id,
+                        c.stake_id,
+                    )
+            else:
+                credit_ai_cash_out(
+                    bankroll_repo,
+                    c.staker_id,
+                    share,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                    chip_ledger_repo=chip_ledger_repo,
+                    ledger_context={'stake_id': c.stake_id, 'site': 'ai_bankruptcy'},
+                    from_seat=False,
+                )
+                if _custody:
+                    chip_ledger.record_stake_payoff(
+                        chip_ledger_repo,
+                        source=chip_ledger.ai(personality_id),
+                        sink=chip_ledger.ai(c.staker_id),
+                        amount=share,
+                        context={'stake_id': c.stake_id, 'site': 'ai_bankruptcy'},
+                        sandbox_id=sandbox_id,
+                    )
+                recovered += share
+
+        # Discharge: default the carry regardless of how much (if any)
+        # the creditor recovered. The unpaid remainder is the write-off.
+        stake_repo.update_carry_amount(c.stake_id, 0)
+        stake_repo.update_status(c.stake_id, STAKE_STATUS_DEFAULTED, settled_at=now)
+        if c.pending_forgiveness_ask is not None:
+            stake_repo.update_pending_forgiveness_ask(c.stake_id, None)
+        stake_repo.update_payouts(
+            c.stake_id,
+            staker_payout=(c.staker_payout or 0) + share,
+            borrower_payout=(c.borrower_payout or 0) - share,
+        )
+
+        if mgr is not None and c.staker_id is not None:
+            try:
+                mgr.record_event(
+                    actor_id=c.staker_id,
+                    target_id=personality_id,
+                    event=RelationshipEvent.STAKE_DEFAULTED,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][AI_BANKRUPTCY] STAKE_DEFAULTED failed stake=%r: %s",
+                    c.stake_id,
+                    exc,
+                )
+
+    # Liquidate the bankroll. `projected − recovered` is 0 in the normal
+    # path (everything distributed); it's only positive in the rare
+    # missing-human-row case, where we keep the undistributable chips
+    # rather than destroy them.
+    bankroll_repo.save_ai_bankroll(
+        AIBankrollState(
+            personality_id=personality_id,
+            chips=max(0, projected - recovered),
+            last_regen_tick=now,
+        ),
+        sandbox_id=sandbox_id,
+    )
+
+    new_count = 0
+    try:
+        new_count = bankroll_repo.record_bankruptcy(
+            personality_id,
+            sandbox_id=sandbox_id,
+            now=now,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[CASH][AI_BANKRUPTCY] record_bankruptcy failed pid=%r: %s",
+            personality_id,
+            exc,
+        )
+
+    # The tier of the largest carry is the most representative label for
+    # the aggregate ticker beat.
+    biggest = max(carries, key=lambda c: int(c.carry_amount))
+    logger.info(
+        "[STAKE][AI_BANKRUPTCY] %r bankrupt: %d creditors, recovered %d of %d, "
+        "bankruptcy_count=%d",
+        personality_id,
+        len(carries),
+        recovered,
+        total_debt,
+        new_count,
+    )
+
+    return CarryResolutionResult(
+        kind='bankruptcy',
+        stake_id=oldest.stake_id,
+        staker_id='',
+        borrower_id=personality_id,
+        stake_tier=biggest.stake_tier,
+        amount=total_debt,
+        recovered=recovered,
+    )
+
+
 # --- Dispatcher ---
 
 
@@ -1229,10 +1504,35 @@ def resolve_ai_carries(
     for borrower_id, carries in by_borrower.items():
         # Stable iteration order for testability — the helper functions
         # already do the per-carry selection logic. Best-effort across
-        # all three behaviors so one helper's failure doesn't poison
-        # the others.
+        # all behaviors so one helper's failure doesn't poison the others.
 
-        # Payoff first — clearing the deck is the AI's preferred move
+        # Bankruptcy first — the terminal gate. If the borrower is past
+        # the deadline AND insolvent, this discharges every carry at
+        # once; nothing else should run for them this tick. Solvent or
+        # within-deadline borrowers fall straight through (returns None).
+        try:
+            result = try_ai_bankruptcy(
+                personality_id=borrower_id,
+                carries=carries,
+                bankroll_repo=bankroll_repo,
+                stake_repo=stake_repo,
+                relationship_repo=relationship_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                now=now,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][AI_CARRY] try_ai_bankruptcy(%r) failed: %s",
+                borrower_id,
+                exc,
+            )
+            result = None
+        if result is not None:
+            batch.results.append(result)
+            continue
+
+        # Payoff next — clearing the deck is the AI's preferred move
         # when they can afford it. If a payoff fires, skip the other
         # two for this AI (resolution doesn't compound in one tick).
         try:
