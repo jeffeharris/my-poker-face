@@ -208,8 +208,25 @@ Vice needs no change — its concentration gate already self-selects for inequal
 Inert on the top-heavy launch cast (vice leads, verified by the climb run); the
 flat-field path is unit-tested and wants a flat-roster sim to exercise live.
 
-**Still open:** (1) climb *pace* vs play-volume → tune for 1–2 tournaments/day;
-(2) a run with the tournament overlay in the loop to confirm the full sawtooth.
+**Tournament overlay in the sim loop — done 2026-06-04.** The harness now checks
+`should_offer_event` each chunk and, when reserves reach the trigger, fires a Main
+Event (`_fire_tournament`: real `tournament_funding` + `record_tournament_overlay`/
+`record_tournament_payout`) — draining the overlay from the pool back to the field
+as prizes. Demonstrated (genesis seeded above a 0.10 trigger, `--no-casino`):
+reserves at 0.14 → **fire drains 124k → ratio 0.057 (the floor), holdings rise**
+(prizes enter the field) → reserves climb again. The sawtooth drop is real.
+
+**Two tuning findings from the runs (open):**
+- **Casino seed is a big, lumpy drain.** A single casino opening drops reserves
+  ~74–90k, repeatedly knocking the climb back to the critical band — it stalled
+  reserves below even a 0.08 trigger across 500 ticks. Cutting the casino seed
+  cost / fish count (or `CASINO_RELATIVE_THRESHOLDS`) is the lever for a reliable
+  climb.
+- **Vice tapers to zero at the trigger → asymptotic approach.** Because vice eases
+  to off exactly at the trigger, the last stretch of the climb relies on the weak
+  base rake, so reaching (and re-reaching) the trigger is slow. Lever: hold a vice
+  floor near the trigger, or let rake carry the final push. This is the knob for
+  the 1–2 tournaments/day cadence.
 
 ### 1.6 Open tuning questions (need a sim before flipping on)
 

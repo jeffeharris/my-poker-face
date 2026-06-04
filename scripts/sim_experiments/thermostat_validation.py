@@ -9,15 +9,19 @@ ratio evolve over a run:
 
 It seeds a FRESH isolated tempdb sandbox (the 76-cast roster + bankrolls + lobby),
 flips the Director flags on, seeds the genesis reserve, then runs the cash sim in
-chunks — calling `economy_signal.signal()` between chunks to trace the ratio. The
-sim drives cash hands + lobby refresh (vice/rake/side-hustle), so it exercises the
-refill faucet; it does NOT run the tournament overlay (no drain), so this measures
-the CLIMB rate toward the 0.12 trigger — i.e. how long a Main Event takes to earn,
-the cadence input. A full sawtooth needs the tournament ticker in the loop (TODO).
+chunks — tracing `economy_signal.signal().ratio` between chunks. The sim drives
+the refill faucet (cash hands + lobby refresh: vice/rake/side-hustle) AND the
+**tournament overlay**: each chunk it checks `should_offer_event`; when reserves
+reach the trigger it fires a Main Event (`_fire_tournament`), draining the overlay
+from the pool back to the field as prizes. So this measures the full SAWTOOTH
+(climb to trigger → drain to floor → climb again) and the cadence.
 
 Usage (in the backend container):
+    # full run (climb to the real 0.12 trigger takes ~1000 ticks of play):
     docker compose exec -T backend python -m scripts.sim_experiments.thermostat_validation \
-        --ticks 400 --chunk 10 --seed 0
+        --ticks 1000 --chunk 40 --seed 0
+    # demo the sawtooth fast by lowering the trigger (must stay > the 0.06 floor):
+    ... --ticks 500 --chunk 25 --trigger 0.08
 
 Run in the background — a few hundred ticks of real hands takes minutes.
 """
@@ -41,6 +45,59 @@ from scripts.seed_sim_sandbox import seed_sim_sandbox  # noqa: E402
 OWNER = 'sim-thermostat'
 
 
+def _fire_tournament(repos, sandbox_id, state, tid):
+    """Apply one Main Event's economic effect: drain the bank overlay to the
+    field as prizes. Returns the overlay (chips drained from reserves), 0 if none.
+
+    Uses the real funding policy + ledger overlay/payout helpers, so the bank
+    pool drains exactly as production would: `tournament_funding` sizes the
+    overlay to bring reserves to the floor, `record_tournament_overlay` draws it
+    from the pool, and `record_tournament_payout` redistributes it to AIs (here:
+    split evenly across the cast — the freeroll prize returns the taxed chips to
+    the field). Reserves ↓ overlay, holdings flat-to-up — the sawtooth drop.
+    """
+    from cash_mode.bankroll import AIBankrollState
+    from core.economy import ledger as chip_ledger
+    from core.economy.economy_signal import DEFAULT_MAIN_EVENT, tournament_funding
+
+    plan = tournament_funding(
+        state, field_size=DEFAULT_MAIN_EVENT.field_size, seat_price=0, human_in=False
+    )
+    overlay = plan.bank_overlay
+    if overlay <= 0:
+        return 0
+
+    ledger = repos['chip_ledger_repo']
+    bankroll = repos['bankroll_repo']
+    chip_ledger.record_tournament_overlay(
+        ledger, tournament_id=tid, amount=overlay, sandbox_id=sandbox_id
+    )
+    # Redistribute the prize pool across the cast (escrow -> AIs), crediting the
+    # stored bankrolls so the next tick's wealth signal reflects the winnings.
+    elig = repos['personality_repo'].list_eligible_for_cash_mode()
+    pids = [e['personality_id'] for e in elig][: DEFAULT_MAIN_EVENT.field_size] or []
+    if not pids:
+        return overlay
+    share = overlay // len(pids)
+    paid = 0
+    for pid in pids:
+        if share <= 0:
+            break
+        chip_ledger.record_tournament_payout(
+            ledger, sink=chip_ledger.ai(pid), tournament_id=tid, amount=share, sandbox_id=sandbox_id
+        )
+        stored = bankroll.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        if stored is not None:
+            bankroll.save_ai_bankroll(
+                AIBankrollState(pid, int(stored.chips) + share, stored.last_regen_tick),
+                sandbox_id=sandbox_id,
+            )
+        paid += share
+    # Any rounding remainder is left in the escrow (negligible); reserves already
+    # dropped by the full overlay.
+    return overlay
+
+
 def _band(ratio: float) -> str:
     if ratio >= chair.RESERVE_TRIGGER:
         return 'TRIGGER'
@@ -62,7 +119,27 @@ def main() -> int:
         default=None,
         help='Override GENESIS_RESERVE_RATIO (default: flag value)',
     )
+    ap.add_argument(
+        '--trigger',
+        type=float,
+        default=None,
+        help='Override RESERVE_TRIGGER (lower it to demo the sawtooth without a '
+        '~1000-tick climb; the overlay drains reserves back to the floor on each fire)',
+    )
+    ap.add_argument(
+        '--no-casino',
+        action='store_true',
+        help='Disable casino spawning (the dominant drain) to isolate the '
+        'tournament sawtooth — reserves climb cleanly on the vice/rake faucet',
+    )
     args = ap.parse_args()
+
+    if args.trigger is not None:
+        chair.RESERVE_TRIGGER = args.trigger
+    if args.no_casino:
+        from cash_mode import casino_provisioning
+
+        casino_provisioning.CASINO_SPAWN_THRESHOLDS = {}
 
     # Flip the Director levers on for the run (read at call-time, so setting the
     # module attrs is enough — same pattern the tests use).
@@ -99,9 +176,13 @@ def main() -> int:
         )
         print(f'{"tick":>6} {"reserves":>12} {"holdings":>12} {"ratio":>8}  band')
 
+        from core.economy.economy_signal import should_offer_event
+
         samples = []
+        tournaments = []  # (tick, overlay) for each fired Main Event
         done = 0
-        first = True
+        last_tourney_tick = -(10**9)
+        min_gap = max(args.chunk, 1)  # at most one Main Event per chunk
         while done < args.ticks:
             n = min(args.chunk, args.ticks - done)
             cfg = SimConfig(
@@ -117,12 +198,23 @@ def main() -> int:
             run_sim(cfg, repos=repos)
             done += n
             st = chair.signal(ledger, sandbox_id=sandbox_id)
+
+            # Tournament overlay: when reserves reach the trigger, the Director
+            # opens a Main Event — drain the overlay back to the field as prizes
+            # (the sawtooth drop). Economic gate paces it; the tick gap is a floor.
+            fired = ''
+            spec = should_offer_event(st, cooldown_elapsed=(done - last_tourney_tick >= min_gap))
+            if spec is not None:
+                overlay = _fire_tournament(repos, sandbox_id, st, tid=f'tourney-{done}')
+                if overlay > 0:
+                    tournaments.append((done, overlay))
+                    last_tourney_tick = done
+                    st = chair.signal(ledger, sandbox_id=sandbox_id)  # post-drain
+                    fired = f'  *** MAIN EVENT: -{overlay:,} overlay -> ratio {st.ratio:.4f}'
+
             samples.append((done, st))
-            mark = ' <-- TRIGGER reached' if st.ratio >= chair.RESERVE_TRIGGER and first else ''
-            if st.ratio >= chair.RESERVE_TRIGGER:
-                first = False
             print(
-                f'{done:>6} {st.reserves:>12,} {st.holdings:>12,} {st.ratio:>8.4f}  {_band(st.ratio)}{mark}'
+                f'{done:>6} {st.reserves:>12,} {st.holdings:>12,} {st.ratio:>8.4f}  {_band(st.ratio)}{fired}'
             )
 
         # --- Summary ---
@@ -140,15 +232,26 @@ def main() -> int:
             f'band occupancy (of {len(ratios)} samples): '
             + ', '.join(f'{b}={occ.get(b,0)}' for b in ('critical', 'low', 'healthy', 'TRIGGER'))
         )
-        if first_trigger is not None:
+        trig = chair.RESERVE_TRIGGER
+        if tournaments:
+            ticks = [t for t, _ in tournaments]
+            gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
+            avg_gap = sum(gaps) / len(gaps) if gaps else None
             print(
-                f'reached TRIGGER (0.12) at tick {first_trigger} '
-                f'(≈ {first_trigger} ticks of play to earn the first Main Event)'
+                f'MAIN EVENTS fired: {len(tournaments)} at ticks '
+                + ', '.join(str(t) for t in ticks)
             )
+            print(
+                f'  total overlay distributed: {sum(o for _, o in tournaments):,} chips'
+                + (f'  |  avg gap: {avg_gap:.0f} ticks between events' if avg_gap else '')
+            )
+            print(f'  → SAWTOOTH confirmed: reserves climb to {trig}, drain to floor, repeat.')
+        elif first_trigger is not None:
+            print(f'reached TRIGGER ({trig}) at tick {first_trigger} but fired no event (gap?)')
         else:
             print(
-                f'did NOT reach TRIGGER (0.12) in {args.ticks} ticks — '
-                f'faucet too slow at this horizon, or holdings too large'
+                f'did NOT reach TRIGGER ({trig}) in {args.ticks} ticks — '
+                f'still climbing (raise --ticks or lower --trigger to see the sawtooth)'
             )
 
         # --- Where do the chips flow? (cumulative bank-pool ledger by reason) ---
