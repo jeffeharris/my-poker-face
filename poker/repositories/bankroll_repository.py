@@ -393,6 +393,34 @@ class BankrollRepository(BaseRepository):
             ).fetchall()
         return [int(r["chips"]) for r in rows]
 
+    def iter_ai_bankrolls_raw(self, *, sandbox_id: Optional[str] = None):
+        """`(personality_id, sandbox_id, stored_chips)` for every AI bankroll row.
+
+        The RAW stored int — NOT routed through `_derived_or_cached_ai_chips` —
+        so the Phase E `audit_ledger_completeness` reconcile can compare the
+        authoritative cache against the ledger-derived balance regardless of the
+        `CHIP_CUSTODY_DERIVE_READS` flag. `sandbox_id=None` spans all sandboxes.
+        """
+        with self._get_connection() as conn:
+            if sandbox_id is None:
+                rows = conn.execute(
+                    "SELECT personality_id, sandbox_id, chips FROM ai_bankroll_state"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT personality_id, sandbox_id, chips FROM ai_bankroll_state "
+                    "WHERE sandbox_id = ?",
+                    (sandbox_id,),
+                ).fetchall()
+        return [(r["personality_id"], r["sandbox_id"], int(r["chips"])) for r in rows]
+
+    def iter_player_bankrolls_raw(self):
+        """`(player_id, stored_chips)` for every player bankroll row — RAW stored
+        int (no derivation). Player bankroll is global (no sandbox column)."""
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT player_id, chips FROM player_bankroll_state").fetchall()
+        return [(r["player_id"], int(r["chips"])) for r in rows]
+
     def load_aspiration_cooldown_until(
         self,
         personality_id: str,

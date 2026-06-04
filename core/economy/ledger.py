@@ -166,6 +166,11 @@ LEDGER_REASONS = frozenset(
         # mirror of tournament_buy_in. After every payout +
         # rake the escrow nets to 0 (the escrow-balance
         # invariant).
+        'ledger_reconciliation',  # reconciliation ↔ ai:<pid>/player:<id>: the
+        # Phase E drift-suspense transfer (audit_ledger_completeness). Parks
+        # `stored − derived` in the `reconciliation` account so a derived
+        # bankroll re-aligns with its authoritative stored int. Bank-neutral
+        # (no central_bank side) → invisible to pool-depth + drift sums.
     }
 )
 
@@ -184,6 +189,7 @@ TRANSFER_REASONS = frozenset(
         'stake_payoff',
         'tournament_buy_in',
         'tournament_payout',
+        'ledger_reconciliation',
     }
 )
 
@@ -301,6 +307,22 @@ def ai_seat(sandbox_id: str, personality_id: str) -> str:
     if not personality_id:
         raise ValueError("ai_seat() requires a non-empty personality_id")
     return f"seat:ai:{sandbox_id}:{personality_id}"
+
+
+def reconciliation() -> str:
+    """The drift-suspense account (Phase E `audit_ledger_completeness`).
+
+    A single non-bank suspense surface that absorbs the difference when a
+    stored bankroll int (the served authority) disagrees with its
+    ledger-derived balance — drift left by the historical non-atomic writes,
+    or whatever any still-unconverted low-frequency path (T3-84/T3-85) leaks.
+    The reconcile parks `stored − derived` here via a `ledger_reconciliation`
+    TRANSFER (bank-neutral — never touches `central_bank`, so it is invisible
+    to the bank-pool depth + creation/destruction drift math). Its own balance
+    is therefore the cumulative *net unexplained drift*: near-zero is healthy;
+    a growing magnitude flags a fresh leak to chase.
+    """
+    return "reconciliation"
 
 
 # --- D2: ledger-derived bankroll (the int becomes a cache of these) ---------
@@ -733,6 +755,43 @@ def record_stake_payoff(
         sink=sink,
         amount=amount,
         reason='stake_payoff',
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_ledger_reconciliation(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    account: str,
+    delta: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """Park `delta = stored − derived` for `account` in the `reconciliation`
+    suspense account so the account's ledger-derived balance re-aligns with its
+    authoritative stored int (Phase E `audit_ledger_completeness`).
+
+    `delta > 0` (the int holds more than the ledger shows) → `reconciliation →
+    account`, crediting the account up to its int. `delta < 0` → `account →
+    reconciliation`, debiting the surplus. `account` is a canonical entity
+    string (use `ai()` / `player()`). No-op when `repo` is None or `delta == 0`.
+    A bank-neutral TRANSFER — invisible to bank-pool depth + drift sums.
+    """
+    if repo is None or not delta:
+        return None
+    if delta > 0:
+        source, sink, amount = reconciliation(), account, int(delta)
+    else:
+        source, sink, amount = account, reconciliation(), int(-delta)
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='ledger_reconciliation',
         context=context,
         sandbox_id=sandbox_id,
         conn=conn,
