@@ -658,6 +658,31 @@ def tick_vice_expirations(
     return out
 
 
+def reserve_vice_multiplier(ratio: float) -> float:
+    """Scale vice intensity by the bank-pool reserve ratio (reserve-aware refill).
+
+    `ratio` is reserves/holdings (`EconomyState.ratio`). Returns a multiplier:
+      * 0.0 at/above `VICE_RESERVE_HEALTHY_FLOOR` — a flush bank needs no refill,
+        so vice backs off and stops taxing the field,
+      * 1.0 at/below `VICE_RESERVE_CRITICAL_FLOOR` — crank the refill,
+      * a linear ramp between the two floors.
+
+    Pure; the caller decides whether the gate is active (`VICE_RESERVE_GATED`).
+    """
+    from cash_mode import economy_flags as _eflags
+
+    healthy = _eflags.VICE_RESERVE_HEALTHY_FLOOR
+    critical = _eflags.VICE_RESERVE_CRITICAL_FLOOR
+    if ratio >= healthy:
+        return 0.0
+    if ratio <= critical:
+        return 1.0
+    span = healthy - critical
+    if span <= 0:
+        return 1.0
+    return (healthy - ratio) / span
+
+
 def resolve_ai_vice_spending(
     *,
     candidates: Set[str],
@@ -730,6 +755,26 @@ def resolve_ai_vice_spending(
         # crosses the floor.
         return []
 
+    # Reserve-aware intensity (flag-gated, OFF by default): vice is a refill
+    # faucet, so scale the whole pass by the bank-pool deficit — a flush bank
+    # needs no refill and stops taxing the field; as reserves fall, vice ramps
+    # back up. When the gate is off, vice_mult stays 1.0 (current behaviour).
+    from cash_mode import economy_flags as _eflags
+
+    vice_mult = 1.0
+    if _eflags.VICE_RESERVE_GATED and chip_ledger_repo is not None:
+        try:
+            from core.economy.economy_signal import signal
+
+            state = signal(chip_ledger_repo, sandbox_id=sandbox_id)
+            vice_mult = reserve_vice_multiplier(state.ratio)
+        except Exception as exc:
+            logger.warning("[VICE] reserve gate failed: %s; running ungated", exc)
+            vice_mult = 1.0
+        if vice_mult <= 0.0:
+            # Reserves healthy — nothing to refill, so the whole pass is off.
+            return []
+
     # Phase 1: collect candidates that pass the probability roll, with
     # their computed amounts. Phase 2 picks top-N and commits.
     pending: List[Tuple[str, int, float, float, Optional[Dict[str, float]]]] = []
@@ -784,7 +829,7 @@ def resolve_ai_vice_spending(
                 psych['energy'],
             )
 
-        prob = compute_vice_probability(excess, pressure)
+        prob = compute_vice_probability(excess, pressure) * vice_mult
         if prob <= 0:
             continue
         if rng.random() >= prob:

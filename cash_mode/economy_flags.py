@@ -132,6 +132,26 @@ FIELD_HUSTLE_TARGET_PERCENTILE: float = 0.25  # hustle tops up toward this field
 FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry grinder
 
 
+# --- Vice reserve-gating (the refill faucet, reserve-aware) ----------------
+#
+# Vice drains chips from wealthy AIs INTO the bank pool — it is a reserve
+# REFILL faucet, the mirror of the side-hustle drain. By default it fires
+# whenever the cast/field median clears MIN_*_MEDIAN_FOR_VICE, i.e. from the
+# first tick of a freshly-seeded sandbox (median well above $5k) — which reads
+# as an arbitrary "tax" on the field even when reserves are already healthy.
+#
+# When VICE_RESERVE_GATED is on, vice intensity instead scales with the
+# bank-pool DEFICIT: off when reserves are healthy (don't tax a flush field),
+# ramping to full as reserves fall toward critical. This is the refill
+# counterpart to the side-hustle drain riding the same reserve band.
+#
+# Default OFF — flip only after sim-validating the cadence alongside the rest
+# of the Director thermostat. See docs/plans/PROD_STARTING_CONDITIONS.md §1.5.
+VICE_RESERVE_GATED: bool = _env_flag("VICE_RESERVE_GATED", False)
+VICE_RESERVE_HEALTHY_FLOOR: float = 0.06  # reserves/holdings at/above → vice off
+VICE_RESERVE_CRITICAL_FLOOR: float = 0.03  # reserves/holdings at/below → vice full
+
+
 def lever_field_mode() -> bool:
     """True when the levers should use the field-liquid reference.
 

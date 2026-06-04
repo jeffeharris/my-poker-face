@@ -92,10 +92,14 @@ economy signal (hang it on the existing `rake_schedule` policy slot).
 ### 1.5 Vice ↔ Side-hustle symmetry + the escrow fix
 
 Vice and side-hustle are **opposite faucets** and should ride the same band:
-- **Vice** = AI → pool (refill). Currently fires whenever cast median ≥ $5k
-  (`ai_vice_spending.py:56`) — i.e. always, from tick one, which reads as an
-  arbitrary tax. Re-gate its intensity on the **reserve deficit**: healthy bank →
-  vice low/off (field keeps its money), low bank → crank to refill.
+- **Vice** = AI → pool (refill). Used to fire whenever cast median ≥ $5k
+  (`ai_vice_spending.py:56`) — i.e. always, from tick one, which read as an
+  arbitrary tax. **Shipped 2026-06-04 (flag `VICE_RESERVE_GATED`, default OFF):**
+  `reserve_vice_multiplier(ratio)` scales the whole vice pass by the bank-pool
+  deficit — 0 at/above the healthy floor (0.06; a flush bank stops taxing the
+  field), 1 at/below critical (0.03; crank the refill), linear between. The
+  primary idle-pool path is gated; the seated→leave intercept (`commit_leave_vice`)
+  is a documented follow-up. Flip on with the rest of the thermostat after sim.
 - **Side-hustle** = pool → AI (drain). Broke AIs get paid *from reserves*.
 
 **Bug (must fix): side-hustle has no escrow.** No chips move at departure — "the
@@ -369,7 +373,9 @@ remaining 71 to be generated in tier batches.
 - [ ] Split tournament trigger (0.12) from floor (0.06) in `economy_signal.py`.
 - [ ] Play-measured Main Event cooldown (hands/active-ticks, not wall-clock).
 - [ ] Two-layer rake: structural $1000 always-on; Director $50/$200 band-gated.
-- [ ] Re-gate vice intensity on reserve deficit (not just cast-median ≥ $5k).
+- [x] Re-gate vice intensity on reserve deficit (`VICE_RESERVE_GATED`, default
+      OFF; `reserve_vice_multiplier`). Done 2026-06-04. Follow-up: gate the
+      `commit_leave_vice` seated→leave intercept too.
 - [x] **Side-hustle pay-up-front** — credit at departure (drift-safe, reserve-aware),
       expiry is a no-chip off-grid→idle return. Done 2026-06-04 (tests green).
 - [ ] Raise `OVERLAY_CAP` or accept two-event drain (cap binds at $2.64M).
