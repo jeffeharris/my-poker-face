@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GraduationCap, X } from 'lucide-react';
 import type { CoachStats } from '../../types/coach';
 import type { CoachingModeValue } from '../../types/coach';
+import { CountdownRing } from './CountdownRing';
 import './CoachBubble.css';
 
 interface CoachBubbleProps {
@@ -26,6 +27,9 @@ export const CoachBubble = memo(function CoachBubble({
 }: CoachBubbleProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [isExpanded, setIsExpanded] = useState(false);
+  // Timestamp the auto-dismiss timer (re)started, for the countdown ring.
+  // null while paused (expanded) or hidden so the ring sits full/frozen.
+  const [dismissStartedAt, setDismissStartedAt] = useState<number | null>(null);
 
   // Reset state when tip changes or bubble hides
   useEffect(() => {
@@ -36,10 +40,14 @@ export const CoachBubble = memo(function CoachBubble({
 
   useEffect(() => {
     if (isVisible && tip && !isExpanded) {
+      // Stamp the (re)start so the ring drains over this window. Expanding
+      // then collapsing restarts the full timer here, and the ring follows.
+      setDismissStartedAt(Date.now());
       timerRef.current = setTimeout(onDismiss, AUTO_DISMISS_MS);
       return () => clearTimeout(timerRef.current);
     }
-    // Don't auto-dismiss when expanded
+    // Expanded (paused) or hidden — freeze the ring full / clear it.
+    setDismissStartedAt(null);
     if (isExpanded) {
       clearTimeout(timerRef.current);
     }
@@ -75,6 +83,15 @@ export const CoachBubble = memo(function CoachBubble({
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
           onClick={onTap}
         >
+          {/* Auto-dismiss countdown, top-left (the X owns the top-right). Sits
+              full and frozen while expanded, since expanding pauses dismissal. */}
+          <CountdownRing
+            timerStartedAt={dismissStartedAt}
+            displayDuration={AUTO_DISMISS_MS}
+            size={15}
+            stroke={2}
+            className="coach-bubble-timer-ring"
+          />
           <button
             className="coach-bubble-dismiss"
             onClick={(e) => {
