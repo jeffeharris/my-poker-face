@@ -109,6 +109,24 @@ def main() -> int:
             "UPDATE cash_tables SET seats_json=? WHERE table_id=? AND sandbox_id=?",
             (json.dumps(seats), SCENE0, SB),
         )
+
+    # 2b. Restore the player's comped bankroll. The comp (200) is granted ONCE on
+    #     first entry (_load_or_seed_player_bankroll); across replays it drains into
+    #     session buy-ins and ends at 0, leaving the player broke — so the Scene-0
+    #     sit falls into the sponsor flow ("your reputation precedes you", since the
+    #     scripted table has no normal lender) instead of just sitting on the comp.
+    #     Reset to the starting comp for a clean fresh run. Player bankroll is not
+    #     sandbox-scoped (it spans the owner).
+    COMP = 200  # mirrors flask_app.routes.cash_routes.DEFAULT_PLAYER_STARTING_BANKROLL
+    bk = con.execute(
+        "UPDATE player_bankroll_state SET chips=?, starting_bankroll=? WHERE player_id=?",
+        (COMP, COMP, OWNER),
+    ).rowcount
+    if bk == 0:
+        con.execute(
+            "INSERT INTO player_bankroll_state (player_id, chips, starting_bankroll) VALUES (?,?,?)",
+            (OWNER, COMP, COMP),
+        )
     con.commit()
 
     # 3. Fresh-but-active career + clear bio.
@@ -123,7 +141,8 @@ def main() -> int:
     UserPreferencesRepository(DB).set_bio(OWNER, "")
     print(
         f"reset {OWNER} (sandbox {SB[:8]}): -{g} games -{s} sessions -{e} events "
-        f"-{z} zombies, credited {credited}. Now: docker compose restart backend"
+        f"-{z} zombies, credited {credited}, bankroll→{COMP}. "
+        f"Now: docker compose restart backend"
     )
     return 0
 
