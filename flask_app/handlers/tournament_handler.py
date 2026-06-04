@@ -139,9 +139,21 @@ def reconcile_live_table(
     from tournament.identity import resolve_display_name
 
     desired = list(seat_specs)
+    # T3-80 (Option B): name each seat by its DISPLAY name (like cash); the live
+    # per-table maps key on the display name, persona logic uses the field id
+    # (pid), and the typed seat_id carries the stable identity for the field.
+    seat_displays = {
+        s.player_id: resolve_display_name(
+            s.player_id,
+            is_human=s.is_human,
+            owner_name=owner_name,
+            personality_repo=getattr(extensions, 'personality_repo', None),
+        )
+        for s in desired
+    }
     new_players = tuple(
         Player(
-            name=s.player_id,
+            name=seat_displays[s.player_id],
             stack=s.stack,
             is_human=s.is_human,
             # Explicit persona identity (T3-80); None for the human seat (keyed by
@@ -154,15 +166,6 @@ def reconcile_live_table(
                 HumanSeat(s.player_id.removeprefix(HUMAN_KEY_PREFIX))
                 if s.is_human
                 else PersonaSeat(s.player_id)
-            ),
-            # AI seats get their persona name; the human seat shows `owner_name`
-            # when threaded through (the frontend still renders the human's own
-            # seat as "You"). All seats resolve through the one canonical path.
-            nickname=resolve_display_name(
-                s.player_id,
-                is_human=s.is_human,
-                owner_name=owner_name,
-                personality_repo=getattr(extensions, 'personality_repo', None),
             ),
         )
         for s in desired
@@ -177,20 +180,22 @@ def reconcile_live_table(
         current_dealer_idx=dealer_idx,
     )
 
-    desired_ai = {s.player_id for s in desired if not s.is_human}
+    # ai_controllers keys on the display name (like cash); map display -> pid so
+    # the controller factory + persona/memory wiring still resolve by pid.
+    desired_ai = {seat_displays[s.player_id]: s.player_id for s in desired if not s.is_human}
     removed = [name for name in list(ai_controllers) if name not in desired_ai]
     for name in removed:
         del ai_controllers[name]
 
     added: list[str] = []
-    for name in desired_ai:
-        if name in ai_controllers:
+    for display, pid in desired_ai.items():
+        if display in ai_controllers:
             # Keep the existing controller; refresh its state-machine handle.
-            ai_controllers[name].state_machine = state_machine
+            ai_controllers[display].state_machine = state_machine
             continue
-        controller = make_controller(name, state_machine)
-        ai_controllers[name] = controller
-        added.append(name)
+        controller = make_controller(pid, display, state_machine)
+        ai_controllers[display] = controller
+        added.append(display)
         # T3-77 — a persona balanced ONTO the human's table mid-tournament is a
         # genuinely-new live seat, so hydrate its mood from the cash world just
         # like the initial builder does (off-table play is headless, so the
@@ -199,22 +204,22 @@ def reconcile_live_table(
         # This is a fresh-seat build, not cold-load, so D1 still holds.
         if (
             sandbox_id
-            and name in real_persona_ids
+            and pid in real_persona_ids
             and getattr(extensions, 'bankroll_repo', None) is not None
         ):
             from cash_mode.psychology_persistence import hydrate_persona_psychology
 
-            hydrate_persona_psychology(controller, name, extensions.bankroll_repo, sandbox_id)
+            hydrate_persona_psychology(controller, pid, extensions.bankroll_repo, sandbox_id)
         if memory_manager is not None:
             try:
-                # P3.9a — register a balanced-in seat's personality_id (== name
-                # for the MTT bridge) so its observations fold into the SAME
-                # lifetime dossier row cash reads. Gated to real personas so a
-                # synthetic `P##` field writes no junk rows. Mirrors the builder.
+                # P3.9a — register a balanced-in seat by its display name (like
+                # cash) with its personality_id (pid) out-of-band so observations
+                # fold into the SAME lifetime dossier row cash reads. Gated to real
+                # personas so a synthetic `P##` field writes no junk rows.
                 memory_manager.initialize_for_player(
-                    name, personality_id=name if name in real_persona_ids else None
+                    display, personality_id=pid if pid in real_persona_ids else None
                 )
-                controller.session_memory = memory_manager.get_session_memory(name)
+                controller.session_memory = memory_manager.get_session_memory(display)
                 controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
                 controller.memory_manager = memory_manager
             except Exception:  # noqa: BLE001 — memory wiring is best-effort
@@ -233,9 +238,22 @@ def advance_tournament_after_hand(
     relocated). The effectful wrapper in game_handler handles socket emits + save
     + stopping the loop based on the returned outcome.
     """
+    from poker.table.seat import seat_key
+
     session: TournamentSession = game_data['tournament_session']
     prev_table_id = game_data['tournament_table_id']
-    result = {p.name: p.stack for p in state_machine.game_state.players}
+    # The field keys every player by their FIELD id — NOT the display `Player.name`
+    # (T3-80). For an AI that's its `seat_key` (== personality_id); for the human
+    # it's the session's `human_id` (the field's human entry, e.g. `human:<owner>`),
+    # which we read straight off game_data rather than re-deriving from the seat.
+    human_field_id = game_data.get('tournament_human_id')
+
+    def _field_key(p):
+        if p.is_human and human_field_id is not None:
+            return human_field_id
+        return seat_key(p)
+
+    result = {_field_key(p): p.stack for p in state_machine.game_state.players}
 
     outcome = coordinate_after_human_hand(session, result, prev_table_id)
     if outcome.kind in (HUMAN_OUT, COMPLETE):

@@ -9,8 +9,9 @@ completion) and minus all cash plumbing (bankroll / fish / relationship / rake).
 
 AI seats are production tiered solver bots with the expression (LLM table-talk)
 layer OFF — zero LLM, consistent with the headless field. Seats are named by
-their field id (e.g. `P07`); the human's seat is named by the field human id and
-flagged `is_human` (the frontend renders it as "You").
+their DISPLAY name (T3-80, like cash); the stable identity rides on the typed
+`seat_id` / `personality_id`. The human's seat is flagged `is_human` (the
+frontend renders it as "You").
 """
 
 from __future__ import annotations
@@ -25,11 +26,10 @@ from .tournament_handler import human_table_seat_specs
 
 logger = logging.getLogger(__name__)
 
-# The tournament seat's `name` is its field id (`personality_id` for the MTT
-# bridge); the human-readable `nickname` is resolved through the canonical
-# persona-identity resolver (`tournament.identity`) — the same lookup cash seats
-# use — so the felt, the ticker, and the final standings all render one
-# consistent name.
+# The tournament seat's `name` is its DISPLAY name (T3-80, Option B — like cash),
+# resolved once via `tournament.identity.resolve_display_name`. The live per-table
+# maps (controllers / memory / bot_types) key on the display name; the field,
+# payouts, and cold-load key on the stable `seat_id` / `personality_id`.
 
 # One game id per human-tournament; relocation reconciles in place rather than
 # spawning a new game (the id is just a key).
@@ -53,7 +53,8 @@ def make_tournament_ai_controller(name: str, state_machine, *, game_id: str, own
 
 
 def build_tournament_seat_controller(
-    name: str,
+    pid: str,
+    display_name: str,
     state_machine,
     *,
     game_id: str,
@@ -65,22 +66,26 @@ def build_tournament_seat_controller(
 ):
     """P3.9c — build one AI seat for the human's live table.
 
+    Identity (T3-80, Option B): the persona is resolved by `pid` (its
+    personality_id / field id), but the controller and its cold-load maps are
+    keyed by `display_name` — exactly like cash, whose seats are named by the
+    display name and looked up by it. `Player.name` is the display name, so the
+    controller's `player_name` (how it finds its own seat in game_state) and the
+    `bot_types`/`player_llm_configs` keys (what `restore_ai_controllers` reads via
+    `player.name`) all line up on the display name.
+
     A **real-persona** seat gets the SAME persona-flavored controller cash mode
     builds: a per-persona `bot_type` from `assign_bot(personality_config)` +
-    `expression_enabled=True`, so the circuit's characters actually play *and talk*
-    like themselves (psychology + the relationship axes wired in P3.9a). A
-    **synthetic** `P##` seat (legacy `/register` field) keeps the zero-LLM tiered
-    solver — no personality config to flavor it. The chosen `bot_type` + llm_config
-    are recorded into the passed dicts so the same intent persists for cold-load
-    (`restore_ai_controllers` rebuilds from `player_llm_configs` + `bot_types`).
+    `expression_enabled=True`. A **synthetic** `P##` seat keeps the zero-LLM
+    tiered solver — no personality config to flavor it.
     """
     from flask_app import extensions
 
-    if name in real_persona_ids:
+    if pid in real_persona_ids:
         from flask_app.handlers.tiered_factory import build_controller
         from poker.cash_bot_assignment import assign_bot
 
-        personality_config = extensions.personality_repo.load_personality_by_id(name)
+        personality_config = extensions.personality_repo.load_personality_by_id(pid)
         rule_strategy = (
             personality_config.get("rule_strategy")
             if isinstance(personality_config, dict)
@@ -90,11 +95,11 @@ def build_tournament_seat_controller(
         # controller, not the poise bucket — mirrors cash. Rare in a tournament
         # field (fish are non-circulating), but handled so a stray entry behaves.
         if rule_strategy == "fish":
-            bot_types[name] = "fish"
-            player_llm_configs[name] = {}
+            bot_types[display_name] = "fish"
+            player_llm_configs[display_name] = {}
             return build_controller(
                 bot_type="fish",
-                player_name=name,
+                player_name=display_name,
                 state_machine=state_machine,
                 game_id=game_id,
                 owner_id=owner_id,
@@ -102,11 +107,11 @@ def build_tournament_seat_controller(
                 decision_analysis_repo=extensions.decision_analysis_repo,
             )
         assignment = assign_bot(personality_config)
-        bot_types[name] = assignment.bot_type
-        player_llm_configs[name] = assignment.llm_config
+        bot_types[display_name] = assignment.bot_type
+        player_llm_configs[display_name] = assignment.llm_config
         return build_controller(
             bot_type=assignment.bot_type,
-            player_name=name,
+            player_name=display_name,
             state_machine=state_machine,
             llm_config=assignment.llm_config,
             prompt_config=prompt_config,
@@ -118,9 +123,11 @@ def build_tournament_seat_controller(
         )
 
     # Synthetic seat — zero-LLM tiered solver (recorded as such for cold-load).
-    bot_types[name] = "sharp"
-    player_llm_configs[name] = {}
-    return make_tournament_ai_controller(name, state_machine, game_id=game_id, owner_id=owner_id)
+    bot_types[display_name] = "sharp"
+    player_llm_configs[display_name] = {}
+    return make_tournament_ai_controller(
+        display_name, state_machine, game_id=game_id, owner_id=owner_id
+    )
 
 
 def build_tournament_game(
@@ -148,9 +155,23 @@ def build_tournament_game(
 
     specs = human_table_seat_specs(session)
     big_blind = session.current_level().big_blind
+    # T3-80 (Option B): name the seat by its DISPLAY name — like cash — so the
+    # felt/ticker/dossier render a real name with no `nickname` shim. The stable
+    # identity is the typed `seat_id` (+ `personality_id`); the live per-table
+    # maps key on the display name, the field keys on `seat_id.key`. Resolve once
+    # here, keyed by the field id, and reuse for the controller/memory keys below.
+    seat_displays = {
+        s.player_id: resolve_display_name(
+            s.player_id,
+            is_human=s.is_human,
+            owner_name=owner_name,
+            personality_repo=extensions.personality_repo,
+        )
+        for s in specs
+    }
     players = tuple(
         Player(
-            name=s.player_id,
+            name=seat_displays[s.player_id],
             stack=s.stack,
             is_human=s.is_human,
             # Explicit persona identity (T3-80). The human seat's stable key is
@@ -161,12 +182,6 @@ def build_tournament_game(
             # PersonaSeat key equals its field id — so seat_key(player) lines up
             # with the field for free.
             seat_id=HumanSeat(owner_id) if s.is_human else PersonaSeat(s.player_id),
-            nickname=resolve_display_name(
-                s.player_id,
-                is_human=s.is_human,
-                owner_name=owner_name,
-                personality_repo=extensions.personality_repo,
-            ),
         )
         for s in specs
     )
@@ -206,8 +221,10 @@ def build_tournament_game(
     for s in specs:
         if s.is_human:
             continue
-        ai_controllers[s.player_id] = build_tournament_seat_controller(
+        display = seat_displays[s.player_id]
+        ai_controllers[display] = build_tournament_seat_controller(
             s.player_id,
+            display,
             state_machine,
             game_id=game_id,
             owner_id=owner_id,
@@ -236,15 +253,21 @@ def build_tournament_game(
         )
     real_persona_ids = econ.real_persona_ids_for(session, extensions.personality_repo)
     for s in specs:
+        display = seat_displays[s.player_id]
         if s.is_human:
-            memory_manager.initialize_human_observer(s.player_id, personality_id=owner_id)
+            # Like cash: register the human observer under their display name, with
+            # the stable owner_id as the personality_id (the key per-hand events use).
+            memory_manager.initialize_human_observer(display, personality_id=owner_id)
             continue
+        # Session memory keyed by display name (like cash); the persona's stable
+        # personality_id is passed out-of-band so the dossier/opponent-model rows
+        # key on the slug the cash dossier reads.
         memory_manager.initialize_for_player(
-            s.player_id,
+            display,
             personality_id=s.player_id if s.player_id in real_persona_ids else None,
         )
-        controller = ai_controllers[s.player_id]
-        controller.session_memory = memory_manager.get_session_memory(s.player_id)
+        controller = ai_controllers[display]
+        controller.session_memory = memory_manager.get_session_memory(display)
         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
         controller.memory_manager = memory_manager
 
@@ -259,9 +282,16 @@ def build_tournament_game(
     if sandbox_id and real_persona_ids:
         from cash_mode.psychology_persistence import hydrate_persona_psychology
 
-        for pid, controller in ai_controllers.items():
-            if pid in real_persona_ids:
-                hydrate_persona_psychology(controller, pid, extensions.bankroll_repo, sandbox_id)
+        # ai_controllers is keyed by display name now; resolve each real persona's
+        # controller via seat_displays and hydrate by its personality_id (pid).
+        for s in specs:
+            if s.is_human or s.player_id not in real_persona_ids:
+                continue
+            controller = ai_controllers.get(seat_displays[s.player_id])
+            if controller is not None:
+                hydrate_persona_psychology(
+                    controller, s.player_id, extensions.bankroll_repo, sandbox_id
+                )
 
     pressure_event_repo = PressureEventRepository(persistence_db_path)
     pressure_detector = PressureEventDetector()
@@ -417,9 +447,10 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
     player_llm_configs = game_data.setdefault("tournament_player_llm_configs", {})
     seat_prompt_config = _load_standard_preset() if is_persona_field else None
 
-    def _make(name, sm):
+    def _make(pid, display, sm):
         return build_tournament_seat_controller(
-            name,
+            pid,
+            display,
             sm,
             game_id=game_id,
             owner_id=owner_id,

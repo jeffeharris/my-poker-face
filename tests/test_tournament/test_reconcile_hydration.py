@@ -5,6 +5,11 @@ Drives `reconcile_live_table` directly with a fake state machine + a seeded
 emotional_state_json blob, asserting the genuinely-new real-persona seat is
 hydrated (and that the gate holds: no sandbox, or not a real persona, => no
 hydrate).
+
+T3-80 (Option B): the live `ai_controllers` map keys on the DISPLAY name (like
+cash); persona logic + hydration key on the personality_id (pid). The
+`make_controller` factory is called `(pid, display, sm)`. With no personality
+repo, `resolve_display_name` humanizes the slug (`napoleon` -> `Napoleon`).
 """
 
 from __future__ import annotations
@@ -15,9 +20,13 @@ from types import SimpleNamespace
 from flask_app.handlers.tournament_handler import SeatSpec, reconcile_live_table
 from poker.player_psychology import PlayerPsychology
 from poker.poker_game import Player, PokerGameState
+from tournament.identity import resolve_display_name
 
 SANDBOX = "sb-1"
 NEWCOMER = "napoleon"
+NEWCOMER_DISPLAY = resolve_display_name(NEWCOMER, is_human=False, personality_repo=None)
+INCUMBENT = "incumbent"
+INCUMBENT_DISPLAY = resolve_display_name(INCUMBENT, is_human=False, personality_repo=None)
 
 
 class _FakeBankrollRepo:
@@ -31,8 +40,8 @@ class _FakeBankrollRepo:
 def _state_machine():
     # Human + one incumbent AI; the newcomer arrives via seat_specs.
     players = (
-        Player(name="human:me", stack=10_000, is_human=True),
-        Player(name="incumbent", stack=10_000, is_human=False),
+        Player(name="Me", stack=10_000, is_human=True),
+        Player(name=INCUMBENT_DISPLAY, stack=10_000, is_human=False),
     )
     gs = PokerGameState(
         players=players, deck=(), current_ante=100, last_raise_amount=100, current_dealer_idx=0
@@ -45,19 +54,18 @@ def _specs():
         SeatSpec(
             player_id="human:me", stack=10_000, archetype="human", is_human=True, is_button=True
         ),
-        SeatSpec(
-            player_id="incumbent", stack=10_000, archetype="x", is_human=False, is_button=False
-        ),
+        SeatSpec(player_id=INCUMBENT, stack=10_000, archetype="x", is_human=False, is_button=False),
         SeatSpec(player_id=NEWCOMER, stack=10_000, archetype="x", is_human=False, is_button=False),
     ]
 
 
 def _make_controller_factory():
     """make_controller stub: every new seat gets a baseline psychology
-    (hand_count=0) so a successful hydrate is observable as a non-zero value."""
+    (hand_count=0) so a successful hydrate is observable as a non-zero value.
+    Called `(pid, display, sm)` under Option B."""
 
-    def _make(name, sm):
-        psych = PlayerPsychology.from_personality_config(name, {})
+    def _make(pid, display, sm):
+        psych = PlayerPsychology.from_personality_config(display, {})
         psych.hand_count = 0
         # Real tournament controllers chain into AIPokerPlayer, so `ai_player`
         # exists — the hydrate hook reads `ai_player.personality_config`.
@@ -86,7 +94,7 @@ def test_balanced_in_persona_is_hydrated(monkeypatch):
     monkeypatch.setattr(ext, "personality_repo", None, raising=False)
 
     sm = _state_machine()
-    ai_controllers = {"incumbent": SimpleNamespace(psychology=None, state_machine=sm)}
+    ai_controllers = {INCUMBENT_DISPLAY: SimpleNamespace(psychology=None, state_machine=sm)}
     added, removed = reconcile_live_table(
         sm,
         ai_controllers,
@@ -94,12 +102,13 @@ def test_balanced_in_persona_is_hydrated(monkeypatch):
         _specs(),
         big_blind=100,
         make_controller=_make_controller_factory(),
-        real_persona_ids={NEWCOMER, "incumbent"},
+        real_persona_ids={NEWCOMER, INCUMBENT},
         sandbox_id=SANDBOX,
     )
 
-    assert NEWCOMER in added
-    assert ai_controllers[NEWCOMER].psychology.hand_count == 42  # hydrated from the world
+    assert NEWCOMER_DISPLAY in added
+    # hydrated from the world (keyed by display in the live map)
+    assert ai_controllers[NEWCOMER_DISPLAY].psychology.hand_count == 42
 
 
 def test_no_hydrate_without_sandbox(monkeypatch):
@@ -114,7 +123,7 @@ def test_no_hydrate_without_sandbox(monkeypatch):
     monkeypatch.setattr(ext, "personality_repo", None, raising=False)
 
     sm = _state_machine()
-    ai_controllers = {"incumbent": SimpleNamespace(psychology=None, state_machine=sm)}
+    ai_controllers = {INCUMBENT_DISPLAY: SimpleNamespace(psychology=None, state_machine=sm)}
     reconcile_live_table(
         sm,
         ai_controllers,
@@ -126,7 +135,7 @@ def test_no_hydrate_without_sandbox(monkeypatch):
         sandbox_id=None,  # non-cash field => no hydrate
     )
 
-    assert ai_controllers[NEWCOMER].psychology.hand_count == 0  # baseline
+    assert ai_controllers[NEWCOMER_DISPLAY].psychology.hand_count == 0  # baseline
 
 
 def test_no_hydrate_for_synthetic_seat(monkeypatch):
@@ -141,7 +150,7 @@ def test_no_hydrate_for_synthetic_seat(monkeypatch):
     monkeypatch.setattr(ext, "personality_repo", None, raising=False)
 
     sm = _state_machine()
-    ai_controllers = {"incumbent": SimpleNamespace(psychology=None, state_machine=sm)}
+    ai_controllers = {INCUMBENT_DISPLAY: SimpleNamespace(psychology=None, state_machine=sm)}
     reconcile_live_table(
         sm,
         ai_controllers,
@@ -153,4 +162,4 @@ def test_no_hydrate_for_synthetic_seat(monkeypatch):
         sandbox_id=SANDBOX,
     )
 
-    assert ai_controllers[NEWCOMER].psychology.hand_count == 0  # baseline
+    assert ai_controllers[NEWCOMER_DISPLAY].psychology.hand_count == 0  # baseline
