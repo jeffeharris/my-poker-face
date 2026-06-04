@@ -225,11 +225,12 @@ reserves at 0.14 → **fire drains 124k → ratio 0.057 (the floor), holdings ri
   redundant with the tournament). Re-run: the casino drain halved (66k vs 128k)
   and went STEADY — reserves climb smoothly 0.05→0.09 with **no crashes** (vs the
   old run that crashed to 0.027). Same net pool→field flow, no step function.
-- **Vice tapers to zero at the trigger → asymptotic approach.** Because vice eases
-  to off exactly at the trigger, the last stretch of the climb relies on the weak
-  base rake, so reaching (and re-reaching) the trigger is slow. Lever: hold a vice
-  floor near the trigger, or let rake carry the final push. This is the knob for
-  the 1–2 tournaments/day cadence.
+- **Vice tapered to zero at the trigger → asymptotic approach. FIXED 2026-06-04.**
+  Vice now tapers full→off across `RESERVE_HEALTHY (0.06) → RESERVE_VICE_CEILING
+  (0.18)`, with the ceiling ABOVE the trigger — so vice is ~0.5 AT the trigger
+  (pushes reserves across it instead of stalling) and keeps easing above it as a
+  BRAKE when the bank runs hot. (Sim re-run to confirm the cross + repeating
+  sawtooth is the quick next check — unit-tested, not yet sim-confirmed.)
 
 ### 1.6 Open tuning questions (need a sim before flipping on)
 

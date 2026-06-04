@@ -661,15 +661,17 @@ def tick_vice_expirations(
 def reserve_vice_multiplier(ratio: float) -> float:
     """Scale vice intensity by the bank-pool reserve ratio (reserve-aware refill).
 
-    Vice is the refill that funds the next Main Event, so the Director keeps it
-    engaged until the bank can actually OPEN one (`RESERVE_TRIGGER`), easing off
-    as it approaches — it does NOT quit at the healthy floor (the old bug: vice
-    stopped at 0.06 while the trigger is 0.12, so reserves could never climb the
-    rest of the way and tournaments never fired). `ratio` is reserves/holdings:
+    Vice is the refill that funds the next Main Event, and it tapers full→off
+    across `RESERVE_HEALTHY → RESERVE_VICE_CEILING`. The CEILING sits ABOVE the
+    trigger, so vice is still ~half-on AT the trigger and pushes reserves ACROSS
+    it (rather than asymptoting at it — the prior bug, where vice hit 0 right at
+    the trigger and the last sliver of climb stalled on the weak base rake). Above
+    the trigger vice keeps easing → a BRAKE when the bank runs hot. `ratio` is
+    reserves/holdings:
       * 1.0 at/below `RESERVE_HEALTHY` — bank well short of a tournament, refill hard,
-      * 0.0 at/above `RESERVE_TRIGGER` — tournament-ready, stop taxing the field,
-      * a linear taper between (full just after a tournament drains to the floor,
-        easing as the pool refills toward the next trigger).
+      * ~0.5 at `RESERVE_TRIGGER` (default ceiling 0.18) — still pushing across,
+      * 0.0 at/above `RESERVE_VICE_CEILING` — bank hot, vice fully off (braked),
+      * a linear taper between.
 
     (Vice ALSO self-targets the wealthy via the concentration gate, so it does the
     most work when a few AIs are running away — the de-concentration instrument.
@@ -678,10 +680,10 @@ def reserve_vice_multiplier(ratio: float) -> float:
     Band edges come from the shared canonical ladder in `economy_signal`. Pure;
     the caller decides whether the gate is active (`VICE_RESERVE_GATED`).
     """
-    from core.economy.economy_signal import RESERVE_HEALTHY, RESERVE_TRIGGER
+    from core.economy.economy_signal import RESERVE_HEALTHY, RESERVE_VICE_CEILING
 
     full = RESERVE_HEALTHY  # at/below → refill at full intensity
-    off = RESERVE_TRIGGER  # at/above → tournament-ready, vice off
+    off = RESERVE_VICE_CEILING  # at/above → bank hot, vice fully off (braked)
     if ratio >= off:
         return 0.0
     if ratio <= full:

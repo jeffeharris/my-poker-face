@@ -469,15 +469,19 @@ class TestViceStateRepository:
 
 
 class TestReserveViceMultiplier(unittest.TestCase):
-    """The reserve-deficit scaler: vice refills until the tournament trigger.
-
-    Full at/below the healthy floor, easing to off at the trigger (NOT off at
-    healthy — that was the bug where the refill quit halfway to the trigger).
+    """The reserve scaler: vice refills full at the floor, tapering to off at the
+    CEILING above the trigger — so it's still ~half-on AT the trigger (crosses it)
+    and brakes above it.
     """
 
-    def test_tournament_ready_suppresses(self):
-        # at/above RESERVE_TRIGGER (0.12) → vice off (bank can open a Main Event)
-        self.assertEqual(reserve_vice_multiplier(0.12), 0.0)
+    def test_still_on_at_the_trigger(self):
+        # The key fix: at RESERVE_TRIGGER (0.12), vice is ~0.5 (default ceiling
+        # 0.18), NOT 0 — it pushes reserves ACROSS the trigger.
+        self.assertAlmostEqual(reserve_vice_multiplier(0.12), 0.5)
+
+    def test_off_at_ceiling_braked(self):
+        # at/above RESERVE_VICE_CEILING (0.18) → vice off (hot bank, braked)
+        self.assertEqual(reserve_vice_multiplier(0.18), 0.0)
         self.assertEqual(reserve_vice_multiplier(0.30), 0.0)
 
     def test_below_healthy_full(self):
@@ -486,13 +490,13 @@ class TestReserveViceMultiplier(unittest.TestCase):
         self.assertEqual(reserve_vice_multiplier(0.03), 1.0)
         self.assertEqual(reserve_vice_multiplier(0.0), 1.0)
 
-    def test_still_refilling_in_the_climb_band(self):
-        # 0.09 is halfway between healthy (0.06) and trigger (0.12) → 0.5 —
-        # the key fix: vice is still HALF-ON here, not 0 as before.
-        self.assertAlmostEqual(reserve_vice_multiplier(0.09), 0.5)
+    def test_tapers_above_trigger_as_brake(self):
+        # past the trigger vice keeps easing toward off (the brake): 0.15 < 0.12.
+        assert reserve_vice_multiplier(0.15) < reserve_vice_multiplier(0.12)
+        assert reserve_vice_multiplier(0.15) > 0.0
 
     def test_monotonic_decreasing(self):
-        assert reserve_vice_multiplier(0.07) > reserve_vice_multiplier(0.11)
+        assert reserve_vice_multiplier(0.07) > reserve_vice_multiplier(0.13)
 
 
 class TestViceReserveGate:
