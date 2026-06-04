@@ -3938,6 +3938,35 @@ def offer_stake_to_ai():
             )
         )
 
+        # Chip-custody: record the player's stake funding so the player
+        # bankroll debit is derivable from the ledger (it was unledgered
+        # before — the staker side of the human-staking gap). The principal
+        # funds the borrower's seat; the pure-stake fee also flows through
+        # the seat (the credit_ai_cash_out below drains it seat -> ai), so
+        # fund the seat with it too. The settlement `stake_payoff` later
+        # drains the same seat back to the staker.
+        from cash_mode import economy_flags as _economy_flags_fund
+        from core.economy import ledger as _chip_ledger_fund
+
+        if chip_ledger_repo is not None and _economy_flags_fund.CHIP_CUSTODY_ENABLED:
+            _chip_ledger_fund.record_stake_fund(
+                chip_ledger_repo,
+                source=_chip_ledger_fund.player(owner_id),
+                sink=_chip_ledger_fund.ai_seat(sandbox_id, target_pid),
+                amount=principal,
+                context={'site': 'player_stake_principal', 'stake_id': stake_id},
+                sandbox_id=sandbox_id,
+            )
+            if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
+                _chip_ledger_fund.record_stake_fund(
+                    chip_ledger_repo,
+                    source=_chip_ledger_fund.player(owner_id),
+                    sink=_chip_ledger_fund.ai_seat(sandbox_id, target_pid),
+                    amount=origination_fee,
+                    context={'site': 'player_stake_origination_fee', 'stake_id': stake_id},
+                    sandbox_id=sandbox_id,
+                )
+
         # Pure-stake origination fee: chips move player bankroll → AI
         # bankroll at deal time. The total_player_outlay above already
         # deducted from the player; credit the AI side here. Use

@@ -2693,6 +2693,30 @@ def settle_departed_ai_stake(
                             starting_bankroll=existing.starting_bankroll,
                         ),
                     )
+                    # Chip-custody: the staker's cut comes off the borrower's
+                    # seat at leave (the mirror of the borrower-share
+                    # `ai_cash_out` that drains the same seat to ai:<borrower>).
+                    # The human credit lands on player_bankroll_state (above),
+                    # not the ledger — so without this `stake_payoff` row the
+                    # seat never fully drains and the player's bankroll diverges
+                    # from its ledger balance. Mirrors the carry-payoff path in
+                    # `ai_carry_resolution.record_voluntary_payoff`.
+                    from cash_mode import economy_flags
+
+                    if chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED:
+                        from core.economy import ledger as chip_ledger
+
+                        chip_ledger.record_stake_payoff(
+                            chip_ledger_repo,
+                            source=chip_ledger.ai_seat(sandbox_id, settlement.borrower_id),
+                            sink=chip_ledger.player(flow.staker_id),
+                            amount=flow.amount,
+                            context={
+                                "stake_id": active_stake.stake_id,
+                                "site": "stake_settle_staker",
+                            },
+                            sandbox_id=sandbox_id,
+                        )
                 else:
                     logger.warning(
                         "[CASH][LOBBY] human staker bankroll "

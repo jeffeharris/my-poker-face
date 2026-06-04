@@ -134,12 +134,25 @@ LEDGER_REASONS = frozenset(
         # settles here, so the table conserves internally
         # between seat accounts (winners' seats go negative,
         # losers' positive; they sum to ~0 across a table).
-        'stake_payoff',  # <staker-funded source> → ai:<staker>: a stake/carry
-        # payoff routed through `credit_ai_cash_out`'s second
-        # (non-seat) use. Source is the borrower (ai:<borrower>)
-        # or the funding player (player:<owner>). A single
-        # transfer reconciles both the borrower debit and the
-        # staker credit; no seat is involved.
+        'stake_fund',  # player:<staker> → seat:ai:<sb>:<borrower>: a HUMAN
+        # staker funding a stake at origination — the player's
+        # principal (+ pure-stake origination fee) committed to
+        # the staked AI's seat. The human-staker mirror of
+        # `ai_buy_in` (which funds an AI's OWN seat from its
+        # bankroll); here the seat is funded by someone else.
+        # Conservation-neutral (player_bankroll drops, the AI
+        # seat stack rises; both already audit-counted). Pairs
+        # with the `stake_payoff` that drains the seat back to
+        # the staker at settlement.
+        'stake_payoff',  # <staker-funded source> → <staker sink>: a stake/carry
+        # payoff. Two shapes: (1) carry repayment — source is
+        # the borrower (ai:<borrower>), no seat, routed through
+        # `credit_ai_cash_out`'s second use; (2) leave-time
+        # settlement of a HUMAN-staked AI — source is the
+        # borrower's seat (seat:ai:<sb>:<borrower>) draining the
+        # staker's cut to player:<staker>, the mirror of the
+        # borrower-share `ai_cash_out` that drains the same seat.
+        # Sink is the staker (ai:<staker> or player:<staker>).
         'tournament_buy_in',  # player:<id>/ai:<pid> → tournament:<id>: an
         # entrant's buy-in committed to the tournament escrow
         # at registration. A drift-invisible TRANSFER (the
@@ -167,6 +180,7 @@ TRANSFER_REASONS = frozenset(
         'player_cash_out',
         'ai_buy_in',
         'ai_cash_out',
+        'stake_fund',
         'stake_payoff',
         'tournament_buy_in',
         'tournament_payout',
@@ -640,6 +654,40 @@ def record_ai_cash_out(
     )
 
 
+def record_stake_fund(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """player:<staker> → seat:ai:<sb>:<borrower> — a human staker funding a stake.
+
+    At origination the player's principal (and, for pure stakes, the
+    origination fee that flows through the seat to the borrower's bankroll)
+    is committed to the staked AI's seat. This is the human-staker analog of
+    `record_ai_buy_in` — the seat is funded, but by the staker rather than the
+    seated AI. A single `source → sink` transfer makes the player debit and the
+    seat credit both derivable so neither drifts from its stored bankroll. The
+    settlement `stake_payoff` drains the same seat back to the staker. Both
+    sides are canonical entity strings the caller builds (`player()` /
+    `ai_seat()`). No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='stake_fund',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
 def record_stake_payoff(
     repo: Optional[ChipLedgerRepository],
     *,
@@ -649,7 +697,7 @@ def record_stake_payoff(
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
-    """<borrower/funding source> → <staker sink> — a stake/carry payoff (non-seat).
+    """<borrower/funding source> → <staker sink> — a stake/carry payoff.
 
     `credit_ai_cash_out` is overloaded: besides real seat cash-outs it also
     credits a STAKER's bankroll when a borrower pays off a carry. That credit
