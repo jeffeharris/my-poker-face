@@ -5,6 +5,24 @@ created: 2026-05-31
 last_updated: 2026-06-03
 ---
 
+> **Session 4 (2026-06-03) — Scene Engine Pillar 1 (headless SceneRunner) landed.**
+> The Scene-0 finale is now **proven in CI** instead of "verify live" (handoff step
+> #1 is closed by automation). New: `cash_mode/scene_runner.py` — a Flask-free
+> driver (`run_scene`) that plays a `TableScene` end-to-end in-process, capturing
+> narration as a structured timeline and returning a `SceneResult`, plus
+> `validate_scene` (authoring safety). The live `game_handler` now **delegates** the
+> judge / scripted-action / narration-selection / rig to the same pure helpers (no
+> divergence). **The runner caught two real finale bugs** that the manual-only path
+> had hidden: (1) the `shove` intent raised-TO `int(stack)`, which under-shoves by
+> the posted street bet (fish kept a sliver, never busted) → now uses the `all_in`
+> action; (2) `passive` couldn't call off an all-in because the engine surfaces
+> `all_in` (not `call`) for a stack-committing call → now takes `all_in` under
+> `bust_ok`. Both fixes are in the shared `resolve_scripted_action`, so the **live
+> finale now actually busts Larry too**. Tests: `tests/test_cash_mode/test_scene_runner.py`
+> (finale canary + per-lesson forks + fish tell + conservation + validation +
+> judge parity). 1238 cash_mode tests green, ruff clean. Plan:
+> `docs/plans/SCENE_ENGINE_PLAN.md`. Vision: `docs/plans/SCENE_ENGINE_VISION.md`.
+
 # Career "The Circuit" — handoff (branch `circuit-progression`)
 
 Pick-up doc for a fresh context. Design canon lives in
@@ -200,9 +218,12 @@ Post-merge: **1223 cash_mode tests pass**, TS build + ruff/prettier clean.
    template) — the local net pin lives there.
 
 ## Next steps (suggested order)
-1. **Verify the finale live** ⭐ — the one part automated tests can't cover: play
-   to graduation and confirm Sal actually busts Larry to 0, the comp-return fires,
-   and the new mentor-stake handoff lands end-to-end. Reset with
+1. ~~**Verify the finale live** ⭐~~ — **largely CLOSED by the SceneRunner (session 4):**
+   the finale (Larry busts to 0, the cast covers, `career_first_vouch` fires) is now
+   asserted headlessly in CI (`test_scene_runner.py`), and the runner exposed +
+   fixed two finale bugs that made the live finale fail to bust. Still worth a
+   *one-time* live smoke for the bits the runner deliberately doesn't cover (the
+   real vouch DB-write, the comp-return, the mentor-stake socket handoff, the UI):
    `scripts/reset_career.py guest_jeff` + `docker compose restart backend`, then
    `/cash`.
 2. **M2 — real `vouch_ready`** (respect-gated, likability-driven, played-with,

@@ -147,10 +147,19 @@ def resolve_scripted_action(
 
     if intent == "passive":
         # Call along (sticky station). Normally folds to an all-in rather than
-        # bust; on a bust_ok finale it calls the all-in off and busts.
-        if facing_bet and cost_to_call >= stack and not allow_bust:
-            if "fold" in va:
-                return {"action": "fold", "amount": 0}
+        # bust; on a bust_ok finale it calls the all-in off and busts. Note: when
+        # the call would commit the whole stack the engine surfaces 'all_in' (not
+        # 'call') as the only legal way to match — so calling off an all-in means
+        # taking the 'all_in' action, not 'call'.
+        if facing_bet and cost_to_call >= stack:
+            if not allow_bust:
+                if "fold" in va:
+                    return {"action": "fold", "amount": 0}
+            else:
+                if "all_in" in va:
+                    return {"action": "all_in", "amount": 0}
+                if "call" in va:
+                    return {"action": "call", "amount": 0}
         if "check" in va:
             return {"action": "check", "amount": 0}
         if "call" in va:
@@ -158,11 +167,15 @@ def resolve_scripted_action(
         return None
 
     if intent == "shove":
-        # Jam the whole stack (finale). Open-shove when checked to; if somehow
-        # facing a bet, just commit by calling. raise 'amount' is the raise-TO
-        # total — at street start (bet 0) that's the full remaining stack.
+        # Jam the whole stack (finale). Prefer the explicit 'all_in' action: a
+        # raise-TO of `stack` UNDER-shoves whenever the actor already has chips in
+        # this street (raise amount is the raise-TO total, so it leaves the
+        # already-posted bet behind — the fish keeps a sliver and never busts).
+        # 'all_in' commits the whole stack regardless of the posted bet.
+        if "all_in" in va:
+            return {"action": "all_in", "amount": 0}
         if not facing_bet and "raise" in va:
-            return {"action": "raise", "amount": int(stack)}
+            return {"action": "raise", "amount": int(stack)}  # legacy fallback
         if facing_bet and "call" in va:
             return {"action": "call", "amount": 0}
         if "check" in va:
@@ -310,9 +323,9 @@ def _filler(
 _VALUE = Scene0Hand(
     rigged=True,
     holes={
-        ROLE_HERO: ["7s", "7h"],       # pocket sevens → flopped set of sevens
-        ROLE_FISH: ["Kh", "Qd"],       # top pair (kings) — the station that pays off
-        ROLE_MENTOR: ["Jc", "3d"],     # junk; Sal folds (own junk avoids the 7s/2c on this board)
+        ROLE_HERO: ["7s", "7h"],  # pocket sevens → flopped set of sevens
+        ROLE_FISH: ["Kh", "Qd"],  # top pair (kings) — the station that pays off
+        ROLE_MENTOR: ["Jc", "3d"],  # junk; Sal folds (own junk avoids the 7s/2c on this board)
     },
     board=["Ks", "7d", "2c", "9h", "4s"],  # 7 on the flop = hero's set; K = Larry's top pair
     lesson="value",
@@ -347,8 +360,8 @@ _VALUE = Scene0Hand(
 _BLUFF_CATCH = Scene0Hand(
     rigged=True,
     holes={
-        ROLE_HERO: ["Qs", "9h"],       # top pair (nines) — the hand Farha folded
-        ROLE_FISH: ["Ks", "7h"],       # king-high, missed everything — pure air
+        ROLE_HERO: ["Qs", "9h"],  # top pair (nines) — the hand Farha folded
+        ROLE_FISH: ["Ks", "7h"],  # king-high, missed everything — pure air
         ROLE_MENTOR: _SAL_JUNK,
     },
     board=["9c", "2d", "6s", "8h", "3c"],  # 9-high; Larry's K7 makes nothing
@@ -387,8 +400,8 @@ _BLUFF_CATCH = Scene0Hand(
 _DISCIPLINE = Scene0Hand(
     rigged=True,
     holes={
-        ROLE_HERO: ["Qc", "7c"],       # top pair (queens) — looks great, is dead
-        ROLE_FISH: ["Jh", "9s"],       # flopped the nut straight (Q-J-T-9-8) — the trap
+        ROLE_HERO: ["Qc", "7c"],  # top pair (queens) — looks great, is dead
+        ROLE_FISH: ["Jh", "9s"],  # flopped the nut straight (Q-J-T-9-8) — the trap
         ROLE_MENTOR: _SAL_JUNK,
     },
     board=["Qd", "8s", "Tc", "2s", "6h"],  # Q-8-T flop gives Larry 8-9-T-J-Q
@@ -436,9 +449,9 @@ _FINALE = Scene0Hand(
     rigged=True,
     bust_ok=True,
     holes={
-        ROLE_MENTOR: ["7s", "7d"],     # Sal flops a set of sevens (the hidden monster)
-        ROLE_FISH: ["Kh", "Qd"],       # Larry: top pair kings — can't lay it down
-        ROLE_HERO: ["Jc", "3h"],       # junk; the hero sits this one out and watches
+        ROLE_MENTOR: ["7s", "7d"],  # Sal flops a set of sevens (the hidden monster)
+        ROLE_FISH: ["Kh", "Qd"],  # Larry: top pair kings — can't lay it down
+        ROLE_HERO: ["Jc", "3h"],  # junk; the hero sits this one out and watches
     },
     board=["Ks", "7h", "2c", "9d", "4c"],
     # No lesson/judging — it's Sal's hand. Sal limps in, then bets a little more
@@ -478,7 +491,9 @@ SCENE0_SCRIPT: List[Scene0Hand] = [
     ),
     # 1 — quiet filler; Larry burbles, the table breathes.
     _filler(
-        ["Jd", "4s"], ["Qh", "8c", "3d", "Ts", "5h"], fish=["Tc", "6d"],
+        ["Jd", "4s"],
+        ["Qh", "8c", "3d", "Ts", "5h"],
+        fish=["Tc", "6d"],
         fish_setup="Are clubs higher than spades? I never can remember.\n*blub*",
     ),
     # 2 — VALUE.
@@ -489,7 +504,9 @@ SCENE0_SCRIPT: List[Scene0Hand] = [
     _BLUFF_CATCH,
     # 5 — quiet filler; a little Sal-and-Larry texture.
     _filler(
-        ["Qs", "3h"], ["7d", "6c", "2s", "Th", "4d"], fish=["9d", "5h"],
+        ["Qs", "3h"],
+        ["7d", "6c", "2s", "Th", "4d"],
+        fish=["9d", "5h"],
         fish_setup="I love it here. The water's always so nice and warm.\n*blub*",
     ),
     # 6 — DISCIPLINE.
@@ -498,7 +515,9 @@ SCENE0_SCRIPT: List[Scene0Hand] = [
     _filler(["8d", "3s"], ["Ah", "Qd", "9s", "5d", "Tc"], fish=["Js", "6h"]),
     # 8 — quiet filler.
     _filler(
-        ["Kh", "5s"], ["Td", "8h", "6s", "4c", "Qc"], fish=["9c", "4h"],
+        ["Kh", "5s"],
+        ["Td", "8h", "6s", "4c", "Qc"],
+        fish=["9c", "4h"],
         fish_setup="Wait, is this the good kind of hand? It's got a picture on it.\n*blub*",
     ),
     # 9 — THE FINALE: Sal stacks Larry. Graduation fires after.

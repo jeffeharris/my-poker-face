@@ -6,9 +6,9 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from core.card import Card
 from cash_mode import career_scene as cs
 from cash_mode.career_scene import ROLE_FISH, ROLE_HERO, ROLE_MENTOR, build_hand_deck
+from core.card import Card
 from poker.poker_game import deal_hole_cards, initialize_game_state
 from poker.poker_state_machine import PokerStateMachine
 
@@ -125,8 +125,12 @@ def test_discipline_fish_tell_lands_on_the_flop_not_at_open():
 
 def test_fish_bluffs_when_checked_to():
     r = cs.resolve_scripted_action(
-        intent="bluff", valid_actions=["check", "raise", "all_in"],
-        cost_to_call=0, pot_total=40, stack=110, big_blind=2,
+        intent="bluff",
+        valid_actions=["check", "raise", "all_in"],
+        cost_to_call=0,
+        pot_total=40,
+        stack=110,
+        big_blind=2,
     )
     assert r["action"] == "raise"
     assert r["amount"] > 0
@@ -134,58 +138,137 @@ def test_fish_bluffs_when_checked_to():
 
 def test_fish_bluff_gives_up_when_bet_into():
     r = cs.resolve_scripted_action(
-        intent="bluff", valid_actions=["fold", "call", "raise"],
-        cost_to_call=20, pot_total=60, stack=110, big_blind=2,
+        intent="bluff",
+        valid_actions=["fold", "call", "raise"],
+        cost_to_call=20,
+        pot_total=60,
+        stack=110,
+        big_blind=2,
     )
     assert r["action"] == "fold"
 
 
 def test_mentor_folds_to_a_bet_but_checks_when_free():
     facing = cs.resolve_scripted_action(
-        intent="fold", valid_actions=["fold", "call", "raise"],
-        cost_to_call=4, pot_total=6, stack=100, big_blind=2,
+        intent="fold",
+        valid_actions=["fold", "call", "raise"],
+        cost_to_call=4,
+        pot_total=6,
+        stack=100,
+        big_blind=2,
     )
     assert facing["action"] == "fold"
     free = cs.resolve_scripted_action(
-        intent="fold", valid_actions=["check", "raise"],
-        cost_to_call=0, pot_total=6, stack=100, big_blind=2,
+        intent="fold",
+        valid_actions=["check", "raise"],
+        cost_to_call=0,
+        pot_total=6,
+        stack=100,
+        big_blind=2,
     )
     assert free["action"] == "check"
 
 
 def test_fish_stays_cheap_preflop():
     facing = cs.resolve_scripted_action(
-        intent="limp", valid_actions=["fold", "call", "raise"],
-        cost_to_call=2, pot_total=3, stack=100, big_blind=2,
+        intent="limp",
+        valid_actions=["fold", "call", "raise"],
+        cost_to_call=2,
+        pot_total=3,
+        stack=100,
+        big_blind=2,
     )
     assert facing["action"] == "call"
     free = cs.resolve_scripted_action(
-        intent="limp", valid_actions=["check", "raise"],
-        cost_to_call=0, pot_total=4, stack=100, big_blind=2,
+        intent="limp",
+        valid_actions=["check", "raise"],
+        cost_to_call=0,
+        pot_total=4,
+        stack=100,
+        big_blind=2,
     )
     assert free["action"] == "check"
 
 
 def test_shove_jams_full_stack_when_checked_to():
+    # Prefer the explicit 'all_in' action: a raise-TO of `stack` under-shoves
+    # whenever the actor already has chips committed this street (it leaves the
+    # posted bet behind), so the fish keeps a sliver and never busts. 'all_in'
+    # commits the whole stack regardless of the posted bet.
     r = cs.resolve_scripted_action(
-        intent="shove", valid_actions=["check", "raise", "all_in"],
-        cost_to_call=0, pot_total=40, stack=150, big_blind=2, allow_bust=True,
+        intent="shove",
+        valid_actions=["check", "raise", "all_in"],
+        cost_to_call=0,
+        pot_total=40,
+        stack=150,
+        big_blind=2,
+        allow_bust=True,
+    )
+    assert r["action"] == "all_in"
+
+
+def test_shove_falls_back_to_raise_when_no_all_in_action():
+    # Legacy fallback when the engine doesn't surface an explicit all_in option.
+    r = cs.resolve_scripted_action(
+        intent="shove",
+        valid_actions=["check", "raise"],
+        cost_to_call=0,
+        pot_total=40,
+        stack=150,
+        big_blind=2,
+        allow_bust=True,
     )
     assert r["action"] == "raise"
-    assert r["amount"] == 150  # raise-to the whole stack (all-in)
+    assert r["amount"] == 150
+
+
+def test_passive_calls_off_an_all_in_via_the_all_in_action():
+    # When the only legal way to match a shove is the all_in action (no 'call'
+    # offered because the call commits the whole stack), a bust_ok passive takes
+    # it — the bug that left the fish unable to call off the finale.
+    r = cs.resolve_scripted_action(
+        intent="passive",
+        valid_actions=["fold", "all_in"],
+        cost_to_call=99850,
+        pot_total=450,
+        stack=99850,
+        big_blind=50,
+        allow_bust=True,
+    )
+    assert r["action"] == "all_in"
+    # Without the no-bust guard lifted, the same spot folds rather than bust.
+    r2 = cs.resolve_scripted_action(
+        intent="passive",
+        valid_actions=["fold", "all_in"],
+        cost_to_call=99850,
+        pot_total=450,
+        stack=99850,
+        big_blind=50,
+        allow_bust=False,
+    )
+    assert r2["action"] == "fold"
 
 
 def test_passive_folds_to_all_in_normally_but_calls_it_off_on_a_bust_hand():
     # Default (no-bust guard): a sticky station folds rather than bust.
     folds = cs.resolve_scripted_action(
-        intent="passive", valid_actions=["fold", "call"],
-        cost_to_call=200, pot_total=300, stack=150, big_blind=2,
+        intent="passive",
+        valid_actions=["fold", "call"],
+        cost_to_call=200,
+        pot_total=300,
+        stack=150,
+        big_blind=2,
     )
     assert folds["action"] == "fold"
     # Finale (allow_bust): Larry calls the all-in off and busts.
     calls = cs.resolve_scripted_action(
-        intent="passive", valid_actions=["fold", "call"],
-        cost_to_call=200, pot_total=300, stack=150, big_blind=2, allow_bust=True,
+        intent="passive",
+        valid_actions=["fold", "call"],
+        cost_to_call=200,
+        pot_total=300,
+        stack=150,
+        big_blind=2,
+        allow_bust=True,
     )
     assert calls["action"] == "call"
 
@@ -196,17 +279,31 @@ def test_finale_is_bust_ok_sal_set_vs_larry_top_pair():
     assert f.bust_ok is True
     assert f.lesson is None  # a showcase, not a judged lesson
     assert f.holes[ROLE_MENTOR] == ["7s", "7d"]  # Sal's hidden set
-    assert f.holes[ROLE_FISH] == ["Kh", "Qd"]    # Larry's sticky top pair
+    assert f.holes[ROLE_FISH] == ["Kh", "Qd"]  # Larry's sticky top pair
     assert f.mentor_plan["RIVER"][0] == "shove"
-    assert f.fish_plan["RIVER"] == "passive"     # + allow_bust → calls it off
+    assert f.fish_plan["RIVER"] == "passive"  # + allow_bust → calls it off
 
 
 def test_fish_passive_checks_then_calls():
-    assert cs.resolve_scripted_action(
-        intent="passive", valid_actions=["check", "raise"],
-        cost_to_call=0, pot_total=10, stack=100, big_blind=2,
-    )["action"] == "check"
-    assert cs.resolve_scripted_action(
-        intent="passive", valid_actions=["fold", "call", "raise"],
-        cost_to_call=8, pot_total=20, stack=100, big_blind=2,
-    )["action"] == "call"
+    assert (
+        cs.resolve_scripted_action(
+            intent="passive",
+            valid_actions=["check", "raise"],
+            cost_to_call=0,
+            pot_total=10,
+            stack=100,
+            big_blind=2,
+        )["action"]
+        == "check"
+    )
+    assert (
+        cs.resolve_scripted_action(
+            intent="passive",
+            valid_actions=["fold", "call", "raise"],
+            cost_to_call=8,
+            pot_total=20,
+            stack=100,
+            big_blind=2,
+        )["action"]
+        == "call"
+    )

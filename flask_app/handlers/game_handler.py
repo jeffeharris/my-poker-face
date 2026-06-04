@@ -850,13 +850,13 @@ def handle_phase_cards_dealt(
     # This is the once-per-phase-transition hook, so the line fires exactly once.
     if game_data is not None and game_data.get('scene_idx') is not None:
         try:
+            from cash_mode import scene_runner
+
             scene = _scene_for_game(game_id, game_data)
             if scene is not None:
                 hand = scene.hand_for_index(game_data.get('scene_idx', -1))
-                if hand is not None and getattr(hand, 'rigged', False):
-                    line = (getattr(hand, 'fish_streets', None) or {}).get(
-                        state_machine.current_phase.name
-                    )
+                if hand is not None:
+                    line = scene_runner.fish_street_line(hand, state_machine.current_phase.name)
                     if line:
                         _fish_say(game_id, game_data, line)
         except Exception:
@@ -2059,8 +2059,12 @@ def _scene_scripted_action(
     """Scripted action for the fish/mentor on the current rigged hand, or None.
 
     None means "let the bot decide" (non-rigged hand, no plan for this phase, or
-    the player isn't part of the cast)."""
-    from cash_mode import career_scene, table_scenes
+    the player isn't part of the cast).
+
+    The plan-extraction + intent-resolution is shared with the headless
+    `scene_runner` (`resolve_cast_action`) so the live game and the in-process
+    test driver resolve the cast identically — no divergence."""
+    from cash_mode import scene_runner, table_scenes
 
     if scene is None:
         scene = table_scenes.scene_for_table(game_data.get('cash_table_id'))
@@ -2078,25 +2082,8 @@ def _scene_scripted_action(
     else:
         return None
     phase = getattr(state_machine.current_phase, 'name', '')
-    entry = plan.get(phase)
-    if not entry:
-        return None
-    # A plan entry is either a bare intent string or an (intent, size_tag) tuple.
-    if isinstance(entry, (tuple, list)):
-        intent, size_tag = entry[0], (entry[1] if len(entry) > 1 else None)
-    else:
-        intent, size_tag = entry, None
-    size_frac = career_scene.SIZE_FRAC.get(size_tag, 0.7)
-    gs = state_machine.game_state
-    return career_scene.resolve_scripted_action(
-        intent=intent,
-        valid_actions=gs.current_player_options,
-        cost_to_call=gs.highest_bet - current_player.bet,
-        pot_total=int((gs.pot or {}).get('total', 0)),
-        stack=current_player.stack,
-        big_blind=gs.current_ante,
-        size_frac=size_frac,
-        allow_bust=hand.bust_ok,
+    return scene_runner.resolve_cast_action(
+        hand, plan, state_machine.game_state, current_player, phase
     )
 
 
@@ -2161,6 +2148,8 @@ def _advance_scene(game_id: str, game_data: dict, state_machine) -> None:
     position is persisted each step so a cold-load resumes here. Best-effort; the
     caller swallows exceptions so a hiccup never blocks the hand flow.
     """
+    from cash_mode import scene_runner
+
     scene = _scene_for_game(game_id, game_data)
     if scene is None:
         return
@@ -2171,15 +2160,15 @@ def _advance_scene(game_id: str, game_data: dict, state_machine) -> None:
     roles = game_data.get('scene_roles', {})
 
     # 1. Judge the hand that just finished (only teaching hands carry a lesson).
+    #    The judge + verdict-line selection are shared with `scene_runner` so the
+    #    live game and the test driver grade a hand identically.
     cur = scene.hand_for_index(game_data.get('scene_idx', -1))
     if cur is not None and cur.lesson:
         hero_name = roles.get('hero')
         hero = next((p for p in state_machine.game_state.players if p.name == hero_name), None)
         folded = hero is None or hero.is_folded
-        # 'folded' lessons (discipline) pass when the hero laid it down; the
-        # rest (value / bluff-catch) pass when the hero stayed in.
-        passed = folded if cur.pass_when == "folded" else (not folded)
-        _mentor_say(game_id, scene, cur.sal_pass if passed else cur.sal_fail)
+        passed = scene_runner.judge_hand(cur, folded)
+        _mentor_say(game_id, scene, scene_runner.verdict_line(cur, bool(passed)))
         if passed:
             game_data['scene_passed'] = game_data.get('scene_passed', 0) + 1
     # The fish reacts to the hand that just played (clueless + cheerful), teaching
@@ -2218,13 +2207,8 @@ def _advance_scene(game_id: str, game_data: dict, state_machine) -> None:
         try:
             from core.card import Card
 
-            holes_by_name: dict = {}
-            for role, shorts in nxt.holes.items():
-                name = roles.get(role)
-                if name:
-                    holes_by_name[name] = tuple(Card.from_short(s) for s in shorts)
             board = tuple(Card.from_short(s) for s in nxt.board)
-            state_machine.provide_hand_holes(holes_by_name, board)
+            state_machine.provide_hand_holes(scene_runner.holes_by_name(nxt, roles), board)
         except Exception:
             logger.exception("[SCENE] deck rig failed for hand idx %d", idx)
     _mentor_say(game_id, scene, nxt.sal_setup)
