@@ -5369,12 +5369,23 @@ def get_lobby():
     # who have never sat.
     from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
 
-    ensure_ai_bankrolls_seeded(
+    _seed_actions = ensure_ai_bankrolls_seeded(
         personality_repo=personality_repo,
         bankroll_repo=bankroll_repo,
         sandbox_id=sandbox_id,
         user_id=owner_id,
         chip_ledger_repo=_chip_ledger_repo,
+    )
+    # Genesis reserve: seed the bank pool to a % of holdings ONCE at fresh-
+    # sandbox birth so the world boots lived-in (flag-gated, default OFF). Must
+    # run after bankrolls (it sizes off holdings) and only fires for a pristine
+    # all-"created" seed pass — see ensure_genesis_reserve_seeded.
+    from cash_mode.closed_economy import ensure_genesis_reserve_seeded
+
+    ensure_genesis_reserve_seeded(
+        chip_ledger_repo=_chip_ledger_repo,
+        sandbox_id=sandbox_id,
+        seed_actions=_seed_actions,
     )
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,

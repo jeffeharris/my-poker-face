@@ -159,3 +159,38 @@ class TestListEligibleForCashMode:
         result = repo.list_eligible_for_cash_mode()
         ids = {r["personality_id"] for r in result}
         assert ids == {"abraham_lincoln"}
+
+
+class TestSeedHonoursCirculating:
+    """seed_personalities_from_json: a persona opts out of auto-seeding with
+    `"circulating": false`; otherwise it circulates by default."""
+
+    def _write_json(self, tmp_path, personas):
+        p = tmp_path / "seed.json"
+        p.write_text(json.dumps({"personalities": personas}))
+        return str(p)
+
+    def test_default_circulates_false_opts_out(self, tmp_path, repo):
+        path = self._write_json(
+            tmp_path,
+            {
+                "Cast Member": {"id": "cast_member"},  # no key → circulates
+                "Bench Extra": {"id": "bench_extra", "circulating": False},
+                "Control Bot": {"id": "control_bot", "circulating": False},
+            },
+        )
+        counts = repo.seed_personalities_from_json(path)
+        assert counts["added"] == 3
+        eligible = {e["name"] for e in repo.list_eligible_for_cash_mode()}
+        assert "Cast Member" in eligible
+        assert "Bench Extra" not in eligible
+        assert "Control Bot" not in eligible
+
+    def test_circulating_flag_not_leaked_into_config_json(self, tmp_path, repo):
+        path = self._write_json(
+            tmp_path, {"Bench Extra": {"id": "bench_extra", "circulating": False}}
+        )
+        repo.seed_personalities_from_json(path)
+        cfg = repo.load_personality("Bench Extra")
+        # The flag lives in its own column, not the persisted config.
+        assert "circulating" not in cfg

@@ -44,10 +44,12 @@ from cash_mode.ai_vice_spending import (
     compute_vice_amount,
     compute_vice_probability,
     duration_for_bucket,
+    reserve_vice_multiplier,
     resolve_ai_vice_spending,
     tick_vice_expirations,
 )
 from cash_mode.bankroll import AIBankrollState
+from cash_mode.closed_economy import seed_bank_pool
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.personality_repository import PersonalityRepository
@@ -464,6 +466,87 @@ class TestViceStateRepository:
         # Same personality_id in a different sandbox is invisible
         assert repo.load("shared", sandbox_id="sbx-B") is None
         assert repo.is_on_vice("shared", sandbox_id="sbx-B", now=ANCHOR) is False
+
+
+class TestReserveViceMultiplier(unittest.TestCase):
+    """The reserve-deficit scaler: vice refills until the tournament trigger.
+
+    Full at/below the healthy floor, easing to off at the trigger (NOT off at
+    healthy — that was the bug where the refill quit halfway to the trigger).
+    """
+
+    def test_tournament_ready_suppresses(self):
+        # at/above RESERVE_TRIGGER (0.12) → vice off (bank can open a Main Event)
+        self.assertEqual(reserve_vice_multiplier(0.12), 0.0)
+        self.assertEqual(reserve_vice_multiplier(0.30), 0.0)
+
+    def test_below_healthy_full(self):
+        # at/below RESERVE_HEALTHY (0.06) → vice full refill (incl. critical)
+        self.assertEqual(reserve_vice_multiplier(0.06), 1.0)
+        self.assertEqual(reserve_vice_multiplier(0.03), 1.0)
+        self.assertEqual(reserve_vice_multiplier(0.0), 1.0)
+
+    def test_still_refilling_in_the_climb_band(self):
+        # 0.09 is halfway between healthy (0.06) and trigger (0.12) → 0.5 —
+        # the key fix: vice is still HALF-ON here, not 0 as before.
+        self.assertAlmostEqual(reserve_vice_multiplier(0.09), 0.5)
+
+    def test_monotonic_decreasing(self):
+        assert reserve_vice_multiplier(0.07) > reserve_vice_multiplier(0.11)
+
+
+class TestViceReserveGate:
+    """Integration: VICE_RESERVE_GATED scales the whole pass by pool depth."""
+
+    def test_flush_reserves_suppress_vice_when_gated(self, db_setup, monkeypatch):
+        # Flag ON + a flush bank pool → reserves/holdings well above the
+        # healthy floor → the whole vice pass is suppressed.
+        monkeypatch.setattr("cash_mode.economy_flags.VICE_RESERVE_GATED", True)
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=80_000)
+        result = resolve_ai_vice_spending(
+            candidates={"flush_ai"},
+            vice_repo=db_setup["vice"],
+            bankroll_repo=db_setup["bankroll"],
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert result == []
+        # Bankroll untouched — no chips drained.
+        assert db_setup["bankroll"].load_ai_bankroll("flush_ai", sandbox_id=SBX).chips == 50_000
+
+    def test_low_reserves_allow_vice_when_gated(self, db_setup, monkeypatch):
+        # Flag ON but the pool is empty (reserves ~0, below critical) → vice
+        # fires at full intensity, same as ungated.
+        monkeypatch.setattr("cash_mode.economy_flags.VICE_RESERVE_GATED", True)
+        result = resolve_ai_vice_spending(
+            candidates={"flush_ai"},
+            vice_repo=db_setup["vice"],
+            bankroll_repo=db_setup["bankroll"],
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert len(result) == 1
+        assert result[0].personality_id == "flush_ai"
+
+    def test_flag_off_ignores_reserves(self, db_setup, monkeypatch):
+        # Flag OFF (default) → a flush pool does NOT suppress vice; the gate
+        # is inert until explicitly flipped on.
+        monkeypatch.setattr("cash_mode.economy_flags.VICE_RESERVE_GATED", False)
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=80_000)
+        result = resolve_ai_vice_spending(
+            candidates={"flush_ai"},
+            vice_repo=db_setup["vice"],
+            bankroll_repo=db_setup["bankroll"],
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert len(result) == 1
 
 
 class TestResolveAiViceSpending:

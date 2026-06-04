@@ -10,16 +10,22 @@ bounded duration and returns with a lump drawn from the recyclable pool.
 Two passes wire into `refresh_unseated_tables` (Phase 6), exactly like
 vice:
 
-  - `tick_side_hustle_expirations` (start of refresh): for each hustle
-    whose `ends_at` has passed, draw the payout from the bank pool
-    (re-clamped to *live* pool depth, since the pool may have drained
-    while the AI was away), credit the bankroll, delete the row, and
-    return a `HustleEndResult` so the lobby can emit a ticker row.
   - `resolve_ai_side_hustle` (post-loop): for each broke candidate, roll
     an earning target, take the neediest up to `HUSTLE_STARTS_PER_REFRESH`,
     make the narration call (sync — the duration bucket comes back with
-    the narration), and insert the state row. No chips move at start —
-    the payout lands on return.
+    the narration), insert the state row, and **pay the earning up front** —
+    draw it from the bank pool now (clamped to live depth) and credit the
+    bankroll immediately, so the AI is off the grid for the duration with
+    its earnings already banked.
+  - `tick_side_hustle_expirations` (start of refresh): for each hustle
+    whose `ends_at` has passed, delete the row and return a
+    `HustleEndResult` so the lobby can emit a "returned" ticker row. No
+    chips move here — the payout was already credited at start.
+
+Paying up front (rather than at expiry) fixes the bug where an AI left for
+a hustle, the pool drained while it was away, and it returned to an empty
+bank with nothing to show. The pool is checked when the AI leaves, so a
+hustle only fires if the bank can fund it.
 
 The earning amount is the inverse of `compute_vice_amount`: vice rolls a
 fraction of how far an AI is *above* baseline; the hustle rolls a
@@ -121,8 +127,8 @@ class HustleStartResult:
 
     Returned by `resolve_ai_side_hustle` so the lobby's event-emission
     pass can format a ticker row without re-running the per-AI logic.
-    `amount` is the rolled *target* — the actual payout is decided at
-    return time against live pool depth.
+    `amount` is the earning granted and credited up front (already clamped
+    to bank-pool depth at start).
     """
 
     personality_id: str
@@ -138,10 +144,10 @@ class HustleStartResult:
 class HustleEndResult:
     """One hustle-expiry outcome.
 
-    `paid_amount` is what the bank pool could actually fund this refresh;
-    it can be less than `target_amount` (pool drained while away) or 0
-    (pool empty — the AI returns empty-handed and re-triggers next
-    refresh). `energy_applied` is True iff the 'drain' energy effect ran.
+    Chips were already credited at start, so `paid_amount` == `target_amount`
+    == the amount granted on departure (echoed here for the "returned" ticker
+    row, not a fresh payment). `energy_applied` is True iff the 'drain' energy
+    effect ran.
     """
 
     personality_id: str
@@ -271,14 +277,24 @@ def resolve_ai_side_hustle(
     narrate_fn: Optional[NarrateFn] = None,
     max_starts: int = HUSTLE_STARTS_PER_REFRESH,
     field_snapshot=None,
+    chip_ledger_repo=None,
 ) -> List[HustleStartResult]:
     """Send broke candidates off to a side hustle; fire up to `max_starts`.
 
     `candidates` is the set of idle AIs the lobby has already filtered to
     "can't afford to play anywhere" (minus anyone already on a hustle or
     vice). This function rolls an earning target per candidate, takes the
-    neediest `max_starts`, narrates, and inserts the state row. No chips
-    move here — the payout lands at expiry.
+    neediest `max_starts`, narrates, inserts the state row, and **pays the
+    earning up front** — the payout is drawn from the bank pool now (clamped
+    to live depth) and credited immediately, so the AI returns to chips that
+    are already in its bankroll. This fixes the prior deferred-payout bug
+    where an AI left, the pool drained while it was away, and it returned to
+    an empty bank.
+
+    Reserve-aware: with a `chip_ledger_repo`, a hustle that the pool can't
+    fund does not fire (the AI stays idle and retries next refresh) unless
+    `HUSTLE_FLOOR_WAGE` is set. Without a ledger (sim/test), the row is still
+    inserted but no chips move (a credit with no paired pool draw would mint).
 
     The neediest-first ordering (deepest deficit ratio) means the AIs in
     the deepest hole get the narrated treatment; the rest re-roll next
@@ -340,35 +356,83 @@ def resolve_ai_side_hustle(
     pending.sort(key=lambda t: (-t[2], t[0]))
     selected = pending[:max_starts]
 
-    out: List[HustleStartResult] = []
-    for pid, amount, deficit_ratio in selected:
+    # Live bank-pool depth, decremented as we pay each start so several starts
+    # in one refresh can't aggregate past what the pool holds. None == no ledger
+    # wired (sim/test): go off-grid with the rolled amount, but move no chips.
+    remaining_pool: Optional[int] = None
+    if chip_ledger_repo is not None:
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+
         try:
-            narration, duration_bucket = narrate_fn(pid, amount)
+            remaining_pool = compute_bank_pool_reserves(
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.warning("[HUSTLE] compute_bank_pool_reserves failed: %s", exc)
+            remaining_pool = 0
+
+    out: List[HustleStartResult] = []
+    for pid, rolled, deficit_ratio in selected:
+        if remaining_pool is None:
+            payout = rolled
+        else:
+            # Clamp the up-front payout to live pool depth; HUSTLE_FLOOR_WAGE is
+            # the deliberate (off-by-default) escape valve that pays past depth.
+            payout = min(rolled, max(0, remaining_pool))
+            if HUSTLE_FLOOR_WAGE > 0 and payout < HUSTLE_FLOOR_WAGE:
+                payout = HUSTLE_FLOOR_WAGE
+            if payout <= 0:
+                # Pool can't fund this hustle — don't send the AI off-grid to
+                # earn nothing; it stays idle and retries next refresh.
+                continue
+
+        try:
+            narration, duration_bucket = narrate_fn(pid, payout)
         except Exception as exc:
             logger.warning(
                 "[HUSTLE] narrate_fn failed pid=%r: %s; using fallback",
                 pid,
                 exc,
             )
-            narration, duration_bucket = _templated_narrate_fn(pid, amount)
+            narration, duration_bucket = _templated_narrate_fn(pid, payout)
         if duration_bucket not in DURATION_RANGES:
             duration_bucket = DEFAULT_DURATION_BUCKET
 
         ends_at = now + duration_for_bucket(duration_bucket, rng)
 
+        # Insert the off-grid row FIRST, then credit. Insert-then-credit keeps
+        # this drift-safe: if the credit fails the AI is off-grid having earned
+        # nothing (drift stays 0), never paid-without-a-row (which could let the
+        # still-broke AI hustle and double-draw next refresh).
         committed = _commit_hustle_start(
             side_hustle_repo=side_hustle_repo,
             sandbox_id=sandbox_id,
             personality_id=pid,
-            amount=amount,
+            amount=payout,
             duration_bucket=duration_bucket,
             narration=narration,
             started_at=now,
             ends_at=ends_at,
             deficit_ratio=deficit_ratio,
         )
-        if committed:
-            out.append(committed)
+        if not committed:
+            continue
+
+        if remaining_pool is not None and payout > 0:
+            paid = _credit_hustle_payout(
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                personality_id=pid,
+                payout=payout,
+                started_at=now,
+                duration_bucket=duration_bucket,
+                now=now,
+            )
+            remaining_pool -= paid
+
+        out.append(committed)
     return out
 
 
@@ -376,24 +440,22 @@ def tick_side_hustle_expirations(
     *,
     side_hustle_repo,
     bankroll_repo,
-    chip_ledger_repo,
     sandbox_id: str,
     now: datetime,
 ) -> List[HustleEndResult]:
-    """Expire hustles whose `ends_at <= now`, crediting pool-funded payouts.
+    """Expire hustles whose `ends_at <= now` — a pure off-grid → idle return.
 
-    For each expired row, oldest first:
-      1. Re-clamp the rolled target to *live* bank-pool depth (decremented
-         as we go so multiple expiries in one tick can't over-draw the
-         pool). With HUSTLE_FLOOR_WAGE > 0, top the payout up to the floor
-         even past pool depth (the deliberate escape valve).
-      2. Credit the AI's bankroll + record the `side_hustle_earning`
-         ledger draw (only if payout > 0).
-      3. Apply the energy effect if HUSTLE_ENERGY_MODE == 'drain'.
-      4. Delete the row, return a `HustleEndResult`.
+    The payout was already credited up front at START
+    (`resolve_ai_side_hustle`), so expiry moves NO chips. For each expired
+    row, oldest first:
+      1. Delete the row (mirroring END_OFFGRID into the presence shadow).
+      2. Apply the energy effect if HUSTLE_ENERGY_MODE == 'drain'.
+      3. Return a `HustleEndResult` whose `paid_amount` echoes the amount
+         granted at start, so the lobby can emit a "returned" ticker row.
 
     Best-effort per row: a failure on one AI is logged and skipped so one
-    bad row doesn't poison the batch.
+    bad row doesn't poison the batch. `bankroll_repo` is retained only for
+    the optional energy-drain side effect.
     """
     out: List[HustleEndResult] = []
     if side_hustle_repo is None:
@@ -406,29 +468,7 @@ def tick_side_hustle_expirations(
     if not expired:
         return out
 
-    # Live pool depth, decremented across this tick's payouts so we never
-    # draw more than the pool holds in aggregate.
-    from cash_mode.closed_economy import compute_bank_pool_reserves
-
-    try:
-        remaining_pool = compute_bank_pool_reserves(
-            chip_ledger_repo,
-            sandbox_id=sandbox_id,
-        )
-    except Exception as exc:
-        logger.warning("[HUSTLE] compute_bank_pool_reserves failed: %s", exc)
-        remaining_pool = 0
-
     for h in expired:
-        # Delete the row FIRST, then pay. Unlike vice (whose chips move at
-        # *start*, so a failed expiry-delete is harmless and just retries),
-        # the hustle credits chips at expiry — so paying first and then
-        # failing to delete would let the row re-expire and double-pay next
-        # refresh. Deleting first makes the payout idempotent: a failed or
-        # no-op delete skips the credit entirely and retries cleanly. The
-        # cost is the opposite, safer failure mode — a delete-then-credit
-        # crash drops one payout (AI returns empty, drift stays 0) rather
-        # than minting chips twice.
         try:
             removed = side_hustle_repo.delete(h.personality_id, sandbox_id=sandbox_id)
         except Exception as exc:
@@ -439,7 +479,7 @@ def tick_side_hustle_expirations(
             )
             continue
         if not removed:
-            # Row already gone (concurrent path) — don't pay a phantom.
+            # Row already gone (concurrent path).
             continue
 
         # Phase 1 dual-write SHADOW (CASH_MODE_PRESENCE_MIGRATION.md §D):
@@ -452,26 +492,6 @@ def tick_side_hustle_expirations(
             event=PresenceEvent.END_OFFGRID,
         )
 
-        target = int(h.amount)
-        payout = min(target, max(0, remaining_pool))
-        if HUSTLE_FLOOR_WAGE > 0 and payout < HUSTLE_FLOOR_WAGE:
-            # Escape valve: guarantee a minimum even past pool depth.
-            payout = HUSTLE_FLOOR_WAGE
-
-        paid = 0
-        if payout > 0:
-            paid = _credit_hustle_payout(
-                bankroll_repo=bankroll_repo,
-                chip_ledger_repo=chip_ledger_repo,
-                sandbox_id=sandbox_id,
-                personality_id=h.personality_id,
-                payout=payout,
-                started_at=h.started_at,
-                duration_bucket=h.duration_bucket,
-                now=now,
-            )
-            remaining_pool -= paid
-
         energy_applied = False
         if HUSTLE_ENERGY_MODE == 'drain':
             energy_applied = _apply_energy_drain(
@@ -480,13 +500,14 @@ def tick_side_hustle_expirations(
                 sandbox_id=sandbox_id,
             )
 
+        amount = int(h.amount)
         out.append(
             HustleEndResult(
                 personality_id=h.personality_id,
                 started_at=h.started_at,
                 ends_at=h.ends_at,
-                target_amount=target,
-                paid_amount=paid,
+                target_amount=amount,
+                paid_amount=amount,
                 duration_bucket=h.duration_bucket,
                 narration=h.narration,
                 energy_applied=energy_applied,
@@ -511,7 +532,7 @@ def _commit_hustle_start(
     ends_at: datetime,
     deficit_ratio: float,
 ) -> Optional[HustleStartResult]:
-    """Insert the state row. No chips move — the payout lands at expiry."""
+    """Insert the state row. The caller credits the up-front payout separately."""
     from poker.repositories.side_hustle_state_repository import SideHustleState
 
     try:

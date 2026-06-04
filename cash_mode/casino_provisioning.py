@@ -97,6 +97,49 @@ CASINO_CLOSE_THRESHOLDS: Dict[str, int] = {
     '$50': 45_000,
 }
 
+# Relative (fraction-of-holdings) equivalents of the absolute pool thresholds
+# above, used when `economy_flags.CASINO_RELATIVE_THRESHOLDS` is on. Calibrated to
+# reproduce the absolute values at the launch ~$2.64M holdings, then scale with
+# the economy. See `resolve_pool_threshold`.
+CASINO_SPAWN_FRACTIONS: Dict[str, float] = {
+    '$2': 0.002,  # ~5k at 2.64M
+    '$10': 0.019,  # ~50k
+    '$50': 0.038,  # ~100k
+}
+CASINO_CLOSE_FRACTIONS: Dict[str, float] = {
+    '$50': 0.017,  # ~45k
+}
+
+
+def resolve_pool_threshold(
+    absolute: int,
+    fraction: Optional[float],
+    chip_ledger_repo,
+    sandbox_id,
+) -> int:
+    """A pool-depth gate as an absolute chip count, scaling with holdings on flag.
+
+    Default (or when holdings can't be read / no fraction given): returns the
+    `absolute` value unchanged — byte-identical to the pre-flag behaviour. When
+    `economy_flags.CASINO_RELATIVE_THRESHOLDS` is on, returns
+    `round(fraction × holdings)` so the gate sits at the same RELATIVE bank depth
+    at any economy size.
+    """
+    from cash_mode import economy_flags
+
+    if not economy_flags.CASINO_RELATIVE_THRESHOLDS or fraction is None:
+        return absolute
+    try:
+        from core.economy.economy_signal import signal
+
+        holdings = signal(chip_ledger_repo, sandbox_id=sandbox_id).holdings
+    except Exception:
+        return absolute
+    if holdings <= 0:
+        return absolute
+    return round(fraction * holdings)
+
+
 # Fish-per-casino range. Spawns pick a random count in [MIN, MAX];
 # the refill pass keeps casinos topped up to MAX as long as the pool
 # can fund it. Kept LOW (well under TABLE_SEAT_COUNT=6) so each fish is
@@ -1208,6 +1251,13 @@ def resolve_casino_provisioning(
             # plays out and teardown returns all chips to the pool, so the
             # pool settles into a band rather than draining to empty.
             close_floor = CASINO_CLOSE_THRESHOLDS.get(stake_label)
+            if close_floor is not None:
+                close_floor = resolve_pool_threshold(
+                    close_floor,
+                    CASINO_CLOSE_FRACTIONS.get(stake_label),
+                    chip_ledger_repo,
+                    sandbox_id,
+                )
             if (
                 close_floor is not None
                 and compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
@@ -1262,7 +1312,12 @@ def resolve_casino_provisioning(
 
     threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
     for idx, stake_label in enumerate(threshold_order):
-        threshold = CASINO_SPAWN_THRESHOLDS[stake_label]
+        threshold = resolve_pool_threshold(
+            CASINO_SPAWN_THRESHOLDS[stake_label],
+            CASINO_SPAWN_FRACTIONS.get(stake_label),
+            chip_ledger_repo,
+            sandbox_id,
+        )
         # One casino per stake; a closing table holds the slot until its
         # countdown elapses.
         if by_stake_after_teardown.get(stake_label):

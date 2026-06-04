@@ -96,11 +96,11 @@ class TestSignal:
 
 class TestTournamentFunding:
     def test_flush_overlays_no_rake(self):
-        # Drain-to-setpoint: overlay = reserves − FLUSH_SETPOINT × holdings.
-        # 170k − 0.08×2M = 170k − 160k = 10k.
-        st = EconomyState(reserves=170_000, holdings=2_000_000, ratio=0.085, regime=FLUSH)
+        # Drain-to-FLOOR: overlay = reserves − RESERVE_HEALTHY × holdings.
+        # At the trigger (ratio 0.12): 240k − 0.06×2M = 240k − 120k = 120k.
+        st = EconomyState(reserves=240_000, holdings=2_000_000, ratio=0.12, regime=FLUSH)
         plan = tournament_funding(st, field_size=18, seat_price=500, human_in=True)
-        assert plan.bank_overlay == 170_000 - round(chair.FLUSH_SETPOINT * 2_000_000)  # 10_000
+        assert plan.bank_overlay == 240_000 - round(chair.RESERVE_HEALTHY * 2_000_000)  # 120k
         assert plan.rake == 0
         assert plan.human_buy_in == 500
         assert plan.prize_pool == 500 + plan.bank_overlay
@@ -135,12 +135,12 @@ class TestTournamentFunding:
 
     def test_ai_only_flush_pool_is_overlay(self):
         """An AI-only (no human) flush tournament still has a real pool = overlay.
-        Drain-to-setpoint: 100k − 0.08×1M = 100k − 80k = 20k."""
-        st = EconomyState(reserves=100_000, holdings=1_000_000, ratio=0.1, regime=FLUSH)
+        Drain-to-floor: 150k − 0.06×1M = 150k − 60k = 90k."""
+        st = EconomyState(reserves=150_000, holdings=1_000_000, ratio=0.15, regime=FLUSH)
         plan = tournament_funding(st, field_size=18, seat_price=500, human_in=False)
         assert plan.human_buy_in == 0
-        assert plan.bank_overlay == 20_000
-        assert plan.prize_pool == 20_000
+        assert plan.bank_overlay == 90_000
+        assert plan.prize_pool == 90_000
 
     def test_setpoint_boundary_is_flush(self):
         """Exactly at the 0.08 setpoint counts as flush (>= setpoint)."""
@@ -155,17 +155,34 @@ class TestTournamentFunding:
 
 
 class TestCashRakeSchedule:
-    def test_flush_top_tier_base_rate(self):
-        st = EconomyState(reserves=1, holdings=1, ratio=1.0, regime=FLUSH)
+    def test_healthy_top_tier_base_rate(self):
+        # ratio >= 0.06 → top tier only at base rate.
+        st = EconomyState(reserves=10, holdings=100, ratio=0.10, regime=FLUSH)
         sched = cash_rake_schedule(st)
         assert sched.stake_big_blinds == frozenset({1000})
         assert sched.rate == chair._RAKE_RATE_BASE
 
-    def test_empty_expands_tiers_and_rate(self):
-        st = EconomyState(reserves=0, holdings=1, ratio=0.0, regime=EMPTY)
+    def test_low_band_adds_200_mid_rate(self):
+        # 0.03 <= ratio < 0.06 → add $200, bump to the low rate.
+        st = EconomyState(reserves=45, holdings=1000, ratio=0.045, regime=NEUTRAL)
         sched = cash_rake_schedule(st)
-        assert 200 in sched.stake_big_blinds
-        assert sched.rate == chair._RAKE_RATE_EMPTY
+        assert sched.stake_big_blinds == frozenset({1000, 200})
+        assert sched.rate == chair._RAKE_RATE_LOW
+
+    def test_critical_band_adds_50_top_rate(self):
+        # ratio < 0.03 → all tiers ($1000/$200/$50) at the top rate.
+        st = EconomyState(reserves=5, holdings=1000, ratio=0.005, regime=EMPTY)
+        sched = cash_rake_schedule(st)
+        assert sched.stake_big_blinds == frozenset({1000, 200, 50})
+        assert sched.rate == chair._RAKE_RATE_CRITICAL
+
+    def test_boundaries_inclusive_of_higher_band(self):
+        # Exactly at the healthy floor → healthy (top tier only).
+        st = EconomyState(reserves=6, holdings=100, ratio=0.06, regime=NEUTRAL)
+        assert cash_rake_schedule(st).stake_big_blinds == frozenset({1000})
+        # Exactly at the critical floor → low band (not critical).
+        st = EconomyState(reserves=3, holdings=100, ratio=0.03, regime=EMPTY)
+        assert cash_rake_schedule(st).stake_big_blinds == frozenset({1000, 200})
 
 
 def signal_like(*, ratio: float) -> EconomyState:

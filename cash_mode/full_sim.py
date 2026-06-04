@@ -549,7 +549,10 @@ def _apply_rake_to_winner(
 
     if winner_pid is None or chip_ledger_repo is None:
         return
-    rake = economy_flags.compute_rake(pot, big_blind)
+    # Director rake (reserve-gated, flag-off by default): may expand the raked
+    # stakes / rate when the bank is empty; otherwise the static $1000 skim.
+    rake_stakes, rake_rate = economy_flags.resolve_rake_params(chip_ledger_repo, sandbox_id)
+    rake = economy_flags.compute_rake(pot, big_blind, stake_big_blinds=rake_stakes, rate=rake_rate)
     if rake <= 0:
         return
 
