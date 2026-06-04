@@ -147,6 +147,7 @@ jobs:
             'FLASK_DEBUG=1' \
             'SECRET_KEY=test-secret-key-for-ci' \
             'OPENAI_API_KEY=test-key-for-ci' \
+            'DEEPSEEK_API_KEY=test-key-for-ci' \
             'GOOGLE_CLIENT_ID=test' \
             'GOOGLE_CLIENT_SECRET=test' \
             'CORS_ORIGINS=*' \
