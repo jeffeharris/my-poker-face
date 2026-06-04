@@ -445,15 +445,19 @@ def record(
         return None
 
     try:
-        return repo.record(
+        # Pass `conn` only when set, so repo doubles whose `record()` predates
+        # the `conn=` seam (test fakes) keep working on the common no-txn path.
+        kwargs = dict(
             source=source,
             sink=sink,
             amount=amount_int,
             reason=reason,
             context=context,
             sandbox_id=sandbox_id,
-            conn=conn,
         )
+        if conn is not None:
+            kwargs['conn'] = conn
+        return repo.record(**kwargs)
     except Exception as e:
         # ERROR, not warning (PRH-11): validation has already passed, so this
         # is a real DB-write failure on a row a chip-moving caller expected to
@@ -543,15 +547,18 @@ def record_transfer(
         )
         return None
     try:
-        return repo.record(
+        # Pass `conn` only when set (keeps pre-seam repo doubles working).
+        kwargs = dict(
             source=source,
             sink=sink,
             amount=amount_int,
             reason=reason,
             context=context,
             sandbox_id=sandbox_id,
-            conn=conn,
         )
+        if conn is not None:
+            kwargs['conn'] = conn
+        return repo.record(**kwargs)
     except Exception as e:
         # Best-effort: a missing history row is a forensics gap, not a
         # conservation problem (the move is bank-neutral). Log, don't raise.
