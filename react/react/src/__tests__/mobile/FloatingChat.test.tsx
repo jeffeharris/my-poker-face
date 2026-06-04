@@ -37,6 +37,20 @@ vi.mock('framer-motion', () => ({
         </div>
       );
     },
+    // SVG stub for the countdown ring's progress arc. Strips the
+    // animation props (pathLength/initial/animate/transition) so the
+    // resulting <circle> is valid SVG; the ring's drain animation
+    // belongs in an E2E test with a real motion runtime.
+    circle: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
+      const {
+        initial: _initial,
+        animate: _animate,
+        transition: _transition,
+        pathLength: _pathLength,
+        ...svgProps
+      } = props;
+      return <circle {...svgProps}>{children}</circle>;
+    },
   },
   AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => (
     <>{children}</>

@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, useRef, forwardRef } from 'react';
+import { memo, useEffect, useState, useRef, useMemo, forwardRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
 import type { ChatMessage } from '../../types';
@@ -126,6 +126,66 @@ export function DramaticMessage({ text }: { text: string }) {
   );
 }
 
+// CK3-style radial countdown shown in the bubble's upper-right
+// corner. Drains clockwise over the message's remaining lifetime so
+// the otherwise-invisible auto-dismiss timer becomes legible.
+//
+//  - Active message (timerStartedAt set): the arc animates from
+//    whatever fraction is left *now* down to empty over the remaining
+//    time. Re-keyed on (timerStartedAt, displayDuration) so a queued
+//    message that just activated — or one whose duration grew by the
+//    queue bonus — restarts cleanly from its true remaining fraction.
+//  - Queued message (timerStartedAt === null): the ring sits full,
+//    signalling "waiting, full time still to come" rather than draining
+//    against a clock that hasn't started.
+const RING_SIZE = 13; // px — outer box of the SVG
+const RING_STROKE = 1.75;
+
+function CountdownRing({
+  timerStartedAt,
+  displayDuration,
+}: {
+  timerStartedAt: number | null;
+  displayDuration: number;
+}) {
+  const paused = timerStartedAt === null;
+  const radius = (RING_SIZE - RING_STROKE) / 2;
+  const center = RING_SIZE / 2;
+
+  // Snapshot how much of the ring is left at the moment the timer
+  // (re)starts. Only recomputed when the timer identity changes, so
+  // it doesn't churn on every parent re-render.
+  const initialFraction = useMemo(() => {
+    if (timerStartedAt === null) return 1;
+    const remaining = displayDuration - (Date.now() - timerStartedAt);
+    return Math.max(0, Math.min(1, remaining / displayDuration));
+  }, [timerStartedAt, displayDuration]);
+
+  const remainingSec = initialFraction * (displayDuration / 1000);
+
+  return (
+    <svg
+      className="floating-chat-timer-ring"
+      width={RING_SIZE}
+      height={RING_SIZE}
+      viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+      aria-hidden="true"
+    >
+      <circle className="timer-ring-track" cx={center} cy={center} r={radius} />
+      <motion.circle
+        key={`${timerStartedAt}-${displayDuration}`}
+        className="timer-ring-progress"
+        cx={center}
+        cy={center}
+        r={radius}
+        initial={{ pathLength: initialFraction }}
+        animate={{ pathLength: paused ? 1 : 0 }}
+        transition={paused ? { duration: 0 } : { duration: remainingSec, ease: 'linear' }}
+      />
+    </svg>
+  );
+}
+
 // Message component — swipe horizontally to dismiss, or wait for the
 // auto-dismiss timer. No X button (the swipe gesture + timer
 // together cover the dismiss surface).
@@ -244,6 +304,7 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         className="floating-chat"
         data-testid="floating-chat"
       >
+        <CountdownRing timerStartedAt={msg.timerStartedAt} displayDuration={msg.displayDuration} />
         <div
           className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`}
           data-testid="floating-chat-avatar"
