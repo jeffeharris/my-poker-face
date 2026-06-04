@@ -160,6 +160,67 @@ def test_player_ledger_delta_tracks_stored_delta_winning_stake(
         assert "stake_payoff" in reasons
 
 
+def test_ai_staker_cut_sourced_from_borrower_seat(
+    bankroll_repo, ledger_repo, stake_repo, custody_on
+):
+    # AI staker (machiavelli) backs AI borrower (frida). The staker's cut must
+    # drain the BORROWER's seat, never the staker's own (empty) seat — the
+    # mis-sourcing bug left the staker seat negative and the borrower seat
+    # un-drained.
+    from cash_mode.stakes import STAKER_KIND_PERSONALITY
+
+    staker = "machiavelli"
+    principal, cut, chips_at_leave = 20_000, 0.40, 30_000  # staker_total = 24k
+    # Origination funds the borrower's seat from the staker (AI here).
+    L.record_stake_fund(
+        ledger_repo, source=L.ai(staker), sink=L.ai_seat(SB, PID), amount=principal, sandbox_id=SB
+    )
+    stake_repo.create_stake(
+        Stake(
+            stake_id="stk-ai-1",
+            session_id="ai_session_frida_x",
+            staker_id=staker,
+            staker_kind=STAKER_KIND_PERSONALITY,
+            borrower_id=PID,
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=principal,
+            match_amount=0,
+            origination_fee=0,
+            cut=cut,
+            status=STAKE_STATUS_ACTIVE,
+            carry_amount=0,
+            stake_tier="$200",
+            created_at=datetime.utcnow(),
+            table_id="cash-table-200-001",
+        )
+    )
+
+    settlement = settle_departed_ai_stake(
+        PID,
+        chips_at_leave,
+        stake_repo=stake_repo,
+        bankroll_repo=bankroll_repo,
+        chip_ledger_repo=ledger_repo,
+        relationship_repo=None,
+        personality_repo=None,
+        table_id="cash-table-200-001",
+        sandbox_id=SB,
+        now=datetime.utcnow(),
+    )
+    assert settlement is not None and settlement.staker_total == 24_000
+
+    # The staker's OWN seat is untouched (the bug left it at -staker_total).
+    assert ledger_repo.balance_of(L.ai_seat(SB, staker), sandbox_id=SB) == 0
+    # The cut drained the BORROWER's seat instead: funding (+20k) minus the
+    # staker payoff (−24k) drives it to -4k. Had the payoff wrongly drained the
+    # staker's seat (the bug), this seat would still read +principal.
+    assert (
+        ledger_repo.balance_of(L.ai_seat(SB, PID), sandbox_id=SB)
+        <= principal - settlement.staker_total
+    )
+
+
 def test_no_ledger_rows_when_custody_disabled(bankroll_repo, ledger_repo, stake_repo):
     # Backward-compat: with custody OFF the settlement still pays the staker
     # (stored int) but writes no player ledger row.

@@ -2725,6 +2725,13 @@ def settle_departed_ai_stake(
                         active_stake.stake_id,
                     )
             else:
+                # AI staker. The cut comes off the BORROWER's seat — so
+                # credit the int WITHOUT the default seat `ai_cash_out`
+                # (from_seat=False), which would otherwise mis-source the
+                # chips from the STAKER's own seat (seat:ai:<sb>:<staker>),
+                # leaving the borrower's seat un-drained and the staker's
+                # seat negative. Record the seat->staker drain explicitly,
+                # mirroring the human branch above and the carry-payoff path.
                 credit_ai_cash_out(
                     bankroll_repo,
                     flow.staker_id,
@@ -2736,7 +2743,24 @@ def settle_departed_ai_stake(
                         "stake_id": active_stake.stake_id,
                         "site": "ai_stake_settle_staker",
                     },
+                    from_seat=False,
                 )
+                from cash_mode import economy_flags
+
+                if chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED:
+                    from core.economy import ledger as chip_ledger
+
+                    chip_ledger.record_stake_payoff(
+                        chip_ledger_repo,
+                        source=chip_ledger.ai_seat(sandbox_id, settlement.borrower_id),
+                        sink=chip_ledger.ai(flow.staker_id),
+                        amount=flow.amount,
+                        context={
+                            "stake_id": active_stake.stake_id,
+                            "site": "ai_stake_settle_staker",
+                        },
+                        sandbox_id=sandbox_id,
+                    )
         elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
             credit_ai_cash_out(
                 bankroll_repo,
