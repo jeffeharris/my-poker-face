@@ -64,6 +64,52 @@ def verdict_line(hand, passed: bool) -> str:
     return hand.sal_pass if passed else hand.sal_fail
 
 
+# Outcome predicates a hand's `sal_verdict_branches` can route on — the first
+# slice of the Scene Engine beat-router (Pillar 2). Each reads the finished-hand
+# outcome dict from `hand_outcome`.
+_OUTCOME_PREDICATES = {
+    "fish_folded": lambda o: bool(o.get("fish_folded")),
+    "hero_folded": lambda o: bool(o.get("hero_folded")),
+    "showdown": lambda o: bool(o.get("showdown")),
+}
+
+
+def hand_outcome(hand, players, roles: Dict[str, str]) -> Dict[str, bool]:
+    """Observable outcome of a finished hand, for verdict branching.
+
+    `roles` is {role: live_name}. Returns {hero_folded, fish_folded, showdown},
+    where showdown ≈ neither the hero nor the fish folded (both saw it through).
+    """
+    by_name = {p.name: p for p in players}
+
+    def _folded(role: str) -> bool:
+        p = by_name.get(roles.get(role) or "")
+        return p is None or p.is_folded
+
+    hero_folded = _folded("hero")
+    fish_folded = _folded("fish")
+    return {
+        "hero_folded": hero_folded,
+        "fish_folded": fish_folded,
+        "showdown": not hero_folded and not fish_folded,
+    }
+
+
+def select_verdict_line(hand, passed: bool, outcome: Dict[str, bool]) -> str:
+    """The mentor's post-hand line, with outcome-conditional branches.
+
+    A hand may declare `sal_verdict_branches` = ((predicate, line), ...); the
+    first predicate that holds for `outcome` wins, else the binary pass/fail line.
+    This is the choice/outcome-edge slice of the Scene Engine router (Pillar 2) —
+    the hero's pass/fail *count* is unchanged (`judge_hand`); only narration forks.
+    """
+    for cond, line in getattr(hand, "sal_verdict_branches", ()) or ():
+        pred = _OUTCOME_PREDICATES.get(cond)
+        if pred and pred(outcome):
+            return line
+    return verdict_line(hand, passed)
+
+
 def setup_lines(hand) -> tuple:
     """The (mentor, fish) opening lines for a hand — emitted as it's set up."""
     return (getattr(hand, "sal_setup", "") or "", getattr(hand, "fish_setup", "") or "")
@@ -418,7 +464,8 @@ def run_scene(
         hero_folded = hero_player is None or hero_player.is_folded
         passed = judge_hand(hand, hero_folded)
         if passed is not None:
-            _say("verdict", "mentor", verdict_line(hand, passed), idx)
+            outcome = hand_outcome(hand, sm.game_state.players, role_to_name)
+            _say("verdict", "mentor", select_verdict_line(hand, passed, outcome), idx)
             if passed:
                 passed_count += 1
         _say("fish_react", "fish", getattr(hand, "fish_react", "") or "", idx)
@@ -524,5 +571,12 @@ def validate_scene(scene) -> List[str]:
                 errors.append(f"{where}: invalid pass_when {hand.pass_when!r}")
             if not (hand.sal_pass and hand.sal_fail):
                 errors.append(f"{where}: judged hand missing sal_pass/sal_fail verdict line")
+
+        # Verdict branches (the Pillar-2 slice): known predicate + non-empty line.
+        for cond, line in getattr(hand, "sal_verdict_branches", ()) or ():
+            if cond not in _OUTCOME_PREDICATES:
+                errors.append(f"{where}: verdict branch unknown predicate {cond!r}")
+            if not line:
+                errors.append(f"{where}: verdict branch {cond!r} has an empty line")
 
     return errors

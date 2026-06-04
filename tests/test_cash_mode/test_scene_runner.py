@@ -118,6 +118,72 @@ def test_discipline_fish_tell_fires_on_the_flop_only():
     assert "TURN" not in disc.fish_streets and "RIVER" not in disc.fish_streets
 
 
+# --- outcome-conditional verdict branches (the Pillar-2 router slice) --------
+
+
+def _bluff_catch():
+    import cash_mode.career_scene as cs
+
+    return next(h for h in cs.SCENE0_SCRIPT if h.lesson == "bluff_catch")
+
+
+def test_verdict_branch_fires_when_the_fish_folds():
+    """The hero who BETS the fish off his air (no showdown) gets a different Sal
+    line than the one who check-calls it down — the branch on the hand outcome."""
+    bc = _bluff_catch()
+    branch_line = bc.sal_verdict_branches[0][1]
+
+    def aggressor(hand, gs, player):
+        opts = gs.current_player_options
+        if hand.lesson == "bluff_catch" and "raise" in opts:
+            pot = int((gs.pot or {}).get("total", 0))
+            return {"action": "raise", "amount": max(gs.current_ante * 3, pot)}
+        if "check" in opts:
+            return {"action": "check", "amount": 0}
+        return {"action": "fold", "amount": 0}
+
+    res = sr.run_scene(SCENE0, hero=aggressor)
+    verdicts = res.lines(role="mentor", trigger="verdict")
+    assert branch_line in verdicts  # the fish-folded branch
+    assert bc.sal_pass not in verdicts  # NOT the "you looked him up" showdown line
+
+
+def test_check_calling_keeps_the_standard_showdown_line():
+    """Mirror: stay passive on the bluff-catch → showdown → the standard pass line,
+    never the fish-folded branch."""
+    bc = _bluff_catch()
+    branch_line = bc.sal_verdict_branches[0][1]
+    res = sr.run_scene(SCENE0, hero=sr.hero_by_lesson({"bluff_catch": "passive"}))
+    verdicts = res.lines(role="mentor", trigger="verdict")
+    assert bc.sal_pass in verdicts
+    assert branch_line not in verdicts
+
+
+def test_select_verdict_line_routes_on_outcome():
+    """Unit: the first matching predicate wins; no match → the binary pass/fail."""
+    bc = _bluff_catch()
+    fish_folded = {"hero_folded": False, "fish_folded": True, "showdown": False}
+    showdown = {"hero_folded": False, "fish_folded": False, "showdown": True}
+    assert sr.select_verdict_line(bc, True, fish_folded) == bc.sal_verdict_branches[0][1]
+    assert sr.select_verdict_line(bc, True, showdown) == bc.sal_pass
+    assert sr.select_verdict_line(bc, False, showdown) == bc.sal_fail
+    # A hand with no branches always falls back to the binary line.
+    import cash_mode.career_scene as cs
+
+    value = next(h for h in cs.SCENE0_SCRIPT if h.lesson == "value")
+    assert sr.select_verdict_line(value, True, fish_folded) == value.sal_pass
+
+
+def test_validation_catches_a_bad_verdict_branch():
+    import dataclasses
+
+    import cash_mode.career_scene as cs
+
+    bad = dataclasses.replace(cs._BLUFF_CATCH, sal_verdict_branches=(("teleported", "huh"),))
+    errors = sr.validate_scene(dataclasses.replace(SCENE0, script=[bad]))
+    assert any("unknown predicate" in e for e in errors)
+
+
 # --- conservation across hero lines -----------------------------------------
 
 

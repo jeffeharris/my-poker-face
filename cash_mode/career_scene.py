@@ -53,6 +53,14 @@ class Scene0Hand:
     sal_setup: str = ""
     sal_pass: str = ""
     sal_fail: str = ""
+    # Outcome-conditional verdict overrides — the first slice of the Scene Engine
+    # beat-router (docs/plans/SCENE_ENGINE_VISION.md, Pillar 2). An ordered tuple
+    # of (predicate, line): the first predicate whose condition holds for the
+    # FINISHED hand replaces the plain sal_pass/sal_fail line. Predicates (see
+    # scene_runner._OUTCOME_PREDICATES): 'fish_folded' (you bet the fish off it —
+    # no showdown), 'hero_folded', 'showdown' (both saw it through). The hero's
+    # pass/fail count is unchanged; only the narration forks. Empty = binary.
+    sal_verdict_branches: tuple = ()
     # Per-phase scripted-action intents for the AI cast, so the lesson is
     # reliable rather than hoping the bots cooperate. Phase name → intent;
     # missing phase = let the bot decide. Intents: 'fold' (get out of the way),
@@ -380,6 +388,19 @@ _BLUFF_CATCH = Scene0Hand(
     sal_pass="What'd I tell ya — king-high nothin', three streets of it. You looked him up. Better men have folded that and kicked themselves all night.",
     # Fail = hero folded → no showdown → Sal speaks to the tendency, not the muck.
     sal_fail="He pushed ya right off it, kid. A fish that barrels like that is usually full of air — next time, you look him up. Remember the sting.",
+    # Branch (Pillar 2 slice): the hero BET and pushed Larry off the air himself,
+    # so it never goes to showdown. Not wrong — a fold's a fold — but it leaves the
+    # value on the table. Sal coaches the check-call instead of the standard "you
+    # looked him up" pass line (which would be a lie: there was no showdown).
+    sal_verdict_branches=(
+        (
+            "fish_folded",
+            "Ha — bet him right off it, didja? Works, sure, a fold's a fold. But a "
+            "fish itchin' to barrel air three streets? Don't go bettin' for him — "
+            "check it down and let him hang himself. That's where the real money's "
+            "at, kid: makin' the other fella do the work.",
+        ),
+    ),
     fish_setup="I'm feelin' lucky on this one, fellas!\n*blub*\nGonna bet big — scaaary, right?",
     fish_react="Aw, ya called?! I had nothin'! Heh — ya got me, buddy. Smart cookie.",
     # Larry barrels the bluff — turn + an over-bet river (stack-capped, no bust).

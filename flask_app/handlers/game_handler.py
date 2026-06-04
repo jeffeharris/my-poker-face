@@ -2168,7 +2168,8 @@ def _advance_scene(game_id: str, game_data: dict, state_machine) -> None:
         hero = next((p for p in state_machine.game_state.players if p.name == hero_name), None)
         folded = hero is None or hero.is_folded
         passed = scene_runner.judge_hand(cur, folded)
-        _mentor_say(game_id, scene, scene_runner.verdict_line(cur, bool(passed)))
+        outcome = scene_runner.hand_outcome(cur, state_machine.game_state.players, roles)
+        _mentor_say(game_id, scene, scene_runner.select_verdict_line(cur, bool(passed), outcome))
         if passed:
             game_data['scene_passed'] = game_data.get('scene_passed', 0) + 1
     # The fish reacts to the hand that just played (clueless + cheerful), teaching
