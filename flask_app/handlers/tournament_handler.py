@@ -55,14 +55,16 @@ class SeatSpec:
 def coordinate_after_human_hand(
     session: TournamentSession,
     human_table_result: dict[str, int],
-    prev_table_id: int,
+    prev_table_id: int | None,
 ) -> BoundaryOutcome:
     """Fold the live human-table result into the field, advance the AI tables,
     settle, and classify the outcome for the human's game.
 
     `human_table_result` is `{player_id: stack}` for every seat at the human's
     table after the just-completed live hand. `prev_table_id` is the table the
-    human's game was running before this boundary (to detect relocation).
+    human's game was running before this boundary (to detect relocation); it may
+    be None when recovered from a cold load that didn't stamp the id, in which
+    case the comparison reads as a relocation and forces a live-table reconcile.
     """
     remaining_before = session.field.active_count
     level_before = session.current_level().level
@@ -241,7 +243,16 @@ def advance_tournament_after_hand(
     from poker.table.seat import seat_key
 
     session: TournamentSession = game_data['tournament_session']
-    prev_table_id = game_data['tournament_table_id']
+    # Fall back to the session's own table id when game_data is missing the
+    # key. A cold load can re-attach the session without re-stamping
+    # tournament_table_id (or an older in-memory dict predates it), which
+    # otherwise KeyErrors here and silently wedges the game at every
+    # hand boundary. The session is the source of truth — mirror what the
+    # builder and the cold-load re-attach path derive.
+    prev_table_id = game_data.get('tournament_table_id')
+    if prev_table_id is None:
+        _ht = session.human_table
+        prev_table_id = _ht.table_id if _ht is not None else None
     # The field keys every player by their FIELD id — NOT the display `Player.name`
     # (T3-80). For an AI that's its `seat_key` (== personality_id); for the human
     # it's the session's `human_id` (the field's human entry, e.g. `human:<owner>`),

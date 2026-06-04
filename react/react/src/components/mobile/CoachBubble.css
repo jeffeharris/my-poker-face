@@ -18,6 +18,21 @@
   cursor: pointer;
 }
 
+/* Auto-dismiss countdown ring, top-left (the dismiss X owns top-right).
+ * rotate / colour / pointer-events come from .countdown-ring. */
+.coach-bubble-timer-ring {
+  position: absolute;
+  top: 7px;
+  left: 10px;
+  z-index: 1;
+}
+
+/* Match the ring to the bubble's mode accent: emerald in learn mode,
+ * gold (the CountdownRing default) everywhere else. */
+.coach-bubble--learn .coach-bubble-timer-ring .countdown-ring-progress {
+  stroke: var(--color-emerald, #34d399);
+}
+
 .coach-bubble-dismiss {
   position: absolute;
   top: 6px;

@@ -9,6 +9,7 @@ import {
   QUEUED_MESSAGE_BONUS_MS,
 } from '../../config/timing';
 import { parseBeats, calculateDuration } from '../../utils/chatBeats';
+import { CountdownRing } from '../shared/CountdownRing';
 import './FloatingChat.css';
 
 // Swipe-to-dismiss thresholds. The opacity ramp is anchored to the
@@ -244,6 +245,11 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         className="floating-chat"
         data-testid="floating-chat"
       >
+        <CountdownRing
+          timerStartedAt={msg.timerStartedAt}
+          displayDuration={msg.displayDuration}
+          className="floating-chat-timer-ring"
+        />
         <div
           className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`}
           data-testid="floating-chat-avatar"

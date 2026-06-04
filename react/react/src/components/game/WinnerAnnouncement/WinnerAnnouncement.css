@@ -1,4 +1,13 @@
 /* Winner Announcement Styles */
+/* Auto-dismiss countdown ring, pinned to the winner card's top-right corner
+ * (rotate / colour / pointer-events come from .countdown-ring). */
+.winner-content__timer-ring {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+}
+
 .winner-announcement {
   position: fixed;
   top: 0;

@@ -17,6 +17,16 @@
   overflow: hidden;
 }
 
+/* Auto-dismiss countdown ring, pinned to the overlay's top-right corner
+ * (rotate / colour / pointer-events come from .countdown-ring). Sits below
+ * the safe-area inset so it clears notches. */
+.mobile-winner-timer-ring {
+  position: absolute;
+  top: calc(var(--space-4) + env(safe-area-inset-top));
+  right: var(--space-4);
+  z-index: 1001;
+}
+
 .mobile-winner-content {
   text-align: center;
   color: var(--color-text-primary);
