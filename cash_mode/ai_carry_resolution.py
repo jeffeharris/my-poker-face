@@ -1333,6 +1333,7 @@ def try_ai_bankruptcy(
     from cash_mode.bankroll import (
         AIBankrollState,
         PlayerBankrollState,
+        chip_unit_of_work,
         credit_ai_cash_out,
         project_bankroll,
     )
@@ -1372,19 +1373,6 @@ def try_ai_bankruptcy(
 
     _custody = chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED
 
-    # The regen portion (projected − stored) enters the universe here
-    # before we distribute it, mirroring the voluntary-payoff path so
-    # the chip-ledger audit balances.
-    if chip_ledger_repo is not None and projected > stored.chips:
-        chip_ledger.record_ai_regen(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            stored_chips=stored.chips,
-            projected_chips=projected,
-            context={'site': 'ai_bankruptcy', 'sandbox_id': sandbox_id},
-            sandbox_id=sandbox_id,
-        )
-
     mgr = None
     if relationship_repo is not None:
         from poker.memory import OpponentModelManager
@@ -1392,25 +1380,51 @@ def try_ai_bankruptcy(
         mgr = OpponentModelManager(relationship_repo=relationship_repo)
     from poker.memory.relationship_events import RelationshipEvent
 
+    # Chip-custody atomicity: the borrower regen, every creditor credit +
+    # stake_payoff, and the final liquidation commit in ONE transaction so a
+    # crash can't split the borrower's int from the rows recording where the
+    # chips went. credit_ai_cash_out nests via the re-entrant transaction().
+    # `conn` is None for test doubles / cross-DB → prior separate writes.
+    #
+    # The carry discharges (stake_repo) + relationship events run in a SECOND
+    # pass AFTER this transaction closes — they write a different repo's
+    # connection to the same SQLite file, and doing them inside this open write
+    # transaction would deadlock on the single writer lock.
     recovered = 0
-    for c in carries:
-        share = shares.get(c.stake_id, 0)
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        # The regen portion (projected − stored) enters the universe here
+        # before we distribute it, mirroring the voluntary-payoff path so
+        # the chip-ledger audit balances.
+        if chip_ledger_repo is not None and projected > stored.chips:
+            chip_ledger.record_ai_regen(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                stored_chips=stored.chips,
+                projected_chips=projected,
+                context={'site': 'ai_bankruptcy', 'sandbox_id': sandbox_id},
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
 
-        # Pay the creditor their slice. A missing human bankroll row is
-        # the one case we can't credit — skip the payment (the chips
-        # stay on the bankrupt's row via the `projected − recovered`
-        # write below) but still discharge the carry.
-        if share > 0 and c.staker_id is not None:
+        # Pass 1 (chips): pay each creditor their slice. A missing human
+        # bankroll row is the one case we can't credit — skip the payment (the
+        # chips stay on the bankrupt's row via `projected − recovered`).
+        for c in carries:
+            share = shares.get(c.stake_id, 0)
+            if share <= 0 or c.staker_id is None:
+                continue
             if c.staker_kind == STAKER_KIND_HUMAN:
                 human = bankroll_repo.load_player_bankroll(c.staker_id)
                 if human is not None:
-                    bankroll_repo.save_player_bankroll(
-                        PlayerBankrollState(
-                            player_id=human.player_id,
-                            chips=human.chips + share,
-                            starting_bankroll=human.starting_bankroll,
-                        ),
+                    new_player = PlayerBankrollState(
+                        player_id=human.player_id,
+                        chips=human.chips + share,
+                        starting_bankroll=human.starting_bankroll,
                     )
+                    if conn is not None:
+                        bankroll_repo.save_player_bankroll(new_player, conn=conn)
+                    else:
+                        bankroll_repo.save_player_bankroll(new_player)
                     if _custody:
                         chip_ledger.record_stake_payoff(
                             chip_ledger_repo,
@@ -1419,6 +1433,7 @@ def try_ai_bankruptcy(
                             amount=share,
                             context={'stake_id': c.stake_id, 'site': 'ai_bankruptcy'},
                             sandbox_id=sandbox_id,
+                            conn=conn,
                         )
                     recovered += share
                 else:
@@ -1447,14 +1462,32 @@ def try_ai_bankruptcy(
                         amount=share,
                         context={'stake_id': c.stake_id, 'site': 'ai_bankruptcy'},
                         sandbox_id=sandbox_id,
+                        conn=conn,
                     )
                 recovered += share
 
-        # Discharge: default the carry regardless of how much (if any)
-        # the creditor recovered. The unpaid remainder is the write-off.
-        # Status stays 'defaulted' (so default-counting consumers are
-        # unaffected); `resolution='bankruptcy'` is the history label so
-        # the Net Worth drawer reads it as a bankruptcy, not a stiff.
+        # Liquidate the bankroll. `projected − recovered` is 0 in the normal
+        # path (everything distributed); it's only positive in the rare
+        # missing-human-row case, where we keep the undistributable chips
+        # rather than destroy them.
+        liquidated = AIBankrollState(
+            personality_id=personality_id,
+            chips=max(0, projected - recovered),
+            last_regen_tick=now,
+        )
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(liquidated, sandbox_id=sandbox_id, conn=conn)
+        else:
+            bankroll_repo.save_ai_bankroll(liquidated, sandbox_id=sandbox_id)
+
+    # Pass 2 (discharge): default each carry regardless of how much (if any) the
+    # creditor recovered — the unpaid remainder is the write-off. Status stays
+    # 'defaulted' (so default-counting consumers are unaffected);
+    # `resolution='bankruptcy'` is the history label so the Net Worth drawer
+    # reads it as a bankruptcy, not a stiff. Outside the chip transaction (a
+    # separate repo on the same file).
+    for c in carries:
+        share = shares.get(c.stake_id, 0)
         stake_repo.update_carry_amount(c.stake_id, 0)
         stake_repo.update_status(c.stake_id, STAKE_STATUS_DEFAULTED, settled_at=now)
         stake_repo.set_resolution(c.stake_id, 'bankruptcy')
@@ -1479,19 +1512,6 @@ def try_ai_bankruptcy(
                     c.stake_id,
                     exc,
                 )
-
-    # Liquidate the bankroll. `projected − recovered` is 0 in the normal
-    # path (everything distributed); it's only positive in the rare
-    # missing-human-row case, where we keep the undistributable chips
-    # rather than destroy them.
-    bankroll_repo.save_ai_bankroll(
-        AIBankrollState(
-            personality_id=personality_id,
-            chips=max(0, projected - recovered),
-            last_regen_tick=now,
-        ),
-        sandbox_id=sandbox_id,
-    )
 
     new_count = 0
     try:
