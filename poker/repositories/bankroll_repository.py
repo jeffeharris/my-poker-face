@@ -643,16 +643,23 @@ class BankrollRepository(BaseRepository):
             )
         return derived
 
-    def save_player_bankroll(self, state: PlayerBankrollState) -> None:
+    def save_player_bankroll(self, state: PlayerBankrollState, *, conn=None) -> None:
         """Upsert the player bankroll row.
 
         Only `(chips, starting_bankroll)` are read from the state —
         the legacy `active_loan_*` columns (v89/v90) were dropped in
         v99 once the stakes-table cutover completed. Active stakes
         live in `StakeRepository` now; this row carries no loan state.
+
+        Chip-custody atomicity: when `conn` is passed, the upsert joins the
+        caller's open `transaction()` so the player int and its paired ledger
+        row (`player_buy_in` / `player_cash_out` / `stake_fund` / `stake_payoff`)
+        commit together. `conn=None` (every existing caller) opens and commits
+        our own connection, as before.
         """
-        with self._get_connection() as conn:
-            conn.execute(
+        ctx = nullcontext(conn) if conn is not None else self._get_connection()
+        with ctx as c:
+            c.execute(
                 """
                 INSERT OR REPLACE INTO player_bankroll_state
                     (player_id, chips, starting_bankroll)

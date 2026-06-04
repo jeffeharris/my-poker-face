@@ -462,9 +462,16 @@ def record_transfer(
     reason: str,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """Write one TRANSFER ledger entry — a move between two non-bank
     surfaces that does NOT change the size of the universe.
+
+    `conn` (chip-custody atomicity): when given, the INSERT runs on the
+    caller's open transaction (so the int write and this row commit together);
+    a failure is still swallowed (transfers are best-effort, int-authoritative),
+    so it never rolls back the caller's int — the crash-atomicity benefit
+    comes from sharing the transaction, not from raising.
 
     Distinct from `record()`, which rejects rows with no `central_bank`
     side (its job is creations/destructions only). Transfers are the
@@ -521,6 +528,7 @@ def record_transfer(
             reason=reason,
             context=context,
             sandbox_id=sandbox_id,
+            conn=conn,
         )
     except Exception as e:
         # Best-effort: a missing history row is a forensics gap, not a
@@ -602,6 +610,7 @@ def record_ai_buy_in(
     sandbox_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai:<pid> → seat:ai:<sandbox>:<pid> — chips committed at AI sit-down.
 
@@ -609,7 +618,8 @@ def record_ai_buy_in(
     parity wiring). Conservation-neutral (ai_bankroll_state drops, the live
     AI seat stack rises; both already counted by the audit). Makes the AI's
     at-table chips a derivable ledger balance. No-op when `repo` is None or
-    `amount <= 0`. `sandbox_id` is required (it keys the seat account).
+    `amount <= 0`. `sandbox_id` is required (it keys the seat account). `conn`
+    shares the caller's transaction (atomic int debit + this buy-in row).
     """
     if repo is None or amount <= 0:
         return None
@@ -621,6 +631,7 @@ def record_ai_buy_in(
         reason='ai_buy_in',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -631,6 +642,7 @@ def record_ai_cash_out(
     sandbox_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    conn=None,
 ) -> Optional[int]:
     """seat:ai:<sandbox>:<pid> → ai:<pid> — the AI's table stack at leave/bust.
 
@@ -640,6 +652,7 @@ def record_ai_cash_out(
     when `repo` is None or `amount <= 0` (a bust with 0 take-home writes no row
     — the absent cash_out paired with a buy_in IS the bust record, same
     convention as humans). `sandbox_id` is required (it keys the seat account).
+    `conn` shares the caller's transaction (atomic int credit + this cash-out row).
     """
     if repo is None or amount <= 0:
         return None
@@ -650,6 +663,7 @@ def record_ai_cash_out(
         amount=amount,
         reason='ai_cash_out',
         context=context,
+        conn=conn,
         sandbox_id=sandbox_id,
     )
 
@@ -662,6 +676,7 @@ def record_stake_fund(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """player:<staker> → seat:ai:<sb>:<borrower> — a human staker funding a stake.
 
@@ -685,6 +700,7 @@ def record_stake_fund(
         reason='stake_fund',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -696,6 +712,7 @@ def record_stake_payoff(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """<borrower/funding source> → <staker sink> — a stake/carry payoff.
 
@@ -718,6 +735,7 @@ def record_stake_payoff(
         reason='stake_payoff',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -962,12 +980,14 @@ def record_ai_regen(
     projected_chips: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for the positive delta between stored and projected.
 
     No-op when `repo` is None or `projected_chips <= stored_chips`. Use at
     every `save_ai_bankroll` call site immediately after computing
-    `projected_chips`.
+    `projected_chips`. `conn` shares the caller's transaction (atomic regen +
+    int write).
     """
     if repo is None:
         return None
@@ -982,6 +1002,7 @@ def record_ai_regen(
         reason='ai_regen',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 

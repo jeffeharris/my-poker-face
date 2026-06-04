@@ -19,11 +19,50 @@ Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def chip_unit_of_work(primary_repo, *, ledger_repo=None):
+    """Yield a connection that BOTH a bankroll-int write and its ledger row can
+    ride, so they commit in ONE transaction — closing the int↔ledger split-commit
+    divergence window (a crash between the two separate commits used to land one
+    without the other; that drift is the AI-side stored-vs-derived gap).
+
+    Usage at a chokepoint::
+
+        with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+            bankroll_repo.save_ai_bankroll(state, sandbox_id=sb, conn=conn)
+            chip_ledger.record_ai_cash_out(..., conn=conn)
+
+    Yields ``None`` — the graceful fallback to today's separate per-call commits
+    — when atomicity can't be guaranteed:
+
+      * ``primary_repo`` isn't a real ``BaseRepository`` (unit-test doubles /
+        fakes pass MagicMocks), or
+      * ``ledger_repo`` is on a DIFFERENT SQLite file. The cross-repo trick runs
+        the ledger ``INSERT`` on ``primary_repo``'s connection, which only lands
+        in the same DB file; if the files differ we must NOT pretend it's atomic.
+
+    Callers pass the yielded value as ``conn=`` to both writes and behave
+    identically whether it's a real connection or ``None`` (the ``save_*`` /
+    ``record_*`` helpers all treat ``conn=None`` as "open my own connection").
+    """
+    from poker.repositories.base_repository import BaseRepository
+
+    same_file = ledger_repo is None or getattr(ledger_repo, 'db_path', None) == getattr(
+        primary_repo, 'db_path', object()
+    )
+    if not isinstance(primary_repo, BaseRepository) or not same_file:
+        yield None
+        return
+    with primary_repo.transaction() as conn:
+        yield conn
 
 
 @dataclass
@@ -254,46 +293,60 @@ def credit_ai_cash_out(
         chips=new_chips,
         last_regen_tick=now,
     )
-    try:
-        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
-    except TypeError as e:
-        if "sandbox_id" not in str(e):
-            raise
-        bankroll_repo.save_ai_bankroll(new_state)
-    if chip_ledger_repo is not None:
-        from cash_mode import economy_flags
-        from core.economy import ledger as chip_ledger
+    from cash_mode import economy_flags
+    from core.economy import ledger as chip_ledger
 
-        ctx = {'site': 'credit_ai_cash_out', 'sandbox_id': sandbox_id}
-        if ledger_context:
-            ctx.update(ledger_context)
-        chip_ledger.record_ai_regen(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            stored_chips=stored.chips,
-            projected_chips=projected,
-            context=ctx,
-            sandbox_id=sandbox_id,
-        )
-        # Chip-custody parity (AI side of Cut 2): settle the AI's table stack
-        # back into bankroll as a `seat → ai` transfer. Only for real seat
-        # cash-outs (`from_seat`); stake/carry payoffs record `stake_payoff` at
-        # their call site instead. Conservation-neutral — the bankroll int
-        # already rose by `effective_stack` above. No row on a bust
-        # (effective_stack == 0), matching the human convention.
-        if (
-            from_seat
-            and sandbox_id is not None
-            and economy_flags.CHIP_CUSTODY_ENABLED
-            and effective_stack > 0
-        ):
-            chip_ledger.record_ai_cash_out(
+    # Chip-custody atomicity: commit the int credit AND its ledger rows
+    # (`ai_regen` + `ai_cash_out`) in ONE transaction so a crash can't land one
+    # without the other (the split-commit drift behind the stored-vs-derived
+    # gap). `conn` is None for test doubles / cross-DB / no-ledger — then each
+    # write commits on its own connection, exactly as before.
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        # `conn` is non-None only for a real BaseRepository (which always
+        # accepts conn); pass it only then so test doubles / old signatures
+        # keep working via the existing sandbox_id fallback.
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+        else:
+            try:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+            except TypeError as e:
+                if "sandbox_id" not in str(e):
+                    raise
+                bankroll_repo.save_ai_bankroll(new_state)
+        if chip_ledger_repo is not None:
+            ctx = {'site': 'credit_ai_cash_out', 'sandbox_id': sandbox_id}
+            if ledger_context:
+                ctx.update(ledger_context)
+            chip_ledger.record_ai_regen(
                 chip_ledger_repo,
                 personality_id=personality_id,
-                sandbox_id=sandbox_id,
-                amount=effective_stack,
+                stored_chips=stored.chips,
+                projected_chips=projected,
                 context=ctx,
+                sandbox_id=sandbox_id,
+                conn=conn,
             )
+            # Chip-custody parity (AI side of Cut 2): settle the AI's table stack
+            # back into bankroll as a `seat → ai` transfer. Only for real seat
+            # cash-outs (`from_seat`); stake/carry payoffs record `stake_payoff` at
+            # their call site instead. Conservation-neutral — the bankroll int
+            # already rose by `effective_stack` above. No row on a bust
+            # (effective_stack == 0), matching the human convention.
+            if (
+                from_seat
+                and sandbox_id is not None
+                and economy_flags.CHIP_CUSTODY_ENABLED
+                and effective_stack > 0
+            ):
+                chip_ledger.record_ai_cash_out(
+                    chip_ledger_repo,
+                    personality_id=personality_id,
+                    sandbox_id=sandbox_id,
+                    amount=effective_stack,
+                    context=ctx,
+                    conn=conn,
+                )
     logger.info(
         "[CASH] AI cash-out %r: +%d (projected=%d) → %d",
         personality_id,
@@ -446,91 +499,100 @@ def debit_bankroll_for_seat(
         )
         return None
 
-    # Two paths depending on whether the caller opted into regen
-    # commit. Both refuse on insufficiency rather than clamping.
-    if chip_ledger_repo is not None:
-        knobs = bankroll_repo.load_personality_knobs(personality_id)
-        projected = project_bankroll(
-            stored,
-            knobs.starting_bankroll,
-            knobs.bankroll_rate,
-            now,
-        )
-        if projected < amount:
-            logger.warning(
-                "[CASH] seat debit refused: pid=%s sandbox=%s "
-                "stored=%d projected=%d amount=%d (shortfall=%d) — "
-                "caller must unwind pre-placed seat",
-                personality_id,
-                sandbox_id,
-                stored.chips,
-                projected,
-                amount,
-                amount - projected,
-            )
-            return None
-        # Commit pending regen as a ledger row so `ai_bankrolls_stored`
-        # is allowed to grow from `stored.chips` to `projected` without
-        # breaking conservation. No-op when projected == stored.
-        from core.economy.ledger import record_ai_regen
-
-        record_ai_regen(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            stored_chips=stored.chips,
-            projected_chips=projected,
-            context={'site': 'debit_bankroll_for_seat', 'sandbox_id': sandbox_id},
-            sandbox_id=sandbox_id,
-        )
-        new_chips = projected - amount
-    else:
-        if stored.chips < amount:
-            logger.warning(
-                "[CASH] seat debit refused (no ledger): pid=%s "
-                "sandbox=%s stored=%d amount=%d (shortfall=%d) — "
-                "caller must unwind pre-placed seat OR pass "
-                "chip_ledger_repo so pending regen can be committed",
-                personality_id,
-                sandbox_id,
-                stored.chips,
-                amount,
-                amount - stored.chips,
-            )
-            return None
-        new_chips = stored.chips - amount
-
-    new_state = AIBankrollState(
-        personality_id=personality_id,
-        chips=new_chips,
-        last_regen_tick=now,
-    )
-    try:
-        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
-    except TypeError as e:
-        if "sandbox_id" not in str(e):
-            raise
-        bankroll_repo.save_ai_bankroll(new_state)
-
-    # Chip-custody parity (the AI side of Cut 2): record the buy-in as an
-    # `ai → seat` transfer so the AI's at-table chips become a derivable ledger
-    # balance, exactly as a human's are. Conservation-neutral — the bankroll int
-    # already dropped by `amount` above; this just records WHERE it went. Gated
-    # so the path is inert until the operator opts in, and needs the ledger repo
-    # + a sandbox to key the seat account.
+    # Chip-custody atomicity: the pending-regen row, the int debit, and the
+    # `ai_buy_in` row all commit in ONE transaction so a crash can't split them
+    # (the divergence window). `conn` is None for test doubles / cross-DB /
+    # no-ledger callers — then each write commits on its own, exactly as before.
+    # The refuse paths `return None` before any write, so the (empty)
+    # transaction is a clean no-op.
     from cash_mode import economy_flags
+    from core.economy.ledger import record_ai_buy_in, record_ai_regen
 
-    if (
-        chip_ledger_repo is not None
-        and sandbox_id is not None
-        and economy_flags.CHIP_CUSTODY_ENABLED
-    ):
-        from core.economy.ledger import record_ai_buy_in
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        # Two paths depending on whether the caller opted into regen
+        # commit. Both refuse on insufficiency rather than clamping.
+        if chip_ledger_repo is not None:
+            knobs = bankroll_repo.load_personality_knobs(personality_id)
+            projected = project_bankroll(
+                stored,
+                knobs.starting_bankroll,
+                knobs.bankroll_rate,
+                now,
+            )
+            if projected < amount:
+                logger.warning(
+                    "[CASH] seat debit refused: pid=%s sandbox=%s "
+                    "stored=%d projected=%d amount=%d (shortfall=%d) — "
+                    "caller must unwind pre-placed seat",
+                    personality_id,
+                    sandbox_id,
+                    stored.chips,
+                    projected,
+                    amount,
+                    amount - projected,
+                )
+                return None
+            # Commit pending regen as a ledger row so `ai_bankrolls_stored`
+            # is allowed to grow from `stored.chips` to `projected` without
+            # breaking conservation. No-op when projected == stored.
+            record_ai_regen(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                stored_chips=stored.chips,
+                projected_chips=projected,
+                context={'site': 'debit_bankroll_for_seat', 'sandbox_id': sandbox_id},
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
+            new_chips = projected - amount
+        else:
+            if stored.chips < amount:
+                logger.warning(
+                    "[CASH] seat debit refused (no ledger): pid=%s "
+                    "sandbox=%s stored=%d amount=%d (shortfall=%d) — "
+                    "caller must unwind pre-placed seat OR pass "
+                    "chip_ledger_repo so pending regen can be committed",
+                    personality_id,
+                    sandbox_id,
+                    stored.chips,
+                    amount,
+                    amount - stored.chips,
+                )
+                return None
+            new_chips = stored.chips - amount
 
-        record_ai_buy_in(
-            chip_ledger_repo,
+        new_state = AIBankrollState(
             personality_id=personality_id,
-            sandbox_id=sandbox_id,
-            amount=amount,
-            context={'site': 'debit_bankroll_for_seat', 'sandbox_id': sandbox_id},
+            chips=new_chips,
+            last_regen_tick=now,
         )
-    return new_state
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+        else:
+            try:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+            except TypeError as e:
+                if "sandbox_id" not in str(e):
+                    raise
+                bankroll_repo.save_ai_bankroll(new_state)
+
+        # Chip-custody parity (the AI side of Cut 2): record the buy-in as an
+        # `ai → seat` transfer so the AI's at-table chips become a derivable
+        # ledger balance, exactly as a human's are. Conservation-neutral — the
+        # bankroll int already dropped by `amount` above; this just records
+        # WHERE it went. Gated so the path is inert until the operator opts in,
+        # and needs the ledger repo + a sandbox to key the seat account.
+        if (
+            chip_ledger_repo is not None
+            and sandbox_id is not None
+            and economy_flags.CHIP_CUSTODY_ENABLED
+        ):
+            record_ai_buy_in(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                sandbox_id=sandbox_id,
+                amount=amount,
+                context={'site': 'debit_bankroll_for_seat', 'sandbox_id': sandbox_id},
+                conn=conn,
+            )
+        return new_state
