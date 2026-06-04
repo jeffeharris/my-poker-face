@@ -1303,7 +1303,6 @@ def refresh_unseated_tables(
             hustle_ends = tick_side_hustle_expirations(
                 side_hustle_repo=side_hustle_repo,
                 bankroll_repo=bankroll_repo,
-                chip_ledger_repo=chip_ledger_repo,
                 sandbox_id=sandbox_id,
                 now=now,
             )
@@ -2496,6 +2495,7 @@ def refresh_unseated_tables(
                     now=now,
                     narrate_fn=_hustle_narrate if hustle_use_llm_narration else None,
                     field_snapshot=_field_snapshot,
+                    chip_ledger_repo=chip_ledger_repo,
                 )
         except Exception as exc:
             logger.warning(

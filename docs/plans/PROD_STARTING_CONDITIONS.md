@@ -106,14 +106,17 @@ bankroll still force-credits (`ai_side_hustle.py:635`), and reserves go
 underwater. **Symptom:** "AI leaves for a side hustle, comes back, no money in
 the bank."
 
-**Fix — mirror the tournament escrow** (`tournament:<id>` entity,
-`ledger.py:676–787`) as `side_hustle:<pid>`:
-- *At departure:* draw the promised payout `bank → side_hustle:<pid>` escrow. If
-  the bank can't cover it, the hustle shrinks or doesn't fire.
-- *At return:* `side_hustle:<pid> → AI bankroll`.
-
-This guarantees the money is there **and** makes side-hustle reserve-aware for
-free (a starved bank can't fund generous hustles).
+**Fix (shipped 2026-06-04) — pay up front, no escrow account needed.** Simpler
+than a `side_hustle:<pid>` escrow and achieves the same guarantee: the payout is
+drawn from the pool and credited to the AI's bankroll **at departure** (when the
+bank still has the chips), and the AI is off-grid for the duration with its
+earnings already banked. Expiry is now a pure off-grid→idle return that moves no
+chips. The row is inserted *before* the credit so a credit failure leaves the AI
+off-grid having earned nothing (drift stays 0), never a payment without an
+off-grid row. Reserve-aware for free: with a ledger present, a hustle the pool
+can't fund simply doesn't fire (the AI stays idle and retries) — see
+`resolve_ai_side_hustle` / `tick_side_hustle_expirations` in
+`cash_mode/ai_side_hustle.py`.
 
 ### 1.6 Open tuning questions (need a sim before flipping on)
 
@@ -365,7 +368,8 @@ remaining 71 to be generated in tier batches.
 - [ ] Play-measured Main Event cooldown (hands/active-ticks, not wall-clock).
 - [ ] Two-layer rake: structural $1000 always-on; Director $50/$200 band-gated.
 - [ ] Re-gate vice intensity on reserve deficit (not just cast-median ≥ $5k).
-- [ ] **Side-hustle escrow** (`side_hustle:<pid>`, mirror tournament escrow).
+- [x] **Side-hustle pay-up-front** — credit at departure (drift-safe, reserve-aware),
+      expiry is a no-chip off-grid→idle return. Done 2026-06-04 (tests green).
 - [ ] Raise `OVERLAY_CAP` or accept two-event drain (cap binds at $2.46M).
 - [ ] Sim-validate faucet rate → ~1–2 tournaments/day.
 
