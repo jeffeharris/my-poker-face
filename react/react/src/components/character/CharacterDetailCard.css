@@ -1400,6 +1400,34 @@
   flex-wrap: wrap;
   gap: 0.35rem;
 }
+/* Credit-history "pull credit report" unlock — same affordance as an
+ * informant buy, sized to sit inline in the data row. */
+.dossier__credit-unlock {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--gold-bright) 55%, var(--paper-hi));
+  border: 1px solid var(--gold-leaf);
+  border-radius: 3px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.05s ease;
+}
+.dossier__credit-unlock:hover:not(:disabled) {
+  background: var(--gold-bright);
+}
+.dossier__credit-unlock:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.dossier__credit-unlock:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .dossier__informant-buy {
   display: inline-flex;
   align-items: center;

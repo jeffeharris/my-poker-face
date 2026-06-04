@@ -244,8 +244,25 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
 }
 
 
+# Credit-history reveal (carry-resolution follow-up). Deliberately NOT a
+# member of INFORMANT_SECTIONS / the SCOUTING_SCHEDULE: bankruptcy is
+# financial reputation, not a poker tell, so it sits outside the
+# hand-count grind. It's a standalone unlock — revealed free to a staker
+# who's been personally defaulted on by this borrower (first-hand
+# knowledge), or bought from the informant like pulling a credit report.
+# It reuses the informant-unlock STORAGE (the dossier_informant_unlocks
+# table) keyed on this id, but its own buyability rule (not the
+# compute_scouting offer set).
+CREDIT_HISTORY_SECTION_ID = 'credit_history'
+CREDIT_HISTORY_PRICE = 600
+
+
 def _purchased_item_ids(purchased_sections) -> set:
-    """Flatten purchased section ids into the item-ids they unlock."""
+    """Flatten purchased section ids into the item-ids they unlock.
+
+    Ignores standalone non-scouting sections (e.g. CREDIT_HISTORY_SECTION_ID)
+    that aren't in INFORMANT_SECTIONS — they unlock their own surface
+    directly, not grind items, so they contribute no item-ids here."""
     items: set = set()
     for section_id in purchased_sections or ():
         cfg = INFORMANT_SECTIONS.get(section_id)

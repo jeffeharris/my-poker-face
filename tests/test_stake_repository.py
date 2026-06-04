@@ -427,3 +427,57 @@ class TestListStakesForSession:
 
         rows = repo.list_stakes_for_session("sess-1")
         assert [s.stake_id for s in rows] == ["stk-old", "stk-new"]
+
+
+class TestHasDefaultedStake:
+    """First-hand signal for the dossier credit-history reveal."""
+
+    def test_true_when_borrower_defaulted_on_staker(self, repo):
+        repo.create_stake(
+            _make_stake(
+                stake_id="d1",
+                staker_id="guest_jeff",
+                staker_kind=STAKER_KIND_PERSONALITY,
+                borrower_id="socrates",
+                status=STAKE_STATUS_DEFAULTED,
+            )
+        )
+        assert repo.has_defaulted_stake("guest_jeff", "socrates") is True
+
+    def test_false_without_a_default(self, repo):
+        repo.create_stake(
+            _make_stake(
+                stake_id="s1",
+                staker_id="guest_jeff",
+                borrower_id="socrates",
+                status=STAKE_STATUS_SETTLED,
+            )
+        )
+        assert repo.has_defaulted_stake("guest_jeff", "socrates") is False
+
+    def test_false_for_other_pairs(self, repo):
+        repo.create_stake(
+            _make_stake(
+                stake_id="d1",
+                staker_id="guest_jeff",
+                borrower_id="socrates",
+                status=STAKE_STATUS_DEFAULTED,
+            )
+        )
+        # Different borrower / different staker → no first-hand signal.
+        assert repo.has_defaulted_stake("guest_jeff", "plato") is False
+        assert repo.has_defaulted_stake("guest_other", "socrates") is False
+
+
+class TestSetResolution:
+    def test_set_and_read_back(self, repo):
+        repo.create_stake(_make_stake(stake_id="r1", status=STAKE_STATUS_DEFAULTED))
+        assert repo.set_resolution("r1", "bankruptcy") is True
+        assert repo.load_stake("r1").resolution == "bankruptcy"
+
+    def test_default_resolution_is_none(self, repo):
+        repo.create_stake(_make_stake(stake_id="r2"))
+        assert repo.load_stake("r2").resolution is None
+
+    def test_set_resolution_missing_row(self, repo):
+        assert repo.set_resolution("nope", "bankruptcy") is False

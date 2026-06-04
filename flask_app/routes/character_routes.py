@@ -611,6 +611,10 @@ def get_dossier(identifier: str):
         'pressure_summary': _build_pressure_summary(game_data, player_name),
         'ai_bankroll': ai_bankroll_chips,
         'stake_summary': stake_summary,
+        # Credit history (bankruptcy record). Built below for authenticated
+        # viewers with a sandbox; stays None for anonymous / no-sandbox
+        # reads so the frontend simply omits the section.
+        'credit_history': None,
         'relationship': None,
         'cash_pair_stats': None,
         'memorable_hands': _build_memorable_hands(game_data, player_name),
@@ -816,6 +820,56 @@ def get_dossier(identifier: str):
         except Exception as e:
             logger.debug("[CHARACTER] scouting gate failed: %s", e)
 
+    # Credit history (carry-resolution follow-up). A STANDALONE unlock,
+    # not part of the hand-count scouting grind — bankruptcy is financial
+    # reputation, not a poker tell. Revealed free to a staker who's been
+    # personally defaulted on by this borrower (first-hand knowledge), or
+    # bought from the informant like pulling a credit report. Locked
+    # otherwise, surfacing the price so the client can offer the buy.
+    if sandbox_id:
+        try:
+            from datetime import datetime as _dt
+
+            from flask_app.extensions import bankroll_repo, game_repo, stake_repo
+            from flask_app.services.dossier_scouting import (
+                CREDIT_HISTORY_PRICE,
+                CREDIT_HISTORY_SECTION_ID,
+            )
+
+            first_hand = bool(
+                stake_repo is not None
+                and stake_repo.has_defaulted_stake(observer_id, personality_id)
+            )
+            purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
+            bought = CREDIT_HISTORY_SECTION_ID in purchased
+            if first_hand or bought:
+                bk_count, bk_last = bankroll_repo.load_bankruptcy_state(
+                    personality_id,
+                    sandbox_id=sandbox_id,
+                )
+                from cash_mode.movement import bankruptcy_rate_penalty
+
+                recently = bk_last is not None and (
+                    bankruptcy_rate_penalty(bk_count, bk_last, _dt.utcnow()) > 0
+                )
+                response['credit_history'] = {
+                    'revealed': True,
+                    'source': 'first_hand' if first_hand else 'informant',
+                    'bankruptcy_count': int(bk_count),
+                    'last_bankruptcy_at': bk_last.isoformat() if bk_last else None,
+                    'recently_bankrupt': bool(recently),
+                }
+            else:
+                response['credit_history'] = {
+                    'revealed': False,
+                    'unlock': {
+                        'section_id': CREDIT_HISTORY_SECTION_ID,
+                        'price': CREDIT_HISTORY_PRICE,
+                    },
+                }
+        except Exception as e:
+            logger.debug("[CHARACTER] credit_history build failed: %s", e)
+
     return jsonify(response)
 
 
@@ -946,19 +1000,75 @@ def post_informant_unlock(identifier: str):
 
     payload = request.get_json(silent=True) or {}
     section_id = payload.get('section_id')
-    section = INFORMANT_SECTIONS.get(section_id)
-    if not section:
-        return jsonify({'error': 'Unknown section'}), 400
 
     from flask_app.extensions import (
         bankroll_repo,
         chip_ledger_repo,
         game_repo,
         sandbox_repo,
+        stake_repo,
+    )
+    from flask_app.services.dossier_scouting import (
+        CREDIT_HISTORY_PRICE,
+        CREDIT_HISTORY_SECTION_ID,
     )
     from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
     sandbox_id = resolve_default_sandbox_for(observer_id, sandbox_repo=sandbox_repo)
+
+    # Credit history is a standalone unlock (not a scouting section), so it
+    # has its own buyability rule: not already owned, and not already free
+    # via first-hand exposure (you don't pay for a report on someone who
+    # already stiffed you). It reuses the same storage + chip-sink below.
+    if section_id == CREDIT_HISTORY_SECTION_ID:
+        purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
+        already_free = bool(
+            stake_repo is not None and stake_repo.has_defaulted_stake(observer_id, personality_id)
+        )
+        if CREDIT_HISTORY_SECTION_ID in purchased or already_free:
+            return jsonify({'error': 'Section already unlocked'}), 409
+        price = CREDIT_HISTORY_PRICE
+        bankroll = bankroll_repo.load_player_bankroll(observer_id)
+        if bankroll is None or bankroll.chips < price:
+            return jsonify(
+                {
+                    'error': 'Insufficient bankroll',
+                    'price': price,
+                    'bankroll': bankroll.chips if bankroll else 0,
+                }
+            ), 402
+        newly = game_repo.record_informant_unlock(
+            sandbox_id, observer_id, personality_id, CREDIT_HISTORY_SECTION_ID, price
+        )
+        if not newly:
+            return jsonify({'error': 'Section already unlocked'}), 409
+        from cash_mode.bankroll import PlayerBankrollState
+        from core.economy import ledger
+
+        new_bankroll = PlayerBankrollState(
+            player_id=bankroll.player_id,
+            chips=bankroll.chips - price,
+            starting_bankroll=bankroll.starting_bankroll,
+        )
+        bankroll_repo.save_player_bankroll(new_bankroll)
+        ledger.record_informant_unlock(
+            chip_ledger_repo,
+            owner_id=observer_id,
+            amount=price,
+            sandbox_id=sandbox_id,
+            context={'opponent_id': personality_id, 'section_id': CREDIT_HISTORY_SECTION_ID},
+        )
+        return jsonify(
+            {
+                'bankroll': new_bankroll.chips,
+                'section_id': CREDIT_HISTORY_SECTION_ID,
+                'price': price,
+            }
+        )
+
+    section = INFORMANT_SECTIONS.get(section_id)
+    if not section:
+        return jsonify({'error': 'Unknown section'}), 400
 
     # Only sections with still-locked items are buyable (a payment always
     # makes progress — never "you paid for what you already had").

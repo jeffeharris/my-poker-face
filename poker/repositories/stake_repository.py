@@ -438,6 +438,27 @@ class StakeRepository(BaseRepository):
                 )
             return cursor.rowcount > 0
 
+    def has_defaulted_stake(self, staker_id: str, borrower_id: str) -> bool:
+        """True iff `borrower_id` ever defaulted on a stake from `staker_id`.
+
+        The first-hand signal for the dossier's credit-history reveal: a
+        staker who's personally been stiffed (or bankrupted on) by this
+        borrower already knows their credit is bad, so the section
+        unlocks free for them. No time window — any historical default
+        counts. `status='defaulted'` covers bankruptcy too (the valve
+        keeps that status and only adds the `resolution` label).
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM stakes
+                WHERE staker_id = ? AND borrower_id = ? AND status = ?
+                LIMIT 1
+                """,
+                (staker_id, borrower_id, STAKE_STATUS_DEFAULTED),
+            ).fetchone()
+        return row is not None
+
     def set_resolution(self, stake_id: str, resolution: Optional[str]) -> bool:
         """Stamp the `resolution` label (v150) on a closed stake.
 

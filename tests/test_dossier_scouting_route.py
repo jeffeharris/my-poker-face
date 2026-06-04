@@ -277,6 +277,87 @@ class TestDossierScoutingRoute(unittest.TestCase):
         self._seed_bankroll(5000)
         self.assertEqual(self._buy('not_a_section').status_code, 400)
 
+    # --- Credit history (bankruptcy record) standalone unlock --------------
+
+    def _seed_ai_bankruptcy(self, count=1):
+        from datetime import datetime
+
+        from cash_mode.bankroll import AIBankrollState
+
+        self.repos['bankroll_repo'].save_ai_bankroll(
+            AIBankrollState(personality_id=PERSONALITY, chips=0),
+            sandbox_id=self.sandbox_id,
+        )
+        for _ in range(count):
+            self.repos['bankroll_repo'].record_bankruptcy(
+                PERSONALITY, sandbox_id=self.sandbox_id, now=datetime.utcnow()
+            )
+
+    def _seed_first_hand_default(self):
+        from datetime import datetime
+
+        from cash_mode.stakes import (
+            BORROWER_KIND_PERSONALITY,
+            STAKE_FORMAT_PURE,
+            STAKE_STATUS_DEFAULTED,
+            STAKER_KIND_HUMAN,
+            Stake,
+        )
+
+        self.repos['stake_repo'].create_stake(
+            Stake(
+                stake_id="fh1",
+                session_id="s1",
+                staker_id=OBSERVER,
+                staker_kind=STAKER_KIND_HUMAN,
+                borrower_id=PERSONALITY,
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                format=STAKE_FORMAT_PURE,
+                principal=2000,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.30,
+                status=STAKE_STATUS_DEFAULTED,
+                carry_amount=0,
+                stake_tier="$50",
+                created_at=datetime(2026, 6, 1),
+            )
+        )
+
+    def test_credit_history_locked_without_first_hand_or_purchase(self):
+        self._seed_ai_bankruptcy(count=2)
+        ch = self._dossier().get('credit_history')
+        self.assertIsNotNone(ch)
+        self.assertFalse(ch['revealed'])
+        self.assertEqual(ch['unlock']['section_id'], 'credit_history')
+
+    def test_credit_history_revealed_first_hand_free(self):
+        self._seed_ai_bankruptcy(count=2)
+        self._seed_first_hand_default()
+        ch = self._dossier().get('credit_history')
+        self.assertTrue(ch['revealed'])
+        self.assertEqual(ch['source'], 'first_hand')
+        self.assertEqual(ch['bankruptcy_count'], 2)
+
+    def test_credit_history_informant_purchase_reveals(self):
+        self._seed_ai_bankruptcy(count=1)
+        self._seed_bankroll(5000)
+        resp = self._buy('credit_history')
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        self.assertEqual(resp.get_json()['bankroll'], 4400)  # 5000 - 600
+        ch = self._dossier().get('credit_history')
+        self.assertTrue(ch['revealed'])
+        self.assertEqual(ch['source'], 'informant')
+        self.assertEqual(ch['bankruptcy_count'], 1)
+
+    def test_credit_history_buy_blocked_when_first_hand_free(self):
+        self._seed_ai_bankruptcy(count=1)
+        self._seed_first_hand_default()
+        self._seed_bankroll(5000)
+        # Already free via first-hand exposure → nothing to buy.
+        self.assertEqual(self._buy('credit_history').status_code, 409)
+        self.assertEqual(self.repos['bankroll_repo'].load_player_bankroll(OBSERVER).chips, 5000)
+
     # --- Durable pressure + memorable (Tier 1) -----------------------------
 
     def _seed_pressure_and_memorable(self):

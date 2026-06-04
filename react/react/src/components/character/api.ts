@@ -229,6 +229,25 @@ export interface DossierScouting {
   informant_offers?: DossierInformantOffer[];
 }
 
+/** Credit-history (bankruptcy record) section — a STANDALONE unlock, not
+ *  part of the hand-count scouting grind (bankruptcy is financial
+ *  reputation, not a poker tell). `revealed` is true when the viewer has
+ *  first-hand exposure (this borrower defaulted on a stake from them) or
+ *  bought the report from the informant. When locked, `unlock` carries the
+ *  section id + price so the client can offer the buy. */
+export type DossierCreditHistory =
+  | {
+      revealed: true;
+      source: 'first_hand' | 'informant';
+      bankruptcy_count: number;
+      last_bankruptcy_at: string | null;
+      recently_bankrupt: boolean;
+    }
+  | {
+      revealed: false;
+      unlock: { section_id: string; price: number };
+    };
+
 export interface DossierResponse {
   personality_id: string;
   personality: DossierPersonality | null;
@@ -254,6 +273,9 @@ export interface DossierResponse {
   /** Outstanding-carry totals (both directions). Defaults to all
    *  zeros when the AI has no stake history. */
   stake_summary: DossierStakeSummary;
+  /** Bankruptcy credit history. Null when ungated/no-sandbox/anonymous;
+   *  otherwise revealed (first-hand or bought) or a locked teaser. */
+  credit_history?: DossierCreditHistory | null;
   relationship: DossierRelationship | null;
   cash_pair_stats: DossierCashPairStats | null;
   memorable_hands: DossierMemorableHand[];
@@ -301,7 +323,12 @@ export async function fetchCharacterDossier(identifier: string): Promise<Dossier
 export async function buyInformantUnlock(
   identifier: string,
   sectionId: string
-): Promise<{ scouting: DossierScouting; bankroll: number; section_id: string; price: number }> {
+): Promise<{
+  scouting?: DossierScouting;
+  bankroll: number;
+  section_id: string;
+  price: number;
+}> {
   const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/informant`, {
     method: 'POST',
     credentials: 'include',
