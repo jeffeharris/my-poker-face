@@ -60,6 +60,7 @@ def reset_flags():
         economy_flags.RAKE_STAKE_BIG_BLINDS,
         economy_flags.RAKE_RESERVE_GATED,
         economy_flags.GENESIS_RESERVE_ENABLED,
+        economy_flags.DIRECTOR_INEQUALITY_RAKE,
     )
     yield
     (
@@ -71,7 +72,11 @@ def reset_flags():
         economy_flags.RAKE_STAKE_BIG_BLINDS,
         economy_flags.RAKE_RESERVE_GATED,
         economy_flags.GENESIS_RESERVE_ENABLED,
+        economy_flags.DIRECTOR_INEQUALITY_RAKE,
     ) = saved
+    from cash_mode import field_inequality
+
+    field_inequality.reset_cache()
 
 
 # --- REGEN_ENABLED ------------------------------------------------------
@@ -654,3 +659,69 @@ class TestGenesisReserveSeed:
             )
             == 0
         )
+
+
+# --- inequality-aware rake (Director instrument choice) ---------------------
+
+
+class _FakeBR:
+    def __init__(self, chips):
+        self._chips = chips
+
+    def list_all_ai_bankroll_chips(self, *, sandbox_id=None):
+        return list(self._chips)
+
+
+class TestInequalityAwareRake:
+    SBX = "test-ineq-rake"
+
+    def _seed(self, repo, *, holdings, pool):
+        repo.record('central_bank', 'player:p', holdings, 'player_seed', sandbox_id=self.SBX)
+        if pool:
+            repo.record('ai:rich', 'central_bank', pool, 'bank_pool_deposit', sandbox_id=self.SBX)
+
+    def _prime_inequality(self, chips):
+        from datetime import datetime
+
+        from cash_mode import field_inequality
+
+        field_inequality.refresh_field_inequality(self.SBX, _FakeBR(chips), datetime(2026, 6, 4))
+
+    def test_flat_field_widens_rake_in_healthy_band(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = True
+        # ratio ≈ 0.087 (healthy → base schedule {1000}@0.02 without inequality).
+        self._seed(ledger_repo, holdings=100_000, pool=8_000)
+        # Flat field: p90/median = 1.0 (<= 2.5).
+        self._prime_inequality([100] * 10)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000, 200})  # widened — rake leads
+        assert rate == 0.03
+
+    def test_top_heavy_field_keeps_base_rake(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = True
+        self._seed(ledger_repo, holdings=100_000, pool=8_000)
+        # Top-heavy: p90/median = 10 (> 2.5) → vice leads, rake stays base.
+        self._prime_inequality([100] * 9 + [1000])
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})
+        assert rate == 0.02
+
+    def test_flag_off_ignores_inequality(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = False  # off → no inequality effect
+        self._seed(ledger_repo, holdings=100_000, pool=8_000)
+        self._prime_inequality([100] * 10)  # flat, but flag off
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})
+
+    def test_flat_field_above_trigger_does_not_widen(self, ledger_repo):
+        # Above the trigger the bank is tournament-ready — no refill needed even
+        # on a flat field.
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = True
+        self._seed(ledger_repo, holdings=100_000, pool=20_000)  # ratio ≈ 0.25 >= trigger
+        self._prime_inequality([100] * 10)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})  # flush → top tier only

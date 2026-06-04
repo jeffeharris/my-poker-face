@@ -209,6 +209,18 @@ RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
 # docs/plans/PROD_STARTING_CONDITIONS.md §1.4.
 RAKE_RESERVE_GATED: bool = _env_flag("RAKE_RESERVE_GATED", False)
 
+# Director instrument choice (inequality-aware rake). Vice drains the rich
+# (concentration-gated) and so leads the refill on a TOP-HEAVY field; when the
+# top is FLAT there is no runaway to drain, so the rake (even skim) should lead
+# instead. When on, a flat field (`p90/median < INEQUALITY_FLAT_THRESHOLD`)
+# upgrades the reserve-gated rake by one band so it picks up vice's slack. The
+# inequality read is recomputed at most once per INEQUALITY_RECOMPUTE_SECONDS
+# (`cash_mode.field_inequality`) — the Director steers slowly, not every tick.
+# Implies RAKE_RESERVE_GATED. Default OFF. See PROD_STARTING_CONDITIONS.md §1.2.
+DIRECTOR_INEQUALITY_RAKE: bool = _env_flag("DIRECTOR_INEQUALITY_RAKE", False)
+INEQUALITY_FLAT_THRESHOLD: float = 2.5  # p90/median at/below this → flat field
+INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per sandbox
+
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
 
@@ -431,13 +443,39 @@ def resolve_rake_params(chip_ledger_repo, sandbox_id):
     empties, and contracts back to $1000-only when reserves recover. The base
     $1000 tier is always present in every schedule, so the structural rake is
     never switched off — the Director only adds the lower-stake layers.
+
+    Inequality-aware (`DIRECTOR_INEQUALITY_RAKE`): when the field is FLAT
+    (cached `p90/median <= INEQUALITY_FLAT_THRESHOLD`) and reserves are still
+    below the tournament trigger, the schedule is evaluated one band lower so the
+    rake leads the refill that vice (no rich target to drain) can't. The cached
+    inequality read is slow-moving (`cash_mode.field_inequality`).
     """
     if not RAKE_RESERVE_GATED or chip_ledger_repo is None:
         return None, None
     try:
-        from core.economy.economy_signal import cash_rake_schedule, signal
+        import dataclasses
 
-        sched = cash_rake_schedule(signal(chip_ledger_repo, sandbox_id=sandbox_id))
+        from core.economy.economy_signal import (
+            RESERVE_HEALTHY,
+            RESERVE_TRIGGER,
+            cash_rake_schedule,
+            signal,
+        )
+
+        state = signal(chip_ledger_repo, sandbox_id=sandbox_id)
+
+        if DIRECTOR_INEQUALITY_RAKE and state.ratio < RESERVE_TRIGGER:
+            from cash_mode.field_inequality import field_inequality
+
+            ineq = field_inequality(sandbox_id)
+            if ineq is not None and ineq <= INEQUALITY_FLAT_THRESHOLD:
+                # Flat field → no runaway for vice to drain, so lean on the rake:
+                # evaluate the schedule at least one band lower (forces the $200
+                # even-skim tier on, regardless of the reserve band).
+                lowered = min(state.ratio, RESERVE_HEALTHY - 1e-9)
+                state = dataclasses.replace(state, ratio=lowered)
+
+        sched = cash_rake_schedule(state)
         return sched.stake_big_blinds, sched.rate
     except Exception:  # pragma: no cover - defensive; fall back to static
         logger.warning("[RAKE] reserve-gated schedule failed; using static rake", exc_info=True)

@@ -1191,6 +1191,19 @@ def refresh_unseated_tables(
         rng = random.Random()
     if now is None:
         now = datetime.utcnow()
+
+    # Director instrument-choice signal: refresh the cached field-inequality
+    # read (throttled internally — recomputes at most once per recompute window),
+    # so the inequality-aware rake has a warm value before this tick's hands play.
+    # Cheap (a timestamp compare) on the common path; flag-gated downstream.
+    if sandbox_id and bankroll_repo is not None and chip_ledger_repo is not None:
+        from cash_mode import economy_flags as _eflags
+
+        if _eflags.DIRECTOR_INEQUALITY_RAKE:
+            from cash_mode.field_inequality import refresh_field_inequality
+
+            refresh_field_inequality(sandbox_id, bankroll_repo, now)
+
     # Resolve the mutually-exclusive vice mode (per-call override → live
     # default). 'real' / 'fake' / 'off'; anything else falls through both
     # gates below (no vice), which is the safe default for a bad value.

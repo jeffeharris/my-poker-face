@@ -69,6 +69,9 @@ def main() -> int:
     economy_flags.VICE_RESERVE_GATED = True
     economy_flags.RAKE_RESERVE_GATED = True
     economy_flags.GENESIS_RESERVE_ENABLED = True
+    # Inequality-aware rake: inert on the top-heavy launch cast (vice leads), but
+    # wired so the full Director stack runs — exercise it with a flatter roster.
+    economy_flags.DIRECTOR_INEQUALITY_RAKE = True
     if args.genesis_ratio is not None:
         economy_flags.GENESIS_RESERVE_RATIO = args.genesis_ratio
 

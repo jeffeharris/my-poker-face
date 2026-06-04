@@ -195,10 +195,21 @@ circulating policy): ratio climbs **0.05 → 0.0835 over 400 ticks, still rising
 (vice refill 148.5k vs 94.8k pre-fix), on track to reach the 0.12 trigger by
 ~tick 600–700. The Director now drives reserves to the trigger as intended.
 
+**Instrument choice — built 2026-06-04 (`DIRECTOR_INEQUALITY_RAKE`, default OFF).**
+The two refill levers aren't interchangeable: **vice** drains the rich
+(concentration-gated → leads on a top-heavy field, and de-concentrates as a
+bonus); **rake** is an even skim (the right tool when the top is flat and vice has
+no runaway to drain). `cash_mode/field_inequality` computes a slow-moving
+`p90/median` read (recomputed at most once per `INEQUALITY_RECOMPUTE_SECONDS` —
+the Director steers slowly, not every tick); when the field is flat
+(`<= INEQUALITY_FLAT_THRESHOLD`) and reserves are below the trigger,
+`resolve_rake_params` evaluates the rake one band lower so it leads the refill.
+Vice needs no change — its concentration gate already self-selects for inequality.
+Inert on the top-heavy launch cast (vice leads, verified by the climb run); the
+flat-field path is unit-tested and wants a flat-roster sim to exercise live.
+
 **Still open:** (1) climb *pace* vs play-volume → tune for 1–2 tournaments/day;
-(2) the **instrument-choice** dimension — vice (drains the rich, for a top-heavy
-field) vs rake (even skim, for a flat field) chosen by wealth inequality; (3) a
-run with the tournament overlay in the loop to confirm the full sawtooth.
+(2) a run with the tournament overlay in the loop to confirm the full sawtooth.
 
 ### 1.6 Open tuning questions (need a sim before flipping on)
 
