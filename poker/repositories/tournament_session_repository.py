@@ -136,8 +136,13 @@ class TournamentSessionRepository(BaseRepository):
         Derived from the serialized field (single source of truth — no separate
         participant table to drift). Used by the cash seat-filler to keep a persona
         who is in a tournament OUT of cash seats (the same exclusion vice/side-hustle
-        get) — closing the double-presence / ghost-seat gap. Synthetic (`P01`) /
-        human (`human:<id>`) seat ids are included but inert (never cash candidates).
+        get) — closing the double-presence / ghost-seat gap.
+
+        Returns ONLY real persona ids: synthetic (`P01`) and human (`human:<id>`)
+        seat ids are filtered out. They were never cash candidates (inert for the
+        filler), but the whereabouts view also reads this set and rendered the raw
+        `human:<owner>` id as an orphaned, `unknown_personality`-flagged row
+        (T3-80 F2). Filtering here keeps every caller's ids clean.
 
         **Recency bound (ghost-seat guard):** only tournaments updated within
         `EXCLUSION_MAX_AGE_HOURS` count. An abandoned human tournament (never
@@ -148,7 +153,13 @@ class TournamentSessionRepository(BaseRepository):
         genuinely-idle one ages out and releases its field. `active_since_iso`
         overrides the cutoff (for tests / a different policy)."""
         import json
+        import re
         from datetime import datetime, timedelta
+
+        # Real persona ids only — drop the human seat (`human:<owner>`) and the
+        # legacy synthetic `/register` seats (`P01`..`PNN`). See docstring (F2).
+        def _is_real_persona(pid: str) -> bool:
+            return bool(pid) and not pid.startswith('human:') and not re.match(r'^P\d+$', pid)
 
         if active_since_iso is None:
             active_since_iso = (
@@ -169,7 +180,7 @@ class TournamentSessionRepository(BaseRepository):
                 )
             except (TypeError, ValueError):
                 continue
-            pids.update(entries.keys())
+            pids.update(pid for pid in entries.keys() if _is_real_persona(pid))
         return pids
 
     def find_by_game_id(self, game_id: str) -> Optional[dict]:
