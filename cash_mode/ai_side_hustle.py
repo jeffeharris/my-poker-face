@@ -635,37 +635,46 @@ def _credit_hustle_payout(
         return 0
 
     new_chips = int(stored.chips) + int(payout)
-    try:
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=personality_id,
-                chips=new_chips,
-                last_regen_tick=now,
-            ),
-            sandbox_id=sandbox_id,
-        )
-    except Exception as exc:
-        logger.warning(
-            "[HUSTLE] save_ai_bankroll failed pid=%r: %s",
-            personality_id,
-            exc,
-        )
-        return 0
+    new_state = AIBankrollState(
+        personality_id=personality_id,
+        chips=new_chips,
+        last_regen_tick=now,
+    )
+    # Chip-custody atomicity: commit the int credit and the `side_hustle_earning`
+    # pool-draw row in ONE transaction. `conn` is None for test doubles / cross-DB,
+    # falling back to the prior separate writes.
+    from cash_mode.bankroll import chip_unit_of_work
 
-    # Paired ledger entry — the pool draw. Best-effort; the chip move
-    # already committed so we can't unwind on a ledger failure.
-    if chip_ledger_repo is not None:
-        chip_ledger.record_side_hustle_earning(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            amount=payout,
-            context={
-                'site': 'lobby_refresh_side_hustle',
-                'duration_bucket': duration_bucket,
-                'started_at': started_at.isoformat(),
-            },
-            sandbox_id=sandbox_id,
-        )
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        try:
+            if conn is not None:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+            else:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+        except Exception as exc:
+            logger.warning(
+                "[HUSTLE] save_ai_bankroll failed pid=%r: %s",
+                personality_id,
+                exc,
+            )
+            return 0
+
+        # Paired ledger entry — the pool draw, now in the same transaction as
+        # the int credit (best-effort/swallowed, so a row failure won't roll
+        # back the credit — int stays authoritative).
+        if chip_ledger_repo is not None:
+            chip_ledger.record_side_hustle_earning(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                amount=payout,
+                context={
+                    'site': 'lobby_refresh_side_hustle',
+                    'duration_bucket': duration_bucket,
+                    'started_at': started_at.isoformat(),
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
 
     logger.info(
         "[HUSTLE] paid pid=%r payout=%d",

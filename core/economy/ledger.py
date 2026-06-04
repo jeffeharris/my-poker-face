@@ -166,6 +166,11 @@ LEDGER_REASONS = frozenset(
         # mirror of tournament_buy_in. After every payout +
         # rake the escrow nets to 0 (the escrow-balance
         # invariant).
+        'ledger_reconciliation',  # reconciliation ↔ ai:<pid>/player:<id>: the
+        # Phase E drift-suspense transfer (audit_ledger_completeness). Parks
+        # `stored − derived` in the `reconciliation` account so a derived
+        # bankroll re-aligns with its authoritative stored int. Bank-neutral
+        # (no central_bank side) → invisible to pool-depth + drift sums.
     }
 )
 
@@ -184,6 +189,7 @@ TRANSFER_REASONS = frozenset(
         'stake_payoff',
         'tournament_buy_in',
         'tournament_payout',
+        'ledger_reconciliation',
     }
 )
 
@@ -301,6 +307,22 @@ def ai_seat(sandbox_id: str, personality_id: str) -> str:
     if not personality_id:
         raise ValueError("ai_seat() requires a non-empty personality_id")
     return f"seat:ai:{sandbox_id}:{personality_id}"
+
+
+def reconciliation() -> str:
+    """The drift-suspense account (Phase E `audit_ledger_completeness`).
+
+    A single non-bank suspense surface that absorbs the difference when a
+    stored bankroll int (the served authority) disagrees with its
+    ledger-derived balance — drift left by the historical non-atomic writes,
+    or whatever any still-unconverted low-frequency path (T3-84/T3-85) leaks.
+    The reconcile parks `stored − derived` here via a `ledger_reconciliation`
+    TRANSFER (bank-neutral — never touches `central_bank`, so it is invisible
+    to the bank-pool depth + creation/destruction drift math). Its own balance
+    is therefore the cumulative *net unexplained drift*: near-zero is healthy;
+    a growing magnitude flags a fresh leak to chase.
+    """
+    return "reconciliation"
 
 
 # --- D2: ledger-derived bankroll (the int becomes a cache of these) ---------
@@ -423,15 +445,19 @@ def record(
         return None
 
     try:
-        return repo.record(
+        # Pass `conn` only when set, so repo doubles whose `record()` predates
+        # the `conn=` seam (test fakes) keep working on the common no-txn path.
+        kwargs = dict(
             source=source,
             sink=sink,
             amount=amount_int,
             reason=reason,
             context=context,
             sandbox_id=sandbox_id,
-            conn=conn,
         )
+        if conn is not None:
+            kwargs['conn'] = conn
+        return repo.record(**kwargs)
     except Exception as e:
         # ERROR, not warning (PRH-11): validation has already passed, so this
         # is a real DB-write failure on a row a chip-moving caller expected to
@@ -462,9 +488,16 @@ def record_transfer(
     reason: str,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """Write one TRANSFER ledger entry — a move between two non-bank
     surfaces that does NOT change the size of the universe.
+
+    `conn` (chip-custody atomicity): when given, the INSERT runs on the
+    caller's open transaction (so the int write and this row commit together);
+    a failure is still swallowed (transfers are best-effort, int-authoritative),
+    so it never rolls back the caller's int — the crash-atomicity benefit
+    comes from sharing the transaction, not from raising.
 
     Distinct from `record()`, which rejects rows with no `central_bank`
     side (its job is creations/destructions only). Transfers are the
@@ -514,7 +547,8 @@ def record_transfer(
         )
         return None
     try:
-        return repo.record(
+        # Pass `conn` only when set (keeps pre-seam repo doubles working).
+        kwargs = dict(
             source=source,
             sink=sink,
             amount=amount_int,
@@ -522,6 +556,9 @@ def record_transfer(
             context=context,
             sandbox_id=sandbox_id,
         )
+        if conn is not None:
+            kwargs['conn'] = conn
+        return repo.record(**kwargs)
     except Exception as e:
         # Best-effort: a missing history row is a forensics gap, not a
         # conservation problem (the move is bank-neutral). Log, don't raise.
@@ -602,6 +639,7 @@ def record_ai_buy_in(
     sandbox_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai:<pid> → seat:ai:<sandbox>:<pid> — chips committed at AI sit-down.
 
@@ -609,7 +647,8 @@ def record_ai_buy_in(
     parity wiring). Conservation-neutral (ai_bankroll_state drops, the live
     AI seat stack rises; both already counted by the audit). Makes the AI's
     at-table chips a derivable ledger balance. No-op when `repo` is None or
-    `amount <= 0`. `sandbox_id` is required (it keys the seat account).
+    `amount <= 0`. `sandbox_id` is required (it keys the seat account). `conn`
+    shares the caller's transaction (atomic int debit + this buy-in row).
     """
     if repo is None or amount <= 0:
         return None
@@ -621,6 +660,7 @@ def record_ai_buy_in(
         reason='ai_buy_in',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -631,6 +671,7 @@ def record_ai_cash_out(
     sandbox_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    conn=None,
 ) -> Optional[int]:
     """seat:ai:<sandbox>:<pid> → ai:<pid> — the AI's table stack at leave/bust.
 
@@ -640,6 +681,7 @@ def record_ai_cash_out(
     when `repo` is None or `amount <= 0` (a bust with 0 take-home writes no row
     — the absent cash_out paired with a buy_in IS the bust record, same
     convention as humans). `sandbox_id` is required (it keys the seat account).
+    `conn` shares the caller's transaction (atomic int credit + this cash-out row).
     """
     if repo is None or amount <= 0:
         return None
@@ -650,6 +692,7 @@ def record_ai_cash_out(
         amount=amount,
         reason='ai_cash_out',
         context=context,
+        conn=conn,
         sandbox_id=sandbox_id,
     )
 
@@ -662,6 +705,7 @@ def record_stake_fund(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """player:<staker> → seat:ai:<sb>:<borrower> — a human staker funding a stake.
 
@@ -685,6 +729,7 @@ def record_stake_fund(
         reason='stake_fund',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -696,6 +741,7 @@ def record_stake_payoff(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """<borrower/funding source> → <staker sink> — a stake/carry payoff.
 
@@ -718,6 +764,44 @@ def record_stake_payoff(
         reason='stake_payoff',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_ledger_reconciliation(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    account: str,
+    delta: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """Park `delta = stored − derived` for `account` in the `reconciliation`
+    suspense account so the account's ledger-derived balance re-aligns with its
+    authoritative stored int (Phase E `audit_ledger_completeness`).
+
+    `delta > 0` (the int holds more than the ledger shows) → `reconciliation →
+    account`, crediting the account up to its int. `delta < 0` → `account →
+    reconciliation`, debiting the surplus. `account` is a canonical entity
+    string (use `ai()` / `player()`). No-op when `repo` is None or `delta == 0`.
+    A bank-neutral TRANSFER — invisible to bank-pool depth + drift sums.
+    """
+    if repo is None or not delta:
+        return None
+    if delta > 0:
+        source, sink, amount = reconciliation(), account, int(delta)
+    else:
+        source, sink, amount = account, reconciliation(), int(-delta)
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='ledger_reconciliation',
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -770,13 +854,15 @@ def record_tournament_payout(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """tournament:<id> → <finisher> — a prize paid out of the escrow.
 
     `sink` is the canonical entity string the prize lands on — `player(owner_id)`
     or `ai(personality_id)`. The transfer mirror of `record_tournament_buy_in`;
     after every payout + rake the escrow nets to 0. No-op when `repo` is None or
-    `amount <= 0`.
+    `amount <= 0`. `conn` shares the caller's transaction (atomic payout row +
+    finisher int credit).
     """
     if repo is None or amount <= 0:
         return None
@@ -790,6 +876,7 @@ def record_tournament_payout(
         reason='tournament_payout',
         context=ctx,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -962,12 +1049,14 @@ def record_ai_regen(
     projected_chips: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for the positive delta between stored and projected.
 
     No-op when `repo` is None or `projected_chips <= stored_chips`. Use at
     every `save_ai_bankroll` call site immediately after computing
-    `projected_chips`.
+    `projected_chips`. `conn` shares the caller's transaction (atomic regen +
+    int write).
     """
     if repo is None:
         return None
@@ -982,6 +1071,7 @@ def record_ai_regen(
         reason='ai_regen',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1121,6 +1211,7 @@ def record_bank_pool_deposit(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """source → central_bank for chips deposited into the closed-economy pool.
 
@@ -1146,6 +1237,7 @@ def record_bank_pool_deposit(
         reason='bank_pool_deposit',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1156,6 +1248,7 @@ def record_vice_spending(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai → central_bank for a vice spend (real AI vice mechanic).
 
@@ -1181,6 +1274,7 @@ def record_vice_spending(
         reason='vice_spending',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1221,6 +1315,7 @@ def record_side_hustle_earning(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for a side-hustle payout drawn from the bank pool.
 
@@ -1247,6 +1342,7 @@ def record_side_hustle_earning(
         reason='side_hustle_earning',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 

@@ -1082,19 +1082,6 @@ def _commit_vice_start(
 
     # Record the regen creation BEFORE the debit so the audit reads
     # the right order. Same shape as ai_carry_resolution.py:354.
-    if chip_ledger_repo is not None and projected > stored.chips:
-        chip_ledger.record_ai_regen(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            stored_chips=stored.chips,
-            projected_chips=projected,
-            context={
-                'site': 'lobby_refresh_vice',
-                'sandbox_id': sandbox_id,
-            },
-            sandbox_id=sandbox_id,
-        )
-
     # The floor-protection guard above guarantees projected - amount >=
     # floor_protection >= 0, so this never goes negative. PRH-16: the old
     # `max(0, projected - amount)` clamp was mint-shaped — if that guard ever
@@ -1103,38 +1090,61 @@ def _commit_vice_start(
     # Subtract directly so any future regression surfaces as a negative
     # bankroll the audit flags, not a silent mint.
     new_chips = projected - amount
-    try:
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=personality_id,
-                chips=new_chips,
-                last_regen_tick=started_at,
-            ),
-            sandbox_id=sandbox_id,
-        )
-    except Exception as exc:
-        logger.warning(
-            "[VICE] save_ai_bankroll failed pid=%r: %s",
-            personality_id,
-            exc,
-        )
-        return None
+    new_state = AIBankrollState(
+        personality_id=personality_id,
+        chips=new_chips,
+        last_regen_tick=started_at,
+    )
+    # Chip-custody atomicity: the pending-regen creation, the int debit, and
+    # the `vice_spending` destruction commit in ONE transaction. The separate
+    # vice_state row (below) is intentionally NOT in this txn — it's a different
+    # repo and we'd rather have a phantom debit than a vice with no expiry.
+    # `conn` is None for test doubles / cross-DB → prior separate writes.
+    from cash_mode.bankroll import chip_unit_of_work
 
-    # Destruction-side ledger entry. Best-effort; the chip move already
-    # committed so we can't unwind on failure here.
-    if chip_ledger_repo is not None:
-        chip_ledger.record_vice_spending(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            amount=amount,
-            context={
-                'site': 'lobby_refresh_vice',
-                'excess_ratio': round(excess_ratio, 3),
-                'pressure': round(pressure, 3),
-                'duration_bucket': duration_bucket,
-            },
-            sandbox_id=sandbox_id,
-        )
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        if chip_ledger_repo is not None and projected > stored.chips:
+            chip_ledger.record_ai_regen(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                stored_chips=stored.chips,
+                projected_chips=projected,
+                context={
+                    'site': 'lobby_refresh_vice',
+                    'sandbox_id': sandbox_id,
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
+        try:
+            if conn is not None:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+            else:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+        except Exception as exc:
+            logger.warning(
+                "[VICE] save_ai_bankroll failed pid=%r: %s",
+                personality_id,
+                exc,
+            )
+            return None
+
+        # Destruction-side ledger entry, now in the same transaction as the int
+        # debit (best-effort/swallowed — int stays authoritative).
+        if chip_ledger_repo is not None:
+            chip_ledger.record_vice_spending(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                amount=amount,
+                context={
+                    'site': 'lobby_refresh_vice',
+                    'excess_ratio': round(excess_ratio, 3),
+                    'pressure': round(pressure, 3),
+                    'duration_bucket': duration_bucket,
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
 
     # Finally, the vice state row. If the insert fails the chip move
     # is already committed — we'd rather have a phantom debit than
