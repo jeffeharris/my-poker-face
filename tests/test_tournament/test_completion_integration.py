@@ -162,8 +162,18 @@ def test_single_table_session_game_completes_through_real_loop(app, monkeypatch)
             # field_size == table_size => one table. build_tournament_game wires
             # real controllers + memory; we then flip it to the single-table
             # path (no multi_table flag) so it exercises single_table_hand_boundary.
+            # human_id must equal the builder's human seat key (HumanSeat(owner_id)
+            # → "human:<owner_id>") so the live seat lines up with the field's human
+            # entry; a bare id like "P01" desyncs them post-T3-80. Pass explicit
+            # entries (like the other live-play tests) so the field carries that id.
+            human_id = "human:itest-owner"
             cfg = TournamentConfig(field_size=3, table_size=3, starting_stack=2500, seed=9)
-            session = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
+            session = TournamentSession(
+                cfg,
+                ai_resolver=FakeHandResolver(),
+                human_id=human_id,
+                entries={human_id: "LAG", "P02": "CaseBot", "P03": "CaseBot"},
+            )
             game_id = build_tournament_game(
                 session, tournament_id="itest-single", owner_id="itest-owner", owner_name="Tester"
             )

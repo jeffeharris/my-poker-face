@@ -323,6 +323,13 @@ def build_tournament_game(
         ],
         "hand_start_stacks": {p.name: p.stack for p in state_machine.game_state.players},
         "short_stack_players": set(),
+        # Display-name → stable field id (inverse of `seat_displays`). The
+        # single-table hand boundary folds live stacks back into the id-keyed
+        # field, but the live Player's typed `seat_id` does NOT survive the
+        # per-hand re-deal (so `seat_key` falls back to the display name there).
+        # This build-time map is the reliable bridge. (T3-88-adjacent: a durable
+        # fix would preserve `seat_id` through the deal; cold-load rebuilds this.)
+        "tournament_seat_ids": {name: pid for pid, name in seat_displays.items()},
         # Tournament meta keys — the gate + bridge read these. NOTE: no
         # `tournament_tracker` (the multi-table session owns eliminations) and no
         # `cash_mode`, so handle_eliminations / check_tournament_complete /

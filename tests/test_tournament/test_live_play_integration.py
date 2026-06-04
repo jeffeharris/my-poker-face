@@ -127,15 +127,20 @@ def test_persona_field_builds_talking_controllers(app, monkeypatch):
         llm_configs = _ext.game_repo.load_llm_configs(game_id)
         assert llm_configs is not None
         assert llm_configs.get("ai_chat") is True, "persona field must persist ai_chat=True"
-        assert persona_id in (llm_configs.get("bot_types") or {})
+        # Post-T3-80 flip: the live per-table maps (bot_types / player_llm_configs /
+        # ai_controllers) key on the DISPLAY NAME — exactly like cash, which names
+        # seats by the display name and looks them up by it (the stable seat_id /
+        # personality_id keys the field, payouts, and cold-load instead).
+        display_name = "Talking Tess"
+        assert display_name in (llm_configs.get("bot_types") or {})
         per_seat = llm_configs.get("player_llm_configs") or {}
         assert per_seat.get(
-            persona_id
+            display_name
         ), "persona seat must persist a non-empty llm_config (provider/model) for cold-load"
 
         # The live persona seat carries the expression (table-talk) layer.
         gd = game_state_service.get_game(game_id)
-        ctrl = gd["ai_controllers"][persona_id]
+        ctrl = gd["ai_controllers"][display_name]
         assert (
             getattr(ctrl, "expression_generator", None) is not None
         ), "persona seat is missing its expression generator — no table talk"
@@ -291,10 +296,14 @@ def test_tournament_observations_fold_into_dossier(app, monkeypatch):
             gd = game_state_service.get_game(game_id)
             mm = gd["memory_manager"]
             assert mm.sandbox_id, "tournament memory_manager has no sandbox_id (Break A)"
-            # The seat's Player.name IS persona_id (MTT bridge); it must register
-            # under that same id so folds key the shared dossier row (Break B).
+            # Post-T3-80 flip: the seat's Player.name is the DISPLAY NAME, and the
+            # opponent-model name→id map must register that name → the persona's
+            # stable id, so folds resolve to the shared dossier row keyed by
+            # personality_id (Break B). The lifetime-row check below confirms the
+            # fold landed on `persona_id`.
+            display_name = "Dossier Mark"
             assert (
-                mm.get_opponent_model_manager()._name_to_id.get(persona_id) == persona_id
+                mm.get_opponent_model_manager()._name_to_id.get(display_name) == persona_id
             ), "persona seat did not register its personality_id (Break B)"
 
             def act_for_human():
