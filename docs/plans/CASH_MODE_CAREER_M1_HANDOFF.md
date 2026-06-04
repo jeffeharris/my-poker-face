@@ -5,6 +5,23 @@ created: 2026-05-31
 last_updated: 2026-06-03
 ---
 
+> **Session 5 (2026-06-04) — Career M2 (emergent vouches) landed, flag-gated OFF.**
+> The real `vouch_ready` model is built: `cash_mode/career_progression.py`
+> `vouch_ready()` (respect-gated ≥ `RESPECT_FLOOR` 0.50, likability-driven ≥
+> `LIKE_THRESHOLD` 0.70, played-with, one-per-AI) + `vouch_eagerness()` +
+> `fire_vouch()` (an AI reveals THEIR own room). Evaluated on the world ticker
+> (`ticker_service._maybe_fire_vouches`): per active sandbox, for a graduated
+> career player, fire the warmest ready AI's room — one vouch/tick (slow growth),
+> flag `CAREER_VOUCH_ENABLED` (default OFF), career-only, logs each edge for
+> threshold tuning. **Verification (handoff's required first step): the relationship
+> graph exists + is populated for the human (keyed by `owner_id`);
+> `load_inbound_relationships` is the inbound read; Sal is warm-seeded 0.9/0.88,
+> a played-a-lot fish is heat-only (0/0) — so vouchers are warm-seeded regulars,
+> and "does play move respect/like enough" is the open tuning question the ticker
+> logging now feeds.** Plan: `CASH_MODE_CAREER_M2_PLAN.md`. NEXT: live playtest
+> with the flag on → tune thresholds → then the Dream Table
+> (`CASH_MODE_DREAM_TABLE.md`, planned, waits on M2). 1268 cash+ticker tests green.
+
 > **Session 4 (2026-06-03) — Scene Engine Pillar 1 (headless SceneRunner) landed.**
 > The Scene-0 finale is now **proven in CI** instead of "verify live" (handoff step
 > #1 is closed by automation). New: `cash_mode/scene_runner.py` — a Flask-free
@@ -226,11 +243,12 @@ Post-merge: **1223 cash_mode tests pass**, TS build + ruff/prettier clean.
    real vouch DB-write, the comp-return, the mentor-stake socket handoff, the UI):
    `scripts/reset_career.py guest_jeff` + `docker compose restart backend`, then
    `/cash`.
-2. **M2 — real `vouch_ready`** (respect-gated, likability-driven, played-with,
-   one-per-AI) over the relationship graph; evaluate on the world ticker. FIRST
-   step is the regard-edge **instrumentation/logging** M1 was meant to leave so
-   the thresholds (~0.70 like / respect floor) are tuned from real data — verify
-   that logging exists before tuning. See `CASH_MODE_CAREER_PROGRESSION.md` § M2.
+2. ~~**M2 — real `vouch_ready`**~~ — **DONE (session 5), flag-gated OFF**
+   (`CAREER_VOUCH_ENABLED`). Predicate + `fire_vouch` + world-ticker evaluation +
+   per-edge tuning logging shipped (`CASH_MODE_CAREER_M2_PLAN.md`). Remaining:
+   flip the flag in a live playtest and **tune the thresholds** from the ticker
+   logs (the open question: does normal play move respect/likability toward the
+   human enough, or do vouches only come from warm-seeded regulars?).
 3. **Generalize the floater** to any scene mentor — `SalFloater` now renders via
    `DramaticReserve` but still keys on the sender name `"Sal Monroe"`, so a 2nd
    scene's mentor narrates in plain chat. Small frontend follow-up when needed.
