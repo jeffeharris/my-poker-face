@@ -155,7 +155,9 @@ def test_classify_brand_new_sandbox_seeds():
 
 def test_classify_existing_world_grandfathers():
     prog = CareerProgress(sandbox_id="sb", owner_id="o")
-    assert cp.classify_new_player(prog, existing_tables=[_table("cash-table-2-001")]) == "grandfather"
+    assert (
+        cp.classify_new_player(prog, existing_tables=[_table("cash-table-2-001")]) == "grandfather"
+    )
 
 
 def test_classify_already_decided_is_noop():
@@ -170,8 +172,12 @@ def test_classify_already_decided_is_noop():
 
 def _active_progress() -> CareerProgress:
     return CareerProgress(
-        sandbox_id="sb", owner_id="o", career_active=True, scene0_seeded=True,
-        scene0_table_id="cash-scene0-001", scene0_fish_id="loose_larry",
+        sandbox_id="sb",
+        owner_id="o",
+        career_active=True,
+        scene0_seeded=True,
+        scene0_table_id="cash-scene0-001",
+        scene0_fish_id="loose_larry",
     )
 
 
@@ -216,9 +222,7 @@ def test_pick_home_court_excludes_revealed():
     # Exclude every $2 candidate → nothing left to reveal.
     from cash_mode.lobby_config import LOBBY_TABLES
 
-    all_two = {
-        cp._table_id_for_stake("$2", e["id_suffix"]) for e in LOBBY_TABLES["$2"]
-    }
+    all_two = {cp._table_id_for_stake("$2", e["id_suffix"]) for e in LOBBY_TABLES["$2"]}
     assert cp.pick_home_court(rng, exclude=all_two) is None
 
 
@@ -227,14 +231,26 @@ def test_pick_home_court_excludes_revealed():
 
 def test_ensure_scene0_seeded_pins_table_and_conserves_chips(repos, db_path):
     _insert_personality(
-        db_path, "sal_moretti", "Sal Moretti",
-        {"starting_bankroll": 6000, "bankroll_rate": 300, "buy_in_multiplier": 1.2,
-         "stake_comfort_zone": "$2"},
+        db_path,
+        "sal_moretti",
+        "Sal Moretti",
+        {
+            "starting_bankroll": 6000,
+            "bankroll_rate": 300,
+            "buy_in_multiplier": 1.2,
+            "stake_comfort_zone": "$2",
+        },
     )
     _insert_personality(
-        db_path, "loose_larry", "Loose Larry",
-        {"starting_bankroll": 2500, "bankroll_rate": 0, "buy_in_multiplier": 1.0,
-         "stake_comfort_zone": "$2"},
+        db_path,
+        "loose_larry",
+        "Loose Larry",
+        {
+            "starting_bankroll": 2500,
+            "bankroll_rate": 0,
+            "buy_in_multiplier": 1.0,
+            "stake_comfort_zone": "$2",
+        },
     )
     prog = cp.ensure_scene0_seeded(
         career_progress_repo=repos["career_progress_repo"],
@@ -267,11 +283,15 @@ def test_ensure_scene0_reentry_after_progress_save_fails_does_not_double_debit(r
     """If a prior run seeded the table + debited seats but the progress save
     threw (scene0_seeded never flipped), a retry must NOT re-debit the cast."""
     _insert_personality(
-        db_path, "sal_moretti", "Sal Moretti",
+        db_path,
+        "sal_moretti",
+        "Sal Moretti",
         {"starting_bankroll": 6000, "buy_in_multiplier": 1.2, "stake_comfort_zone": "$2"},
     )
     _insert_personality(
-        db_path, "loose_larry", "Loose Larry",
+        db_path,
+        "loose_larry",
+        "Loose Larry",
         {"starting_bankroll": 2500, "buy_in_multiplier": 1.0, "stake_comfort_zone": "$2"},
     )
     kwargs = dict(
@@ -294,11 +314,15 @@ def test_ensure_scene0_reentry_after_progress_save_fails_does_not_double_debit(r
 
 def test_ensure_scene0_seeded_is_idempotent(repos, db_path):
     _insert_personality(
-        db_path, "sal_moretti", "Sal Moretti",
+        db_path,
+        "sal_moretti",
+        "Sal Moretti",
         {"starting_bankroll": 6000, "buy_in_multiplier": 1.2, "stake_comfort_zone": "$2"},
     )
     _insert_personality(
-        db_path, "loose_larry", "Loose Larry",
+        db_path,
+        "loose_larry",
+        "Loose Larry",
         {"starting_bankroll": 2500, "buy_in_multiplier": 1.0, "stake_comfort_zone": "$2"},
     )
     kwargs = dict(
@@ -313,7 +337,9 @@ def test_ensure_scene0_seeded_is_idempotent(repos, db_path):
     sal_after_first = repos["bankroll_repo"].load_ai_bankroll("sal_moretti", sandbox_id="sb1").chips
     # Second call must not re-debit (no double seat).
     cp.ensure_scene0_seeded(**kwargs)
-    sal_after_second = repos["bankroll_repo"].load_ai_bankroll("sal_moretti", sandbox_id="sb1").chips
+    sal_after_second = (
+        repos["bankroll_repo"].load_ai_bankroll("sal_moretti", sandbox_id="sb1").chips
+    )
     assert sal_after_first == sal_after_second
 
 
@@ -324,8 +350,12 @@ def test_fire_first_vouch_reveals_room_and_records_event(repos):
     repo = repos["career_progress_repo"]
     repo.save(
         CareerProgress(
-            sandbox_id="sb1", owner_id="owner1", career_active=True, scene0_seeded=True,
-            scene0_table_id=cp.SCENE0_TABLE_ID, scene0_fish_id="loose_larry",
+            sandbox_id="sb1",
+            owner_id="owner1",
+            career_active=True,
+            scene0_seeded=True,
+            scene0_table_id=cp.SCENE0_TABLE_ID,
+            scene0_fish_id="loose_larry",
             revealed_table_ids=[cp.SCENE0_TABLE_ID],
         )
     )
@@ -350,3 +380,114 @@ def test_fire_first_vouch_reveals_room_and_records_event(repos):
     assert reloaded.home_court_table_id == prog.home_court_table_id
     sandbox_events = recent_events(sandbox_id="sb1")
     assert any(e.type == EVENT_VOUCH for e in sandbox_events)
+
+
+# --- M2: emergent vouches ----------------------------------------------------
+
+
+def test_vouch_ready_gating():
+    floor, like = cp.RESPECT_FLOOR, cp.LIKE_THRESHOLD
+    # Liked AND respected AND played AND unspent → ready.
+    assert cp.vouch_ready(respect=floor, likability=like, played_with=True, already_vouched=False)
+    # Disrespected (below the gate) → never, even at max likability.
+    assert not cp.vouch_ready(
+        respect=floor - 0.01, likability=1.0, played_with=True, already_vouched=False
+    )
+    # Liked too little (below the driver) → no.
+    assert not cp.vouch_ready(
+        respect=1.0, likability=like - 0.01, played_with=True, already_vouched=False
+    )
+    # Never played together → no (can't vouch a stranger).
+    assert not cp.vouch_ready(respect=1.0, likability=1.0, played_with=False, already_vouched=False)
+    # Already spent their one vouch → no.
+    assert not cp.vouch_ready(respect=1.0, likability=1.0, played_with=True, already_vouched=True)
+
+
+def test_vouch_eagerness_orders_by_likability_above_threshold():
+    like = cp.LIKE_THRESHOLD
+    assert cp.vouch_eagerness(like) == 0.0
+    assert cp.vouch_eagerness(1.0) == 1.0
+    # Strictly increasing above the threshold (warmest fires first).
+    assert cp.vouch_eagerness(like + 0.05) < cp.vouch_eagerness(like + 0.15)
+
+
+def test_fire_vouch_reveals_the_vouchers_own_room(repos):
+    repo = repos["career_progress_repo"]
+    repo.save(
+        CareerProgress(
+            sandbox_id="sb1",
+            owner_id="owner1",
+            career_active=True,
+            tutorial_complete=True,
+            revealed_table_ids=[cp.SCENE0_TABLE_ID],
+            vouched_by=[cp.SAL_ID],
+        )
+    )
+    clear_events()
+    prog, event = cp.fire_vouch(
+        career_progress_repo=repo,
+        sandbox_id="sb1",
+        owner_id="owner1",
+        voucher_id="cleopatra",
+        voucher_name="Cleopatra",
+        table_id="cash-table-2-007",
+        stake_label="$2",
+        table_name="The Nile Room",
+    )
+    assert event is not None and event.type == EVENT_VOUCH
+    assert event.personality_id == "cleopatra"
+    assert "cash-table-2-007" in prog.revealed_table_ids  # the voucher's room
+    assert "cleopatra" in prog.vouched_by
+    reloaded = repo.load("sb1", "owner1")
+    assert "cash-table-2-007" in reloaded.revealed_table_ids
+    assert any(e.type == EVENT_VOUCH for e in recent_events(sandbox_id="sb1"))
+
+
+def test_fire_vouch_is_one_per_ai(repos):
+    repo = repos["career_progress_repo"]
+    repo.save(
+        CareerProgress(
+            sandbox_id="sb1",
+            owner_id="owner1",
+            career_active=True,
+            tutorial_complete=True,
+            vouched_by=["cleopatra"],  # already spent
+        )
+    )
+    prog, event = cp.fire_vouch(
+        career_progress_repo=repo,
+        sandbox_id="sb1",
+        owner_id="owner1",
+        voucher_id="cleopatra",
+        voucher_name="Cleopatra",
+        table_id="cash-table-2-007",
+        stake_label="$2",
+        table_name="The Nile Room",
+    )
+    assert event is None  # no-op: vouch already spent
+    assert "cash-table-2-007" not in prog.revealed_table_ids
+
+
+def test_fire_vouch_no_op_when_room_already_revealed(repos):
+    repo = repos["career_progress_repo"]
+    repo.save(
+        CareerProgress(
+            sandbox_id="sb1",
+            owner_id="owner1",
+            career_active=True,
+            tutorial_complete=True,
+            revealed_table_ids=["cash-table-2-007"],  # door already open
+        )
+    )
+    prog, event = cp.fire_vouch(
+        career_progress_repo=repo,
+        sandbox_id="sb1",
+        owner_id="owner1",
+        voucher_id="cleopatra",
+        voucher_name="Cleopatra",
+        table_id="cash-table-2-007",
+        stake_label="$2",
+        table_name="The Nile Room",
+    )
+    assert event is None  # vouch not spent on an already-open door
+    assert "cleopatra" not in prog.vouched_by  # voucher keeps their vouch

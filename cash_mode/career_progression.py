@@ -60,6 +60,16 @@ SCENE0_FISH_SEAT = 3
 # up"), not a climb. Vertical climbing falls out of where later vouchers sit (M2).
 HOME_COURT_STAKE = "$2"
 
+# --- M2: the emergent vouch model (see CASH_MODE_CAREER_M2_PLAN.md) -----------
+# A vouch is a reputational risk, so it's respect-GATED and likability-DRIVEN:
+#   - respect ≥ RESPECT_FLOOR: they won't put their name on someone they think is
+#     a clown, at any likability ("feared, not invited").
+#   - likability ≥ LIKE_THRESHOLD: among people they respect, they bring the ones
+#     they LIKE. ~0.70 is reachable in a good session without being a gimme.
+# Thresholds are the design's starting values; tune from ticker instrumentation.
+RESPECT_FLOOR = 0.50
+LIKE_THRESHOLD = 0.70
+
 # --- Scripted graduation gate (M1: crude; tuned in playtest from M1 logging) --
 # Min hands at the Scene-0 table before the vouch can fire — you can't graduate
 # on hand one. Counted from the live session hand count.
@@ -400,10 +410,7 @@ def visible_tables(tables: List[CashTableState], progress) -> List[CashTableStat
     if not progress.career_active:
         return tables
     revealed = set(progress.revealed_table_ids)
-    return [
-        t for t in tables
-        if t.table_type == SCRIPTED_TABLE_TYPE or t.table_id in revealed
-    ]
+    return [t for t in tables if t.table_type == SCRIPTED_TABLE_TYPE or t.table_id in revealed]
 
 
 def evaluate_first_vouch(progress, *, session_hands: int, fish_pnl: int) -> bool:
@@ -518,5 +525,95 @@ def fire_first_vouch(
         owner_id,
         home_court_id,
         home_court_name,
+    )
+    return progress, event
+
+
+# --- M2: emergent vouches ----------------------------------------------------
+
+
+def vouch_ready(
+    *, respect: float, likability: float, played_with: bool, already_vouched: bool
+) -> bool:
+    """Whether an AI is ready to vouch the human into their room (the M2 model).
+
+    Respect-GATED, likability-DRIVEN, with two hard prereqs: you must have played
+    together, and each AI vouches at most once (v1). See CASH_MODE_CAREER_M2_PLAN.
+    """
+    if already_vouched or not played_with:
+        return False
+    return respect >= RESPECT_FLOOR and likability >= LIKE_THRESHOLD
+
+
+def vouch_eagerness(likability: float) -> float:
+    """How eager a qualified AI is — scales with likability ABOVE the threshold, so
+    when several qualify at once the ticker fires the warmest first. 0.0 at/below
+    the threshold, → 1.0 as likability → 1.0. (Assumes the respect gate is already
+    cleared — this only ranks the drivers.)"""
+    span = 1.0 - LIKE_THRESHOLD
+    if span <= 0:
+        return 1.0 if likability >= LIKE_THRESHOLD else 0.0
+    return max(0.0, min(1.0, (likability - LIKE_THRESHOLD) / span))
+
+
+def fire_vouch(
+    *,
+    career_progress_repo,
+    sandbox_id: str,
+    owner_id: str,
+    voucher_id: str,
+    voucher_name: str,
+    table_id: str,
+    stake_label: str,
+    table_name: str,
+    now: Optional[datetime] = None,
+):
+    """An emergent vouch: `voucher_id` reveals THEIR room (`table_id`) to the human.
+
+    Mutates + persists `CareerProgress` (reveal the room, spend the voucher's one
+    vouch) and records an `EVENT_VOUCH` LobbyEvent. Returns `(progress, event)`,
+    or `(progress, None)` for a no-op — the voucher already spent their vouch, or
+    the room is already revealed (the vouch is NOT spent on an already-open door).
+    The caller owns the `vouch_ready` gating and resolving the voucher's room;
+    this reloads-modifies-saves so it's safe to call straight off the ticker.
+    """
+    if now is None:
+        now = datetime.utcnow()
+
+    from cash_mode.activity import (
+        EVENT_VOUCH,
+        LobbyEvent,
+        format_vouch_message,
+        record_event,
+    )
+
+    progress = career_progress_repo.load(sandbox_id, owner_id)
+    if progress.has_vouched(voucher_id) or progress.is_revealed(table_id):
+        return progress, None
+
+    progress.revealed_table_ids.append(table_id)
+    if voucher_id not in progress.vouched_by:
+        progress.vouched_by.append(voucher_id)
+    career_progress_repo.save(progress, now=now)
+
+    event = LobbyEvent(
+        type=EVENT_VOUCH,
+        table_id=table_id,
+        stake_label=stake_label,
+        personality_id=voucher_id,
+        name=voucher_name,
+        reason="",
+        message=format_vouch_message(voucher_name, stake_label, table_name),
+        created_at=now.isoformat(),
+        sandbox_id=sandbox_id,
+    )
+    record_event(event)
+    logger.info(
+        "[CAREER] vouch fired: %s vouched (sandbox=%s, owner=%s) into %s (%s)",
+        voucher_name,
+        sandbox_id,
+        owner_id,
+        table_id,
+        table_name,
     )
     return progress, event
