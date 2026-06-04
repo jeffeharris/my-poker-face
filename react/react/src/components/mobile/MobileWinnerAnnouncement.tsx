@@ -14,6 +14,7 @@ import {
   SARCASM_ABLE_POST_ROUND,
   POST_ROUND_FALLBACKS,
 } from './postRoundTones';
+import { CountdownRing } from './CountdownRing';
 import './MobileWinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -105,6 +106,9 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const [loading, setLoading] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false); // Pauses auto-dismiss
+  // Timestamp the auto-dismiss timer (re)started, for the countdown ring.
+  // null while paused (interacting / final hand) so the ring freezes.
+  const [dismissStartedAt, setDismissStartedAt] = useState<number | null>(null);
   // Currently-selected tone + delivery register (only `sarcastic` matters
   // post-round; the warm tones invert into a barb/self-mockery). Sincere is
   // the absence of a sarcastic register.
@@ -250,8 +254,17 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
 
   // Separate effect for auto-dismiss that respects isInteracting and final hand
   useEffect(() => {
-    // Don't auto-dismiss if interacting OR if it's the final hand
-    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) return;
+    // Don't auto-dismiss if interacting OR if it's the final hand. Clear the
+    // ring's start stamp so it freezes (interacting) or never shows (final).
+    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) {
+      setDismissStartedAt(null);
+      return;
+    }
+
+    // Stamp the (re)start so the countdown ring drains over this window.
+    // Pausing then resuming via isInteracting restarts the full timer here,
+    // and the ring follows because this stamp moves with it.
+    setDismissStartedAt(Date.now());
 
     const dismissTimer = setTimeout(
       () => {
@@ -283,6 +296,19 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
 
   return (
     <div className="mobile-winner-overlay" data-testid="winner-overlay">
+      {/* Auto-dismiss countdown — showdown only (fold-outs flash by too
+          fast for a ring to read; the final hand waits for manual Continue,
+          so dismissStartedAt stays null there and the ring is skipped). When
+          paused mid-interaction the ring sits full until the timer restarts. */}
+      {winnerInfo.showdown && !winnerInfo.is_final_hand && (
+        <CountdownRing
+          timerStartedAt={dismissStartedAt}
+          displayDuration={INTERHAND_TIMING.showdownResultMs}
+          size={22}
+          stroke={2.5}
+          className="mobile-winner-timer-ring"
+        />
+      )}
       <div className="mobile-winner-content">
         {/* Tournament Outcome Banner - only shown on final hand */}
         {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (

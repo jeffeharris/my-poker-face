@@ -382,4 +382,32 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
       expect(container.querySelector('.mobile-winner-overlay')).toBeNull();
     });
   });
+
+  describe('Auto-dismiss countdown ring', () => {
+    it('shows the countdown ring on a showdown win', () => {
+      const { container } = render(<MobileWinnerAnnouncement {...makeDefaultProps()} />);
+
+      expect(container.querySelector('.mobile-winner-timer-ring')).not.toBeNull();
+    });
+
+    it('does not show the ring on a fold-out win', () => {
+      const { container } = render(
+        <MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })} />
+      );
+
+      expect(container.querySelector('.mobile-winner-timer-ring')).toBeNull();
+    });
+
+    it('does not show the ring on the final hand (no auto-dismiss)', () => {
+      const { container } = render(
+        <MobileWinnerAnnouncement
+          {...makeDefaultProps({
+            winnerInfo: makeShowdownWinnerInfo({ is_final_hand: true }),
+          })}
+        />
+      );
+
+      expect(container.querySelector('.mobile-winner-timer-ring')).toBeNull();
+    });
+  });
 });

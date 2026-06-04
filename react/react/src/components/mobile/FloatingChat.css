@@ -46,34 +46,13 @@
   cursor: grabbing;
 }
 
-/* CK3-style radial dismiss countdown, upper-right of the bubble.
- * Rotated -90deg so the arc starts at 12 o'clock and drains
- * clockwise (SVG circles otherwise begin at 3 o'clock). pointer-events
- * disabled so it never intercepts the swipe-to-dismiss gesture. */
+/* Corner placement for the shared CountdownRing (rotate / colour /
+ * pointer-events live on .countdown-ring in CountdownRing.css). */
 .floating-chat-timer-ring {
   position: absolute;
   top: 8px;
   right: 8px;
-  transform: rotate(-90deg);
-  transform-origin: center;
-  pointer-events: none;
   z-index: 1;
-  overflow: visible;
-}
-
-.timer-ring-track {
-  fill: none;
-  stroke: rgba(255, 255, 255, 0.12);
-  stroke-width: 1.75;
-}
-
-.timer-ring-progress {
-  fill: none;
-  /* Shaded gold — a touch deeper/muted than --color-gold-light so the
-   * ring reads as a quiet timer rather than a bright accent. */
-  stroke: #c79a4b;
-  stroke-width: 1.75;
-  stroke-linecap: round;
 }
 
 .floating-chat-avatar {

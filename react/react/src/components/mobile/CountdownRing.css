@@ -1,0 +1,24 @@
+/* Shared radial countdown ring. Rotated -90deg so the arc starts at
+ * 12 o'clock and drains clockwise (SVG circles otherwise begin at
+ * 3 o'clock). pointer-events disabled so it never intercepts gestures
+ * (e.g. the chat bubble's swipe-to-dismiss). Positioning is supplied by
+ * the consumer via an extra class. */
+.countdown-ring {
+  transform: rotate(-90deg);
+  transform-origin: center;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.countdown-ring-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.12);
+}
+
+.countdown-ring-progress {
+  fill: none;
+  /* Shaded gold — a touch deeper/muted than --color-gold-light so the
+   * ring reads as a quiet timer rather than a bright accent. */
+  stroke: #c79a4b;
+  stroke-linecap: round;
+}
