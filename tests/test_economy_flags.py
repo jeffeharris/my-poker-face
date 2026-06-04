@@ -58,6 +58,7 @@ def reset_flags():
         economy_flags.RAKE_RATE,
         economy_flags.RAKE_CAP_BB,
         economy_flags.RAKE_STAKE_BIG_BLINDS,
+        economy_flags.RAKE_RESERVE_GATED,
     )
     yield
     (
@@ -67,6 +68,7 @@ def reset_flags():
         economy_flags.RAKE_RATE,
         economy_flags.RAKE_CAP_BB,
         economy_flags.RAKE_STAKE_BIG_BLINDS,
+        economy_flags.RAKE_RESERVE_GATED,
     ) = saved
 
 
@@ -189,6 +191,68 @@ class TestComputeRake:
         assert economy_flags.compute_rake(pot=10_000, big_blind=200) == 200
         assert economy_flags.compute_rake(pot=10_000, big_blind=1000) == 200
         assert economy_flags.compute_rake(pot=10_000, big_blind=10) == 0
+
+    def test_override_params_expand_stakes_and_rate(self):
+        # The Director schedule overrides the static config: a $200 table that
+        # wouldn't rake under the static {1000} set now rakes at the bumped rate.
+        economy_flags.RAKE_ENABLED = True
+        economy_flags.RAKE_RATE = 0.02  # static rate, should be overridden
+        economy_flags.RAKE_CAP_BB = 1000  # non-binding
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({1000})  # static set
+        # Static: $200 table rakes nothing.
+        assert economy_flags.compute_rake(pot=10_000, big_blind=200) == 0
+        # Override: $200 listed at 3% → 300.
+        assert (
+            economy_flags.compute_rake(
+                pot=10_000, big_blind=200, stake_big_blinds=frozenset({1000, 200}), rate=0.03
+            )
+            == 300
+        )
+
+
+# --- resolve_rake_params (Director reserve-gated schedule) --------------
+
+
+class TestResolveRakeParams:
+    SBX = "test-rake-params"
+
+    def _seed(self, repo, *, holdings, pool):
+        repo.record('central_bank', 'player:p', holdings, 'player_seed', sandbox_id=self.SBX)
+        if pool:
+            repo.record('ai:rich', 'central_bank', pool, 'bank_pool_deposit', sandbox_id=self.SBX)
+
+    def test_flag_off_returns_none(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = False
+        self._seed(ledger_repo, holdings=100_000, pool=500)  # would be EMPTY if gated
+        assert economy_flags.resolve_rake_params(ledger_repo, self.SBX) == (None, None)
+
+    def test_no_ledger_returns_none(self):
+        economy_flags.RAKE_RESERVE_GATED = True
+        assert economy_flags.resolve_rake_params(None, self.SBX) == (None, None)
+
+    def test_low_bank_expands_to_200_and_bumps_rate(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        # ratio ≈ 0.042 (in the low band 0.03–0.06): adds $200 @ 3%.
+        self._seed(ledger_repo, holdings=100_000, pool=4_000)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000, 200})
+        assert rate == 0.03
+
+    def test_critical_bank_adds_50_and_top_rate(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        # ratio ≈ 0.005 (below the critical floor 0.03): all tiers @ 4%.
+        self._seed(ledger_repo, holdings=100_000, pool=500)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000, 200, 50})
+        assert rate == 0.04
+
+    def test_flush_bank_stays_top_tier_only(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        # ratio ≈ 0.33 (well above the healthy floor 0.06): top tier only @ 2%.
+        self._seed(ledger_repo, holdings=100_000, pool=25_000)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})
+        assert rate == 0.02
 
 
 # --- record_table_rake --------------------------------------------------

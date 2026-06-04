@@ -85,9 +85,24 @@ bank is healthy). So:
 - **Director rake (the only economy-gated part):** the *extra* $50/$200 rake that
   switches on only in Low/Critical bands.
 
-Today `RAKE_STAKE_BIG_BLINDS = {1000}` is a static frozenset
-(`economy_flags.py:158`); the low-stake additions become derived from the
-economy signal (hang it on the existing `rake_schedule` policy slot).
+`RAKE_STAKE_BIG_BLINDS = {1000}` stays the static structural skim. **Shipped
+2026-06-04 (flag `RAKE_RESERVE_GATED`, default OFF):** `resolve_rake_params`
+reads one economy snapshot and applies `economy_signal.cash_rake_schedule`, now
+**graduated across three reserve bands keyed on the ratio**, lifting *both* the
+raked stake tiers AND the rate as the bank empties:
+
+| Band | ratio | tiers | rate |
+|---|---|---|---|
+| healthy | ≥ 0.06 | `{1000}` | 2% |
+| low | 0.03–0.06 | `{1000, 200}` | 3% |
+| critical | < 0.03 | `{1000, 200, 50}` | 4% |
+
+The $1000 tier is in every band, so the structural rake is never switched off —
+the Director only adds the lower-stake refill layers (and the higher rate).
+Floors mirror the vice reserve gate so vice (refill) and rake (throttle) share
+one band. Wired at both rake sites (`game_handler._apply_rake_to_winner`,
+`full_sim._apply_rake_to_winner`) via the new `compute_rake(..., stake_big_blinds=,
+rate=)` overrides. Flag-off = byte-identical static rake.
 
 ### 1.5 Vice ↔ Side-hustle symmetry + the escrow fix
 
@@ -372,7 +387,10 @@ remaining 71 to be generated in tier batches.
       bankrolls out as draws (reserve starts at ~5% of holdings).
 - [ ] Split tournament trigger (0.12) from floor (0.06) in `economy_signal.py`.
 - [ ] Play-measured Main Event cooldown (hands/active-ticks, not wall-clock).
-- [ ] Two-layer rake: structural $1000 always-on; Director $50/$200 band-gated.
+- [x] Two-layer rake: structural $1000 always-on; Director graduates tiers AND
+      rate across 3 reserve bands — `{1000}`@2% / `{1000,200}`@3% / `{1000,200,50}`@4%
+      (`RAKE_RESERVE_GATED`, default OFF; `resolve_rake_params` + ratio-keyed
+      `cash_rake_schedule`). Done 2026-06-04.
 - [x] Re-gate vice intensity on reserve deficit (`VICE_RESERVE_GATED`, default
       OFF; `reserve_vice_multiplier`). Done 2026-06-04. Follow-up: gate the
       `commit_leave_vice` seated→leave intercept too.

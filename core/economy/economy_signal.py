@@ -295,37 +295,51 @@ class RakeSchedule:
     regime: str
 
 
-# Graduated tier expansion as the bank empties (mirrors EXP_006's described
-# lever: "$1000-only when flush; switch on $200, then $50 if dire").
-_RAKE_TIERS_FLUSH: frozenset[int] = frozenset({1000})
-_RAKE_TIERS_NEUTRAL: frozenset[int] = frozenset({1000})
-_RAKE_TIERS_EMPTY: frozenset[int] = frozenset({1000, 200})
+# Graduated rake bands, keyed on the reserves/holdings RATIO (not the
+# FLUSH/EMPTY regime, whose 0.08/0.02 setpoints serve the tournament overlay).
+# As the bank empties the Director expands BOTH levers — the raked stake tiers
+# AND the rate — and contracts both as reserves recover (EXP_006's lever:
+# "$1000-only when flush; switch on $200, then $50 if dire"). The floors mirror
+# the vice reserve gate (`cash_mode.economy_flags.VICE_RESERVE_*`) so the refill
+# (vice) and throttle (rake) levers share one reserve band. The $1000 tier is
+# present in every band, so the structural rake is never switched off.
+_RAKE_HEALTHY_FLOOR: float = 0.06  # ratio at/above → top tier only, base rate
+_RAKE_CRITICAL_FLOOR: float = 0.03  # ratio below → all tiers, top rate
+
+_RAKE_TIERS_HEALTHY: frozenset[int] = frozenset({1000})
+_RAKE_TIERS_LOW: frozenset[int] = frozenset({1000, 200})
+_RAKE_TIERS_CRITICAL: frozenset[int] = frozenset({1000, 200, 50})
 _RAKE_RATE_BASE: float = 0.02
-_RAKE_RATE_EMPTY: float = 0.03
+_RAKE_RATE_LOW: float = 0.03
+_RAKE_RATE_CRITICAL: float = 0.04
 
 
 def cash_rake_schedule(state: EconomyState) -> RakeSchedule:
-    """Pure policy: graduated cash-rake response to the same economy signal.
+    """Pure policy: graduated cash-rake response to the reserve ratio.
 
-    Flush/neutral → top tier only at the base rate (throttle inflow). Empty →
-    expand to the $200 tier and bump the rate to refill faster. Wiring this into
-    `cash_mode/economy_flags` is deferred to cash mode; here it is a pure,
-    tested function so the chairman owns BOTH levers off one snapshot.
+    Three bands, each lifting BOTH the raked stake tiers and the rate as the
+    deficit deepens:
+      * healthy (ratio ≥ 0.06) → ``{1000}`` @ 2% (throttle inflow only),
+      * low (0.03 ≤ ratio < 0.06) → ``{1000, 200}`` @ 3%,
+      * critical (ratio < 0.03) → ``{1000, 200, 50}`` @ 4% (refill hard).
+
+    Wired into cash mode via `economy_flags.resolve_rake_params`; here it is a
+    pure, tested function so the chairman owns BOTH levers off one snapshot.
     """
-    if state.regime == EMPTY:
+    if state.ratio < _RAKE_CRITICAL_FLOOR:
         return RakeSchedule(
-            stake_big_blinds=_RAKE_TIERS_EMPTY,
-            rate=_RAKE_RATE_EMPTY,
+            stake_big_blinds=_RAKE_TIERS_CRITICAL,
+            rate=_RAKE_RATE_CRITICAL,
             regime=state.regime,
         )
-    if state.regime == FLUSH:
+    if state.ratio < _RAKE_HEALTHY_FLOOR:
         return RakeSchedule(
-            stake_big_blinds=_RAKE_TIERS_FLUSH,
-            rate=_RAKE_RATE_BASE,
+            stake_big_blinds=_RAKE_TIERS_LOW,
+            rate=_RAKE_RATE_LOW,
             regime=state.regime,
         )
     return RakeSchedule(
-        stake_big_blinds=_RAKE_TIERS_NEUTRAL,
+        stake_big_blinds=_RAKE_TIERS_HEALTHY,
         rate=_RAKE_RATE_BASE,
         regime=state.regime,
     )

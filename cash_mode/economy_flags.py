@@ -51,7 +51,11 @@ override via a startup hook if/when we want runtime control.
 
 from __future__ import annotations
 
+import logging
 import os
+from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -176,6 +180,17 @@ RAKE_CAP_BB: int = 4
 # at a listed stake rakes the same, however many there are. Default to
 # the top tier only ($1000) to throttle pool inflow at low stakes.
 RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
+
+# Two-layer rake (Director lever). When off (default), rake is the static
+# structural $1000-only skim above — a permanent playing-field leveler / money
+# sink, NOT the Director's to touch. When on, `resolve_rake_params` lets the
+# Director ADD lower-stake tiers ($200, …) and bump the rate as the bank empties
+# (via `economy_signal.cash_rake_schedule`), contracting back to $1000-only when
+# reserves recover. The $1000 tier is always present, so the structural rake is
+# never switched off — only the extra refill layers are reserve-gated. Default
+# OFF; flip with the rest of the Director thermostat after sim. See
+# docs/plans/PROD_STARTING_CONDITIONS.md §1.4.
+RAKE_RESERVE_GATED: bool = _env_flag("RAKE_RESERVE_GATED", False)
 
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
@@ -354,20 +369,59 @@ RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
 PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 
 
-def compute_rake(pot: int, big_blind: int) -> int:
+def compute_rake(
+    pot: int,
+    big_blind: int,
+    *,
+    stake_big_blinds: Optional[frozenset] = None,
+    rate: Optional[float] = None,
+) -> int:
     """Pure helper — returns the rake amount for a given pot.
 
     Returns 0 when rake is disabled, the pot is non-positive,
     big_blind is non-positive, or the stake (keyed by `big_blind`) is
-    not in `RAKE_STAKE_BIG_BLINDS`. The cap is applied in chip terms
+    not in the active rake-stake set. The cap is applied in chip terms
     (`RAKE_CAP_BB * big_blind`) so it scales with the table's stake.
+
+    `stake_big_blinds` / `rate` override the static `RAKE_STAKE_BIG_BLINDS` /
+    `RAKE_RATE` for the **Director rake** — the reserve-gated two-layer schedule
+    (see `resolve_rake_params`). When both are None the static config is used,
+    which is the structural always-on $1000 rake (and the flag-off behaviour).
     """
     if not RAKE_ENABLED:
         return 0
     if pot <= 0 or big_blind <= 0:
         return 0
-    if big_blind not in RAKE_STAKE_BIG_BLINDS:
+    stakes = stake_big_blinds if stake_big_blinds is not None else RAKE_STAKE_BIG_BLINDS
+    eff_rate = rate if rate is not None else RAKE_RATE
+    if big_blind not in stakes:
         return 0
-    raw = int(pot * RAKE_RATE)
+    raw = int(pot * eff_rate)
     cap = RAKE_CAP_BB * big_blind
     return min(raw, cap)
+
+
+def resolve_rake_params(chip_ledger_repo, sandbox_id):
+    """The reserve-gated rake schedule for this moment, or `(None, None)`.
+
+    Returns `(stake_big_blinds, rate)` to pass to `compute_rake`. When the
+    `RAKE_RESERVE_GATED` flag is off (default) or there's no ledger, returns
+    `(None, None)` so `compute_rake` falls back to the static structural rake
+    ($1000 only, base rate) — byte-identical to pre-gate behaviour.
+
+    When on, reads ONE economy snapshot and applies `cash_rake_schedule`: the
+    Director expands the raked stakes ($200, …) and bumps the rate as the bank
+    empties, and contracts back to $1000-only when reserves recover. The base
+    $1000 tier is always present in every schedule, so the structural rake is
+    never switched off — the Director only adds the lower-stake layers.
+    """
+    if not RAKE_RESERVE_GATED or chip_ledger_repo is None:
+        return None, None
+    try:
+        from core.economy.economy_signal import cash_rake_schedule, signal
+
+        sched = cash_rake_schedule(signal(chip_ledger_repo, sandbox_id=sandbox_id))
+        return sched.stake_big_blinds, sched.rate
+    except Exception:  # pragma: no cover - defensive; fall back to static
+        logger.warning("[RAKE] reserve-gated schedule failed; using static rake", exc_info=True)
+        return None, None

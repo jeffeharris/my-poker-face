@@ -155,17 +155,34 @@ class TestTournamentFunding:
 
 
 class TestCashRakeSchedule:
-    def test_flush_top_tier_base_rate(self):
-        st = EconomyState(reserves=1, holdings=1, ratio=1.0, regime=FLUSH)
+    def test_healthy_top_tier_base_rate(self):
+        # ratio >= 0.06 → top tier only at base rate.
+        st = EconomyState(reserves=10, holdings=100, ratio=0.10, regime=FLUSH)
         sched = cash_rake_schedule(st)
         assert sched.stake_big_blinds == frozenset({1000})
         assert sched.rate == chair._RAKE_RATE_BASE
 
-    def test_empty_expands_tiers_and_rate(self):
-        st = EconomyState(reserves=0, holdings=1, ratio=0.0, regime=EMPTY)
+    def test_low_band_adds_200_mid_rate(self):
+        # 0.03 <= ratio < 0.06 → add $200, bump to the low rate.
+        st = EconomyState(reserves=45, holdings=1000, ratio=0.045, regime=NEUTRAL)
         sched = cash_rake_schedule(st)
-        assert 200 in sched.stake_big_blinds
-        assert sched.rate == chair._RAKE_RATE_EMPTY
+        assert sched.stake_big_blinds == frozenset({1000, 200})
+        assert sched.rate == chair._RAKE_RATE_LOW
+
+    def test_critical_band_adds_50_top_rate(self):
+        # ratio < 0.03 → all tiers ($1000/$200/$50) at the top rate.
+        st = EconomyState(reserves=5, holdings=1000, ratio=0.005, regime=EMPTY)
+        sched = cash_rake_schedule(st)
+        assert sched.stake_big_blinds == frozenset({1000, 200, 50})
+        assert sched.rate == chair._RAKE_RATE_CRITICAL
+
+    def test_boundaries_inclusive_of_higher_band(self):
+        # Exactly at the healthy floor → healthy (top tier only).
+        st = EconomyState(reserves=6, holdings=100, ratio=0.06, regime=NEUTRAL)
+        assert cash_rake_schedule(st).stake_big_blinds == frozenset({1000})
+        # Exactly at the critical floor → low band (not critical).
+        st = EconomyState(reserves=3, holdings=100, ratio=0.03, regime=EMPTY)
+        assert cash_rake_schedule(st).stake_big_blinds == frozenset({1000, 200})
 
 
 def signal_like(*, ratio: float) -> EconomyState:

@@ -2871,7 +2871,15 @@ def _apply_player_table_rake(
         return game_state
 
     big_blind = game_state.current_ante
-    rake = economy_flags.compute_rake(pot_size, big_blind)
+    sandbox_id = _sandbox_id_for(game_data)
+    from flask_app.extensions import chip_ledger_repo as _ledger_repo
+
+    # Director rake (reserve-gated, flag-off by default): may expand the raked
+    # stakes / rate when the bank is empty; otherwise the static $1000 skim.
+    rake_stakes, rake_rate = economy_flags.resolve_rake_params(_ledger_repo, sandbox_id)
+    rake = economy_flags.compute_rake(
+        pot_size, big_blind, stake_big_blinds=rake_stakes, rate=rake_rate
+    )
     if rake <= 0:
         return game_state
 
@@ -2899,7 +2907,6 @@ def _apply_player_table_rake(
     # Resolve the ledger source string. For AI seats we use the
     # cash-mode personality map; for the human seat we use owner_id.
     cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
-    sandbox_id = _sandbox_id_for(game_data)
     from cash_mode import economy_flags
 
     custody = economy_flags.CHIP_CUSTODY_ENABLED
@@ -2934,8 +2941,6 @@ def _apply_player_table_rake(
         'winner_name': headline_name,
         'winner_is_human': winner_player.is_human,
     }
-    from flask_app.extensions import chip_ledger_repo as _ledger_repo
-
     chip_ledger.record_table_rake(
         _ledger_repo,
         source=source,
