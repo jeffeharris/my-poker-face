@@ -127,16 +127,30 @@ documented zombie-persona class (junk personas reappearing) and a
 - Lean on `_is_reserved_persona_name` to reject junk/empty names before any DB
   write.
 
-## Risk & mitigations (the user's "anything could be entered / LLM may botch it")
+## Risk & mitigations
 
-| Risk | Mitigation |
-|---|---|
-| Generation fails / low quality | `_create_default_personality` fallback wearing the requested name; caricature framing makes "imperfect" on-brand |
-| Prompt injection | name is **data**, never instructions (intake already does this); strict-JSON output |
-| Offensive / abusive input | PG-13 system prompt; a moderation/refuse → fallback gate; drop-and-skip on reject |
-| Real/private people | frame as "the room's caricature of who you asked for" (impression, not likeness); gate avatar gen for non-public figures |
-| Latency | generate in the background under cover of the tutorial; seat-on-ready, never block graduation |
-| Roster pollution | sandbox-scoped, non-circulating guests; reserved-name guard |
+**Framing first: this is a private, single-player sandbox.** Whatever gets
+generated is seated in the requester's *own* game, for their eyes only — nothing
+is published or shown to other players. That collapses most of the "anything could
+be entered" worry: ask for **"Spiderman"** and you get the room's Spiderman-at-the-
+felt caricature, which is the *charm*, not a botch (the game already runs
+fictional/celebrity personas). "The system generates what it generates" is the
+right posture when the audience is the one person who asked. So the real residual
+risk is **not** content — it's **containment** (don't let a private guest leak into
+anyone else's game) plus graceful failure.
+
+| Risk | Severity (private sandbox) | Mitigation |
+|---|---|---|
+| **Roster pollution** — guest leaks into other sandboxes / the global pool | **high — the one that matters** | sandbox-scoped + `circulating=False`; reserved-name guard; the zombie-persona class is the real hazard here |
+| Generation fails / low quality | low — a caricature is on-brand | `_create_default_personality` fallback wearing the requested name |
+| Latency | low | background gen under cover of the tutorial; seat-on-ready, never block graduation |
+| Prompt injection | low | name is **data**, never instructions (intake already does this); strict-JSON output |
+| Offensive / abusive input | low — self-requested + private | provider-default safety + the PG-13 system prompt; **no custom moderation gate in v1** |
+| Real/private person entered | low — self-requested + private | frame as "the room's *impression* of who you asked for" (a caricature, not a likeness claim); defer avatars anyway |
+
+The earlier draft proposed a custom moderation gate — **dropped for v1**: it's
+unwarranted for a private, self-requested experience. Revisit only if guests ever
+become shareable/visible to other players (then content moderation re-enters).
 
 ## Flag gating
 
@@ -181,8 +195,9 @@ circuit with you; a "your table" re-summon later in the career.
   seats to reserve for guests.
 - **Generation trigger** — fire at intake-complete (max latency cover) vs lazily on
   graduation. Intake-complete is better unless it complicates the request path.
-- **Moderation depth** — is the PG-13 prompt + reserved-name guard enough for v1,
-  or do we want an explicit moderation call before generation?
+- ~~Moderation depth~~ — **decided:** no custom gate for v1 (private, self-
+  requested sandbox); provider-default safety + PG-13 prompt + reserved-name guard.
+  Revisit only if guests ever become shareable to other players.
 - **Persistence beyond onboarding** — do guests stick around in the sandbox after
   the first session, or are they a one-time welcome cohort? (v1: they persist as
   non-circulating sandbox personas; revisit climbing-with-you later.)
