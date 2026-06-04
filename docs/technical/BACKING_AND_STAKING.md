@@ -2,7 +2,7 @@
 purpose: Architecture of the cash-mode backing/staking economy — how stakes are offered, accepted, carried, and settled, and how they touch the chip ledger
 type: architecture
 created: 2026-06-03
-last_updated: 2026-06-03
+last_updated: 2026-06-04
 ---
 
 # Backing & Staking
@@ -55,6 +55,7 @@ line 1) with the table created via `poker/repositories/schema_manager.py`.
 | `staker_payout` / `borrower_payout` | v106 — chips returned each side, for Net Worth P&L; NULL on active/legacy rows |
 | `pending_forgiveness_ask` | v110 — set when an AI borrower awaits a *human* staker's grant/refuse |
 | `table_id` | v111 — lobby table the stake opened against; NULL on AI↔AI + legacy rows. Purely additive; settlement stays keyed on `session_id` |
+| `resolution` | v150 — display label for *how* a closed stake resolved when `status` alone isn't specific. `'bankruptcy'` for carries discharged by the insolvency valve (§4); NULL for ordinary settle/default. Status stays `defaulted`, so default-counting consumers are unaffected — this only drives the Net Worth history badge |
 
 Status constants: `STAKE_STATUS_ACTIVE`/`SETTLED`/`CARRY`/`DEFAULTED`
 (`cash_mode/stakes.py:44-47`).
@@ -191,11 +192,18 @@ delegates to the pure-math kernel `_compute_chip_flows(stake, chips_at_leave)`
 |------|-----------|--------------|----------------|--------|-------|
 | **Full bust** | `chips_at_leave ≤ 0` | 0 | 0 | `carry` | `principal` |
 | **Clean settle** | `net_winnings ≥ 0` (`chips_at_leave ≥ invested`) | `principal + ⌊cut×net⌋` | `match_amount + (net − staker_cut)` | `settled` | 0 |
-| **Partial carry** | else (`0 < chips_at_leave < invested`) | `min(chips_at_leave, principal)` | `max(0, chips − staker_total)` | `carry` | `principal − staker_total` |
+| **Partial carry** | else (`0 < chips_at_leave < invested`) | `min(chips_at_leave, principal)` | `max(0, chips − staker_total)` | `carry` if `carry > 0` else `settled` | `principal − staker_total` |
 
 where `net_winnings = chips_at_leave − invested`. The staker's principal is the
 **protected layer** — on a partial bust they recover first, the borrower gets the
 remainder.
+
+When the partial-bust path leaves `carry_amount == 0` — the staker fully recovered
+principal and only the *borrower's* own match took the loss — the kernel returns
+`settled`, not a `$0` carry (`cash_mode/stake_settlement.py:340`). Only `match_share`
+stakes reach this (a `pure` stake busting below `invested` always has
+`chips_at_leave < principal`, so `carry > 0`). Without the clean-settle, a zeroed
+carry surfaced as a phantom "$0 owed" receivable.
 
 **House override**: when `staker_kind='house'` and the math returns `carry`, the
 result is forced to `settled` with the balance forgiven. This override lives in the
@@ -226,17 +234,44 @@ A *natural* carry fires no event — the debt just persists. A second axis table
 (`relationship_events.py:319`) carries the mirrored/recipient-side shifts. Event enum
 values at `relationship_events.py:96-100`.
 
-### Four ways out of a carry
+### Five ways out of a carry
 
-Per the handoff (locked decision #12), **none of the four paths forces a bankroll
+Per the handoff (locked decision #12), the first four paths **never force a bankroll
 payment as a precondition to play** — the mechanic is reputation-driven, not a payment
-wall:
+wall. The fifth (bankruptcy) is the involuntary terminal valve for a borrower who can't
+use any of the others:
 
-1. **Voluntary payoff** — debit bankroll → staker.
+1. **Voluntary payoff** — debit bankroll → staker. AI-side: `try_ai_voluntary_payoff`.
+   Targets the carry whose staker the borrower most *prefers* (highest
+   borrower→staker likability, oldest as tiebreak), not strict-oldest — "pay the people
+   you like first" (`_select_payoff_target`, `cash_mode/ai_carry_resolution.py:545`).
 2. **Garnishment** — a slice of a *new* stake's winnings, applied as a rate bump on the
    same staker's next offer.
 3. **Forgiveness** — ask via relationship axes (`/request-forgiveness`); rate-limited.
 4. **Explicit default** — clears the carry, takes the reputation hit (`STAKE_DEFAULTED`).
+   AI-side fires only under sustained pressure (≥ `0.6`), so a positive-relationship
+   carry can't reach it.
+5. **Bankruptcy** — the terminal valve (`try_ai_bankruptcy`,
+   `cash_mode/ai_carry_resolution.py:1254`). Fires when an AI borrower's *oldest* carry
+   is past `BANKRUPTCY_TIMER_DAYS` (7) **and** they're insolvent (liquid bankroll < total
+   outstanding carries). Liquidates the bankroll pro-rata across *all* creditors
+   (rounding remainder to the largest carry — no chip destruction), defaults the
+   remainder of every carry, zeroes the bankroll, and records the event. Resolves first
+   in `resolve_ai_carries`, so a bankrupt AI skips the other paths that tick. The
+   chips→0 outcome feeds the existing side-hustle recovery loop next refresh. No free
+   pass either side: the staker recovers only what's there (real downside risk), the AI
+   eats a `STAKE_DEFAULTED` per creditor + a recorded `bankruptcy_count`.
+
+**Bankruptcy credit history (per-sandbox).** `ai_bankroll_state.bankruptcy_count` +
+`last_bankruptcy_at` (schema v149) record the consequence. They drive a **post-bankruptcy
+loan-term penalty**: a recently-bankrupt borrower's `take_stake` cut is bumped
+(`bankruptcy_penalized_cut`, `cash_mode/movement.py:1057`) — a credit-score ding, not a
+lockout — that **decays linearly to 0 over `BANKRUPTCY_PENALTY_DECAY_DAYS` (30)**, the v1
+time-decay redemption. Stacks on the garnishment bump under the shared
+`GARNISHMENT_ABSOLUTE_CAP` (0.55). The lifetime count surfaces on the character dossier
+as a gated **credit-history** section (free to a staker the borrower has personally
+defaulted on; otherwise an informant purchase) — `flask_app/routes/character_routes.py`,
+`stake_repo.has_defaulted_stake`.
 
 ---
 
