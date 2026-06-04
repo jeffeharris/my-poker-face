@@ -858,13 +858,22 @@ class PersonalityRepository(BaseRepository):
                 self.update_personality_config(name, config, source='personalities.json')
                 updated += 1
             else:
-                # The curated celebrity corpus IS the live pool, so seed it
-                # circulating=1 explicitly. Without this a fresh-install DB
-                # would land every celebrity at the new circulating=0 default
-                # and start with an empty opponent pool. (Re-seeds of an
-                # existing row go through update_personality_config above,
-                # which leaves circulating untouched = preserved.)
-                self.save_personality(name, config, source='personalities.json', circulating=True)
+                # The curated cast IS the live pool, so seed it circulating=1 by
+                # default. A persona can opt OUT with `"circulating": false` in
+                # its JSON entry — used to keep eval/control bots, IP-risk
+                # holdovers, and bench extras out of the auto-seeded lobby while
+                # still shipping them in the corpus (selectable/promotable later).
+                # Without the default, a fresh-install DB would land every
+                # persona at the circulating=0 default and start with an empty
+                # opponent pool. (Re-seeds of an existing row go through
+                # update_personality_config above, which leaves circulating
+                # untouched = preserved.) The flag lives in its own column, not
+                # config_json, so strip it from the config before saving.
+                circ = config.get('circulating', True)
+                seed_config = {k: v for k, v in config.items() if k != 'circulating'}
+                self.save_personality(
+                    name, seed_config, source='personalities.json', circulating=bool(circ)
+                )
                 added += 1
 
         logger.info(
