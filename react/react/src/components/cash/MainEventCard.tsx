@@ -30,6 +30,14 @@ function formatChips(n: number): string {
   return n.toLocaleString('en-US');
 }
 
+/** "1st" / "2nd" / "3rd" / "4th"… for a finishing place. */
+function ordinalPlace(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const suffix = { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th';
+  return `${n}${suffix}`;
+}
+
 /** Live "starts in Xm Ys" countdown for an invite with an expiry window, or
  *  null when the offer has no auto-expiry (the player decides when present). */
 function useCountdown(expiresAt: string | null): string | null {
@@ -151,10 +159,35 @@ export function MainEventCard({
             <Coins size={14} aria-hidden="true" />
             {isFreeroll ? 'Freeroll' : `${formatChips(invite.buy_in)} buy-in`}
           </span>
+          {invite.prize_pool_estimate ? (
+            <span className="main-event__stat">
+              <Trophy size={14} aria-hidden="true" />~{formatChips(invite.prize_pool_estimate)}{' '}
+              purse
+            </span>
+          ) : null}
           <span className="main-event__stat">
             {formatChips(invite.starting_stack)} starting stack
           </span>
         </div>
+
+        {invite.payouts && invite.payouts.length > 0 && (
+          <div className="main-event__payouts">
+            <div className="main-event__payouts-title">Payouts (est.)</div>
+            {invite.payouts.map((p) => (
+              <div key={p.finishing_position} className="main-event__payout-row">
+                <span className="main-event__payout-place">
+                  {ordinalPlace(p.finishing_position)}
+                </span>
+                <span className="main-event__payout-amount">{formatChips(p.amount)}</span>
+                {invite.renown_enabled && p.renown ? (
+                  <span className="main-event__payout-renown" title="Renown earned">
+                    ★{p.renown}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
 
         {error && (
           <div className="main-event__error" role="alert">

@@ -418,11 +418,22 @@ def _economy_repos():
     )
 
 
-def _invite_view(invite: dict | None) -> dict | None:
-    """Trim the invite row to the lobby-card payload."""
+def _invite_view(
+    invite: dict | None,
+    *,
+    prize_pool: int | None = None,
+    payouts: list | None = None,
+    renown_enabled: bool = False,
+) -> dict | None:
+    """Trim the invite row to the lobby-card payload.
+
+    `prize_pool`/`payouts`/`renown_enabled` are the (estimated) economy preview for
+    the registration card (#2) — computed by the caller from the live bank state,
+    so the purse is an ESTIMATE (the actual pool is fixed at register/accept time
+    and can drift with the bank). Omitted when not supplied."""
     if invite is None:
         return None
-    return {
+    view = {
         'invite_id': invite['invite_id'],
         'status': invite['status'],
         'buy_in': invite['buy_in'],
@@ -431,6 +442,39 @@ def _invite_view(invite: dict | None) -> dict | None:
         'starting_stack': invite['starting_stack'],
         'expires_at': invite['expires_at'],
     }
+    if prize_pool is not None:
+        view['prize_pool_estimate'] = int(prize_pool)
+        view['payouts'] = payouts or []
+        view['renown_enabled'] = bool(renown_enabled)
+    return view
+
+
+def _invite_economy_preview(invite: dict | None, *, ledger_repo, sandbox_id: str):
+    """(prize_pool_estimate, payouts, renown_enabled) for the registration card,
+    or (None, None, False) when there's no invite. Best-effort: any failure
+    degrades to no preview rather than 500-ing the lobby. The purse is an estimate
+    — `plan_funding` reads the CURRENT bank, the actual pool is set at accept."""
+    if invite is None:
+        return None, None, False
+    try:
+        from cash_mode import economy_flags
+        from flask_app.services import tournament_economy_service as econ
+        from flask_app.services.tournament_renown import payout_breakdown
+
+        plan = econ.plan_funding(
+            ledger_repo=ledger_repo,
+            sandbox_id=sandbox_id,
+            field_size=invite['field_size'],
+            buy_in=invite['buy_in'],
+            human_in=True,
+        )
+        prize_pool = int(plan.prize_pool)
+        renown_enabled = bool(economy_flags.TOURNAMENT_DRAW_ENABLED)
+        payouts = payout_breakdown(invite['field_size'], prize_pool, with_renown=renown_enabled)
+        return prize_pool, payouts, renown_enabled
+    except Exception:  # noqa: BLE001 — preview only; never break the lobby card
+        logger.exception("invite economy preview failed (sandbox=%s)", sandbox_id)
+        return None, None, False
 
 
 @tournament_bp.route('/api/tournament/invite', methods=['GET'])
@@ -476,7 +520,19 @@ def get_invite():
         except Exception:  # noqa: BLE001 — surfacing is best-effort; never 500 the lobby
             logger.exception("invite offer/expire sweep failed for %s", owner_id)
         invite = invites.active_invite(repos['invite_repo'], owner_id)
-    return jsonify({'invite': _invite_view(invite)})
+    prize_pool, payouts, renown_enabled = _invite_economy_preview(
+        invite, ledger_repo=repos['ledger_repo'], sandbox_id=sandbox_id
+    )
+    return jsonify(
+        {
+            'invite': _invite_view(
+                invite,
+                prize_pool=prize_pool,
+                payouts=payouts,
+                renown_enabled=renown_enabled,
+            )
+        }
+    )
 
 
 def _leave_cash_if_seated(owner_id: str) -> bool:

@@ -89,6 +89,47 @@
   color: rgba(231, 198, 96, 0.7);
 }
 
+.main-event__payouts {
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+}
+
+.main-event__payouts-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(246, 232, 192, 0.55);
+  margin-bottom: 4px;
+}
+
+.main-event__payout-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  padding: 1px 0;
+}
+
+.main-event__payout-place {
+  min-width: 2.4rem;
+  color: rgba(246, 232, 192, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+
+.main-event__payout-amount {
+  flex: 1;
+  font-weight: 600;
+  color: rgba(231, 198, 96, 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+.main-event__payout-renown {
+  color: rgba(246, 232, 192, 0.6);
+  font-size: 0.78rem;
+}
+
 .main-event__error {
   margin: 8px 0 0;
   padding: 7px 10px;

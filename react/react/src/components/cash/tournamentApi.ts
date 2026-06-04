@@ -22,6 +22,13 @@ export interface TournamentInvite {
   starting_stack: number;
   /** ISO-8601 expiry, or null when the offer has no auto-expiry window. */
   expires_at: string | null;
+  /** Estimated total purse (chips). An estimate — the actual pool is fixed at
+   *  registration and can drift with the bank. Absent if the preview failed. */
+  prize_pool_estimate?: number;
+  /** Per-place prize + renown for in-the-money places. */
+  payouts?: { finishing_position: number; amount: number; renown?: number }[];
+  /** Whether renown is being awarded (TOURNAMENT_DRAW_ENABLED). */
+  renown_enabled?: boolean;
 }
 
 export interface InviteResponse {
