@@ -221,6 +221,14 @@ DIRECTOR_INEQUALITY_RAKE: bool = _env_flag("DIRECTOR_INEQUALITY_RAKE", False)
 INEQUALITY_FLAT_THRESHOLD: float = 2.5  # p90/median at/below this → flat field
 INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per sandbox
 
+# Casino/whale pool thresholds relative to holdings. The spawn/close/whale gates
+# are absolute chip counts (5k/50k/100k …) that don't scale as the roster (and
+# thus total holdings) grows. When on, `casino_provisioning` treats them as
+# FRACTIONS of holdings instead (calibrated to ~the absolute values at the launch
+# ~$2.64M holdings), so casinos open/close at the same relative bank depth at any
+# economy size. Default OFF — sim-validate with the rest of the thermostat.
+CASINO_RELATIVE_THRESHOLDS: bool = _env_flag("CASINO_RELATIVE_THRESHOLDS", False)
+
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
 

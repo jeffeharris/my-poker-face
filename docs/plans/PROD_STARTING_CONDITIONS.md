@@ -491,5 +491,6 @@ remaining 71 to be generated in tier batches.
       `false` = 3 control bots + 2 IP-risk Bob Ross/Dr. Seuss + 9 fish + 15 bench
       extras). `seed_personalities_from_json` honours the flag (default `true`).
       Fresh seed now circulates exactly the 76 cast (verified: eligible 93→76).
-- [ ] Concentrate cold-start tables to ~8 (update `lobby_config.py`).
+- [~] ~~Concentrate cold-start tables to ~8~~ — **dropped (not needed for
+      release, 2026-06-04).** The current 11-table layout is fine to ship.
 - [ ] Verify Σ(bankrolls) and the 5% reserve seed against the live ledger.
