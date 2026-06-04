@@ -111,3 +111,49 @@ def reconcile_ledger_completeness(
                 )
 
     return report
+
+
+def _main() -> int:
+    """CLI / cron entrypoint: `python -m cash_mode.ledger_reconcile [--apply]`.
+
+    Dry-run by default (prints the drift it WOULD correct); `--apply` writes the
+    `ledger_reconciliation` entries. Scheduling this on a low cadence (cron /
+    out-of-band, NOT the hot world tick — it scans every bankroll) is the Phase
+    E periodic safety net. Run `--apply` with the backend stopped for a clean
+    one-time pass.
+    """
+    import argparse
+
+    from poker.repositories.bankroll_repository import BankrollRepository
+    from poker.repositories.chip_ledger_repository import ChipLedgerRepository
+
+    ap = argparse.ArgumentParser(description="Reconcile bankroll ints vs ledger-derived balances.")
+    ap.add_argument("--db", default="/app/data/poker_games.db")
+    ap.add_argument("--apply", action="store_true", help="commit (default: dry-run)")
+    ap.add_argument("--sandbox", default=None, help="scope to one sandbox (default: all)")
+    args = ap.parse_args()
+
+    ledger = ChipLedgerRepository(args.db)
+    bankroll = BankrollRepository(args.db)
+    bankroll.chip_ledger_repo = ledger
+    try:
+        report = reconcile_ledger_completeness(
+            bankroll_repo=bankroll,
+            ledger_repo=ledger,
+            sandbox_id=args.sandbox,
+            apply=args.apply,
+        )
+    finally:
+        ledger.close()
+        bankroll.close()
+
+    print(f"AI bankrolls:     checked={report.ai_checked} adjusted={report.ai_adjusted}")
+    print(f"Player bankrolls: checked={report.player_checked} adjusted={report.player_adjusted}")
+    print(f"total |drift| corrected: {report.total_abs_drift}")
+    print(f"net drift (stored−derived): {report.net_drift}")
+    print("APPLIED" if report.applied else "DRY RUN — pass --apply to commit.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
