@@ -328,6 +328,9 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     # event-emit block below so a quadrant-shift beat it records into the
     # activity buffer rides out on this same tick.
     _maybe_recompute_prestige(owner_id, sandbox_id)
+    # Career M2: fire an emergent vouch if a played-with AI now likes+respects the
+    # player enough. Before the emit block so the EVENT_VOUCH rides out this tick.
+    _maybe_fire_vouches(owner_id, sandbox_id)
 
     room = presence.lobby_room_name(owner_id)
     # Push new ticker events (newest-first from the buffer; emit oldest
@@ -345,6 +348,101 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
 
     # Lightweight nudge so a mounted lobby refetches the snapshot.
     socketio.emit("lobby_tick", {"sandbox_id": sandbox_id, "ts": time.time()}, to=room)
+
+
+def _resolve_ai_room(table_repo, sandbox_id: str, ai_id: str):
+    """Where `ai_id` currently sits in this sandbox, as
+    (table_id, stake_label, table_name, ai_display_name), or None if not seated.
+
+    Restricted to the cardroom ladder (`table_type == 'lobby'`) — a vouch reveals
+    a real next room, never the scripted Scene-0 table or the ephemeral casino floor.
+    """
+    for table in table_repo.list_all_tables(sandbox_id=sandbox_id):
+        if getattr(table, "table_type", "lobby") != "lobby":
+            continue
+        for seat in table.seats or []:
+            if isinstance(seat, dict) and seat.get("personality_id") == ai_id:
+                ai_name = seat.get("name") or ai_id
+                table_name = table.name or table.stake_label
+                return table.table_id, table.stake_label, table_name, ai_name
+    return None
+
+
+def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
+    """Career M2: fire at most one emergent vouch for the player this tick.
+
+    Reads the player's inbound regard, ranks the `vouch_ready` (respect-gated,
+    likability-driven), not-yet-vouched AIs they've played with by eagerness, and
+    reveals the warmest one's current room. Flag-gated (`CAREER_VOUCH_ENABLED`),
+    career-only (`career_active + tutorial_complete`), one per sandbox per tick
+    (slow growth). Best-effort — a failure here never breaks the world tick.
+    """
+    from cash_mode import career_progression as cp, economy_flags
+    from flask_app import extensions
+
+    if not economy_flags.CAREER_VOUCH_ENABLED:
+        return
+    repo = getattr(extensions, "career_progress_repo", None)
+    rel_repo = getattr(extensions, "relationship_repo", None)
+    table_repo = getattr(extensions, "cash_table_repo", None)
+    if repo is None or rel_repo is None or table_repo is None:
+        return
+
+    try:
+        progress = repo.load(sandbox_id, owner_id)
+        if not (progress.career_active and progress.tutorial_complete):
+            return
+
+        # Inbound regard: every AI who's interacted with the player has an edge.
+        inbound = rel_repo.load_inbound_relationships(owner_id)
+        if not inbound:
+            return
+
+        ready = []
+        for ai_id, state in inbound.items():
+            if ai_id == owner_id:
+                continue
+            is_ready = cp.vouch_ready(
+                respect=state.respect,
+                likability=state.likability,
+                played_with=True,  # an inbound edge means they've sat together
+                already_vouched=progress.has_vouched(ai_id),
+            )
+            # Instrumentation (feeds threshold tuning): how close is the field?
+            logger.info(
+                "[VOUCH] eval sandbox=%s ai=%s respect=%.2f like=%.2f vouched=%s ready=%s",
+                sandbox_id,
+                ai_id,
+                state.respect,
+                state.likability,
+                progress.has_vouched(ai_id),
+                is_ready,
+            )
+            if is_ready:
+                ready.append((cp.vouch_eagerness(state.likability), ai_id))
+
+        if not ready:
+            return
+
+        # Warmest first; fire exactly one (the world blooms a room at a time).
+        ready.sort(key=lambda t: t[0], reverse=True)
+        _eager, voucher_id = ready[0]
+        room = _resolve_ai_room(table_repo, sandbox_id, voucher_id)
+        if room is None:
+            return  # voucher is between rooms — try again next tick
+        table_id, stake_label, table_name, voucher_name = room
+        cp.fire_vouch(
+            career_progress_repo=repo,
+            sandbox_id=sandbox_id,
+            owner_id=owner_id,
+            voucher_id=voucher_id,
+            voucher_name=voucher_name,
+            table_id=table_id,
+            stake_label=stake_label,
+            table_name=table_name,
+        )
+    except Exception:
+        logger.exception("[TICKER] vouch evaluation failed for owner=%s", owner_id)
 
 
 def _maybe_record_holdings_snapshot(sandbox_id: str) -> None:

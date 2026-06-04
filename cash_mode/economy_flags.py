@@ -303,6 +303,13 @@ RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
 # docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage B / B4).
 PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 
+# Career M2 — emergent vouches. When on, the world ticker evaluates the player's
+# inbound regard edges and fires at most one `vouch_ready` AI per sandbox per tick
+# to reveal that AI's room (slow growth). Default OFF so it ships dark and flips on
+# after a live playtest; only engages for a career sandbox (career_active +
+# tutorial_complete). See docs/plans/CASH_MODE_CAREER_M2_PLAN.md.
+CAREER_VOUCH_ENABLED: bool = _env_flag("CAREER_VOUCH_ENABLED", False)
+
 
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
