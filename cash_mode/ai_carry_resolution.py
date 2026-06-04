@@ -763,85 +763,102 @@ def try_ai_voluntary_payoff(
     # the chip-ledger audit balances. Without this, `ai_bankrolls_stored`
     # silently inflates on every voluntary payoff (regen chips appear
     # on the borrower's row with no matching ledger creation).
-    bankroll_repo.save_ai_bankroll(
-        AIBankrollState(
-            personality_id=personality_id,
-            chips=max(0, projected - payment),
-            last_regen_tick=now,
-        ),
-        sandbox_id=sandbox_id,
+    new_state = AIBankrollState(
+        personality_id=personality_id,
+        chips=max(0, projected - payment),
+        last_regen_tick=now,
     )
-    if chip_ledger_repo is not None and projected > stored.chips:
-        from core.economy import ledger as chip_ledger
 
-        chip_ledger.record_ai_regen(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            stored_chips=stored.chips,
-            projected_chips=projected,
-            context={
-                'stake_id': target.stake_id,
-                'site': 'ai_voluntary_payoff',
-                'sandbox_id': sandbox_id,
-            },
-            sandbox_id=sandbox_id,
-        )
-
-    # Chip-custody: the borrower→staker payoff is a pure bankroll transfer
-    # (no seat). The borrower debit (save above) and the staker credit (below)
-    # are each unledgered today — record ONE `stake_payoff` transfer so both
-    # sides stay derivable. The staker-credit helper is told `from_seat=False`
-    # so it does NOT also emit a seat `ai_cash_out` (which would double-count).
+    # Chip-custody atomicity: the borrower debit + its regen + the staker
+    # credit + the ONE `stake_payoff` transfer (borrower → staker) all commit
+    # in a single transaction so a crash can't split the borrower's int from
+    # the row recording where it went. The AI-staker credit goes through
+    # credit_ai_cash_out, whose own unit-of-work nests into this one (re-entrant
+    # transaction()); the staker-credit helper is told `from_seat=False` so it
+    # does NOT emit a seat `ai_cash_out` (the stake_payoff is the record).
+    # `conn` is None for test doubles / cross-DB → prior separate writes.
     from cash_mode import economy_flags
+    from cash_mode.bankroll import chip_unit_of_work
     from core.economy import ledger as chip_ledger
 
     _custody = chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED
-    if target.staker_kind == STAKER_KIND_HUMAN:
-        # Route the credit to player_bankroll_state. credit_ai_cash_out
-        # would write into a phantom AI bankroll keyed by the human's
-        # owner_id (the bug the v110 routing fix addresses).
-        from cash_mode.bankroll import PlayerBankrollState
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        # Commit the projected-and-debited chip count with a fresh
+        # last_regen_tick. The `projected - stored` delta is regen that just
+        # entered the universe via this write — fire `ai_regen` so the audit
+        # balances (without it `ai_bankrolls_stored` silently inflates).
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+        else:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+        if chip_ledger_repo is not None and projected > stored.chips:
+            chip_ledger.record_ai_regen(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                stored_chips=stored.chips,
+                projected_chips=projected,
+                context={
+                    'stake_id': target.stake_id,
+                    'site': 'ai_voluntary_payoff',
+                    'sandbox_id': sandbox_id,
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
 
-        bankroll_repo.save_player_bankroll(
-            PlayerBankrollState(
+        if target.staker_kind == STAKER_KIND_HUMAN:
+            # Route the credit to player_bankroll_state. credit_ai_cash_out
+            # would write into a phantom AI bankroll keyed by the human's
+            # owner_id (the bug the v110 routing fix addresses).
+            from cash_mode.bankroll import PlayerBankrollState
+
+            new_player = PlayerBankrollState(
                 player_id=human_staker_bankroll.player_id,
                 chips=human_staker_bankroll.chips + payment,
                 starting_bankroll=human_staker_bankroll.starting_bankroll,
-            ),
-        )
-        if _custody:
-            chip_ledger.record_stake_payoff(
-                chip_ledger_repo,
-                source=chip_ledger.ai(personality_id),
-                sink=chip_ledger.player(human_staker_bankroll.player_id),
-                amount=payment,
-                context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
-                sandbox_id=sandbox_id,
             )
-    else:
-        credit_ai_cash_out(
-            bankroll_repo,
-            target.staker_id,
-            payment,
-            sandbox_id=sandbox_id,
-            now=now,
-            chip_ledger_repo=chip_ledger_repo,
-            ledger_context={
-                'stake_id': target.stake_id,
-                'site': 'ai_voluntary_payoff',
-                'partial': not clears_carry,
-            },
-            from_seat=False,
-        )
-        if _custody:
-            chip_ledger.record_stake_payoff(
-                chip_ledger_repo,
-                source=chip_ledger.ai(personality_id),
-                sink=chip_ledger.ai(target.staker_id),
-                amount=payment,
-                context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
+            if conn is not None:
+                bankroll_repo.save_player_bankroll(new_player, conn=conn)
+            else:
+                bankroll_repo.save_player_bankroll(new_player)
+            if _custody:
+                chip_ledger.record_stake_payoff(
+                    chip_ledger_repo,
+                    source=chip_ledger.ai(personality_id),
+                    sink=chip_ledger.player(human_staker_bankroll.player_id),
+                    amount=payment,
+                    context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
+                    sandbox_id=sandbox_id,
+                    conn=conn,
+                )
+        else:
+            # credit_ai_cash_out opens its own chip_unit_of_work; with `conn`
+            # already open on this (same) bankroll_repo it nests and joins via
+            # the re-entrant transaction() rather than committing separately.
+            credit_ai_cash_out(
+                bankroll_repo,
+                target.staker_id,
+                payment,
                 sandbox_id=sandbox_id,
+                now=now,
+                chip_ledger_repo=chip_ledger_repo,
+                ledger_context={
+                    'stake_id': target.stake_id,
+                    'site': 'ai_voluntary_payoff',
+                    'partial': not clears_carry,
+                },
+                from_seat=False,
             )
+            if _custody:
+                chip_ledger.record_stake_payoff(
+                    chip_ledger_repo,
+                    source=chip_ledger.ai(personality_id),
+                    sink=chip_ledger.ai(target.staker_id),
+                    amount=payment,
+                    context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
+                    sandbox_id=sandbox_id,
+                    conn=conn,
+                )
 
     # Settlement transitions on full clear; partial just decrements
     # carry_amount and leaves status='carry'. Status-flip side effects

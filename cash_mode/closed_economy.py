@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 
-from cash_mode.bankroll import AIBankrollState, project_bankroll
+from cash_mode.bankroll import AIBankrollState, chip_unit_of_work, project_bankroll
 from core.economy import ledger as chip_ledger
 from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
@@ -536,38 +536,45 @@ def resolve_fake_vice_deposits(
 
     deposits: List[FakeViceDeposit] = []
     for pid, state, knobs, projected, amount, excess, prob in rolls:
-        # Commit any uncommitted regen first (matches the `try_ai_voluntary_payoff`
-        # pattern in ai_carry_resolution — the bankroll write captures the
-        # projected value, so the regen delta needs a ledger row.)
-        if projected > state.chips:
-            chip_ledger.record_ai_regen(
-                chip_ledger_repo,
-                personality_id=pid,
-                stored_chips=state.chips,
-                projected_chips=projected,
-                context={'site': 'fake_vice_regen_commit'},
-                sandbox_id=sandbox_id,
-            )
+        # Chip-custody atomicity: regen creation + int debit + the
+        # `bank_pool_deposit` destruction commit in ONE transaction. `conn` is
+        # None for test doubles / cross-DB → prior separate writes.
         new_chips = max(0, projected - amount)
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=pid,
-                chips=new_chips,
-                last_regen_tick=now,
-            ),
-            sandbox_id=sandbox_id,
+        new_state = AIBankrollState(
+            personality_id=pid,
+            chips=new_chips,
+            last_regen_tick=now,
         )
-        record_bank_pool_deposit(
-            chip_ledger_repo,
-            source=ai(pid),
-            amount=amount,
-            context={
-                'site': 'fake_vice_deposit',
-                'excess_ratio': round(excess, 3),
-                'vice_prob': round(prob, 3),
-            },
-            sandbox_id=sandbox_id,
-        )
+        with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+            # Commit any uncommitted regen first (matches the
+            # `try_ai_voluntary_payoff` pattern — the bankroll write captures
+            # the projected value, so the regen delta needs a ledger row.)
+            if projected > state.chips:
+                chip_ledger.record_ai_regen(
+                    chip_ledger_repo,
+                    personality_id=pid,
+                    stored_chips=state.chips,
+                    projected_chips=projected,
+                    context={'site': 'fake_vice_regen_commit'},
+                    sandbox_id=sandbox_id,
+                    conn=conn,
+                )
+            if conn is not None:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+            else:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+            record_bank_pool_deposit(
+                chip_ledger_repo,
+                source=ai(pid),
+                amount=amount,
+                context={
+                    'site': 'fake_vice_deposit',
+                    'excess_ratio': round(excess, 3),
+                    'vice_prob': round(prob, 3),
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
         deposits.append(
             FakeViceDeposit(
                 personality_id=pid,

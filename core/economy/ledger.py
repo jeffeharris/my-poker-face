@@ -1142,6 +1142,7 @@ def record_bank_pool_deposit(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """source → central_bank for chips deposited into the closed-economy pool.
 
@@ -1167,6 +1168,7 @@ def record_bank_pool_deposit(
         reason='bank_pool_deposit',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1177,6 +1179,7 @@ def record_vice_spending(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai → central_bank for a vice spend (real AI vice mechanic).
 
@@ -1202,6 +1205,7 @@ def record_vice_spending(
         reason='vice_spending',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1242,6 +1246,7 @@ def record_side_hustle_earning(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for a side-hustle payout drawn from the bank pool.
 
@@ -1268,6 +1273,7 @@ def record_side_hustle_earning(
         reason='side_hustle_earning',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
