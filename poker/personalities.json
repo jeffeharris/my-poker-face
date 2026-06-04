@@ -70,7 +70,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "abraham_lincoln"
     },
     "Winston Churchill": {
       "play_style": "stubborn and indomitable; tight, patient, and methodical, but once committed to a pot, he never surrenders it",
@@ -148,7 +149,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "winston_churchill"
     },
     "Napoleon": {
       "play_style": "bold and impulsive; relentlessly attacks pots with frequent raises and re-raises, but occasionally overreaches with thinly justified bluffs.",
@@ -227,7 +229,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "napoleon"
     },
     "Louis XIV": {
       "play_style": "extravagant and domineering; constantly raising to remind the table who's king",
@@ -310,7 +313,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "louis_xiv"
     },
     "King Henry VIII": {
       "play_style": "domineering and mercurial; relentlessly aggressive, pressures every pot",
@@ -392,7 +396,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "king_henry_viii"
     },
     "Socrates": {
       "play_style": "methodical and probing, luring opponents into self-destruction",
@@ -474,7 +479,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "socrates"
     },
     "Sherlock Holmes": {
       "play_style": "calculating and selectively aggressive, exploiting reads with precision",
@@ -553,7 +559,8 @@
       ],
       "skill": "shark",
       "adaptive_overbet": true,
-      "circulating": true
+      "circulating": true,
+      "id": "sherlock_holmes"
     },
     "Jay Gatsby": {
       "skill": "weak_reg",
@@ -672,7 +679,8 @@
       ],
       "skill": "shark",
       "nickname": "Mime",
-      "circulating": true
+      "circulating": true,
+      "id": "a_mime"
     },
     "Buddha": {
       "play_style": "serenely patient and deeply selective; folds anything not premium",
@@ -748,7 +756,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "buddha"
     },
     "Bob Ross": {
       "skill": "rec",
@@ -909,7 +918,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "blackbeard"
     },
     "Sun Tzu": {
       "play_style": "positional and patient; strikes only when weakness is detected",
@@ -984,7 +994,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "sun_tzu"
     },
     "Benjamin Franklin": {
       "play_style": "calculated value-focused aggression on strong hands; frugal but opportunistic",
@@ -1063,7 +1074,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "benjamin_franklin"
     },
     "Mark Twain": {
       "play_style": "folksy and observant, blending patience with wit",
@@ -1139,7 +1151,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "mark_twain"
     },
     "Nikola Tesla": {
       "play_style": "brilliantly unconventional and aggressive, often making moves others can't understand",
@@ -1222,7 +1235,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "nikola_tesla"
     },
     "Oscar Wilde": {
       "play_style": "balanced and witty; reads the room and adapts",
@@ -1301,7 +1315,8 @@
         ]
       ],
       "skill": "reg",
-      "circulating": true
+      "circulating": true,
+      "id": "oscar_wilde"
     },
     "Edgar Allan Poe": {
       "play_style": "cautious and brooding; only commits with premium hands",
@@ -1376,7 +1391,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "edgar_allan_poe"
     },
     "Machiavelli": {
       "play_style": "calculating and deceptive; every move serves a hidden end",
@@ -1450,7 +1466,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "machiavelli"
     },
     "Zeus": {
       "play_style": "thunderous, maniacal overbetting tyranny — raises and jams relentlessly, dares anyone to call",
@@ -1533,7 +1550,8 @@
         ]
       ],
       "skill": "reg",
-      "circulating": true
+      "circulating": true,
+      "id": "zeus"
     },
     "Cleopatra": {
       "play_style": "bold and unpredictable; applies pressure constantly",
@@ -1615,7 +1633,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "cleopatra"
     },
     "Marie Antoinette": {
       "skill": "reg",
@@ -1781,7 +1800,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "queen_elizabeth_i"
     },
     "Joan of Arc": {
       "play_style": "fearless and aggressive, often raising and re-raising with a wide range",
@@ -1860,7 +1880,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "joan_of_arc"
     },
     "Frida Kahlo": {
       "skill": "weak_reg",
@@ -2158,7 +2179,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "dracula"
     },
     "Ebenezer Scrooge": {
       "play_style": "extremely tight and passive, only committing chips with the nuts",
@@ -2237,7 +2259,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "ebenezer_scrooge"
     },
     "Robin Hood": {
       "play_style": "bold and unpredictable, relentless pressure with wide ranges",
@@ -2315,7 +2338,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "robin_hood"
     },
     "Don Quixote": {
       "play_style": "wild, reckless, and delusionally aggressive; raises and reraises with any two cards, chasing fantasy draws",
@@ -2389,7 +2413,8 @@
         ]
       ],
       "skill": "rec",
-      "circulating": true
+      "circulating": true,
+      "id": "don_quixote"
     },
     "Alice": {
       "play_style": "curious calling station; calls to see what happens, rarely raises, hard to bluff off a hand",
@@ -2465,7 +2490,8 @@
       ],
       "skill": "weak_reg",
       "nickname": "Alice",
-      "circulating": true
+      "circulating": true,
+      "id": "alice"
     },
     "Queen of Hearts": {
       "play_style": "wildly aggressive and erratic; raises and re-raises constantly regardless of hand strength, often jamming for maximum psychological pressure",
@@ -2541,7 +2567,8 @@
       ],
       "skill": "weak_reg",
       "nickname": "Queen of Hearts",
-      "circulating": true
+      "circulating": true,
+      "id": "queen_of_hearts"
     },
     "Cheshire Cat": {
       "play_style": "enigmatic and balanced; picks spots carefully but keeps you guessing",
@@ -2615,7 +2642,8 @@
       ],
       "skill": "shark",
       "nickname": "Cheshire Cat",
-      "circulating": true
+      "circulating": true,
+      "id": "cheshire_cat"
     },
     "Wicked Witch": {
       "skill": "weak_reg",
@@ -3616,7 +3644,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "king_midas"
     },
     "Genghis Khan": {
       "play_style": "relentless aggressor who attacks every pot like a battlefield",
@@ -3699,7 +3728,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "genghis_khan"
     },
     "Julius Caesar": {
       "play_style": "bold and imperial; applies relentless pressure and expansionist tactics, but overextends lines",
@@ -3777,7 +3807,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "julius_caesar"
     },
     "King Arthur": {
       "play_style": "disciplined and honorable, selectively aggressive with strong hands, plays a fair and round-table game",
@@ -3856,7 +3887,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "king_arthur"
     },
     "Andrew Carnegie": {
       "play_style": "calculated and value-driven, selectively aggressive",
@@ -3933,7 +3965,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "andrew_carnegie"
     },
     "Captain Ahab": {
       "play_style": "obsessive, relentless aggression, chases every hand like destiny",
@@ -4007,7 +4040,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "captain_ahab"
     },
     "P.T. Barnum": {
       "play_style": "aggressive and unpredictable, constantly applying pressure with a wide range",
@@ -4081,7 +4115,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "p_t_barnum"
     },
     "George Washington": {
       "play_style": "patient and principled, value-focused with discipline",
@@ -4154,7 +4189,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "george_washington"
     },
     "Sigmund Freud": {
       "play_style": "probing and calculated, uses aggression selectively to exploit subconscious tells",
@@ -4236,7 +4272,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "sigmund_freud"
     },
     "Wyatt Earp": {
       "play_style": "calculated, tight-aggressive; picks spots carefully and applies pressure with authority",
@@ -4313,7 +4350,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "wyatt_earp"
     },
     "Wild Bill Hickok": {
       "play_style": "calculated and patient, preferring to pick spots with strong hands and disciplined aggression",
@@ -4392,7 +4430,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "wild_bill_hickok"
     },
     "Ernest Hemingway": {
       "play_style": "terse value-betting with conviction; applies pressure when the story holds together",
@@ -4469,7 +4508,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "ernest_hemingway"
     },
     "Leonardo da Vinci": {
       "play_style": "inventive and balanced; approaches each hand from a novel angle",
@@ -4552,7 +4592,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "leonardo_da_vinci"
     },
     "Marie Curie": {
       "play_style": "methodical value-oriented pressure on strong hands; tight and calculated",
@@ -4632,7 +4673,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "marie_curie"
     },
     "William Shakespeare": {
       "play_style": "theatrical and balanced; treats each hand as a soliloquy, mixing bold bets with calculated folds",
@@ -4709,7 +4751,8 @@
         ]
       ],
       "skill": "reg",
-      "circulating": true
+      "circulating": true,
+      "id": "william_shakespeare"
     },
     "Dr. Jekyll & Mr. Hyde": {
       "play_style": "oscillates between disciplined tight and reckless loose mid-session",
@@ -4788,7 +4831,8 @@
         ]
       ],
       "skill": "reg",
-      "circulating": true
+      "circulating": true,
+      "id": "dr_jekyll_mr_hyde"
     },
     "Harry Houdini": {
       "play_style": "calculated and elusive, using misdirection to escape tight spots",
@@ -4866,7 +4910,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "harry_houdini"
     },
     "Baron Munchausen": {
       "play_style": "audaciously loose and aggressive, constant pressure with a flair for the unbelievable",
@@ -4940,7 +4985,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "baron_munchausen"
     },
     "Doc Holliday": {
       "play_style": "fearlessly aggressive and loose; applies relentless pressure, often betting and raising with a wide range",
@@ -5022,7 +5068,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "doc_holliday"
     },
     "William Wallace": {
       "play_style": "fearless and aggressive, applies constant pressure with a wide range",
@@ -5106,7 +5153,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "william_wallace"
     },
     "Santa Claus": {
       "play_style": "jolly calling station — sees all flops, rarely raises, pays off on rivers with a smile",
@@ -5181,7 +5229,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "santa_claus"
     },
     "Fyodor Dostoevsky": {
       "play_style": "compulsive, hyper-aggressive, and self-destructive; raises and bluffs relentlessly, often spewing chips",
@@ -5260,7 +5309,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "fyodor_dostoevsky"
     },
     "Salvador Dali": {
       "play_style": "surreal and aggressive: applies pressure with bizarre bet sizes and timing, defying logic",
@@ -5343,7 +5393,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "salvador_dali"
     },
     "Long John Silver": {
       "play_style": "aggressive, loose, and unpredictable with frequent bluffs",
@@ -5418,7 +5469,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "long_john_silver"
     },
     "Friar Tuck": {
       "play_style": "jovial and loose; calls often, rarely raises, but will chase draws with a grin",
@@ -5493,7 +5545,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "friar_tuck"
     },
     "Paul Bunyan": {
       "play_style": "aggressive, loose, and relentlessly pressuring opponents with large bets and frequent bluffs",
@@ -5571,7 +5624,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "paul_bunyan"
     },
     "Confucius": {
       "play_style": "patient and disciplined; waits for premium hands and strong draws",
@@ -5644,7 +5698,8 @@
         ]
       ],
       "skill": "reg",
-      "circulating": true
+      "circulating": true,
+      "id": "confucius"
     },
     "Frankenstein's Monster": {
       "play_style": "curious and sticky caller, rarely raises, hard to push off hands",
@@ -5719,7 +5774,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "frankenstein_s_monster"
     },
     "The Mad Hatter": {
       "play_style": "wild, maximum-pressure, all-in energy",
@@ -5793,7 +5849,8 @@
         ]
       ],
       "skill": "rec",
-      "circulating": true
+      "circulating": true,
+      "id": "the_mad_hatter"
     },
     "The Very-Mean Person": {
       "play_style": "aggressive and unpredictable, constant pressure and huge bluffs",
@@ -5869,7 +5926,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "the_very_mean_person"
     },
     "Bigfoot": {
       "play_style": "patient and deeply selective; folds everything except premium holdings, rarely seen at showdown",
@@ -5951,7 +6009,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "bigfoot"
     },
     "The Headless Horseman": {
       "play_style": "reckless and relentless; applies constant pressure with no regard for consequences",
@@ -6023,7 +6082,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "the_headless_horseman"
     },
     "Jesus": {
       "play_style": "patient calling station, rarely raises, hard to bluff",
@@ -6100,7 +6160,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "jesus"
     },
     "Pinocchio": {
       "play_style": "aggressive and loose, constantly applying pressure",
@@ -6175,7 +6236,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "pinocchio"
     },
     "A Guy Who Tells Too Many Dad Jokes": {
       "play_style": "balanced and chatty; uses dad jokes to annoy opponents off their game",
@@ -6254,7 +6316,8 @@
         ]
       ],
       "skill": "reg",
-      "circulating": true
+      "circulating": true,
+      "id": "a_guy_who_tells_too_many_dad_jokes"
     },
     "Rip Van Winkle": {
       "play_style": "sleepy and selective; folds everything except premium hands, plays them slowly",
@@ -6329,7 +6392,8 @@
         ]
       ],
       "skill": "rec",
-      "circulating": true
+      "circulating": true,
+      "id": "rip_van_winkle"
     },
     "The Tooth Fairy": {
       "play_style": "steady and methodical; quietly collects value from solid hands, rarely bluffs",
@@ -6411,7 +6475,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "the_tooth_fairy"
     },
     "A Caricature Tech Bro": {
       "play_style": "aggressive and unpredictable, constantly applying pressure with a wide range",
@@ -6484,7 +6549,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "a_caricature_tech_bro"
     },
     "An Over-Caffeinated Barista": {
       "play_style": "frenetic and loose, raises relentlessly, plays at double speed",
@@ -6567,7 +6633,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "an_over_caffeinated_barista"
     },
     "A Conspiracy Theorist": {
       "play_style": "calculated and pattern-obsessed; trusts the grand plan",
@@ -6641,7 +6708,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "a_conspiracy_theorist"
     },
     "A Soap-Opera Villain": {
       "play_style": "dramatic and overbearing, always applying pressure with theatrical flair",
@@ -6715,7 +6783,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "a_soap_opera_villain"
     },
     "A Disgraced Weatherman": {
       "play_style": "balanced with a touch of overconfidence; plays a solid game but misreads situations",
@@ -6794,7 +6863,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "a_disgraced_weatherman"
     },
     "An Alien": {
       "play_style": "curious caller, rarely raises, hard to bluff off a hand",
@@ -6869,7 +6939,8 @@
         ]
       ],
       "skill": "rec",
-      "circulating": true
+      "circulating": true,
+      "id": "an_alien"
     },
     "A Baby": {
       "play_style": "curious caller, rarely raises, hard to bluff off a hand",
@@ -6944,7 +7015,8 @@
         ]
       ],
       "skill": "rec",
-      "circulating": true
+      "circulating": true,
+      "id": "a_baby"
     },
     "Diogenes": {
       "play_style": "aggressive and unpredictable; applies relentless pressure while mocking opponents",
@@ -7026,7 +7098,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "diogenes"
     },
     "The Gingerbread Man": {
       "play_style": "cautious and tight, rarely entering pots without strong holdings",
@@ -7102,7 +7175,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "the_gingerbread_man"
     },
     "Alexander the Great": {
       "play_style": "relentlessly aggressive, applying constant pressure with a wide range; conquers pots through sheer force",
@@ -7185,7 +7259,8 @@
         ]
       ],
       "skill": "shark",
-      "circulating": true
+      "circulating": true,
+      "id": "alexander_the_great"
     },
     "King Tut": {
       "play_style": "recklessly aggressive, applying constant pressure with a wide range",
@@ -7260,7 +7335,8 @@
         ]
       ],
       "skill": "weak_reg",
-      "circulating": true
+      "circulating": true,
+      "id": "king_tut"
     }
   }
 }
