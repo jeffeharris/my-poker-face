@@ -120,6 +120,21 @@ one band. Wired at both rake sites (`game_handler._apply_rake_to_winner`,
 `full_sim._apply_rake_to_winner`) via the new `compute_rake(..., stake_big_blinds=,
 rate=)` overrides. Flag-off = byte-identical static rake.
 
+**Policy hold — shipped 2026-06-04 (flag `DIRECTOR_POLICY_HOLD`, default OFF).**
+The reserve-gated schedule above otherwise re-runs the `signal()` ledger
+aggregate scan PER HAND, on the hot rake path, for a band that only drifts over
+many hands. When on, `cash_mode/director_policy` HOLDS the resolved
+`(stake_big_blinds, rate)` for a `POLICY_WINDOW_SECONDS` (300s) window and
+recomputes it only in the lobby refresh (`refresh_director_policy`, the same
+throttle model as the field-inequality read), so the per-hand rake just reads a
+cached scalar. `resolve_rake_params` gained a `_fresh=` bypass: the refresh calls
+it `_fresh=True` to recompute the held value; per-hand reads (`_fresh=False`)
+return the held one, and a cold cache (before the first refresh) falls through to
+a live compute so opening hands still rake correctly. Implies `RAKE_RESERVE_GATED`
+(it holds that schedule). Vice + side-hustle stay per-tick (the always-on bounds
+that must react immediately); the casino lifecycle is already window-stable. Flag
+off = byte-identical (live compute every call).
+
 ### 1.5 Vice ↔ Side-hustle symmetry + the escrow fix
 
 Vice and side-hustle are **opposite faucets** and should ride the same band:
@@ -490,6 +505,10 @@ remaining 71 to be generated in tier batches.
       rate across 3 reserve bands — `{1000}`@2% / `{1000,200}`@3% / `{1000,200,50}`@4%
       (`RAKE_RESERVE_GATED`, default OFF; `resolve_rake_params` + ratio-keyed
       `cash_rake_schedule`). Done 2026-06-04.
+- [x] Director policy hold: hold the rake schedule for a `POLICY_WINDOW_SECONDS`
+      window (`cash_mode/director_policy`, recomputed in the lobby refresh, read by
+      `resolve_rake_params` via the `_fresh=` bypass) so the per-hand rake skips the
+      ledger signal scan (`DIRECTOR_POLICY_HOLD`, default OFF). Done 2026-06-04.
 - [x] Re-gate vice intensity on reserve deficit (`VICE_RESERVE_GATED`, default
       OFF; `reserve_vice_multiplier`). Done 2026-06-04. Follow-up: gate the
       `commit_leave_vice` seated→leave intercept too.

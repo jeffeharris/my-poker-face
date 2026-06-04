@@ -38,6 +38,7 @@ memory).
 | `VICE_RESERVE_GATED` | Vice (drains the rich → pool) refill scales with the reserve deficit; full at the 0.06 floor, **tapers to off at the 0.18 ceiling ABOVE the 0.12 trigger** (so it crosses the trigger + brakes when hot). |
 | `RAKE_RESERVE_GATED` | Rake graduates BOTH tiers and rate by reserve band: `{1000}@2%` / `{1000,200}@3%` / `{1000,200,50}@4%`. $1000 always on (structural). |
 | `DIRECTOR_INEQUALITY_RAKE` | On a FLAT field (low `p90/median`, throttled signal in `cash_mode/field_inequality`), the rake widens to lead the refill that vice (no rich target) can't. |
+| `DIRECTOR_POLICY_HOLD` | Hold the rake schedule for a `POLICY_WINDOW_SECONDS` (300s) window (`cash_mode/director_policy`, recomputed in the lobby refresh; per-hand rake reads the cached value via `resolve_rake_params`'s `_fresh=` bypass) so the hot path skips the per-hand ledger signal scan. Implies `RAKE_RESERVE_GATED`. |
 | `CASINO_RELATIVE_THRESHOLDS` | Casino spawn/close gates scale as fractions of holdings instead of absolute chip counts. |
 | `CASINO_RESEED_ON_SPENT` | Lean casino fish: 1 fish/casino (2 at $2), leaner prefund (1.5–2.0×), whale 3–5× (was 10–18×). Turns the lumpy casino drain into a steady trickle. |
 | `TOURNAMENT_CIRCUIT_ENABLED` (pre-existing) | The autonomous tournament ticker. The overlay/funding policy lives in `economy_signal`. |
@@ -92,15 +93,28 @@ Runs take minutes (real solver hands) — run in the background. Seeding itself 
 
 ## What's next (open, in rough priority)
 
-1. **Confirm the repeating sawtooth in sim.** The vice-taper fix (`b7206b8b`) is
-   unit-tested but not yet sim-confirmed — run the harness and verify reserves now
-   CROSS the 0.12 trigger and fire repeated Main Events (not just one).
-2. **Policy hold (designed, NOT built).** The user wants the *rake schedule*
-   (stakes + rate) held for a window (~`POLICY_WINDOW_SECONDS`) rather than
-   recomputed every hand — a `cash_mode/director_policy` cache recomputed in the
-   lobby refresh, read by `resolve_rake_params` (add a `_fresh=` bypass for the
-   refresh). **Vice + side-hustle stay per-tick** (the always-on bounds); casino
-   is already window-stable. Flag it `DIRECTOR_POLICY_HOLD` (default OFF).
+1. **Sawtooth CONFIRMED in sim 2026-06-04** (`--ticks 1000 --chunk 40 --seed 0`,
+   default 0.12 trigger). Reserves climbed smoothly past the old 0.06 stall —
+   0.054 (t40) → 0.080 (t240) → 0.103 (t480) → **0.1197 (t760)** → CROSSED the
+   trigger → the Main Event **fired at ~t800: −163,607 overlay drained to the
+   field** (holdings 2.47M → 2.62M as prizes landed) → reserves dropped to the
+   **0.06 floor (0.0563)** → and the climb restarted (t840: 0.0565, rising). The
+   full floor→trigger→fire→floor→re-climb loop, end to end — the vice-taper fix
+   (`b7206b8b`) works. **Tuning note for #3:** the vice brake tapers hard near the
+   trigger, so the final 0.105→0.12 push is slow (rake-carried) — one
+   floor→trigger climb is ~700–900 ticks at this faucet rate (≈one fire per
+   1000-tick run). That's the cadence knob: this faucet is on the SLOW side of
+   "1–2/day" unless a day is many hundreds of hands.
+2. **Policy hold — BUILT 2026-06-04 (`DIRECTOR_POLICY_HOLD`, default OFF).** The
+   rake schedule (stakes + rate) is now held for a `POLICY_WINDOW_SECONDS` (300s)
+   window — a `cash_mode/director_policy` cache recomputed in the lobby refresh
+   (`refresh_director_policy`, same throttle model as `field_inequality`), read by
+   `resolve_rake_params` via a `_fresh=` bypass (refresh recomputes `_fresh=True`;
+   per-hand reads the held value; cold cache falls through to a live compute).
+   **Vice + side-hustle stay per-tick** (the always-on bounds); casino is already
+   window-stable. Unit-tested (`tests/test_cash_mode/test_director_policy.py`),
+   flag-off byte-identical. Open follow-up: sim-verify the held cadence under load
+   (the hold's whole value is the skipped per-hand scan — measure it).
 3. **Tune the faucet rate** for ~1–2 Main Events/day against real hand volume.
 4. **Seed-time circulating** is applied in `personalities.json`; verify
    Σ(bankrolls) + the 5% seed against the live ledger once it runs in a real sandbox.

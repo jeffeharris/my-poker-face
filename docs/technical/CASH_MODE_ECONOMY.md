@@ -2,7 +2,7 @@
 purpose: Technical reference for the cash-mode chip economy as implemented — pools, flow paths, conservation invariant, audit, and tuning levers.
 type: reference
 created: 2026-05-19
-last_updated: 2026-06-03
+last_updated: 2026-06-04
 ---
 
 # Cash Mode Economy
@@ -21,9 +21,16 @@ code (handoffs were forward-looking).
 
 This doc is the **accounting** layer (where chips come from / go, the
 conservation invariant, the audit). For the **policy** layer — the
-wealth levers (vice / side-hustle / grinder-hunger / rake) and the
-`own_start` vs `field_liquid` reference model that decides who gains and
-loses over time — see `CASH_MODE_WEALTH_LEVERS.md`.
+wealth levers (vice / side-hustle / grinder-hunger / rake), the
+`own_start` vs `field_liquid` reference model, and the **Director
+thermostat** (the flag-gated reserve-band layer that gates vice/rake on
+bank depth and fires the tournament overlay) that decide who gains and
+loses over time — see `CASH_MODE_WEALTH_LEVERS.md` and
+`docs/plans/PROD_STARTING_CONDITIONS.md`. One accounting note from that
+layer: `GENESIS_RESERVE_ENABLED` (default off) seeds the bank pool to ~5%
+of holdings once at fresh-sandbox birth via a drift-safe paired entry
+(`closed_economy.ensure_genesis_reserve_seeded` → `seed_bank_pool`), so
+it does not break the conservation invariant.
 
 ## The conservation invariant
 

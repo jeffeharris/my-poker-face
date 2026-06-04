@@ -61,6 +61,7 @@ def reset_flags():
         economy_flags.RAKE_RESERVE_GATED,
         economy_flags.GENESIS_RESERVE_ENABLED,
         economy_flags.DIRECTOR_INEQUALITY_RAKE,
+        economy_flags.DIRECTOR_POLICY_HOLD,
     )
     yield
     (
@@ -73,10 +74,12 @@ def reset_flags():
         economy_flags.RAKE_RESERVE_GATED,
         economy_flags.GENESIS_RESERVE_ENABLED,
         economy_flags.DIRECTOR_INEQUALITY_RAKE,
+        economy_flags.DIRECTOR_POLICY_HOLD,
     ) = saved
-    from cash_mode import field_inequality
+    from cash_mode import director_policy, field_inequality
 
     field_inequality.reset_cache()
+    director_policy.reset_cache()
 
 
 # --- REGEN_ENABLED ------------------------------------------------------

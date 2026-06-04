@@ -1204,6 +1204,14 @@ def refresh_unseated_tables(
 
             refresh_field_inequality(sandbox_id, bankroll_repo, now)
 
+        # Director policy hold: refresh the cached cash-rake schedule (throttled
+        # to POLICY_WINDOW_SECONDS internally) so the per-hand rake reads a held
+        # value instead of re-running the ledger signal scan every hand.
+        if _eflags.DIRECTOR_POLICY_HOLD:
+            from cash_mode.director_policy import refresh_director_policy
+
+            refresh_director_policy(sandbox_id, chip_ledger_repo, now)
+
     # Resolve the mutually-exclusive vice mode (per-call override → live
     # default). 'real' / 'fake' / 'off'; anything else falls through both
     # gates below (no vice), which is the safe default for a bad value.

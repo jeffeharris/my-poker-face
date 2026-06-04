@@ -2,7 +2,7 @@
 purpose: Architecture of the multi-table tournament engine and the tournaments-as-a-draw economy (reserve/vacate/spawn, draw scoring, renown grant, funding) — including which layers are flag-gated inert today
 type: architecture
 created: 2026-06-03
-last_updated: 2026-06-03
+last_updated: 2026-06-04
 ---
 
 # Tournaments
@@ -254,16 +254,27 @@ One `EconomyState` snapshot, read once per decision under the sandbox lock, driv
 the tournament overlay *and* the cash-rake schedule, so the two levers can't oscillate
 against each other.
 
-Regimes bucketed by `reserves / holdings`:
+Two layers of `reserves / holdings` constants. The **regime classifier** (the
+EXP_006 overlay display label) buckets by:
 - `FLUSH_SETPOINT = 0.08` (`economy_signal.py:48`) — at/above → distribute.
 - `EMPTY_SETPOINT = 0.02` (`economy_signal.py:53`) — at/below → refill via rake.
-- A cold/empty universe reports NEUTRAL, not EMPTY (`signal()`, `:125`).
+- A cold/empty universe reports NEUTRAL, not EMPTY (`signal()`, `:137`).
 
-**Funding** (`tournament_funding`, `:154`):
-- **FLUSH** → `overlay = min(max(0, reserves − FLUSH_SETPOINT·holdings), OVERLAY_CAP)`,
-  rake 0. This is **drain-to-setpoint**: each event resets reserves to the setpoint, a
-  self-limiting sawtooth. `OVERLAY_CAP = 250_000` (`:66`) so no single event empties the
-  coffers.
+The **canonical reserve ladder** (`:98–106`) is what the offer/drain actually key
+off — one source of truth shared with the cash-rake schedule and the vice gate
+(see `CASH_MODE_WEALTH_LEVERS.md` "Director thermostat"): `RESERVE_HEALTHY = 0.06`
+(drain floor) and `RESERVE_TRIGGER = 0.12` (offer high-water mark). These split
+the old single `FLUSH_SETPOINT` into a distinct trigger and floor and **deviate
+from EXP_006** — re-validate in sim before flipping the circuit on (it has been
+sim-confirmed end-to-end on the 76-cast; see
+`docs/plans/PROD_STARTING_CONDITIONS.md`).
+
+**Funding** (`tournament_funding`, `:190`):
+- **FLUSH** → `overlay = min(max(0, reserves − RESERVE_HEALTHY·holdings), OVERLAY_CAP)`,
+  rake 0. **Drain-to-floor**: each event drains reserves back to the `RESERVE_HEALTHY`
+  (0.06) floor — keeping half rather than emptying — so the prize ≈
+  `(TRIGGER − HEALTHY)·holdings`. A self-limiting sawtooth; `OVERLAY_CAP = 250_000`
+  (`:66`) caps a single event (binds at ~$2.1M holdings — open tuning item).
 - **NEUTRAL** → buy-ins only. **EMPTY** → refill rake.
 - `ai_buy_in_total` is 0 in v1 (AI seats are bank-distributed via overlay, not charged).
   Escrow contract: `prize_pool == human_buy_in + ai_buy_in_total + bank_overlay − rake`.
@@ -275,11 +286,15 @@ Regimes bucketed by `reserves / holdings`:
 > (slope ~6–12, 3 seeds, conservation-clean). The constants transfer from EXP_006; the
 > *cadence* still needs re-validation before flipping on.
 
-**When** (`should_offer_event`, `:257`): offer iff **FLUSH and cooldown elapsed**.
-NEUTRAL/EMPTY offer nothing in v1. The default offer is a freeroll —
-`DEFAULT_MAIN_EVENT = EventSpec(field_size=18, table_size=6, starting_stack=10_000,
-buy_in=0)` (`:239`). `MAIN_EVENT_COOLDOWN_SECONDS = 1800` (30 min, `:245`);
-`MAIN_EVENT_REGISTRATION_WINDOW_SECONDS = 600` (10 min, `:254`).
+**When** (`should_offer_event`, `:295`): offer iff **`ratio ≥ RESERVE_TRIGGER`
+(0.12) and cooldown elapsed** — the high-water trigger sits *above* the FLUSH
+regime boundary (0.12 vs 0.08), so an event fires only once the bank has genuinely
+accumulated, not the moment it crosses into flush. Below the trigger → nothing.
+The default offer is a freeroll — `DEFAULT_MAIN_EVENT = EventSpec(field_size=18,
+table_size=6, starting_stack=10_000, buy_in=0)` (`:277`).
+`MAIN_EVENT_COOLDOWN_SECONDS = 1800` (30 min, `:283`);
+`MAIN_EVENT_REGISTRATION_WINDOW_SECONDS = 600` (10 min, `:292`). (Open: make the
+cooldown play-measured — hands/ticks — not wall-clock.)
 
 **World-tick hook** (`ticker_service._maybe_tick_tournament`, `ticker_service.py:712`,
 flag-gated): per active sandbox under its lock — (a) `expire_due` + `maybe_offer_main_event`,
