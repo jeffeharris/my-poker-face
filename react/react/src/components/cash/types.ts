@@ -594,6 +594,11 @@ export interface StakeHistoryRow {
    *  the "from / to" framing in the row. */
   role: 'staker' | 'borrower';
   status: 'settled' | 'defaulted';
+  /** v150 — how it resolved when `status` alone isn't specific.
+   *  'bankruptcy' when the borrower's carries were discharged by the
+   *  insolvency valve (status stays 'defaulted'); null for an ordinary
+   *  clean settle or deliberate default. Drives the row's badge/copy. */
+  resolution: 'bankruptcy' | null;
   /** The other side's id (null for house stakes). */
   counterparty_id: string | null;
   counterparty_kind: 'personality' | 'human' | 'house';

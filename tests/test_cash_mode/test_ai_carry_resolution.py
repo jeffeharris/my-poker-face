@@ -1288,6 +1288,8 @@ class TestBankruptcy:
             row = stake.load_stake(sid)
             assert row.status == STAKE_STATUS_DEFAULTED
             assert row.carry_amount == 0
+            # Distinct resolution label so history reads "bankruptcy".
+            assert row.resolution == "bankruptcy"
 
         # Credit history recorded.
         count, last_at = self._bankruptcy_count(db)

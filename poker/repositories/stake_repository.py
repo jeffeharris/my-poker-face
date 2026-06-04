@@ -150,7 +150,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE stake_id = ?
                 """,
@@ -178,7 +178,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE session_id = ? AND status = 'active'
                 ORDER BY created_at DESC
@@ -217,7 +217,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = 'active'
@@ -246,7 +246,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE session_id = ?
                 ORDER BY created_at ASC
@@ -280,7 +280,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = ?
@@ -313,7 +313,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -351,7 +351,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE (staker_id = ? OR borrower_id = ?)
                   AND status IN ('settled', 'defaulted')
@@ -386,7 +386,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -436,6 +436,24 @@ class StakeRepository(BaseRepository):
                     f"UPDATE stakes SET status = ? {where}",
                     (status, *tail_params),
                 )
+            return cursor.rowcount > 0
+
+    def set_resolution(self, stake_id: str, resolution: Optional[str]) -> bool:
+        """Stamp the `resolution` label (v150) on a closed stake.
+
+        Records HOW a stake resolved when `status` alone isn't specific
+        — currently 'bankruptcy' for carries discharged by the
+        insolvency valve. The status stays whatever it was set to
+        (typically 'defaulted') so default-counting consumers are
+        unaffected; this is purely the history display label.
+
+        Returns True if a row was updated. `resolution=None` clears it.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE stakes SET resolution = ? WHERE stake_id = ?",
+                (resolution, stake_id),
+            )
             return cursor.rowcount > 0
 
     def sum_active_principal_for_humans(self) -> int:
@@ -689,7 +707,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id
+                       pending_forgiveness_ask, table_id, resolution
                 FROM stakes
                 WHERE staker_id = ?
                   AND staker_kind = 'human'
@@ -733,4 +751,12 @@ def _row_to_stake(row) -> Stake:
             int(row["borrower_payout"]) if row["borrower_payout"] is not None else None
         ),
         table_id=row["table_id"],
+        # `resolution` (v150) is read defensively — not every SELECT in
+        # this repo lists it, and the column only matters on the history
+        # surface. Absent column / NULL ⇒ None (ordinary settle/default).
+        resolution=(
+            row["resolution"]
+            if "resolution" in row.keys() and row["resolution"] is not None
+            else None
+        ),
     )

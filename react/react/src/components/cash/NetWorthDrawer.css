@@ -332,6 +332,13 @@
   background: rgba(180, 100, 100, 0.2);
   color: #e88;
 }
+/* Bankruptcy — a default sub-case, but distinct from a deliberate
+ * stiff: violet reads as "they went under" rather than "they burned
+ * you," matching the pro-rata-recovery framing in the row copy. */
+.net-worth-drawer__status-badge--bankrupt {
+  background: rgba(167, 139, 250, 0.18);
+  color: #c4b5fd;
+}
 .net-worth-drawer__status-badge--alert {
   background: rgba(250, 204, 21, 0.18);
   color: #facc15;
@@ -365,6 +372,9 @@
 }
 .net-worth-drawer__row--defaulted {
   border-color: rgba(180, 100, 100, 0.18);
+}
+.net-worth-drawer__row--bankrupt {
+  border-color: rgba(167, 139, 250, 0.22);
 }
 .net-worth-drawer__row--settled {
   border-color: rgba(134, 239, 172, 0.12);

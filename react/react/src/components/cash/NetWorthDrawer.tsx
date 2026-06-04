@@ -501,13 +501,22 @@ interface HistoryRowProps {
 function describeStakeOutcome(args: {
   role: 'staker' | 'borrower';
   defaulted: boolean;
+  bankrupted: boolean;
   payout: number;
   principal: number;
 }): string {
-  const { role, defaulted, payout, principal } = args;
+  const { role, defaulted, bankrupted, payout, principal } = args;
   const unrecovered = Math.max(0, principal - payout);
 
   if (role === 'staker') {
+    if (bankrupted) {
+      // The borrower went insolvent: their bankroll was liquidated and
+      // split pro-rata across every creditor; the rest is written off.
+      if (payout <= 0) {
+        return `They went bankrupt with nothing left — the full $${unrecovered.toLocaleString()} you put up was written off.`;
+      }
+      return `They went bankrupt. You recovered $${payout.toLocaleString()} of your $${principal.toLocaleString()} as creditors were paid pro-rata; the remaining $${unrecovered.toLocaleString()} was written off.`;
+    }
     if (defaulted) {
       if (payout <= 0) {
         return `Nothing came back at the bust. They defaulted on the $${unrecovered.toLocaleString()} you put up.`;
@@ -552,13 +561,21 @@ function describeStakeOutcome(args: {
  *  Read-only — no actions are possible on closed stakes. */
 function HistoryRow({ row }: HistoryRowProps) {
   const defaulted = row.status === 'defaulted';
+  // Bankruptcy is a default sub-case (status stays 'defaulted'); the
+  // `resolution` label distinguishes "they went broke and you got a
+  // pro-rata slice" from a deliberate stiff.
+  const bankrupted = row.resolution === 'bankruptcy';
   // Who walked away from the deal? On defaults, the borrower is the
   // actor; on settles, the framing is neutral ("closed").
-  const verb = defaulted
+  const verb = bankrupted
     ? row.role === 'staker'
-      ? 'defaulted on you'
-      : 'you defaulted on'
-    : 'settled with';
+      ? 'went bankrupt owing you'
+      : 'you went bankrupt on'
+    : defaulted
+      ? row.role === 'staker'
+        ? 'defaulted on you'
+        : 'you defaulted on'
+      : 'settled with';
   const settleLabel = row.settled_at ? formatAge(row.settled_at) : '';
 
   const net = row.net_for_player;
@@ -574,7 +591,8 @@ function HistoryRow({ row }: HistoryRowProps) {
     <li
       className={
         'net-worth-drawer__row net-worth-drawer__row--history' +
-        (defaulted ? ' net-worth-drawer__row--defaulted' : ' net-worth-drawer__row--settled')
+        (defaulted ? ' net-worth-drawer__row--defaulted' : ' net-worth-drawer__row--settled') +
+        (bankrupted ? ' net-worth-drawer__row--bankrupt' : '')
       }
     >
       <div className="net-worth-drawer__row-main">
@@ -583,12 +601,14 @@ function HistoryRow({ row }: HistoryRowProps) {
           <span
             className={
               'net-worth-drawer__status-badge' +
-              (defaulted
-                ? ' net-worth-drawer__status-badge--defaulted'
-                : ' net-worth-drawer__status-badge--settled')
+              (bankrupted
+                ? ' net-worth-drawer__status-badge--bankrupt'
+                : defaulted
+                  ? ' net-worth-drawer__status-badge--defaulted'
+                  : ' net-worth-drawer__status-badge--settled')
             }
           >
-            {defaulted ? 'defaulted' : 'settled'}
+            {bankrupted ? 'bankruptcy' : defaulted ? 'defaulted' : 'settled'}
           </span>
           {hasNet && (
             <span
@@ -620,6 +640,7 @@ function HistoryRow({ row }: HistoryRowProps) {
             {describeStakeOutcome({
               role: row.role,
               defaulted,
+              bankrupted,
               payout,
               principal: row.principal,
             })}

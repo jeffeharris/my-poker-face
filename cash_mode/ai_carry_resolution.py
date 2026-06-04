@@ -1358,8 +1358,12 @@ def try_ai_bankruptcy(
 
         # Discharge: default the carry regardless of how much (if any)
         # the creditor recovered. The unpaid remainder is the write-off.
+        # Status stays 'defaulted' (so default-counting consumers are
+        # unaffected); `resolution='bankruptcy'` is the history label so
+        # the Net Worth drawer reads it as a bankruptcy, not a stiff.
         stake_repo.update_carry_amount(c.stake_id, 0)
         stake_repo.update_status(c.stake_id, STAKE_STATUS_DEFAULTED, settled_at=now)
+        stake_repo.set_resolution(c.stake_id, 'bankruptcy')
         if c.pending_forgiveness_ask is not None:
             stake_repo.update_pending_forgiveness_ask(c.stake_id, None)
         stake_repo.update_payouts(

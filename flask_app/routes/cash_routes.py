@@ -6530,6 +6530,10 @@ def get_net_worth():
                     "stake_id": stake.stake_id,
                     "role": role,
                     "status": stake.status,  # 'settled' | 'defaulted'
+                    # v150 — display label for how it resolved when status
+                    # alone isn't specific. 'bankruptcy' for valve-
+                    # discharged carries; None for ordinary settle/default.
+                    "resolution": stake.resolution,
                     "counterparty_id": counterparty_id,
                     "counterparty_kind": counterparty_kind,
                     "counterparty_display_name": counterparty_display,

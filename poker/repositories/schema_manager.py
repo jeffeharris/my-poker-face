@@ -336,7 +336,7 @@ _test_schema_template_path = None
 #       backfill by the unique display-name join). (was v137)
 # v147: Make `personality_id` the SOLE avatar key — drop the legacy
 #       `personality_name` column + dual-key reads. (was v138)
-SCHEMA_VERSION = 149
+SCHEMA_VERSION = 150
 
 
 class SchemaManager:
@@ -2289,6 +2289,10 @@ class SchemaManager:
             149: (
                 self._migrate_v149_add_bankruptcy_history,
                 "Add bankruptcy_count (INTEGER DEFAULT 0) + last_bankruptcy_at (TEXT NULL) to ai_bankroll_state for the carry-resolution bankruptcy valve: the per-sandbox credit-history that drives post-bankruptcy loan-term penalties (with time-decay off last_bankruptcy_at) and the dossier's lifetime count. Additive; existing rows read 0 / NULL (never bankrupt).",
+            ),
+            150: (
+                self._migrate_v150_add_stake_resolution,
+                "Add nullable resolution (TEXT) to stakes — the display label distinguishing HOW a closed stake resolved when bare status isn't specific ('bankruptcy' for carries discharged by the insolvency valve; status stays 'defaulted' so default-counting consumers are unaffected). Additive; existing rows read NULL.",
             ),
         }
 
@@ -6223,6 +6227,28 @@ class SchemaManager:
             "Migration v149 complete: ai_bankroll_state.bankruptcy_count + "
             "last_bankruptcy_at added"
         )
+
+    def _migrate_v150_add_stake_resolution(self, conn: sqlite3.Connection) -> None:
+        """Migration v150: add `resolution` to stakes.
+
+        A nullable display label distinguishing HOW a closed stake
+        resolved when the bare `status` isn't specific enough. The first
+        value is 'bankruptcy' — carries discharged by the carry-
+        resolution insolvency valve. Their `status` stays 'defaulted' so
+        every default-counting consumer (Net Worth history inclusion,
+        track-record aggregates, sponsor-offer default penalties) keeps
+        treating them as defaults; `resolution` is read only by the
+        history surface to render "bankruptcy" instead of a deliberate
+        stiff.
+
+        NULL on existing rows and on ordinary settles/defaults.
+        Idempotent: PRAGMA-guarded ADD.
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'resolution' not in cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN resolution TEXT")
+        logger.info("Migration v150 complete: stakes.resolution added")
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.
