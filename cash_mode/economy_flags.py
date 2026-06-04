@@ -156,6 +156,23 @@ FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry
 VICE_RESERVE_GATED: bool = _env_flag("VICE_RESERVE_GATED", False)
 
 
+# --- Genesis reserve seed (fresh-sandbox bank pool) ------------------------
+#
+# A fresh prod sandbox seeds AI bankrolls (holdings) but starts with an EMPTY
+# bank pool — so casinos can't spawn (need pool ≥ 5k/50k/100k) and no tournament
+# can fire until rake/vice slowly fill it. The world boots economically inert.
+#
+# When GENESIS_RESERVE_ENABLED is on, `ensure_genesis_reserve_seeded` seeds the
+# pool to GENESIS_RESERVE_RATIO of holdings ONCE at sandbox birth (drift-safe
+# paired entry), so the world boots lived-in: casinos open, reserves sit below
+# the tournament trigger (0.12) and climb into the first Main Event over the
+# opening day. 0.05 lands just below RESERVE_HEALTHY (0.06) — the sim validates
+# whether to boot in the low or healthy band. Default OFF; needs a prod genesis
+# path + sim. See docs/plans/PROD_STARTING_CONDITIONS.md §1.1.
+GENESIS_RESERVE_ENABLED: bool = _env_flag("GENESIS_RESERVE_ENABLED", False)
+GENESIS_RESERVE_RATIO: float = 0.05  # seed reserve = this × holdings, once at birth
+
+
 def lever_field_mode() -> bool:
     """True when the levers should use the field-liquid reference.
 

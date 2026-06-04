@@ -59,6 +59,7 @@ def reset_flags():
         economy_flags.RAKE_CAP_BB,
         economy_flags.RAKE_STAKE_BIG_BLINDS,
         economy_flags.RAKE_RESERVE_GATED,
+        economy_flags.GENESIS_RESERVE_ENABLED,
     )
     yield
     (
@@ -69,6 +70,7 @@ def reset_flags():
         economy_flags.RAKE_CAP_BB,
         economy_flags.RAKE_STAKE_BIG_BLINDS,
         economy_flags.RAKE_RESERVE_GATED,
+        economy_flags.GENESIS_RESERVE_ENABLED,
     ) = saved
 
 
@@ -524,3 +526,131 @@ class TestUniverseConservation:
         after = sum(final.values())
         # Universe shrank by exactly the rake amount.
         assert before - after == 10  # 2% of 500
+
+
+# --- ensure_genesis_reserve_seeded (fresh-sandbox bank pool) ----------------
+
+
+class TestGenesisReserveSeed:
+    SBX = "test-genesis"
+
+    def _seed_holdings(self, repo, amount):
+        # A plain creation puts `amount` chips into circulation (holdings).
+        repo.record('central_bank', 'ai:x', amount, 'ai_seed', sandbox_id=self.SBX)
+
+    def _fresh_actions(self, n=3):
+        return {f'p{i}': 'created' for i in range(n)}
+
+    def test_disabled_returns_zero(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = False
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo,
+                sandbox_id=self.SBX,
+                seed_actions=self._fresh_actions(),
+            )
+            == 0
+        )
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 0
+
+    def test_seeds_ratio_of_holdings_on_fresh_sandbox(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        economy_flags.GENESIS_RESERVE_RATIO = 0.05
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        seeded = ensure_genesis_reserve_seeded(
+            chip_ledger_repo=ledger_repo,
+            sandbox_id=self.SBX,
+            seed_actions=self._fresh_actions(),
+        )
+        assert seeded == 5_000  # 0.05 × 100_000
+        # Reserve now sits at the seeded depth; holdings unchanged (paired entry).
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 5_000
+
+    def test_skips_when_actions_not_all_created(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import ensure_genesis_reserve_seeded
+
+        actions = {'p0': 'created', 'p1': 'skipped'}  # an existing sandbox
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=actions
+            )
+            == 0
+        )
+
+    def test_skips_when_no_actions(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import ensure_genesis_reserve_seeded
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=None
+            )
+            == 0
+        )
+
+    def test_skips_when_reserves_already_positive(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        self._seed_holdings(ledger_repo, 100_000)
+        # Pre-existing reserve (economy already ran) → genesis must not stack.
+        ledger_repo.record('ai:y', 'central_bank', 3_000, 'bank_pool_deposit', sandbox_id=self.SBX)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo,
+                sandbox_id=self.SBX,
+                seed_actions=self._fresh_actions(),
+            )
+            == 0
+        )
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 3_000
+
+    def test_idempotent_second_call_is_noop(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        economy_flags.GENESIS_RESERVE_RATIO = 0.05
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        first = ensure_genesis_reserve_seeded(
+            chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=self._fresh_actions()
+        )
+        second = ensure_genesis_reserve_seeded(
+            chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=self._fresh_actions()
+        )
+        assert first == 5_000
+        assert second == 0  # reserves already positive → no double-seed
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 5_000
+
+    def test_skips_when_no_holdings(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        # No holdings seeded → nothing to size the reserve against.
+        from cash_mode.closed_economy import ensure_genesis_reserve_seeded
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo,
+                sandbox_id=self.SBX,
+                seed_actions=self._fresh_actions(),
+            )
+            == 0
+        )

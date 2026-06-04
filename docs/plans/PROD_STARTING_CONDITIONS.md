@@ -38,8 +38,15 @@ players." This makes the reserve a natural % of the cast and conservation-clean.
   5k/50k/100k) so the world boots up lived-in (casinos churning fish → grinders),
   but sits **below** the tournament trigger so the first Main Event has to be
   *earned* over the opening day of play.
-- Implementation: a production genesis path mirroring `seed_bank_pool()`
-  (`cash_mode/closed_economy.py:172`), which today runs only in sims.
+- **Shipped 2026-06-04 (flag `GENESIS_RESERVE_ENABLED`, default OFF):**
+  `closed_economy.ensure_genesis_reserve_seeded` seeds the pool to
+  `GENESIS_RESERVE_RATIO` (0.05) of holdings ONCE at fresh-sandbox birth (drift-
+  safe via `seed_bank_pool`), wired into the lobby seed path in `cash_routes`
+  right after `ensure_ai_bankrolls_seeded`. Three guards scope it to a pristine
+  fresh sandbox (all-"created" seed pass + reserves ≤ 0 + holdings > 0), so
+  flipping the flag on can never inflate a mature economy. Note: 0.05 lands in
+  the *low* band (< RESERVE_HEALTHY 0.06) — the sim validates whether to boot low
+  (Director mildly refilling) or healthy.
 
 ### 1.2 The reserve-band table
 
@@ -392,9 +399,13 @@ remaining 71 to be generated in tier batches.
 ## Implementation checklist
 
 **Director (economy):**
-- [ ] Production genesis path: mint `E = 1.05 × Σ(bankrolls)` into bank, pay
-      bankrolls out as draws (reserve starts at ~5% of holdings).
-- [ ] Split tournament trigger (0.12) from floor (0.06) in `economy_signal.py`.
+- [x] Production genesis path: seed pool to 5% of holdings once at fresh-sandbox
+      birth (`GENESIS_RESERVE_ENABLED`, default OFF; `ensure_genesis_reserve_seeded`,
+      wired in `cash_routes`). Done 2026-06-04. (Implemented as a pool seed
+      alongside the existing `ai_seed` bankroll mint — same reserves/holdings
+      ratio as the "mint E into bank" framing, conservation-clean.)
+- [x] Split tournament trigger (0.12) from floor (0.06) in `economy_signal.py`
+      (`RESERVE_TRIGGER`/`RESERVE_HEALTHY`). Done 2026-06-04.
 - [ ] Play-measured Main Event cooldown (hands/active-ticks, not wall-clock).
 - [x] Two-layer rake: structural $1000 always-on; Director graduates tiers AND
       rate across 3 reserve bands — `{1000}`@2% / `{1000,200}`@3% / `{1000,200,50}`@4%

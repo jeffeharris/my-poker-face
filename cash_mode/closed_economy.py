@@ -38,7 +38,7 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from cash_mode.bankroll import AIBankrollState, project_bankroll
 from core.economy import ledger as chip_ledger
@@ -195,6 +195,52 @@ def seed_bank_pool(
         sandbox_id=sandbox_id,
     )
     return int(amount)
+
+
+def ensure_genesis_reserve_seeded(
+    *,
+    chip_ledger_repo,
+    sandbox_id: str,
+    seed_actions: Optional[Dict[str, str]] = None,
+) -> int:
+    """Seed the bank pool to GENESIS_RESERVE_RATIO of holdings, ONCE at birth.
+
+    A fresh prod sandbox seeds AI bankrolls (holdings) but an empty pool, so the
+    world boots inert (no casinos, no tournaments) until rake/vice slowly fill
+    it. This injects the genesis reserve so the world boots lived-in. Returns the
+    chips seeded (0 if skipped). Drift-safe (via `seed_bank_pool`'s paired entry).
+
+    Flag-gated (`GENESIS_RESERVE_ENABLED`, default OFF) and scoped strictly to a
+    pristine fresh sandbox by three guards, so it can never inflate a mature
+    economy when the flag is flipped on:
+      1. `seed_actions` (from `ensure_ai_bankrolls_seeded`) must be non-empty and
+         ALL "created" — a fresh sandbox seeds its whole roster in one pass; an
+         existing one reports "skipped". (Skipped when `seed_actions` is None.)
+      2. current reserves must be ≤ 0 (no economy has run / no prior genesis),
+      3. holdings must be > 0 (there's a roster to size the reserve against).
+    """
+    from cash_mode import economy_flags
+    from core.economy.economy_signal import signal
+
+    if not economy_flags.GENESIS_RESERVE_ENABLED or chip_ledger_repo is None:
+        return 0
+    if not seed_actions or not all(a == 'created' for a in seed_actions.values()):
+        return 0
+    state = signal(chip_ledger_repo, sandbox_id=sandbox_id)
+    if state.reserves > 0 or state.holdings <= 0:
+        return 0
+    target = round(economy_flags.GENESIS_RESERVE_RATIO * state.holdings)
+    if target <= 0:
+        return 0
+    seeded = seed_bank_pool(chip_ledger_repo, sandbox_id=sandbox_id, amount=target)
+    logger.info(
+        "[GENESIS] seeded bank pool %d chips (%.1f%% of holdings=%d) for sandbox=%r",
+        seeded,
+        economy_flags.GENESIS_RESERVE_RATIO * 100,
+        state.holdings,
+        sandbox_id,
+    )
+    return seeded
 
 
 def compute_bank_pool_reserves(
