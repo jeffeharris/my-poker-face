@@ -121,16 +121,18 @@ def test_transfer_reasons_excluded_from_bank_reason_sets():
     )
 
     # Human buy-in/cash-out plus the chip-custody Phase 1 AI ledger-parity
-    # transfers (ai_buy_in/ai_cash_out), stake payoffs, and the tournament
-    # escrow buy-in/payout (player/ai <-> tournament:<id>) — all entity<->entity
-    # moves that must stay invisible to bank-pool depth math. (The tournament
-    # overlay is a pool DRAW and the return a pool DEPOSIT, so they are NOT
-    # transfers — they belong in the bank reason sets, asserted disjoint below.)
+    # transfers (ai_buy_in/ai_cash_out), stake funding + payoffs, and the
+    # tournament escrow buy-in/payout (player/ai <-> tournament:<id>) — all
+    # entity<->entity moves that must stay invisible to bank-pool depth math.
+    # (The tournament overlay is a pool DRAW and the return a pool DEPOSIT, so
+    # they are NOT transfers — they belong in the bank reason sets, asserted
+    # disjoint below.)
     assert TRANSFER_REASONS == {
         "player_buy_in",
         "player_cash_out",
         "ai_buy_in",
         "ai_cash_out",
+        "stake_fund",
         "stake_payoff",
         "tournament_buy_in",
         "tournament_payout",
