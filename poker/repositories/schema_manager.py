@@ -336,7 +336,7 @@ _test_schema_template_path = None
 #       backfill by the unique display-name join). (was v137)
 # v147: Make `personality_id` the SOLE avatar key — drop the legacy
 #       `personality_name` column + dual-key reads. (was v138)
-SCHEMA_VERSION = 150
+SCHEMA_VERSION = 151
 
 
 class SchemaManager:
@@ -2293,6 +2293,10 @@ class SchemaManager:
             150: (
                 self._migrate_v150_add_stake_resolution,
                 "Add nullable resolution (TEXT) to stakes — the display label distinguishing HOW a closed stake resolved when bare status isn't specific ('bankruptcy' for carries discharged by the insolvency valve; status stays 'defaulted' so default-counting consumers are unaffected). Additive; existing rows read NULL.",
+            ),
+            151: (
+                self._migrate_v151_chip_ledger_source_sink_index,
+                "Add (source, sandbox_id) + (sink, sandbox_id) indexes to chip_ledger_entries so `balance_of` (Σ where source=? OR sink=?) stops full-scanning. Speeds the per-account reconcile (audit_ledger_completeness) and the derive-reads path as the ledger grows. Index-only (CREATE INDEX IF NOT EXISTS); no data change.",
             ),
         }
 
@@ -5489,6 +5493,10 @@ class SchemaManager:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chip_ledger_reason " "ON chip_ledger_entries(reason)"
         )
+        # NB: the per-account (source, sandbox_id)/(sink, sandbox_id) indexes for
+        # `balance_of` are created by migration v151 — `sandbox_id` doesn't exist
+        # on this table until a later migration, and fresh DBs run the migration
+        # chain in order, so v151 covers both fresh and existing DBs.
         logger.info("v93: created chip_ledger_entries for chip-economy observability")
 
     def _migrate_v94_seed_pre_ledger_universe(self, conn: sqlite3.Connection) -> None:
@@ -6249,6 +6257,36 @@ class SchemaManager:
         if 'resolution' not in cols:
             conn.execute("ALTER TABLE stakes ADD COLUMN resolution TEXT")
         logger.info("Migration v150 complete: stakes.resolution added")
+
+    def _migrate_v151_chip_ledger_source_sink_index(self, conn: sqlite3.Connection) -> None:
+        """Migration v151: index chip_ledger_entries by (source, sandbox_id) and
+        (sink, sandbox_id).
+
+        `balance_of` sums `WHERE source=? OR sink=?` [AND sandbox_id=?]; with no
+        index on those columns it full-scans the (ever-growing) ledger. That's
+        tolerable on the O(1) int read path, but the per-account reconcile
+        (`audit_ledger_completeness`) and the derive-reads tripwire scan every
+        account, so they pay it N times. Two single-column-leading indexes let
+        SQLite's OR-by-union satisfy each side of the OR; the trailing
+        sandbox_id covers the scoped (per-AI) sum. Index-only — no data change;
+        `IF NOT EXISTS` makes it idempotent and a no-op on fresh DBs (the base
+        schema already creates them).
+        """
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_source "
+            "ON chip_ledger_entries(source, sandbox_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_sink "
+            "ON chip_ledger_entries(sink, sandbox_id)"
+        )
+        # SQLite's planner only picks these for the `source=? OR sink=?` union
+        # once it has stats — without ANALYZE it keeps full-scanning (or uses the
+        # less-selective sandbox index), so the index would sit unused. Scope the
+        # ANALYZE to this one table: instant on a fresh/small ledger, one-time on
+        # a large upgrade (prod lands this while the ledger is still small).
+        conn.execute("ANALYZE chip_ledger_entries")
+        logger.info("Migration v151 complete: chip_ledger source/sink indexes + stats added")
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.

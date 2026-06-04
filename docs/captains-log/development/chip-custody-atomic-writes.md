@@ -64,7 +64,7 @@ another repo's write to the same file.** So bankruptcy became two passes (chips
 in the txn, discharges after), and two genuinely-interleaved paths — the
 tournament buy-in saga and the human cash routes — got *deferred* rather than
 force-wrapped (they'd reintroduce the lock). Both are low-frequency and already
-conservation-safe via their own rollback/verify; they're tracked as T3-84 and
+conservation-safe via their own rollback/verify; they're tracked as T3-87 and
 T3-85 and covered meanwhile by the reconcile.
 
 ## The reconcile (the actual end-state)
@@ -96,5 +96,5 @@ All high/moderate-frequency chip movers are crash-atomic; fresh drift is
 prevented where it actually accrued, the historical residue is retired, and the
 suspense balance + periodic reconcile keep it honest. Still gated behind
 `CHIP_CUSTODY_ENABLED` (prod is pre-custody); `DERIVE_READS=off` stays the
-posture. The deferred T3-84/T3-85 conversions and the prod flag removal
+posture. The deferred T3-87/T3-85 conversions and the prod flag removal
 (`PROD_MERGE_PLAN`) are the remaining tail.
