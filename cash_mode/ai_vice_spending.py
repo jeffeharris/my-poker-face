@@ -661,15 +661,17 @@ def tick_vice_expirations(
 def reserve_vice_multiplier(ratio: float) -> float:
     """Scale vice intensity by the bank-pool reserve ratio (reserve-aware refill).
 
-    Vice is the refill that funds the next Main Event, so the Director keeps it
-    engaged until the bank can actually OPEN one (`RESERVE_TRIGGER`), easing off
-    as it approaches — it does NOT quit at the healthy floor (the old bug: vice
-    stopped at 0.06 while the trigger is 0.12, so reserves could never climb the
-    rest of the way and tournaments never fired). `ratio` is reserves/holdings:
+    Vice is the refill that funds the next Main Event, and it tapers full→off
+    across `RESERVE_HEALTHY → RESERVE_VICE_CEILING`. The CEILING sits ABOVE the
+    trigger, so vice is still ~half-on AT the trigger and pushes reserves ACROSS
+    it (rather than asymptoting at it — the prior bug, where vice hit 0 right at
+    the trigger and the last sliver of climb stalled on the weak base rake). Above
+    the trigger vice keeps easing → a BRAKE when the bank runs hot. `ratio` is
+    reserves/holdings:
       * 1.0 at/below `RESERVE_HEALTHY` — bank well short of a tournament, refill hard,
-      * 0.0 at/above `RESERVE_TRIGGER` — tournament-ready, stop taxing the field,
-      * a linear taper between (full just after a tournament drains to the floor,
-        easing as the pool refills toward the next trigger).
+      * ~0.5 at `RESERVE_TRIGGER` (default ceiling 0.18) — still pushing across,
+      * 0.0 at/above `RESERVE_VICE_CEILING` — bank hot, vice fully off (braked),
+      * a linear taper between.
 
     (Vice ALSO self-targets the wealthy via the concentration gate, so it does the
     most work when a few AIs are running away — the de-concentration instrument.
@@ -678,10 +680,10 @@ def reserve_vice_multiplier(ratio: float) -> float:
     Band edges come from the shared canonical ladder in `economy_signal`. Pure;
     the caller decides whether the gate is active (`VICE_RESERVE_GATED`).
     """
-    from core.economy.economy_signal import RESERVE_HEALTHY, RESERVE_TRIGGER
+    from core.economy.economy_signal import RESERVE_HEALTHY, RESERVE_VICE_CEILING
 
     full = RESERVE_HEALTHY  # at/below → refill at full intensity
-    off = RESERVE_TRIGGER  # at/above → tournament-ready, vice off
+    off = RESERVE_VICE_CEILING  # at/above → bank hot, vice fully off (braked)
     if ratio >= off:
         return 0.0
     if ratio <= full:
@@ -1082,19 +1084,6 @@ def _commit_vice_start(
 
     # Record the regen creation BEFORE the debit so the audit reads
     # the right order. Same shape as ai_carry_resolution.py:354.
-    if chip_ledger_repo is not None and projected > stored.chips:
-        chip_ledger.record_ai_regen(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            stored_chips=stored.chips,
-            projected_chips=projected,
-            context={
-                'site': 'lobby_refresh_vice',
-                'sandbox_id': sandbox_id,
-            },
-            sandbox_id=sandbox_id,
-        )
-
     # The floor-protection guard above guarantees projected - amount >=
     # floor_protection >= 0, so this never goes negative. PRH-16: the old
     # `max(0, projected - amount)` clamp was mint-shaped — if that guard ever
@@ -1103,38 +1092,61 @@ def _commit_vice_start(
     # Subtract directly so any future regression surfaces as a negative
     # bankroll the audit flags, not a silent mint.
     new_chips = projected - amount
-    try:
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=personality_id,
-                chips=new_chips,
-                last_regen_tick=started_at,
-            ),
-            sandbox_id=sandbox_id,
-        )
-    except Exception as exc:
-        logger.warning(
-            "[VICE] save_ai_bankroll failed pid=%r: %s",
-            personality_id,
-            exc,
-        )
-        return None
+    new_state = AIBankrollState(
+        personality_id=personality_id,
+        chips=new_chips,
+        last_regen_tick=started_at,
+    )
+    # Chip-custody atomicity: the pending-regen creation, the int debit, and
+    # the `vice_spending` destruction commit in ONE transaction. The separate
+    # vice_state row (below) is intentionally NOT in this txn — it's a different
+    # repo and we'd rather have a phantom debit than a vice with no expiry.
+    # `conn` is None for test doubles / cross-DB → prior separate writes.
+    from cash_mode.bankroll import chip_unit_of_work
 
-    # Destruction-side ledger entry. Best-effort; the chip move already
-    # committed so we can't unwind on failure here.
-    if chip_ledger_repo is not None:
-        chip_ledger.record_vice_spending(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            amount=amount,
-            context={
-                'site': 'lobby_refresh_vice',
-                'excess_ratio': round(excess_ratio, 3),
-                'pressure': round(pressure, 3),
-                'duration_bucket': duration_bucket,
-            },
-            sandbox_id=sandbox_id,
-        )
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        if chip_ledger_repo is not None and projected > stored.chips:
+            chip_ledger.record_ai_regen(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                stored_chips=stored.chips,
+                projected_chips=projected,
+                context={
+                    'site': 'lobby_refresh_vice',
+                    'sandbox_id': sandbox_id,
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
+        try:
+            if conn is not None:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+            else:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+        except Exception as exc:
+            logger.warning(
+                "[VICE] save_ai_bankroll failed pid=%r: %s",
+                personality_id,
+                exc,
+            )
+            return None
+
+        # Destruction-side ledger entry, now in the same transaction as the int
+        # debit (best-effort/swallowed — int stays authoritative).
+        if chip_ledger_repo is not None:
+            chip_ledger.record_vice_spending(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                amount=amount,
+                context={
+                    'site': 'lobby_refresh_vice',
+                    'excess_ratio': round(excess_ratio, 3),
+                    'pressure': round(pressure, 3),
+                    'duration_bucket': duration_bucket,
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
 
     # Finally, the vice state row. If the insert fails the chip move
     # is already committed — we'd rather have a phantom debit than

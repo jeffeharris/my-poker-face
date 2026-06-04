@@ -221,6 +221,21 @@ DIRECTOR_INEQUALITY_RAKE: bool = _env_flag("DIRECTOR_INEQUALITY_RAKE", False)
 INEQUALITY_FLAT_THRESHOLD: float = 2.5  # p90/median at/below this → flat field
 INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per sandbox
 
+# Director policy hold. The reserve-gated rake schedule (`resolve_rake_params`)
+# otherwise reads one fresh economy snapshot from the ledger PER HAND — a
+# `signal()` aggregate scan on the hot rake path, recomputed even though the
+# reserve band only drifts over many hands. When on, the schedule (raked stake
+# tiers + rate) is HELD for a `POLICY_WINDOW_SECONDS` window and recomputed only
+# in the lobby refresh (`cash_mode.director_policy`, the same throttle model as
+# the inequality read), so the per-hand rake just reads a cached scalar. The
+# Director steers slowly; the rake doesn't need to re-derive the band every hand.
+# Vice + side-hustle stay per-tick (the always-on bounds); casino is already
+# window-stable. Implies RAKE_RESERVE_GATED (it holds that schedule). Default
+# OFF — flip with the rest of the thermostat after sim. See
+# docs/plans/PROD_STARTING_CONDITIONS.md §1.4.
+DIRECTOR_POLICY_HOLD: bool = _env_flag("DIRECTOR_POLICY_HOLD", False)
+POLICY_WINDOW_SECONDS: int = 300  # rake schedule held this long between recomputes
+
 # Casino/whale pool thresholds relative to holdings. The spawn/close/whale gates
 # are absolute chip counts (5k/50k/100k …) that don't scale as the roster (and
 # thus total holdings) grows. When on, `casino_provisioning` treats them as
@@ -228,6 +243,16 @@ INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per s
 # ~$2.64M holdings), so casinos open/close at the same relative bank depth at any
 # economy size. Default OFF — sim-validate with the rest of the thermostat.
 CASINO_RELATIVE_THRESHOLDS: bool = _env_flag("CASINO_RELATIVE_THRESHOLDS", False)
+
+# Lean casino fish lifecycle. The casino is the pool→field drain (fish bring
+# pool-funded chips and bleed them to grinders). With 2 fish/casino at a 2.5–3.6×
+# prefund — plus the dam cascade opening $2/$10/$50 at once and topping every
+# casino back to 2 each tick — that drain lands as a LUMP that crashes reserves
+# and stalls the climb to the tournament trigger. When on, casinos hold just ONE
+# fish (two at $2), prefunded leaner, and reseed only when the current fish busts
+# — turning the step-function drain into a steady trickle (same net pool→field
+# flow over time, no crashes). Default OFF — sim-validate with the thermostat.
+CASINO_RESEED_ON_SPENT: bool = _env_flag("CASINO_RESEED_ON_SPENT", False)
 
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
@@ -438,7 +463,7 @@ def compute_rake(
     return min(raw, cap)
 
 
-def resolve_rake_params(chip_ledger_repo, sandbox_id):
+def resolve_rake_params(chip_ledger_repo, sandbox_id, *, _fresh: bool = False):
     """The reserve-gated rake schedule for this moment, or `(None, None)`.
 
     Returns `(stake_big_blinds, rate)` to pass to `compute_rake`. When the
@@ -457,9 +482,28 @@ def resolve_rake_params(chip_ledger_repo, sandbox_id):
     below the tournament trigger, the schedule is evaluated one band lower so the
     rake leads the refill that vice (no rich target to drain) can't. The cached
     inequality read is slow-moving (`cash_mode.field_inequality`).
+
+    Policy hold (`DIRECTOR_POLICY_HOLD`): the per-hand rake path otherwise re-runs
+    the `signal()` ledger scan EVERY hand. When the hold is on this returns the
+    schedule HELD by `cash_mode.director_policy` (recomputed in the lobby refresh,
+    at most once per `POLICY_WINDOW_SECONDS`) so the hot path just reads a cached
+    scalar. `_fresh=True` BYPASSES the hold and computes live from the ledger — it
+    is how the refresh recomputes the held value (and a cold cache, before the
+    first refresh, falls through to a live compute so the first hands aren't on
+    static rake). The flag-off path is unaffected (`_fresh` is irrelevant when
+    the hold is off — the live compute always runs).
     """
     if not RAKE_RESERVE_GATED or chip_ledger_repo is None:
         return None, None
+    if DIRECTOR_POLICY_HOLD and not _fresh:
+        from cash_mode.director_policy import director_rake_policy
+
+        held = director_rake_policy(sandbox_id)
+        if held is not None:
+            return held
+        # Cold cache: no lobby refresh has populated the hold yet this process.
+        # Fall through to a live compute so the opening hands rake correctly; the
+        # next refresh seeds the held value.
     try:
         import dataclasses
 

@@ -98,6 +98,12 @@ REFILL_RAKE_PCT: float = 0.05
 RESERVE_CRITICAL: float = 0.03  # below → bank critical
 RESERVE_HEALTHY: float = 0.06  # at/above → healthy; also the tournament drain floor
 RESERVE_TRIGGER: float = 0.12  # at/above → offer a Main Event
+# Vice refill tapers full→off across HEALTHY→CEILING, with the CEILING set ABOVE
+# the trigger so vice is still ~half-on AT the trigger (pushes reserves across it
+# instead of asymptoting), and keeps easing above it as a BRAKE when the bank runs
+# hot. Symmetric by default: trigger + (trigger − healthy) = 0.18, so vice = 0.5
+# exactly at the trigger.
+RESERVE_VICE_CEILING: float = 0.18  # at/above → vice fully off (hot bank, braked)
 
 
 # --- The read-model -------------------------------------------------------

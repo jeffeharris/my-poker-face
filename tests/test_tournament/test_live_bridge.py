@@ -82,7 +82,7 @@ def _game_data(session: TournamentSession):
     }
 
 
-def _stub_make(name, sm):
+def _stub_make(pid, display, sm):
     return SimpleNamespace()
 
 

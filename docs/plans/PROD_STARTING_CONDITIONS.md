@@ -120,6 +120,21 @@ one band. Wired at both rake sites (`game_handler._apply_rake_to_winner`,
 `full_sim._apply_rake_to_winner`) via the new `compute_rake(..., stake_big_blinds=,
 rate=)` overrides. Flag-off = byte-identical static rake.
 
+**Policy hold — shipped 2026-06-04 (flag `DIRECTOR_POLICY_HOLD`, default OFF).**
+The reserve-gated schedule above otherwise re-runs the `signal()` ledger
+aggregate scan PER HAND, on the hot rake path, for a band that only drifts over
+many hands. When on, `cash_mode/director_policy` HOLDS the resolved
+`(stake_big_blinds, rate)` for a `POLICY_WINDOW_SECONDS` (300s) window and
+recomputes it only in the lobby refresh (`refresh_director_policy`, the same
+throttle model as the field-inequality read), so the per-hand rake just reads a
+cached scalar. `resolve_rake_params` gained a `_fresh=` bypass: the refresh calls
+it `_fresh=True` to recompute the held value; per-hand reads (`_fresh=False`)
+return the held one, and a cold cache (before the first refresh) falls through to
+a live compute so opening hands still rake correctly. Implies `RAKE_RESERVE_GATED`
+(it holds that schedule). Vice + side-hustle stay per-tick (the always-on bounds
+that must react immediately); the casino lifecycle is already window-stable. Flag
+off = byte-identical (live compute every call).
+
 ### 1.5 Vice ↔ Side-hustle symmetry + the escrow fix
 
 Vice and side-hustle are **opposite faucets** and should ride the same band:
@@ -216,17 +231,21 @@ as prizes. Demonstrated (genesis seeded above a 0.10 trigger, `--no-casino`):
 reserves at 0.14 → **fire drains 124k → ratio 0.057 (the floor), holdings rise**
 (prizes enter the field) → reserves climb again. The sawtooth drop is real.
 
-**Two tuning findings from the runs (open):**
-- **Casino seed is a big, lumpy drain.** A single casino opening drops reserves
-  ~74–90k, repeatedly knocking the climb back to the critical band — it stalled
-  reserves below even a 0.08 trigger across 500 ticks. Cutting the casino seed
-  cost / fish count (or `CASINO_RELATIVE_THRESHOLDS`) is the lever for a reliable
-  climb.
-- **Vice tapers to zero at the trigger → asymptotic approach.** Because vice eases
-  to off exactly at the trigger, the last stretch of the climb relies on the weak
-  base rake, so reaching (and re-reaching) the trigger is slow. Lever: hold a vice
-  floor near the trigger, or let rake carry the final push. This is the knob for
-  the 1–2 tournaments/day cadence.
+**Tuning findings from the runs:**
+- **Casino seed was a big, lumpy drain — FIXED 2026-06-04 (`CASINO_RESEED_ON_SPENT`,
+  default OFF).** 2 fish/casino at a 2.5–3.6× prefund (+ dam cascade + eager
+  per-tick refill to 2) landed as a lump that crashed reserves and stalled the
+  climb. Lean lifecycle: 1 fish/casino (2 at $2), leaner prefund (1.5–2.0×), and
+  the whale dropped from 10–18× to 3–5× (it was the old "drain fast" grant, now
+  redundant with the tournament). Re-run: the casino drain halved (66k vs 128k)
+  and went STEADY — reserves climb smoothly 0.05→0.09 with **no crashes** (vs the
+  old run that crashed to 0.027). Same net pool→field flow, no step function.
+- **Vice tapered to zero at the trigger → asymptotic approach. FIXED 2026-06-04.**
+  Vice now tapers full→off across `RESERVE_HEALTHY (0.06) → RESERVE_VICE_CEILING
+  (0.18)`, with the ceiling ABOVE the trigger — so vice is ~0.5 AT the trigger
+  (pushes reserves across it instead of stalling) and keeps easing above it as a
+  BRAKE when the bank runs hot. (Sim re-run to confirm the cross + repeating
+  sawtooth is the quick next check — unit-tested, not yet sim-confirmed.)
 
 ### 1.6 Open tuning questions (need a sim before flipping on)
 
@@ -486,6 +505,10 @@ remaining 71 to be generated in tier batches.
       rate across 3 reserve bands — `{1000}`@2% / `{1000,200}`@3% / `{1000,200,50}`@4%
       (`RAKE_RESERVE_GATED`, default OFF; `resolve_rake_params` + ratio-keyed
       `cash_rake_schedule`). Done 2026-06-04.
+- [x] Director policy hold: hold the rake schedule for a `POLICY_WINDOW_SECONDS`
+      window (`cash_mode/director_policy`, recomputed in the lobby refresh, read by
+      `resolve_rake_params` via the `_fresh=` bypass) so the per-hand rake skips the
+      ledger signal scan (`DIRECTOR_POLICY_HOLD`, default OFF). Done 2026-06-04.
 - [x] Re-gate vice intensity on reserve deficit (`VICE_RESERVE_GATED`, default
       OFF; `reserve_vice_multiplier`). Done 2026-06-04. Follow-up: gate the
       `commit_leave_vice` seated→leave intercept too.

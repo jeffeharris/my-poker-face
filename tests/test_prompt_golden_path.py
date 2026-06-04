@@ -58,9 +58,9 @@ class TestGoldenPath(unittest.TestCase):
             {
                 'name': 'A Mime',
                 'expected_traits': {
-                    'conservative_play': False,  # High bluff tendency
-                    'passive': True,  # Medium aggression
-                    'quiet': True,  # Zero chattiness (it's a mime!)
+                    'conservative_play': True,  # tight/calculated: baseline_looseness 0.40
+                    'passive': False,  # selectively aggressive: baseline_aggression 0.55
+                    'quiet': True,  # silent (it's a mime!): expressiveness 0.05
                 },
             },
         ]
@@ -84,7 +84,10 @@ class TestGoldenPath(unittest.TestCase):
                     # looseness is the inverse of old tightness
                     tightness = 1.0 - anchors.get('baseline_looseness', 0.5)
                     aggression = anchors.get('baseline_aggression', 0.5)
-                    table_talk = anchors.get('baseline_energy', 0.5)
+                    # "Quiet" is talkativeness, which lives in `expressiveness`
+                    # (chattiness/emoji), not `baseline_energy` (activity level):
+                    # A Mime is high-energy but silent, so energy mis-flags it.
+                    table_talk = anchors.get('expressiveness', 0.5)
                 else:
                     traits = player.personality_config.get('personality_traits', {})
                     tightness = traits.get('tightness', 0.5)
@@ -139,16 +142,16 @@ class TestGoldenPath(unittest.TestCase):
         blackbeard_prompt = blackbeard.persona_prompt()
 
         # Verify confidence and attitude are set correctly
-        self.assertEqual(scrooge.confidence, 'pessimistic')
-        self.assertEqual(scrooge.attitude, 'grumpy and suspicious')
+        self.assertEqual(scrooge.confidence, 'cautious')
+        self.assertEqual(scrooge.attitude, 'miserly and grumpy')
         self.assertEqual(blackbeard.confidence, 'overconfident')
-        self.assertEqual(blackbeard.attitude, 'menacing')
+        self.assertEqual(blackbeard.attitude, 'intimidating')
 
         # Verify these appear in prompts
-        self.assertIn('pessimistic', scrooge_prompt)
-        self.assertIn('grumpy and suspicious', scrooge_prompt)
+        self.assertIn('cautious', scrooge_prompt)
+        self.assertIn('miserly and grumpy', scrooge_prompt)
         self.assertIn('overconfident', blackbeard_prompt)
-        self.assertIn('menacing', blackbeard_prompt)
+        self.assertIn('intimidating', blackbeard_prompt)
 
     def test_dynamic_strategy_in_prompts(self):
         """Test that dynamic strategy adjustments work correctly."""
@@ -182,12 +185,12 @@ class TestGoldenPath(unittest.TestCase):
         self.assertIsNotNone(ai_player.prompt_manager)
 
         # Test that personality config was loaded
-        self.assertIn('miserly and tight', ai_player.personality_config['play_style'])
+        self.assertIn('tight and passive', ai_player.personality_config['play_style'])
 
         # Test that the assistant was initialized with the proper prompt
         self.assertIn('Ebenezer Scrooge', ai_player.assistant.system_message)
-        self.assertIn('grumpy and suspicious', ai_player.assistant.system_message)
-        self.assertIn('pessimistic', ai_player.assistant.system_message)
+        self.assertIn('miserly and grumpy', ai_player.assistant.system_message)
+        self.assertIn('cautious', ai_player.assistant.system_message)
 
         # Verify the prompt contains the JSON format
         self.assertIn('"inner_monologue"', ai_player.assistant.system_message)

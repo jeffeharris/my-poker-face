@@ -763,6 +763,7 @@ def _build_cash_game(
     from poker.pressure_detector import PressureEventDetector
     from poker.pressure_stats import PressureStatsTracker
     from poker.repositories.sqlite_repositories import PressureEventRepository
+    from poker.table.seat import HumanSeat, PersonaSeat
 
     human_name = _resolve_player_name()
     ai_names = [a["name"] for a in selected_ai]
@@ -774,16 +775,25 @@ def _build_cash_game(
         big_blind=big_blind,
         dealer_idx=dealer_player_idx,
     )
-    # AI stacks may differ from the human's starting stack; adjust each.
+    # AI stacks may differ from the human's starting stack; adjust each. Also
+    # stamp the canonical typed seat identity (T3-80) on every seat: the human's
+    # HumanSeat keys on owner_id, each AI's PersonaSeat on its personality_id, so
+    # seat_key(player) is the stable key the controller/memory bridges use.
     for idx, player in enumerate(game_state.players):
         if player.is_human:
+            game_state = game_state.update_player(idx, seat_id=HumanSeat(owner_id))
             continue
         ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
         if ai_entry is None:
             continue
-        ai_buy_in = ai_buy_ins[ai_entry["personality_id"]]
-        if ai_buy_in != player.stack:
-            game_state = game_state.update_player(idx, stack=ai_buy_in)
+        pid = ai_entry["personality_id"]
+        ai_buy_in = ai_buy_ins[pid]
+        game_state = game_state.update_player(
+            idx,
+            stack=ai_buy_in,
+            personality_id=pid,
+            seat_id=PersonaSeat(pid),
+        )
 
     base_state_machine = PokerStateMachine(
         game_state=game_state,

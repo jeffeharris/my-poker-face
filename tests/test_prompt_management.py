@@ -212,14 +212,14 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         # Mock to return the Scrooge personality from our fixtures
         mock_load_config.return_value = PERSONALITIES_FIXTURE['Ebenezer Scrooge']
 
-        # Test known personality
+        # Test known personality. Assert against the fixture (the same JSON the
+        # mock returns) rather than hardcoded strings, so an intentional roster
+        # re-tune of Scrooge can't silently break the load-mapping check again.
         player = AIPokerPlayer(name='Ebenezer Scrooge', starting_money=10000)
-        self.assertEqual(
-            player.personality_config['play_style'],
-            'miserly and tight, guards every chip like it\'s his last and only bets when absolutely certain',
-        )
-        self.assertEqual(player.confidence, 'pessimistic')
-        self.assertEqual(player.attitude, 'grumpy and suspicious')
+        scrooge_cfg = PERSONALITIES_FIXTURE['Ebenezer Scrooge']
+        self.assertEqual(player.personality_config['play_style'], scrooge_cfg['play_style'])
+        self.assertEqual(player.confidence, scrooge_cfg['default_confidence'])
+        self.assertEqual(player.attitude, scrooge_cfg['default_attitude'])
 
         # Test personality anchors (v2.1 9-anchor model) or legacy traits
         if 'anchors' in player.personality_config:

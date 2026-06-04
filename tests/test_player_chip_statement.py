@@ -136,6 +136,7 @@ def test_transfer_reasons_excluded_from_bank_reason_sets():
         "stake_payoff",
         "tournament_buy_in",
         "tournament_payout",
+        "ledger_reconciliation",
     }
     assert TRANSFER_REASONS.isdisjoint(BANK_POOL_DEPOSIT_REASONS)
     assert TRANSFER_REASONS.isdisjoint(BANK_POOL_DRAW_REASONS)

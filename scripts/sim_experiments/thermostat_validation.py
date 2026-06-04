@@ -149,6 +149,9 @@ def main() -> int:
     # Inequality-aware rake: inert on the top-heavy launch cast (vice leads), but
     # wired so the full Director stack runs — exercise it with a flatter roster.
     economy_flags.DIRECTOR_INEQUALITY_RAKE = True
+    # Lean casino fish lifecycle: 1 fish/casino (2 at $2), leaner prefund, leaner
+    # whale — turns the lumpy casino drain into a steady trickle.
+    economy_flags.CASINO_RESEED_ON_SPENT = True
     if args.genesis_ratio is not None:
         economy_flags.GENESIS_RESERVE_RATIO = args.genesis_ratio
 

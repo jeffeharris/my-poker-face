@@ -8,6 +8,7 @@ from core.card import Card
 
 from .betting_context import BettingContext
 from .hand_evaluator import HandEvaluator, rank_to_display
+from .table.seat import SeatId
 
 logger = logging.getLogger(__name__)
 
@@ -64,15 +65,21 @@ class Player:
     # explicit key that all identity bridges should use — field entries,
     # eliminations, payouts, memory/dossier registration — instead of overloading
     # `name`. `None` for the human seat (whose stable key is the `owner_id`) and
-    # for legacy/regular games that haven't set it. Additive: nothing reads it
-    # yet (Step 2); the bridges migrate onto it in later steps.
+    # for legacy/regular games that haven't set it. Superseded by `seat_id` as
+    # the bridges migrate onto the typed key; kept during the transition.
     personality_id: Optional[str] = None
+    # The canonical typed seat identity (T3-80). `PersonaSeat(personality_id)` for
+    # an AI seat, `HumanSeat(owner_id)` for the human. `seat_key(player)` keys
+    # every identity bridge off `seat_id.key` — never the display `name`. `None`
+    # until the construction site stamps it (builders migrate in Step 3).
+    seat_id: Optional[SeatId] = None
 
     def to_dict(self):
         return {
             'name': self.name,
             'nickname': self.nickname,
             'personality_id': self.personality_id,
+            'seat_id': self.seat_id.to_dict() if self.seat_id is not None else None,
             'stack': self.stack,
             'is_human': self.is_human,
             'is_all_in': self.is_all_in,

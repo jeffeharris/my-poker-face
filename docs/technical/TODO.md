@@ -2,7 +2,7 @@
 purpose: Tracking list for technical-documentation staleness, gaps, and header compliance in docs/technical/
 type: reference
 created: 2026-06-03
-last_updated: 2026-06-03
+last_updated: 2026-06-04
 ---
 
 # Technical Documentation TODO
@@ -62,6 +62,7 @@ This closes the High/Medium/Low gap list from the original survey.
 ## Still open
 
 ### Small follow-ups (not full docs)
+- 🟢 **Director economy thermostat documented 2026-06-04** (`release-candidate`): the reserve-band layer (genesis seed + reserve-gated vice/rake + inequality rake + policy hold + tournament overlay, all flag-OFF) is design-doc'd in `docs/plans/PROD_STARTING_CONDITIONS.md` and summarized in `CASH_MODE_WEALTH_LEVERS.md` ("Director thermostat") + `TOURNAMENTS.md` §7 (whose stale FLUSH-only trigger/floor + line numbers were corrected to the `RESERVE_TRIGGER`/`RESERVE_HEALTHY` ladder). Residual: a fuller standalone treatment can wait until the flags flip live; the genesis-seed/casino-flag mechanics are covered only at flag-table altitude. NOTE: this work is on `release-candidate`, not the `development` baseline this TODO was seeded against.
 - 🟡 **`react/CLAUDE.md` is stale** (auto-loaded): says "React 18" (actual 19) and lists a non-existent `contexts/` dir — same two errors fixed in `FRONTEND.md`. Fix at the source.
 - 🟡 **`PROMPT_CONFIG_REFERENCE.md` field catalog drifts when fields ship** (`show_ev_labels` was undocumented until this pass) — periodically re-verify against the `prompt_config.py` dataclass `fields()`.
 - 🟡 **`psychology.traits` backward-compat shim** (old 5-key dict derived from the anchors) — worth a one-line note in `PSYCHOLOGY_OVERVIEW.md` (also tracked as legacy LC-01 in `docs/TRIAGE.md`).

@@ -287,48 +287,65 @@ def apply_payout_on_complete(
                 # across both branches, so a reconcile of a stuck payout can skip
                 # already-paid sinks by their ledger total WITHOUT risking a double
                 # bankroll credit (the cash double-settle lesson — never re-pay).
-                chip_ledger.record_tournament_payout(
-                    ledger_repo,
-                    sink=player(human_owner_id),
-                    tournament_id=tournament_id,
-                    amount=amount,
-                    context={'site': 'payout', 'finishing_position': entry['finishing_position']},
-                    sandbox_id=sandbox_id,
-                )
-                bankroll = bankroll_repo.load_player_bankroll(human_owner_id)
-                chips = bankroll.chips if bankroll else 0
-                starting = bankroll.starting_bankroll if bankroll else chips
-                bankroll_repo.save_player_bankroll(
-                    PlayerBankrollState(
+                from cash_mode.bankroll import chip_unit_of_work
+
+                with chip_unit_of_work(bankroll_repo, ledger_repo=ledger_repo) as conn:
+                    chip_ledger.record_tournament_payout(
+                        ledger_repo,
+                        sink=player(human_owner_id),
+                        tournament_id=tournament_id,
+                        amount=amount,
+                        context={
+                            'site': 'payout',
+                            'finishing_position': entry['finishing_position'],
+                        },
+                        sandbox_id=sandbox_id,
+                        conn=conn,
+                    )
+                    bankroll = bankroll_repo.load_player_bankroll(human_owner_id)
+                    chips = bankroll.chips if bankroll else 0
+                    starting = bankroll.starting_bankroll if bankroll else chips
+                    new_player = PlayerBankrollState(
                         player_id=human_owner_id,
                         chips=chips + amount,
                         starting_bankroll=starting,
                     )
-                )
+                    if conn is not None:
+                        bankroll_repo.save_player_bankroll(new_player, conn=conn)
+                    else:
+                        bankroll_repo.save_player_bankroll(new_player)
             elif pid in real_persona_ids:
                 # Real AI persona → credit its sandbox bankroll. The escrow→ai
                 # transfer is the authoritative chip move (drift-invisible); the
                 # cached int is bumped to match WITHOUT a ledger repo, so the
                 # auto-ai_seed first-write path can't double-count the prize.
-                chip_ledger.record_tournament_payout(
-                    ledger_repo,
-                    sink=ai(pid),
-                    tournament_id=tournament_id,
-                    amount=amount,
-                    context={'site': 'payout', 'finishing_position': entry['finishing_position']},
-                    sandbox_id=sandbox_id,
-                )
-                existing = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-                base = existing.chips if existing else 0
-                anchor = existing.last_regen_tick if existing else datetime.utcnow()
-                bankroll_repo.save_ai_bankroll(
-                    AIBankrollState(
+                from cash_mode.bankroll import chip_unit_of_work
+
+                with chip_unit_of_work(bankroll_repo, ledger_repo=ledger_repo) as conn:
+                    chip_ledger.record_tournament_payout(
+                        ledger_repo,
+                        sink=ai(pid),
+                        tournament_id=tournament_id,
+                        amount=amount,
+                        context={
+                            'site': 'payout',
+                            'finishing_position': entry['finishing_position'],
+                        },
+                        sandbox_id=sandbox_id,
+                        conn=conn,
+                    )
+                    existing = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+                    base = existing.chips if existing else 0
+                    anchor = existing.last_regen_tick if existing else datetime.utcnow()
+                    new_ai = AIBankrollState(
                         personality_id=pid,
                         chips=base + amount,
                         last_regen_tick=anchor,
-                    ),
-                    sandbox_id=sandbox_id,
-                )
+                    )
+                    if conn is not None:
+                        bankroll_repo.save_ai_bankroll(new_ai, sandbox_id=sandbox_id, conn=conn)
+                    else:
+                        bankroll_repo.save_ai_bankroll(new_ai, sandbox_id=sandbox_id)
             # else: synthetic seat — no bankroll to credit, swept below.
 
         # Skim the configured rake (escrow → bank pool: the refill lever).
@@ -460,36 +477,46 @@ def reconcile_stuck_payout(
             if delta <= 0:
                 continue  # this finisher's payout already landed in the ledger
 
-            # Ledger row FIRST (the authority), then bump the cache — same order
-            # as the main loop, so a re-crash here is re-reconcilable.
-            chip_ledger.record_tournament_payout(
-                ledger_repo,
-                sink=sink,
-                tournament_id=tournament_id,
-                amount=delta,
-                context={
-                    'site': 'payout_reconcile',
-                    'finishing_position': entry['finishing_position'],
-                },
-                sandbox_id=sandbox_id,
-            )
-            if is_real_human:
-                bankroll = bankroll_repo.load_player_bankroll(human_owner_id)
-                chips = bankroll.chips if bankroll else 0
-                starting = bankroll.starting_bankroll if bankroll else chips
-                bankroll_repo.save_player_bankroll(
-                    PlayerBankrollState(
+            # Ledger row + cache bump in ONE transaction (the row is still the
+            # authority; atomic so a re-crash here is re-reconcilable with no
+            # split commit). `conn` is None for test doubles / cross-DB.
+            from cash_mode.bankroll import chip_unit_of_work
+
+            with chip_unit_of_work(bankroll_repo, ledger_repo=ledger_repo) as conn:
+                chip_ledger.record_tournament_payout(
+                    ledger_repo,
+                    sink=sink,
+                    tournament_id=tournament_id,
+                    amount=delta,
+                    context={
+                        'site': 'payout_reconcile',
+                        'finishing_position': entry['finishing_position'],
+                    },
+                    sandbox_id=sandbox_id,
+                    conn=conn,
+                )
+                if is_real_human:
+                    bankroll = bankroll_repo.load_player_bankroll(human_owner_id)
+                    chips = bankroll.chips if bankroll else 0
+                    starting = bankroll.starting_bankroll if bankroll else chips
+                    new_player = PlayerBankrollState(
                         player_id=human_owner_id, chips=chips + delta, starting_bankroll=starting
                     )
-                )
-            else:
-                existing = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-                base = existing.chips if existing else 0
-                anchor = existing.last_regen_tick if existing else datetime.utcnow()
-                bankroll_repo.save_ai_bankroll(
-                    AIBankrollState(personality_id=pid, chips=base + delta, last_regen_tick=anchor),
-                    sandbox_id=sandbox_id,
-                )
+                    if conn is not None:
+                        bankroll_repo.save_player_bankroll(new_player, conn=conn)
+                    else:
+                        bankroll_repo.save_player_bankroll(new_player)
+                else:
+                    existing = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+                    base = existing.chips if existing else 0
+                    anchor = existing.last_regen_tick if existing else datetime.utcnow()
+                    new_ai = AIBankrollState(
+                        personality_id=pid, chips=base + delta, last_regen_tick=anchor
+                    )
+                    if conn is not None:
+                        bankroll_repo.save_ai_bankroll(new_ai, sandbox_id=sandbox_id, conn=conn)
+                    else:
+                        bankroll_repo.save_ai_bankroll(new_ai, sandbox_id=sandbox_id)
 
         # Rake — pay only the unpaid remainder (escrow → bank pool).
         rake_owed = int(row.get('rake') or 0)
