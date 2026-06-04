@@ -504,6 +504,72 @@ def carry_penalty_probability(active_carry_count: int) -> float:
     return CARRY_MATCHER_PENALTY_BASE ** int(active_carry_count)
 
 
+# --- Friends-first payoff target selection ---
+
+
+def _borrower_affinity_for_staker(
+    relationship_repo,
+    *,
+    borrower_id: str,
+    staker_id: Optional[str],
+    now: datetime,
+) -> float:
+    """The borrower's affinity toward a creditor — who they'd rather
+    make whole first.
+
+    Likability-led with a light respect tiebreak, read from the
+    borrower's OWN view of the staker (observer=borrower). Neutral 0.5
+    when there's no relationship signal (or no repo), so unknown
+    creditors sort between liked and disliked ones. Extreme dislike
+    lands low and naturally sinks to the back of the repayment queue —
+    the "pay people you like first, unless you really can't stand them"
+    intent.
+    """
+    if relationship_repo is None or staker_id is None:
+        return 0.5
+    try:
+        rel = relationship_repo.load_relationship_state(
+            observer_id=borrower_id,
+            opponent_id=staker_id,
+            now=now,
+        )
+    except Exception:
+        return 0.5
+    if rel is None:
+        return 0.5
+    likability = float(getattr(rel, 'likability', 0.5))
+    respect = float(getattr(rel, 'respect', 0.5))
+    return likability + 0.1 * respect
+
+
+def _select_payoff_target(
+    carries: List[Stake],
+    relationship_repo,
+    *,
+    borrower_id: str,
+    now: datetime,
+) -> Optional[Stake]:
+    """Pick which carry a paying borrower clears first — friends first.
+
+    The carry whose staker the borrower most prefers (highest affinity)
+    wins; ties break to the oldest carry. `carries` arrives ASC by
+    created_at and Python's `max` keeps the first maximal element, so a
+    tie naturally yields the oldest. Falls back to the oldest carry when
+    no relationship signal exists (affinity flat at 0.5 everywhere).
+    """
+    if not carries:
+        return None
+    return max(
+        carries,
+        key=lambda c: _borrower_affinity_for_staker(
+            relationship_repo,
+            borrower_id=borrower_id,
+            staker_id=c.staker_id,
+            now=now,
+        ),
+    )
+
+
 # --- Public entry points (one per commit) ---
 
 
@@ -570,7 +636,18 @@ def try_ai_voluntary_payoff(
         now,
     )
 
-    target = carries[0]  # oldest first — repo returns ASC by created_at
+    # Friends-first: clear the carry owed to the staker the borrower
+    # most prefers, oldest as the tiebreak (falls back to strict oldest
+    # when there's no relationship signal). Rewards stakers who keep a
+    # good rapport with a borrower — they get repaid ahead of the pack.
+    target = _select_payoff_target(
+        carries,
+        relationship_repo,
+        borrower_id=personality_id,
+        now=now,
+    )
+    if target is None:
+        return None
     carry_amount = int(target.carry_amount)
     if carry_amount <= 0:
         return None

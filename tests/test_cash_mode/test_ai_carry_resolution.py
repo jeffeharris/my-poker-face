@@ -42,6 +42,7 @@ from cash_mode.ai_carry_resolution import (
     _payoff_payment_amount,
     _payoff_probability,
     _payoff_score,
+    _select_payoff_target,
     _wealth_gap_factor,
     resolve_ai_carries,
     try_ai_bankruptcy,
@@ -1391,6 +1392,72 @@ class TestBankruptcy:
         assert len(batch.results) == 1
         assert batch.results[0].kind == "bankruptcy"
         assert stake.load_stake("c_ai").status == STAKE_STATUS_DEFAULTED
+
+
+class _RelByStaker:
+    """relationship_repo stub: borrower→staker likability keyed by the
+    opponent (staker) id, so a borrower can prefer one creditor over
+    another."""
+
+    def __init__(self, likability_by_staker):
+        self._m = likability_by_staker
+
+    def load_relationship_state(self, *, observer_id, opponent_id, now):
+        from unittest.mock import MagicMock
+
+        return MagicMock(
+            likability=self._m.get(opponent_id, 0.5),
+            respect=0.5,
+            heat=0.0,
+        )
+
+
+class TestFriendsFirstPayoffTarget(unittest.TestCase):
+    """`_select_payoff_target` clears the most-preferred creditor first,
+    oldest as the tiebreak, oldest fallback without a relationship repo."""
+
+    def _carry(self, stake_id, staker_id, created_at):
+        return Stake(
+            stake_id=stake_id,
+            session_id="s",
+            staker_id=staker_id,
+            staker_kind=STAKER_KIND_PERSONALITY,
+            borrower_id="b",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=400,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.30,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=400,
+            stake_tier="$10",
+            created_at=created_at,
+        )
+
+    def test_prefers_liked_staker_over_oldest(self):
+        old = self._carry("old", "rival", ANCHOR)  # oldest, disliked
+        new = self._carry("new", "friend", ANCHOR + timedelta(days=2))  # newer, liked
+        rel = _RelByStaker({"friend": 0.9, "rival": 0.1})
+        target = _select_payoff_target(
+            [old, new], rel, borrower_id="b", now=ANCHOR + timedelta(days=3)
+        )
+        self.assertEqual(target.stake_id, "new")
+
+    def test_oldest_breaks_ties_when_affinity_equal(self):
+        old = self._carry("old", "a", ANCHOR)
+        new = self._carry("new", "c", ANCHOR + timedelta(days=2))
+        rel = _RelByStaker({"a": 0.5, "c": 0.5})
+        target = _select_payoff_target(
+            [old, new], rel, borrower_id="b", now=ANCHOR + timedelta(days=3)
+        )
+        self.assertEqual(target.stake_id, "old")
+
+    def test_falls_back_to_oldest_without_repo(self):
+        old = self._carry("old", "a", ANCHOR)
+        new = self._carry("new", "c", ANCHOR + timedelta(days=2))
+        target = _select_payoff_target([old, new], None, borrower_id="b", now=ANCHOR)
+        self.assertEqual(target.stake_id, "old")
 
 
 if __name__ == '__main__':
