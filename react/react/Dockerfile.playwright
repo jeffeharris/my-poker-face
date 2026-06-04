@@ -7,6 +7,14 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# Install browser binaries matching the npm-pinned @playwright/test version.
+# The base image bakes browsers via an UNPINNED `npx playwright install`, so it
+# drifts whenever package.json bumps Playwright (e.g. base has an older Chromium
+# build than the version resolves here -> "Executable doesn't exist"). Re-running
+# install against the just-installed version keeps the browser in lockstep with
+# the pin regardless of how stale the base image is. System deps come from base.
+RUN npx playwright install chromium webkit
+
 # Copy the rest of the app
 COPY . .
 
