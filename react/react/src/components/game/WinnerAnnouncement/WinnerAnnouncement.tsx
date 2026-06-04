@@ -1,16 +1,5 @@
 import { memo, useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Trophy,
-  HeartCrack,
-  PartyPopper,
-  Smile,
-  Angry,
-  Handshake,
-  Award,
-  ArrowLeft,
-  Check,
-  type LucideIcon,
-} from 'lucide-react';
+import { Trophy, HeartCrack, ArrowLeft, Check } from 'lucide-react';
 import { Card } from '../../cards';
 import { config } from '../../../config';
 import { INTERHAND_TIMING } from '../../../constants/interhandTiming';
@@ -19,6 +8,14 @@ import { logger } from '../../../utils/logger';
 import { getOrdinal, type BackendCard } from '../../../types/tournament';
 import type { PostRoundTone, PostRoundSuggestion } from '../../../types/chat';
 import type { Player } from '../../../types/player';
+// Shared post-round tone policy — keeps desktop and the mobile overlay
+// (MobileWinnerAnnouncement) on one situational tone set / addressing / fallback
+// source so the two can't drift apart.
+import {
+  buildToneOptions,
+  addressingForTone,
+  POST_ROUND_FALLBACKS,
+} from '../../mobile/postRoundTones';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -62,12 +59,6 @@ interface CommentaryItem {
   timestamp: number;
 }
 
-interface ToneOption {
-  id: PostRoundTone;
-  icon: LucideIcon;
-  label: string;
-}
-
 export interface WinnerAnnouncementProps {
   winnerInfo: WinnerInfo | null;
   commentary?: CommentaryItem[];
@@ -95,46 +86,6 @@ export interface WinnerAnnouncementProps {
     intensity?: string
   ) => void;
 }
-
-// Tone options for winners
-const WINNER_TONES: ToneOption[] = [
-  { id: 'gloat', icon: PartyPopper, label: 'Gloat' },
-  { id: 'humble', icon: Smile, label: 'Humble' },
-  { id: 'props', icon: Award, label: 'Props' },
-];
-
-// Tone options for losers
-const LOSER_TONES: ToneOption[] = [
-  { id: 'salty', icon: Angry, label: 'Salty' },
-  { id: 'gracious', icon: Handshake, label: 'Gracious' },
-  { id: 'props', icon: Award, label: 'Props' },
-];
-
-// Only the manually-selectable tone-bar tones (gloat/humble/props/salty/gracious)
-// have static fallbacks; commiserate/cry_luck/vow are situational tones that never
-// reach the tone bar here, so the map is Partial and lookups fall back to [].
-const FALLBACK_SUGGESTIONS: Partial<Record<PostRoundTone, PostRoundSuggestion[]>> = {
-  gloat: [
-    { text: 'Too easy.', tone: 'gloat' },
-    { text: 'Thanks for the chips!', tone: 'gloat' },
-  ],
-  humble: [
-    { text: 'Got lucky there.', tone: 'humble' },
-    { text: 'Good game.', tone: 'humble' },
-  ],
-  salty: [
-    { text: 'Unreal.', tone: 'salty' },
-    { text: 'Of course.', tone: 'salty' },
-  ],
-  gracious: [
-    { text: 'Nice hand.', tone: 'gracious' },
-    { text: 'Well played.', tone: 'gracious' },
-  ],
-  props: [
-    { text: 'Respect. Well played.', tone: 'props' },
-    { text: 'That was a sharp read.', tone: 'props' },
-  ],
-};
 
 export const WinnerAnnouncement = memo(function WinnerAnnouncement({
   winnerInfo,
@@ -175,8 +126,31 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
   const [messageSent, setMessageSent] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false); // Pauses auto-dismiss
 
+  // Situational read of the hand, shared with the mobile overlay, so the tone
+  // set fits what happened (no "vow revenge" over a hand you folded, etc.).
   const playerWon = winnerInfo?.winners.includes(humanName) ?? false;
-  const toneOptions = playerWon ? WINNER_TONES : LOSER_TONES;
+  const winnerName = winnerInfo?.winners?.[0];
+  const isShowdown = !!winnerInfo?.showdown;
+  const humanAtShowdown = !!winnerInfo?.players_showdown?.[humanName];
+
+  // A fellow loser to commiserate with: someone OTHER than you who lost at
+  // showdown. Suppressed when you're the only loser (heads-up vs. the winner).
+  const fellowLoser = useMemo(() => {
+    if (!winnerInfo?.players_showdown) return undefined;
+    const isWinner = (n: string) => winnerInfo.winners.includes(n);
+    return Object.keys(winnerInfo.players_showdown).find((n) => n !== humanName && !isWinner(n));
+  }, [winnerInfo, humanName]);
+
+  const toneOptions = useMemo(
+    () =>
+      buildToneOptions({
+        playerWon,
+        isShowdown,
+        humanAtShowdown,
+        hasFellowLoser: !!fellowLoser,
+      }),
+    [playerWon, isShowdown, humanAtShowdown, fellowLoser]
+  );
 
   const fetchSuggestions = useCallback(
     async (tone: PostRoundTone) => {
@@ -184,7 +158,7 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
       if (!gameId || !humanName) {
         logger.warn('[PostRoundChat] Missing gameId or humanName, using fallback suggestions');
-        setSuggestions(FALLBACK_SUGGESTIONS[tone] ?? []);
+        setSuggestions(POST_ROUND_FALLBACKS[tone]);
         return;
       }
 
@@ -194,7 +168,7 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
         setSuggestions(response.suggestions || []);
       } catch (error) {
         logger.error('[PostRoundChat] Failed to fetch suggestions:', error);
-        setSuggestions(FALLBACK_SUGGESTIONS[tone] ?? []);
+        setSuggestions(POST_ROUND_FALLBACKS[tone]);
       } finally {
         setLoadingSuggestions(false);
       }
@@ -213,15 +187,15 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
   const handleSuggestionClick = useCallback(
     (text: string, tone: PostRoundTone) => {
-      // Mirror mobile: loser reaction is directed at hand winner, winner broadcast is unaddressed
-      const addressing =
-        !playerWon && winnerInfo?.winners?.[0] ? [winnerInfo.winners[0]] : undefined;
+      // Shared addressing policy: Commiserate → the fellow loser, other
+      // loss-side reactions → the winner who beat you, win-side tones broadcast.
+      const addressing = addressingForTone(tone, { playerWon, winnerName, fellowLoser });
       onSendMessage?.(text, addressing, tone);
       setMessageSent(true);
       setSuggestions([]);
       setIsInteracting(false); // Resume auto-dismiss possibility
     },
-    [playerWon, winnerInfo, onSendMessage]
+    [playerWon, winnerName, fellowLoser, onSendMessage]
   );
 
   const handleBackToTones = useCallback(() => {

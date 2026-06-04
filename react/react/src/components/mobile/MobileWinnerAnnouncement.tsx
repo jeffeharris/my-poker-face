@@ -8,7 +8,12 @@ import { config } from '../../config';
 import { getOrdinal, type BackendCard } from '../../types/tournament';
 import type { PostRoundTone, PostRoundSuggestion, ChatIntensity } from '../../types/chat';
 import type { Player } from '../../types/player';
-import { buildToneOptions, SARCASM_ABLE_POST_ROUND } from './postRoundTones';
+import {
+  buildToneOptions,
+  addressingForTone as addressingForToneShared,
+  SARCASM_ABLE_POST_ROUND,
+  POST_ROUND_FALLBACKS,
+} from './postRoundTones';
 import './MobileWinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -70,43 +75,6 @@ interface MobileWinnerAnnouncementProps {
    *  human (is_human seat) for the win/loss tone read. */
   players?: Player[];
 }
-
-// Offline fallbacks per tone, used when the suggestion API is unreachable or
-// required params are missing. One source for both error paths.
-const POST_ROUND_FALLBACKS: Record<PostRoundTone, PostRoundSuggestion[]> = {
-  gloat: [
-    { text: 'Too easy.', tone: 'gloat' },
-    { text: 'Thanks for the chips!', tone: 'gloat' },
-  ],
-  gracious: [
-    { text: 'Nice hand.', tone: 'gracious' },
-    { text: 'Well played.', tone: 'gracious' },
-  ],
-  humble: [
-    { text: 'Got lucky there.', tone: 'humble' },
-    { text: 'Good game.', tone: 'humble' },
-  ],
-  commiserate: [
-    { text: 'Tough beat, man.', tone: 'commiserate' },
-    { text: 'Brutal spot — you played it fine.', tone: 'commiserate' },
-  ],
-  salty: [
-    { text: 'Unreal.', tone: 'salty' },
-    { text: 'Of course.', tone: 'salty' },
-  ],
-  props: [
-    { text: 'Respect. Well played.', tone: 'props' },
-    { text: 'That was a sharp read.', tone: 'props' },
-  ],
-  cry_luck: [
-    { text: 'Needed that river, huh?', tone: 'cry_luck' },
-    { text: 'Lucky catch.', tone: 'cry_luck' },
-  ],
-  vow: [
-    { text: "I'm taking that stack back.", tone: 'vow' },
-    { text: 'This isn’t over.', tone: 'vow' },
-  ],
-};
 
 export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   winnerInfo,
@@ -182,14 +150,10 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
     [playerWon, isShowdown, humanAtShowdown, fellowLoser]
   );
 
-  // Who a given tone is aimed at: Commiserate → the fellow loser; the
-  // loss-side reactions → the winner who beat you; win-side tones broadcast.
+  // Who a given tone is aimed at — shared policy with the desktop overlay.
   const addressingForTone = useCallback(
-    (tone: PostRoundTone): string[] | undefined => {
-      if (tone === 'commiserate') return fellowLoser ? [fellowLoser] : undefined;
-      if (!playerWon && winnerName) return [winnerName];
-      return undefined;
-    },
+    (tone: PostRoundTone): string[] | undefined =>
+      addressingForToneShared(tone, { playerWon, winnerName, fellowLoser }),
     [fellowLoser, playerWon, winnerName]
   );
 
