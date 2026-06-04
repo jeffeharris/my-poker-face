@@ -472,12 +472,12 @@ class TestReserveViceMultiplier(unittest.TestCase):
     """The pure reserve-deficit scaler (healthy → 0, critical → 1, ramp)."""
 
     def test_healthy_reserves_suppress(self):
-        # at/above VICE_RESERVE_HEALTHY_FLOOR (0.06) → vice off
+        # at/above RESERVE_HEALTHY (0.06) → vice off
         self.assertEqual(reserve_vice_multiplier(0.06), 0.0)
         self.assertEqual(reserve_vice_multiplier(0.30), 0.0)
 
     def test_critical_reserves_full(self):
-        # at/below VICE_RESERVE_CRITICAL_FLOOR (0.03) → vice full
+        # at/below RESERVE_CRITICAL (0.03) → vice full
         self.assertEqual(reserve_vice_multiplier(0.03), 1.0)
         self.assertEqual(reserve_vice_multiplier(0.0), 1.0)
 

@@ -31,22 +31,30 @@ SB = 'sb-offer'
 OWNER = 'owner-offer'
 
 
-def _state(regime):
-    return EconomyState(reserves=100, holdings=1000, ratio=0.1, regime=regime)
+def _state(ratio, regime=FLUSH):
+    return EconomyState(reserves=int(ratio * 1000), holdings=1000, ratio=ratio, regime=regime)
 
 
 class TestShouldOfferEvent:
-    def test_flush_and_cooldown_ok_offers(self):
-        assert should_offer_event(_state(FLUSH), cooldown_elapsed=True) == DEFAULT_MAIN_EVENT
+    def test_at_trigger_and_cooldown_ok_offers(self):
+        # ratio at/above RESERVE_TRIGGER (0.12) → offer.
+        assert (
+            should_offer_event(_state(chair.RESERVE_TRIGGER), cooldown_elapsed=True)
+            == DEFAULT_MAIN_EVENT
+        )
 
-    def test_flush_but_on_cooldown_holds(self):
-        assert should_offer_event(_state(FLUSH), cooldown_elapsed=False) is None
+    def test_above_trigger_but_on_cooldown_holds(self):
+        assert should_offer_event(_state(0.20), cooldown_elapsed=False) is None
 
-    def test_neutral_never_offers(self):
-        assert should_offer_event(_state(NEUTRAL), cooldown_elapsed=True) is None
+    def test_below_trigger_never_offers(self):
+        # Flush regime (≥0.08) but below the 0.12 trigger → still no event.
+        assert should_offer_event(_state(0.09, regime=FLUSH), cooldown_elapsed=True) is None
 
-    def test_empty_never_offers_in_v1(self):
-        assert should_offer_event(_state(EMPTY), cooldown_elapsed=True) is None
+    def test_neutral_below_trigger_never_offers(self):
+        assert should_offer_event(_state(0.04, regime=NEUTRAL), cooldown_elapsed=True) is None
+
+    def test_empty_never_offers(self):
+        assert should_offer_event(_state(0.005, regime=EMPTY), cooldown_elapsed=True) is None
 
 
 @pytest.fixture

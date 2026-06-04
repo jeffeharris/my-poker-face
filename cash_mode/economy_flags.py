@@ -146,14 +146,14 @@ FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry
 #
 # When VICE_RESERVE_GATED is on, vice intensity instead scales with the
 # bank-pool DEFICIT: off when reserves are healthy (don't tax a flush field),
-# ramping to full as reserves fall toward critical. This is the refill
-# counterpart to the side-hustle drain riding the same reserve band.
+# ramping to full as reserves fall toward critical. The band EDGES come from the
+# shared canonical ladder (`core.economy.economy_signal.RESERVE_HEALTHY` /
+# `RESERVE_CRITICAL`), so vice (refill) and rake (throttle) can't drift apart —
+# see `ai_vice_spending.reserve_vice_multiplier`.
 #
 # Default OFF — flip only after sim-validating the cadence alongside the rest
 # of the Director thermostat. See docs/plans/PROD_STARTING_CONDITIONS.md §1.5.
 VICE_RESERVE_GATED: bool = _env_flag("VICE_RESERVE_GATED", False)
-VICE_RESERVE_HEALTHY_FLOOR: float = 0.06  # reserves/holdings at/above → vice off
-VICE_RESERVE_CRITICAL_FLOOR: float = 0.03  # reserves/holdings at/below → vice full
 
 
 def lever_field_mode() -> bool:

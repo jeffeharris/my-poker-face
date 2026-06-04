@@ -69,6 +69,32 @@ OVERLAY_CAP: int = 250_000
 # (the tournament rake ships off — handoff "Rake default 0, mechanism present").
 REFILL_RAKE_PCT: float = 0.05
 
+# --- Canonical reserve bands (reserves/holdings ratio) ---------------------
+#
+# ONE source of truth for the reserve thresholds EVERY Director lever keys off,
+# so vice (refill), the cash-rake schedule (throttle), and the tournament
+# trigger/floor all share a single, tunable ladder instead of each writing out
+# its own copy of 0.06 / 0.03. Three edges:
+#
+#   reserves/holdings   band        levers
+#   ------------------  ----------  --------------------------------------------
+#   < CRITICAL (0.03)   critical    rake widest + top rate; vice cranked
+#   [CRITICAL, HEALTHY) low         rake adds $200 @ mid rate; vice elevated
+#   [HEALTHY, TRIGGER)  healthy     rake $1000-only @ base; vice off (climbing)
+#   >= TRIGGER (0.12)   trigger     fire a Main Event, drain back to HEALTHY
+#
+# The tournament FLOOR is deliberately HEALTHY (not CRITICAL): one event gives
+# away (TRIGGER − HEALTHY) × holdings and leaves the bank in the healthy band, so
+# reserves sawtooth HEALTHY→TRIGGER on the faucet and never bottom out. These
+# supersede the old single FLUSH_SETPOINT trigger/floor and DEVIATE from EXP_006;
+# re-validate in sim before flipping TOURNAMENT_CIRCUIT_ENABLED on. The regime
+# setpoints below (FLUSH 0.08 / EMPTY 0.02) are a SEPARATE EXP_006 concern — the
+# overlay-control classifier / display label — not these lever bands.
+# See docs/plans/PROD_STARTING_CONDITIONS.md §1.2–1.4.
+RESERVE_CRITICAL: float = 0.03  # below → bank critical
+RESERVE_HEALTHY: float = 0.06  # at/above → healthy; also the tournament drain floor
+RESERVE_TRIGGER: float = 0.12  # at/above → offer a Main Event
+
 
 # --- The read-model -------------------------------------------------------
 
@@ -161,10 +187,10 @@ def tournament_funding(
     """Pure policy: turn an `EconomyState` + a seat price into a funding plan.
 
     v1 policy (constants above, all sim-tuned):
-      - **Flush** → overlay = min(max(0, reserves − FLUSH_SETPOINT × holdings),
-        OVERLAY_CAP), rake = 0. Each event **drains the bank back to the
-        setpoint** (a sawtooth: reserves climb on the faucet between events, one
-        event per FLUSH+cooldown resets them to the setpoint). EXP_006 §6 chose
+      - **Flush** → overlay = min(max(0, reserves − RESERVE_HEALTHY ×
+        holdings), OVERLAY_CAP), rake = 0. Each event **drains the bank back to
+        the floor** (a sawtooth: reserves climb floor→trigger on the faucet
+        between events, one event drains them back to the floor). EXP_006 §6 chose
         this over the per-tick `reserves × OVERLAY_DRAIN_PCT` law: across a
         per-tournament cooldown a fixed-percent draw is far too weak and the bank
         balloons; drain-to-setpoint held the band (slope ~6–12 vs ~99 chips/tick,
@@ -184,11 +210,13 @@ def tournament_funding(
     gross = human_buy_in + ai_buy_in_total
 
     if state.regime == FLUSH:
-        # Drain-to-setpoint (EXP_006 §6): size the overlay to bring reserves back
-        # down to the FLUSH setpoint in this one event, capped so a very flush
-        # bank can't empty into a single tournament. Self-limiting — once reserves
-        # are at the setpoint the next signal isn't FLUSH, so no event fires.
-        target = round(FLUSH_SETPOINT * state.holdings)
+        # Drain-to-FLOOR (trigger/floor split): size the overlay to bring reserves
+        # down to RESERVE_HEALTHY in this one event — keeping the floor rather
+        # than draining to the offer setpoint, so a meaningful prize goes out
+        # while the bank keeps a base. Capped so even a very flush bank can't empty
+        # in one event. Self-limiting — post-drain reserves sit below the trigger,
+        # so the next signal won't offer until the faucet refills them.
+        target = round(RESERVE_HEALTHY * state.holdings)
         bank_overlay = min(max(0, state.reserves - target), OVERLAY_CAP)
         rake = 0
     elif state.regime == EMPTY:
@@ -262,16 +290,18 @@ def should_offer_event(
 ) -> Optional[EventSpec]:
     """Pure policy: should the circuit offer a Main Event right now?
 
-    v1 rule: **offer when the bank is FLUSH and the cooldown has elapsed** — the
-    chairman's "time to distribute" signal. NEUTRAL/EMPTY → no event in v1 (the
-    EMPTY-regime refill/wealth-tax event is a future branch here). Returns the
-    `EventSpec` to offer, or None.
+    Rule: **offer when reserves reach the high-water trigger
+    (`ratio >= RESERVE_TRIGGER`) and the cooldown has elapsed** — the
+    chairman's "time to distribute" signal. The trigger sits ABOVE the FLUSH
+    regime boundary (0.12 vs 0.08) so an event only fires once the bank has
+    genuinely accumulated, not the moment it crosses into flush. Below the
+    trigger → no event. Returns the `EventSpec` to offer, or None.
 
     Time is kept OUT of this function (it takes `cooldown_elapsed` as a bool) so
     it stays pure and testable; the caller computes elapsedness from the last
     offer's timestamp against `MAIN_EVENT_COOLDOWN_SECONDS`.
     """
-    if state.regime == FLUSH and cooldown_elapsed:
+    if state.ratio >= RESERVE_TRIGGER and cooldown_elapsed:
         return spec
     return None
 
@@ -295,17 +325,13 @@ class RakeSchedule:
     regime: str
 
 
-# Graduated rake bands, keyed on the reserves/holdings RATIO (not the
-# FLUSH/EMPTY regime, whose 0.08/0.02 setpoints serve the tournament overlay).
+# Graduated rake bands, keyed on the canonical reserve ladder above (RESERVE_*).
 # As the bank empties the Director expands BOTH levers — the raked stake tiers
 # AND the rate — and contracts both as reserves recover (EXP_006's lever:
-# "$1000-only when flush; switch on $200, then $50 if dire"). The floors mirror
-# the vice reserve gate (`cash_mode.economy_flags.VICE_RESERVE_*`) so the refill
-# (vice) and throttle (rake) levers share one reserve band. The $1000 tier is
-# present in every band, so the structural rake is never switched off.
-_RAKE_HEALTHY_FLOOR: float = 0.06  # ratio at/above → top tier only, base rate
-_RAKE_CRITICAL_FLOOR: float = 0.03  # ratio below → all tiers, top rate
-
+# "$1000-only when flush; switch on $200, then $50 if dire"). Only the per-band
+# tier sets and RATES are rake-specific; the band EDGES are the shared ladder, so
+# vice (refill) and rake (throttle) can't drift apart. The $1000 tier is present
+# in every band, so the structural rake is never switched off.
 _RAKE_TIERS_HEALTHY: frozenset[int] = frozenset({1000})
 _RAKE_TIERS_LOW: frozenset[int] = frozenset({1000, 200})
 _RAKE_TIERS_CRITICAL: frozenset[int] = frozenset({1000, 200, 50})
@@ -317,22 +343,22 @@ _RAKE_RATE_CRITICAL: float = 0.04
 def cash_rake_schedule(state: EconomyState) -> RakeSchedule:
     """Pure policy: graduated cash-rake response to the reserve ratio.
 
-    Three bands, each lifting BOTH the raked stake tiers and the rate as the
-    deficit deepens:
-      * healthy (ratio ≥ 0.06) → ``{1000}`` @ 2% (throttle inflow only),
-      * low (0.03 ≤ ratio < 0.06) → ``{1000, 200}`` @ 3%,
-      * critical (ratio < 0.03) → ``{1000, 200, 50}`` @ 4% (refill hard).
+    Three bands (edges = the shared RESERVE_* ladder), each lifting BOTH the
+    raked stake tiers and the rate as the deficit deepens:
+      * healthy (ratio ≥ RESERVE_HEALTHY) → ``{1000}`` @ 2% (throttle inflow),
+      * low (RESERVE_CRITICAL ≤ ratio < RESERVE_HEALTHY) → ``{1000, 200}`` @ 3%,
+      * critical (ratio < RESERVE_CRITICAL) → ``{1000, 200, 50}`` @ 4%.
 
     Wired into cash mode via `economy_flags.resolve_rake_params`; here it is a
     pure, tested function so the chairman owns BOTH levers off one snapshot.
     """
-    if state.ratio < _RAKE_CRITICAL_FLOOR:
+    if state.ratio < RESERVE_CRITICAL:
         return RakeSchedule(
             stake_big_blinds=_RAKE_TIERS_CRITICAL,
             rate=_RAKE_RATE_CRITICAL,
             regime=state.regime,
         )
-    if state.ratio < _RAKE_HEALTHY_FLOOR:
+    if state.ratio < RESERVE_HEALTHY:
         return RakeSchedule(
             stake_big_blinds=_RAKE_TIERS_LOW,
             rate=_RAKE_RATE_LOW,

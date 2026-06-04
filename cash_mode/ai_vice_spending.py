@@ -662,17 +662,19 @@ def reserve_vice_multiplier(ratio: float) -> float:
     """Scale vice intensity by the bank-pool reserve ratio (reserve-aware refill).
 
     `ratio` is reserves/holdings (`EconomyState.ratio`). Returns a multiplier:
-      * 0.0 at/above `VICE_RESERVE_HEALTHY_FLOOR` — a flush bank needs no refill,
-        so vice backs off and stops taxing the field,
-      * 1.0 at/below `VICE_RESERVE_CRITICAL_FLOOR` — crank the refill,
+      * 0.0 at/above `RESERVE_HEALTHY` — a flush bank needs no refill, so vice
+        backs off and stops taxing the field,
+      * 1.0 at/below `RESERVE_CRITICAL` — crank the refill,
       * a linear ramp between the two floors.
 
-    Pure; the caller decides whether the gate is active (`VICE_RESERVE_GATED`).
+    Band edges come from the shared canonical ladder in `economy_signal`, so the
+    vice (refill) and rake (throttle) levers stay on one band. Pure; the caller
+    decides whether the gate is active (`VICE_RESERVE_GATED`).
     """
-    from cash_mode import economy_flags as _eflags
+    from core.economy.economy_signal import RESERVE_CRITICAL, RESERVE_HEALTHY
 
-    healthy = _eflags.VICE_RESERVE_HEALTHY_FLOOR
-    critical = _eflags.VICE_RESERVE_CRITICAL_FLOOR
+    healthy = RESERVE_HEALTHY
+    critical = RESERVE_CRITICAL
     if ratio >= healthy:
         return 0.0
     if ratio <= critical:

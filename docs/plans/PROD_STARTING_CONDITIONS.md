@@ -63,12 +63,21 @@ drain back to **0.06** (keeps half — never the whole reserve), climb again.
 already play-coupled (reserves only climb when hands are dealt). Idle sandbox →
 no climb → no tournament, which is correct.
 
-- Split **trigger (0.12)** from **floor (0.06)** — today `economy_signal.py` uses
-  one number (`FLUSH_SETPOINT = 0.08`) for both, which makes prizes thin. The
-  split makes prizes meaningful while keeping the Director from draining the bank.
-- Change `MAIN_EVENT_COOLDOWN_SECONDS` (currently wall-clock 1800s) to a
-  **play-measured cooldown** (hands or active world-ticks since last event), so a
-  heavy session can earn two and a light day earns zero.
+- **Trigger/floor split — shipped 2026-06-04.** The single `FLUSH_SETPOINT
+  (0.08)` used to be both the offer trigger and the drain target (thin prizes).
+  `should_offer_event` now offers at the **`RESERVE_TRIGGER` (0.12)** high-water
+  mark; `tournament_funding` drains reserves back to the **`RESERVE_HEALTHY`
+  (0.06)** floor (keeping half), so the prize ≈ `(0.12 − 0.06) × holdings` and
+  the bank never empties. These supersede the single setpoint and **deviate from
+  EXP_006 — re-validate in sim** before flipping `TOURNAMENT_CIRCUIT_ENABLED`.
+- **Canonical reserve bands.** `RESERVE_CRITICAL (0.03)` / `RESERVE_HEALTHY
+  (0.06)` / `RESERVE_TRIGGER (0.12)` are now defined **once** in `economy_signal`
+  and shared by vice, rake, and the tournament trigger/floor — no more per-lever
+  copies of `0.06`/`0.03` that can drift. (The regime setpoints `FLUSH 0.08 /
+  EMPTY 0.02` remain a separate EXP_006 overlay-classifier concern.)
+- **Still open — play-based cooldown:** change `MAIN_EVENT_COOLDOWN_SECONDS`
+  (wall-clock 1800s) to a **play-measured cooldown** (hands / active world-ticks
+  since last event), so a heavy session can earn two and a light day earns zero.
 - **Tuning is sim-validated:** set the rake+vice faucet rate so one
   floor→trigger climb ≈ a typical day's hand volume. We can only *know* it lands
   at ~1–2/day by simming expected hands/day × per-hand reserve climb. (EXP-style
