@@ -742,6 +742,14 @@
   gap: 8px;
 }
 
+/* Back + sarcastic toggle share one row above the suggestions. */
+.winner-chat-suggestions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .winner-chat-back {
   display: inline-flex;
   align-items: center;
@@ -757,6 +765,38 @@
 
 .winner-chat-back:hover {
   color: #cbd5e1;
+}
+
+/* Sarcastic register toggle — discreet pill, lights up amethyst when on
+   (matching the dry/backhanded register's mischief). */
+.winner-chat-sarcastic {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.winner-chat-sarcastic:hover {
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.winner-chat-sarcastic.active {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: #a855f7;
+  color: #c084fc;
 }
 
 .winner-chat-suggestion {

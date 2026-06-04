@@ -6,7 +6,7 @@ import { INTERHAND_TIMING } from '../../../constants/interhandTiming';
 import { gameAPI } from '../../../utils/api';
 import { logger } from '../../../utils/logger';
 import { getOrdinal, type BackendCard } from '../../../types/tournament';
-import type { PostRoundTone, PostRoundSuggestion } from '../../../types/chat';
+import type { PostRoundTone, PostRoundSuggestion, ChatIntensity } from '../../../types/chat';
 import type { Player } from '../../../types/player';
 // Shared post-round tone policy — keeps desktop and the mobile overlay
 // (MobileWinnerAnnouncement) on one situational tone set / addressing / fallback
@@ -14,6 +14,7 @@ import type { Player } from '../../../types/player';
 import {
   buildToneOptions,
   addressingForTone,
+  SARCASM_ABLE_POST_ROUND,
   POST_ROUND_FALLBACKS,
 } from '../../mobile/postRoundTones';
 import './WinnerAnnouncement.css';
@@ -125,6 +126,11 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false); // Pauses auto-dismiss
+  // Currently-selected tone + delivery register (only `sarcastic` matters
+  // post-round; the warm tones invert into a barb/self-mockery). Sincere is
+  // the absence of a sarcastic register. Shared behavior with the mobile overlay.
+  const [selectedTone, setSelectedTone] = useState<PostRoundTone | null>(null);
+  const [sarcastic, setSarcastic] = useState(false);
 
   // Situational read of the hand, shared with the mobile overlay, so the tone
   // set fits what happened (no "vow revenge" over a hand you folded, etc.).
@@ -153,8 +159,9 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
   );
 
   const fetchSuggestions = useCallback(
-    async (tone: PostRoundTone) => {
+    async (tone: PostRoundTone, useSarcastic: boolean) => {
       if (!winnerInfo) return;
+      const intensity: ChatIntensity | undefined = useSarcastic ? 'sarcastic' : undefined;
 
       if (!gameId || !humanName) {
         logger.warn('[PostRoundChat] Missing gameId or humanName, using fallback suggestions');
@@ -164,7 +171,12 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
       setLoadingSuggestions(true);
       try {
-        const response = await gameAPI.getPostRoundChatSuggestions(gameId, humanName, tone);
+        const response = await gameAPI.getPostRoundChatSuggestions(
+          gameId,
+          humanName,
+          tone,
+          intensity
+        );
         setSuggestions(response.suggestions || []);
       } catch (error) {
         logger.error('[PostRoundChat] Failed to fetch suggestions:', error);
@@ -180,9 +192,25 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
     (tone: PostRoundTone) => {
       setIsInteracting(true); // Pause auto-dismiss while interacting
       setSuggestions([]);
-      fetchSuggestions(tone);
+      setSelectedTone(tone);
+      // A tone that can't take sarcasm resets the register so the next
+      // sarcasm-able tone starts sincere rather than inheriting a stale toggle.
+      const startSarcastic = sarcastic && SARCASM_ABLE_POST_ROUND.has(tone);
+      setSarcastic(startSarcastic);
+      fetchSuggestions(tone, startSarcastic);
     },
-    [fetchSuggestions]
+    [fetchSuggestions, sarcastic]
+  );
+
+  // Flip the sarcastic register for the current tone and refetch.
+  const handleToggleSarcastic = useCallback(
+    (next: boolean) => {
+      if (!selectedTone) return;
+      setSarcastic(next);
+      setSuggestions([]);
+      fetchSuggestions(selectedTone, next);
+    },
+    [fetchSuggestions, selectedTone]
   );
 
   const handleSuggestionClick = useCallback(
@@ -190,16 +218,21 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
       // Shared addressing policy: Commiserate → the fellow loser, other
       // loss-side reactions → the winner who beat you, win-side tones broadcast.
       const addressing = addressingForTone(tone, { playerWon, winnerName, fellowLoser });
-      onSendMessage?.(text, addressing, tone);
+      // Forward the sarcastic register so the dispatch flips the reception
+      // (gracious → fake-nice barb, humble → self-mockery, commiserate → fake
+      // sympathy). Sincere sends omit intensity.
+      const intensity = sarcastic ? 'sarcastic' : undefined;
+      onSendMessage?.(text, addressing, tone, intensity);
       setMessageSent(true);
       setSuggestions([]);
       setIsInteracting(false); // Resume auto-dismiss possibility
     },
-    [playerWon, winnerName, fellowLoser, onSendMessage]
+    [playerWon, winnerName, fellowLoser, sarcastic, onSendMessage]
   );
 
   const handleBackToTones = useCallback(() => {
     setSuggestions([]);
+    setSelectedTone(null);
     // Stay in interacting mode — player may pick another tone
   }, []);
 
@@ -215,6 +248,8 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
       setSuggestions([]);
       setMessageSent(false);
       setIsInteracting(false);
+      setSelectedTone(null);
+      setSarcastic(false);
 
       if (winnerInfo.showdown && winnerInfo.players_showdown) {
         setTimeout(() => setRevealCards(true), INTERHAND_TIMING.showdownCardRevealMs);
@@ -457,10 +492,23 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
               </div>
             ) : suggestions.length > 0 ? (
               <div className="winner-chat-suggestions">
-                <button className="winner-chat-back" onClick={handleBackToTones}>
-                  <ArrowLeft size={14} />
-                  <span>Change tone</span>
-                </button>
+                <div className="winner-chat-suggestions-bar">
+                  <button className="winner-chat-back" onClick={handleBackToTones}>
+                    <ArrowLeft size={14} />
+                    <span>Change tone</span>
+                  </button>
+                  {/* Sarcastic register — offered only on the warm post-round
+                      tones, where it inverts into a barb / self-mockery. */}
+                  {selectedTone && SARCASM_ABLE_POST_ROUND.has(selectedTone) && (
+                    <button
+                      className={`winner-chat-sarcastic ${sarcastic ? 'active' : ''}`}
+                      onClick={() => handleToggleSarcastic(!sarcastic)}
+                      title="Sarcastic — say the opposite, dryly"
+                    >
+                      😏 Sarcastic
+                    </button>
+                  )}
+                </div>
                 {suggestions.map((suggestion, index) => (
                   <button
                     key={index}

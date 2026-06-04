@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { WinnerAnnouncement } from './WinnerAnnouncement';
+import { gameAPI } from '../../../utils/api';
 
 // Avoid canvas/image rendering from the real Card component
 vi.mock('../../cards', () => ({
@@ -12,9 +13,11 @@ vi.mock('../../cards', () => ({
 // No real network for suggestions
 vi.mock('../../../utils/api', () => ({
   gameAPI: {
-    getPostRoundChatSuggestions: vi.fn().mockResolvedValue({ suggestions: [] }),
+    getPostRoundChatSuggestions: vi.fn(),
   },
 }));
+
+const mockGetSuggestions = vi.mocked(gameAPI.getPostRoundChatSuggestions);
 
 const seat = (name: string, is_human: boolean) => ({
   name,
@@ -47,7 +50,12 @@ function showdownWinnerInfo(overrides = {}) {
 }
 
 describe('WinnerAnnouncement — unified situational tones', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetSuggestions.mockResolvedValue({
+      suggestions: [{ text: 'Nice hand.', tone: 'gracious' }],
+    });
+  });
 
   // Desktop now shares buildToneOptions with the mobile overlay: a winner at
   // showdown gets gloat/humble/gracious/props (the old static set had no
@@ -85,5 +93,54 @@ describe('WinnerAnnouncement — unified situational tones', () => {
 
     expect(screen.getByText('Salty')).toBeTruthy();
     expect(screen.queryByText('Gloat')).toBeNull();
+  });
+});
+
+describe('WinnerAnnouncement — sarcastic register (parity with mobile)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetSuggestions.mockResolvedValue({
+      suggestions: [{ text: 'Nice hand.', tone: 'gracious' }],
+    });
+  });
+
+  const renderWinner = () =>
+    render(
+      <WinnerAnnouncement
+        winnerInfo={showdownWinnerInfo()}
+        onComplete={vi.fn()}
+        players={[seat('Batman', true), seat('Robin', false)]}
+        gameId="g1"
+        onSendMessage={vi.fn()}
+      />
+    );
+
+  it('offers the Sarcastic toggle on a sarcasm-able tone (Gracious)', async () => {
+    renderWinner();
+    fireEvent.click(screen.getByText('Gracious'));
+
+    // Once suggestions land, the toggle appears in the suggestions bar.
+    await screen.findByText('Nice hand.');
+    expect(screen.queryByText(/Sarcastic/)).not.toBeNull();
+  });
+
+  it('hides the Sarcastic toggle on a non-sarcasm-able tone (Gloat)', async () => {
+    renderWinner();
+    fireEvent.click(screen.getByText('Gloat'));
+
+    await screen.findByText('Nice hand.');
+    expect(screen.queryByText(/Sarcastic/)).toBeNull();
+  });
+
+  it('refetches with sarcastic intensity when the toggle is turned on', async () => {
+    renderWinner();
+    fireEvent.click(screen.getByText('Gracious'));
+    await screen.findByText('Nice hand.');
+
+    // Initial fetch is sincere (no intensity).
+    expect(mockGetSuggestions).toHaveBeenLastCalledWith('g1', 'Batman', 'gracious', undefined);
+
+    fireEvent.click(screen.getByText(/Sarcastic/));
+    expect(mockGetSuggestions).toHaveBeenLastCalledWith('g1', 'Batman', 'gracious', 'sarcastic');
   });
 });
