@@ -33,6 +33,16 @@ export const RUNOUT_TIMING = {
    *  board stalls (a deleted/abandoned game), so backend reactions are never
    *  suppressed forever. */
   safetyCapMs: 15000,
+  /** Winner-reveal gate (useWinnerRevealGate): when the human folded and the AIs
+   *  run a non-all-in hand to showdown, hold the verdict overlay this long after
+   *  the hand resolves so the final board + reactions land before it covers the
+   *  table. The board itself already dealt during the AIs' betting; this is the
+   *  "absorb it" beat. Skippable — engaging fast-forward drops the gate at once. */
+  foldShowdownWatchMs: 4000,
+  /** Backstop for the winner-reveal gate: the verdict can never be suppressed
+   *  longer than this even if a hold signal hangs (sits just above the director's
+   *  own safetyCapMs so the all-in hold releases on its own first). */
+  revealGateSafetyMs: 16000,
   /** Hero card-commit gesture (the human "presents" their hole cards at the all-in
    *  matchup reveal, then pulls them back when the run-out deals). These durations
    *  feed the inline CSS `animation` shorthand in MobilePokerTable's hero cards via
