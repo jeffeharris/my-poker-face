@@ -7000,6 +7000,162 @@
         ]
       ],
       "skill": "weak_reg"
+    },
+    "Alexander the Great": {
+      "play_style": "relentlessly aggressive, applying constant pressure with a wide range; conquers pots through sheer force",
+      "default_confidence": "overconfident",
+      "default_attitude": "intimidating",
+      "personality_traits": {
+        "bluff_tendency": 0.75,
+        "aggression": 0.85,
+        "emoji_usage": 0.1
+      },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.15,
+          "aggression": 0.15,
+          "emoji_usage": 0.2
+        },
+        "mood_elasticity": 0.3,
+        "recovery_rate": 0.08
+      },
+      "verbal_tics": [
+        "I fear no battle, nor this pot.",
+        "Fold now, and live to fight another day.",
+        "My empire is built on such victories.",
+        "You dare challenge Alexander?",
+        "Another province added to my domain."
+      ],
+      "physical_tics": [
+        "*adjusts an invisible laurel wreath*",
+        "*points dramatically at the pot*",
+        "*strokes chin like planning a campaign*",
+        "*spreads arms wide as if surveying conquered land*"
+      ],
+      "visual_identity": {
+        "identity": "Alexander the Great, the undefeated Macedonian conqueror and king",
+        "appearance": "leonine mane of curly brown hair, clean-shaven, strong jaw, intense gaze, youthful but weathered, athletic build, fair skin",
+        "apparel": "bronze cuirass over a white chiton, crimson cape pinned at shoulder, gilded sword at hip"
+      },
+      "bankroll_knobs": {
+        "starting_bankroll": 110000,
+        "bankroll_rate": 2750,
+        "buy_in_multiplier": 1.68,
+        "stake_comfort_zone": "$1000"
+      },
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      },
+      "borrower_profile": {
+        "willing": true,
+        "willingness_threshold": 0.25
+      },
+      "anchors": {
+        "baseline_aggression": 0.85,
+        "baseline_looseness": 0.7,
+        "ego": 0.88,
+        "poise": 0.6,
+        "expressiveness": 0.75,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.7,
+        "baseline_energy": 0.8,
+        "recovery_rate": 0.18,
+        "self_belief": 0.92
+      },
+      "spot_tendencies": [
+        [
+          "auto_cbet",
+          0.9
+        ],
+        [
+          "give_up_turn",
+          0.2
+        ],
+        [
+          "over_bluff",
+          0.7
+        ]
+      ],
+      "skill": "shark"
+    },
+    "King Tut": {
+      "play_style": "recklessly aggressive, applying constant pressure with a wide range",
+      "default_confidence": "overconfident",
+      "default_attitude": "lavish and smug",
+      "personality_traits": {
+        "bluff_tendency": 0.65,
+        "aggression": 0.75,
+        "emoji_usage": 0.5
+      },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.3,
+          "aggression": 0.2,
+          "emoji_usage": 0.4
+        },
+        "mood_elasticity": 0.5,
+        "recovery_rate": 0.15
+      },
+      "verbal_tics": [
+        "By Osiris!",
+        "My treasure grows!",
+        "Fear the pharaoh's wrath!",
+        "Another tribute to my tomb.",
+        "All in, as Ra commands!"
+      ],
+      "physical_tics": [
+        "*adjusts golden ankh necklace*",
+        "*raises an eyebrow arrogantly*",
+        "*flicks a gold coin*",
+        "*grins with gold-capped teeth*"
+      ],
+      "visual_identity": {
+        "identity": "King Tut, the boy pharaoh of ancient Egypt, draped in gold and youthful arrogance",
+        "appearance": "youthful, slim build, dark skin, shaved head, piercing black eyes, late teens",
+        "apparel": "sheer white linen kilt, massive gold collar, jeweled headdress, sandals"
+      },
+      "bankroll_knobs": {
+        "starting_bankroll": 68000,
+        "bankroll_rate": 1700,
+        "buy_in_multiplier": 1.6,
+        "stake_comfort_zone": "$200"
+      },
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.7
+      },
+      "borrower_profile": {
+        "willing": true,
+        "willingness_threshold": 0.35
+      },
+      "anchors": {
+        "baseline_aggression": 0.75,
+        "baseline_looseness": 0.7,
+        "ego": 0.8,
+        "poise": 0.4,
+        "expressiveness": 0.75,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.3,
+        "baseline_energy": 0.8,
+        "recovery_rate": 0.18,
+        "self_belief": 0.85
+      },
+      "spot_tendencies": [
+        [
+          "sticky",
+          0.6
+        ]
+      ],
+      "skill": "weak_reg"
     }
   }
 }

@@ -1,5 +1,5 @@
 ---
-purpose: Defines the starting conditions for a fresh production sandbox — the economy seed/thermostat (the "Director") and the 74-persona launch cast.
+purpose: Defines the starting conditions for a fresh production sandbox — the economy seed/thermostat (the "Director") and the 76-persona launch cast.
 type: design
 created: 2026-06-04
 last_updated: 2026-06-04
@@ -33,7 +33,7 @@ bank holds `E − Σ(bankrolls)` = the reserve — literally "chips not yet deal
 players." This makes the reserve a natural % of the cast and conservation-clean.
 
 - Set `E = 1.05 × Σ(bankrolls)` → **reserves start at ~5% of holdings.**
-- At launch holdings ≈ **$2.46M**, so seed reserve ≈ **$123k**.
+- At launch holdings ≈ **$2.64M**, so seed reserve ≈ **$132k**.
 - That 5% clears every casino spawn threshold ($2/$10/$50 need pool ≥
   5k/50k/100k) so the world boots up lived-in (casinos churning fish → grinders),
   but sits **below** the tournament trigger so the first Main Event has to be
@@ -121,7 +121,7 @@ can't fund simply doesn't fire (the AI stays idle and retries) — see
 ### 1.6 Open tuning questions (need a sim before flipping on)
 
 1. Faucet rate vs. floor→trigger gap → validate ~1–2 tournaments/day.
-2. `OVERLAY_CAP` vs. holdings: at $2.46M, 0.12 = $295k > current 250k cap — the
+2. `OVERLAY_CAP` vs. holdings: at $2.64M, 0.12 = $317k > current 250k cap — the
    cap would bind. Either raise the cap to ~6% of holdings or accept that very
    flush banks drain over two events.
 3. Casino spawn thresholds are absolute (5k/50k/100k); consider making them % of
@@ -129,19 +129,19 @@ can't fund simply doesn't fire (the AI stays idle and retries) — see
 
 ---
 
-## Part 2 — The Cast (74 personas)
+## Part 2 — The Cast (76 personas)
 
 ### 2.1 Composition & math
 
-- **74 authored personas** (IP-vetted: dead historical figures, public-domain
+- **76 authored personas** (IP-vetted: dead historical figures, public-domain
   literary/mythological, and original comical archetypes).
-- **All 74 circulate at launch.** Cold-start seats ~40 (see 2.4); the remaining
+- **All 76 circulate at launch.** Cold-start seats ~40 (see 2.4); the remaining
   ~34 are the live **bench** that fills seats as AIs move/bust/get called up to
   tournaments. "Circulating" = eligible to be seated, not seated-at-once. The
   `circulating` flag (DB-only, schema v123+) is the live tuning knob — demote to
   bench if the lobby ever feels crowded; never delete a character you liked.
 - **9 fish** stay casino-only (pool-funded on spawn, not in this count).
-- Σ(bankrolls) ≈ **$2.46M** · median ≈ **$21k** (bottom-anchored so the human
+- Σ(bankrolls) ≈ **$2.64M** · median ≈ **$22k** (bottom-anchored so the human
   starts small and climbs) · ceiling **$120k** (down from $250k — Zeus/Scrooge
   are aspirational bosses, no longer 15× the field).
 
@@ -164,6 +164,7 @@ Bankrolls assigned within tier bands; `comfort` = `stake_comfort_zone`.
 | Ebenezer Scrooge | 118000 | PD (Dickens) | Nitty hoarder, hates parting with chips |
 | King Midas | 112000 | myth | Overvalues every hand — all gold to him |
 | Genghis Khan | 106000 | historical | Conquering aggression, takes territory |
+| Alexander the Great | 110000 | historical | Undefeated conqueror — brilliant audacious aggression |
 | Julius Caesar | 100000 | historical | *Veni vidi vici* — imperial overextension |
 
 **High — comfort $200/$1000**
@@ -171,6 +172,7 @@ Bankrolls assigned within tier bands; `comfort` = `stake_comfort_zone`.
 |---|---|---|---|
 | Cleopatra | 95000 | historical | Seductive manipulator |
 | King Arthur | 90000 | PD legend | Noble, chivalrous, round-table fair |
+| King Tut | 68000 | historical | Boy king on inherited gold — naive, lavish, sticky |
 | Louis XIV | 86000 | historical | The Sun King — grandiose |
 | Andrew Carnegie | 80000 | historical | Robber baron who can't stop giving it away |
 | Machiavelli | 75000 | historical | Calculating, deceptive |
@@ -370,19 +372,19 @@ remaining 71 to be generated in tier batches.
 - [ ] Re-gate vice intensity on reserve deficit (not just cast-median ≥ $5k).
 - [x] **Side-hustle pay-up-front** — credit at departure (drift-safe, reserve-aware),
       expiry is a no-chip off-grid→idle return. Done 2026-06-04 (tests green).
-- [ ] Raise `OVERLAY_CAP` or accept two-event drain (cap binds at $2.46M).
+- [ ] Raise `OVERLAY_CAP` or accept two-event drain (cap binds at $2.64M).
 - [ ] Sim-validate faucet rate → ~1–2 tournaments/day.
 
 **Cast:**
 - [x] Refine the personality generator: add `self_belief` (10th anchor) +
       `spot_tendencies` generation (registry-validated) + `generate_from_spec()`
       pinned-mechanics mode. Done 2026-06-04 (tests green).
-- [x] Generate all 74 personas into `personalities.json` via
+- [x] Generate all 76 personas into `personalities.json` via
       `scripts/seed_prod_roster.py` (LLM flavor around pinned tier anchors +
       bankrolls + signature tendencies). Done 2026-06-04 — Σ(bankrolls)=$2.459M,
-      median $21.5k, ceiling $120k. File now 103 personas (74 cast + 9 fish + 20
+      median $21.5k, ceiling $120k. File now 105 personas (76 cast + 9 fish + 20
       extras/bots); removed 5 name-variant duplicates.
-- [ ] **Seed-time circulating policy:** flag all 74 cast `circulating=1`; fish
+- [ ] **Seed-time circulating policy:** flag all 76 cast `circulating=1`; fish
       casino-only; set `circulating=0` for control bots (CaseBot/GTO-Lite/
       BaselineSolver) and IP-risk holdovers (Bob Ross, Dr. Seuss). The ~15 legit
       extras (Annie Oakley, Calamity Jane, Frida Kahlo, Marie Antoinette, Medusa,

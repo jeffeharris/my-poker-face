@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the production launch cast (74 personas) into poker/personalities.json.
+"""Generate the production launch cast (76 personas) into poker/personalities.json.
 
 Drives `PersonalityGenerator.generate_from_spec()` with a per-persona PINNED
 mechanical skeleton (archetype anchors + tier bankroll + signature spot
@@ -135,6 +135,20 @@ ROSTER = [
         {'ego': 0.9, 'self_belief': 0.9},
         'Veni, vidi, vici — imperial ambition that overextends its lines.',
     ),
+    R(
+        'Alexander the Great',
+        110000,
+        ZONE_BOSS,
+        'lag',
+        {
+            'baseline_aggression': 0.85,
+            'ego': 0.88,
+            'self_belief': 0.92,
+            'adaptation_bias': 0.7,
+            'poise': 0.6,
+        },
+        'The undefeated conqueror of the known world — brilliant, relentless, audacious aggression that never lost a battle.',
+    ),
     # ---- High ($60-95k, $200) ----
     R(
         'Cleopatra',
@@ -143,6 +157,21 @@ ROSTER = [
         'lag',
         {'ego': 0.7, 'expressiveness': 0.8, 'self_belief': 0.8, 'adaptation_bias': 0.7},
         'A seductive manipulator who reads and bends opponents to her will.',
+    ),
+    R(
+        'King Tut',
+        68000,
+        ZONE_HIGH,
+        'lag',
+        {
+            'ego': 0.8,
+            'self_belief': 0.85,
+            'adaptation_bias': 0.3,
+            'baseline_looseness': 0.7,
+            'poise': 0.4,
+        },
+        'The boy king draped in golden treasure — young, lavish, and recklessly sure of his inherited fortune.',
+        [['sticky', 0.6]],
     ),
     R(
         'King Arthur',
