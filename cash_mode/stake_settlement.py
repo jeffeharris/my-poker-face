@@ -19,7 +19,12 @@ When `net_winnings < 0` AND `chips_at_leave > 0` (partial carry):
   staker_total   = min(chips_at_leave, principal)
   borrower_total = max(0, chips_at_leave - staker_total)
   carry_amount   = principal - staker_total
-  status         = 'carry'
+  status         = 'carry' if carry_amount > 0 else 'settled'
+
+  (carry_amount can be 0 here for match_share stakes when
+  chips_at_leave fully covers the staker's principal but not the
+  borrower's match — the staker is made whole, only the borrower's
+  match takes the loss, so it's a clean settle, not a $0 carry.)
 
 When `chips_at_leave == 0` (full bust → full carry):
   staker_total   = 0
@@ -325,8 +330,16 @@ def _compute_chip_flows(stake: Stake, chips_at_leave: int) -> _Math:
     staker_total = min(chips_at_leave, principal)
     borrower_total = max(0, chips_at_leave - staker_total)
     carry_amount = principal - staker_total
+    # When the staker fully recovered their principal (carry_amount == 0)
+    # and only the borrower's own match took the loss, nothing is owed
+    # to the staker — settle clean rather than leaving a $0 'carry' row
+    # that surfaces as a phantom "$0 owed" receivable. Only match_share
+    # stakes reach this: a pure stake (match_amount == 0) with
+    # net_winnings < 0 always has chips_at_leave < principal, so
+    # carry_amount > 0 and the status stays 'carry'.
+    new_status = STAKE_STATUS_CARRY if carry_amount > 0 else STAKE_STATUS_SETTLED
     return _Math(
-        new_status=STAKE_STATUS_CARRY,
+        new_status=new_status,
         staker_total=staker_total,
         borrower_total=borrower_total,
         carry_amount=carry_amount,

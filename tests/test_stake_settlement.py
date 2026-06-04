@@ -239,20 +239,19 @@ class TestMatchShare:
         assert result.borrower_total == 400
         assert result.new_status == STAKE_STATUS_SETTLED
 
-    def test_match_share_partial_bust(self, repo):
+    def test_match_share_partial_bust_settles_when_principal_recovered(self, repo):
         # principal=200, match=200, returning with 250.
-        # net_winnings = 250 - 400 = -150 < 0 (carry path).
-        # staker recovers min(250, 200) = 200, carry = 0… wait.
-        # Per the spec's carry math: carry_amount = principal - recovered
-        # = 200 - 200 = 0. So the staker is whole, but the borrower
-        # got their match_amount eaten by the table.
-        # borrower_total = 250 - 200 = 50.
-        # Edge case: status='carry' but carry_amount=0 — that's a
-        # weird state. The spec doesn't address this combo.
-        # Per the math: net_winnings < 0 AND chips_at_leave > 0 →
-        # carry path, but principal fully recovered means carry=0.
-        # The status reflects "borrower came up short on their own
-        # match"; staker is fine.
+        # net_winnings = 250 - 400 = -150 < 0 (enters the carry branch).
+        # staker recovers min(250, 200) = 200 → carry_amount = 200 - 200 = 0.
+        # So the staker is made whole; only the borrower's match got
+        # eaten by the table. borrower_total = 250 - 200 = 50.
+        #
+        # carry_amount == 0 means nothing is owed to the staker, so this
+        # is a CLEAN SETTLE — not a $0 'carry'. A lingering carry_amount=0
+        # carry would surface as a phantom "$0 owed" receivable in the
+        # staker's Net Worth drawer (the bug this guards against). Only
+        # match_share stakes reach this branch with carry_amount == 0;
+        # a pure stake busting below invested always leaves carry > 0.
         _seed_stake(
             repo,
             principal=200,
@@ -269,8 +268,34 @@ class TestMatchShare:
         assert result.staker_total == 200
         assert result.borrower_total == 50
         assert result.carry_amount == 0
-        # Status is still 'carry' because invested > chips_at_leave —
-        # documents the "borrower lost their match" outcome.
+        # carry_amount == 0 → settle clean, no phantom receivable.
+        assert result.new_status == STAKE_STATUS_SETTLED
+        stake = repo.load_stake("stk-1")
+        assert stake.status == STAKE_STATUS_SETTLED
+        assert stake.carry_amount == 0
+
+    def test_match_share_partial_bust_carries_when_principal_short(self, repo):
+        # principal=200, match=200, returning with 150 — below principal,
+        # so the staker can't be made whole: staker_total = 150,
+        # carry_amount = 200 - 150 = 50, borrower gets nothing. This is a
+        # genuine carry (real debt owed to the staker), distinct from the
+        # carry_amount==0 clean-settle case above.
+        _seed_stake(
+            repo,
+            principal=200,
+            match_amount=200,
+            cut=0.50,
+            format=STAKE_FORMAT_MATCH_SHARE,
+        )
+        result = settle_stake_on_leave(
+            "stk-1",
+            150,
+            stake_repo=repo,
+            now=SETTLE_TIME,
+        )
+        assert result.staker_total == 150
+        assert result.borrower_total == 0
+        assert result.carry_amount == 50
         assert result.new_status == STAKE_STATUS_CARRY
 
 
