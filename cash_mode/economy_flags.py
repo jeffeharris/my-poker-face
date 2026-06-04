@@ -229,6 +229,16 @@ INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per s
 # economy size. Default OFF — sim-validate with the rest of the thermostat.
 CASINO_RELATIVE_THRESHOLDS: bool = _env_flag("CASINO_RELATIVE_THRESHOLDS", False)
 
+# Lean casino fish lifecycle. The casino is the pool→field drain (fish bring
+# pool-funded chips and bleed them to grinders). With 2 fish/casino at a 2.5–3.6×
+# prefund — plus the dam cascade opening $2/$10/$50 at once and topping every
+# casino back to 2 each tick — that drain lands as a LUMP that crashes reserves
+# and stalls the climb to the tournament trigger. When on, casinos hold just ONE
+# fish (two at $2), prefunded leaner, and reseed only when the current fish busts
+# — turning the step-function drain into a steady trickle (same net pool→field
+# flow over time, no crashes). Default OFF — sim-validate with the thermostat.
+CASINO_RESEED_ON_SPENT: bool = _env_flag("CASINO_RESEED_ON_SPENT", False)
+
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
 

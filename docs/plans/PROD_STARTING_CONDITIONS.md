@@ -216,12 +216,15 @@ as prizes. Demonstrated (genesis seeded above a 0.10 trigger, `--no-casino`):
 reserves at 0.14 → **fire drains 124k → ratio 0.057 (the floor), holdings rise**
 (prizes enter the field) → reserves climb again. The sawtooth drop is real.
 
-**Two tuning findings from the runs (open):**
-- **Casino seed is a big, lumpy drain.** A single casino opening drops reserves
-  ~74–90k, repeatedly knocking the climb back to the critical band — it stalled
-  reserves below even a 0.08 trigger across 500 ticks. Cutting the casino seed
-  cost / fish count (or `CASINO_RELATIVE_THRESHOLDS`) is the lever for a reliable
-  climb.
+**Tuning findings from the runs:**
+- **Casino seed was a big, lumpy drain — FIXED 2026-06-04 (`CASINO_RESEED_ON_SPENT`,
+  default OFF).** 2 fish/casino at a 2.5–3.6× prefund (+ dam cascade + eager
+  per-tick refill to 2) landed as a lump that crashed reserves and stalled the
+  climb. Lean lifecycle: 1 fish/casino (2 at $2), leaner prefund (1.5–2.0×), and
+  the whale dropped from 10–18× to 3–5× (it was the old "drain fast" grant, now
+  redundant with the tournament). Re-run: the casino drain halved (66k vs 128k)
+  and went STEADY — reserves climb smoothly 0.05→0.09 with **no crashes** (vs the
+  old run that crashed to 0.027). Same net pool→field flow, no step function.
 - **Vice tapers to zero at the trigger → asymptotic approach.** Because vice eases
   to off exactly at the trigger, the last stretch of the climb relies on the weak
   base rake, so reaching (and re-reaching) the trigger is slow. Lever: hold a vice
