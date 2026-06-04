@@ -184,11 +184,21 @@ breakdown:
   casino-spawn cascade, then recovered — so the casino-opening cost is **lumpy**
   and timing-sensitive, but `casino_seat_seed` is unambiguously the lever.
 
-**Tuning fork (open):** the drain is casino seeding. Options: cheaper casino seed
-/ fewer fish (weaken the drain), strengthen refill (rake more stakes / wider vice
-band), or lower the trigger toward the ~0.05–0.06 the economy naturally reaches.
-A 1000–2000-tick run with the tournament overlay in the loop is needed to confirm
-the full sawtooth + cadence.
+**Root cause found + fixed (2026-06-04): the vice gate quit halfway.** The
+original `reserve_vice_multiplier` turned vice OFF at the healthy floor (0.06) —
+but the trigger is 0.12, so the Director stopped refilling before the prize pool
+was full and reserves could never reach the trigger (they settled ~0.05–0.06). We
+are the Director; the levers are ours; the economy settles where we drive it. Fix:
+vice now stays engaged across the WHOLE climb — full at/below 0.06, tapering to
+off only at the 0.12 trigger. Re-run (76-cast, holdings $2.637M after the
+circulating policy): ratio climbs **0.05 → 0.0835 over 400 ticks, still rising**
+(vice refill 148.5k vs 94.8k pre-fix), on track to reach the 0.12 trigger by
+~tick 600–700. The Director now drives reserves to the trigger as intended.
+
+**Still open:** (1) climb *pace* vs play-volume → tune for 1–2 tournaments/day;
+(2) the **instrument-choice** dimension — vice (drains the rich, for a top-heavy
+field) vs rake (even skim, for a flat field) chosen by wealth inequality; (3) a
+run with the tournament overlay in the loop to confirm the full sawtooth.
 
 ### 1.6 Open tuning questions (need a sim before flipping on)
 

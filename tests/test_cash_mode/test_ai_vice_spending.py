@@ -469,24 +469,30 @@ class TestViceStateRepository:
 
 
 class TestReserveViceMultiplier(unittest.TestCase):
-    """The pure reserve-deficit scaler (healthy → 0, critical → 1, ramp)."""
+    """The reserve-deficit scaler: vice refills until the tournament trigger.
 
-    def test_healthy_reserves_suppress(self):
-        # at/above RESERVE_HEALTHY (0.06) → vice off
-        self.assertEqual(reserve_vice_multiplier(0.06), 0.0)
+    Full at/below the healthy floor, easing to off at the trigger (NOT off at
+    healthy — that was the bug where the refill quit halfway to the trigger).
+    """
+
+    def test_tournament_ready_suppresses(self):
+        # at/above RESERVE_TRIGGER (0.12) → vice off (bank can open a Main Event)
+        self.assertEqual(reserve_vice_multiplier(0.12), 0.0)
         self.assertEqual(reserve_vice_multiplier(0.30), 0.0)
 
-    def test_critical_reserves_full(self):
-        # at/below RESERVE_CRITICAL (0.03) → vice full
+    def test_below_healthy_full(self):
+        # at/below RESERVE_HEALTHY (0.06) → vice full refill (incl. critical)
+        self.assertEqual(reserve_vice_multiplier(0.06), 1.0)
         self.assertEqual(reserve_vice_multiplier(0.03), 1.0)
         self.assertEqual(reserve_vice_multiplier(0.0), 1.0)
 
-    def test_midpoint_ramps_linearly(self):
-        # 0.045 is halfway between 0.03 and 0.06 → 0.5
-        self.assertAlmostEqual(reserve_vice_multiplier(0.045), 0.5)
+    def test_still_refilling_in_the_climb_band(self):
+        # 0.09 is halfway between healthy (0.06) and trigger (0.12) → 0.5 —
+        # the key fix: vice is still HALF-ON here, not 0 as before.
+        self.assertAlmostEqual(reserve_vice_multiplier(0.09), 0.5)
 
     def test_monotonic_decreasing(self):
-        assert reserve_vice_multiplier(0.035) > reserve_vice_multiplier(0.05)
+        assert reserve_vice_multiplier(0.07) > reserve_vice_multiplier(0.11)
 
 
 class TestViceReserveGate:

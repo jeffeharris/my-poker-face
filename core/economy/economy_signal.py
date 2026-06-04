@@ -78,10 +78,14 @@ REFILL_RAKE_PCT: float = 0.05
 #
 #   reserves/holdings   band        levers
 #   ------------------  ----------  --------------------------------------------
-#   < CRITICAL (0.03)   critical    rake widest + top rate; vice cranked
-#   [CRITICAL, HEALTHY) low         rake adds $200 @ mid rate; vice elevated
-#   [HEALTHY, TRIGGER)  healthy     rake $1000-only @ base; vice off (climbing)
-#   >= TRIGGER (0.12)   trigger     fire a Main Event, drain back to HEALTHY
+#   < CRITICAL (0.03)   critical    rake widest + top rate; vice full
+#   [CRITICAL, HEALTHY) low         rake adds $200 @ mid rate; vice full
+#   [HEALTHY, TRIGGER)  climbing    rake $1000-only @ base; vice tapers full→off
+#   >= TRIGGER (0.12)   trigger     fire a Main Event (vice off); drain to HEALTHY
+#
+# The vice refill stays engaged across the WHOLE climb to the trigger (not off at
+# HEALTHY) — the Director keeps building the prize pool until it can open a Main
+# Event, then the tournament hands those taxed chips back to players as prizes.
 #
 # The tournament FLOOR is deliberately HEALTHY (not CRITICAL): one event gives
 # away (TRIGGER − HEALTHY) × holdings and leaves the bank in the healthy band, so

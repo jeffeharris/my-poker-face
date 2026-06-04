@@ -661,28 +661,35 @@ def tick_vice_expirations(
 def reserve_vice_multiplier(ratio: float) -> float:
     """Scale vice intensity by the bank-pool reserve ratio (reserve-aware refill).
 
-    `ratio` is reserves/holdings (`EconomyState.ratio`). Returns a multiplier:
-      * 0.0 at/above `RESERVE_HEALTHY` — a flush bank needs no refill, so vice
-        backs off and stops taxing the field,
-      * 1.0 at/below `RESERVE_CRITICAL` — crank the refill,
-      * a linear ramp between the two floors.
+    Vice is the refill that funds the next Main Event, so the Director keeps it
+    engaged until the bank can actually OPEN one (`RESERVE_TRIGGER`), easing off
+    as it approaches — it does NOT quit at the healthy floor (the old bug: vice
+    stopped at 0.06 while the trigger is 0.12, so reserves could never climb the
+    rest of the way and tournaments never fired). `ratio` is reserves/holdings:
+      * 1.0 at/below `RESERVE_HEALTHY` — bank well short of a tournament, refill hard,
+      * 0.0 at/above `RESERVE_TRIGGER` — tournament-ready, stop taxing the field,
+      * a linear taper between (full just after a tournament drains to the floor,
+        easing as the pool refills toward the next trigger).
 
-    Band edges come from the shared canonical ladder in `economy_signal`, so the
-    vice (refill) and rake (throttle) levers stay on one band. Pure; the caller
-    decides whether the gate is active (`VICE_RESERVE_GATED`).
+    (Vice ALSO self-targets the wealthy via the concentration gate, so it does the
+    most work when a few AIs are running away — the de-concentration instrument.
+    The complementary even-skim instrument for a flat field is the rake.)
+
+    Band edges come from the shared canonical ladder in `economy_signal`. Pure;
+    the caller decides whether the gate is active (`VICE_RESERVE_GATED`).
     """
-    from core.economy.economy_signal import RESERVE_CRITICAL, RESERVE_HEALTHY
+    from core.economy.economy_signal import RESERVE_HEALTHY, RESERVE_TRIGGER
 
-    healthy = RESERVE_HEALTHY
-    critical = RESERVE_CRITICAL
-    if ratio >= healthy:
+    full = RESERVE_HEALTHY  # at/below → refill at full intensity
+    off = RESERVE_TRIGGER  # at/above → tournament-ready, vice off
+    if ratio >= off:
         return 0.0
-    if ratio <= critical:
+    if ratio <= full:
         return 1.0
-    span = healthy - critical
+    span = off - full
     if span <= 0:
         return 1.0
-    return (healthy - ratio) / span
+    return (off - ratio) / span
 
 
 def resolve_ai_vice_spending(
