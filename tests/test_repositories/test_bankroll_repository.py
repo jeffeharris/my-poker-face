@@ -872,3 +872,42 @@ class TestBorrowerProfileAspirationBias:
             aspiration_bias=2.0,
         )
         assert repo.load_borrower_profile("extreme").aspiration_bias == 1.0
+
+
+class TestBankruptcyHistory:
+    """v149 — bankruptcy_count + last_bankruptcy_at round-trip and the
+    decay-driven loan-term penalty derived from them."""
+
+    def test_load_defaults_when_never_bankrupt(self, repo):
+        repo.save_ai_bankroll(AIBankrollState("clean", 8_000), sandbox_id=SANDBOX_ID)
+        count, last_at = repo.load_bankruptcy_state("clean", sandbox_id=SANDBOX_ID)
+        assert count == 0
+        assert last_at is None
+
+    def test_load_defaults_for_missing_row(self, repo):
+        count, last_at = repo.load_bankruptcy_state("ghost", sandbox_id=SANDBOX_ID)
+        assert count == 0
+        assert last_at is None
+
+    def test_record_increments_and_stamps(self, repo):
+        repo.save_ai_bankroll(AIBankrollState("broke", 0), sandbox_id=SANDBOX_ID)
+        t1 = datetime(2026, 6, 1, 9, 0)
+        new_count = repo.record_bankruptcy("broke", sandbox_id=SANDBOX_ID, now=t1)
+        assert new_count == 1
+        count, last_at = repo.load_bankruptcy_state("broke", sandbox_id=SANDBOX_ID)
+        assert count == 1
+        assert last_at == t1
+
+    def test_record_accumulates(self, repo):
+        repo.save_ai_bankroll(AIBankrollState("serial", 0), sandbox_id=SANDBOX_ID)
+        repo.record_bankruptcy("serial", sandbox_id=SANDBOX_ID, now=datetime(2026, 6, 1))
+        t2 = datetime(2026, 6, 20)
+        assert repo.record_bankruptcy("serial", sandbox_id=SANDBOX_ID, now=t2) == 2
+        count, last_at = repo.load_bankruptcy_state("serial", sandbox_id=SANDBOX_ID)
+        assert count == 2
+        assert last_at == t2  # latest stamp wins
+
+    def test_record_returns_zero_for_missing_row(self, repo):
+        # No bankroll row → nothing to stamp; defensive 0 (shouldn't hit
+        # on the live path, which loads+zeroes the row first).
+        assert repo.record_bankruptcy("ghost", sandbox_id=SANDBOX_ID, now=datetime(2026, 6, 1)) == 0

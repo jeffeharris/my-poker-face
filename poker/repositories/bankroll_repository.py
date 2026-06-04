@@ -28,7 +28,7 @@ import json
 import logging
 from contextlib import nullcontext
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from cash_mode.bankroll import (
     BANKROLL_KNOB_DEFAULTS,
@@ -498,6 +498,47 @@ class BankrollRepository(BaseRepository):
                 (personality_id, sandbox_id),
             ).fetchone()
         return int(row["bankruptcy_count"]) if row else 0
+
+    def load_bankruptcy_state(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+    ) -> Tuple[int, Optional[datetime]]:
+        """Return the AI's (bankruptcy_count, last_bankruptcy_at) (v149).
+
+        Drives the post-bankruptcy loan-term penalty: a recently-bankrupt
+        borrower gets quoted a pricier cut, decaying off
+        `last_bankruptcy_at`. Returns (0, None) for a never-bankrupt AI
+        or a missing row. Malformed timestamp ⇒ count with None time
+        (treated as fully decayed) rather than crashing the refresh.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT bankruptcy_count, last_bankruptcy_at
+                FROM ai_bankroll_state
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (personality_id, sandbox_id),
+            ).fetchone()
+        if not row:
+            return (0, None)
+        count = int(row["bankruptcy_count"] or 0)
+        raw = row["last_bankruptcy_at"]
+        if raw is None:
+            return (count, None)
+        try:
+            return (count, datetime.fromisoformat(raw))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Personality %r in sandbox %r has malformed "
+                "last_bankruptcy_at %r; treating as fully decayed",
+                personality_id,
+                sandbox_id,
+                raw,
+            )
+            return (count, None)
 
     def sum_ai_bankroll_chips_stored(
         self,

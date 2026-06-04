@@ -1584,6 +1584,26 @@ def refresh_unseated_tables(
             return 0
         return sum(int(c.carry_amount) for c in carries if c.borrower_id == borrower_id)
 
+    def _bankruptcy_lookup(borrower_id: str):
+        """Borrower's (bankruptcy_count, last_bankruptcy_at) for the
+        post-bankruptcy loan-term penalty in `take_stake`. Returns
+        (0, None) when bankroll_repo is absent or the AI has never gone
+        bankrupt — i.e. no penalty."""
+        if bankroll_repo is None:
+            return (0, None)
+        try:
+            return bankroll_repo.load_bankruptcy_state(
+                borrower_id,
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] bankruptcy_lookup failed borrower=%r: %s",
+                borrower_id,
+                exc,
+            )
+            return (0, None)
+
     def _buy_in_lookup(pid: str) -> int:
         # Map back to a table buy-in: needs the stake_label of the
         # destination table. We close over the current iteration's
@@ -1963,6 +1983,7 @@ def refresh_unseated_tables(
                 # (else the lookup returns 0 and the cut stays at
                 # rate_anchor as before).
                 carry_lookup=(_carry_lookup if _take_stake_enabled else None),
+                bankruptcy_lookup=(_bankruptcy_lookup if _take_stake_enabled else None),
                 # Staker-incentives plan: weighted candidate selection
                 # in find_ai_staker_for. Wired only when stake_repo is
                 # available; otherwise the matcher falls back to its

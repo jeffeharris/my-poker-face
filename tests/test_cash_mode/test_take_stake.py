@@ -25,7 +25,10 @@ from unittest.mock import MagicMock
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from cash_mode.movement import (
+    GARNISHMENT_ABSOLUTE_CAP,
     StakeCreationChange,
+    bankruptcy_penalized_cut,
+    bankruptcy_rate_penalty,
     find_ai_staker_for,
     refresh_table_roster,
 )
@@ -568,6 +571,45 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
         self.assertEqual(sc.stake_label, "$2")
         self.assertEqual(sc.cut, 0.30)
 
+    def test_recent_bankruptcy_bumps_borrower_cut(self):
+        from datetime import timedelta
+
+        table = self._make_table(busting_chips=10)
+        # bust_ai went bankrupt 6 days ago → within the 30-day decay
+        # window, so the fresh stake's cut is bumped above rate_anchor.
+        result = refresh_table_roster(
+            table,
+            **self._common_kwargs(
+                borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
+                staker_profile_lookup=lambda pid: _willing_staker(),
+                relationship_lookup=lambda o, p: None,
+                stake_label="$2",
+                bankruptcy_lookup=lambda pid: (1, ANCHOR - timedelta(days=6)),
+            ),
+        )
+        self.assertEqual(len(result.stake_creations), 1)
+        sc = result.stake_creations[0]
+        self.assertGreater(sc.cut, 0.30)  # penalty stacked on rate_anchor
+        self.assertLessEqual(sc.cut, 0.55)  # never past the ceiling
+
+    def test_old_bankruptcy_fully_decayed_no_bump(self):
+        from datetime import timedelta
+
+        table = self._make_table(busting_chips=10)
+        # 60 days ago → past the 30-day decay window → no penalty.
+        result = refresh_table_roster(
+            table,
+            **self._common_kwargs(
+                borrower_profile_lookup=lambda pid: BORROWER_PROFILE_DEFAULTS,
+                staker_profile_lookup=lambda pid: _willing_staker(),
+                relationship_lookup=lambda o, p: None,
+                stake_label="$2",
+                bankruptcy_lookup=lambda pid: (1, ANCHOR - timedelta(days=60)),
+            ),
+        )
+        self.assertEqual(len(result.stake_creations), 1)
+        self.assertEqual(result.stake_creations[0].cut, 0.30)
+
     def test_take_stake_refills_seat_to_principal(self):
         table = self._make_table(busting_chips=10)
         result = refresh_table_roster(
@@ -711,6 +753,70 @@ class TestBorrowerGuardClosure(unittest.TestCase):
         assert lookup("bust_ai").willing is False
         # Other AIs still eligible.
         assert lookup("other_ai").willing is True
+
+
+class TestBankruptcyRatePenalty(unittest.TestCase):
+    """Pure-math: the decaying post-bankruptcy cut penalty."""
+
+    def test_no_history_zero_penalty(self):
+        self.assertEqual(bankruptcy_rate_penalty(0, None, ANCHOR), 0.0)
+        self.assertEqual(bankruptcy_rate_penalty(0, ANCHOR, ANCHOR), 0.0)
+        self.assertEqual(bankruptcy_rate_penalty(2, None, ANCHOR), 0.0)
+
+    def test_fresh_bankruptcy_full_penalty(self):
+        from datetime import timedelta
+
+        # Same instant → decay 1.0 → per_event × count.
+        self.assertAlmostEqual(bankruptcy_rate_penalty(1, ANCHOR, ANCHOR), 0.05, places=4)
+        self.assertAlmostEqual(bankruptcy_rate_penalty(3, ANCHOR, ANCHOR), 0.15, places=4)
+        # Negative elapsed (clock skew) clamps to the full penalty.
+        self.assertAlmostEqual(
+            bankruptcy_rate_penalty(1, ANCHOR + timedelta(days=1), ANCHOR), 0.05, places=4
+        )
+
+    def test_penalty_decays_linearly(self):
+        from datetime import timedelta
+
+        # 15 days into a 30-day window → halfway decayed.
+        self.assertAlmostEqual(
+            bankruptcy_rate_penalty(1, ANCHOR, ANCHOR + timedelta(days=15)), 0.025, places=4
+        )
+
+    def test_fully_decayed_after_window(self):
+        from datetime import timedelta
+
+        self.assertEqual(bankruptcy_rate_penalty(2, ANCHOR, ANCHOR + timedelta(days=30)), 0.0)
+        self.assertEqual(bankruptcy_rate_penalty(2, ANCHOR, ANCHOR + timedelta(days=99)), 0.0)
+
+    def test_penalized_cut_stacks_and_clamps(self):
+        # Adds the penalty on top of the incoming (already-garnished) cut.
+        self.assertAlmostEqual(
+            bankruptcy_penalized_cut(
+                0.30, bankruptcy_count=1, last_bankruptcy_at=ANCHOR, now=ANCHOR
+            ),
+            0.35,
+            places=4,
+        )
+        # Clamped to the shared ceiling even with a huge count.
+        self.assertEqual(
+            bankruptcy_penalized_cut(
+                0.50, bankruptcy_count=20, last_bankruptcy_at=ANCHOR, now=ANCHOR
+            ),
+            GARNISHMENT_ABSOLUTE_CAP,
+        )
+
+    def test_penalized_cut_unchanged_when_decayed(self):
+        from datetime import timedelta
+
+        self.assertEqual(
+            bankruptcy_penalized_cut(
+                0.30,
+                bankruptcy_count=1,
+                last_bankruptcy_at=ANCHOR,
+                now=ANCHOR + timedelta(days=45),
+            ),
+            0.30,
+        )
 
 
 if __name__ == '__main__':

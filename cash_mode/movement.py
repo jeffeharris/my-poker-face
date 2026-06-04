@@ -1015,6 +1015,64 @@ def garnished_stake_cut(
     return min(rate_anchor + garnish, GARNISHMENT_ABSOLUTE_CAP)
 
 
+# Bankruptcy term penalty (carry-resolution follow-up). A borrower who
+# went bankrupt recently faces a pricier cut on new stakes — a credit-
+# score ding, NOT a lockout — that fades with time so a clean stretch
+# rehabilitates them. The lifetime count still lives on the dossier as
+# history; only the economic penalty decays.
+BANKRUPTCY_RATE_PENALTY_PER_EVENT = 0.05
+"""Cut bump per recent bankruptcy, before decay (+5pp each)."""
+
+BANKRUPTCY_PENALTY_DECAY_DAYS = 30.0
+"""Days after the most recent bankruptcy at which the penalty fully
+fades to 0 (linear ramp). The v1 time-decay redemption: stay solvent
+for the window and borrowing terms recover on their own."""
+
+
+def bankruptcy_rate_penalty(
+    bankruptcy_count: int,
+    last_bankruptcy_at: Optional[datetime],
+    now: datetime,
+) -> float:
+    """Additive cut penalty from a borrower's recent bankruptcy history.
+
+    `per_event × count × decay`, where decay ramps linearly from 1.0 at
+    the moment of the last bankruptcy down to 0 at
+    BANKRUPTCY_PENALTY_DECAY_DAYS. Zero when never bankrupt or fully
+    decayed. A fresh bankruptcy stamps `last_bankruptcy_at = now`, so it
+    resets the decay clock to full.
+    """
+    if bankruptcy_count <= 0 or last_bankruptcy_at is None:
+        return 0.0
+    days = (now - last_bankruptcy_at).total_seconds() / 86400.0
+    if days < 0:
+        days = 0.0
+    if BANKRUPTCY_PENALTY_DECAY_DAYS <= 0:
+        decay = 1.0
+    else:
+        decay = max(0.0, 1.0 - days / BANKRUPTCY_PENALTY_DECAY_DAYS)
+    return BANKRUPTCY_RATE_PENALTY_PER_EVENT * int(bankruptcy_count) * decay
+
+
+def bankruptcy_penalized_cut(
+    cut: float,
+    *,
+    bankruptcy_count: int,
+    last_bankruptcy_at: Optional[datetime],
+    now: datetime,
+) -> float:
+    """Apply the recent-bankruptcy penalty to a stake cut, clamped to the
+    same GARNISHMENT_ABSOLUTE_CAP the garnishment bump respects — so the
+    two stacked term penalties together can't push past the
+    human-surface ceiling. Returns `cut` unchanged when there's no
+    (undecayed) bankruptcy history.
+    """
+    penalty = bankruptcy_rate_penalty(bankruptcy_count, last_bankruptcy_at, now)
+    if penalty <= 0:
+        return cut
+    return min(cut + penalty, GARNISHMENT_ABSOLUTE_CAP)
+
+
 def _movement_decision_to_idle_reason(decision: MovementDecision) -> str:
     """Map a movement decision to the corresponding idle-pool reason.
 
@@ -1163,6 +1221,12 @@ def refresh_table_roster(
     # just enforced at movement time for AI borrowers. None → no
     # garnishment (pre-Phase-4.5 callers).
     carry_lookup: Optional[Callable[[str, str], int]] = None,
+    # Carry-resolution follow-up: borrower's bankruptcy credit history
+    # (count, last_bankruptcy_at) keyed by personality_id. When provided,
+    # a recently-bankrupt borrower's fresh-stake cut is bumped (decaying
+    # with time) on top of any garnishment — pricier money, not a
+    # lockout. None → no bankruptcy penalty (pre-feature callers / tests).
+    bankruptcy_lookup: Optional[Callable[[str], Tuple[int, Optional[datetime]]]] = None,
     # Staker-incentives plan: per-refresh history + starting-bankroll
     # caches the lobby plumbs through so the matcher can do weighted
     # selection. Either being None → uniform-random fallback inside
@@ -1490,6 +1554,26 @@ def refresh_table_roster(
                     rate_anchor=cut,
                     outstanding_carry=outstanding,
                     principal=table_min_buy_in,
+                )
+            # Carry-resolution follow-up: stack a recent-bankruptcy
+            # penalty on the borrower's cut (decays with time; clamped to
+            # the same ceiling as garnishment). Applied after garnishment
+            # so both term penalties compose under one cap.
+            if bankruptcy_lookup is not None:
+                try:
+                    bk_count, bk_last = bankruptcy_lookup(pid)
+                except Exception as exc:
+                    logger.debug(
+                        "take_stake: bankruptcy_lookup failed borrower=%r: %s",
+                        pid,
+                        exc,
+                    )
+                    bk_count, bk_last = 0, None
+                cut = bankruptcy_penalized_cut(
+                    cut,
+                    bankruptcy_count=bk_count,
+                    last_bankruptcy_at=bk_last,
+                    now=now,
                 )
             stake_creations.append(
                 StakeCreationChange(
