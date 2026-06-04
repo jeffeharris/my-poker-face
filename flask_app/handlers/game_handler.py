@@ -1779,7 +1779,11 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         # path previously destroyed these chips on voluntary leaves
         # (bored_move / stake_up / take_break) — a monotonic ledger drift.
         try:
-            from flask_app.extensions import chip_ledger_repo
+            from flask_app.extensions import (
+                chip_ledger_repo,
+                relationship_repo,
+                stake_repo,
+            )
 
             _credit_departed_ai_bankrolls(
                 result,
@@ -1789,6 +1793,9 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
                 sandbox_id=sandbox_id,
                 now=now,
                 table_id=result.new_table.table_id,
+                stake_repo=stake_repo,
+                relationship_repo=relationship_repo,
+                personality_repo=personality_repo,
             )
         except Exception as e:
             logger.error(
@@ -2176,6 +2183,9 @@ def _credit_departed_ai_bankrolls(
     sandbox_id,
     now,
     table_id,
+    stake_repo=None,
+    relationship_repo=None,
+    personality_repo=None,
 ) -> int:
     """PRH-3: return each voluntarily-departed seated AI's seat chips to its
     bankroll (with a ledger row), instead of destroying them.
@@ -2193,19 +2203,68 @@ def _credit_departed_ai_bankrolls(
     `personality_id` carried on each `BankrollChange`, never the name map
     (PRH-13 — that map has a desync history).
 
-    Stake settlement on a seated voluntary leave is NOT replicated here:
-    the borrower is credited its full seat chips (chips are conserved); the
-    unseated path's staker-payout settlement is a separate, deferred concern.
+    Stake settlement: a staked AI leaving the human's table settles its
+    stake HERE, at this seat's stack, via the shared `settle_departed_ai_stake`
+    helper — the SAME settlement the unseated world-tick path runs. Without
+    it the staker's upside was silently transferred into the AI's own
+    bankroll and the stake settled later at an unrelated table (the
+    "AI walks with $43.6k, staker gets scraps" bug). When a stake settles,
+    its flows already credit the borrower's share, so that `from_seat` index
+    is excluded from the full-stack credit below (mirrors the unseated path's
+    `settled_from_seat_indices`). Requires `stake_repo`; when it (or the
+    relationship/personality repos) is None the settlement is skipped and the
+    AI is credited its full seat chips as before.
 
     Returns the total chips credited (for logging / test assertions).
     """
     from cash_mode.bankroll import credit_ai_cash_out
 
+    # Settle active stakes at the session-end leave (the LAST from_seat per
+    # departed pid — any earlier from_seat is a take_stake bust-chips return
+    # that must still credit normally), keyed by index so only the settled
+    # leave is excluded from the full-stack credit.
+    settled_indices: set = set()
+    if stake_repo is not None:
+        from cash_mode.lobby import settle_departed_ai_stake
+
+        last_from_seat_index: dict = {}
+        for i, bc in enumerate(result.bankroll_changes):
+            if bc.direction == "from_seat" and bc.personality_id in departed_pids:
+                last_from_seat_index[bc.personality_id] = i
+        for pid, idx in last_from_seat_index.items():
+            try:
+                settlement = settle_departed_ai_stake(
+                    pid,
+                    result.bankroll_changes[idx].amount,
+                    stake_repo=stake_repo,
+                    bankroll_repo=bankroll_repo,
+                    chip_ledger_repo=chip_ledger_repo,
+                    relationship_repo=relationship_repo,
+                    personality_repo=personality_repo,
+                    table_id=table_id,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                )
+            except Exception as exc:
+                logger.error(
+                    "[CASH][SEATED] stake settlement on seated leave failed " "for %s: %s",
+                    pid,
+                    exc,
+                    exc_info=True,
+                )
+                settlement = None
+            if settlement is not None:
+                settled_indices.add(idx)
+
     credited = 0
-    for bc in result.bankroll_changes:
+    for i, bc in enumerate(result.bankroll_changes):
         if bc.direction != "from_seat" or bc.amount <= 0:
             continue
         if bc.personality_id not in departed_pids:
+            continue
+        if i in settled_indices:
+            # Stake settlement already credited the borrower's share via its
+            # flows — crediting the full seat stack too would double-handle.
             continue
         credit_ai_cash_out(
             bankroll_repo,

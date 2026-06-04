@@ -81,6 +81,78 @@ class TestPRH3SeatedDepartureCredit(unittest.TestCase):
         self.assertEqual(kwargs['ledger_context']['table_id'], 't-9')
 
 
+class TestSeatedLeaveSettlesStake(unittest.TestCase):
+    """A staked AI leaving the human's seated table must settle its stake
+    HERE (at this seat's stack) — the same settlement the unseated path runs.
+
+    Regression: the seated path used to credit the AI its full seat chips and
+    leave the stake active, silently transferring the staker's upside to the
+    AI's own bankroll and settling the stake later at an unrelated table
+    ("AI walks up big, staker gets scraps").
+    """
+
+    def test_staked_departure_settles_and_skips_full_credit(self):
+        # frida departs up big with a stake; bob departs with no stake.
+        changes = [
+            BankrollChange(direction='from_seat', personality_id='frida', amount=43600),
+            BankrollChange(direction='from_seat', personality_id='bob', amount=500),
+        ]
+        result = types.SimpleNamespace(bankroll_changes=changes)
+        stake_repo = MagicMock()
+
+        # Stub the shared settlement helper: settles frida's stake, none for bob.
+        def fake_settle(pid, chips_at_leave, **kwargs):
+            return object() if pid == 'frida' else None
+
+        with (
+            patch(
+                'cash_mode.lobby.settle_departed_ai_stake', side_effect=fake_settle
+            ) as mock_settle,
+            patch('cash_mode.bankroll.credit_ai_cash_out') as mock_credit,
+        ):
+            total = _credit_departed_ai_bankrolls(
+                result,
+                {'frida', 'bob'},
+                bankroll_repo=MagicMock(),
+                chip_ledger_repo=MagicMock(),
+                sandbox_id='sb',
+                now=None,
+                table_id='cash-table-200-001',
+                stake_repo=stake_repo,
+                relationship_repo=MagicMock(),
+                personality_repo=MagicMock(),
+            )
+
+        # frida's stake settled at her leave stack ($43.6k) and table.
+        settle_pids = {c.args[0]: c.args[1] for c in mock_settle.call_args_list}
+        self.assertEqual(settle_pids['frida'], 43600)
+        self.assertEqual(mock_settle.call_args_list[0].kwargs['table_id'], 'cash-table-200-001')
+
+        # frida is NOT double-credited her full seat stack (settlement flows
+        # already credited the borrower share); bob (no stake) is credited.
+        credited = {c.args[1]: c.args[2] for c in mock_credit.call_args_list}
+        self.assertEqual(credited, {'bob': 500})
+        self.assertEqual(total, 500)
+
+    def test_no_stake_repo_credits_full_chips_unchanged(self):
+        # Backward-compat: with no stake_repo, settlement is skipped and the
+        # AI is credited its full seat chips (pre-fix behavior).
+        changes = [BankrollChange(direction='from_seat', personality_id='frida', amount=43600)]
+        result = types.SimpleNamespace(bankroll_changes=changes)
+        with patch('cash_mode.bankroll.credit_ai_cash_out') as mock_credit:
+            total = _credit_departed_ai_bankrolls(
+                result,
+                {'frida'},
+                bankroll_repo=MagicMock(),
+                chip_ledger_repo=MagicMock(),
+                sandbox_id='sb',
+                now=None,
+                table_id='t-1',
+            )
+        self.assertEqual(total, 43600)
+        self.assertEqual(mock_credit.call_count, 1)
+
+
 class TestPRH4CashNeverRoutesToTournament(unittest.TestCase):
     """Cash games never reach tournament elimination/completion logic.
 
