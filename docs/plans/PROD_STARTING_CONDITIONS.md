@@ -169,19 +169,26 @@ First reads:
   `dr_seuss`/`bob_ross`), not the 76 cast — the seed-time `circulating` policy is
   not yet applied (those should be `circulating=0`).
 
-**150-tick run (2026-06-04) — KEY FINDING: faucet under-powered, no tournaments.**
-Ratio: 0.05 boot → holds ~0.043 (low) for ~30 ticks → **crashes to 0.014
-(critical) around tick 45** as reserves drop 136k→47k while holdings rise (chips
-flow pool→field: casinos opening + fish bankrolls + side-hustle payouts — the
-"lived-in boot" cost) → then recovers **slowly** (~0.3k/tick) but stays stuck in
-the critical band, ending 0.025. At that recovery rate it's ~1000+ ticks (hours
-of continuous play) to reach the 0.12 trigger ⇒ Main Events would be **very rare**,
-not 1–2/day. Structural cause: the vice gate *reduces* vice in the low/healthy
-bands — exactly where reserves need to hold — so they sink to critical before vice
-cranks. **Tuning fork (open): strengthen refill (rake rates / vice floors / rake
-more stakes) vs. weaken drains (casino seed cost / side-hustle) vs. lower the
-trigger vs. accept rare tournaments.** A 1000–2000-tick run is needed to confirm
-whether reserves ever reach trigger.
+**Validation runs (2026-06-04) — KEY FINDING: the casino seed is the whole
+drain; reserves climb but slowly.** A 300-tick run with the per-reason flow
+breakdown:
+- Ratio 0.05 boot → dips to 0.038 → **climbs steadily to 0.056 (low band)** by
+  tick 300, heading toward the 0.06 healthy floor.
+- **DRAIN = 100% `casino_seat_seed` (118k)** — opening casinos + topping up their
+  fish is the *entire* drain. No side-hustle / tourist drain fired in this run.
+- **REFILL**: `vice_spending` **94.8k** (dominant ongoing faucet), `table_rake`
+  27.6k, `casino_seat_return` 13.5k — plus the one-time 157k genesis seed.
+- Steady-state net (excl. genesis) ≈ **+18k / 300 ticks (~+0.06k/tick)** ⇒ ~3500
+  ticks to reach the 0.12 trigger. Tournaments would be **rare** as tuned.
+- A 150-tick run with different RNG crashed to the critical band on a lumpy
+  casino-spawn cascade, then recovered — so the casino-opening cost is **lumpy**
+  and timing-sensitive, but `casino_seat_seed` is unambiguously the lever.
+
+**Tuning fork (open):** the drain is casino seeding. Options: cheaper casino seed
+/ fewer fish (weaken the drain), strengthen refill (rake more stakes / wider vice
+band), or lower the trigger toward the ~0.05–0.06 the economy naturally reaches.
+A 1000–2000-tick run with the tournament overlay in the loop is needed to confirm
+the full sawtooth + cadence.
 
 ### 1.6 Open tuning questions (need a sim before flipping on)
 
@@ -458,10 +465,10 @@ remaining 71 to be generated in tier batches.
       bankrolls + signature tendencies). Done 2026-06-04 — Σ(bankrolls)=$2.459M,
       median $21.5k, ceiling $120k. File now 105 personas (76 cast + 9 fish + 20
       extras/bots); removed 5 name-variant duplicates.
-- [ ] **Seed-time circulating policy:** flag all 76 cast `circulating=1`; fish
-      casino-only; set `circulating=0` for control bots (CaseBot/GTO-Lite/
-      BaselineSolver) and IP-risk holdovers (Bob Ross, Dr. Seuss). The ~15 legit
-      extras (Annie Oakley, Calamity Jane, Frida Kahlo, Marie Antoinette, Medusa,
-      archetype originals) are optional bench.
+- [x] **Seed-time circulating policy (2026-06-04):** `personalities.json` now
+      carries an explicit `circulating` per persona (76 cast `true`; 29 others
+      `false` = 3 control bots + 2 IP-risk Bob Ross/Dr. Seuss + 9 fish + 15 bench
+      extras). `seed_personalities_from_json` honours the flag (default `true`).
+      Fresh seed now circulates exactly the 76 cast (verified: eligible 93→76).
 - [ ] Concentrate cold-start tables to ~8 (update `lobby_config.py`).
 - [ ] Verify Σ(bankrolls) and the 5% reserve seed against the live ledger.

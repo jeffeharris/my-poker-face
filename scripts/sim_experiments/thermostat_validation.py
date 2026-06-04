@@ -147,6 +147,33 @@ def main() -> int:
                 f'did NOT reach TRIGGER (0.12) in {args.ticks} ticks — '
                 f'faucet too slow at this horizon, or holdings too large'
             )
+
+        # --- Where do the chips flow? (cumulative bank-pool ledger by reason) ---
+        # Refill = deposit-reason destructions (chips INTO the pool); drain =
+        # draw-reason creations (chips OUT of the pool). This pinpoints the
+        # dominant drain (casino seed vs fish/tourist vs side-hustle) and the
+        # refill mix (rake vs vice) so the rebalance lever can be chosen.
+        from core.economy.ledger import BANK_POOL_DEPOSIT_REASONS, BANK_POOL_DRAW_REASONS
+
+        creations = ledger.sum_creations_by_reason(sandbox_id=sandbox_id)
+        destructions = ledger.sum_destructions_by_reason(sandbox_id=sandbox_id)
+        refill = {
+            r: destructions.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS if destructions.get(r, 0)
+        }
+        drain = {r: creations.get(r, 0) for r in BANK_POOL_DRAW_REASONS if creations.get(r, 0)}
+        total_refill = sum(refill.values())
+        total_drain = sum(drain.values())
+        print('\n=== bank-pool flows (cumulative, chips) ===')
+        print(f'REFILL  total {total_refill:>12,}')
+        for r, v in sorted(refill.items(), key=lambda kv: -kv[1]):
+            print(f'   {r:<24} {v:>12,}')
+        print(f'DRAIN   total {total_drain:>12,}')
+        for r, v in sorted(drain.items(), key=lambda kv: -kv[1]):
+            print(f'   {r:<24} {v:>12,}')
+        print(
+            f'NET (refill − drain): {total_refill - total_drain:>+12,}  '
+            f'(includes the one-time genesis seed in REFILL)'
+        )
         return 0
 
 
