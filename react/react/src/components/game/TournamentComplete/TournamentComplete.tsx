@@ -89,6 +89,17 @@ export function TournamentComplete({
                 <span className="eliminated-info">
                   {standing.eliminated_by ? `by ${standing.eliminated_by}` : 'Winner'}
                 </span>
+                {standing.amount ? (
+                  <span className="prize">
+                    ${standing.amount.toLocaleString()}
+                    {standing.renown ? (
+                      <span className="renown" title="Renown earned">
+                        {' '}
+                        · ★{standing.renown}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
               </div>
             ))}
           </div>
@@ -96,6 +107,12 @@ export function TournamentComplete({
 
         {/* Stats Summary */}
         <div className="tournament-stats">
+          {result.prize_pool ? (
+            <div className="stat">
+              <span className="stat-value">${result.prize_pool.toLocaleString()}</span>
+              <span className="stat-label">Total Purse</span>
+            </div>
+          ) : null}
           <div className="stat">
             <span className="stat-value">{result.total_hands}</span>
             <span className="stat-label">Hands Played</span>

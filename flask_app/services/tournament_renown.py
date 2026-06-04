@@ -52,6 +52,36 @@ def position_renown(position: int, paid_places: int, base: float = DEFAULT_WIN_R
     return base * frac
 
 
+def payout_breakdown(
+    field_size: int,
+    prize_pool: int,
+    *,
+    base: float = DEFAULT_WIN_RENOWN,
+    with_renown: bool = True,
+) -> list[dict]:
+    """Per-place ``[{finishing_position, amount, renown}]`` for DISPLAY on the
+    registration card and the completion screen.
+
+    ``amount`` comes from ``compute_payout_schedule`` (exact, sums to
+    ``prize_pool``); ``renown`` from ``position_renown`` with the SAME ``base``
+    the payout grant uses (``grant_on_payout``), so the number shown is the number
+    actually awarded. ``renown`` is omitted when ``with_renown`` is False (e.g.
+    ``TOURNAMENT_DRAW_ENABLED`` off → no renown economy). Empty list when there's
+    nothing to pay (``prize_pool <= 0`` / no paid places). Pure: derives only from
+    ``field_size`` + ``prize_pool``."""
+    from tournament.economy import compute_payout_schedule, paid_places_for
+
+    paid = paid_places_for(field_size)
+    out: list[dict] = []
+    for row in compute_payout_schedule(field_size, prize_pool):
+        pos = row['finishing_position']
+        entry: dict = {'finishing_position': pos, 'amount': row['amount']}
+        if with_renown:
+            entry['renown'] = round(position_renown(pos, paid, base), 3)
+        out.append(entry)
+    return out
+
+
 def _position_to_player(session) -> dict:
     """Finishing position → player_id (1 = winner). Mirrors the payout mapping in
     `tournament_economy_service` (kept local so this module is self-contained and

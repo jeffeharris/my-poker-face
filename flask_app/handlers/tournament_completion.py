@@ -44,6 +44,7 @@ def build_completion_result(
     biggest_pot: int = 0,
     started_at: Optional[str] = None,
     personality_repo=None,
+    prize_pool: int = 0,
 ) -> dict[str, Any]:
     """Build the tournament-result dict (the shape `tournament_repo` and the
     `tournament_complete` event consume) from a completed `TournamentSession`.
@@ -100,8 +101,33 @@ def build_completion_result(
         )
     standings.sort(key=lambda s: s['finishing_position'])
 
+    # Per-place prize + renown for display (#3). Same schedule the payout used
+    # (compute_payout_schedule) and the same renown curve grant_on_payout grants,
+    # so the screen shows exactly what was awarded. Renown shown only when the
+    # draw economy is on (else it's never granted). Merged onto the in-the-money
+    # standings rows by finishing position; out-of-money rows keep amount 0.
+    from cash_mode import economy_flags
+    from flask_app.services.tournament_renown import payout_breakdown
+
+    renown_enabled = bool(economy_flags.TOURNAMENT_DRAW_ENABLED)
+    by_pos = {
+        row['finishing_position']: row
+        for row in payout_breakdown(
+            session.field.field_size, prize_pool, with_renown=renown_enabled
+        )
+    }
+    payouts = sorted(by_pos.values(), key=lambda r: r['finishing_position'])
+    for s in standings:
+        pay = by_pos.get(s['finishing_position'])
+        s['amount'] = pay['amount'] if pay else 0
+        if renown_enabled:
+            s['renown'] = pay['renown'] if pay else 0.0
+
     return {
         'game_id': game_id,
+        'prize_pool': int(prize_pool),
+        'payouts': payouts,
+        'renown_enabled': renown_enabled,
         'winner_name': _name(winner_id) if winner_id is not None else None,
         'total_hands': session._hand_counter,
         'biggest_pot': biggest_pot,
@@ -149,12 +175,24 @@ def finalize_tournament(
     from flask_app import extensions
     from flask_app.services import game_state_service
 
+    # The prize pool lives on the persisted tournament row (set at register/buy-in
+    # via set_economy), not on the session object — read it for the payout display
+    # (#3). Best-effort: a missing row just shows a 0 purse, never blocks finalize.
+    prize_pool = 0
+    try:
+        row = extensions.tournament_session_repo.find_by_game_id(game_id)
+        if row:
+            prize_pool = int(row.get('prize_pool') or 0)
+    except Exception:  # noqa: BLE001 — display only
+        logger.exception("[TOURNEY] prize_pool read failed for %s", game_id)
+
     result = build_completion_result(
         session,
         game_id=game_id,
         biggest_pot=game_data.get('tournament_biggest_pot', 0),
         started_at=game_data.get('tournament_started_at'),
         personality_repo=getattr(extensions, 'personality_repo', None),
+        prize_pool=prize_pool,
     )
 
     try:
