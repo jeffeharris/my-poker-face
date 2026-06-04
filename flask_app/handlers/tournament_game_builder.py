@@ -144,6 +144,7 @@ def build_tournament_game(
     from poker.pressure_detector import PressureEventDetector
     from poker.pressure_stats import PressureStatsTracker
     from poker.repositories.sqlite_repositories import PressureEventRepository
+    from poker.table.seat import HumanSeat, PersonaSeat
 
     specs = human_table_seat_specs(session)
     big_blind = session.current_level().big_blind
@@ -155,6 +156,11 @@ def build_tournament_game(
             # Explicit persona identity (T3-80). The human seat's stable key is
             # the owner_id, not the `human:<owner>` field id, so it's None here.
             personality_id=s.player_id if not s.is_human else None,
+            # Canonical typed seat identity (T3-80). The human's HumanSeat key
+            # `human:<owner_id>` equals the field's human entry id, and the AI's
+            # PersonaSeat key equals its field id — so seat_key(player) lines up
+            # with the field for free.
+            seat_id=HumanSeat(owner_id) if s.is_human else PersonaSeat(s.player_id),
             nickname=resolve_display_name(
                 s.player_id,
                 is_human=s.is_human,

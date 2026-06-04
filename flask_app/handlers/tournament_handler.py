@@ -135,6 +135,7 @@ def reconcile_live_table(
     """
     from flask_app import extensions
     from poker.poker_game import Player
+    from poker.table.seat import HUMAN_KEY_PREFIX, HumanSeat, PersonaSeat
     from tournament.identity import resolve_display_name
 
     desired = list(seat_specs)
@@ -146,6 +147,14 @@ def reconcile_live_table(
             # Explicit persona identity (T3-80); None for the human seat (keyed by
             # owner_id, not the `human:<owner>` field id).
             personality_id=s.player_id if not s.is_human else None,
+            # Canonical typed seat identity (T3-80). The human's field id is
+            # `human:<owner>`, so strip the prefix to recover owner_id — HumanSeat
+            # re-adds it, yielding the same field-aligned key. AI → PersonaSeat.
+            seat_id=(
+                HumanSeat(s.player_id.removeprefix(HUMAN_KEY_PREFIX))
+                if s.is_human
+                else PersonaSeat(s.player_id)
+            ),
             # AI seats get their persona name; the human seat shows `owner_name`
             # when threaded through (the frontend still renders the human's own
             # seat as "You"). All seats resolve through the one canonical path.
