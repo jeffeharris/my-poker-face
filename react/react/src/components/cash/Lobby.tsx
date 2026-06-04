@@ -593,14 +593,34 @@ export function Lobby() {
     [busy, navigate, mentorStake]
   );
 
-  /** Intake done → drop the player into the LOBBY rather than straight into the
-   *  game. The keyring filters a brand-new player's lobby down to the single
-   *  pinned Scene-0 table, already populated with Sal + the fish, so they land on
-   *  one inviting table and tap the open seat themselves to sit. */
+  /** Intake done → seat the player straight at the pinned Scene-0 table (the
+   *  tutorial felt), rather than dropping them in the lobby to tap a seat. The
+   *  keyring has already filtered a brand-new player's lobby down to that single
+   *  scripted table (populated with Sal + the fish), so we find it + its open
+   *  seat and sit via the normal path (`handleSeatTap` also handles the
+   *  already-active 409 and any sponsor fallback). If for any reason the scripted
+   *  table/seat isn't there, fall back to landing in the lobby. */
   const handleIntakeDone = useCallback(() => {
     setShowIntake(false);
-    void reloadLobbyRef.current();
-  }, []);
+    void (async () => {
+      try {
+        const lobby = await getLobby();
+        const scene = lobby.tables.find((t) => t.table_type === 'scripted');
+        const openSeat = scene?.seats.find((s) => s.kind === 'open');
+        if (scene && openSeat) {
+          await handleSeatTap(scene, openSeat.index);
+          return;
+        }
+        logger.warn('Intake done but no open scripted-table seat — landing in lobby');
+      } catch (e) {
+        logger.error(
+          'Auto-sit after intake failed — landing in lobby:',
+          e instanceof Error ? e.message : String(e)
+        );
+      }
+      void reloadLobbyRef.current();
+    })();
+  }, [handleSeatTap]);
 
   /** Dismiss the SponsorModal, releasing the seat-hold the /sit 402
    *  placed so an AI can't be cut out of taking it (and so the player
