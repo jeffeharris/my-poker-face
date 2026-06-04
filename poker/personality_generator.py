@@ -88,7 +88,51 @@ def _default_anchors() -> Dict[str, float]:
         'adaptation_bias': 0.50,
         'baseline_energy': 0.50,
         'recovery_rate': 0.15,
+        'self_belief': 0.50,
     }
+
+
+# Max spot tendencies to keep per persona. The prompt asks for 0-3; this is the
+# hard cap so a runaway response can't bury a character under a dozen habits.
+_MAX_SPOT_TENDENCIES = 3
+
+
+def _sanitize_spot_tendencies(raw: Any, name: str) -> list:
+    """Validate an LLM-proposed `spot_tendencies` list against the registry.
+
+    The tiered bot silently ignores unknown tendency names (they map to no
+    handler), so a hallucinated name like "slow_roll" would look authored but do
+    nothing. This drops anything not in `REGISTERED_SPOT_TENDENCIES`, coerces each
+    strength to a float clamped to [0, 1], dedupes by name (first wins), and caps
+    the count. Returns a list of ``[name, strength]`` pairs (JSON-friendly); an
+    absent/garbage/empty input yields ``[]`` (a clean, no-habit player).
+    """
+    from .strategy.spot_tendencies import REGISTERED_SPOT_TENDENCIES
+
+    if not isinstance(raw, list | tuple):
+        return []
+    cleaned: list = []
+    seen: set = set()
+    for pair in raw:
+        if not isinstance(pair, list | tuple) or len(pair) != 2:
+            continue
+        tendency, strength = pair
+        tendency = str(tendency).strip()
+        if tendency not in REGISTERED_SPOT_TENDENCIES:
+            logger.warning("[PERSONALITY] %s: dropping unknown spot_tendency %r", name, tendency)
+            continue
+        if tendency in seen:
+            continue
+        try:
+            strength_f = float(strength)
+        except (TypeError, ValueError):
+            continue
+        strength_f = max(0.0, min(1.0, strength_f))
+        cleaned.append([tendency, round(strength_f, 4)])
+        seen.add(tendency)
+        if len(cleaned) >= _MAX_SPOT_TENDENCIES:
+            break
+    return cleaned
 
 
 class PersonalityGenerator:
@@ -98,7 +142,7 @@ class PersonalityGenerator:
 You are creating a personality profile for an AI poker player named "{name}".
 {description}
 
-Generate a unique personality configuration with THREE sections:
+Generate a unique personality configuration with the following sections:
 
 SECTION 1 — BEHAVIORAL TRAITS:
 1. play_style: Brief poker playing style (e.g., "aggressive and unpredictable")
@@ -219,6 +263,14 @@ values 0.0–1.0.
     - recovery_rate: How fast emotional axes decay back to baseline after a swing.
         0=slow (lingering tilt), 1=fast (resets per hand). 0.10–0.20 typical;
         ≤ 0.10 for grudge-holders, ≥ 0.25 for goldfish-memory types.
+    - self_belief: Felt self-confidence / bravado, DECOUPLED from real skill and
+        from ego. 0=self-doubt, impostor syndrome, apologetic; 0.5=grounded;
+        1=swaggering, delusional, overrates own hands and talks big. This is the
+        bravado dial — a loud blowhard or a deluded gambler runs high (0.75–0.95)
+        even if they play badly; a humble or anxious character runs low
+        (0.10–0.35). Distinct from ego (which is brittleness to being OUTPLAYED):
+        a character can have huge self_belief AND high ego (cocky but fragile), or
+        low self_belief AND low ego (quietly unshakeable). Default 0.5.
 
 Coherence rules: aggression and looseness together determine archetype — make
 sure your values produce the archetype your play_style describes. ("aggressive,
@@ -262,6 +314,35 @@ fit (curious passive observer? calm monk? wild gambler?), THEN write play_style
 + anchors landing in that zone. Don't default to "aggressive and unpredictable"
 — that produces a uniformly-LAG pool. Quiet, careful, passive, or extreme-tight
 characters are just as valid; the pool needs them too.
+
+SECTION 5 — SPOT TENDENCIES (specific exploitable habits):
+Anchors set the broad archetype (how loose, how aggressive). Spot tendencies are
+the FINE TEXTURE on top — concrete, exploitable habits in specific spots that make
+a character play DISTINCTLY rather than generically. Pick 0–3 that fit {name}; a
+clean, disciplined, balanced player can have NONE (use an empty list). Do NOT add
+a tendency that contradicts the archetype (a tight nit shouldn't `over_bluff`).
+
+14. spot_tendencies: a list of [name, strength] pairs. strength is 0.0–1.0 (how
+    strongly the habit fires; 0.5 = moderate, 0.85 = pronounced). Valid names ONLY
+    (anything else is ignored):
+    - "slowplay": traps — checks the nuts / strong made hands on flop & turn
+        instead of betting. → patient predators, ambushers, deceptive types.
+    - "auto_cbet": habitually continuation-bets the flop with air/marginal hands
+        when they took the lead. → relentless pressure players, habitual bettors.
+    - "give_up_turn": fires once then gives up — checks/surrenders medium/weak/air
+        on the turn. → impatient, one-and-done aggressors, easily discouraged.
+    - "fit_or_fold": on the flop, folds marginal hands that don't connect. →
+        straightforward "ABC", cautious, scared-money players.
+    - "over_fold_2nd_barrel": folds too easily to a second (turn) barrel. → timid,
+        readable, easily pushed off hands.
+    - "sticky": can't fold weak/medium made hands on the river — pays you off. →
+        calling stations, stubborn, suspicious, "I have to see it" types.
+    - "over_bluff": bluffs air too often on the river. → spewers, compulsive
+        bluffers, tilt-prone or ego-driven aggressors.
+    - "under_bluff": almost never bluffs the river — bets only mean value. →
+        honest, transparent, principled, "my chips don't lie" types.
+    - "donk_when_weak": leads out (donk-bets) into the aggressor with marginal
+        hands on flop/turn. → erratic, unconventional, attention-seeking players.
 
 Consider {name}'s cultural/fictional associations. Make it authentic, visually distinctive, and interesting.
 
@@ -318,8 +399,10 @@ Respond with ONLY a JSON object in this exact format:
         "risk_identity": 0.50,
         "adaptation_bias": 0.50,
         "baseline_energy": 0.55,
-        "recovery_rate": 0.15
-    }}
+        "recovery_rate": 0.15,
+        "self_belief": 0.50
+    }},
+    "spot_tendencies": [["sticky", 0.6], ["under_bluff", 0.5]]
 }}
 """
 
@@ -464,6 +547,85 @@ Respond with ONLY a JSON object in this exact format:
 
         return generated
 
+    def generate_from_spec(
+        self,
+        name: str,
+        spec: Dict[str, Any],
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate creative persona flavor around a PINNED mechanical skeleton.
+
+        For a hand-tuned cast (e.g. the production launch roster) we want
+        deliberate control over the mechanical fields — anchors, bankroll, skill,
+        and optionally spot_tendencies — that place a character in a specific
+        archetype/tier, but still want the LLM's creativity for the flavor fields
+        (play_style, tics, visual_identity, and a tendency *suggestion* when not
+        pinned). This generates the full persona, threads the pinned targets into
+        the prompt so the prose stays coherent with them, then overlays the
+        pinned values exactly so they can't drift.
+
+        Does NOT save — the caller owns persistence (so a roster build can review
+        before writing).
+
+        spec keys (all optional):
+            anchors: dict of anchor values to enforce verbatim (merged over output)
+            bankroll_knobs: dict to enforce verbatim
+            skill: skill-tier string to enforce
+            spot_tendencies: list of ``[name, strength]`` to enforce (sanitized);
+                when omitted, the LLM's own sanitized suggestion is kept
+            archetype_hint: e.g. "Rock" / "LAG" — woven into the prompt for coherence
+            guidance: free-text extra creative direction
+        """
+        pinned_anchors = spec.get('anchors') or {}
+        # Build a coherence preamble so the LLM writes prose that matches the
+        # mechanics we're about to pin (otherwise a "wild gambler" play_style can
+        # land on Rock anchors). Numbers are advisory to the prose; the overlay
+        # below is what actually enforces them.
+        hint_lines = []
+        archetype_hint = spec.get('archetype_hint')
+        if archetype_hint:
+            hint_lines.append(f"Target archetype: {archetype_hint}.")
+        if pinned_anchors:
+            agg = pinned_anchors.get('baseline_aggression')
+            loose = pinned_anchors.get('baseline_looseness')
+            if agg is not None and loose is not None:
+                hint_lines.append(
+                    f"This character plays with baseline_aggression≈{agg} and "
+                    f"baseline_looseness≈{loose} — write a play_style, tics, and "
+                    f"spot_tendencies that are coherent with that."
+                )
+        if spec.get('spot_tendencies'):
+            names = ', '.join(str(t[0]) for t in spec['spot_tendencies'] if t)
+            hint_lines.append(f"Known exploitable habits: {names}.")
+        if spec.get('guidance'):
+            hint_lines.append(str(spec['guidance']))
+
+        merged_description = (
+            ' '.join(part for part in [description, *hint_lines] if part).strip() or None
+        )
+
+        result = self._generate_personality(name, merged_description)
+
+        # Overlay the pinned mechanical fields so they can't drift from the spec.
+        if pinned_anchors:
+            anchors = dict(result.get('anchors') or {})
+            anchors.update(pinned_anchors)
+            anchors.setdefault('self_belief', 0.50)
+            result['anchors'] = anchors
+        if spec.get('bankroll_knobs'):
+            result['bankroll_knobs'] = dict(spec['bankroll_knobs'])
+        if spec.get('spot_tendencies') is not None:
+            result['spot_tendencies'] = _sanitize_spot_tendencies(spec['spot_tendencies'], name)
+        # skill: explicit pin wins; else re-derive from the (now pinned)
+        # adaptation_bias so it stays consistent with the enforced anchors.
+        if spec.get('skill'):
+            result['skill'] = spec['skill']
+        else:
+            result['skill'] = skill_tier_for_adaptation_bias(
+                result['anchors'].get('adaptation_bias')
+            )
+        return result
+
     def _generate_personality(self, name: str, description: Optional[str] = None) -> Dict[str, Any]:
         """Generate a new personality using AI."""
         # Build the description part
@@ -564,6 +726,20 @@ Respond with ONLY a JSON object in this exact format:
                     f"to balanced defaults. Re-run generation to fix."
                 )
                 result['anchors'] = _default_anchors()
+            else:
+                # self_belief is the newest anchor; older callers / partial LLM
+                # responses may omit it. PersonalityAnchors.from_dict() already
+                # defaults it to 0.5, but persisting it explicitly keeps the DB
+                # row introspectable and matches the authored roster.
+                result['anchors'].setdefault('self_belief', 0.50)
+
+            # Spot tendencies (SECTION 5): the fine-grained exploitable-habit
+            # layer. Validate against the registry so a hallucinated name can't
+            # masquerade as an authored habit that silently no-ops. Absent/empty
+            # is valid — a clean, disciplined player carries none.
+            result['spot_tendencies'] = _sanitize_spot_tendencies(
+                result.get('spot_tendencies'), name
+            )
 
             # Skill tier (PLAYER_SKILL_SPECTRUM.md): derived from the persona's
             # own adaptation_bias so the tiered (`sharp`) bot gets the same
