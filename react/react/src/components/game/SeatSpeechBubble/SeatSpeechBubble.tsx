@@ -1,7 +1,8 @@
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { ChatMessage } from '../../../types';
 import { DramaticMessage } from '../../mobile/FloatingChat';
+import { CountdownRing } from '../../shared/CountdownRing';
 import { calculateDuration } from '../../../utils/chatBeats';
 import './SeatSpeechBubble.css';
 
@@ -23,13 +24,22 @@ export const SeatSpeechBubble = memo(function SeatSpeechBubble({
   message,
   onDismiss,
 }: SeatSpeechBubbleProps) {
-  // Auto-dismiss after a duration scaled to the message length, matching the
-  // floating-chat reading cadence. Re-armed whenever the message changes.
+  // Duration scaled to message length, matching the floating-chat reading
+  // cadence. Memoized so the dismiss timer and the countdown ring share one value.
+  const displayDuration = useMemo(
+    () => calculateDuration(message.message, message.action),
+    [message.message, message.action]
+  );
+  // Timestamp the dismiss timer started, for the countdown ring. Re-stamped
+  // whenever the message (and thus the timer) changes.
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+
+  // Auto-dismiss after the computed duration. Re-armed whenever the message changes.
   useEffect(() => {
-    const duration = calculateDuration(message.message, message.action);
-    const timer = setTimeout(onDismiss, duration);
+    setStartedAt(Date.now());
+    const timer = setTimeout(onDismiss, displayDuration);
     return () => clearTimeout(timer);
-  }, [message.id, message.message, message.action, onDismiss]);
+  }, [message.id, displayDuration, onDismiss]);
 
   return (
     <motion.div
@@ -45,6 +55,13 @@ export const SeatSpeechBubble = memo(function SeatSpeechBubble({
       role="status"
       data-testid="seat-speech-bubble"
     >
+      <CountdownRing
+        timerStartedAt={startedAt}
+        displayDuration={displayDuration}
+        size={12}
+        stroke={1.75}
+        className="seat-speech-bubble__timer-ring"
+      />
       {(message.action || message.sender) && (
         <div className="seat-speech-bubble__sender">{message.action || message.sender}</div>
       )}

@@ -9,7 +9,7 @@ import {
   QUEUED_MESSAGE_BONUS_MS,
 } from '../../config/timing';
 import { parseBeats, calculateDuration } from '../../utils/chatBeats';
-import { CountdownRing } from './CountdownRing';
+import { CountdownRing } from '../shared/CountdownRing';
 import './FloatingChat.css';
 
 // Swipe-to-dismiss thresholds. The opacity ramp is anchored to the

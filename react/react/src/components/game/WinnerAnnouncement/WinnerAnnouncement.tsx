@@ -17,6 +17,7 @@ import {
   SARCASM_ABLE_POST_ROUND,
   POST_ROUND_FALLBACKS,
 } from '../../mobile/postRoundTones';
+import { CountdownRing } from '../../shared/CountdownRing';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -108,6 +109,9 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
   const [show, setShow] = useState(false);
   const [revealCards, setRevealCards] = useState(false);
+  // Timestamp the auto-dismiss timer (re)started, for the countdown ring.
+  // null while paused (interacting / final hand) so the ring freezes.
+  const [dismissStartedAt, setDismissStartedAt] = useState<number | null>(null);
 
   // Identify the human by the backend's is_human seat — the same source as
   // winnerInfo.winners — so the win/loss read can never disagree with it. The
@@ -261,8 +265,15 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
   // Separate effect for auto-dismiss: respects isInteracting and final hand
   useEffect(() => {
-    // Don't auto-dismiss if interacting OR if it's the final hand
-    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) return;
+    // Don't auto-dismiss if interacting OR if it's the final hand. Clear the
+    // ring's start stamp so it freezes (interacting) or never shows (final).
+    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) {
+      setDismissStartedAt(null);
+      return;
+    }
+
+    // Stamp the (re)start so the countdown ring drains over this window.
+    setDismissStartedAt(Date.now());
 
     const timer = setTimeout(
       () => {
@@ -317,6 +328,19 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
       <div className="winner-overlay" />
 
       <div className="winner-content">
+        {/* Auto-dismiss countdown — showdown only (fold-outs flash by too fast
+            for a ring to read; the final hand waits for manual Continue, so
+            dismissStartedAt stays null there and the ring is skipped). Frozen
+            full while the player is mid-interaction with the tone bar. */}
+        {winnerInfo.showdown && !winnerInfo.is_final_hand && (
+          <CountdownRing
+            timerStartedAt={dismissStartedAt}
+            displayDuration={INTERHAND_TIMING.showdownResultMs}
+            size={22}
+            stroke={2.5}
+            className="winner-content__timer-ring"
+          />
+        )}
         <div className="winner-header">
           <h1 className="winner-title">
             <Trophy size={28} /> {isSplitPot ? 'Split Pot!' : 'Winner!'} <Trophy size={28} />

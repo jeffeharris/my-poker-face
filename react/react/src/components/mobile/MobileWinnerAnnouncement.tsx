@@ -14,7 +14,7 @@ import {
   SARCASM_ABLE_POST_ROUND,
   POST_ROUND_FALLBACKS,
 } from './postRoundTones';
-import { CountdownRing } from './CountdownRing';
+import { CountdownRing } from '../shared/CountdownRing';
 import './MobileWinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {

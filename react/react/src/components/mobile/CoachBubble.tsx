@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GraduationCap, X } from 'lucide-react';
 import type { CoachStats } from '../../types/coach';
 import type { CoachingModeValue } from '../../types/coach';
-import { CountdownRing } from './CountdownRing';
+import { CountdownRing } from '../shared/CountdownRing';
 import './CoachBubble.css';
 
 interface CoachBubbleProps {
