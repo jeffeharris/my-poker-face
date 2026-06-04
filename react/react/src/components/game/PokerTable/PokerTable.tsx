@@ -541,6 +541,8 @@ export function PokerTable({
       </div>
 
       {/* Winner Announcement */}
+      {/* The human is identified from the players list's is_human seat inside
+          WinnerAnnouncement; playerName is only a fallback. */}
       <WinnerAnnouncement
         winnerInfo={winnerInfo}
         onComplete={handleResultComplete}

@@ -73,13 +73,16 @@ export interface WinnerAnnouncementProps {
   commentary?: CommentaryItem[];
   onComplete: () => void;
   /** Live players with current avatar_url/avatar_emotion. Used to render
-   *  emotion-aware avatar portraits in the showdown. */
+   *  emotion-aware avatar portraits in the showdown, and to identify the human
+   *  (is_human seat) for the winner/loser tone read. */
   players?: Player[];
   /** Game ID — required to fetch post-round chat suggestions. Optional;
    *  the tone bar shows fallback suggestions when omitted. */
   gameId?: string | null;
-  /** Human player name — determines winner/loser tone set and is sent to
-   *  the suggestions API. Optional; tone bar is suppressed when omitted. */
+  /** Fallback human-player name, used only when `players` carries no is_human
+   *  seat. When `players` is present the human is taken from its is_human seat.
+   *  Determines the winner/loser tone set and is sent to the suggestions API;
+   *  the tone bar is suppressed when no human can be identified at all. */
   playerName?: string;
   /** Callback to send a message to the table. Add this to unlock tone-chat
    *  sending. Signature matches `wrappedSendMessage` from PokerTable.
@@ -154,29 +157,40 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
   const [show, setShow] = useState(false);
   const [revealCards, setRevealCards] = useState(false);
 
+  // Identify the human by the backend's is_human seat — the same source as
+  // winnerInfo.winners — so the win/loss read can never disagree with it. The
+  // playerName prop is only a fallback for render contexts that don't pass a
+  // players list. Trusting the prop directly is what made a win show loser
+  // tones: it's sourced from user.name and can drift from the seat's
+  // player.name.
+  const humanName = useMemo(
+    () => players?.find((p) => p.is_human)?.name ?? playerName ?? '',
+    [players, playerName]
+  );
+
   // Post-round chat state
-  const showToneBar = !!playerName; // Only show tone bar when we know who's playing
+  const showToneBar = !!humanName; // Only show tone bar when we know who's playing
   const [suggestions, setSuggestions] = useState<PostRoundSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false); // Pauses auto-dismiss
 
-  const playerWon = winnerInfo?.winners.includes(playerName ?? '') ?? false;
+  const playerWon = winnerInfo?.winners.includes(humanName) ?? false;
   const toneOptions = playerWon ? WINNER_TONES : LOSER_TONES;
 
   const fetchSuggestions = useCallback(
     async (tone: PostRoundTone) => {
       if (!winnerInfo) return;
 
-      if (!gameId || !playerName) {
-        logger.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
+      if (!gameId || !humanName) {
+        logger.warn('[PostRoundChat] Missing gameId or humanName, using fallback suggestions');
         setSuggestions(FALLBACK_SUGGESTIONS[tone] ?? []);
         return;
       }
 
       setLoadingSuggestions(true);
       try {
-        const response = await gameAPI.getPostRoundChatSuggestions(gameId, playerName, tone);
+        const response = await gameAPI.getPostRoundChatSuggestions(gameId, humanName, tone);
         setSuggestions(response.suggestions || []);
       } catch (error) {
         logger.error('[PostRoundChat] Failed to fetch suggestions:', error);
@@ -185,7 +199,7 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
         setLoadingSuggestions(false);
       }
     },
-    [gameId, playerName, winnerInfo]
+    [gameId, humanName, winnerInfo]
   );
 
   const handleToneSelect = useCallback(

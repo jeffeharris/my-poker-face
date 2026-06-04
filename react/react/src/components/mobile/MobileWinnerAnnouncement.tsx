@@ -60,10 +60,14 @@ interface MobileWinnerAnnouncementProps {
   commentary?: CommentaryItem[];
   onComplete: () => void;
   gameId: string;
-  playerName: string;
+  /** Fallback human-player name, used only when `players` carries no is_human
+   *  seat (e.g. the tournament final-hand overlay). When `players` is present
+   *  the human is taken from its is_human seat instead — see humanName. */
+  playerName?: string;
   onSendMessage: (text: string, addressing?: string[], tone?: string, intensity?: string) => void;
   /** Live players with current avatar_url/avatar_emotion. Used to render
-   *  emotion-aware avatar chips next to each showdown name. */
+   *  emotion-aware avatar chips next to each showdown name, and to identify the
+   *  human (is_human seat) for the win/loss tone read. */
   players?: Player[];
 }
 
@@ -139,11 +143,22 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const [selectedTone, setSelectedTone] = useState<PostRoundTone | null>(null);
   const [sarcastic, setSarcastic] = useState(false);
 
+  // Identify the human by the backend's is_human seat — the same source as
+  // winnerInfo.winners / players_showdown — so the win/loss read can never
+  // disagree with them. The playerName prop is only a fallback for render
+  // contexts that don't pass a players list (e.g. the tournament final-hand
+  // overlay). Trusting the prop directly is what made a win show loser tones:
+  // it's sourced from user.name and can drift from the seat's player.name.
+  const humanName = useMemo(
+    () => players?.find((p) => p.is_human)?.name ?? playerName ?? '',
+    [players, playerName]
+  );
+
   // Situational read of the hand, so the post-round tones fit what happened.
-  const playerWon = winnerInfo?.winners.includes(playerName) ?? false;
+  const playerWon = winnerInfo?.winners.includes(humanName) ?? false;
   const winnerName = winnerInfo?.winners?.[0];
   const isShowdown = !!winnerInfo?.showdown;
-  const humanAtShowdown = !!winnerInfo?.players_showdown?.[playerName];
+  const humanAtShowdown = !!winnerInfo?.players_showdown?.[humanName];
 
   // A fellow loser to commiserate with: someone OTHER than you who lost at
   // showdown (was in the pot at the end and got beaten). Strictly the showdown
@@ -153,8 +168,8 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const fellowLoser = useMemo(() => {
     if (!winnerInfo?.players_showdown) return undefined;
     const isWinner = (n: string) => winnerInfo.winners.includes(n);
-    return Object.keys(winnerInfo.players_showdown).find((n) => n !== playerName && !isWinner(n));
-  }, [winnerInfo, playerName]);
+    return Object.keys(winnerInfo.players_showdown).find((n) => n !== humanName && !isWinner(n));
+  }, [winnerInfo, humanName]);
 
   const toneOptions = useMemo(
     () =>
@@ -184,8 +199,8 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
       const intensity: ChatIntensity | undefined = useSarcastic ? 'sarcastic' : undefined;
 
       // Skip API call if required params are missing
-      if (!gameId || !playerName) {
-        logger.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
+      if (!gameId || !humanName) {
+        logger.warn('[PostRoundChat] Missing gameId or humanName, using fallback suggestions');
         setSuggestions(POST_ROUND_FALLBACKS[tone]);
         return;
       }
@@ -194,7 +209,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
       try {
         const response = await gameAPI.getPostRoundChatSuggestions(
           gameId,
-          playerName,
+          humanName,
           tone,
           intensity
         );
@@ -206,7 +221,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         setLoading(false);
       }
     },
-    [gameId, playerName, winnerInfo]
+    [gameId, humanName, winnerInfo]
   );
 
   const handleToneSelect = (tone: PostRoundTone) => {

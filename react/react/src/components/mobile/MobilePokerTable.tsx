@@ -1127,6 +1127,8 @@ export function MobilePokerTable({
           screen below). When the overlay's hold elapses or the player taps
           Continue, handleResultComplete hands off to the shuffle beat and clears
           the winner, so the overlay and shuffle never overlap. */}
+          {/* The human is identified from the players list's is_human seat
+              inside MobileWinnerAnnouncement; playerName is only a fallback. */}
           {winnerInfo && winnerInfo.showdown && (
             <MobileWinnerAnnouncement
               winnerInfo={winnerInfo}
