@@ -21,6 +21,15 @@ Implemented on branch `chip-custody-atomic-uow` (off `development`):
   discharges after). ✅
 - **D — casino:** fish prefund/drain. ✅  **D — tournament:** payouts
   (`apply_payout_on_complete` + `reconcile_stuck_payout`). ✅
+- **E — reconcile:** `cash_mode/ledger_reconcile.py`
+  (`reconcile_ledger_completeness`) parks `stored − derived` in a
+  `reconciliation` suspense account (bank-neutral `ledger_reconciliation`
+  transfer; the suspense balance = net unexplained drift). CLI/cron entrypoint
+  `python -m cash_mode.ledger_reconcile [--apply]`. ✅ **One-time run applied on
+  dev** — 14 AI + 1 player accounts re-aligned, 25,832 abs drift corrected, now
+  idempotent (every bankroll `derived == stored`); suspense holds the net +4,612
+  residual as the standing drift signal. The periodic job is this CLI on a low
+  cadence out-of-band (NOT the hot world tick — it scans every bankroll).
 
 **Deferred (documented, low-frequency, covered by Phase E reconcile):**
 - **Tournament buy-in** (`apply_buy_in`) — a deliberate
