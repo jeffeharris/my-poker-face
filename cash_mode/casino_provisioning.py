@@ -594,33 +594,38 @@ def _prefund_fish_from_pool(
     draw = min(draw, pool)
     if draw <= 0:
         return 0
-    # Backstop (chip-custody): ledger the pool-draw FIRST and only credit the
-    # bankroll int if it landed — otherwise we'd mint chips into the fish with no
-    # pool-draw record (conservation break). Mirrors the `stranded` guard in
-    # `_drain_fish_bankroll_to_pool`. (True single-txn atomicity for this pair is
-    # the deferred Tier-2 — the `conn=` seam exists; see TRIAGE.)
-    row_id = record_casino_seat_seed(
-        chip_ledger_repo,
-        personality_id=personality_id,
-        amount=draw,
-        context=context,
-        sandbox_id=sandbox_id,
-    )
-    if row_id is None:
-        logger.warning(
-            "[CASH][CASINO] fish prefund ledger rejected for %s (%d not credited)",
-            personality_id,
-            draw,
+    # Chip-custody atomicity: ledger the pool-draw and credit the bankroll int
+    # in ONE transaction — a crash can no longer land the draw without the
+    # credit (or vice versa). A rejected ledger row (row_id None) returns 0 with
+    # nothing committed. `conn` is None for test doubles / cross-DB → the prior
+    # ledger-first backstop ordering still prevents a mint.
+    from cash_mode.bankroll import chip_unit_of_work
+
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        row_id = record_casino_seat_seed(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            amount=draw,
+            context=context,
+            sandbox_id=sandbox_id,
+            conn=conn,
         )
-        return 0
-    bankroll_repo.save_ai_bankroll(
-        AIBankrollState(
+        if row_id is None:
+            logger.warning(
+                "[CASH][CASINO] fish prefund ledger rejected for %s (%d not credited)",
+                personality_id,
+                draw,
+            )
+            return 0
+        new_state = AIBankrollState(
             personality_id=personality_id,
             chips=existing + draw,
             last_regen_tick=now,
-        ),
-        sandbox_id=sandbox_id,
-    )
+        )
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+        else:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
     return draw
 
 
@@ -647,37 +652,44 @@ def _drain_fish_bankroll_to_pool(
     chips = _load_ai_chips(bankroll_repo, personality_id, sandbox_id)
     if chips <= 0:
         return 0, 0
-    # Backstop (chip-custody): ledger the pool-return FIRST; only zero the int if
-    # it landed. A rejected/failed ledger write returns `stranded` (int untouched
-    # → fish keeps its chips), never double-counting them into the pool. (True
-    # single-txn atomicity is the deferred Tier-2 — the `conn=` seam exists.)
-    try:
-        row_id = record_casino_seat_return(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            amount=chips,
-            context={'site': 'casino_fish_exit', 'reason': reason_detail},
-            sandbox_id=sandbox_id,
-        )
-        if row_id is None:
+    # Chip-custody atomicity: ledger the pool-return and zero the int in ONE
+    # transaction. A rejected/failed ledger write returns `stranded` (int
+    # untouched → fish keeps its chips), never double-counting into the pool;
+    # `conn` is None for test doubles / cross-DB → the prior ledger-first
+    # ordering still holds. The presence shadow stays AFTER the txn (separate
+    # repo on the same file — inside it would deadlock the writer lock).
+    from cash_mode.bankroll import chip_unit_of_work
+
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        try:
+            row_id = record_casino_seat_return(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                amount=chips,
+                context={'site': 'casino_fish_exit', 'reason': reason_detail},
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
+            if row_id is None:
+                logger.warning(
+                    "[CASH][CASINO] fish bankroll drain rejected for %s (%d chips stranded)",
+                    personality_id,
+                    chips,
+                )
+                return 0, chips
+        except Exception as exc:
             logger.warning(
-                "[CASH][CASINO] fish bankroll drain rejected for %s (%d chips stranded)",
+                "[CASH][CASINO] fish bankroll drain failed for %s (%d chips stranded): %s",
                 personality_id,
                 chips,
+                exc,
             )
             return 0, chips
-    except Exception as exc:
-        logger.warning(
-            "[CASH][CASINO] fish bankroll drain failed for %s (%d chips stranded): %s",
-            personality_id,
-            chips,
-            exc,
-        )
-        return 0, chips
-    bankroll_repo.save_ai_bankroll(
-        AIBankrollState(personality_id=personality_id, chips=0, last_regen_tick=now),
-        sandbox_id=sandbox_id,
-    )
+        zeroed = AIBankrollState(personality_id=personality_id, chips=0, last_regen_tick=now)
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(zeroed, sandbox_id=sandbox_id, conn=conn)
+        else:
+            bankroll_repo.save_ai_bankroll(zeroed, sandbox_id=sandbox_id)
     # SHADOW (Presence cutover Phase 1): a fish's bankroll draining to the pool
     # marks its exit. Casino fish are POOL-funded, so the POOL-origin event is
     # RETURN_TO_POOL (not GO_OFFLINE). Emitted only after the authoritative
