@@ -388,7 +388,12 @@ export const FloatingChat = memo(function FloatingChat({
       <AnimatePresence mode="popLayout">
         {messages.map((msg) => {
           const isAI = msg.type === 'ai';
-          const avatarUrl = isAI ? getPlayerAvatar(msg.sender || '') : null;
+          // Prefer the live, emotion-aware avatar from the seat cache; fall back
+          // to the URL stamped on the message itself for senders who have left
+          // the table (their farewell lands a beat after the cache drops them).
+          const avatarUrl = isAI
+            ? (getPlayerAvatar(msg.sender || '') ?? msg.avatar_url ?? null)
+            : null;
 
           return (
             <MessageItem key={msg.id} msg={msg} avatarUrl={avatarUrl} onDismiss={handleDismiss} />
