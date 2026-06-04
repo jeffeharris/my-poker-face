@@ -788,13 +788,15 @@ def record_tournament_payout(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """tournament:<id> → <finisher> — a prize paid out of the escrow.
 
     `sink` is the canonical entity string the prize lands on — `player(owner_id)`
     or `ai(personality_id)`. The transfer mirror of `record_tournament_buy_in`;
     after every payout + rake the escrow nets to 0. No-op when `repo` is None or
-    `amount <= 0`.
+    `amount <= 0`. `conn` shares the caller's transaction (atomic payout row +
+    finisher int credit).
     """
     if repo is None or amount <= 0:
         return None
@@ -808,6 +810,7 @@ def record_tournament_payout(
         reason='tournament_payout',
         context=ctx,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
