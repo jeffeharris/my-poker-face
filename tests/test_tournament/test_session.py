@@ -20,7 +20,9 @@ def _session(field_size: int = 18, table_size: int = 6, seed: int = 0) -> Tourna
         seed=seed,
         rounds_per_level=3,
     )
-    return TournamentSession(config, ai_resolver=FakeHandResolver())
+    # Synthetic field (P01..PNN); P01 is the human seat (T3-80 F1 made the
+    # no-human_id default None, so human-driven tests must declare their human).
+    return TournamentSession(config, ai_resolver=FakeHandResolver(), human_id='P01')
 
 
 def _run_to_completion(session: TournamentSession) -> dict:

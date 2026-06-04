@@ -37,7 +37,8 @@ def _session(field_size: int, table_size: int = 6, seed: int = 0) -> TournamentS
         seed=seed,
         rounds_per_level=3,
     )
-    return TournamentSession(config, ai_resolver=FakeHandResolver())
+    # P01 is the human seat — F1 made the no-human_id default None.
+    return TournamentSession(config, ai_resolver=FakeHandResolver(), human_id='P01')
 
 
 def _make_live_state(session: TournamentSession):

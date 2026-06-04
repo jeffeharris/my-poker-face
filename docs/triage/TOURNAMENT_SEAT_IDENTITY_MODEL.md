@@ -2,14 +2,20 @@
 purpose: Scope the divergence between tournament and cash seat-identity models and the refactor to unify them
 type: design
 created: 2026-06-03
-last_updated: 2026-06-03
+last_updated: 2026-06-04
 ---
 
 # Tournament vs Cash Seat Identity — Divergence & Unification Scope
 
-> **TRIAGE ref:** T3-80 (Tier 3, Code Organization; was T3-76 on-branch,
-> renumbered on the development merge). Follow-on to T3-79 (tournament
+> **TRIAGE ref:** T3-80 — **ELEVATED to release-blocker 2026-06-04** (was Tier 3,
+> Code Organization; was T3-76 on-branch). Follow-on to T3-79 (tournament
 > unification). **Owner-flagged design miss**, not a fresh bug.
+>
+> **2026-06-04 re-investigation** (whole tournament-in-cash-mode system) confirmed
+> this diagnosis and added two leak sites the original scope missed — see
+> [§ Additional findings](#additional-findings-2026-06-04). Step 1 (standings
+> names) is being landed now; the Player.personality_id unification (Option A)
+> remains scoped below.
 
 ## TL;DR
 
@@ -91,6 +97,51 @@ Two low-risk patches stopped the visible leak without touching the identity mode
 the backend `standings_view` (`tournament/session.py:166-177,217-233`) doesn't
 emit display names at all. That is the remaining Option-B item; it's a backend
 view + component change, independent of the identity refactor below.
+
+## Additional findings (2026-06-04)
+
+A re-investigation prompted by "the whole tournament-in-cash-mode system isn't
+showing names + orphaned PIDs in whereabouts" confirmed the root cause above and
+surfaced **two leak sites not in the original scope**. Both share the same cause
+(identity riding on `name`/field-key), so both dissolve under Option A — but they
+widen the blast radius and one is a *correctness* bug, not just a display leak.
+
+### F1 — Autonomous tournaments mislabel a real AI as "You" (correctness)
+
+`TournamentSession` requires a `human_id` that is a seat in the field
+(`tournament/session.py:74`: `self.human_id = human_id or player_ids[0]`, raises
+if absent). AI-only tournaments have no human, so `spawn_autonomous_tournament`
+**nominates the first AI persona as `human_id`** (its docstring: "human_id is a
+nominal field seat (the first…)"). Live evidence: completed AI-only tournaments
+carry `human_id=tyler_durden`, `human_id=dr_oz`, etc.
+
+Consequence: every `is_human` view renders that **real AI as "You"**, and
+`resolve_display_names` special-cases `human_id` — it *humanizes the slug* and
+*excludes it from the bulk persona lookup* (`identity.py:65,104`) — so the
+nominated AI never gets its real persona name (it only looks right by luck for
+clean slugs; `dr_oz` → "Dr Oz" drops the period). `is_autonomous()`
+(`tournament_ticker.py:50`) detects AI-only correctly, but the downstream **views**
+that key on `session.human_id`/`is_human` don't consult it.
+
+Fix lands with Option A: AI-only sessions should carry **`human_id=None`** (no
+human), and views must render a no-human field normally instead of nominating a
+seat. This is an addition to the L-series bridges below (session construction +
+every `is_human` consumer).
+
+### F2 — The human seat id leaks into whereabouts (the visible orphan)
+
+`active_participant_pids` returns `entries.keys()`
+(`tournament_session_repository.py:172`), which for a human tournament includes
+the literal seat key `human:<owner>`. `cash_mode/whereabouts.py` adds it to
+`all_pids`, fails to resolve it to a persona, and renders it as the **raw
+`human:guest_jeff`** string flagged `unknown_personality`. Confirmed live: of an
+active 18-seat field, 17 resolve and the lone orphan is `human:guest_jeff`.
+
+Interim mitigation (until Option A): filter `human:*` (and any non-persona id)
+out of the whereabouts participant scan before resolution. Proper fix: once the
+human is keyed by `owner_id` and not present as a field-`entries` key, the leak
+can't occur. Add to the cosmetic/bridge inventory: `whereabouts.py` participant
+union + `tournament_session_repository.active_participant_pids`.
 
 ## Proposed solution — unify on an explicit identity field (Option A)
 

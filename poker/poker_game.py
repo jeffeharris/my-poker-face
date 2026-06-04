@@ -60,11 +60,19 @@ class Player:
     # nickname carries the persona's real display name. None elsewhere (cash /
     # regular games already name seats by their display name).
     nickname: Optional[str] = None
+    # The persona's stable economic identity (T3-80 identity unification). The
+    # explicit key that all identity bridges should use — field entries,
+    # eliminations, payouts, memory/dossier registration — instead of overloading
+    # `name`. `None` for the human seat (whose stable key is the `owner_id`) and
+    # for legacy/regular games that haven't set it. Additive: nothing reads it
+    # yet (Step 2); the bridges migrate onto it in later steps.
+    personality_id: Optional[str] = None
 
     def to_dict(self):
         return {
             'name': self.name,
             'nickname': self.nickname,
+            'personality_id': self.personality_id,
             'stack': self.stack,
             'is_human': self.is_human,
             'is_all_in': self.is_all_in,

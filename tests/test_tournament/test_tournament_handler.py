@@ -28,7 +28,8 @@ def _session(field_size: int = 18, table_size: int = 6, seed: int = 0) -> Tourna
         seed=seed,
         rounds_per_level=3,
     )
-    return TournamentSession(config, ai_resolver=FakeHandResolver())
+    # P01 is the human seat — F1 made the no-human_id default None.
+    return TournamentSession(config, ai_resolver=FakeHandResolver(), human_id='P01')
 
 
 def _human_result(session: TournamentSession) -> dict:

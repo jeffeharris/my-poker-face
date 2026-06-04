@@ -179,10 +179,10 @@ def spawn_autonomous_tournament(
         seed=seed,
     )
     resolver = FakeHandResolver()
-    nominal_human = next(iter(entries))  # a field seat; NOT a real human
-    session = TournamentSession(
-        config, ai_resolver=resolver, human_id=nominal_human, entries=entries
-    )
+    # Autonomous (AI-only) tournament: there is NO human, so human_id is None
+    # (T3-80 F1). Previously this nominated the first AI persona as a "nominal
+    # human", which made every is_human view render that real AI as "You".
+    session = TournamentSession(config, ai_resolver=resolver, human_id=None, entries=entries)
 
     tournament_id = _new_id()
     created_at = datetime.utcnow().isoformat()

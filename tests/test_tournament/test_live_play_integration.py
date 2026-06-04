@@ -63,7 +63,8 @@ def test_build_persists_zero_llm_intent(app, monkeypatch):
         from tournament.session import TournamentSession
 
         cfg = TournamentConfig(field_size=4, table_size=4, starting_stack=4000, seed=7)
-        session = TournamentSession(cfg, ai_resolver=FakeHandResolver())
+        # Synthetic field: P01 is the human seat (F1 made no-human_id mean None).
+        session = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
         game_id = build_tournament_game(
             session, tournament_id="itest-zero-llm", owner_id="itest-owner", owner_name="Tester"
         )
@@ -169,7 +170,8 @@ def test_human_plays_real_hands_to_a_terminal_state(app, monkeypatch):
 
         try:
             cfg = TournamentConfig(field_size=4, table_size=4, starting_stack=4000, seed=1)
-            session = TournamentSession(cfg, ai_resolver=FakeHandResolver())
+            # Synthetic field: P01 is the human seat (F1 made no-human_id mean None).
+            session = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
             game_id = build_tournament_game(
                 session, tournament_id="itest", owner_id="itest-owner", owner_name="Tester"
             )

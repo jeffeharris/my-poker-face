@@ -17,7 +17,7 @@ def _completed_session(field_size=6, table_size=6, seed=3):
     cfg = TournamentConfig(
         field_size=field_size, table_size=table_size, starting_stack=5000, seed=seed
     )
-    s = TournamentSession(cfg, ai_resolver=FakeHandResolver())
+    s = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
     s.play_out()
     assert s.is_complete()
     return s
@@ -165,7 +165,7 @@ def test_finalize_is_idempotent(finalize_env):
 
 def test_finalize_noop_when_human_still_in_and_incomplete(finalize_env):
     cfg = TournamentConfig(field_size=6, table_size=6, starting_stack=5000, seed=3)
-    s = TournamentSession(cfg, ai_resolver=FakeHandResolver())  # not played out
+    s = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')  # not played out
     assert finalize_tournament('g1', {'tournament_session': s}, emit=False) is False
     assert finalize_env.saved == []
 
@@ -175,7 +175,7 @@ def test_finalize_fires_when_human_busts_before_field_completes(finalize_env):
     still get career stats recorded — the analog of the single-table tracker
     saving on human elimination."""
     cfg = TournamentConfig(field_size=6, table_size=3, starting_stack=5000, seed=3)
-    s = TournamentSession(cfg, ai_resolver=FakeHandResolver())
+    s = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
     # Bust just the human; 5 players remain -> human_out but not complete.
     s.field.record_eliminations(
         [(s.human_id, s.field.stacks[s.human_id])], round_index=0, eliminators={}

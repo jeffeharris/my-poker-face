@@ -152,6 +152,9 @@ def build_tournament_game(
             name=s.player_id,
             stack=s.stack,
             is_human=s.is_human,
+            # Explicit persona identity (T3-80). The human seat's stable key is
+            # the owner_id, not the `human:<owner>` field id, so it's None here.
+            personality_id=s.player_id if not s.is_human else None,
             nickname=resolve_display_name(
                 s.player_id,
                 is_human=s.is_human,

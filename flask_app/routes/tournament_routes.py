@@ -24,6 +24,7 @@ from flask import Blueprint, jsonify, request
 from flask_app import config
 from flask_app.extensions import limiter
 from flask_app.services import tournament_registry as registry
+from flask_app.services.tournament_naming import named_standings
 from poker.authorization import require_permission
 from tournament.beats import build_beats, level_up_beat
 from tournament.config import DEFAULT_FIELD_ARCHETYPES, TournamentConfig
@@ -200,7 +201,7 @@ def get_lobby():
             active = {
                 'tournament_id': active_tid,
                 'created_at': rec['created_at'],
-                'standings': rec['session'].standings_view(),
+                'standings': named_standings(rec['session']),
             }
     return jsonify(
         {
@@ -339,7 +340,7 @@ def register_tournament():
     return jsonify(
         {
             'tournament_id': tournament_id,
-            'standings': session.standings_view(),
+            'standings': named_standings(session),
             'economy': {
                 'buy_in': plan.human_buy_in,
                 'bank_overlay': plan.bank_overlay,
@@ -359,7 +360,7 @@ def get_standings(tournament_id):
         return jsonify({'error': 'unauthorized'}), 401
     if rec is None:
         return jsonify({'error': 'not_found'}), 404
-    return jsonify(rec['session'].standings_view())
+    return jsonify(named_standings(rec['session']))
 
 
 @tournament_bp.route('/api/tournament/<tournament_id>/sit', methods=['POST'])
@@ -558,7 +559,7 @@ def accept_invite():
     return jsonify(
         {
             'tournament_id': result['tournament_id'],
-            'standings': registry.get(result['tournament_id'])['session'].standings_view()
+            'standings': named_standings(registry.get(result['tournament_id'])['session'])
             if registry.get(result['tournament_id'])
             else None,
         }
@@ -616,7 +617,7 @@ def advance(tournament_id):
                 reports = session.play_out()
             else:
                 reports = [session.play_round(rec['resolver'].resolve)]
-        standings = session.standings_view()
+        standings = named_standings(session)
         beats = _beats_for(session, reports, remaining_before, level_before)
         registry.persist(tournament_id)
         _maybe_payout(rec, owner_id, tournament_id)
@@ -642,7 +643,7 @@ def play_out(tournament_id):
         remaining_before = session.field.active_count
         level_before = session.current_level().level
         reports = session.play_out()
-        standings = session.standings_view()
+        standings = named_standings(session)
         beats = _beats_for(session, reports, remaining_before, level_before)
         registry.persist(tournament_id)
         _maybe_payout(rec, owner_id, tournament_id)

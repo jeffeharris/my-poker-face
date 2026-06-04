@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from flask_app.services.tournament_naming import named_standings
 from tournament.beats import build_beats, level_transition_beats
 from tournament.session import TournamentSession, paid_places_for
 
@@ -67,7 +68,7 @@ def coordinate_after_human_hand(
     level_before = session.current_level().level
 
     report = session.apply_live_round(human_table_result)
-    standings = session.standings_view()
+    standings = named_standings(session)
 
     beats = build_beats(
         [report],
@@ -142,6 +143,9 @@ def reconcile_live_table(
             name=s.player_id,
             stack=s.stack,
             is_human=s.is_human,
+            # Explicit persona identity (T3-80); None for the human seat (keyed by
+            # owner_id, not the `human:<owner>` field id).
+            personality_id=s.player_id if not s.is_human else None,
             # AI seats get their persona name; the human seat shows `owner_name`
             # when threaded through (the frontend still renders the human's own
             # seat as "You"). All seats resolve through the one canonical path.

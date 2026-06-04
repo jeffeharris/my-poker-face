@@ -68,11 +68,14 @@ class TournamentSession:
         self.schedule = config.blind_schedule()
         self.seating_manager = SeatingManager()
 
-        player_ids, self.entries, self.field, self.seating = build_initial_state(
+        _player_ids, self.entries, self.field, self.seating = build_initial_state(
             config, entries=entries
         )
-        self.human_id = human_id or player_ids[0]
-        if self.human_id not in self.entries:
+        # human_id is None for an autonomous (AI-only) tournament — there is no
+        # human seat (T3-80 F1). It is NOT defaulted to a field seat; views guard
+        # on None. A non-None human_id must be a real seat in the field.
+        self.human_id = human_id
+        if self.human_id is not None and self.human_id not in self.entries:
             raise ValueError(f"human_id {self.human_id!r} is not in the field")
 
         self.rounds = 0  # blind clock + seed source; one per round
@@ -136,10 +139,16 @@ class TournamentSession:
 
     @property
     def human_out(self) -> bool:
+        # No human (autonomous tournament) ⇒ trivially "out": every human-gated
+        # branch (play_round guard, human_rank, _human_in_money) short-circuits.
+        if self.human_id is None:
+            return True
         return self.human_id not in self.field.stacks
 
     @property
     def human_table(self):
+        if self.human_id is None:
+            return None
         return self.seating.table_for(self.human_id)
 
     def is_complete(self) -> bool:

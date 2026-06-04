@@ -13,6 +13,9 @@ export interface TournamentLevel {
 export interface TournamentSeat {
   seat: number;
   player_id: string | null;
+  /** Friendly display name resolved at the Flask boundary (tournament_naming.named_standings);
+   *  falls back to player_id when unresolved. */
+  name?: string | null;
   stack: number | null;
   archetype: string | null;
   is_human: boolean;
@@ -28,8 +31,12 @@ export interface TournamentTable {
 
 export interface TournamentElimination {
   player_id: string;
+  /** Resolved display name for player_id; falls back to player_id when unresolved. */
+  name?: string | null;
   finishing_position: number;
   eliminator: string | null;
+  /** Resolved display name for eliminator; falls back to eliminator when unresolved. */
+  eliminator_name?: string | null;
 }
 
 export interface TournamentHuman {
@@ -54,6 +61,8 @@ export interface TournamentNextLevel {
 export interface TournamentLeader {
   rank: number;
   player_id: string;
+  /** Resolved display name; falls back to player_id when unresolved. */
+  name?: string | null;
   stack: number;
   is_human: boolean;
 }
@@ -72,6 +81,8 @@ export interface TournamentStandings {
   rounds: number;
   complete: boolean;
   winner: string | null;
+  /** Resolved display name for the winner; falls back to winner (raw id) when unresolved. */
+  winner_name?: string | null;
   level: TournamentLevel;
   next_level: TournamentNextLevel | null;
   leaders: TournamentLeader[];

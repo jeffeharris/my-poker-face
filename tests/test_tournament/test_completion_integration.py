@@ -84,7 +84,7 @@ def test_completion_writes_career_stats_through_real_loop(app, monkeypatch):
         try:
             # Small 1-table field so it resolves quickly to a terminal state.
             cfg = TournamentConfig(field_size=3, table_size=3, starting_stack=3000, seed=7)
-            session = TournamentSession(cfg, ai_resolver=FakeHandResolver())
+            session = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
             game_id = build_tournament_game(
                 session, tournament_id="itest-complete", owner_id="itest-owner", owner_name="Tester"
             )
@@ -163,7 +163,7 @@ def test_single_table_session_game_completes_through_real_loop(app, monkeypatch)
             # real controllers + memory; we then flip it to the single-table
             # path (no multi_table flag) so it exercises single_table_hand_boundary.
             cfg = TournamentConfig(field_size=3, table_size=3, starting_stack=2500, seed=9)
-            session = TournamentSession(cfg, ai_resolver=FakeHandResolver())
+            session = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
             game_id = build_tournament_game(
                 session, tournament_id="itest-single", owner_id="itest-owner", owner_name="Tester"
             )

@@ -87,17 +87,22 @@ def _make_flush(ledger_repo):
 
 
 class _StubSession:
-    def __init__(self, entries):
+    def __init__(self, entries, human_id=None):
         self.entries = entries
+        # Autonomous sessions carry human_id=None (T3-80 F1); a human tournament
+        # carries the human seat id. is_autonomous now reads this directly.
+        self.human_id = human_id
 
 
 def test_is_autonomous_true_without_human_seat():
-    session = _StubSession({'persona_a': 'A', 'persona_b': 'B'})
+    session = _StubSession({'persona_a': 'A', 'persona_b': 'B'}, human_id=None)
     assert tournament_ticker.is_autonomous(session, OWNER) is True
 
 
 def test_is_autonomous_false_with_human_seat():
-    session = _StubSession({human_seat_id(OWNER): 'You', 'persona_b': 'B'})
+    session = _StubSession(
+        {human_seat_id(OWNER): 'You', 'persona_b': 'B'}, human_id=human_seat_id(OWNER)
+    )
     assert tournament_ticker.is_autonomous(session, OWNER) is False
 
 

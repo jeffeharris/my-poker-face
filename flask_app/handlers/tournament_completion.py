@@ -107,9 +107,13 @@ def build_completion_result(
         'biggest_pot': biggest_pot,
         'starting_player_count': session.field.field_size,
         # Verbatim `human_id` — equals the human's standings row (`_name(human_id)`
-        # is also verbatim), the invariant `update_career_stats` relies on.
-        'human_player_name': _name(human_id),
-        'human_finishing_position': _ordinal_position(session, human_id),
+        # is also verbatim), the invariant `update_career_stats` relies on. None
+        # for an autonomous (no-human) tournament (T3-80 F1) — avoids _name(None)
+        # writing the literal string "None" as the human's name.
+        'human_player_name': _name(human_id) if human_id is not None else None,
+        'human_finishing_position': (
+            _ordinal_position(session, human_id) if human_id is not None else None
+        ),
         'started_at': started_at,
         'standings': standings,
     }

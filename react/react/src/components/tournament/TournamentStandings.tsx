@@ -36,7 +36,16 @@ export function TournamentStandings({
   onBack,
 }: Props) {
   const reduce = useReducedMotion();
-  const { level, next_level: nextLevel, leaders, payout, human, complete, winner } = standings;
+  const {
+    level,
+    next_level: nextLevel,
+    leaders,
+    payout,
+    human,
+    complete,
+    winner,
+    winner_name: winnerName,
+  } = standings;
 
   const fade = (i: number) =>
     reduce
@@ -142,7 +151,9 @@ export function TournamentStandings({
         {complete && winner && (
           <motion.div className="champion" {...fade(2)}>
             <div className="champion__label">Champion</div>
-            <div className="champion__name">{winner === human.player_id ? 'You' : winner}</div>
+            <div className="champion__name">
+              {winner === human.player_id ? 'You' : (winnerName ?? winner)}
+            </div>
           </motion.div>
         )}
 
@@ -159,7 +170,7 @@ export function TournamentStandings({
                 >
                   <span className="leader__rank">{l.rank}</span>
                   <span className="leader__name">
-                    {l.is_human ? 'You' : l.player_id}
+                    {l.is_human ? 'You' : (l.name ?? l.player_id)}
                     {l.is_human && <span className="you">YOU</span>}
                   </span>
                   <span className="leader__stack">{fmt(l.stack)}</span>
@@ -202,10 +213,10 @@ export function TournamentStandings({
                 <sup>{ordinalSuffix(ko.finishing_position)}</sup>
               </div>
               <div className="ko__who">
-                {ko.player_id === human.player_id ? 'You' : ko.player_id}
+                {ko.player_id === human.player_id ? 'You' : (ko.name ?? ko.player_id)}
               </div>
               <div className="ko__by">
-                {ko.eliminator ? `KO by ${ko.eliminator}` : 'eliminated'}
+                {ko.eliminator ? `KO by ${ko.eliminator_name ?? ko.eliminator}` : 'eliminated'}
               </div>
             </motion.div>
           ))}
@@ -271,7 +282,7 @@ function SeatRow({ seat }: { seat: TournamentSeat }) {
       </span>
       <span className="seat__who">
         <span className="seat__id">
-          {seat.is_human ? 'You' : seat.player_id}
+          {seat.is_human ? 'You' : (seat.name ?? seat.player_id)}
           {seat.is_human && <span className="you">YOU</span>}
         </span>
       </span>

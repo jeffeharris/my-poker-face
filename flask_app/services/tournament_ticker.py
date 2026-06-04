@@ -63,6 +63,9 @@ def is_autonomous(session, owner_id: str) -> bool:
     so it's cheap and unit-testable."""
     from flask_app.services.tournament_spawn import human_seat_id
 
+    # Canonical signal (T3-80 F1): an AI-only tournament carries no human seat.
+    if session.human_id is None:
+        return True
     entries = session.entries
     if human_seat_id(owner_id) in entries:
         return False  # accept path — a real human is seated

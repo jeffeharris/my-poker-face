@@ -11,7 +11,8 @@ def _session(field_size=18, table_size=6, seed=2):
     cfg = TournamentConfig(
         field_size=field_size, table_size=table_size, starting_stack=10000, seed=seed
     )
-    return TournamentSession(cfg, ai_resolver=FakeHandResolver())
+    # P01 is the human seat — F1 made the no-human_id default None.
+    return TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
 
 
 def test_paid_places_scales_with_field_min_two():
@@ -97,3 +98,28 @@ def test_standings_view_includes_new_keys():
     for key in ('leaders', 'payout', 'next_level'):
         assert key in sv
     assert 'in_money' in sv['human']
+
+
+def test_autonomous_session_has_no_human():
+    """T3-80 F1: an AI-only tournament carries human_id=None (no nominated AI as
+    'the human'). The read model must degrade gracefully — human_out is trivially
+    True, no seat is is_human, and the standings 'human' block is all-null."""
+    cfg = TournamentConfig(field_size=18, table_size=6, starting_stack=10000, seed=2)
+    s = TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id=None)
+
+    assert s.human_id is None
+    assert s.human_out is True
+    assert s.human_table is None
+    assert s.human_rank() is None
+    # No field seat is flagged as the human.
+    assert all(not b['is_human'] for b in s.leaderboard(top=cfg.field_size))
+
+    sv = s.standings_view()
+    assert sv['human']['player_id'] is None
+    assert sv['human']['out'] is True
+    assert sv['human']['in_money'] is False
+    assert all(not seat['is_human'] for t in sv['tables'] for seat in t['seats'])
+
+    # And it actually plays: advance_round runs the AI field with no human.
+    s.advance_round()
+    assert s.rounds == 1
