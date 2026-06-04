@@ -169,6 +169,29 @@ display label can never be used as a key. Phase 1 (the typed-`SeatId` identity
 model) is the release gate and lands first; Phase 2 extracts the `Table`
 primitive; cash retrofits onto it.
 
+### Phase 1 live-layer keying (owner, 2026-06-04): Option B, not A
+
+During Phase 1 implementation we found the **authoritative** identity (tournament
+field entries/eliminations/payouts, cold-load maps, bankroll, and the
+dossier/opponent-model layer via `OpponentModel.observer_id`/`opponent_id`) is
+*already* keyed on `seat_key`/`personality_id` — the half where collisions
+actually occur. The **in-session live layer** (`ai_controllers`, `session_memories`,
+`bot_types`, `pressure_detector.affected_players`, `psychology_pipeline`,
+commentary, run-out reactions, served payload) is name-correlated in **both**
+modes.
+
+**Decision: Option B** — key the in-session live layer by **display name** in both
+modes (congruent; names are unique within a ≤9-seat table), and keep the
+authoritative identity on the typed `seat_key`/`personality_id` (already there).
+The Phase-1 tournament flip therefore only makes the tournament builder *mirror
+cash* (name in-session, id for the field) — it touches no cash hand-flow and no
+memory/pressure/psychology internals.
+
+**Option A** — threading `seat_key` through that entire in-session name-correlated
+subsystem for literal "never key on a name" — is **deferred as tech debt
+(`TRIAGE.md` T3-84)**: not release-gating (no within-table collision is possible),
+large, and ripple-heavy in the most bug-prone subsystem.
+
 ## Owner-confirmed tournament domain rules
 
 1. **No bankroll.** Only chips on the table. Buy-in (and any rebuy in a
