@@ -320,3 +320,66 @@ class ChipLedgerRepository(BaseRepository):
                     entry['context_raw'] = raw
             out.append(entry)
         return out
+
+    def entries_for_account(
+        self,
+        account: str,
+        *,
+        sandbox_id: Optional[str] = None,
+        limit: int = 200,
+        newest_first: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Itemized ledger entries where `account` is the source OR sink — one
+        account's statement (the player-facing "My Ledger" view).
+
+        Each row carries `signed_amount`: +amount when the account RECEIVES (it's
+        the `sink`) and -amount when it PAYS (it's the `source`). The running total
+        of `signed_amount` over the FULL history equals `balance_of(account)`.
+
+        `sandbox_id=None` (default) spans every sandbox — the human's
+        `player:<owner_id>` account is global (no sandbox_id on
+        `player_bankroll_state`), so a complete statement must not scope by save
+        file. `context_json` is parsed back to a dict (malformed → `context_raw`),
+        mirroring `recent_entries`."""
+        order = "DESC" if newest_first else "ASC"
+        where = "(source = ? OR sink = ?)"
+        params: List[Any] = [account, account]
+        if sandbox_id is not None:
+            where += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        params.append(int(limit))
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT entry_id, created_at, source, sink, amount, reason, context_json
+                FROM chip_ledger_entries
+                WHERE {where}
+                ORDER BY created_at {order}, entry_id {order}
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            amount = int(row['amount'])
+            entry: Dict[str, Any] = {
+                'entry_id': row['entry_id'],
+                'created_at': row['created_at'],
+                'source': row['source'],
+                'sink': row['sink'],
+                'amount': amount,
+                'signed_amount': amount if row['sink'] == account else -amount,
+                'reason': row['reason'],
+            }
+            raw = row['context_json']
+            if raw is None:
+                entry['context'] = None
+            else:
+                try:
+                    entry['context'] = json.loads(raw)
+                except (TypeError, ValueError):
+                    entry['context'] = None
+                    entry['context_raw'] = raw
+            out.append(entry)
+        return out

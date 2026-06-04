@@ -22,10 +22,12 @@ import { createPortal } from 'react-dom';
 import { X, Wallet } from 'lucide-react';
 import {
   getForgivenessRequests,
+  getLedger,
   getNetWorth,
   payOffCarry,
   requestForgiveness,
   stakerForgive,
+  type LedgerEntry,
 } from './api';
 import type {
   ForgivenessRequest,
@@ -89,13 +91,13 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
   const [payoffError, setPayoffError] = useState<string | null>(null);
   const [busyStakeId, setBusyStakeId] = useState<string | null>(null);
   const [forgivenessNotice, setForgivenessNotice] = useState<ForgivenessNotice | null>(null);
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
 
   const load = useCallback(async () => {
     try {
-      // Fetch in parallel — the two responses are independent. If the
-      // requests endpoint fails, fall back to an empty list so net
-      // worth still renders.
-      const [netWorth, reqs] = await Promise.all([
+      // Fetch in parallel — the responses are independent. If a secondary
+      // endpoint fails, fall back so net worth still renders.
+      const [netWorth, reqs, ledgerResp] = await Promise.all([
         getNetWorth(),
         getForgivenessRequests().catch((e) => {
           logger.error(
@@ -104,9 +106,14 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
           );
           return { requests: [] as ForgivenessRequest[] };
         }),
+        getLedger().catch((e) => {
+          logger.error('Failed to load ledger:', e instanceof Error ? e.message : String(e));
+          return { entries: [] as LedgerEntry[], balance: 0 };
+        }),
       ]);
       setData(netWorth);
       setRequests(reqs.requests);
+      setLedger(ledgerResp.entries);
       setLoadError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -262,6 +269,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
             <NetWorthBody
               data={data}
               requests={requests}
+              ledger={ledger}
               onPayoff={handlePayoff}
               onForgiveness={handleForgiveness}
               onStakerForgive={handleStakerForgive}
@@ -280,6 +288,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
 interface NetWorthBodyProps {
   data: NetWorthResponse;
   requests: ForgivenessRequest[];
+  ledger: LedgerEntry[];
   onPayoff: (stakeId: string) => void;
   onForgiveness: (payable: Payable) => void;
   onStakerForgive: (req: ForgivenessRequest, grant: boolean) => void;
@@ -291,6 +300,7 @@ interface NetWorthBodyProps {
 function NetWorthBody({
   data,
   requests,
+  ledger,
   onPayoff,
   onForgiveness,
   onStakerForgive,
@@ -414,8 +424,61 @@ function NetWorthBody({
           </ul>
         )}
       </section>
+
+      <section className="net-worth-drawer__column">
+        <h3 className="net-worth-drawer__column-title">
+          Transactions
+          <span className="net-worth-drawer__column-count">{ledger.length}</span>
+        </h3>
+        {ledger.length === 0 ? (
+          <p className="net-worth-drawer__empty">
+            No chip movements yet — cash game results, tournament prizes, and buy-ins will appear
+            here.
+          </p>
+        ) : (
+          <ul className="net-worth-drawer__list net-worth-drawer__list--ledger">
+            {ledger.map((e, i) => (
+              <LedgerRow key={`${e.created_at}-${i}`} entry={e} />
+            ))}
+          </ul>
+        )}
+      </section>
     </>
   );
+}
+
+function LedgerRow({ entry }: { entry: LedgerEntry }) {
+  const positive = entry.signed_amount >= 0;
+  const date = new Date(entry.created_at);
+  const when = Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const label =
+    entry.finishing_position && entry.reason === 'tournament_payout'
+      ? `${entry.label} (${entry.finishing_position}${ordinalSuffix(entry.finishing_position)})`
+      : entry.label;
+  return (
+    <li className="net-worth-drawer__ledger-row">
+      <span className="net-worth-drawer__ledger-label">{label}</span>
+      <span className="net-worth-drawer__ledger-date">{when}</span>
+      <span
+        className={`net-worth-drawer__ledger-amount net-worth-drawer__ledger-amount--${
+          positive ? 'in' : 'out'
+        }`}
+      >
+        {positive ? '+' : '−'}${Math.abs(entry.signed_amount).toLocaleString()}
+      </span>
+      <span className="net-worth-drawer__ledger-balance">
+        ${entry.balance_after.toLocaleString()}
+      </span>
+    </li>
+  );
+}
+
+function ordinalSuffix(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return 'th';
+  return { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th';
 }
 
 interface HistoryRowProps {

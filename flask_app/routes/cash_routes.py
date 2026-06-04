@@ -6132,6 +6132,79 @@ def set_world_pace():
     return jsonify({"world_pace": pace})
 
 
+# Friendly labels for the player ledger (#4). Maps the chip-ledger `reason` to a
+# human phrase; unknown reasons fall back to a title-cased reason.
+_LEDGER_REASON_LABELS = {
+    'player_seed': 'Starting chips',
+    'player_buy_in': 'Sat down (buy-in)',
+    'player_cash_out': 'Left table (take-home)',
+    'tournament_buy_in': 'Tournament buy-in',
+    'tournament_payout': 'Tournament prize',
+    'stake_payoff': 'Backing payout',
+    'house_stake_issue': 'Stake received',
+    'house_stake_settle': 'Stake settled',
+    'forgive_balance': 'Balance forgiven',
+    'informant_unlock': 'Scouting fee',
+    'table_rake': 'Table rake',
+}
+
+
+@cash_bp.route("/api/cash/ledger", methods=["GET"])
+def get_ledger():
+    """GET /api/cash/ledger — the human's chip transaction history (#4).
+
+    The Net Worth drawer is a position snapshot (bankroll + stakes); it never
+    queries the ledger, so cash and tournament winnings show no line item. This
+    returns the itemized statement for the player's global `player:<owner_id>`
+    account (across all sandboxes — the player bankroll is global), newest first,
+    with a friendly label, signed amount, and a running balance per row.
+
+    The player account already sees both sides of a cash session (`player_buy_in`
+    out, `player_cash_out` in — the net is the session P&L) and tournament flows
+    (`tournament_buy_in` / `tournament_payout`), so this is a complete history
+    without needing the per-game `seat:<game_id>` sub-account rows.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    from core.economy.ledger import player as player_account
+    from flask_app.extensions import chip_ledger_repo
+
+    limit = min(int(request.args.get("limit", 200)), 500)
+    account = player_account(owner_id)
+    if chip_ledger_repo is None:
+        return jsonify({"entries": [], "balance": 0})
+
+    entries = chip_ledger_repo.entries_for_account(account, sandbox_id=None, limit=limit)
+    balance = chip_ledger_repo.balance_of(account, sandbox_id=None)
+
+    # Running balance: anchor on the true current balance (entries may be
+    # truncated by `limit`), walk newest→oldest subtracting each newer signed
+    # amount, so `balance_after` is correct for the FULL history at each row.
+    running = int(balance)
+    out = []
+    for e in entries:
+        signed = int(e['signed_amount'])
+        ctx = e.get('context') or {}
+        out.append(
+            {
+                'created_at': e['created_at'],
+                'reason': e['reason'],
+                'label': _LEDGER_REASON_LABELS.get(
+                    e['reason'], e['reason'].replace('_', ' ').title()
+                ),
+                'signed_amount': signed,
+                'balance_after': running,
+                'finishing_position': ctx.get('finishing_position'),
+            }
+        )
+        running -= signed
+
+    return jsonify({"entries": out, "balance": int(balance)})
+
+
 @cash_bp.route("/api/cash/net-worth", methods=["GET"])
 def get_net_worth():
     """GET /api/cash/net-worth — bankroll, tier, carries, headroom.
