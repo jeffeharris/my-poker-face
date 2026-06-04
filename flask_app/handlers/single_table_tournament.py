@@ -76,10 +76,24 @@ def single_table_hand_boundary(
         build_completion_result,
         finalize_tournament,
     )
+    from poker.table.seat import seat_key
 
     session: TournamentSession = game_data['tournament_session']
+    # Fold live stacks back into the field by the seat's STABLE id, not the
+    # display name — the field (and `fold_live_hand`) key on `seat_id` /
+    # `personality_id`, so a name-keyed map silently fails to update any seat
+    # whose display name != id (e.g. the human, named for the owner), freezing
+    # its field stack and breaking chip conservation. The build-time
+    # `tournament_seat_ids` (display-name → field id) is the reliable bridge,
+    # since the live Player's typed `seat_id` doesn't survive the per-hand
+    # re-deal; `seat_key` is the fallback when the map is absent (older games).
+    seat_ids = game_data.get('tournament_seat_ids') or {}
+
+    def _field_id(p):
+        return seat_ids.get(p.name) or seat_key(p)
+
     eliminator = winning_player_names[0] if winning_player_names else None
-    stacks_after = {p.name: p.stack for p in game_state.players}
+    stacks_after = {_field_id(p): p.stack for p in game_state.players}
 
     events = session.fold_live_hand(stacks_after, eliminator=eliminator)
 
