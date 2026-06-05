@@ -2,7 +2,7 @@
 purpose: The top-level "what is the player working toward" doc for career mode — a three-act arc (climb → arrive → become a fixture) whose endgame engine is creating and mentoring an AI protégé to high prestige, tying the scattered cash-mode systems into one spine.
 type: design
 created: 2026-05-27
-last_updated: 2026-05-27
+last_updated: 2026-06-05
 ---
 
 # Cash Mode: Career Endgame (the spine)
@@ -265,6 +265,98 @@ Verified against the code 2026-05-27:
 Each step is independently playable: step 1 alone gives Act 2 a
 scoreboard; step 2 alone is a shipped sink; the loop only *needs* 1–4.
 
+## Variant (surreal frame): the clone-and-cover-up endgame
+
+> **An alternative skin on Act 3** — same mechanical spine as the mentor loop
+> above (create + coach a tiered-bot protégé), reframed by the "Impossible Game"
+> world-idea: a place outside time where you exist only as long as you're
+> *remembered*. Here the protégé is a **clone of the player**, the creation is a
+> dramatic beat, and the whole operation is an illicit secret. Direction, not a
+> build spec — captured as an option to weigh against the straight mentor framing.
+
+**The frame.** The world runs on one rule: you exist as long as you're
+remembered. The climb's *true* purpose, revealed at the top, isn't a seat at the
+eternal Table — it's the **cloning chair**. Copying yourself is cheating
+immortality: taboo, the one unforgivable thing.
+
+**The Frankenstein beat (the tonal hinge).** Play the creation solemn and
+momentous — then the thing you birth is a *worse you* (your leaks exaggerated)
+who open-limps the button and tilts off a stack. The retroactive gag — "you
+ground a hundred hours so a dumber copy of you could grind too" — only lands if
+the training loop on the other side is genuinely fun (the coaching mechanic above
+is what makes the rug-pull a door, not a betrayal).
+
+**Why you keep playing (the sink the doc was missing).** Net worth caps out
+(`CASH_MODE_PLAYER_CHIP_SINKS.md`), so the clone becomes *the* sink: a bottomless
+money pit of upgrades, training, **and** hush money. Your own honest play is
+"clean" income that raises no suspicion; the clone's winnings are "dirty" and
+must be hidden/laundered — so you keep sitting down to fund the secret. (A small
+money-laundering game living under the poker.)
+
+**The cover-up (the keystone).** Cloning is secret. Each clone earns chips but
+raises a **suspicion meter**; you burn money keeping it down. Comedy is built in
+— your clones share your tells, so hiding that they're all one player needs
+aliases/disguises. The endgame becomes an anxious secret, not a cozy idle empire
+— stakes beyond "number go up."
+
+**Self-balancing economy.** Each clone earns (draining the world's pool) but also
+raises the cover-up cost, which scales with dynasty size — so the marginal clone
+eventually costs more to hide than it brings in. The economy soft-caps *itself*
+from the fiction (no artificial cap), and conservation holds: clones drain the
+pool, the cover-up drains it back out as a sink.
+
+**The fail-state (thematic).** If the cover-up collapses — you run dry, or
+someone connects the tells — you're exposed as a fraud who copied himself instead
+of earning his name. In a world that runs on being remembered, the punishment
+writes itself: remembered as a cheat, then **erased**.
+
+**Open for this variant:**
+- **Hard fail** (exposure ends the run / erases you) vs **survivable scandal**
+  you claw back from — sets how punishing the endgame feels.
+- **Self-clone first or last** — throwaway creations as the warm-up, the
+  *self*-clone as the gut-punch capstone (leaning capstone).
+- **Does the original keep playing** post-clone (current lean: yes — clean money
+  funds the secret).
+- **Suspicion meter** — a new axis, or reuse the heat/decay machinery.
+
+## Variant: the Host endgame (run the room)
+
+> **Another Act-3 skin** — composes with the clone variant and the mentor loop
+> (not exclusive). Instead of chasing your own seat, you **open and run your own
+> room** in the impossible game: you become the destination, not the player. This
+> is the "become a fixture / patron" act made into its own engine (the spine
+> already nods at it via hosting/home-games, sinks #2/#6). Direction, not a build
+> spec.
+
+**The turn.** You stop needing to *win* and start needing the *room* to be
+legendary — player → impresario (the Molly's Game turn). Your score is the
+**room's** standing, not your bankroll.
+
+**The core skill: booking the table.** You curate who sits — assemble lineups
+people want to watch. This is the dream-table feature *inverted*: not "who do *I*
+play," but "who plays *at my room*." Pair a feared shark with a beloved legend;
+broker a grudge match; seat a whale where the action is. Getting the chemistry
+right — enough heat for drama, not so much it blows up — is the game.
+
+**Why you keep playing (the sink).** Hosting costs: comps, ambiance, and the
+spend to *draw the right crowd* (whales and legends don't show for free). Net
+worth (capped per the chip-sinks doc) pours into making your room *the* place.
+
+**The score (uncapped).** Room prestige, built on the occupant-prestige model in
+`CASH_MODE_TABLE_ATTRACTIVENESS.md` — does the right crowd come, do legendary
+hands happen *here*, is yours the room everyone wants into. Reuses the
+attractiveness/prestige core the whole spine already needs.
+
+**Depth / conflict.** Rival rooms compete for the same legends and whales; a
+booked headliner no-shows or busts the vibe; a brokered grudge match either makes
+your room's name or burns it down. The relationship graph (heat/respect among
+your guests) is the raw material you're staging.
+
+**Composes with the others.** Your clones can be the house talent you showcase;
+players you back (the Bank, if built) are the acts you put on; a famous hand
+authored *at your room* (the Legacy Ledger) becomes your room's legend, not just
+the player's.
+
 ## Open questions
 
 > **Decided:** v1 ships **create-only** (adopting an emergent up-and-comer
@@ -286,3 +378,14 @@ scoreboard; step 2 alone is a shipped sink; the loop only *needs* 1–4.
 - **Finite vs open-ended.** Punctuate the open-ended prestige climb with
   finite milestones (a "defeat-every-$1000-celebrity gauntlet,"
   "first protégé to the Pit") — campaign beats over an endless career.
+
+## Future ideas (for consideration)
+
+Parked, not designed or prioritized — here so they're not lost.
+
+- **The Bank — back the circuit.** A patron endgame where you stake *existing*
+  legends (rather than *making* talent like the clone) for a cut of their action
+  plus the leverage that carries/defaults/forgiveness create. Caveat baked in:
+  only worth it if it's a scouting + leverage + collections game where a backed
+  player can win big *or betray you* — as plain "invest → returns" it's just
+  gifting with extra steps. Mostly reuses the existing backing/staking machinery.
