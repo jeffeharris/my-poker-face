@@ -91,12 +91,11 @@ test.describe('PW-20: Custom game wizard step 2 — review and create on mobile'
     await expect(reviewBlocks.nth(1)).toContainText('Settings');
 
     const stats = page.locator('.review-stat');
-    await expect(stats).toHaveCount(4);
+    await expect(stats).toHaveCount(3);
 
     await expect(page.locator('.review-stat__label').nth(0)).toContainText('Stack');
     await expect(page.locator('.review-stat__label').nth(1)).toContainText('BB');
-    await expect(page.locator('.review-stat__label').nth(2)).toContainText('Mode');
-    await expect(page.locator('.review-stat__label').nth(3)).toContainText('AI');
+    await expect(page.locator('.review-stat__label').nth(2)).toContainText('AI');
   });
 
   test('opponents review block has Edit button that returns to step 0', async ({ page }) => {
