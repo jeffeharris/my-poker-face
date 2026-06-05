@@ -74,6 +74,11 @@ services:
       - CHIP_CUSTODY_ENABLED=${CHIP_CUSTODY_ENABLED:-1}
       - CHIP_CUSTODY_DERIVE_READS=${CHIP_CUSTODY_DERIVE_READS:-1}
       - PRESENCE_AUTHORITY_ENABLED=${PRESENCE_AUTHORITY_ENABLED:-1}
+      # Renown-v2 field-relative scoreboard. RENOWN_V2_PERSIST_AI implies
+      # RENOWN_V2_ENABLED; PRESTIGE_SEEKING_ENABLED implies PERSIST_AI (it reads
+      # the persisted per-AI renown), so all three must be on together — matches dev.
+      - RENOWN_V2_ENABLED=${RENOWN_V2_ENABLED:-1}
+      - RENOWN_V2_PERSIST_AI=${RENOWN_V2_PERSIST_AI:-1}
       - PRESTIGE_SEEKING_ENABLED=${PRESTIGE_SEEKING_ENABLED:-1}
       # Director economy thermostat (genesis seed + reserve-gated levers).
       - GENESIS_RESERVE_ENABLED=${GENESIS_RESERVE_ENABLED:-1}
