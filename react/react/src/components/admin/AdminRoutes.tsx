@@ -559,7 +559,14 @@ function DecisionAnalyzerWrapper() {
   );
 }
 
-const VALID_SETTINGS_CATEGORIES: SettingsCategory[] = ['models', 'capture', 'storage', 'pricing'];
+const VALID_SETTINGS_CATEGORIES: SettingsCategory[] = [
+  'models',
+  'capture',
+  'storage',
+  'pricing',
+  'appearance',
+  'alerting',
+];
 
 function SettingsWrapper() {
   const { category } = useParams<{ category: string }>();
