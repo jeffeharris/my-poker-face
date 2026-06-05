@@ -14,11 +14,21 @@ export interface PlayerStanding {
   finishing_position: number;
   eliminated_by: string | null;
   eliminated_at_hand: number | null;
+  /** Prize won for this finish (chips); 0 out of the money. */
+  amount?: number;
+  /** Renown awarded for this finish; present only when the draw economy is on. */
+  renown?: number;
 }
 
 export interface TournamentResult {
   winner: string;
   standings: PlayerStanding[];
+  /** Total prize pool / purse (chips). */
+  prize_pool?: number;
+  /** Per-place prize + renown breakdown (in-the-money places only). */
+  payouts?: { finishing_position: number; amount: number; renown?: number }[];
+  /** Whether renown is being awarded (TOURNAMENT_DRAW_ENABLED). */
+  renown_enabled?: boolean;
   total_hands: number;
   biggest_pot: number;
   human_position: number | null;

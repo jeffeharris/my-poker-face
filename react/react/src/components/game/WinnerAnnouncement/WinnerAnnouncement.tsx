@@ -1,24 +1,23 @@
 import { memo, useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Trophy,
-  HeartCrack,
-  PartyPopper,
-  Smile,
-  Angry,
-  Handshake,
-  Award,
-  ArrowLeft,
-  Check,
-  type LucideIcon,
-} from 'lucide-react';
+import { Trophy, HeartCrack, ArrowLeft, Check } from 'lucide-react';
 import { Card } from '../../cards';
 import { config } from '../../../config';
 import { INTERHAND_TIMING } from '../../../constants/interhandTiming';
 import { gameAPI } from '../../../utils/api';
 import { logger } from '../../../utils/logger';
 import { getOrdinal, type BackendCard } from '../../../types/tournament';
-import type { PostRoundTone, PostRoundSuggestion } from '../../../types/chat';
+import type { PostRoundTone, PostRoundSuggestion, ChatIntensity } from '../../../types/chat';
 import type { Player } from '../../../types/player';
+// Shared post-round tone policy — keeps desktop and the mobile overlay
+// (MobileWinnerAnnouncement) on one situational tone set / addressing / fallback
+// source so the two can't drift apart.
+import {
+  buildToneOptions,
+  addressingForTone,
+  SARCASM_ABLE_POST_ROUND,
+  POST_ROUND_FALLBACKS,
+} from '../../mobile/postRoundTones';
+import { CountdownRing } from '../../shared/CountdownRing';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -62,24 +61,21 @@ interface CommentaryItem {
   timestamp: number;
 }
 
-interface ToneOption {
-  id: PostRoundTone;
-  icon: LucideIcon;
-  label: string;
-}
-
 export interface WinnerAnnouncementProps {
   winnerInfo: WinnerInfo | null;
   commentary?: CommentaryItem[];
   onComplete: () => void;
   /** Live players with current avatar_url/avatar_emotion. Used to render
-   *  emotion-aware avatar portraits in the showdown. */
+   *  emotion-aware avatar portraits in the showdown, and to identify the human
+   *  (is_human seat) for the winner/loser tone read. */
   players?: Player[];
   /** Game ID — required to fetch post-round chat suggestions. Optional;
    *  the tone bar shows fallback suggestions when omitted. */
   gameId?: string | null;
-  /** Human player name — determines winner/loser tone set and is sent to
-   *  the suggestions API. Optional; tone bar is suppressed when omitted. */
+  /** Fallback human-player name, used only when `players` carries no is_human
+   *  seat. When `players` is present the human is taken from its is_human seat.
+   *  Determines the winner/loser tone set and is sent to the suggestions API;
+   *  the tone bar is suppressed when no human can be identified at all. */
   playerName?: string;
   /** Callback to send a message to the table. Add this to unlock tone-chat
    *  sending. Signature matches `wrappedSendMessage` from PokerTable.
@@ -92,46 +88,6 @@ export interface WinnerAnnouncementProps {
     intensity?: string
   ) => void;
 }
-
-// Tone options for winners
-const WINNER_TONES: ToneOption[] = [
-  { id: 'gloat', icon: PartyPopper, label: 'Gloat' },
-  { id: 'humble', icon: Smile, label: 'Humble' },
-  { id: 'props', icon: Award, label: 'Props' },
-];
-
-// Tone options for losers
-const LOSER_TONES: ToneOption[] = [
-  { id: 'salty', icon: Angry, label: 'Salty' },
-  { id: 'gracious', icon: Handshake, label: 'Gracious' },
-  { id: 'props', icon: Award, label: 'Props' },
-];
-
-// Only the manually-selectable tone-bar tones (gloat/humble/props/salty/gracious)
-// have static fallbacks; commiserate/cry_luck/vow are situational tones that never
-// reach the tone bar here, so the map is Partial and lookups fall back to [].
-const FALLBACK_SUGGESTIONS: Partial<Record<PostRoundTone, PostRoundSuggestion[]>> = {
-  gloat: [
-    { text: 'Too easy.', tone: 'gloat' },
-    { text: 'Thanks for the chips!', tone: 'gloat' },
-  ],
-  humble: [
-    { text: 'Got lucky there.', tone: 'humble' },
-    { text: 'Good game.', tone: 'humble' },
-  ],
-  salty: [
-    { text: 'Unreal.', tone: 'salty' },
-    { text: 'Of course.', tone: 'salty' },
-  ],
-  gracious: [
-    { text: 'Nice hand.', tone: 'gracious' },
-    { text: 'Well played.', tone: 'gracious' },
-  ],
-  props: [
-    { text: 'Respect. Well played.', tone: 'props' },
-    { text: 'That was a sharp read.', tone: 'props' },
-  ],
-};
 
 export const WinnerAnnouncement = memo(function WinnerAnnouncement({
   winnerInfo,
@@ -153,65 +109,134 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
   const [show, setShow] = useState(false);
   const [revealCards, setRevealCards] = useState(false);
+  // Timestamp the auto-dismiss timer (re)started, for the countdown ring.
+  // null while paused (interacting / final hand) so the ring freezes.
+  const [dismissStartedAt, setDismissStartedAt] = useState<number | null>(null);
+
+  // Identify the human by the backend's is_human seat — the same source as
+  // winnerInfo.winners — so the win/loss read can never disagree with it. The
+  // playerName prop is only a fallback for render contexts that don't pass a
+  // players list. Trusting the prop directly is what made a win show loser
+  // tones: it's sourced from user.name and can drift from the seat's
+  // player.name.
+  const humanName = useMemo(
+    () => players?.find((p) => p.is_human)?.name ?? playerName ?? '',
+    [players, playerName]
+  );
 
   // Post-round chat state
-  const showToneBar = !!playerName; // Only show tone bar when we know who's playing
+  const showToneBar = !!humanName; // Only show tone bar when we know who's playing
   const [suggestions, setSuggestions] = useState<PostRoundSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false); // Pauses auto-dismiss
+  // Currently-selected tone + delivery register (only `sarcastic` matters
+  // post-round; the warm tones invert into a barb/self-mockery). Sincere is
+  // the absence of a sarcastic register. Shared behavior with the mobile overlay.
+  const [selectedTone, setSelectedTone] = useState<PostRoundTone | null>(null);
+  const [sarcastic, setSarcastic] = useState(false);
 
-  const playerWon = winnerInfo?.winners.includes(playerName ?? '') ?? false;
-  const toneOptions = playerWon ? WINNER_TONES : LOSER_TONES;
+  // Situational read of the hand, shared with the mobile overlay, so the tone
+  // set fits what happened (no "vow revenge" over a hand you folded, etc.).
+  const playerWon = winnerInfo?.winners.includes(humanName) ?? false;
+  const winnerName = winnerInfo?.winners?.[0];
+  const isShowdown = !!winnerInfo?.showdown;
+  const humanAtShowdown = !!winnerInfo?.players_showdown?.[humanName];
+
+  // A fellow loser to commiserate with: someone OTHER than you who lost at
+  // showdown. Suppressed when you're the only loser (heads-up vs. the winner).
+  const fellowLoser = useMemo(() => {
+    if (!winnerInfo?.players_showdown) return undefined;
+    const isWinner = (n: string) => winnerInfo.winners.includes(n);
+    return Object.keys(winnerInfo.players_showdown).find((n) => n !== humanName && !isWinner(n));
+  }, [winnerInfo, humanName]);
+
+  const toneOptions = useMemo(
+    () =>
+      buildToneOptions({
+        playerWon,
+        isShowdown,
+        humanAtShowdown,
+        hasFellowLoser: !!fellowLoser,
+      }),
+    [playerWon, isShowdown, humanAtShowdown, fellowLoser]
+  );
 
   const fetchSuggestions = useCallback(
-    async (tone: PostRoundTone) => {
+    async (tone: PostRoundTone, useSarcastic: boolean) => {
       if (!winnerInfo) return;
+      const intensity: ChatIntensity | undefined = useSarcastic ? 'sarcastic' : undefined;
 
-      if (!gameId || !playerName) {
-        logger.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
-        setSuggestions(FALLBACK_SUGGESTIONS[tone] ?? []);
+      if (!gameId || !humanName) {
+        logger.warn('[PostRoundChat] Missing gameId or humanName, using fallback suggestions');
+        setSuggestions(POST_ROUND_FALLBACKS[tone]);
         return;
       }
 
       setLoadingSuggestions(true);
       try {
-        const response = await gameAPI.getPostRoundChatSuggestions(gameId, playerName, tone);
+        const response = await gameAPI.getPostRoundChatSuggestions(
+          gameId,
+          humanName,
+          tone,
+          intensity
+        );
         setSuggestions(response.suggestions || []);
       } catch (error) {
         logger.error('[PostRoundChat] Failed to fetch suggestions:', error);
-        setSuggestions(FALLBACK_SUGGESTIONS[tone] ?? []);
+        setSuggestions(POST_ROUND_FALLBACKS[tone]);
       } finally {
         setLoadingSuggestions(false);
       }
     },
-    [gameId, playerName, winnerInfo]
+    [gameId, humanName, winnerInfo]
   );
 
   const handleToneSelect = useCallback(
     (tone: PostRoundTone) => {
       setIsInteracting(true); // Pause auto-dismiss while interacting
       setSuggestions([]);
-      fetchSuggestions(tone);
+      setSelectedTone(tone);
+      // A tone that can't take sarcasm resets the register so the next
+      // sarcasm-able tone starts sincere rather than inheriting a stale toggle.
+      const startSarcastic = sarcastic && SARCASM_ABLE_POST_ROUND.has(tone);
+      setSarcastic(startSarcastic);
+      fetchSuggestions(tone, startSarcastic);
     },
-    [fetchSuggestions]
+    [fetchSuggestions, sarcastic]
+  );
+
+  // Flip the sarcastic register for the current tone and refetch.
+  const handleToggleSarcastic = useCallback(
+    (next: boolean) => {
+      if (!selectedTone) return;
+      setSarcastic(next);
+      setSuggestions([]);
+      fetchSuggestions(selectedTone, next);
+    },
+    [fetchSuggestions, selectedTone]
   );
 
   const handleSuggestionClick = useCallback(
     (text: string, tone: PostRoundTone) => {
-      // Mirror mobile: loser reaction is directed at hand winner, winner broadcast is unaddressed
-      const addressing =
-        !playerWon && winnerInfo?.winners?.[0] ? [winnerInfo.winners[0]] : undefined;
-      onSendMessage?.(text, addressing, tone);
+      // Shared addressing policy: Commiserate → the fellow loser, other
+      // loss-side reactions → the winner who beat you, win-side tones broadcast.
+      const addressing = addressingForTone(tone, { playerWon, winnerName, fellowLoser });
+      // Forward the sarcastic register so the dispatch flips the reception
+      // (gracious → fake-nice barb, humble → self-mockery, commiserate → fake
+      // sympathy). Sincere sends omit intensity.
+      const intensity = sarcastic ? 'sarcastic' : undefined;
+      onSendMessage?.(text, addressing, tone, intensity);
       setMessageSent(true);
       setSuggestions([]);
       setIsInteracting(false); // Resume auto-dismiss possibility
     },
-    [playerWon, winnerInfo, onSendMessage]
+    [playerWon, winnerName, fellowLoser, sarcastic, onSendMessage]
   );
 
   const handleBackToTones = useCallback(() => {
     setSuggestions([]);
+    setSelectedTone(null);
     // Stay in interacting mode — player may pick another tone
   }, []);
 
@@ -227,6 +252,8 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
       setSuggestions([]);
       setMessageSent(false);
       setIsInteracting(false);
+      setSelectedTone(null);
+      setSarcastic(false);
 
       if (winnerInfo.showdown && winnerInfo.players_showdown) {
         setTimeout(() => setRevealCards(true), INTERHAND_TIMING.showdownCardRevealMs);
@@ -238,8 +265,15 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
 
   // Separate effect for auto-dismiss: respects isInteracting and final hand
   useEffect(() => {
-    // Don't auto-dismiss if interacting OR if it's the final hand
-    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) return;
+    // Don't auto-dismiss if interacting OR if it's the final hand. Clear the
+    // ring's start stamp so it freezes (interacting) or never shows (final).
+    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) {
+      setDismissStartedAt(null);
+      return;
+    }
+
+    // Stamp the (re)start so the countdown ring drains over this window.
+    setDismissStartedAt(Date.now());
 
     const timer = setTimeout(
       () => {
@@ -294,6 +328,19 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
       <div className="winner-overlay" />
 
       <div className="winner-content">
+        {/* Auto-dismiss countdown — showdown only (fold-outs flash by too fast
+            for a ring to read; the final hand waits for manual Continue, so
+            dismissStartedAt stays null there and the ring is skipped). Frozen
+            full while the player is mid-interaction with the tone bar. */}
+        {winnerInfo.showdown && !winnerInfo.is_final_hand && (
+          <CountdownRing
+            timerStartedAt={dismissStartedAt}
+            displayDuration={INTERHAND_TIMING.showdownResultMs}
+            size={22}
+            stroke={2.5}
+            className="winner-content__timer-ring"
+          />
+        )}
         <div className="winner-header">
           <h1 className="winner-title">
             <Trophy size={28} /> {isSplitPot ? 'Split Pot!' : 'Winner!'} <Trophy size={28} />
@@ -469,10 +516,23 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
               </div>
             ) : suggestions.length > 0 ? (
               <div className="winner-chat-suggestions">
-                <button className="winner-chat-back" onClick={handleBackToTones}>
-                  <ArrowLeft size={14} />
-                  <span>Change tone</span>
-                </button>
+                <div className="winner-chat-suggestions-bar">
+                  <button className="winner-chat-back" onClick={handleBackToTones}>
+                    <ArrowLeft size={14} />
+                    <span>Change tone</span>
+                  </button>
+                  {/* Sarcastic register — offered only on the warm post-round
+                      tones, where it inverts into a barb / self-mockery. */}
+                  {selectedTone && SARCASM_ABLE_POST_ROUND.has(selectedTone) && (
+                    <button
+                      className={`winner-chat-sarcastic ${sarcastic ? 'active' : ''}`}
+                      onClick={() => handleToggleSarcastic(!sarcastic)}
+                      title="Sarcastic — say the opposite, dryly"
+                    >
+                      😏 Sarcastic
+                    </button>
+                  )}
+                </div>
                 {suggestions.map((suggestion, index) => (
                   <button
                     key={index}

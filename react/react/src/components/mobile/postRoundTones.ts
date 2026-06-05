@@ -9,7 +9,7 @@ import {
   Swords,
   type LucideIcon,
 } from 'lucide-react';
-import type { PostRoundTone } from '../../types/chat';
+import type { PostRoundTone, PostRoundSuggestion } from '../../types/chat';
 
 export interface ToneOption {
   id: PostRoundTone;
@@ -83,3 +83,57 @@ export function buildToneOptions(opts: {
 
   return ids.map((id) => TONE_META[id]);
 }
+
+/**
+ * Who a post-round message is aimed at — the shared policy for both the desktop
+ * and mobile winner overlays:
+ *  - Commiserate → the fellow loser you're consoling.
+ *  - Any other loss-side reaction → the winner who beat you.
+ *  - Win-side tones → broadcast (undefined; the backend fans it out).
+ */
+export function addressingForTone(
+  tone: PostRoundTone,
+  ctx: { playerWon: boolean; winnerName?: string; fellowLoser?: string }
+): string[] | undefined {
+  if (tone === 'commiserate') return ctx.fellowLoser ? [ctx.fellowLoser] : undefined;
+  if (!ctx.playerWon && ctx.winnerName) return [ctx.winnerName];
+  return undefined;
+}
+
+// Offline fallbacks per tone, used when the suggestion API is unreachable or
+// required params are missing. One source for both winner overlays and both
+// error paths (network failure + missing params).
+export const POST_ROUND_FALLBACKS: Record<PostRoundTone, PostRoundSuggestion[]> = {
+  gloat: [
+    { text: 'Too easy.', tone: 'gloat' },
+    { text: 'Thanks for the chips!', tone: 'gloat' },
+  ],
+  gracious: [
+    { text: 'Nice hand.', tone: 'gracious' },
+    { text: 'Well played.', tone: 'gracious' },
+  ],
+  humble: [
+    { text: 'Got lucky there.', tone: 'humble' },
+    { text: 'Good game.', tone: 'humble' },
+  ],
+  commiserate: [
+    { text: 'Tough beat, man.', tone: 'commiserate' },
+    { text: 'Brutal spot — you played it fine.', tone: 'commiserate' },
+  ],
+  salty: [
+    { text: 'Unreal.', tone: 'salty' },
+    { text: 'Of course.', tone: 'salty' },
+  ],
+  props: [
+    { text: 'Respect. Well played.', tone: 'props' },
+    { text: 'That was a sharp read.', tone: 'props' },
+  ],
+  cry_luck: [
+    { text: 'Needed that river, huh?', tone: 'cry_luck' },
+    { text: 'Lucky catch.', tone: 'cry_luck' },
+  ],
+  vow: [
+    { text: "I'm taking that stack back.", tone: 'vow' },
+    { text: 'This isn’t over.', tone: 'vow' },
+  ],
+};

@@ -46,6 +46,15 @@
   cursor: grabbing;
 }
 
+/* Corner placement for the shared CountdownRing (rotate / colour /
+ * pointer-events live on .countdown-ring in CountdownRing.css). */
+.floating-chat-timer-ring {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+}
+
 .floating-chat-avatar {
   width: 44px;
   height: 44px;
@@ -139,7 +148,6 @@
 .floating-chat-message .beat.speech {
   color: var(--color-text-primary);
 }
-
 
 /* Typing cursor */
 .floating-chat-message .typing-cursor {

@@ -51,7 +51,11 @@ override via a startup hook if/when we want runtime control.
 
 from __future__ import annotations
 
+import logging
 import os
+from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -132,6 +136,43 @@ FIELD_HUSTLE_TARGET_PERCENTILE: float = 0.25  # hustle tops up toward this field
 FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry grinder
 
 
+# --- Vice reserve-gating (the refill faucet, reserve-aware) ----------------
+#
+# Vice drains chips from wealthy AIs INTO the bank pool — it is a reserve
+# REFILL faucet, the mirror of the side-hustle drain. By default it fires
+# whenever the cast/field median clears MIN_*_MEDIAN_FOR_VICE, i.e. from the
+# first tick of a freshly-seeded sandbox (median well above $5k) — which reads
+# as an arbitrary "tax" on the field even when reserves are already healthy.
+#
+# When VICE_RESERVE_GATED is on, vice intensity instead scales with the
+# bank-pool DEFICIT: off when reserves are healthy (don't tax a flush field),
+# ramping to full as reserves fall toward critical. The band EDGES come from the
+# shared canonical ladder (`core.economy.economy_signal.RESERVE_HEALTHY` /
+# `RESERVE_CRITICAL`), so vice (refill) and rake (throttle) can't drift apart —
+# see `ai_vice_spending.reserve_vice_multiplier`.
+#
+# Default OFF — flip only after sim-validating the cadence alongside the rest
+# of the Director thermostat. See docs/plans/PROD_STARTING_CONDITIONS.md §1.5.
+VICE_RESERVE_GATED: bool = _env_flag("VICE_RESERVE_GATED", False)
+
+
+# --- Genesis reserve seed (fresh-sandbox bank pool) ------------------------
+#
+# A fresh prod sandbox seeds AI bankrolls (holdings) but starts with an EMPTY
+# bank pool — so casinos can't spawn (need pool ≥ 5k/50k/100k) and no tournament
+# can fire until rake/vice slowly fill it. The world boots economically inert.
+#
+# When GENESIS_RESERVE_ENABLED is on, `ensure_genesis_reserve_seeded` seeds the
+# pool to GENESIS_RESERVE_RATIO of holdings ONCE at sandbox birth (drift-safe
+# paired entry), so the world boots lived-in: casinos open, reserves sit below
+# the tournament trigger (0.12) and climb into the first Main Event over the
+# opening day. 0.05 lands just below RESERVE_HEALTHY (0.06) — the sim validates
+# whether to boot in the low or healthy band. Default OFF; needs a prod genesis
+# path + sim. See docs/plans/PROD_STARTING_CONDITIONS.md §1.1.
+GENESIS_RESERVE_ENABLED: bool = _env_flag("GENESIS_RESERVE_ENABLED", False)
+GENESIS_RESERVE_RATIO: float = 0.05  # seed reserve = this × holdings, once at birth
+
+
 def lever_field_mode() -> bool:
     """True when the levers should use the field-liquid reference.
 
@@ -156,6 +197,62 @@ RAKE_CAP_BB: int = 4
 # at a listed stake rakes the same, however many there are. Default to
 # the top tier only ($1000) to throttle pool inflow at low stakes.
 RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
+
+# Two-layer rake (Director lever). When off (default), rake is the static
+# structural $1000-only skim above — a permanent playing-field leveler / money
+# sink, NOT the Director's to touch. When on, `resolve_rake_params` lets the
+# Director ADD lower-stake tiers ($200, …) and bump the rate as the bank empties
+# (via `economy_signal.cash_rake_schedule`), contracting back to $1000-only when
+# reserves recover. The $1000 tier is always present, so the structural rake is
+# never switched off — only the extra refill layers are reserve-gated. Default
+# OFF; flip with the rest of the Director thermostat after sim. See
+# docs/plans/PROD_STARTING_CONDITIONS.md §1.4.
+RAKE_RESERVE_GATED: bool = _env_flag("RAKE_RESERVE_GATED", False)
+
+# Director instrument choice (inequality-aware rake). Vice drains the rich
+# (concentration-gated) and so leads the refill on a TOP-HEAVY field; when the
+# top is FLAT there is no runaway to drain, so the rake (even skim) should lead
+# instead. When on, a flat field (`p90/median < INEQUALITY_FLAT_THRESHOLD`)
+# upgrades the reserve-gated rake by one band so it picks up vice's slack. The
+# inequality read is recomputed at most once per INEQUALITY_RECOMPUTE_SECONDS
+# (`cash_mode.field_inequality`) — the Director steers slowly, not every tick.
+# Implies RAKE_RESERVE_GATED. Default OFF. See PROD_STARTING_CONDITIONS.md §1.2.
+DIRECTOR_INEQUALITY_RAKE: bool = _env_flag("DIRECTOR_INEQUALITY_RAKE", False)
+INEQUALITY_FLAT_THRESHOLD: float = 2.5  # p90/median at/below this → flat field
+INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per sandbox
+
+# Director policy hold. The reserve-gated rake schedule (`resolve_rake_params`)
+# otherwise reads one fresh economy snapshot from the ledger PER HAND — a
+# `signal()` aggregate scan on the hot rake path, recomputed even though the
+# reserve band only drifts over many hands. When on, the schedule (raked stake
+# tiers + rate) is HELD for a `POLICY_WINDOW_SECONDS` window and recomputed only
+# in the lobby refresh (`cash_mode.director_policy`, the same throttle model as
+# the inequality read), so the per-hand rake just reads a cached scalar. The
+# Director steers slowly; the rake doesn't need to re-derive the band every hand.
+# Vice + side-hustle stay per-tick (the always-on bounds); casino is already
+# window-stable. Implies RAKE_RESERVE_GATED (it holds that schedule). Default
+# OFF — flip with the rest of the thermostat after sim. See
+# docs/plans/PROD_STARTING_CONDITIONS.md §1.4.
+DIRECTOR_POLICY_HOLD: bool = _env_flag("DIRECTOR_POLICY_HOLD", False)
+POLICY_WINDOW_SECONDS: int = 300  # rake schedule held this long between recomputes
+
+# Casino/whale pool thresholds relative to holdings. The spawn/close/whale gates
+# are absolute chip counts (5k/50k/100k …) that don't scale as the roster (and
+# thus total holdings) grows. When on, `casino_provisioning` treats them as
+# FRACTIONS of holdings instead (calibrated to ~the absolute values at the launch
+# ~$2.64M holdings), so casinos open/close at the same relative bank depth at any
+# economy size. Default OFF — sim-validate with the rest of the thermostat.
+CASINO_RELATIVE_THRESHOLDS: bool = _env_flag("CASINO_RELATIVE_THRESHOLDS", False)
+
+# Lean casino fish lifecycle. The casino is the pool→field drain (fish bring
+# pool-funded chips and bleed them to grinders). With 2 fish/casino at a 2.5–3.6×
+# prefund — plus the dam cascade opening $2/$10/$50 at once and topping every
+# casino back to 2 each tick — that drain lands as a LUMP that crashes reserves
+# and stalls the climb to the tournament trigger. When on, casinos hold just ONE
+# fish (two at $2), prefunded leaner, and reseed only when the current fish busts
+# — turning the step-function drain into a steady trickle (same net pool→field
+# flow over time, no crashes). Default OFF — sim-validate with the thermostat.
+CASINO_RESEED_ON_SPENT: bool = _env_flag("CASINO_RESEED_ON_SPENT", False)
 
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
@@ -265,6 +362,36 @@ CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
 CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 
 
+# --- Tournament circuit world-tick hook (P3.7) ----------------------------
+
+# World-tick hook for the Main Event circuit. When True, the world ticker
+# (`ticker_service._tick_sandbox`) does two extra things per active sandbox:
+#   (a) lets the EconomyChairman offer / expire Main Event invites on the tick
+#       (so an offer surfaces or an un-accepted one lapses without a lobby poll);
+#   (b) advances the owner's *autonomous* (declined / expired, AI-only)
+#       tournament one round per tick so it plays out at world pace — like the
+#       cash tables — surfacing structural beats (final table / bubble / winner)
+#       on the lobby ticker.
+# Default **False**: inert for any sandbox without a live autonomous tournament,
+# and a complete no-op when off — the lobby-poll path
+# (`GET /api/tournament/invite`) still offers/expires invites without it. Flip on
+# only after re-validating the economy sim under the per-tournament overlay
+# cadence (P3_REMAINING_HANDOFF §6). See `docs/plans/P3_REMAINING_HANDOFF.md` §P3.7.
+TOURNAMENT_CIRCUIT_ENABLED: bool = _env_flag("TOURNAMENT_CIRCUIT_ENABLED", False)
+
+# --- Tournaments as a draw (cash→tournament migration) --------------------
+
+# Master switch for the "tournament as a draw" feature: AI personas LEAVE cash
+# tables to enter a tournament, pulled by a draw/attractiveness score (prize +
+# renown/regard), trickling off their seats over the registration window. The
+# conservation-safe "called-up" cash-leave primitive (cash_mode/movement.py
+# `called_up_pids`) is inert until a caller populates it; this flag gates the
+# layers that DO populate it (the draw scorer + reserve/spawn + ticker trickle,
+# built in later phases). Default **False** — Phase A ships the primitive only,
+# wired to nothing, so flipping this changes nothing yet. See
+# docs/plans/* (tournaments-as-a-draw) when the later phases land.
+TOURNAMENT_DRAW_ENABLED: bool = _env_flag("TOURNAMENT_DRAW_ENABLED", False)
+
 # --- Player-prestige Renown-v2 (read-side field scorer) -------------------
 
 # Kill switch for the Renown-v2 field-relative scoreboard. Default **False** —
@@ -311,20 +438,104 @@ PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 CAREER_VOUCH_ENABLED: bool = _env_flag("CAREER_VOUCH_ENABLED", False)
 
 
-def compute_rake(pot: int, big_blind: int) -> int:
+def compute_rake(
+    pot: int,
+    big_blind: int,
+    *,
+    stake_big_blinds: Optional[frozenset] = None,
+    rate: Optional[float] = None,
+) -> int:
     """Pure helper — returns the rake amount for a given pot.
 
     Returns 0 when rake is disabled, the pot is non-positive,
     big_blind is non-positive, or the stake (keyed by `big_blind`) is
-    not in `RAKE_STAKE_BIG_BLINDS`. The cap is applied in chip terms
+    not in the active rake-stake set. The cap is applied in chip terms
     (`RAKE_CAP_BB * big_blind`) so it scales with the table's stake.
+
+    `stake_big_blinds` / `rate` override the static `RAKE_STAKE_BIG_BLINDS` /
+    `RAKE_RATE` for the **Director rake** — the reserve-gated two-layer schedule
+    (see `resolve_rake_params`). When both are None the static config is used,
+    which is the structural always-on $1000 rake (and the flag-off behaviour).
     """
     if not RAKE_ENABLED:
         return 0
     if pot <= 0 or big_blind <= 0:
         return 0
-    if big_blind not in RAKE_STAKE_BIG_BLINDS:
+    stakes = stake_big_blinds if stake_big_blinds is not None else RAKE_STAKE_BIG_BLINDS
+    eff_rate = rate if rate is not None else RAKE_RATE
+    if big_blind not in stakes:
         return 0
-    raw = int(pot * RAKE_RATE)
+    raw = int(pot * eff_rate)
     cap = RAKE_CAP_BB * big_blind
     return min(raw, cap)
+
+
+def resolve_rake_params(chip_ledger_repo, sandbox_id, *, _fresh: bool = False):
+    """The reserve-gated rake schedule for this moment, or `(None, None)`.
+
+    Returns `(stake_big_blinds, rate)` to pass to `compute_rake`. When the
+    `RAKE_RESERVE_GATED` flag is off (default) or there's no ledger, returns
+    `(None, None)` so `compute_rake` falls back to the static structural rake
+    ($1000 only, base rate) — byte-identical to pre-gate behaviour.
+
+    When on, reads ONE economy snapshot and applies `cash_rake_schedule`: the
+    Director expands the raked stakes ($200, …) and bumps the rate as the bank
+    empties, and contracts back to $1000-only when reserves recover. The base
+    $1000 tier is always present in every schedule, so the structural rake is
+    never switched off — the Director only adds the lower-stake layers.
+
+    Inequality-aware (`DIRECTOR_INEQUALITY_RAKE`): when the field is FLAT
+    (cached `p90/median <= INEQUALITY_FLAT_THRESHOLD`) and reserves are still
+    below the tournament trigger, the schedule is evaluated one band lower so the
+    rake leads the refill that vice (no rich target to drain) can't. The cached
+    inequality read is slow-moving (`cash_mode.field_inequality`).
+
+    Policy hold (`DIRECTOR_POLICY_HOLD`): the per-hand rake path otherwise re-runs
+    the `signal()` ledger scan EVERY hand. When the hold is on this returns the
+    schedule HELD by `cash_mode.director_policy` (recomputed in the lobby refresh,
+    at most once per `POLICY_WINDOW_SECONDS`) so the hot path just reads a cached
+    scalar. `_fresh=True` BYPASSES the hold and computes live from the ledger — it
+    is how the refresh recomputes the held value (and a cold cache, before the
+    first refresh, falls through to a live compute so the first hands aren't on
+    static rake). The flag-off path is unaffected (`_fresh` is irrelevant when
+    the hold is off — the live compute always runs).
+    """
+    if not RAKE_RESERVE_GATED or chip_ledger_repo is None:
+        return None, None
+    if DIRECTOR_POLICY_HOLD and not _fresh:
+        from cash_mode.director_policy import director_rake_policy
+
+        held = director_rake_policy(sandbox_id)
+        if held is not None:
+            return held
+        # Cold cache: no lobby refresh has populated the hold yet this process.
+        # Fall through to a live compute so the opening hands rake correctly; the
+        # next refresh seeds the held value.
+    try:
+        import dataclasses
+
+        from core.economy.economy_signal import (
+            RESERVE_HEALTHY,
+            RESERVE_TRIGGER,
+            cash_rake_schedule,
+            signal,
+        )
+
+        state = signal(chip_ledger_repo, sandbox_id=sandbox_id)
+
+        if DIRECTOR_INEQUALITY_RAKE and state.ratio < RESERVE_TRIGGER:
+            from cash_mode.field_inequality import field_inequality
+
+            ineq = field_inequality(sandbox_id)
+            if ineq is not None and ineq <= INEQUALITY_FLAT_THRESHOLD:
+                # Flat field → no runaway for vice to drain, so lean on the rake:
+                # evaluate the schedule at least one band lower (forces the $200
+                # even-skim tier on, regardless of the reserve band).
+                lowered = min(state.ratio, RESERVE_HEALTHY - 1e-9)
+                state = dataclasses.replace(state, ratio=lowered)
+
+        sched = cash_rake_schedule(state)
+        return sched.stake_big_blinds, sched.rate
+    except Exception:  # pragma: no cover - defensive; fall back to static
+        logger.warning("[RAKE] reserve-gated schedule failed; using static rake", exc_info=True)
+        return None, None

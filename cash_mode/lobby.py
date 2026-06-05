@@ -1160,6 +1160,18 @@ def refresh_unseated_tables(
     # 0 (default) = full saturation, which is what sims/tests want; the
     # LIVE lobby + ticker pass `economy_flags.LIVE_FILL_HUMAN_HEADROOM`.
     human_headroom: int = 0,
+    # Tournament session repo. When provided, personas in an active tournament
+    # (`active_participant_pids`) are excluded from seating — the "away at the
+    # Main Event" half of the double-presence guard. None → no exclusion
+    # (sim/test callers without tournaments).
+    tournament_repo=None,
+    # Tournament call-up (cash→tournament draw): pids reserved by an open Main
+    # Event invite being gathered off cash. Each is (a) excluded from re-seating
+    # like an off-grid AI, and (b) forced to leave its current seat via
+    # `refresh_table_roster(called_up_pids=…)`. The caller records the actual
+    # leavers from each result's `.called_up`. None/empty → no call-up (every
+    # existing caller unaffected). Behind TOURNAMENT_DRAW_ENABLED at the caller.
+    called_up_pids: Optional[Set[str]] = None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -1179,6 +1191,27 @@ def refresh_unseated_tables(
         rng = random.Random()
     if now is None:
         now = datetime.utcnow()
+
+    # Director instrument-choice signal: refresh the cached field-inequality
+    # read (throttled internally — recomputes at most once per recompute window),
+    # so the inequality-aware rake has a warm value before this tick's hands play.
+    # Cheap (a timestamp compare) on the common path; flag-gated downstream.
+    if sandbox_id and bankroll_repo is not None and chip_ledger_repo is not None:
+        from cash_mode import economy_flags as _eflags
+
+        if _eflags.DIRECTOR_INEQUALITY_RAKE:
+            from cash_mode.field_inequality import refresh_field_inequality
+
+            refresh_field_inequality(sandbox_id, bankroll_repo, now)
+
+        # Director policy hold: refresh the cached cash-rake schedule (throttled
+        # to POLICY_WINDOW_SECONDS internally) so the per-hand rake reads a held
+        # value instead of re-running the ledger signal scan every hand.
+        if _eflags.DIRECTOR_POLICY_HOLD:
+            from cash_mode.director_policy import refresh_director_policy
+
+            refresh_director_policy(sandbox_id, chip_ledger_repo, now)
+
     # Resolve the mutually-exclusive vice mode (per-call override → live
     # default). 'real' / 'fake' / 'off'; anything else falls through both
     # gates below (no vice), which is the safe default for a bad value.
@@ -1291,7 +1324,6 @@ def refresh_unseated_tables(
             hustle_ends = tick_side_hustle_expirations(
                 side_hustle_repo=side_hustle_repo,
                 bankroll_repo=bankroll_repo,
-                chip_ledger_repo=chip_ledger_repo,
                 sandbox_id=sandbox_id,
                 now=now,
             )
@@ -1315,7 +1347,21 @@ def refresh_unseated_tables(
     # cross-table pool) reads these variables, so a single filter at the
     # top covers all the seating / staking eligibility surfaces without
     # per-call-site changes.
-    off_grid = on_vice | on_hustle
+    # Personas currently in a tournament are "away at the Main Event" — the
+    # same treatment as off-grid vice/side-hustle, so the seat-filler never
+    # seats a tournament entrant at a cash table (the double-presence guard).
+    # Derived from the active tournaments' fields; released when they complete.
+    on_tournament: Set[str] = set()
+    if tournament_repo is not None and user_id:
+        try:
+            on_tournament = tournament_repo.active_participant_pids(user_id)
+        except Exception:  # noqa: BLE001 — best-effort exclusion; never break the fill
+            logger.exception("active-participant scan failed for owner %s", user_id)
+    # Reserved-for-tournament personas (cash→tournament draw) are gathered off
+    # cash: excluded from re-seating here, AND forced to leave via
+    # called_up_pids passed to refresh_table_roster below.
+    tournament_bound = called_up_pids or set()
+    off_grid = on_vice | on_hustle | on_tournament | tournament_bound
     unavailable = off_grid | live_seated
     if unavailable:
         idle_pool = [entry for entry in idle_pool if entry.personality_id not in unavailable]
@@ -1557,6 +1603,26 @@ def refresh_unseated_tables(
             )
             return 0
         return sum(int(c.carry_amount) for c in carries if c.borrower_id == borrower_id)
+
+    def _bankruptcy_lookup(borrower_id: str):
+        """Borrower's (bankruptcy_count, last_bankruptcy_at) for the
+        post-bankruptcy loan-term penalty in `take_stake`. Returns
+        (0, None) when bankroll_repo is absent or the AI has never gone
+        bankrupt — i.e. no penalty."""
+        if bankroll_repo is None:
+            return (0, None)
+        try:
+            return bankroll_repo.load_bankruptcy_state(
+                borrower_id,
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[CASH][LOBBY] bankruptcy_lookup failed borrower=%r: %s",
+                borrower_id,
+                exc,
+            )
+            return (0, None)
 
     def _buy_in_lookup(pid: str) -> int:
         # Map back to a table buy-in: needs the stake_label of the
@@ -1804,6 +1870,7 @@ def refresh_unseated_tables(
         agg_stake_creations = []
         agg_leave_signals: Dict[str, str] = {}
         agg_vice_bound: List[str] = []
+        agg_called_up: List[str] = []
         # Scalp attribution (Renown-v2 / CASH_MODE_SCALP_TRACKER.md §3a): record
         # AI-vs-AI eliminations from each sim hand. This is the full-sim world
         # path, so busts are real. Resolved once; best-effort — a scalp-write
@@ -1900,6 +1967,9 @@ def refresh_unseated_tables(
                 eligible_candidates=[],
                 enable_live_fill=False,
                 seated_globally=seated_globally,
+                # Cash→tournament call-up: force any reserved persona seated at
+                # this table to leave for the gathering Main Event.
+                called_up_pids=called_up_pids,
                 bankroll_lookup=_bankroll_lookup,
                 buy_in_lookup=_buy_in_for,
                 rng=rng,
@@ -1941,6 +2011,7 @@ def refresh_unseated_tables(
                 # (else the lookup returns 0 and the cut stays at
                 # rate_anchor as before).
                 carry_lookup=(_carry_lookup if _take_stake_enabled else None),
+                bankruptcy_lookup=(_bankruptcy_lookup if _take_stake_enabled else None),
                 # Staker-incentives plan: weighted candidate selection
                 # in find_ai_staker_for. Wired only when stake_repo is
                 # available; otherwise the matcher falls back to its
@@ -1973,6 +2044,7 @@ def refresh_unseated_tables(
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)
             agg_vice_bound.extend(per_hand.vice_bound)
+            agg_called_up.extend(per_hand.called_up)
             # Update the burst-local set so subsequent hands within
             # this same burst can't double-stake the same borrower.
             for sc in per_hand.stake_creations:
@@ -1990,6 +2062,7 @@ def refresh_unseated_tables(
             leave_signals=agg_leave_signals,
             stake_creations=agg_stake_creations,
             vice_bound=agg_vice_bound,
+            called_up=agg_called_up,
         )
         # Roll up this table's go_vice leavers for the refresh-level
         # commit below (their from_seat credits are applied in-loop, so
@@ -2472,6 +2545,7 @@ def refresh_unseated_tables(
                     now=now,
                     narrate_fn=_hustle_narrate if hustle_use_llm_narration else None,
                     field_snapshot=_field_snapshot,
+                    chip_ledger_repo=chip_ledger_repo,
                 )
         except Exception as exc:
             logger.warning(
@@ -2579,6 +2653,259 @@ def refresh_unseated_tables(
     return out
 
 
+def settle_departed_ai_stake(
+    pid,
+    chips_at_leave,
+    *,
+    stake_repo,
+    bankroll_repo,
+    chip_ledger_repo,
+    relationship_repo,
+    personality_repo,
+    table_id,
+    sandbox_id,
+    now,
+):
+    """Settle one departing AI-borrower's active stake, if it has one.
+
+    Shared by both AI-leave paths so they can't drift: the unseated
+    world-tick refresh (`_settle_table_stakes`) and the human's seated
+    table (`_credit_departed_ai_bankrolls` in `game_handler`). Computes
+    the leave-time stake math at `chips_at_leave`, routes the staker +
+    borrower chip flows (human-staker → player_bankroll_state,
+    AI-staker / borrower → AI bankroll), and fires the repaid/default
+    relationship + ticker events.
+
+    Returns the `StakeSettlement` when a stake existed and settled — the
+    borrower's share is ALREADY credited to its bankroll via the flows,
+    so the caller must NOT also credit the borrower's full seat chips.
+    Returns None when the AI had no active stake (caller credits the
+    seat chips normally).
+    """
+    from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
+    from cash_mode.bankroll import credit_ai_cash_out
+    from cash_mode.stake_chip_flow import (
+        DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
+        DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
+        build_stake_settlement_flows,
+    )
+    from cash_mode.stake_settlement import settle_stake_on_leave
+    from cash_mode.stakes import (
+        BORROWER_KIND_PERSONALITY,
+        STAKE_STATUS_CARRY,
+        STAKER_KIND_HUMAN,
+    )
+
+    active_stake = stake_repo.load_active_for_borrower(
+        pid,
+        BORROWER_KIND_PERSONALITY,
+    )
+    if active_stake is None:
+        return None
+    settlement = settle_stake_on_leave(
+        active_stake.stake_id,
+        chips_at_leave,
+        stake_repo=stake_repo,
+        chip_ledger_repo=chip_ledger_repo,
+        ledger_context={
+            "site": "ai_session_end",
+            "table_id": table_id,
+        },
+        sandbox_id=sandbox_id,
+        now=now,
+    )
+    if settlement is None:
+        return None
+    # Apply the settlement flows. For AI-staker / AI-borrower
+    # personality stakes the flows are pure bankroll→bankroll
+    # transfers — no ledger entry, mirror the route's leave
+    # path.
+    flows = build_stake_settlement_flows(settlement)
+    for flow in flows:
+        if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
+            # Phase 5 Commit 3 — human-staker branch. When
+            # the staker is the player, credit their
+            # player_bankroll_state row instead of
+            # credit_ai_cash_out (which would mis-route the
+            # chips into an AI bankroll). Read-modify-write
+            # so concurrent leaves don't lose the credit.
+            if flow.staker_kind == STAKER_KIND_HUMAN:
+                from cash_mode.bankroll import PlayerBankrollState
+
+                existing = bankroll_repo.load_player_bankroll(
+                    flow.staker_id,
+                )
+                if existing is not None:
+                    bankroll_repo.save_player_bankroll(
+                        PlayerBankrollState(
+                            player_id=existing.player_id,
+                            chips=existing.chips + flow.amount,
+                            starting_bankroll=existing.starting_bankroll,
+                        ),
+                    )
+                    # Chip-custody: the staker's cut comes off the borrower's
+                    # seat at leave (the mirror of the borrower-share
+                    # `ai_cash_out` that drains the same seat to ai:<borrower>).
+                    # The human credit lands on player_bankroll_state (above),
+                    # not the ledger — so without this `stake_payoff` row the
+                    # seat never fully drains and the player's bankroll diverges
+                    # from its ledger balance. Mirrors the carry-payoff path in
+                    # `ai_carry_resolution.record_voluntary_payoff`.
+                    from cash_mode import economy_flags
+
+                    if chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED:
+                        from core.economy import ledger as chip_ledger
+
+                        chip_ledger.record_stake_payoff(
+                            chip_ledger_repo,
+                            source=chip_ledger.ai_seat(sandbox_id, settlement.borrower_id),
+                            sink=chip_ledger.player(flow.staker_id),
+                            amount=flow.amount,
+                            context={
+                                "stake_id": active_stake.stake_id,
+                                "site": "stake_settle_staker",
+                            },
+                            sandbox_id=sandbox_id,
+                        )
+                else:
+                    logger.warning(
+                        "[CASH][LOBBY] human staker bankroll "
+                        "missing for credit staker=%r stake=%r",
+                        flow.staker_id,
+                        active_stake.stake_id,
+                    )
+            else:
+                # AI staker. The cut comes off the BORROWER's seat — so
+                # credit the int WITHOUT the default seat `ai_cash_out`
+                # (from_seat=False), which would otherwise mis-source the
+                # chips from the STAKER's own seat (seat:ai:<sb>:<staker>),
+                # leaving the borrower's seat un-drained and the staker's
+                # seat negative. Record the seat->staker drain explicitly,
+                # mirroring the human branch above and the carry-payoff path.
+                credit_ai_cash_out(
+                    bankroll_repo,
+                    flow.staker_id,
+                    flow.amount,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                    chip_ledger_repo=chip_ledger_repo,
+                    ledger_context={
+                        "stake_id": active_stake.stake_id,
+                        "site": "ai_stake_settle_staker",
+                    },
+                    from_seat=False,
+                )
+                from cash_mode import economy_flags
+
+                if chip_ledger_repo is not None and economy_flags.CHIP_CUSTODY_ENABLED:
+                    from core.economy import ledger as chip_ledger
+
+                    chip_ledger.record_stake_payoff(
+                        chip_ledger_repo,
+                        source=chip_ledger.ai_seat(sandbox_id, settlement.borrower_id),
+                        sink=chip_ledger.ai(flow.staker_id),
+                        amount=flow.amount,
+                        context={
+                            "stake_id": active_stake.stake_id,
+                            "site": "ai_stake_settle_staker",
+                        },
+                        sandbox_id=sandbox_id,
+                    )
+        elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
+            credit_ai_cash_out(
+                bankroll_repo,
+                flow.borrower_id,
+                flow.amount,
+                sandbox_id=sandbox_id,
+                now=now,
+                chip_ledger_repo=chip_ledger_repo,
+                ledger_context={
+                    "stake_id": active_stake.stake_id,
+                    "site": "ai_stake_settle_borrower",
+                },
+            )
+    # Fire repaid/defaulted event. Carry rolls forward
+    # silently on the relationship axes — only the
+    # explicit STAKE_DEFAULTED action would fire the
+    # sharper hit; natural carry is just a status='carry'
+    # row. Phase 4 Commit 5: when status is carry, emit
+    # an EVENT_AI_DEFAULT to the lobby ticker so the
+    # player sees the moment-of-default drama even though
+    # no axis-shift event fires.
+    if (
+        relationship_repo is not None
+        and settlement.new_status != STAKE_STATUS_CARRY
+        and settlement.staker_id is not None
+        and settlement.forgiven_amount == 0
+    ):
+        try:
+            from poker.memory import OpponentModelManager
+            from poker.memory.relationship_events import (
+                RelationshipEvent,
+            )
+
+            mgr = OpponentModelManager(
+                relationship_repo=relationship_repo,
+            )
+            mgr.record_event(
+                actor_id=settlement.staker_id,
+                target_id=settlement.borrower_id,
+                event=RelationshipEvent.STAKE_REPAID,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] STAKE_REPAID event failed " "stake=%r: %s",
+                active_stake.stake_id,
+                exc,
+            )
+    if (
+        settlement.new_status == STAKE_STATUS_CARRY
+        and settlement.carry_amount >= AI_STAKE_TICKER_THRESHOLD
+        and settlement.staker_id is not None
+    ):
+        try:
+            from cash_mode.activity import (
+                EVENT_AI_DEFAULT,
+                LobbyEvent,
+                format_ai_default_message,
+                record_event,
+            )
+
+            staker_name = _ticker_name_for(
+                settlement.staker_id,
+                personality_repo,
+            )
+            borrower_name = _ticker_name_for(
+                settlement.borrower_id,
+                personality_repo,
+            )
+            if staker_name and borrower_name:
+                record_event(
+                    LobbyEvent(
+                        type=EVENT_AI_DEFAULT,
+                        table_id=table_id,
+                        stake_label=active_stake.stake_tier,
+                        personality_id=settlement.borrower_id,
+                        name=borrower_name,
+                        reason=settlement.staker_id,
+                        message=format_ai_default_message(
+                            borrower_name,
+                            staker_name,
+                            active_stake.stake_tier,
+                            settlement.carry_amount,
+                        ),
+                        created_at=now.isoformat(),
+                        sandbox_id=sandbox_id,
+                    )
+                )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] EVENT_AI_DEFAULT emit failed: %s",
+                exc,
+            )
+    return settlement
+
+
 def _settle_table_stakes(
     result,
     *,
@@ -2603,18 +2930,6 @@ def _settle_table_stakes(
     settled_from_seat_indices: set = set()
     if stake_repo is None:
         return settled_from_seat_indices
-    from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
-    from cash_mode.stake_chip_flow import (
-        DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
-        DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
-        build_stake_settlement_flows,
-    )
-    from cash_mode.stake_settlement import settle_stake_on_leave
-    from cash_mode.stakes import (
-        BORROWER_KIND_PERSONALITY,
-        STAKE_STATUS_CARRY,
-        STAKER_KIND_HUMAN,
-    )
 
     # Find the LAST from_seat per pid — that's the session-end
     # leave amount (any earlier from_seat for the same pid is
@@ -2627,170 +2942,20 @@ def _settle_table_stakes(
 
     for pid, idx in last_from_seat_index.items():
         chips_at_leave = result.bankroll_changes[idx].amount
-        # Was this AI a stake borrower? Look up active stake.
-        active_stake = stake_repo.load_active_for_borrower(
+        settlement = settle_departed_ai_stake(
             pid,
-            BORROWER_KIND_PERSONALITY,
-        )
-        if active_stake is None:
-            continue
-        settlement = settle_stake_on_leave(
-            active_stake.stake_id,
             chips_at_leave,
             stake_repo=stake_repo,
+            bankroll_repo=bankroll_repo,
             chip_ledger_repo=chip_ledger_repo,
-            ledger_context={
-                "site": "ai_session_end",
-                "table_id": result.new_table.table_id,
-            },
+            relationship_repo=relationship_repo,
+            personality_repo=personality_repo,
+            table_id=result.new_table.table_id,
             sandbox_id=sandbox_id,
             now=now,
         )
         if settlement is None:
             continue
-        # Apply the settlement flows. For AI-staker / AI-borrower
-        # personality stakes the flows are pure bankroll→bankroll
-        # transfers — no ledger entry, mirror the route's leave
-        # path.
-        flows = build_stake_settlement_flows(settlement)
-        for flow in flows:
-            if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
-                # Phase 5 Commit 3 — human-staker branch. When
-                # the staker is the player, credit their
-                # player_bankroll_state row instead of
-                # credit_ai_cash_out (which would mis-route the
-                # chips into an AI bankroll). Read-modify-write
-                # so concurrent leaves don't lose the credit.
-                if flow.staker_kind == STAKER_KIND_HUMAN:
-                    from cash_mode.bankroll import PlayerBankrollState
-
-                    existing = bankroll_repo.load_player_bankroll(
-                        flow.staker_id,
-                    )
-                    if existing is not None:
-                        bankroll_repo.save_player_bankroll(
-                            PlayerBankrollState(
-                                player_id=existing.player_id,
-                                chips=existing.chips + flow.amount,
-                                starting_bankroll=existing.starting_bankroll,
-                            ),
-                        )
-                    else:
-                        logger.warning(
-                            "[CASH][LOBBY] human staker bankroll "
-                            "missing for credit staker=%r stake=%r",
-                            flow.staker_id,
-                            active_stake.stake_id,
-                        )
-                else:
-                    from cash_mode.bankroll import credit_ai_cash_out
-
-                    credit_ai_cash_out(
-                        bankroll_repo,
-                        flow.staker_id,
-                        flow.amount,
-                        sandbox_id=sandbox_id,
-                        now=now,
-                        chip_ledger_repo=chip_ledger_repo,
-                        ledger_context={
-                            "stake_id": active_stake.stake_id,
-                            "site": "ai_stake_settle_staker",
-                        },
-                    )
-            elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
-                from cash_mode.bankroll import credit_ai_cash_out
-
-                credit_ai_cash_out(
-                    bankroll_repo,
-                    flow.borrower_id,
-                    flow.amount,
-                    sandbox_id=sandbox_id,
-                    now=now,
-                    chip_ledger_repo=chip_ledger_repo,
-                    ledger_context={
-                        "stake_id": active_stake.stake_id,
-                        "site": "ai_stake_settle_borrower",
-                    },
-                )
-        # Fire repaid/defaulted event. Carry rolls forward
-        # silently on the relationship axes — only the
-        # explicit STAKE_DEFAULTED action would fire the
-        # sharper hit; natural carry is just a status='carry'
-        # row. Phase 4 Commit 5: when status is carry, emit
-        # an EVENT_AI_DEFAULT to the lobby ticker so the
-        # player sees the moment-of-default drama even though
-        # no axis-shift event fires.
-        if (
-            relationship_repo is not None
-            and settlement.new_status != STAKE_STATUS_CARRY
-            and settlement.staker_id is not None
-            and settlement.forgiven_amount == 0
-        ):
-            try:
-                from poker.memory import OpponentModelManager
-                from poker.memory.relationship_events import (
-                    RelationshipEvent,
-                )
-
-                mgr = OpponentModelManager(
-                    relationship_repo=relationship_repo,
-                )
-                mgr.record_event(
-                    actor_id=settlement.staker_id,
-                    target_id=settlement.borrower_id,
-                    event=RelationshipEvent.STAKE_REPAID,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "[CASH][LOBBY] STAKE_REPAID event failed " "stake=%r: %s",
-                    active_stake.stake_id,
-                    exc,
-                )
-        if (
-            settlement.new_status == STAKE_STATUS_CARRY
-            and settlement.carry_amount >= AI_STAKE_TICKER_THRESHOLD
-            and settlement.staker_id is not None
-        ):
-            try:
-                from cash_mode.activity import (
-                    EVENT_AI_DEFAULT,
-                    LobbyEvent,
-                    format_ai_default_message,
-                    record_event,
-                )
-
-                staker_name = _ticker_name_for(
-                    settlement.staker_id,
-                    personality_repo,
-                )
-                borrower_name = _ticker_name_for(
-                    settlement.borrower_id,
-                    personality_repo,
-                )
-                if staker_name and borrower_name:
-                    record_event(
-                        LobbyEvent(
-                            type=EVENT_AI_DEFAULT,
-                            table_id=result.new_table.table_id,
-                            stake_label=active_stake.stake_tier,
-                            personality_id=settlement.borrower_id,
-                            name=borrower_name,
-                            reason=settlement.staker_id,
-                            message=format_ai_default_message(
-                                borrower_name,
-                                staker_name,
-                                active_stake.stake_tier,
-                                settlement.carry_amount,
-                            ),
-                            created_at=now.isoformat(),
-                            sandbox_id=sandbox_id,
-                        )
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "[CASH][LOBBY] EVENT_AI_DEFAULT emit failed: %s",
-                    exc,
-                )
         settled_from_seat_indices.add(idx)
     return settled_from_seat_indices
 
@@ -3727,11 +3892,13 @@ def _emit_carry_resolution_events(
 
     from cash_mode.activity import (
         AI_CARRY_TICKER_THRESHOLD,
+        EVENT_AI_BANKRUPTCY,
         EVENT_AI_DEFAULT,
         EVENT_AI_FORGIVEN,
         EVENT_AI_PAYOFF,
         EVENT_AI_REQUESTS_FORGIVENESS,
         LobbyEvent,
+        format_ai_bankruptcy_message,
         format_ai_explicit_default_message,
         format_ai_forgiven_message,
         format_ai_payoff_message,
@@ -3751,6 +3918,38 @@ def _emit_carry_resolution_events(
     ts = now.isoformat()
 
     for result in batch.results:
+        # Bankruptcy is an aggregate beat (no single staker) and a
+        # lifecycle rupture — surface it before the staker-name guard and
+        # the per-carry threshold gate that the other kinds pass through.
+        if result.kind == 'bankruptcy':
+            borrower_name = _name_for(result.borrower_id)
+            if not borrower_name:
+                continue
+            try:
+                record_event(
+                    LobbyEvent(
+                        type=EVENT_AI_BANKRUPTCY,
+                        table_id="",
+                        stake_label=result.stake_tier,
+                        personality_id=result.borrower_id,
+                        name=borrower_name,
+                        reason="",
+                        message=format_ai_bankruptcy_message(
+                            borrower_name,
+                            result.recovered or 0,
+                            result.amount,
+                        ),
+                        created_at=ts,
+                        sandbox_id=sandbox_id,
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] carry resolution event emit failed (bankruptcy): %s",
+                    exc,
+                )
+            continue
+
         if result.amount < AI_CARRY_TICKER_THRESHOLD:
             continue
         borrower_name = _name_for(result.borrower_id)

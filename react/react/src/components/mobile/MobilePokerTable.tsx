@@ -31,6 +31,7 @@ import { CharacterDetailCard } from '../character';
 import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
+import { useTournamentEvents } from '../../hooks/useTournamentEvents';
 import { useGameStore } from '../../stores/gameStore';
 import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
@@ -38,6 +39,7 @@ import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation
 import { useCoach } from '../../hooks/useCoach';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { useRunoutDirector } from '../../hooks/useRunoutDirector';
+import { useWinnerRevealGate } from '../../hooks/useWinnerRevealGate';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { heroCardAnimation } from './heroCardAnimation';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
@@ -174,6 +176,7 @@ export function MobilePokerTable({
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
   const runoutSchedule = useGameStore((state) => state.runoutSchedule);
+  const runoutDirectorActive = useGameStore((state) => state.runoutDirectorActive);
   const setRunoutDirectorActive = useGameStore((state) => state.setRunoutDirectorActive);
   const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const cashMode = useGameStore((state) => state.cashMode);
@@ -191,6 +194,7 @@ export function MobilePokerTable({
     winnerInfo,
     revealedCards,
     tournamentResult,
+    socketRef,
     isConnected,
     showActionButtons,
     queuedAction,
@@ -210,6 +214,10 @@ export function MobilePokerTable({
     onGameLoadFailed,
     onSceneComplete: handleSceneComplete,
   });
+
+  // Multi-table tournament felt: relocation toasts + bust/win routing to the
+  // standings hub (no-op for non-tournament games). See useTournamentEvents.
+  useTournamentEvents({ socketRef, connected: isConnected, gameId });
 
   const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } = useGuestChatLimit(
     awaitingAction,
@@ -308,6 +316,19 @@ export function MobilePokerTable({
     fastForward,
     applyReaction: applyRunoutReaction,
     setActive: setRunoutDirectorActive,
+  });
+
+  // Hold the verdict overlay until the run-out / fold play-out has visually
+  // finished, so the winner doesn't spoil the board + reactions still landing.
+  // Fast-forward (manual FF / always / instant AI) drops the gate — that's Skip.
+  const { holdWinner } = useWinnerRevealGate({
+    hasWinner: !!winnerInfo,
+    isShowdown: !!winnerInfo?.showdown,
+    handNumber,
+    runItOut,
+    heroFolded: !!humanPlayer?.is_folded,
+    runoutDirectorActive,
+    rushing: fastForward || alwaysFastForward || aiInstant,
   });
 
   const handleResultComplete = useCallback(() => {
@@ -1165,7 +1186,9 @@ export function MobilePokerTable({
           screen below). When the overlay's hold elapses or the player taps
           Continue, handleResultComplete hands off to the shuffle beat and clears
           the winner, so the overlay and shuffle never overlap. */}
-          {winnerInfo && winnerInfo.showdown && (
+          {/* The human is identified from the players list's is_human seat
+              inside MobileWinnerAnnouncement; playerName is only a fallback. */}
+          {winnerInfo && winnerInfo.showdown && !holdWinner && (
             <MobileWinnerAnnouncement
               winnerInfo={winnerInfo}
               onComplete={handleResultComplete}

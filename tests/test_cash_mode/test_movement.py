@@ -23,6 +23,7 @@ from typing import Dict, Optional
 import pytest
 
 from cash_mode.movement import (
+    CALLED_UP,
     DEFAULT_LIVE_FILL_PROB,
     FORCED_LEAVE_RATIO,
     LEAVE_K,
@@ -1199,3 +1200,94 @@ class TestViceOnLeave:
         )
         assert result.vice_bound == []
         assert result.decisions["whale"] == "bored_move"
+
+
+class TestCalledUpVacate:
+    """Phase A of "tournaments as a draw": the `called_up_pids` primitive.
+
+    A persona drawn into a tournament must leave its cash seat
+    UNCONDITIONALLY (regardless of movement pressure), settle its stack to
+    bankroll via the normal departed path, and NOT land in the idle pool
+    (it's bound for the tournament, not resting / re-seatable)."""
+
+    def test_called_up_forces_unconditional_leave(self):
+        # Both AIs are neutral → would normally STAY. Call up only napoleon.
+        seats = [
+            ai_slot("napoleon", 500),
+            ai_slot("zeus", 500),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        table = _make_table(seats)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"napoleon", "zeus"},
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000, "zeus": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=random.Random(123),
+            now=datetime(2026, 6, 3, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            next_tier_min_buy_in=2000,
+            psych_lookup=_neutral_psych,
+            enable_live_fill=False,  # isolate the movement step
+            called_up_pids={"napoleon"},
+        )
+
+        # napoleon was called up → forced leave; zeus (neutral) stayed.
+        assert result.called_up == ["napoleon"]
+        assert result.decisions["napoleon"] == CALLED_UP
+        assert result.decisions["zeus"] == "stay"
+
+        # Seat vacated (napoleon gone, zeus still seated).
+        seated_after = {s["personality_id"] for s in result.new_table.seats if s["kind"] == "ai"}
+        assert seated_after == {"zeus"}
+
+        # Conservation: napoleon's 500 seat chips returned to bankroll via the
+        # SAME `from_seat` path every leave uses (caller credits the bankroll).
+        from_seat = [
+            c
+            for c in result.bankroll_changes
+            if c.personality_id == "napoleon" and c.direction == "from_seat"
+        ]
+        assert len(from_seat) == 1
+        assert from_seat[0].amount == 500
+
+        # NOT re-seatable: no idle-pool add for a called-up persona.
+        assert all(ch.personality_id != "napoleon" for ch in result.idle_changes)
+
+    def test_called_up_none_is_inert(self):
+        # Default (no call-ups) leaves neutral AIs seated — the primitive is
+        # inert for every existing caller.
+        seats = [
+            ai_slot("napoleon", 500),
+            ai_slot("zeus", 500),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        table = _make_table(seats)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"napoleon", "zeus"},
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000, "zeus": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=random.Random(123),
+            now=datetime(2026, 6, 3, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            next_tier_min_buy_in=2000,
+            psych_lookup=_neutral_psych,
+            enable_live_fill=False,
+        )
+        assert result.called_up == []
+        assert all(d == "stay" for d in result.decisions.values())

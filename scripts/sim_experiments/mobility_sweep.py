@@ -33,6 +33,7 @@ Usage (one job):
     --config cap100k --seed 1 --ticks 2000 \
     --db-path /tmp/mob_cap100k_s1.db --out /tmp/mob_cap100k_s1.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -73,8 +74,7 @@ def _apply_starting_bankrolls(db_path: str, transform) -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        "SELECT personality_id, config_json FROM personalities "
-        "WHERE personality_id IS NOT NULL"
+        "SELECT personality_id, config_json FROM personalities " "WHERE personality_id IS NOT NULL"
     ).fetchall()
     out = {}
     for r in rows:
@@ -115,7 +115,7 @@ def _spearman(a: dict, b: dict) -> float:
     ys = [b[p] for p in pids]
     mx = sum(xs) / n
     my = sum(ys) / n
-    cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=False))
     vx = sum((x - mx) ** 2 for x in xs) ** 0.5
     vy = sum((y - my) ** 2 for y in ys) ** 0.5
     return cov / (vx * vy) if vx and vy else 0.0

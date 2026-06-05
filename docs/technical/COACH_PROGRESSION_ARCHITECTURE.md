@@ -1,10 +1,31 @@
-# Coach Progression System - Milestone 1 Architecture
+---
+purpose: As-built architecture for the coach progression system — skills, gates, evidence tracking, and where the code actually lives
+type: architecture
+created: 2026-02-01
+last_updated: 2026-06-03
+---
+
+# Coach Progression System - Architecture
 
 ## Overview
 
-This document describes the architecture for Milestone 1 (Skill-Aware Coaching) of the Coach Progression System. It builds on the existing `CoachEngine` + `CoachAssistant` architecture as an intelligence layer between the stats engine and the LLM voice.
+This document describes the as-built architecture of the Coach Progression System. It
+was originally written as the Milestone 1 (Skill-Aware Coaching) plan; this revision
+reframes it against the shipped code. It builds on the existing `CoachEngine` +
+`CoachAssistant` architecture as an intelligence layer between the stats engine and the
+LLM voice.
 
-**Milestone 1 delivers**: Gate 1 skills (3 preflop skills), situation classification, skill evaluation, player model persistence, self-reported starting level, and adaptive coaching prompts.
+**What shipped**: all four gates are now defined (Gate 1 preflop, Gate 2 post-flop, Gate 3
+pressure recognition, Gate 4 multi-street — 11 skills total, see
+`flask_app/services/skill_definitions.py`), situation classification
+(`situation_classifier.py`), skill evaluation (`skill_evaluator.py`), player model
+persistence (`poker/repositories/coach_repository.py`), self-reported starting level
+(the `/onboarding` route), and adaptive coaching prompts (`coach_assistant.py`).
+
+> **Doc provenance**: the field signatures, the "modify `poker/persistence.py`" plan
+> in §2.4, the `/evaluate-action` recommendation in §4, and the Milestone phasing in §6
+> describe the *original plan*, not the current code. The drift is called out inline
+> below; treat §6 as historical.
 
 ---
 
@@ -12,34 +33,68 @@ This document describes the architecture for Milestone 1 (Skill-Aware Coaching) 
 
 ### 1.1 `flask_app/services/skill_definitions.py` — Skill Registry
 
-Code-driven skill and gate definitions. Single source of truth.
+Code-driven skill and gate definitions. Single source of truth. (The original plan
+placed `EvidenceRules`/`SkillState`/`PlayerSkillState` here; as built those shared,
+dependency-free data structures live in **`poker/coach_models.py`**, imported by both
+the services and the repository to avoid a circular import — see §1.0 below.)
+
+**As-built signatures** (verified against `skill_definitions.py:21-47` and
+`coach_models.py:47-58`):
 
 ```python
+# poker/coach_models.py
 @dataclass(frozen=True)
 class EvidenceRules:
-    min_opportunities: int      # Min chances before advancement
-    advancement_threshold: float  # Success rate to advance (e.g., 0.75)
-    regression_threshold: float   # Fall below this to regress (e.g., 0.60)
-    window_size: int = 50        # Rolling window
+    min_opportunities: int             # Min opps before practicing -> reliable
+    window_size: int = 20              # Rolling window (CLASS DEFAULT 20; shipped skills pass 30)
+    advancement_threshold: float = 0.75
+    regression_threshold: float = 0.60
+    automatic_min_opps: int = 30       # Min opps for reliable -> automatic
+    automatic_threshold: float = 0.85
+    automatic_regression: float = 0.70
+    introduced_min_opps: int = 3       # Min opps before introduced -> practicing
 
+# flask_app/services/skill_definitions.py
 @dataclass(frozen=True)
 class SkillDefinition:
-    id: str                      # "fold_trash_hands"
-    name: str                    # "Fold Trash Hands"
-    gate: int                    # 1
-    description: str             # Lesson summary for introductions
-    trigger_phase: str | tuple   # 'PRE_FLOP'
+    skill_id: str                      # "fold_trash_hands"   (NOT `id`)
+    name: str                          # "Fold Trash Hands"
+    description: str                   # Lesson summary for introductions
+    gate: int                          # 1
     evidence_rules: EvidenceRules
-    depends_on: tuple[str, ...] = ()
+    phases: FrozenSet[str]             # frozenset({'PRE_FLOP'})  (NOT `trigger_phase`)
+    tags: FrozenSet[str] = frozenset() # e.g. {'hand_selection','preflop'}  (replaces `depends_on`)
 
 @dataclass(frozen=True)
 class GateDefinition:
-    gate: int
+    gate_number: int                   # (NOT `gate`)
     name: str
-    skill_ids: tuple[str, ...]
+    description: str
+    skill_ids: Tuple[str, ...]
+    required_reliable: int             # How many skills must be 'reliable' to unlock next gate
 ```
 
-**Gate 1 Skills** (Milestone 1 scope):
+> **Field drift from the original plan**: `SkillDefinition.id → skill_id`,
+> `trigger_phase → phases` (a frozenset, multi-phase), and there is no `depends_on` —
+> dependency is implicit in the `gate` integer; `tags` carries descriptive categories
+> instead. `GateDefinition.gate → gate_number`, plus `description` and `required_reliable`
+> were added. `EvidenceRules.window_size` default is **20**, not 50 (every shipped
+> post-flop skill overrides it to 30; the Gate 1 preflop skills use the default 20).
+> No `EvidenceRules` advancement is a single `advancement_threshold` anymore — there are
+> separate `automatic_*` thresholds for the reliable→automatic step.
+
+### 1.0 `poker/coach_models.py` + `context_builder.py` (new since the plan)
+
+Two modules exist that the original plan didn't anticipate:
+
+- **`poker/coach_models.py`** — dependency-free shared enums/dataclasses
+  (`SkillState`, `SKILL_STATE_ORDER`, `CoachingMode`, `EvidenceRules`,
+  `PlayerSkillState`, `GateProgress`, `CoachingDecision`). Lives under `poker/` so the
+  repository layer can import it without pulling in `flask_app.services`.
+- **`flask_app/services/context_builder.py`** — `build_poker_context()` (the helper the
+  plan placed inline in the classifier/engine).
+
+**Gate 1 Skills**:
 
 | Skill | Trigger | Target Behavior | Advancement | Regression |
 |-------|---------|----------------|-------------|------------|
@@ -117,48 +172,53 @@ class SkillEvaluator:
 
 Manages skill state machine, gate logic, coaching decisions.
 
+The enums and `PlayerSkillState`/`GateProgress`/`CoachingDecision` dataclasses live in
+**`poker/coach_models.py`** (not here). As-built (`coach_models.py:17-123`):
+
 ```python
-class SkillState(str, Enum):
-    INTRODUCED = "introduced"
-    PRACTICING = "practicing"
-    RELIABLE = "reliable"
-    AUTOMATIC = "automatic"
+class SkillState(str, Enum):       # introduced | practicing | reliable | automatic
+class CoachingMode(str, Enum):     # learn | compete | silent  (no "teaching"/"review" enum value)
 
-class CoachingMode(str, Enum):
-    LEARN = "learn"
-    COMPETE = "compete"
-    SILENT = "silent"
-
-@dataclass
+@dataclass(frozen=True)            # frozen, unlike the plan's mutable version
 class PlayerSkillState:
     skill_id: str
-    state: SkillState
-    total_opportunities: int
-    total_correct: int
-    window_opportunities: int
-    window_correct: int
-    window_size: int = 50
-    introduced_at: datetime | None
-    last_evaluated_at: datetime | None
-    last_state_change_at: datetime | None
+    state: SkillState = SkillState.INTRODUCED
+    total_opportunities: int = 0
+    total_correct: int = 0
+    window_opportunities: int = 0
+    window_correct: int = 0        # denormalized from window_decisions for read efficiency
+    window_decisions: tuple = ()   # the actual rolling window (replaces the plan's window_size field)
+    streak_correct: int = 0
+    streak_incorrect: int = 0
+    last_evaluated_at: Optional[str] = None
+    first_seen_at: Optional[str] = None
+    # window_accuracy / total_accuracy are computed @property
 
 @dataclass(frozen=True)
 class CoachingDecision:
-    should_coach: bool
     mode: CoachingMode
-    primary_skill: str | None
-    relevant_skills: tuple[str, ...]
-    cadence_reason: str
-    situation_tags: tuple[str, ...]
+    primary_skill_id: Optional[str] = None    # (NOT `primary_skill`; no `should_coach`/`cadence_reason`)
+    relevant_skill_ids: tuple = ()
+    coaching_prompt: str = ''
+    situation_tags: tuple = ()
+```
 
+The service itself is `flask_app/services/coach_progression.py`:
+
+```python
 class CoachProgressionService:
-    def __init__(self, persistence)
+    def __init__(self, coach_repo)   # takes the coach repository, not a generic `persistence`
 
     def get_player_state(self, user_id: str) -> dict
+    def get_or_initialize_player(self, user_id: str) -> dict
     def initialize_player(self, user_id: str, level: str) -> dict
-    def get_coaching_decision(self, user_id, coaching_data, session_memory) -> CoachingDecision
-    def evaluate_and_update(self, user_id, action, coaching_data, classification) -> list[SkillEvaluation]
+    def update_player_level(self, user_id: str, level: str) -> dict
+    # ...plus the evaluation/advancement methods
 ```
+
+> The plan's `PlayerSkillState.window_size` field does not exist; the window is a
+> `window_decisions` tuple with a denormalized `window_correct` count. `CoachingDecision`
+> dropped `should_coach`/`cadence_reason` and renamed `primary_skill → primary_skill_id`.
 
 **State transitions**:
 - Introduced -> Practicing: >= 3 opportunities (automatic after a few hands)
@@ -296,11 +356,19 @@ POST /api/coach/<game_id>/onboarding
 5. Update session memory (mark skill as coached this hand)
 6. Return `{ answer, stats, coaching_decision }`
 
-### 2.4 `poker/persistence.py`
+### 2.4 Persistence — `poker/repositories/coach_repository.py` (NOT `poker/persistence.py`)
 
-**Change**: Add migration v63 with 3 new tables + `can_access_coach` permission.
+> **As-built correction**: `poker/persistence.py` no longer exists. Persistence was
+> split into per-domain repositories under `poker/repositories/`. Coach state lives in
+> **`coach_repository.py`** (`CoachRepository`), and the schema/migrations are owned by
+> **`schema_manager.py`** (`SCHEMA_VERSION = 148` as of this revision). The coach tables
+> were indeed added in **migration v63** — that part of the plan held — but the file the
+> plan names to edit is gone. Two later migrations extended the profile table:
+> **v68** added `onboarding_completed_at` and **v70** added a `range_targets` JSON column
+> to `player_coach_profile` (`schema_manager.py:1874-1882`, `4444-4516`).
 
-**New tables**:
+**Tables added in migration v63** (schema as built — note `player_coach_profile` gained
+`onboarding_completed_at` in v68 and `range_targets` in v70):
 
 ```sql
 CREATE TABLE player_skill_progress (
@@ -331,7 +399,9 @@ CREATE TABLE player_coach_profile (
     self_reported_level TEXT NOT NULL,
     effective_level TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    onboarding_completed_at TEXT,        -- added v68
+    range_targets TEXT DEFAULT NULL      -- added v70 (JSON: position -> target %)
 );
 ```
 
@@ -339,10 +409,12 @@ CREATE TABLE player_coach_profile (
 - Insert `can_access_coach` into `permissions` table
 - Assign to `user` and `admin` groups via `group_permissions`
 
-**New persistence methods**:
-- `save_skill_state(user_id, skill_state)` / `load_skill_state(user_id, skill_id)` / `load_all_skill_states(user_id)`
-- `save_gate_progress(user_id, gate_progress)` / `load_gate_progress(user_id)`
-- `save_coach_profile(user_id, level, effective_level)` / `load_coach_profile(user_id)`
+**Persistence methods** live on `CoachRepository` (`coach_repository.py`), e.g.
+`save_coach_profile(..., onboarding_completed_at=, range_targets=)` / `load_coach_profile`,
+the per-skill skill-state CRUD, and `save_gate_progress` / `load_gate_progress`. There
+are also instrumentation methods used by the metrics routes and the live tip log:
+`record_tip`, `get_tip_effectiveness`, `get_profile_stats`, `get_skill_distribution`,
+`get_skill_advancement_stats`.
 
 ### 2.5 `poker/memory/opponent_model.py`
 
@@ -452,6 +524,15 @@ Return {review, skill_focus}
 
 ## 4. Post-Action Hook Integration
 
+> **As-built correction**: the `POST /api/coach/<game_id>/evaluate-action` endpoint
+> recommended below (Option A) was **never shipped** — there is no such route in
+> `coach_routes.py`. Evaluation is folded into the existing flow instead:
+> `compute_coaching_data_with_progression()` (in `coach_engine.py`) attaches the
+> classification + coaching decision on the read path, and skill evaluations are
+> restored/recorded through `restore_session_memory()` and surfaced in `/hand-review`
+> (which reads `SessionMemory.get_hand_evaluations()`). The shipped routes are listed in
+> COACH_SYSTEM.md §8. The discussion below is **historical design rationale**.
+
 **Where does the post-action evaluation hook go?**
 
 The evaluation must happen after the human player acts but before the next turn advances. Two options explored:
@@ -506,6 +587,12 @@ if window_opportunities > window_size:
 ---
 
 ## 6. Implementation Sequence
+
+> **Historical** — this is the original build plan. It shipped (with the file/field
+> corrections noted in §1–§4): persistence landed in `poker/repositories/` not
+> `persistence.py`, shared dataclasses landed in `poker/coach_models.py`, and
+> `/evaluate-action` was not built. The `persistence.py` references below are the
+> planned target, not the current code.
 
 ### Phase 1: Core Infrastructure
 **Create**: `skill_definitions.py`, `coach_progression.py`
@@ -568,6 +655,11 @@ if window_opportunities > window_size:
 ---
 
 ## 7. File Summary
+
+> **Historical plan.** As built, add `poker/coach_models.py` (shared dataclasses) and
+> `flask_app/services/context_builder.py` to New Files, and read `poker/persistence.py`
+> below as `poker/repositories/coach_repository.py` + `schema_manager.py`. The
+> `/evaluate-action` endpoint listed under "new endpoints" was not shipped.
 
 ### New Files
 | File | Purpose |

@@ -242,6 +242,52 @@
   border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+.net-worth-drawer__ledger-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.86rem;
+}
+
+.net-worth-drawer__ledger-label {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.net-worth-drawer__ledger-date {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.net-worth-drawer__ledger-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 5.5rem;
+  text-align: right;
+}
+
+.net-worth-drawer__ledger-amount--in {
+  color: #4ade80;
+}
+
+.net-worth-drawer__ledger-amount--out {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.net-worth-drawer__ledger-balance {
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  min-width: 5rem;
+  text-align: right;
+}
+
 .net-worth-drawer__row-main {
   flex: 1;
   min-width: 0;
@@ -286,6 +332,13 @@
   background: rgba(180, 100, 100, 0.2);
   color: #e88;
 }
+/* Bankruptcy — a default sub-case, but distinct from a deliberate
+ * stiff: violet reads as "they went under" rather than "they burned
+ * you," matching the pro-rata-recovery framing in the row copy. */
+.net-worth-drawer__status-badge--bankrupt {
+  background: rgba(167, 139, 250, 0.18);
+  color: #c4b5fd;
+}
 .net-worth-drawer__status-badge--alert {
   background: rgba(250, 204, 21, 0.18);
   color: #facc15;
@@ -319,6 +372,9 @@
 }
 .net-worth-drawer__row--defaulted {
   border-color: rgba(180, 100, 100, 0.18);
+}
+.net-worth-drawer__row--bankrupt {
+  border-color: rgba(167, 139, 250, 0.22);
 }
 .net-worth-drawer__row--settled {
   border-color: rgba(134, 239, 172, 0.12);

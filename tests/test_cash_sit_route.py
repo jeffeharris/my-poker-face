@@ -97,7 +97,13 @@ class _CashSitRouteBase(unittest.TestCase):
                     'stake_comfort_zone': '$10',
                 },
             },
-            circulating=True,
+            # Non-circulating: Napoleon is a manual seat-occupant fixture (placed
+            # explicitly by the tests below), never read from the seeded lobby.
+            # Leaving it circulating let ensure_lobby_seeded drop it into
+            # cash-table-2-001 in PYTHONHASHSEED-dependent order, so on some
+            # `-n auto` runs the manual seat-0 placement collided with a seeded
+            # Napoleon -> duplicate name -> 500 at game creation (the flake).
+            circulating=False,
         )
         cls.bankroll_repo.save_ai_bankroll(
             AIBankrollState(

@@ -51,6 +51,9 @@ const LandingPage = lazy(() =>
   import('./components/landing').then((m) => ({ default: m.LandingPage }))
 );
 const Lobby = lazy(() => import('./components/cash/Lobby').then((m) => ({ default: m.Lobby })));
+const TournamentPage = lazy(() =>
+  import('./components/tournament/TournamentPage').then((m) => ({ default: m.TournamentPage }))
+);
 const TrainingMenu = lazy(() =>
   import('./components/training/TrainingMenu').then((m) => ({ default: m.TrainingMenu }))
 );
@@ -569,6 +572,7 @@ function App() {
                     onContinueGame={() => navigate('/games')}
                     onViewStats={() => navigate('/stats')}
                     onAdminDashboard={() => navigate('/admin')}
+                    onMultiTable={() => navigate('/tournament')}
                     onBack={() => navigate('/menu')}
                     savedGamesCount={savedGamesCount}
                     isCreatingGame={isCreatingGame}
@@ -666,6 +670,19 @@ function App() {
                     fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}
                   >
                     <Lobby />
+                  </ErrorBoundary>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/tournament"
+              element={
+                <ProtectedRoute>
+                  <ErrorBoundary
+                    fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}
+                  >
+                    <TournamentPage />
                   </ErrorBoundary>
                 </ProtectedRoute>
               }

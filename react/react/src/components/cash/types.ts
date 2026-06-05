@@ -230,10 +230,16 @@ export interface LobbyEvent {
     // v121 — the human's reputation quadrant changed (read-only scoreboard
     // beat; `reason` carries the new quadrant label).
     | 'reputation_shift'
-    // v124 — an AI vouched the player into a new cardroom (Act-1 career spine).
+    // v152 — an AI vouched the player into a new cardroom (Act-1 career spine).
     // A door opens: the revealed room is `table_id`/`stake_label`, the voucher
     // is `personality_id`/`name`, `message` is the pre-formatted line.
-    | 'vouch';
+    | 'vouch'
+    // P3.7 — circuit Main Event lifecycle beats from an autonomous run:
+    // a field-collapse milestone (`reason` = final_table|heads_up|down_to),
+    // the bubble bursting, and the champion.
+    | 'tournament_milestone'
+    | 'tournament_bubble'
+    | 'tournament_winner';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -490,6 +496,9 @@ export interface WhereaboutsPerson {
   /** Recharge fraction 0..1 toward the AI's baseline while resting in the idle
    *  pool (1.0 = fully rested); null for seated/off-grid AIs. */
   recharge: number | null;
+  /** Absolute energy axis 0..1 (idle-recovery-projected) — how peppy vs.
+   *  drained the AI is right now; null when no persisted psychology. */
+  energy: number | null;
   /** The AI's last few notable hand events (bust/suckout/big pot), newest
    *  last — the world's short-term memory. [] when no recent drama. */
   recent: { type: string; amount: number; opponent: string | null }[];
@@ -620,6 +629,11 @@ export interface StakeHistoryRow {
    *  the "from / to" framing in the row. */
   role: 'staker' | 'borrower';
   status: 'settled' | 'defaulted';
+  /** v150 — how it resolved when `status` alone isn't specific.
+   *  'bankruptcy' when the borrower's carries were discharged by the
+   *  insolvency valve (status stays 'defaulted'); null for an ordinary
+   *  clean settle or deliberate default. Drives the row's badge/copy. */
+  resolution: 'bankruptcy' | null;
   /** The other side's id (null for house stakes). */
   counterparty_id: string | null;
   counterparty_kind: 'personality' | 'human' | 'house';

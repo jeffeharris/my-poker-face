@@ -78,10 +78,17 @@ def build_tiered_controller(
     # "pure GTO, no personality" option.
     if expression_enabled and not baseline:
         from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
+        from core.llm.settings import get_default_model, get_default_provider
 
+        # Resolve provider/model as a coherent pair from the default tier when
+        # the config omits them. The old `provider='openai', model=None` default
+        # was a landmine: OpenAIProvider's own fallback model is the Groq
+        # `llama-3.1-8b-instant`, so an empty config sent a Groq model name to
+        # OpenAI → guaranteed 404. Defaulting both together (groq + llama, the
+        # cheap narration tier) keeps an under-specified config working instead.
         llm_client = LLMClient(
-            provider=llm_config.get('provider', 'openai'),
-            model=llm_config.get('model'),
+            provider=llm_config.get('provider') or get_default_provider(),
+            model=llm_config.get('model') or get_default_model(),
             # PRH-18: in-game narration — bound it so a stalled provider can't
             # hang the hand under the per-game lock.
             default_timeout=INGAME_LLM_TIMEOUT_SECONDS,

@@ -330,3 +330,51 @@ def test_vouch_skips_unseated_voucher(monkeypatch):
     ticker_service._maybe_fire_vouches("owner1", "sb1")
     # Ready but between rooms → no reveal this tick (retry next tick).
     assert saved == {} or "cleopatra" not in saved[("sb1", "owner1")].vouched_by
+
+
+# --- tournament world-tick hook (P3.7) ---------------------------------
+
+
+def test_tournament_hook_inert_when_flag_off(monkeypatch):
+    # Default flag is OFF: the hook must not touch the tournament services.
+    from flask_app.services import tournament_ticker
+
+    monkeypatch.setattr(
+        tournament_ticker,
+        "advance_owner_tournament",
+        lambda **k: (_ for _ in ()).throw(AssertionError("must not run when flag off")),
+    )
+    # A clean no-op — no exception bubbles out.
+    ticker_service._maybe_tick_tournament("u1", "sbx1")
+
+
+def test_tournament_hook_records_events_when_enabled(monkeypatch):
+    import cash_mode.activity as activity_mod
+    import cash_mode.economy_flags as flags
+    from flask_app import extensions
+    from flask_app.services import tournament_invites, tournament_ticker
+
+    monkeypatch.setattr(flags, "TOURNAMENT_CIRCUIT_ENABLED", True, raising=False)
+    # Persistence "wired" — any truthy sentinel passes the None guard.
+    for name in (
+        "tournament_invite_repo",
+        "tournament_session_repo",
+        "chip_ledger_repo",
+        "bankroll_repo",
+        "personality_repo",
+        "cash_table_repo",
+    ):
+        monkeypatch.setattr(extensions, name, object(), raising=False)
+    monkeypatch.setattr(tournament_invites, "expire_due", lambda **k: [])
+    monkeypatch.setattr(tournament_invites, "maybe_offer_main_event", lambda **k: None)
+
+    evt = FakeEvent(created_at="2026-06-02T00:00:00", type="tournament_winner")
+    monkeypatch.setattr(
+        tournament_ticker, "advance_owner_tournament", lambda **k: {"events": [evt]}
+    )
+    recorded = []
+    monkeypatch.setattr(activity_mod, "record_event", recorded.append)
+
+    ticker_service._maybe_tick_tournament("u1", "sbx1")
+
+    assert recorded == [evt]

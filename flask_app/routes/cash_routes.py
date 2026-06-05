@@ -782,6 +782,7 @@ def _build_cash_game(
     from poker.pressure_detector import PressureEventDetector
     from poker.pressure_stats import PressureStatsTracker
     from poker.repositories.sqlite_repositories import PressureEventRepository
+    from poker.table.seat import HumanSeat, PersonaSeat
 
     human_name = _resolve_player_name()
     ai_names = [a["name"] for a in selected_ai]
@@ -793,16 +794,25 @@ def _build_cash_game(
         big_blind=big_blind,
         dealer_idx=dealer_player_idx,
     )
-    # AI stacks may differ from the human's starting stack; adjust each.
+    # AI stacks may differ from the human's starting stack; adjust each. Also
+    # stamp the canonical typed seat identity (T3-80) on every seat: the human's
+    # HumanSeat keys on owner_id, each AI's PersonaSeat on its personality_id, so
+    # seat_key(player) is the stable key the controller/memory bridges use.
     for idx, player in enumerate(game_state.players):
         if player.is_human:
+            game_state = game_state.update_player(idx, seat_id=HumanSeat(owner_id))
             continue
         ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
         if ai_entry is None:
             continue
-        ai_buy_in = ai_buy_ins[ai_entry["personality_id"]]
-        if ai_buy_in != player.stack:
-            game_state = game_state.update_player(idx, stack=ai_buy_in)
+        pid = ai_entry["personality_id"]
+        ai_buy_in = ai_buy_ins[pid]
+        game_state = game_state.update_player(
+            idx,
+            stack=ai_buy_in,
+            personality_id=pid,
+            seat_id=PersonaSeat(pid),
+        )
 
     base_state_machine = PokerStateMachine(
         game_state=game_state,
@@ -882,6 +892,20 @@ def _build_cash_game(
             expression_enabled=True,
         )
         ai_controllers[player.name] = controller
+
+    # T3-77 — seat each persona in the mood the cash world left it in. Hydrate
+    # the freshly-built controller from the per-persona emotional_state_json
+    # (schema v97); the leave/settle path flushes the evolved mood back, so a
+    # cash table is two-way. No-op for a persona the world hasn't touched yet
+    # (NULL column → baseline) and for the human (no persona blob). Fresh-seat
+    # only — cold-load restores the per-game psychology_json instead, so it must
+    # not run here (this is the build path, not the restore path).
+    from cash_mode.psychology_persistence import hydrate_persona_psychology
+
+    for ai in selected_ai:
+        ctrl = ai_controllers.get(ai["name"])
+        if ctrl is not None and ai.get("personality_id"):
+            hydrate_persona_psychology(ctrl, ai["personality_id"], bankroll_repo, sandbox_id)
 
     # 4. Memory manager (cash_mode=True wires Phase 3 cash_pair_stats).
     pressure_event_repo = PressureEventRepository(persistence_db_path)
@@ -4172,6 +4196,35 @@ def offer_stake_to_ai():
             )
         )
 
+        # Chip-custody: record the player's stake funding so the player
+        # bankroll debit is derivable from the ledger (it was unledgered
+        # before — the staker side of the human-staking gap). The principal
+        # funds the borrower's seat; the pure-stake fee also flows through
+        # the seat (the credit_ai_cash_out below drains it seat -> ai), so
+        # fund the seat with it too. The settlement `stake_payoff` later
+        # drains the same seat back to the staker.
+        from cash_mode import economy_flags as _economy_flags_fund
+        from core.economy import ledger as _chip_ledger_fund
+
+        if chip_ledger_repo is not None and _economy_flags_fund.CHIP_CUSTODY_ENABLED:
+            _chip_ledger_fund.record_stake_fund(
+                chip_ledger_repo,
+                source=_chip_ledger_fund.player(owner_id),
+                sink=_chip_ledger_fund.ai_seat(sandbox_id, target_pid),
+                amount=principal,
+                context={'site': 'player_stake_principal', 'stake_id': stake_id},
+                sandbox_id=sandbox_id,
+            )
+            if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
+                _chip_ledger_fund.record_stake_fund(
+                    chip_ledger_repo,
+                    source=_chip_ledger_fund.player(owner_id),
+                    sink=_chip_ledger_fund.ai_seat(sandbox_id, target_pid),
+                    amount=origination_fee,
+                    context={'site': 'player_stake_origination_fee', 'stake_id': stake_id},
+                    sandbox_id=sandbox_id,
+                )
+
         # Pure-stake origination fee: chips move player bankroll → AI
         # bankroll at deal time. The total_player_outlay above already
         # deducted from the player; credit the AI side here. Use
@@ -4884,6 +4937,26 @@ def _leave_table_locked(owner_id: str, game_id: str):
             }
         )
     state_machine = game_data["state_machine"]
+
+    # T3-77 — flush each persona's evolved mood back to the cash world on leave.
+    # A cash table is two-way: whatever emotional state the opponents built while
+    # playing you carries back into emotional_state_json (schema v97) so the
+    # lobby card + off-screen sim see it. Done here while controllers are still
+    # live (before teardown). Best-effort; resolves the persona id the same way
+    # the seat build did.
+    try:
+        from cash_mode.psychology_persistence import flush_persona_psychology
+
+        for name, ctrl in (game_data.get("ai_controllers") or {}).items():
+            try:
+                flush_pid = personality_repo.resolve_name_to_personality_id(name)
+            except Exception:
+                flush_pid = None
+            if flush_pid:
+                flush_persona_psychology(ctrl, flush_pid, bankroll_repo, sandbox_id)
+    except Exception as e:
+        logger.warning("[CASH] psychology flush on leave failed for %r: %s", game_id, e)
+
     human_player = next(
         (p for p in state_machine.game_state.players if p.is_human),
         None,
@@ -5554,21 +5627,32 @@ def get_lobby():
     # who have never sat.
     from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
 
-    ensure_ai_bankrolls_seeded(
+    _seed_actions = ensure_ai_bankrolls_seeded(
         personality_repo=personality_repo,
         bankroll_repo=bankroll_repo,
         sandbox_id=sandbox_id,
         user_id=owner_id,
         chip_ledger_repo=_chip_ledger_repo,
     )
+    # Genesis reserve: seed the bank pool to a % of holdings ONCE at fresh-
+    # sandbox birth so the world boots lived-in (flag-gated, default OFF). Must
+    # run after bankrolls (it sizes off holdings) and only fires for a pristine
+    # all-"created" seed pass — see ensure_genesis_reserve_seeded.
+    from cash_mode.closed_economy import ensure_genesis_reserve_seeded
 
-    # Career progression (v141): decide new-vs-legacy BEFORE ensure_lobby_seeded
-    # creates the cardrooms. A truly brand-new sandbox (no cash_tables rows yet)
-    # enters the Act-1 keyring flow — Scene 0 is seeded below and the lobby
-    # filters to revealed rooms. An existing sandbox is grandfathered to the
-    # full lobby (keyring stays off; `career_active` False). The safe default of
-    # a missing/legacy row is "show everything", so this can never blank an
-    # existing playtester's lobby. See `cash_mode/career_progression.py`.
+    ensure_genesis_reserve_seeded(
+        chip_ledger_repo=_chip_ledger_repo,
+        sandbox_id=sandbox_id,
+        seed_actions=_seed_actions,
+    )
+
+    # Career progression (schema v152): decide new-vs-legacy BEFORE
+    # ensure_lobby_seeded creates the cardrooms. A truly brand-new sandbox (no
+    # cash_tables rows yet) enters the Act-1 keyring flow — Scene 0 is seeded
+    # below and the lobby filters to revealed rooms. An existing sandbox is
+    # grandfathered to the full lobby (keyring stays off; `career_active` False).
+    # The safe default of a missing/legacy row is "show everything", so this can
+    # never blank an existing playtester's lobby. See `cash_mode/career_progression.py`.
     from cash_mode import career_progression
     from flask_app.extensions import career_progress_repo
 
@@ -6473,6 +6557,8 @@ def get_whereabouts():
         personality_repo,
         relationship_repo,
         side_hustle_state_repo,
+        tournament_invite_repo,
+        tournament_session_repo,
         vice_state_repo,
     )
     from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
@@ -6487,6 +6573,8 @@ def get_whereabouts():
         relationship_repo=relationship_repo,
         bankroll_repo=bankroll_repo,
         personality_repo=personality_repo,
+        tournament_session_repo=tournament_session_repo,
+        tournament_invite_repo=tournament_invite_repo,
     )
 
     met_people = [p for p in data["people"] if p.get("met")]
@@ -6606,6 +6694,79 @@ def set_world_pace():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"world_pace": pace})
+
+
+# Friendly labels for the player ledger (#4). Maps the chip-ledger `reason` to a
+# human phrase; unknown reasons fall back to a title-cased reason.
+_LEDGER_REASON_LABELS = {
+    'player_seed': 'Starting chips',
+    'player_buy_in': 'Sat down (buy-in)',
+    'player_cash_out': 'Left table (take-home)',
+    'tournament_buy_in': 'Tournament buy-in',
+    'tournament_payout': 'Tournament prize',
+    'stake_payoff': 'Backing payout',
+    'house_stake_issue': 'Stake received',
+    'house_stake_settle': 'Stake settled',
+    'forgive_balance': 'Balance forgiven',
+    'informant_unlock': 'Scouting fee',
+    'table_rake': 'Table rake',
+}
+
+
+@cash_bp.route("/api/cash/ledger", methods=["GET"])
+def get_ledger():
+    """GET /api/cash/ledger — the human's chip transaction history (#4).
+
+    The Net Worth drawer is a position snapshot (bankroll + stakes); it never
+    queries the ledger, so cash and tournament winnings show no line item. This
+    returns the itemized statement for the player's global `player:<owner_id>`
+    account (across all sandboxes — the player bankroll is global), newest first,
+    with a friendly label, signed amount, and a running balance per row.
+
+    The player account already sees both sides of a cash session (`player_buy_in`
+    out, `player_cash_out` in — the net is the session P&L) and tournament flows
+    (`tournament_buy_in` / `tournament_payout`), so this is a complete history
+    without needing the per-game `seat:<game_id>` sub-account rows.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    from core.economy.ledger import player as player_account
+    from flask_app.extensions import chip_ledger_repo
+
+    limit = min(int(request.args.get("limit", 200)), 500)
+    account = player_account(owner_id)
+    if chip_ledger_repo is None:
+        return jsonify({"entries": [], "balance": 0})
+
+    entries = chip_ledger_repo.entries_for_account(account, sandbox_id=None, limit=limit)
+    balance = chip_ledger_repo.balance_of(account, sandbox_id=None)
+
+    # Running balance: anchor on the true current balance (entries may be
+    # truncated by `limit`), walk newest→oldest subtracting each newer signed
+    # amount, so `balance_after` is correct for the FULL history at each row.
+    running = int(balance)
+    out = []
+    for e in entries:
+        signed = int(e['signed_amount'])
+        ctx = e.get('context') or {}
+        out.append(
+            {
+                'created_at': e['created_at'],
+                'reason': e['reason'],
+                'label': _LEDGER_REASON_LABELS.get(
+                    e['reason'], e['reason'].replace('_', ' ').title()
+                ),
+                'signed_amount': signed,
+                'balance_after': running,
+                'finishing_position': ctx.get('finishing_position'),
+            }
+        )
+        running -= signed
+
+    return jsonify({"entries": out, "balance": int(balance)})
 
 
 @cash_bp.route("/api/cash/net-worth", methods=["GET"])
@@ -6904,6 +7065,10 @@ def get_net_worth():
                     "stake_id": stake.stake_id,
                     "role": role,
                     "status": stake.status,  # 'settled' | 'defaulted'
+                    # v150 — display label for how it resolved when status
+                    # alone isn't specific. 'bankruptcy' for valve-
+                    # discharged carries; None for ordinary settle/default.
+                    "resolution": stake.resolution,
                     "counterparty_id": counterparty_id,
                     "counterparty_kind": counterparty_kind,
                     "counterparty_display_name": counterparty_display,

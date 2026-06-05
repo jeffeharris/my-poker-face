@@ -340,20 +340,20 @@ class TestTrainingStartRoute(unittest.TestCase):
         self.assertEqual(len(bot_types), 1)
         self.assertTrue(set(bot_types.values()) <= {'fish', 'foldy'})
 
-    def test_elimination_flow_suppressed_without_tracker(self):
-        # The non-counting guarantee for placement/elimination: with no
-        # tournament_tracker on game_data, handle_eliminations no-ops
-        # (mirrors the cash-mode contract).
-        from flask_app.handlers.game_handler import handle_eliminations
-
+    def test_elimination_flow_suppressed_without_session(self):
+        # The non-counting guarantee for placement/elimination. Since the
+        # tournament unification, the placement/elimination flow keys off
+        # `tournament_session` on game_data (the retired tournament_tracker +
+        # handle_eliminations are gone). A training game must carry NEITHER, so
+        # the single-table boundary's elimination/placement path is skipped
+        # entirely (mirrors the cash-mode contract — cash also omits the session).
         resp = self._start(difficulty='easy', preset_id='heads_up')
         gid = resp.get_json()['game_id']
         from flask_app.services import game_state_service
 
         gd = game_state_service.get_game(gid)
-        result = handle_eliminations(gid, gd, unittest.mock.MagicMock(), ['TestUser'], 100)
-        # No tracker → the elimination/placement flow is skipped entirely.
-        self.assertIsNone(result)
+        self.assertIsNone(gd.get('tournament_session'))
+        self.assertIsNone(gd.get('tournament_tracker'))
 
     def test_excluded_from_continue_games_list(self):
         start = self._start(difficulty='medium', preset_id='standard')

@@ -1,0 +1,236 @@
+/* MainEventCard — circuit Main Event invite banner. Gold, set apart from the
+   cash table grid so a live Main Event reads as the headline thing in the
+   lobby. Mirrors the cash-entry surface tokens. */
+
+.main-event {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  background: linear-gradient(135deg, rgba(40, 32, 8, 0.92), rgba(24, 20, 10, 0.96));
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.38);
+  margin: 12px 0;
+}
+
+.main-event__glow {
+  position: absolute;
+  inset: -40% 55% auto -10%;
+  height: 160%;
+  background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.22), transparent 70%);
+  pointer-events: none;
+}
+
+.main-event__body {
+  position: relative;
+  padding: 14px 16px 12px;
+}
+
+.main-event__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.main-event__trophy {
+  color: #e7c660;
+  flex: 0 0 auto;
+}
+
+.main-event__titles {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.main-event__kicker {
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(231, 198, 96, 0.78);
+}
+
+.main-event__title {
+  margin: 0;
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: #f6e8c0;
+}
+
+.main-event__countdown {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  color: #e7c660;
+  background: rgba(212, 175, 55, 0.12);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.main-event__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 4px;
+}
+
+.main-event__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: rgba(246, 232, 192, 0.86);
+}
+
+.main-event__stat svg {
+  color: rgba(231, 198, 96, 0.7);
+}
+
+.main-event__payouts {
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+}
+
+.main-event__payouts-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(246, 232, 192, 0.55);
+  margin-bottom: 4px;
+}
+
+.main-event__payout-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  padding: 1px 0;
+}
+
+.main-event__payout-place {
+  min-width: 2.4rem;
+  color: rgba(246, 232, 192, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+
+.main-event__payout-amount {
+  flex: 1;
+  font-weight: 600;
+  color: rgba(231, 198, 96, 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+.main-event__payout-renown {
+  color: rgba(246, 232, 192, 0.6);
+  font-size: 0.78rem;
+}
+
+.main-event__error {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: #ffd9d2;
+  background: rgba(180, 50, 40, 0.18);
+  border: 1px solid rgba(220, 80, 70, 0.4);
+}
+
+.main-event__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.main-event__btn {
+  flex: 1 1 auto;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    filter 0.15s ease,
+    background 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.main-event__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.main-event__btn:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.main-event__btn--primary {
+  background: linear-gradient(135deg, #e7c660, #c79a30);
+  color: #221a05;
+  border-color: rgba(212, 175, 55, 0.6);
+}
+
+.main-event__btn--primary:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
+.main-event__btn--ghost {
+  flex: 0 0 auto;
+  background: transparent;
+  color: rgba(246, 232, 192, 0.82);
+  border-color: rgba(212, 175, 55, 0.32);
+}
+
+.main-event__btn--ghost:not(:disabled):hover {
+  background: rgba(212, 175, 55, 0.1);
+}
+
+.main-event__footnote {
+  margin: 9px 0 0;
+  font-size: 0.72rem;
+  color: rgba(246, 232, 192, 0.55);
+}
+
+/* Resume-an-active-Main-Event bar (the offer card vanishes once accepted, so
+   this is the way back into an in-progress event — gold, matches the card). */
+.main-event-resume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  background: linear-gradient(135deg, rgba(40, 32, 8, 0.92), rgba(24, 20, 10, 0.96));
+  color: #f6e8c0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    filter 0.15s ease,
+    transform 0.08s ease;
+}
+
+.main-event-resume:hover {
+  filter: brightness(1.08);
+}
+
+.main-event-resume:active {
+  transform: translateY(1px);
+}
+
+.main-event-resume svg {
+  color: #e7c660;
+  flex: 0 0 auto;
+}
+
+.main-event-resume__text {
+  flex: 1 1 auto;
+  text-align: left;
+}

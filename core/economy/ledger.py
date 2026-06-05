@@ -49,6 +49,14 @@ LEDGER_REASONS = frozenset(
         # (atomic seed event — chips land at the seat,
         # not the bankroll; same pool draw semantics
         # as tourist_injection just routed differently)
+        'tournament_overlay',  # bank pool → tournament:<id> escrow: the house
+        # contribution that funds an AI-only / flush-bank
+        # prize pool. A pool DRAW (depletes reserves — the
+        # thermostat's "distribute" lever; see
+        # economy_signal.tournament_funding). Counts in drift
+        # (it really moves reserves into circulation), which is
+        # why the overlay-vs-buy-in distinction is made by
+        # REASON here, not by the tournament:<id> counterparty.
         'bank_pool_sim_seed',  # sim-only: central_bank → synthetic donor as
         # the creation half of a paired (creation +
         # bank_pool_deposit) seed flow. Paired form
@@ -77,6 +85,14 @@ LEDGER_REASONS = frozenset(
         # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
         # this also feeds the bank pool — see
         # BANK_POOL_DEPOSIT_REASONS below.
+        'tournament_return',  # tournament:<id> → bank pool: escrow chips that
+        # found no real recipient at distribute time (a
+        # synthetic-AI finisher's share, or any undistributed
+        # overlay) returning to the recyclable pool. Keeps the
+        # escrow at exactly 0 and is the v1 counterpart to a
+        # real ai:<pid> payout (which lands when real-persona
+        # tournament fields ship). Recyclable (a deposit), so
+        # the overlay it cancels is restored to reserves.
         'casino_seat_return',  # ai → bank pool: residual seat chips returned
         # when a casino tears down (or a tourist leaves
         # mid-life). Mirror of `casino_seat_seed` —
@@ -118,12 +134,43 @@ LEDGER_REASONS = frozenset(
         # settles here, so the table conserves internally
         # between seat accounts (winners' seats go negative,
         # losers' positive; they sum to ~0 across a table).
-        'stake_payoff',  # <staker-funded source> → ai:<staker>: a stake/carry
-        # payoff routed through `credit_ai_cash_out`'s second
-        # (non-seat) use. Source is the borrower (ai:<borrower>)
-        # or the funding player (player:<owner>). A single
-        # transfer reconciles both the borrower debit and the
-        # staker credit; no seat is involved.
+        'stake_fund',  # player:<staker> → seat:ai:<sb>:<borrower>: a HUMAN
+        # staker funding a stake at origination — the player's
+        # principal (+ pure-stake origination fee) committed to
+        # the staked AI's seat. The human-staker mirror of
+        # `ai_buy_in` (which funds an AI's OWN seat from its
+        # bankroll); here the seat is funded by someone else.
+        # Conservation-neutral (player_bankroll drops, the AI
+        # seat stack rises; both already audit-counted). Pairs
+        # with the `stake_payoff` that drains the seat back to
+        # the staker at settlement.
+        'stake_payoff',  # <staker-funded source> → <staker sink>: a stake/carry
+        # payoff. Two shapes: (1) carry repayment — source is
+        # the borrower (ai:<borrower>), no seat, routed through
+        # `credit_ai_cash_out`'s second use; (2) leave-time
+        # settlement of a HUMAN-staked AI — source is the
+        # borrower's seat (seat:ai:<sb>:<borrower>) draining the
+        # staker's cut to player:<staker>, the mirror of the
+        # borrower-share `ai_cash_out` that drains the same seat.
+        # Sink is the staker (ai:<staker> or player:<staker>).
+        'tournament_buy_in',  # player:<id>/ai:<pid> → tournament:<id>: an
+        # entrant's buy-in committed to the tournament escrow
+        # at registration. A drift-invisible TRANSFER (the
+        # chips were already counted on the bankroll; they are
+        # now earmarked at the escrow). Sibling of
+        # player_buy_in — the escrow is the tournament analog
+        # of the seat. Overlay (bank-funded) is NOT this; it is
+        # `tournament_overlay`, a real pool draw.
+        'tournament_payout',  # tournament:<id> → player:<id>/ai:<pid>: a prize
+        # paid out of the escrow at completion. The TRANSFER
+        # mirror of tournament_buy_in. After every payout +
+        # rake the escrow nets to 0 (the escrow-balance
+        # invariant).
+        'ledger_reconciliation',  # reconciliation ↔ ai:<pid>/player:<id>: the
+        # Phase E drift-suspense transfer (audit_ledger_completeness). Parks
+        # `stored − derived` in the `reconciliation` account so a derived
+        # bankroll re-aligns with its authoritative stored int. Bank-neutral
+        # (no central_bank side) → invisible to pool-depth + drift sums.
     }
 )
 
@@ -138,7 +185,11 @@ TRANSFER_REASONS = frozenset(
         'player_cash_out',
         'ai_buy_in',
         'ai_cash_out',
+        'stake_fund',
         'stake_payoff',
+        'tournament_buy_in',
+        'tournament_payout',
+        'ledger_reconciliation',
     }
 )
 
@@ -163,6 +214,7 @@ BANK_POOL_DEPOSIT_REASONS = frozenset(
         'casino_seat_return',
         'table_rake',
         'informant_unlock',
+        'tournament_return',
     }
 )
 
@@ -174,6 +226,7 @@ BANK_POOL_DRAW_REASONS = frozenset(
         'tourist_injection',
         'casino_seat_seed',
         'side_hustle_earning',
+        'tournament_overlay',
     }
 )
 
@@ -218,6 +271,22 @@ def seat(game_id: str) -> str:
     return f"seat:{game_id}"
 
 
+def tournament(tournament_id: str) -> str:
+    """Format `tournament_id` into the canonical `tournament:<id>` form.
+
+    A `tournament:` entity is the escrow holding one tournament's whole purse:
+    buy-ins flow IN (`player/ai → tournament:<id>`, transfers), the bank overlay
+    flows IN (`bank → tournament:<id>`, a creation/draw), and payouts + rake flow
+    OUT (`tournament:<id> → player/ai`, transfers; `tournament:<id> → bank`, a
+    rake destruction). Its `balance_of` IS the at-escrow amount — the sibling of
+    `seat(game_id)`. The escrow-balance invariant: after escrow-in it holds
+    `Σ buy_ins + Σ overlays`; after distribute it nets to 0.
+    """
+    if not tournament_id:
+        raise ValueError("tournament() requires a non-empty tournament_id")
+    return f"tournament:{tournament_id}"
+
+
 def ai_seat(sandbox_id: str, personality_id: str) -> str:
     """Format the canonical AI seat-account string.
 
@@ -238,6 +307,22 @@ def ai_seat(sandbox_id: str, personality_id: str) -> str:
     if not personality_id:
         raise ValueError("ai_seat() requires a non-empty personality_id")
     return f"seat:ai:{sandbox_id}:{personality_id}"
+
+
+def reconciliation() -> str:
+    """The drift-suspense account (Phase E `audit_ledger_completeness`).
+
+    A single non-bank suspense surface that absorbs the difference when a
+    stored bankroll int (the served authority) disagrees with its
+    ledger-derived balance — drift left by the historical non-atomic writes,
+    or whatever any still-unconverted low-frequency path (T3-84/T3-85) leaks.
+    The reconcile parks `stored − derived` here via a `ledger_reconciliation`
+    TRANSFER (bank-neutral — never touches `central_bank`, so it is invisible
+    to the bank-pool depth + creation/destruction drift math). Its own balance
+    is therefore the cumulative *net unexplained drift*: near-zero is healthy;
+    a growing magnitude flags a fresh leak to chase.
+    """
+    return "reconciliation"
 
 
 # --- D2: ledger-derived bankroll (the int becomes a cache of these) ---------
@@ -291,6 +376,7 @@ def record(
     reason: str,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """Write one ledger entry. Returns the row id, or None on failure.
 
@@ -359,7 +445,9 @@ def record(
         return None
 
     try:
-        return repo.record(
+        # Pass `conn` only when set, so repo doubles whose `record()` predates
+        # the `conn=` seam (test fakes) keep working on the common no-txn path.
+        kwargs = dict(
             source=source,
             sink=sink,
             amount=amount_int,
@@ -367,13 +455,18 @@ def record(
             context=context,
             sandbox_id=sandbox_id,
         )
+        if conn is not None:
+            kwargs['conn'] = conn
+        return repo.record(**kwargs)
     except Exception as e:
         # ERROR, not warning (PRH-11): validation has already passed, so this
         # is a real DB-write failure on a row a chip-moving caller expected to
         # land. Callers write the bankroll first, then this best-effort ledger
         # row — so a failure here means the chip move likely committed without
         # a ledger entry = conservation drift. Surface it loudly for alerting;
-        # the audit's `drift` is the reconciliation backstop.
+        # the audit's `drift` is the reconciliation backstop. (When `conn` is
+        # passed the row shares the caller's txn, so a raise here rolls BOTH back
+        # — the caller decides whether to swallow; see save_ai_bankroll.)
         logger.error(
             "[LEDGER] DRIFT RISK: record() DB write failed "
             "(reason=%s amount=%d source=%s sink=%s): %s",
@@ -395,9 +488,16 @@ def record_transfer(
     reason: str,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """Write one TRANSFER ledger entry — a move between two non-bank
     surfaces that does NOT change the size of the universe.
+
+    `conn` (chip-custody atomicity): when given, the INSERT runs on the
+    caller's open transaction (so the int write and this row commit together);
+    a failure is still swallowed (transfers are best-effort, int-authoritative),
+    so it never rolls back the caller's int — the crash-atomicity benefit
+    comes from sharing the transaction, not from raising.
 
     Distinct from `record()`, which rejects rows with no `central_bank`
     side (its job is creations/destructions only). Transfers are the
@@ -447,7 +547,8 @@ def record_transfer(
         )
         return None
     try:
-        return repo.record(
+        # Pass `conn` only when set (keeps pre-seam repo doubles working).
+        kwargs = dict(
             source=source,
             sink=sink,
             amount=amount_int,
@@ -455,6 +556,9 @@ def record_transfer(
             context=context,
             sandbox_id=sandbox_id,
         )
+        if conn is not None:
+            kwargs['conn'] = conn
+        return repo.record(**kwargs)
     except Exception as e:
         # Best-effort: a missing history row is a forensics gap, not a
         # conservation problem (the move is bank-neutral). Log, don't raise.
@@ -535,6 +639,7 @@ def record_ai_buy_in(
     sandbox_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai:<pid> → seat:ai:<sandbox>:<pid> — chips committed at AI sit-down.
 
@@ -542,7 +647,8 @@ def record_ai_buy_in(
     parity wiring). Conservation-neutral (ai_bankroll_state drops, the live
     AI seat stack rises; both already counted by the audit). Makes the AI's
     at-table chips a derivable ledger balance. No-op when `repo` is None or
-    `amount <= 0`. `sandbox_id` is required (it keys the seat account).
+    `amount <= 0`. `sandbox_id` is required (it keys the seat account). `conn`
+    shares the caller's transaction (atomic int debit + this buy-in row).
     """
     if repo is None or amount <= 0:
         return None
@@ -554,6 +660,7 @@ def record_ai_buy_in(
         reason='ai_buy_in',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -564,6 +671,7 @@ def record_ai_cash_out(
     sandbox_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
+    conn=None,
 ) -> Optional[int]:
     """seat:ai:<sandbox>:<pid> → ai:<pid> — the AI's table stack at leave/bust.
 
@@ -573,6 +681,7 @@ def record_ai_cash_out(
     when `repo` is None or `amount <= 0` (a bust with 0 take-home writes no row
     — the absent cash_out paired with a buy_in IS the bust record, same
     convention as humans). `sandbox_id` is required (it keys the seat account).
+    `conn` shares the caller's transaction (atomic int credit + this cash-out row).
     """
     if repo is None or amount <= 0:
         return None
@@ -583,7 +692,44 @@ def record_ai_cash_out(
         amount=amount,
         reason='ai_cash_out',
         context=context,
+        conn=conn,
         sandbox_id=sandbox_id,
+    )
+
+
+def record_stake_fund(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """player:<staker> → seat:ai:<sb>:<borrower> — a human staker funding a stake.
+
+    At origination the player's principal (and, for pure stakes, the
+    origination fee that flows through the seat to the borrower's bankroll)
+    is committed to the staked AI's seat. This is the human-staker analog of
+    `record_ai_buy_in` — the seat is funded, but by the staker rather than the
+    seated AI. A single `source → sink` transfer makes the player debit and the
+    seat credit both derivable so neither drifts from its stored bankroll. The
+    settlement `stake_payoff` drains the same seat back to the staker. Both
+    sides are canonical entity strings the caller builds (`player()` /
+    `ai_seat()`). No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='stake_fund',
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -595,8 +741,9 @@ def record_stake_payoff(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
-    """<borrower/funding source> → <staker sink> — a stake/carry payoff (non-seat).
+    """<borrower/funding source> → <staker sink> — a stake/carry payoff.
 
     `credit_ai_cash_out` is overloaded: besides real seat cash-outs it also
     credits a STAKER's bankroll when a borrower pays off a carry. That credit
@@ -616,6 +763,182 @@ def record_stake_payoff(
         amount=amount,
         reason='stake_payoff',
         context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_ledger_reconciliation(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    account: str,
+    delta: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """Park `delta = stored − derived` for `account` in the `reconciliation`
+    suspense account so the account's ledger-derived balance re-aligns with its
+    authoritative stored int (Phase E `audit_ledger_completeness`).
+
+    `delta > 0` (the int holds more than the ledger shows) → `reconciliation →
+    account`, crediting the account up to its int. `delta < 0` → `account →
+    reconciliation`, debiting the surplus. `account` is a canonical entity
+    string (use `ai()` / `player()`). No-op when `repo` is None or `delta == 0`.
+    A bank-neutral TRANSFER — invisible to bank-pool depth + drift sums.
+    """
+    if repo is None or not delta:
+        return None
+    if delta > 0:
+        source, sink, amount = reconciliation(), account, int(delta)
+    else:
+        source, sink, amount = account, reconciliation(), int(-delta)
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='ledger_reconciliation',
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+# --- Tournament escrow helpers ---
+#
+# The tournament economy is the seat/buy-in pattern with one net-new account,
+# `tournament(id)`. Buy-in and payout are TRANSFERS (drift-invisible, earmarked
+# at the escrow); the overlay is a bank-pool DRAW (real reserve movement). Rake
+# reuses `record_table_rake` (source = the escrow) — already a deposit reason.
+
+
+def record_tournament_buy_in(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """<entrant> → tournament:<id> — an entrant's buy-in committed to escrow.
+
+    `source` is the canonical entity string the buy-in is debited from — build
+    it with `player(owner_id)` (human) or `ai(personality_id)` (AI tourist).
+    A drift-invisible transfer: the chips were already counted on the bankroll
+    and are now earmarked at the escrow. No-op when `repo` is None or
+    `amount <= 0` (a freeroll seat writes no buy-in row). Stamps the
+    `tournament_id` into context so the post-event audit can scope by tournament.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record_transfer(
+        repo,
+        source=source,
+        sink=tournament(tournament_id),
+        amount=amount,
+        reason='tournament_buy_in',
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_tournament_payout(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    sink: str,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """tournament:<id> → <finisher> — a prize paid out of the escrow.
+
+    `sink` is the canonical entity string the prize lands on — `player(owner_id)`
+    or `ai(personality_id)`. The transfer mirror of `record_tournament_buy_in`;
+    after every payout + rake the escrow nets to 0. No-op when `repo` is None or
+    `amount <= 0`. `conn` shares the caller's transaction (atomic payout row +
+    finisher int credit).
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record_transfer(
+        repo,
+        source=tournament(tournament_id),
+        sink=sink,
+        amount=amount,
+        reason='tournament_payout',
+        context=ctx,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_tournament_overlay(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """central_bank → tournament:<id> — the house overlay funding the prize pool.
+
+    A pool DRAW (`tournament_overlay` is in `BANK_POOL_DRAW_REASONS`): it depletes
+    reserves and counts in drift, which is precisely how it differs from a
+    drift-invisible buy-in even though both land at the same escrow. The caller
+    (the funding policy) decides the amount from the live `EconomyState`; this
+    helper just writes the row. No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record(
+        repo,
+        source=bank(),
+        sink=tournament(tournament_id),
+        amount=int(amount),
+        reason='tournament_overlay',
+        context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_tournament_return(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    tournament_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """tournament:<id> → central_bank — escrow chips with no real recipient.
+
+    At distribute, a synthetic-AI finisher's share (and any undistributed
+    overlay) is swept back to the recyclable bank pool so the escrow nets to 0.
+    `tournament_return` is a `BANK_POOL_DEPOSIT_REASON`, so the overlay draw it
+    cancels is restored to reserves. The swap point when real-persona fields
+    ship: credit `ai:<pid>` via `record_tournament_payout` instead of sweeping.
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    ctx = dict(context or {})
+    ctx.setdefault('tournament_id', tournament_id)
+    return record(
+        repo,
+        source=tournament(tournament_id),
+        sink=bank(),
+        amount=int(amount),
+        reason='tournament_return',
+        context=ctx,
         sandbox_id=sandbox_id,
     )
 
@@ -688,6 +1011,7 @@ def record_ai_seed(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """First AI bankroll write in a sandbox: central_bank → ai.
 
@@ -698,6 +1022,10 @@ def record_ai_seed(
     No-op when `repo` is None or `amount <= 0`. Called from
     `BankrollRepository.save_ai_bankroll` when the existence check
     fires (first write per `(personality_id, sandbox_id)`).
+
+    `conn` (chip-custody atomicity): when given, the seed row is written on
+    the caller's open connection so it commits in the SAME transaction as the
+    bankroll upsert (no two-commit divergence window for a first write).
     """
     if repo is None or amount <= 0:
         return None
@@ -709,6 +1037,7 @@ def record_ai_seed(
         reason='ai_seed',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -720,12 +1049,14 @@ def record_ai_regen(
     projected_chips: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for the positive delta between stored and projected.
 
     No-op when `repo` is None or `projected_chips <= stored_chips`. Use at
     every `save_ai_bankroll` call site immediately after computing
-    `projected_chips`.
+    `projected_chips`. `conn` shares the caller's transaction (atomic regen +
+    int write).
     """
     if repo is None:
         return None
@@ -740,6 +1071,7 @@ def record_ai_regen(
         reason='ai_regen',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -879,6 +1211,7 @@ def record_bank_pool_deposit(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """source → central_bank for chips deposited into the closed-economy pool.
 
@@ -904,6 +1237,7 @@ def record_bank_pool_deposit(
         reason='bank_pool_deposit',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -914,6 +1248,7 @@ def record_vice_spending(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai → central_bank for a vice spend (real AI vice mechanic).
 
@@ -939,6 +1274,7 @@ def record_vice_spending(
         reason='vice_spending',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -979,6 +1315,7 @@ def record_side_hustle_earning(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for a side-hustle payout drawn from the bank pool.
 
@@ -1005,6 +1342,7 @@ def record_side_hustle_earning(
         reason='side_hustle_earning',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1059,6 +1397,7 @@ def record_casino_seat_seed(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """central_bank → ai for a fish seat buy-in at casino spawn.
 
@@ -1084,6 +1423,7 @@ def record_casino_seat_seed(
         reason='casino_seat_seed',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )
 
 
@@ -1094,6 +1434,7 @@ def record_casino_seat_return(
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
+    conn=None,
 ) -> Optional[int]:
     """ai → central_bank for residual seat chips returned to the pool.
 
@@ -1119,4 +1460,5 @@ def record_casino_seat_return(
         reason='casino_seat_return',
         context=context,
         sandbox_id=sandbox_id,
+        conn=conn,
     )

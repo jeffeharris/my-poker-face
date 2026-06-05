@@ -13,13 +13,17 @@ from cash_mode.whereabouts import (
     STATUS_IDLE,
     STATUS_SEATED,
     STATUS_SIDE_HUSTLE,
+    STATUS_TOURNAMENT,
+    STATUS_TOURNAMENT_BOUND,
     STATUS_VICE,
     STUCK_DOUBLE_SEAT,
     STUCK_NO_BANKROLL,
     STUCK_OVERDUE_HUSTLE,
     STUCK_SEATED_AND_IDLE,
+    STUCK_SEATED_AND_TOURNAMENT,
     STUCK_SEATED_TOO_LONG,
     STUCK_STALE_IDLE,
+    STUCK_TOURNAMENT_BOUND_AND_SEATED,
     STUCK_UNKNOWN_PERSONALITY,
     build_whereabouts,
 )
@@ -120,6 +124,25 @@ def _offgrid(pid, *, started_min_ago=10, ends_in_min=20, amount=500, narration="
     )
 
 
+class _TournamentSessionRepo:
+    def __init__(self, participants=()):
+        self._participants = set(participants)
+
+    def active_participant_pids(self, owner_id):
+        return set(self._participants)
+
+
+class _InviteRepo:
+    def __init__(self, reserved=(), expires_at=None):
+        self._reserved = list(reserved)
+        self._expires_at = expires_at
+
+    def active_for_owner(self, owner_id):
+        if not self._reserved and self._expires_at is None:
+            return None
+        return {"reserved_pids": list(self._reserved), "expires_at": self._expires_at}
+
+
 def _run(
     *,
     tables=(),
@@ -131,6 +154,9 @@ def _run(
     stats=(),
     chips=None,
     names=None,
+    on_tournament=(),
+    reserved=(),
+    reserved_expires_at=None,
     stale_idle_seconds=30 * 60,
     seated_too_long_seconds=3 * 60 * 60,
 ):
@@ -144,6 +170,8 @@ def _run(
         relationship_repo=_RelRepo(stats),
         bankroll_repo=_BankrollRepo(chips),
         personality_repo=_PersonalityRepo(names),
+        tournament_session_repo=_TournamentSessionRepo(on_tournament),
+        tournament_invite_repo=_InviteRepo(reserved, reserved_expires_at),
         stale_idle_seconds=stale_idle_seconds,
         seated_too_long_seconds=seated_too_long_seconds,
     )
@@ -345,3 +373,88 @@ def test_seated_without_stamp_has_no_duration():
     person = _by_pid(result)["legacy"]
     assert person["seconds_in_state"] is None
     assert person["watch"] == []
+
+
+# --- tournaments-as-a-draw (Phase C): tournament whereabouts ----------------
+
+
+def test_in_running_tournament_is_status_tournament():
+    # A participant in a running tournament reads as 'tournament' (away), even
+    # though it has no cash seat / idle row.
+    result = _run(on_tournament=["champ"], names={"champ": "Champ"})
+    person = _by_pid(result)["champ"]
+    assert person["status"] == STATUS_TOURNAMENT
+    assert result["counts"][STATUS_TOURNAMENT] == 1
+
+
+def test_reserved_and_not_seated_is_tournament_bound():
+    # Reserved for the open Main Event + already vacated off cash (not seated,
+    # not idle — called_up adds no idle row) → tournament_bound.
+    result = _run(
+        reserved=["drawn"],
+        reserved_expires_at="2099-01-01T00:00:00",
+        names={"drawn": "Drawn"},
+        chips={"drawn": 5000},  # vacated personas keep their settled bankroll
+    )
+    person = _by_pid(result)["drawn"]
+    assert person["status"] == STATUS_TOURNAMENT_BOUND
+    assert result["counts"][STATUS_TOURNAMENT_BOUND] == 1
+    assert person["stuck"] == []  # en route during an open window is healthy
+
+
+def test_seated_and_in_tournament_is_double_presence_flag():
+    # The cardinal double-presence: cash-seated AND in a running tournament.
+    tables = [_Table("t1", "$10", [_seat("ai", "ghost", chips=1000)], name="The Lodge")]
+    result = _run(
+        tables=tables, on_tournament=["ghost"], names={"ghost": "Ghost"}, chips={"ghost": 1000}
+    )
+    person = _by_pid(result)["ghost"]
+    assert person["status"] == STATUS_TOURNAMENT
+    assert STUCK_SEATED_AND_TOURNAMENT in person["stuck"]
+
+
+def test_reserved_and_seated_past_expiry_is_soft_flag():
+    # Still cash-seated after the registration window closed → missed the gather.
+    tables = [_Table("t1", "$10", [_seat("ai", "slow", chips=1000)], name="The Lodge")]
+    result = _run(
+        tables=tables,
+        reserved=["slow"],
+        reserved_expires_at="2000-01-01T00:00:00",  # already past NOW
+        names={"slow": "Slow"},
+        chips={"slow": 1000},
+    )
+    person = _by_pid(result)["slow"]
+    assert person["status"] == STATUS_SEATED  # still seated is the live truth
+    assert STUCK_TOURNAMENT_BOUND_AND_SEATED in person["watch"]
+
+
+def test_reserved_and_seated_within_window_is_healthy():
+    # During an OPEN window, reserved-and-still-seated is normal (not yet vacated).
+    tables = [_Table("t1", "$10", [_seat("ai", "waiting", chips=1000)], name="The Lodge")]
+    result = _run(
+        tables=tables,
+        reserved=["waiting"],
+        reserved_expires_at="2099-01-01T00:00:00",  # future
+        names={"waiting": "Waiting"},
+        chips={"waiting": 1000},
+    )
+    person = _by_pid(result)["waiting"]
+    assert person["status"] == STATUS_SEATED
+    assert STUCK_TOURNAMENT_BOUND_AND_SEATED not in person["watch"]
+
+
+def test_no_tournament_repos_is_inert():
+    # Omitting the tournament repos (default None) → behaves exactly as before.
+    tables = [_Table("t1", "$10", [_seat("ai", "x", chips=1000)], name="The Lodge")]
+    result = build_whereabouts(
+        sandbox_id=SANDBOX,
+        owner_id=OWNER,
+        now=NOW,
+        cash_table_repo=_TableRepo(tables, []),
+        side_hustle_repo=_StateRepo(),
+        vice_repo=_StateRepo(),
+        relationship_repo=_RelRepo(),
+        bankroll_repo=_BankrollRepo({"x": 1000}),
+        personality_repo=_PersonalityRepo({"x": "X"}),
+    )
+    assert _by_pid(result)["x"]["status"] == STATUS_SEATED

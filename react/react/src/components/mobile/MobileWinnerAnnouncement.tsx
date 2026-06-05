@@ -8,7 +8,13 @@ import { config } from '../../config';
 import { getOrdinal, type BackendCard } from '../../types/tournament';
 import type { PostRoundTone, PostRoundSuggestion, ChatIntensity } from '../../types/chat';
 import type { Player } from '../../types/player';
-import { buildToneOptions, SARCASM_ABLE_POST_ROUND } from './postRoundTones';
+import {
+  buildToneOptions,
+  addressingForTone as addressingForToneShared,
+  SARCASM_ABLE_POST_ROUND,
+  POST_ROUND_FALLBACKS,
+} from './postRoundTones';
+import { CountdownRing } from '../shared/CountdownRing';
 import './MobileWinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -60,49 +66,16 @@ interface MobileWinnerAnnouncementProps {
   commentary?: CommentaryItem[];
   onComplete: () => void;
   gameId: string;
-  playerName: string;
+  /** Fallback human-player name, used only when `players` carries no is_human
+   *  seat (e.g. the tournament final-hand overlay). When `players` is present
+   *  the human is taken from its is_human seat instead — see humanName. */
+  playerName?: string;
   onSendMessage: (text: string, addressing?: string[], tone?: string, intensity?: string) => void;
   /** Live players with current avatar_url/avatar_emotion. Used to render
-   *  emotion-aware avatar chips next to each showdown name. */
+   *  emotion-aware avatar chips next to each showdown name, and to identify the
+   *  human (is_human seat) for the win/loss tone read. */
   players?: Player[];
 }
-
-// Offline fallbacks per tone, used when the suggestion API is unreachable or
-// required params are missing. One source for both error paths.
-const POST_ROUND_FALLBACKS: Record<PostRoundTone, PostRoundSuggestion[]> = {
-  gloat: [
-    { text: 'Too easy.', tone: 'gloat' },
-    { text: 'Thanks for the chips!', tone: 'gloat' },
-  ],
-  gracious: [
-    { text: 'Nice hand.', tone: 'gracious' },
-    { text: 'Well played.', tone: 'gracious' },
-  ],
-  humble: [
-    { text: 'Got lucky there.', tone: 'humble' },
-    { text: 'Good game.', tone: 'humble' },
-  ],
-  commiserate: [
-    { text: 'Tough beat, man.', tone: 'commiserate' },
-    { text: 'Brutal spot — you played it fine.', tone: 'commiserate' },
-  ],
-  salty: [
-    { text: 'Unreal.', tone: 'salty' },
-    { text: 'Of course.', tone: 'salty' },
-  ],
-  props: [
-    { text: 'Respect. Well played.', tone: 'props' },
-    { text: 'That was a sharp read.', tone: 'props' },
-  ],
-  cry_luck: [
-    { text: 'Needed that river, huh?', tone: 'cry_luck' },
-    { text: 'Lucky catch.', tone: 'cry_luck' },
-  ],
-  vow: [
-    { text: "I'm taking that stack back.", tone: 'vow' },
-    { text: 'This isn’t over.', tone: 'vow' },
-  ],
-};
 
 export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   winnerInfo,
@@ -133,17 +106,31 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const [loading, setLoading] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false); // Pauses auto-dismiss
+  // Timestamp the auto-dismiss timer (re)started, for the countdown ring.
+  // null while paused (interacting / final hand) so the ring freezes.
+  const [dismissStartedAt, setDismissStartedAt] = useState<number | null>(null);
   // Currently-selected tone + delivery register (only `sarcastic` matters
   // post-round; the warm tones invert into a barb/self-mockery). Sincere is
   // the absence of a sarcastic register.
   const [selectedTone, setSelectedTone] = useState<PostRoundTone | null>(null);
   const [sarcastic, setSarcastic] = useState(false);
 
+  // Identify the human by the backend's is_human seat — the same source as
+  // winnerInfo.winners / players_showdown — so the win/loss read can never
+  // disagree with them. The playerName prop is only a fallback for render
+  // contexts that don't pass a players list (e.g. the tournament final-hand
+  // overlay). Trusting the prop directly is what made a win show loser tones:
+  // it's sourced from user.name and can drift from the seat's player.name.
+  const humanName = useMemo(
+    () => players?.find((p) => p.is_human)?.name ?? playerName ?? '',
+    [players, playerName]
+  );
+
   // Situational read of the hand, so the post-round tones fit what happened.
-  const playerWon = winnerInfo?.winners.includes(playerName) ?? false;
+  const playerWon = winnerInfo?.winners.includes(humanName) ?? false;
   const winnerName = winnerInfo?.winners?.[0];
   const isShowdown = !!winnerInfo?.showdown;
-  const humanAtShowdown = !!winnerInfo?.players_showdown?.[playerName];
+  const humanAtShowdown = !!winnerInfo?.players_showdown?.[humanName];
 
   // A fellow loser to commiserate with: someone OTHER than you who lost at
   // showdown (was in the pot at the end and got beaten). Strictly the showdown
@@ -153,8 +140,8 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const fellowLoser = useMemo(() => {
     if (!winnerInfo?.players_showdown) return undefined;
     const isWinner = (n: string) => winnerInfo.winners.includes(n);
-    return Object.keys(winnerInfo.players_showdown).find((n) => n !== playerName && !isWinner(n));
-  }, [winnerInfo, playerName]);
+    return Object.keys(winnerInfo.players_showdown).find((n) => n !== humanName && !isWinner(n));
+  }, [winnerInfo, humanName]);
 
   const toneOptions = useMemo(
     () =>
@@ -167,14 +154,10 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
     [playerWon, isShowdown, humanAtShowdown, fellowLoser]
   );
 
-  // Who a given tone is aimed at: Commiserate → the fellow loser; the
-  // loss-side reactions → the winner who beat you; win-side tones broadcast.
+  // Who a given tone is aimed at — shared policy with the desktop overlay.
   const addressingForTone = useCallback(
-    (tone: PostRoundTone): string[] | undefined => {
-      if (tone === 'commiserate') return fellowLoser ? [fellowLoser] : undefined;
-      if (!playerWon && winnerName) return [winnerName];
-      return undefined;
-    },
+    (tone: PostRoundTone): string[] | undefined =>
+      addressingForToneShared(tone, { playerWon, winnerName, fellowLoser }),
     [fellowLoser, playerWon, winnerName]
   );
 
@@ -184,8 +167,8 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
       const intensity: ChatIntensity | undefined = useSarcastic ? 'sarcastic' : undefined;
 
       // Skip API call if required params are missing
-      if (!gameId || !playerName) {
-        logger.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
+      if (!gameId || !humanName) {
+        logger.warn('[PostRoundChat] Missing gameId or humanName, using fallback suggestions');
         setSuggestions(POST_ROUND_FALLBACKS[tone]);
         return;
       }
@@ -194,7 +177,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
       try {
         const response = await gameAPI.getPostRoundChatSuggestions(
           gameId,
-          playerName,
+          humanName,
           tone,
           intensity
         );
@@ -206,7 +189,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         setLoading(false);
       }
     },
-    [gameId, playerName, winnerInfo]
+    [gameId, humanName, winnerInfo]
   );
 
   const handleToneSelect = (tone: PostRoundTone) => {
@@ -271,8 +254,17 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
 
   // Separate effect for auto-dismiss that respects isInteracting and final hand
   useEffect(() => {
-    // Don't auto-dismiss if interacting OR if it's the final hand
-    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) return;
+    // Don't auto-dismiss if interacting OR if it's the final hand. Clear the
+    // ring's start stamp so it freezes (interacting) or never shows (final).
+    if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) {
+      setDismissStartedAt(null);
+      return;
+    }
+
+    // Stamp the (re)start so the countdown ring drains over this window.
+    // Pausing then resuming via isInteracting restarts the full timer here,
+    // and the ring follows because this stamp moves with it.
+    setDismissStartedAt(Date.now());
 
     const dismissTimer = setTimeout(
       () => {
@@ -304,6 +296,19 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
 
   return (
     <div className="mobile-winner-overlay" data-testid="winner-overlay">
+      {/* Auto-dismiss countdown — showdown only (fold-outs flash by too
+          fast for a ring to read; the final hand waits for manual Continue,
+          so dismissStartedAt stays null there and the ring is skipped). When
+          paused mid-interaction the ring sits full until the timer restarts. */}
+      {winnerInfo.showdown && !winnerInfo.is_final_hand && (
+        <CountdownRing
+          timerStartedAt={dismissStartedAt}
+          displayDuration={INTERHAND_TIMING.showdownResultMs}
+          size={22}
+          stroke={2.5}
+          className="mobile-winner-timer-ring"
+        />
+      )}
       <div className="mobile-winner-content">
         {/* Tournament Outcome Banner - only shown on final hand */}
         {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (

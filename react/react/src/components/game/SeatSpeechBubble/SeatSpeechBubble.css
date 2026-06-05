@@ -42,6 +42,16 @@
   border-top: 1px solid rgba(212, 165, 116, 0.35);
 }
 
+/* Auto-dismiss countdown ring, top-right (the ::before pointer is top-center,
+ * so the corner is clear). rotate / colour / pointer-events come from
+ * .countdown-ring. */
+.seat-speech-bubble__timer-ring {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+}
+
 .seat-speech-bubble__sender {
   font-size: 0.7rem;
   font-weight: 700;

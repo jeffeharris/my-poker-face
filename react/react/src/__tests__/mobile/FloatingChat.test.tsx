@@ -37,6 +37,20 @@ vi.mock('framer-motion', () => ({
         </div>
       );
     },
+    // SVG stub for the countdown ring's progress arc. Strips the
+    // animation props (pathLength/initial/animate/transition) so the
+    // resulting <circle> is valid SVG; the ring's drain animation
+    // belongs in an E2E test with a real motion runtime.
+    circle: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
+      const {
+        initial: _initial,
+        animate: _animate,
+        transition: _transition,
+        pathLength: _pathLength,
+        ...svgProps
+      } = props;
+      return <circle {...svgProps}>{children}</circle>;
+    },
   },
   AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => (
     <>{children}</>
@@ -230,6 +244,48 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
       const aiBadge = document.querySelector('.ai-badge');
       expect(aiBadge).toBeTruthy();
       expect(aiBadge!.textContent).toBe('AI');
+    });
+
+    it('falls back to the message avatar_url when the sender has left the table', () => {
+      // A departed AI's farewell lands after the seat-derived cache drops them,
+      // so the cache (playerAvatars) no longer has the sender. The avatar URL
+      // stamped on the message keeps the bubble's face from going blank.
+      const onDismiss = vi.fn();
+      render(
+        <FloatingChat
+          message={makeMessage({
+            sender: 'Batman',
+            type: 'ai',
+            avatar_url: 'http://localhost:5174/avatars/batman.png',
+          })}
+          onDismiss={onDismiss}
+          playerAvatars={new Map()}
+        />
+      );
+
+      const avatarImg = document.querySelector('.floating-avatar-img') as HTMLImageElement;
+      expect(avatarImg).toBeTruthy();
+      expect(avatarImg.src).toContain('/avatars/batman.png');
+    });
+
+    it('prefers the live cache avatar over the message avatar_url for seated players', () => {
+      const onDismiss = vi.fn();
+      render(
+        <FloatingChat
+          message={makeMessage({
+            sender: 'Batman',
+            type: 'ai',
+            avatar_url: 'http://localhost:5174/avatars/stale.png',
+          })}
+          onDismiss={onDismiss}
+          playerAvatars={makePlayerAvatars()}
+        />
+      );
+
+      const avatarImg = document.querySelector('.floating-avatar-img') as HTMLImageElement;
+      expect(avatarImg).toBeTruthy();
+      // Live, emotion-aware cache wins while the player is still seated.
+      expect(avatarImg.src).toContain('/avatars/batman.png');
     });
   });
 

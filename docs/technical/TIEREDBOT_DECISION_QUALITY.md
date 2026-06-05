@@ -2,7 +2,7 @@
 purpose: Reference for the TieredBot postflop decision-quality system (hand classifier, archetype classifier, defense floor, bluff reduction, offset budgets, diagnostics)
 type: reference
 created: 2026-05-14
-last_updated: 2026-05-15
+last_updated: 2026-06-03
 ---
 
 # TieredBot Decision Quality
@@ -23,7 +23,6 @@ Postflop decisions flow through these layers (each emits an
 1  exploitation         — hyper_aggressive / hyper_passive / tight_nit /
                           high_fold_to_cbet / multiway_cbet offsets
 1  value_vs_station     — Phase 8: +bet_* on strong+ vs hyper_passive opps
-1  steal_pressure       — Phase 8: +raise_* in preflop open spots vs nits
 1  bluff_reduction      — §5: -bet_*/raise_* on air vs station opps
 2  strong_hand_override — Phase 6.5: replaces strategy with call/raise
                           for strong+ vs hyper_aggressive
@@ -174,8 +173,12 @@ Migrated detection sites (post-`e8982eff`):
 | `_is_tight_nit` | `vpip_per_voluntary_opportunity` | < 0.30 |
 | `compute_pattern_intensity` (hyper_passive + tight_nit ramps) | `vpip_per_voluntary_opportunity` | (ramp endpoints in `exploitation.py`) |
 | `aggregate_from_spots` | both opp-normalized fields | (averages) |
-| `compute_steal_pressure_intensity` | both opp-normalized fields | per `PFR_LOOSE_THRESHOLD` etc. |
 | `value_override._is_station_for_value` | `vpip_per_voluntary_opportunity` | > 0.65 |
+
+(The `compute_steal_pressure_intensity` row was dropped here on 2026-06-03: that
+helper was removed with the `steal_pressure` rule in EXP_005. The loose-PFR
+threshold it referenced is `PFR_LOOSE_PER_OPEN_THRESHOLD = 0.40`,
+`exploitation.py:133`.)
 
 `_is_hyper_aggressive` was **not** migrated (AF is already
 player-count-stable via the `medium_af_postflop` cap).
@@ -327,18 +330,28 @@ branches contribute, a post-pass walks `rule_offsets`, computes
 L1 per rule, and proportionally scales any rule that exceeds
 budget.
 
-Budgets (post-§7 validation tuning):
+Budgets (post-§7 validation tuning) — the live 7-entry `MAX_L1_SHIFT_BY_RULE`
+matches `RULE_ORDER` (`exploitation.py:222`) one-for-one:
 
-| Rule | MAX_L1_SHIFT |
+| Rule (`(layer, label)` key) | MAX_L1_SHIFT |
 |---|---|
-| `hyper_aggressive` | 1.10 |
-| `hyper_passive` | 0.80 |
-| `tight_nit` | 0.50 |
-| `high_fold_to_cbet` | 1.60 |
-| `multiway_cbet` | 1.60 |
-| `value_vs_station` | 1.20 |
-| `steal_pressure` | 0.50 |
-| `bluff_reduction` | 1.30 |
+| `('exploitation', 'hyper_aggressive')` | 1.10 |
+| `('exploitation', 'hyper_passive')` | 0.80 |
+| `('exploitation', 'tight_nit')` | 0.50 |
+| `('exploitation', 'high_fold_to_cbet')` | 1.60 |
+| `('exploitation', 'multiway_cbet')` | 1.60 |
+| `('value_vs_station', 'default')` | 1.20 |
+| `('bluff_reduction', 'default')` | 1.30 |
+
+> **`steal_pressure` removed (EXP_005).** Earlier revisions of this doc and the
+> pipeline-order block listed a `steal_pressure` rule (raise pressure vs nits in
+> preflop open spots) at budget 0.50. It was **deleted as dead/inert** — see the
+> 2026-05-28 consolidation note in `exploitation.py` (~line 2100): "the maniac-side
+> rules and the dead `steal_pressure` rule were removed (EXP_005 — inert vs
+> aggression; the strategy table already beats bombers)." It is no longer in
+> `RULE_ORDER` or `MAX_L1_SHIFT_BY_RULE`. `value_vs_station` and `hyper_passive`
+> are the only exploitation rules with measured value (+22.5 bb/100 vs
+> CallStation-class caricatures) and are kept as cheap dormant insurance.
 
 Values sized to current rule maximums + headroom — this is a
 **safety net**, not a re-calibration. The framework catches

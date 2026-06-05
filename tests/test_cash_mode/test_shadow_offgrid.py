@@ -203,7 +203,6 @@ def test_side_hustle_start_and_end_round_trip(shadow_on):
     ends = ai_side_hustle.tick_side_hustle_expirations(
         side_hustle_repo=sh_repo,
         bankroll_repo=bankroll,
-        chip_ledger_repo=None,
         sandbox_id=SANDBOX,
         now=NOW,
     )

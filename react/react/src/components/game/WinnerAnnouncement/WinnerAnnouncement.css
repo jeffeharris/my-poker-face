@@ -1,4 +1,13 @@
 /* Winner Announcement Styles */
+/* Auto-dismiss countdown ring, pinned to the winner card's top-right corner
+ * (rotate / colour / pointer-events come from .countdown-ring). */
+.winner-content__timer-ring {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+}
+
 .winner-announcement {
   position: fixed;
   top: 0;
@@ -717,9 +726,36 @@
   color: #c084fc;
 }
 
+/* Situational loss/win tones (shared with the mobile overlay). */
+.winner-chat-tone.tone-commiserate:hover {
+  background: rgba(20, 184, 166, 0.15);
+  border-color: #14b8a6;
+  color: #2dd4bf;
+}
+
+.winner-chat-tone.tone-cry_luck:hover {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+
+.winner-chat-tone.tone-vow:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: #6366f1;
+  color: #818cf8;
+}
+
 .winner-chat-suggestions {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+/* Back + sarcastic toggle share one row above the suggestions. */
+.winner-chat-suggestions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
@@ -738,6 +774,38 @@
 
 .winner-chat-back:hover {
   color: #cbd5e1;
+}
+
+/* Sarcastic register toggle — discreet pill, lights up amethyst when on
+   (matching the dry/backhanded register's mischief). */
+.winner-chat-sarcastic {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.winner-chat-sarcastic:hover {
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.winner-chat-sarcastic.active {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: #a855f7;
+  color: #c084fc;
 }
 
 .winner-chat-suggestion {
@@ -782,6 +850,21 @@
 .winner-chat-suggestion.tone-props:hover {
   background: rgba(168, 85, 247, 0.12);
   border-color: rgba(168, 85, 247, 0.35);
+}
+
+.winner-chat-suggestion.tone-commiserate:hover {
+  background: rgba(20, 184, 166, 0.12);
+  border-color: rgba(20, 184, 166, 0.35);
+}
+
+.winner-chat-suggestion.tone-cry_luck:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.winner-chat-suggestion.tone-vow:hover {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.35);
 }
 
 .winner-chat-loading {

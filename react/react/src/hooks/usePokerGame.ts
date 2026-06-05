@@ -506,6 +506,10 @@ export function usePokerGame({
           timestamp: msg.timestamp,
           type: msg.message_type,
           action: msg.action, // Include action for AI messages
+          // Fully-qualify the speaker's avatar so the floating bubble can render
+          // their face even after they've left the table (the seat-derived avatar
+          // cache drops departed players). Backend sends a relative /api path.
+          avatar_url: msg.avatar_url ? `${config.API_URL}${msg.avatar_url}` : undefined,
         };
 
         messageIdsRef.current.add(msgId);

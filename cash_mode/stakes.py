@@ -128,3 +128,12 @@ class Stake:
     # $50 table generates the most carry?") become possible. Settlement
     # remains keyed on session_id, so this column is purely additive.
     table_id: Optional[str] = None
+    # v150 — distinguishes HOW a closed stake resolved when the bare
+    # `status` isn't specific enough. NULL for ordinary settles/defaults;
+    # 'bankruptcy' when the borrower's carries were discharged by the
+    # insolvency valve (status stays 'defaulted' so all the default
+    # machinery — history inclusion, track-record counts, sponsor-offer
+    # penalties — keeps treating it as a default; this is purely the
+    # display label so the Net Worth history can read "bankruptcy" vs a
+    # deliberate stiff). Additive; existing rows read NULL.
+    resolution: Optional[str] = None

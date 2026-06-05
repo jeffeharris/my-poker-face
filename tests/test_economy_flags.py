@@ -58,6 +58,10 @@ def reset_flags():
         economy_flags.RAKE_RATE,
         economy_flags.RAKE_CAP_BB,
         economy_flags.RAKE_STAKE_BIG_BLINDS,
+        economy_flags.RAKE_RESERVE_GATED,
+        economy_flags.GENESIS_RESERVE_ENABLED,
+        economy_flags.DIRECTOR_INEQUALITY_RAKE,
+        economy_flags.DIRECTOR_POLICY_HOLD,
     )
     yield
     (
@@ -67,7 +71,15 @@ def reset_flags():
         economy_flags.RAKE_RATE,
         economy_flags.RAKE_CAP_BB,
         economy_flags.RAKE_STAKE_BIG_BLINDS,
+        economy_flags.RAKE_RESERVE_GATED,
+        economy_flags.GENESIS_RESERVE_ENABLED,
+        economy_flags.DIRECTOR_INEQUALITY_RAKE,
+        economy_flags.DIRECTOR_POLICY_HOLD,
     ) = saved
+    from cash_mode import director_policy, field_inequality
+
+    field_inequality.reset_cache()
+    director_policy.reset_cache()
 
 
 # --- REGEN_ENABLED ------------------------------------------------------
@@ -189,6 +201,68 @@ class TestComputeRake:
         assert economy_flags.compute_rake(pot=10_000, big_blind=200) == 200
         assert economy_flags.compute_rake(pot=10_000, big_blind=1000) == 200
         assert economy_flags.compute_rake(pot=10_000, big_blind=10) == 0
+
+    def test_override_params_expand_stakes_and_rate(self):
+        # The Director schedule overrides the static config: a $200 table that
+        # wouldn't rake under the static {1000} set now rakes at the bumped rate.
+        economy_flags.RAKE_ENABLED = True
+        economy_flags.RAKE_RATE = 0.02  # static rate, should be overridden
+        economy_flags.RAKE_CAP_BB = 1000  # non-binding
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({1000})  # static set
+        # Static: $200 table rakes nothing.
+        assert economy_flags.compute_rake(pot=10_000, big_blind=200) == 0
+        # Override: $200 listed at 3% → 300.
+        assert (
+            economy_flags.compute_rake(
+                pot=10_000, big_blind=200, stake_big_blinds=frozenset({1000, 200}), rate=0.03
+            )
+            == 300
+        )
+
+
+# --- resolve_rake_params (Director reserve-gated schedule) --------------
+
+
+class TestResolveRakeParams:
+    SBX = "test-rake-params"
+
+    def _seed(self, repo, *, holdings, pool):
+        repo.record('central_bank', 'player:p', holdings, 'player_seed', sandbox_id=self.SBX)
+        if pool:
+            repo.record('ai:rich', 'central_bank', pool, 'bank_pool_deposit', sandbox_id=self.SBX)
+
+    def test_flag_off_returns_none(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = False
+        self._seed(ledger_repo, holdings=100_000, pool=500)  # would be EMPTY if gated
+        assert economy_flags.resolve_rake_params(ledger_repo, self.SBX) == (None, None)
+
+    def test_no_ledger_returns_none(self):
+        economy_flags.RAKE_RESERVE_GATED = True
+        assert economy_flags.resolve_rake_params(None, self.SBX) == (None, None)
+
+    def test_low_bank_expands_to_200_and_bumps_rate(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        # ratio ≈ 0.042 (in the low band 0.03–0.06): adds $200 @ 3%.
+        self._seed(ledger_repo, holdings=100_000, pool=4_000)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000, 200})
+        assert rate == 0.03
+
+    def test_critical_bank_adds_50_and_top_rate(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        # ratio ≈ 0.005 (below the critical floor 0.03): all tiers @ 4%.
+        self._seed(ledger_repo, holdings=100_000, pool=500)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000, 200, 50})
+        assert rate == 0.04
+
+    def test_flush_bank_stays_top_tier_only(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        # ratio ≈ 0.33 (well above the healthy floor 0.06): top tier only @ 2%.
+        self._seed(ledger_repo, holdings=100_000, pool=25_000)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})
+        assert rate == 0.02
 
 
 # --- record_table_rake --------------------------------------------------
@@ -460,3 +534,197 @@ class TestUniverseConservation:
         after = sum(final.values())
         # Universe shrank by exactly the rake amount.
         assert before - after == 10  # 2% of 500
+
+
+# --- ensure_genesis_reserve_seeded (fresh-sandbox bank pool) ----------------
+
+
+class TestGenesisReserveSeed:
+    SBX = "test-genesis"
+
+    def _seed_holdings(self, repo, amount):
+        # A plain creation puts `amount` chips into circulation (holdings).
+        repo.record('central_bank', 'ai:x', amount, 'ai_seed', sandbox_id=self.SBX)
+
+    def _fresh_actions(self, n=3):
+        return {f'p{i}': 'created' for i in range(n)}
+
+    def test_disabled_returns_zero(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = False
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo,
+                sandbox_id=self.SBX,
+                seed_actions=self._fresh_actions(),
+            )
+            == 0
+        )
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 0
+
+    def test_seeds_ratio_of_holdings_on_fresh_sandbox(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        economy_flags.GENESIS_RESERVE_RATIO = 0.05
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        seeded = ensure_genesis_reserve_seeded(
+            chip_ledger_repo=ledger_repo,
+            sandbox_id=self.SBX,
+            seed_actions=self._fresh_actions(),
+        )
+        assert seeded == 5_000  # 0.05 × 100_000
+        # Reserve now sits at the seeded depth; holdings unchanged (paired entry).
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 5_000
+
+    def test_skips_when_actions_not_all_created(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import ensure_genesis_reserve_seeded
+
+        actions = {'p0': 'created', 'p1': 'skipped'}  # an existing sandbox
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=actions
+            )
+            == 0
+        )
+
+    def test_skips_when_no_actions(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import ensure_genesis_reserve_seeded
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=None
+            )
+            == 0
+        )
+
+    def test_skips_when_reserves_already_positive(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        self._seed_holdings(ledger_repo, 100_000)
+        # Pre-existing reserve (economy already ran) → genesis must not stack.
+        ledger_repo.record('ai:y', 'central_bank', 3_000, 'bank_pool_deposit', sandbox_id=self.SBX)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo,
+                sandbox_id=self.SBX,
+                seed_actions=self._fresh_actions(),
+            )
+            == 0
+        )
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 3_000
+
+    def test_idempotent_second_call_is_noop(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        economy_flags.GENESIS_RESERVE_RATIO = 0.05
+        self._seed_holdings(ledger_repo, 100_000)
+        from cash_mode.closed_economy import (
+            compute_bank_pool_reserves,
+            ensure_genesis_reserve_seeded,
+        )
+
+        first = ensure_genesis_reserve_seeded(
+            chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=self._fresh_actions()
+        )
+        second = ensure_genesis_reserve_seeded(
+            chip_ledger_repo=ledger_repo, sandbox_id=self.SBX, seed_actions=self._fresh_actions()
+        )
+        assert first == 5_000
+        assert second == 0  # reserves already positive → no double-seed
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id=self.SBX) == 5_000
+
+    def test_skips_when_no_holdings(self, ledger_repo):
+        economy_flags.GENESIS_RESERVE_ENABLED = True
+        # No holdings seeded → nothing to size the reserve against.
+        from cash_mode.closed_economy import ensure_genesis_reserve_seeded
+
+        assert (
+            ensure_genesis_reserve_seeded(
+                chip_ledger_repo=ledger_repo,
+                sandbox_id=self.SBX,
+                seed_actions=self._fresh_actions(),
+            )
+            == 0
+        )
+
+
+# --- inequality-aware rake (Director instrument choice) ---------------------
+
+
+class _FakeBR:
+    def __init__(self, chips):
+        self._chips = chips
+
+    def list_all_ai_bankroll_chips(self, *, sandbox_id=None):
+        return list(self._chips)
+
+
+class TestInequalityAwareRake:
+    SBX = "test-ineq-rake"
+
+    def _seed(self, repo, *, holdings, pool):
+        repo.record('central_bank', 'player:p', holdings, 'player_seed', sandbox_id=self.SBX)
+        if pool:
+            repo.record('ai:rich', 'central_bank', pool, 'bank_pool_deposit', sandbox_id=self.SBX)
+
+    def _prime_inequality(self, chips):
+        from datetime import datetime
+
+        from cash_mode import field_inequality
+
+        field_inequality.refresh_field_inequality(self.SBX, _FakeBR(chips), datetime(2026, 6, 4))
+
+    def test_flat_field_widens_rake_in_healthy_band(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = True
+        # ratio ≈ 0.087 (healthy → base schedule {1000}@0.02 without inequality).
+        self._seed(ledger_repo, holdings=100_000, pool=8_000)
+        # Flat field: p90/median = 1.0 (<= 2.5).
+        self._prime_inequality([100] * 10)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000, 200})  # widened — rake leads
+        assert rate == 0.03
+
+    def test_top_heavy_field_keeps_base_rake(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = True
+        self._seed(ledger_repo, holdings=100_000, pool=8_000)
+        # Top-heavy: p90/median = 10 (> 2.5) → vice leads, rake stays base.
+        self._prime_inequality([100] * 9 + [1000])
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})
+        assert rate == 0.02
+
+    def test_flag_off_ignores_inequality(self, ledger_repo):
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = False  # off → no inequality effect
+        self._seed(ledger_repo, holdings=100_000, pool=8_000)
+        self._prime_inequality([100] * 10)  # flat, but flag off
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})
+
+    def test_flat_field_above_trigger_does_not_widen(self, ledger_repo):
+        # Above the trigger the bank is tournament-ready — no refill needed even
+        # on a flat field.
+        economy_flags.RAKE_RESERVE_GATED = True
+        economy_flags.DIRECTOR_INEQUALITY_RAKE = True
+        self._seed(ledger_repo, holdings=100_000, pool=20_000)  # ratio ≈ 0.25 >= trigger
+        self._prime_inequality([100] * 10)
+        stakes, rate = economy_flags.resolve_rake_params(ledger_repo, self.SBX)
+        assert stakes == frozenset({1000})  # flush → top tier only

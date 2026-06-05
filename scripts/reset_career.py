@@ -10,6 +10,7 @@ in-memory game), e.g.:
     docker compose exec -T backend python scripts/reset_career.py guest_jeff
     docker compose restart backend
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -27,14 +28,18 @@ OWNER = sys.argv[1] if len(sys.argv) > 1 else "guest_jeff"
 def main() -> int:
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    sb = con.execute("SELECT sandbox_id FROM sandboxes WHERE owner_id=? LIMIT 1", (OWNER,)).fetchone()
+    sb = con.execute(
+        "SELECT sandbox_id FROM sandboxes WHERE owner_id=? LIMIT 1", (OWNER,)
+    ).fetchone()
     if not sb:
         print(f"no sandbox for {OWNER}", file=sys.stderr)
         return 1
     SB = sb["sandbox_id"]
 
     # 1. Clear all session state (the orphan that resurrects dead games).
-    g = con.execute("DELETE FROM games WHERE owner_id=? AND game_id LIKE 'cash-%'", (OWNER,)).rowcount
+    g = con.execute(
+        "DELETE FROM games WHERE owner_id=? AND game_id LIKE 'cash-%'", (OWNER,)
+    ).rowcount
     s = con.execute("DELETE FROM cash_sessions WHERE owner_id=?", (OWNER,)).rowcount
     e = con.execute("DELETE FROM cash_session_events WHERE owner_id=?", (OWNER,)).rowcount
     z = con.execute(
@@ -132,9 +137,16 @@ def main() -> int:
     # 3. Fresh-but-active career + clear bio.
     CareerProgressRepository(DB).save(
         CareerProgress(
-            sandbox_id=SB, owner_id=OWNER, career_active=True, intake_complete=False,
-            revealed_table_ids=[SCENE0], scene0_seeded=True, scene0_table_id=SCENE0,
-            scene0_fish_id="loose_larry", tutorial_complete=False, home_court_table_id=None,
+            sandbox_id=SB,
+            owner_id=OWNER,
+            career_active=True,
+            intake_complete=False,
+            revealed_table_ids=[SCENE0],
+            scene0_seeded=True,
+            scene0_table_id=SCENE0,
+            scene0_fish_id="loose_larry",
+            tutorial_complete=False,
+            home_court_table_id=None,
             vouched_by=[],
         )
     )

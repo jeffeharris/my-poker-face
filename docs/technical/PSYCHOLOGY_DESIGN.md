@@ -2,7 +2,7 @@
 purpose: Design philosophy, goals, and success metrics for the AI psychology system
 type: design
 created: 2025-06-15
-last_updated: 2026-02-07
+last_updated: 2026-06-03
 ---
 
 # Psychology System Design
@@ -28,8 +28,8 @@ The psychology system exists to create **novelty and variety** in AI poker play,
 ```
 PERSONALITY ANCHORS (personalities.json)
     │
-    │  9 static traits define identity
-    │  (ego, poise, baseline_aggression, etc.)
+    │  10 static traits define identity
+    │  (ego, poise, baseline_aggression, self_belief, etc.)
     │
     ▼
 EMOTIONAL AXES (runtime state)
@@ -62,6 +62,8 @@ EXPRESSION FILTER → AVATAR / TABLE TALK
 **Key insight:** Anchors define gravity wells, axes move freely, zones modify information access. The AI still makes its own decisions — zones shape what it knows, not what it must do.
 
 **Energy is special:** It affects *how* a zone manifests (flavor/tempo), not *which* zone applies. Exception: Poker Face is a 3D ellipsoid where energy extremes break the mask.
+
+**Emotion families:** The quadrant fixes the *internal* feeling; a persona's **emotion family** (derived from `ego`/`expressiveness` anchors via `get_emotion_family`) chooses the *displayed* label — so a high-ego competitor and a low-ego fun-lover in the same OVERHEATED quadrant read as `angry` vs `giddy`. See the "Emotion Families" section of [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md#emotion-families-trait-aware-expression).
 
 For full architecture details, see [PSYCHOLOGY_OVERVIEW.md](PSYCHOLOGY_OVERVIEW.md). For zone geometry and effects, see [PSYCHOLOGY_ZONES_MODEL.md](PSYCHOLOGY_ZONES_MODEL.md).
 

@@ -24,6 +24,7 @@ import {
   HandHeart,
   Gem,
   Ellipsis,
+  Trophy,
 } from 'lucide-react';
 import type { LobbyEvent } from './types';
 
@@ -137,6 +138,11 @@ export function renderEventIcon(type: LobbyEvent['type']): ReactNode {
     // Whales — arrival is the pull signal; departure is a quiet dot.
     case 'whale_arrival':
       return <Gem {...iconProps} />;
+    // Circuit Main Event lifecycle beats (P3.7).
+    case 'tournament_milestone':
+    case 'tournament_bubble':
+    case 'tournament_winner':
+      return <Trophy {...iconProps} />;
     // Meta — aggregate catch-up summary.
     case 'burst_summary':
       return <Ellipsis {...iconProps} />;

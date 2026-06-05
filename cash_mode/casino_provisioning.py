@@ -97,6 +97,49 @@ CASINO_CLOSE_THRESHOLDS: Dict[str, int] = {
     '$50': 45_000,
 }
 
+# Relative (fraction-of-holdings) equivalents of the absolute pool thresholds
+# above, used when `economy_flags.CASINO_RELATIVE_THRESHOLDS` is on. Calibrated to
+# reproduce the absolute values at the launch ~$2.64M holdings, then scale with
+# the economy. See `resolve_pool_threshold`.
+CASINO_SPAWN_FRACTIONS: Dict[str, float] = {
+    '$2': 0.002,  # ~5k at 2.64M
+    '$10': 0.019,  # ~50k
+    '$50': 0.038,  # ~100k
+}
+CASINO_CLOSE_FRACTIONS: Dict[str, float] = {
+    '$50': 0.017,  # ~45k
+}
+
+
+def resolve_pool_threshold(
+    absolute: int,
+    fraction: Optional[float],
+    chip_ledger_repo,
+    sandbox_id,
+) -> int:
+    """A pool-depth gate as an absolute chip count, scaling with holdings on flag.
+
+    Default (or when holdings can't be read / no fraction given): returns the
+    `absolute` value unchanged — byte-identical to the pre-flag behaviour. When
+    `economy_flags.CASINO_RELATIVE_THRESHOLDS` is on, returns
+    `round(fraction × holdings)` so the gate sits at the same RELATIVE bank depth
+    at any economy size.
+    """
+    from cash_mode import economy_flags
+
+    if not economy_flags.CASINO_RELATIVE_THRESHOLDS or fraction is None:
+        return absolute
+    try:
+        from core.economy.economy_signal import signal
+
+        holdings = signal(chip_ledger_repo, sandbox_id=sandbox_id).holdings
+    except Exception:
+        return absolute
+    if holdings <= 0:
+        return absolute
+    return round(fraction * holdings)
+
+
 # Fish-per-casino range. Spawns pick a random count in [MIN, MAX];
 # the refill pass keeps casinos topped up to MAX as long as the pool
 # can fund it. Kept LOW (well under TABLE_SEAT_COUNT=6) so each fish is
@@ -110,6 +153,43 @@ CASINO_CLOSE_THRESHOLDS: Dict[str, int] = {
 # donation throughput per table at the cost of more fish-vs-fish recycle.
 CASINO_FISH_MIN = 1
 CASINO_FISH_MAX = 2
+
+# Lean lifecycle (economy_flags.CASINO_RESEED_ON_SPENT): one fish per casino, two
+# at $2, prefunded leaner — so the casino drain is a steady trickle instead of a
+# lump. `_fish_cap` / `_prefund_mults` resolve the active values per the flag.
+CASINO_FISH_CAP_LEAN = 1
+CASINO_FISH_CAP_LEAN_2DOLLAR = 2
+# Lean prefund multiples of table max-buy-in. The whale drops from 10–18× (the
+# old "drain reserves fast" grant — 200–360k at $200) to a modest 3–5× (60–100k)
+# now that the tournament overlay is the intended big drain.
+FISH_PREFUND_MIN_MULT_LEAN = 1.5
+FISH_PREFUND_MAX_MULT_LEAN = 2.0
+WHALE_PREFUND_MIN_MULT_LEAN = 3.0
+WHALE_PREFUND_MAX_MULT_LEAN = 5.0
+
+
+def _fish_cap(stake_label: str) -> int:
+    """Max fish a casino holds: 2 (default) or the lean 1 (2 at $2) on flag."""
+    from cash_mode import economy_flags
+
+    if not economy_flags.CASINO_RESEED_ON_SPENT:
+        return CASINO_FISH_MAX
+    return CASINO_FISH_CAP_LEAN_2DOLLAR if stake_label == '$2' else CASINO_FISH_CAP_LEAN
+
+
+def _prefund_mults(whale: bool = False) -> tuple:
+    """The (min, max) prefund multiple of max-buy-in — lean on flag."""
+    from cash_mode import economy_flags
+
+    lean = economy_flags.CASINO_RESEED_ON_SPENT
+    if whale:
+        if lean:
+            return WHALE_PREFUND_MIN_MULT_LEAN, WHALE_PREFUND_MAX_MULT_LEAN
+        return WHALE_PREFUND_MIN_MULT, WHALE_PREFUND_MAX_MULT
+    if lean:
+        return FISH_PREFUND_MIN_MULT_LEAN, FISH_PREFUND_MAX_MULT_LEAN
+    return FISH_PREFUND_MIN_MULT, FISH_PREFUND_MAX_MULT
+
 
 # Minimum hungry grinders required in the idle pool before a casino
 # opens. The demand signal — no point spawning a casino if nobody is
@@ -496,11 +576,7 @@ def _fish_prefund(
     """Pool-funded bankroll grant for one fish, a jittered multiple of
     the table's max buy-in. `whale=True` produces a much deeper stack.
     """
-    lo, hi = (
-        (WHALE_PREFUND_MIN_MULT, WHALE_PREFUND_MAX_MULT)
-        if whale
-        else (FISH_PREFUND_MIN_MULT, FISH_PREFUND_MAX_MULT)
-    )
+    lo, hi = _prefund_mults(whale=whale)
     return int(table_max_buy_in * rng.uniform(lo, hi))
 
 
@@ -551,21 +627,38 @@ def _prefund_fish_from_pool(
     draw = min(draw, pool)
     if draw <= 0:
         return 0
-    record_casino_seat_seed(
-        chip_ledger_repo,
-        personality_id=personality_id,
-        amount=draw,
-        context=context,
-        sandbox_id=sandbox_id,
-    )
-    bankroll_repo.save_ai_bankroll(
-        AIBankrollState(
+    # Chip-custody atomicity: ledger the pool-draw and credit the bankroll int
+    # in ONE transaction — a crash can no longer land the draw without the
+    # credit (or vice versa). A rejected ledger row (row_id None) returns 0 with
+    # nothing committed. `conn` is None for test doubles / cross-DB → the prior
+    # ledger-first backstop ordering still prevents a mint.
+    from cash_mode.bankroll import chip_unit_of_work
+
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        row_id = record_casino_seat_seed(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            amount=draw,
+            context=context,
+            sandbox_id=sandbox_id,
+            conn=conn,
+        )
+        if row_id is None:
+            logger.warning(
+                "[CASH][CASINO] fish prefund ledger rejected for %s (%d not credited)",
+                personality_id,
+                draw,
+            )
+            return 0
+        new_state = AIBankrollState(
             personality_id=personality_id,
             chips=existing + draw,
             last_regen_tick=now,
-        ),
-        sandbox_id=sandbox_id,
-    )
+        )
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+        else:
+            bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
     return draw
 
 
@@ -592,33 +685,44 @@ def _drain_fish_bankroll_to_pool(
     chips = _load_ai_chips(bankroll_repo, personality_id, sandbox_id)
     if chips <= 0:
         return 0, 0
-    try:
-        row_id = record_casino_seat_return(
-            chip_ledger_repo,
-            personality_id=personality_id,
-            amount=chips,
-            context={'site': 'casino_fish_exit', 'reason': reason_detail},
-            sandbox_id=sandbox_id,
-        )
-        if row_id is None:
+    # Chip-custody atomicity: ledger the pool-return and zero the int in ONE
+    # transaction. A rejected/failed ledger write returns `stranded` (int
+    # untouched → fish keeps its chips), never double-counting into the pool;
+    # `conn` is None for test doubles / cross-DB → the prior ledger-first
+    # ordering still holds. The presence shadow stays AFTER the txn (separate
+    # repo on the same file — inside it would deadlock the writer lock).
+    from cash_mode.bankroll import chip_unit_of_work
+
+    with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+        try:
+            row_id = record_casino_seat_return(
+                chip_ledger_repo,
+                personality_id=personality_id,
+                amount=chips,
+                context={'site': 'casino_fish_exit', 'reason': reason_detail},
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
+            if row_id is None:
+                logger.warning(
+                    "[CASH][CASINO] fish bankroll drain rejected for %s (%d chips stranded)",
+                    personality_id,
+                    chips,
+                )
+                return 0, chips
+        except Exception as exc:
             logger.warning(
-                "[CASH][CASINO] fish bankroll drain rejected for %s " "(%d chips stranded)",
+                "[CASH][CASINO] fish bankroll drain failed for %s (%d chips stranded): %s",
                 personality_id,
                 chips,
+                exc,
             )
             return 0, chips
-    except Exception as exc:
-        logger.warning(
-            "[CASH][CASINO] fish bankroll drain failed for %s " "(%d chips stranded): %s",
-            personality_id,
-            chips,
-            exc,
-        )
-        return 0, chips
-    bankroll_repo.save_ai_bankroll(
-        AIBankrollState(personality_id=personality_id, chips=0, last_regen_tick=now),
-        sandbox_id=sandbox_id,
-    )
+        zeroed = AIBankrollState(personality_id=personality_id, chips=0, last_regen_tick=now)
+        if conn is not None:
+            bankroll_repo.save_ai_bankroll(zeroed, sandbox_id=sandbox_id, conn=conn)
+        else:
+            bankroll_repo.save_ai_bankroll(zeroed, sandbox_id=sandbox_id)
     # SHADOW (Presence cutover Phase 1): a fish's bankroll draining to the pool
     # marks its exit. Casino fish are POOL-funded, so the POOL-origin event is
     # RETURN_TO_POOL (not GO_OFFLINE). Emitted only after the authoritative
@@ -842,7 +946,7 @@ def _shed_excess_fish(
             for i, s in enumerate(table.seats)
             if s.get('kind') == 'ai' and s.get('archetype') == 'fish'
         ]
-        excess = len(fish_idx) - CASINO_FISH_MAX
+        excess = len(fish_idx) - _fish_cap(table.stake_label)
         if excess <= 0:
             continue
         new_seats = list(table.seats)
@@ -1042,7 +1146,7 @@ def resolve_casino_provisioning(
         for table in tables_here:
             if is_closing(cash_table_repo, sandbox_id, table.table_id):
                 continue
-            if _count_seated_fish(table, fish_ids) >= CASINO_FISH_MAX:
+            if _count_seated_fish(table, fish_ids) >= _fish_cap(table.stake_label):
                 continue
             if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < fish_buy_in:
                 continue
@@ -1192,6 +1296,13 @@ def resolve_casino_provisioning(
             # plays out and teardown returns all chips to the pool, so the
             # pool settles into a band rather than draining to empty.
             close_floor = CASINO_CLOSE_THRESHOLDS.get(stake_label)
+            if close_floor is not None:
+                close_floor = resolve_pool_threshold(
+                    close_floor,
+                    CASINO_CLOSE_FRACTIONS.get(stake_label),
+                    chip_ledger_repo,
+                    sandbox_id,
+                )
             if (
                 close_floor is not None
                 and compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
@@ -1246,7 +1357,12 @@ def resolve_casino_provisioning(
 
     threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
     for idx, stake_label in enumerate(threshold_order):
-        threshold = CASINO_SPAWN_THRESHOLDS[stake_label]
+        threshold = resolve_pool_threshold(
+            CASINO_SPAWN_THRESHOLDS[stake_label],
+            CASINO_SPAWN_FRACTIONS.get(stake_label),
+            chip_ledger_repo,
+            sandbox_id,
+        )
         # One casino per stake; a closing table holds the slot until its
         # countdown elapses.
         if by_stake_after_teardown.get(stake_label):
@@ -1268,7 +1384,7 @@ def resolve_casino_provisioning(
         fish_buy_in = min(int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER), max_buy_in)
 
         available = sorted(fish_ids - already_seated)
-        target_count = min(rng.randint(CASINO_FISH_MIN, CASINO_FISH_MAX), len(available))
+        target_count = min(rng.randint(CASINO_FISH_MIN, _fish_cap(stake_label)), len(available))
         if target_count < CASINO_FISH_MIN:
             continue
         chosen = rng.sample(available, target_count)

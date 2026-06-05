@@ -143,6 +143,28 @@ def send_message(
         # Always store as a list (empty list is meaningful: "addressing nobody")
         new_message["addressing"] = list(addressing) if isinstance(addressing, list) else []
 
+    # Stamp AI messages with the speaker's avatar URL so the chat bubble can
+    # render their face even once they've left the table. The in-character
+    # farewell fires asynchronously — a beat after the departing AI is removed
+    # from the live game state and ai_controllers — so by the time the bubble
+    # renders, the frontend's seat-derived avatar cache no longer has them and
+    # the avatar would go blank. Carrying the URL on the message itself makes
+    # the comment self-describing. Best-effort: never block a chat message.
+    if message_type == "ai":
+        try:
+            from .avatar_handler import get_avatar_url_with_fallback
+
+            controller = (game_data.get("ai_controllers") or {}).get(sender)
+            emotion = "confident"
+            emotional_state = getattr(controller, "emotional_state", None)
+            if emotional_state is not None:
+                emotion = emotional_state.get_display_emotion()
+            avatar_url = get_avatar_url_with_fallback(game_id, sender, emotion)
+            if avatar_url:
+                new_message["avatar_url"] = avatar_url
+        except Exception as exc:  # avatar is decorative — never break chat
+            logger.debug("send_message: avatar lookup failed for %r: %s", sender, exc)
+
     game_messages.append(new_message)
 
     # Trim and update atomically to prevent race condition
@@ -192,5 +214,7 @@ def format_messages_for_api(messages: list) -> list:
             entry['win_result'] = msg['win_result']
         if 'addressing' in msg:
             entry['addressing'] = msg['addressing']
+        if 'avatar_url' in msg:
+            entry['avatar_url'] = msg['avatar_url']
         formatted.append(entry)
     return formatted

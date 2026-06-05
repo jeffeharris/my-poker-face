@@ -318,15 +318,33 @@ _test_schema_template_path = None
 #       field-relative score) — additive, computed-but-unconsumed until
 #       RENOWN_V2_ENABLED flips. Renumbered from v133 on the renown→development
 #       merge. See CASH_MODE_PLAYER_PRESTIGE.md.
-# v141: Create `career_progress` — per-(sandbox, owner) narrative state for the
+# --- Tournament + avatar circuit (renumbered 132–138 → 141–147 on the
+#     development merge to clear the number collision; see the migrations dict) ---
+# v141: Create `tournaments` — durable multi-table tournament (MTT) meta-state
+#       (serialized TournamentSession + live game_id + status + resolver_kind),
+#       re-enterable across navigation / TTL eviction / restart. (was v132)
+# v142: Drop legacy `tournament_tracker` — retired by the tournament unification
+#       (every game is a TournamentSession). Brute-force cut. (was v133)
+# v143: Add the tournament real-chip economy columns (buy_in, rake, bank_overlay,
+#       prize_pool, payout_status) to `tournaments`. (was v134)
+# v144: Create `tournament_invites` — the circuit Main Event offer (P3): one open
+#       invite per owner, accepted (→ play) / declined / expired (→ autonomous).
+#       (was v135)
+# v145: Enforce one open invite per owner — partial UNIQUE index on
+#       tournament_invites(owner_id) WHERE status='offered'. (was v136)
+# v146: Re-key `avatar_images` on the stable `personality_id` (add column +
+#       backfill by the unique display-name join). (was v137)
+# v147: Make `personality_id` the SOLE avatar key — drop the legacy
+#       `personality_name` column + dual-key reads. (was v138)
+# v152: Create `career_progress` — per-(sandbox, owner) narrative state for the
 #       Act-1 career-progression spine (`CASH_MODE_CAREER_PROGRESSION.md`). A
 #       small JSON blob holds the keyring (`revealed_table_ids`), the Scene-0
 #       tutorial flags (seeded / fish id / graduated), the chosen home court,
 #       and the per-AI one-vouch ledger (`vouched_by`). The lobby renders only
 #       revealed cardrooms; the world doesn't grow, the player's view does.
-#       Renumbered from v124 (and a transient v132 on circuit-progression) to
-#       land after development's v140 on the circuit-progression→development merge.
-SCHEMA_VERSION = 141
+#       Renumbered (v124 → v132 → v141 → v152) to land after development's v151
+#       on the circuit-progression→development merge.
+SCHEMA_VERSION = 152
 
 
 class SchemaManager:
@@ -960,11 +978,12 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_career_stats_player ON player_career_stats(player_name)"
             )
 
-            # 17. Avatar images (v5, v28 added full_image columns)
+            # 17. Avatar images (v5; v28 added full_image columns; v137 added
+            # personality_id; v147 made it the SOLE key + dropped personality_name)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS avatar_images (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    personality_name TEXT NOT NULL,
+                    personality_id TEXT NOT NULL,
                     emotion TEXT NOT NULL,
                     image_data BLOB NOT NULL,
                     content_type TEXT DEFAULT 'image/png',
@@ -977,12 +996,23 @@ class SchemaManager:
                     full_file_size INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(personality_name, emotion)
+                    UNIQUE(personality_id, emotion)
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_avatar_personality ON avatar_images(personality_name)"
-            )
+            # v147: avatars are keyed SOLELY by the stable `personality_id` (the
+            # slug everything else uses); the legacy `personality_name` display-name
+            # column + dual-key reads are gone. On a fresh DB the table is created
+            # in this final shape here; on a pre-v147 DB the `CREATE TABLE IF NOT
+            # EXISTS` is a no-op and the v147 migration rebuilds the old table into
+            # this shape. The index guard tolerates BOTH orderings (init runs before
+            # migrations): a pre-v147 table still has `personality_name` and no
+            # NOT-NULL `personality_id`, so only build the pid index once the table
+            # is in the new shape — the migration builds it otherwise.
+            avatar_cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+            if 'personality_name' not in avatar_cols:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)"
+                )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)")
 
             # 18. API usage (v6-v17: comprehensive LLM tracking)
@@ -1316,17 +1346,77 @@ class SchemaManager:
             except Exception:
                 pass  # Columns will be added by migration v71, which creates these indexes
 
-            # 23. Tournament tracker (v29)
+            # 23. Tournament tracker (v29) — DROPPED in v131. TournamentTracker
+            # was retired by the tournament-unification work (every game is now a
+            # TournamentSession; a single game is a 1-table session). Fresh DBs
+            # never create it; existing DBs drop it in
+            # `_migrate_v131_drop_tournament_tracker`.
+
+            # 23b. Tournaments (v130) — durable multi-table tournament meta-state
+            # (serialized TournamentSession + live game_id + status + resolver_kind),
+            # re-enterable across navigation / TTL eviction / restart.
+            # Economy columns (v132): real-chip layer over the funny-money field
+            # — buy-in, rake, bank overlay, prize-pool snapshot, and the
+            # payout_status idempotency guard (skipped|pending|in_progress|
+            # complete). See `docs/plans/TOURNAMENT_ECONOMY_ON_STATE_MODEL.md`.
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS tournament_tracker (
-                    game_id TEXT PRIMARY KEY,
-                    tracker_json TEXT NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                CREATE TABLE IF NOT EXISTS tournaments (
+                    tournament_id TEXT PRIMARY KEY,
+                    owner_id      TEXT NOT NULL,
+                    game_id       TEXT,
+                    status        TEXT NOT NULL,
+                    resolver_kind TEXT NOT NULL DEFAULT 'fake',
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL,
+                    session_json  TEXT NOT NULL,
+                    buy_in        INTEGER NOT NULL DEFAULT 0,
+                    rake          INTEGER NOT NULL DEFAULT 0,
+                    bank_overlay  INTEGER NOT NULL DEFAULT 0,
+                    prize_pool    INTEGER NOT NULL DEFAULT 0,
+                    payout_status TEXT NOT NULL DEFAULT 'skipped'
                 )
             """)
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)"
+                "CREATE INDEX IF NOT EXISTS idx_tournaments_owner ON tournaments(owner_id, status)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)")
+
+            # 23c. Tournament invites (v135) — the circuit Main Event offer the
+            # player accepts (→ they play it) / declines / lets expire (→ it runs
+            # autonomously). One open invite per owner at a time; durable so a
+            # scheduled "open until 8pm" survives navigation / restart.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tournament_invites (
+                    invite_id     TEXT PRIMARY KEY,
+                    owner_id      TEXT NOT NULL,
+                    sandbox_id    TEXT NOT NULL,
+                    status        TEXT NOT NULL DEFAULT 'offered',
+                    buy_in        INTEGER NOT NULL DEFAULT 0,
+                    field_size    INTEGER NOT NULL,
+                    table_size    INTEGER NOT NULL,
+                    starting_stack INTEGER NOT NULL,
+                    seed          INTEGER NOT NULL DEFAULT 0,
+                    expires_at    TEXT,
+                    tournament_id TEXT,
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL,
+                    -- v148 (tournaments-as-a-draw): the draw-selected field locked
+                    -- at offer time (JSON array of personality_ids), and the
+                    -- subset that has already vacated cash en route. NULL on
+                    -- pre-v148 / non-draw offers (random-shuffle field at spawn).
+                    reserved_pids TEXT,
+                    vacated_pids  TEXT
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_invites_owner "
+                "ON tournament_invites(owner_id, status)"
+            )
+            # v136: structurally enforce one OPEN invite per owner (partial unique
+            # index over the 'offered' rows only — resolved invites coexist).
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_invites_one_open "
+                "ON tournament_invites(owner_id) WHERE status = 'offered'"
             )
 
             # 24. Experiments (v43) - experiment metadata and configuration
@@ -2169,9 +2259,56 @@ class SchemaManager:
                 self._migrate_v140_add_holdings_peak_index,
                 "Add covering index holdings_snapshots(sandbox_id, entity_id, net_worth) so the Renown-v2 field build's MAX(net_worth) GROUP BY entity_id is index-only (no per-row table lookup) — cuts ~200ms off the ~520ms field build on the real field. Additive index, idempotent.",
             ),
+            # Tournament + avatar migrations, renumbered 132–138 → 141–147 on the
+            # development merge to clear the number collision (dev claimed 132–140).
+            # Dict order is irrelevant (the runner looks up by int); kept ascending.
             141: (
-                self._migrate_v141_create_career_progress,
-                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger",
+                self._migrate_v141_create_tournaments,
+                "Create tournaments table — durable multi-table tournament meta-state (serialized TournamentSession + live game_id + status + resolver_kind) so a tournament survives navigation / TTL eviction / restart. Renumbered 132→141 to clear the development collision.",
+            ),
+            142: (
+                self._migrate_v142_drop_tournament_tracker,
+                "Drop legacy tournament_tracker table — TournamentTracker retired by the unification (every game is a TournamentSession); brute-force cut drops any games that still depended on it (pre-release, no real user data). Renumbered 133→142.",
+            ),
+            143: (
+                self._migrate_v143_add_tournament_economy,
+                "Add the tournament real-chip economy columns (buy_in, rake, bank_overlay, prize_pool, payout_status) to `tournaments`. Additive ALTER TABLE; existing rows default to payout_status='skipped' so the payout idempotency guard never fires on pre-economy tournaments. Renumbered 134→143.",
+            ),
+            144: (
+                self._migrate_v144_create_tournament_invites,
+                "Create tournament_invites table — the circuit Main Event offer (P3): one open invite per owner, accepted (→ play) / declined / expired (→ autonomous). Durable so a scheduled window survives navigation / restart. Renumbered 135→144.",
+            ),
+            145: (
+                self._migrate_v145_one_open_invite_per_owner,
+                "Enforce one open invite per owner structurally — partial UNIQUE index on tournament_invites(owner_id) WHERE status='offered'. Backs the app-level offer() guard against a cross-worker race. Defensive pre-step collapses any pre-existing duplicate open invites (keep newest, expire the rest) so index creation can't fail on live data. Renumbered 136→145.",
+            ),
+            146: (
+                self._migrate_v146_avatar_personality_id,
+                "Re-key avatar_images on the stable `personality_id` (the slug used by bankrolls/ledger/relationships/dossiers/tournaments) instead of `personality_name` (the display name). Adds the column + backfills it by joining personalities on name (names are unique), so existing avatars keep matching while tournaments — which look up by id — stop missing + regenerating. Renumbered 137→146.",
+            ),
+            147: (
+                self._migrate_v147_avatar_drop_personality_name,
+                "Complete the avatar re-key: make `personality_id` the SOLE key of avatar_images (NOT NULL, UNIQUE(personality_id, emotion)) and DROP the legacy `personality_name` column + the dual-key `OR personality_name` reads. Rebuilds the table; rows whose personality_id is NULL (orphans the v146 name-join couldn't match) are dropped — they were already unreachable by the id-keyed path. Idempotent: a no-op once personality_name is gone. Renumbered 138→147.",
+            ),
+            148: (
+                self._migrate_v148_invite_reserved_pids,
+                "Add reserved_pids + vacated_pids JSON columns to tournament_invites (tournaments-as-a-draw): the draw-selected field locked at offer time and the subset that has vacated cash en route. Additive nullable ALTERs; existing offers read NULL (random-shuffle field at spawn, unchanged).",
+            ),
+            149: (
+                self._migrate_v149_add_bankruptcy_history,
+                "Add bankruptcy_count (INTEGER DEFAULT 0) + last_bankruptcy_at (TEXT NULL) to ai_bankroll_state for the carry-resolution bankruptcy valve: the per-sandbox credit-history that drives post-bankruptcy loan-term penalties (with time-decay off last_bankruptcy_at) and the dossier's lifetime count. Additive; existing rows read 0 / NULL (never bankrupt).",
+            ),
+            150: (
+                self._migrate_v150_add_stake_resolution,
+                "Add nullable resolution (TEXT) to stakes — the display label distinguishing HOW a closed stake resolved when bare status isn't specific ('bankruptcy' for carries discharged by the insolvency valve; status stays 'defaulted' so default-counting consumers are unaffected). Additive; existing rows read NULL.",
+            ),
+            151: (
+                self._migrate_v151_chip_ledger_source_sink_index,
+                "Add (source, sandbox_id) + (sink, sandbox_id) indexes to chip_ledger_entries so `balance_of` (Σ where source=? OR sink=?) stops full-scanning. Speeds the per-account reconcile (audit_ledger_completeness) and the derive-reads path as the ledger grows. Index-only (CREATE INDEX IF NOT EXISTS); no data change.",
+            ),
+            152: (
+                self._migrate_v152_create_career_progress,
+                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger. Renumbered 141→152 to clear the development merge collision.",
             ),
         }
 
@@ -2202,6 +2339,70 @@ class SchemaManager:
                 )
                 self._migrate_v123_add_personality_circulating(conn)
                 self._migrate_v124_create_opponent_observation_lifetime(conn)
+                conn.commit()
+
+            # Tournament-economy renumber self-heal. A DB migrated on the
+            # `tournaments` branch BEFORE the development→tournaments economy
+            # merge recorded v130/v131(/v132) as the tournament create / tracker-
+            # drop / economy migrations. The merge re-assigned v130/v131 to
+            # development's coach work (preflop_node_key + coach_tips) and bumped
+            # the tournament migrations to v132–134, so such a DB's version
+            # counter skipped the coach migrations. Re-assert them idempotently
+            # (both existence-guarded) so the coach tables exist. No-op on clean
+            # DBs and only reachable while migrations are still pending.
+            coach_collision = (
+                current_version >= 131
+                and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' " "AND name='coach_tips'"
+                ).fetchone()
+                is None
+            )
+            if coach_collision:
+                logger.warning(
+                    "Detected tournament-economy renumber collision (version %d "
+                    "but coach_tips missing) — re-asserting the skipped v130/v131 "
+                    "coach migrations idempotently",
+                    current_version,
+                )
+                self._migrate_v130_add_preflop_node_key(conn)
+                self._migrate_v131_create_coach_tips(conn)
+                conn.commit()
+
+            # Tournament→development renumber self-heal. A DB migrated on the old
+            # `tournaments` branch recorded v132–v138 as the OLD tournament
+            # migrations (create_tournaments … avatar drop). The merge re-assigned
+            # 132–138 to development's work (lifetime counts, drop_4d_emotion,
+            # cash_scalps, prestige v2) and bumped the tournament migrations to
+            # 141–147, so such a DB's version counter SKIPPED development's 132–138
+            # (and the forward loop, having already passed 138, never runs them —
+            # even after it force-advances the counter to 147). Re-assert them
+            # idempotently (all existence-guarded; prestige_snapshots predates the
+            # fork at v122 so the v138 ALTER lands). Sentinel: `limp_count`
+            # (development's v132) is ABSENT — it's added only by the v132 ALTER,
+            # never by `_init_db`, so it cleanly discriminates old-tournament
+            # lineage from a fresh build (version < 132 → loop adds it) or a
+            # development DB (limp_count already present → no fire).
+            lifetime_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(opponent_observation_lifetime)")
+            }
+            tourney_renumber_collision = (
+                current_version >= 132 and 'limp_count' not in lifetime_cols
+            )
+            if tourney_renumber_collision:
+                logger.warning(
+                    "Detected tournament→development renumber collision (version %d "
+                    "but development's 132–138 artifacts missing) — re-asserting "
+                    "lifetime counts, 4D-emotion drop, cash_scalps, and prestige-v2 "
+                    "idempotently",
+                    current_version,
+                )
+                self._migrate_v132_add_limp_lifetime_count(conn)
+                self._migrate_v133_add_sizing_aware_lifetime_counts(conn)
+                self._migrate_v134_add_postflop_axis_lifetime_counts(conn)
+                self._migrate_v135_add_flop_check_barrel_lifetime_counts(conn)
+                self._migrate_v136_drop_4d_emotion(conn)
+                self._migrate_v137_create_cash_scalps(conn)
+                self._migrate_v138_add_prestige_v2_columns(conn)
                 conn.commit()
 
             for version in range(current_version + 1, SCHEMA_VERSION + 1):
@@ -2381,7 +2582,13 @@ class SchemaManager:
         )
 
     def _migrate_v5_add_avatar_images_table(self, conn: sqlite3.Connection) -> None:
-        """Migration v5: Add avatar_images table for storing character images in DB."""
+        """Migration v5: Add avatar_images table for storing character images in DB.
+
+        On a real pre-v5 DB this creates the original name-keyed table. On a FRESH
+        DB (which runs every migration 1→N over the CURRENT `_init_db` schema), the
+        table already exists in the v147 pid-only shape, so the CREATE is a no-op
+        and the legacy `personality_name` index is guarded on the column existing
+        (v147 dropped it — see `_migrate_v147_avatar_drop_personality_name`)."""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS avatar_images (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2398,10 +2605,12 @@ class SchemaManager:
             )
         """)
 
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_avatar_personality
-            ON avatar_images(personality_name)
-        """)
+        avatar_cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        if 'personality_name' in avatar_cols:
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_avatar_personality
+                ON avatar_images(personality_name)
+            """)
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_avatar_emotion
@@ -5296,6 +5505,10 @@ class SchemaManager:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chip_ledger_reason " "ON chip_ledger_entries(reason)"
         )
+        # NB: the per-account (source, sandbox_id)/(sink, sandbox_id) indexes for
+        # `balance_of` are created by migration v151 — `sandbox_id` doesn't exist
+        # on this table until a later migration, and fresh DBs run the migration
+        # chain in order, so v151 covers both fresh and existing DBs.
         logger.info("v93: created chip_ledger_entries for chip-economy observability")
 
     def _migrate_v94_seed_pre_ledger_universe(self, conn: sqlite3.Connection) -> None:
@@ -5997,6 +6210,96 @@ class SchemaManager:
             )
         logger.info("Migration v107 complete: ai_bankroll_state.aspiration_cooldown_until added")
 
+    def _migrate_v149_add_bankruptcy_history(self, conn: sqlite3.Connection) -> None:
+        """Migration v149: add bankruptcy credit-history to ai_bankroll_state.
+
+        The carry-resolution bankruptcy valve discharges a hopelessly-
+        underwater AI's carries (liquidate chips → pro-rata split →
+        default the rest → zero) past a deadline. Two additive columns
+        record the consequence so it isn't a free pass:
+
+          - `bankruptcy_count` (INTEGER DEFAULT 0): lifetime bankruptcies
+            in this sandbox. Surfaced on the dossier and drives the
+            post-bankruptcy loan-term penalty (lenders quote a bankrupt
+            borrower pricier money, not a lockout).
+          - `last_bankruptcy_at` (TEXT NULL): ISO-8601 UTC stamp of the
+            most recent bankruptcy. The hook for v1 time-decay — the
+            economic penalty fades with recency while the lifetime count
+            persists as history.
+
+        Both live on `ai_bankroll_state` (per-sandbox) so credit history
+        is scoped the same way chips/regen already are: an AI can be
+        bankrupt-and-expensive in one casino and clean in another.
+
+        Existing rows read 0 / NULL (never bankrupt). Idempotent:
+        PRAGMA-guarded ADDs.
+        """
+        cursor = conn.execute("PRAGMA table_info(ai_bankroll_state)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'bankruptcy_count' not in cols:
+            conn.execute(
+                "ALTER TABLE ai_bankroll_state "
+                "ADD COLUMN bankruptcy_count INTEGER NOT NULL DEFAULT 0"
+            )
+        if 'last_bankruptcy_at' not in cols:
+            conn.execute("ALTER TABLE ai_bankroll_state ADD COLUMN last_bankruptcy_at TEXT")
+        logger.info(
+            "Migration v149 complete: ai_bankroll_state.bankruptcy_count + "
+            "last_bankruptcy_at added"
+        )
+
+    def _migrate_v150_add_stake_resolution(self, conn: sqlite3.Connection) -> None:
+        """Migration v150: add `resolution` to stakes.
+
+        A nullable display label distinguishing HOW a closed stake
+        resolved when the bare `status` isn't specific enough. The first
+        value is 'bankruptcy' — carries discharged by the carry-
+        resolution insolvency valve. Their `status` stays 'defaulted' so
+        every default-counting consumer (Net Worth history inclusion,
+        track-record aggregates, sponsor-offer default penalties) keeps
+        treating them as defaults; `resolution` is read only by the
+        history surface to render "bankruptcy" instead of a deliberate
+        stiff.
+
+        NULL on existing rows and on ordinary settles/defaults.
+        Idempotent: PRAGMA-guarded ADD.
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'resolution' not in cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN resolution TEXT")
+        logger.info("Migration v150 complete: stakes.resolution added")
+
+    def _migrate_v151_chip_ledger_source_sink_index(self, conn: sqlite3.Connection) -> None:
+        """Migration v151: index chip_ledger_entries by (source, sandbox_id) and
+        (sink, sandbox_id).
+
+        `balance_of` sums `WHERE source=? OR sink=?` [AND sandbox_id=?]; with no
+        index on those columns it full-scans the (ever-growing) ledger. That's
+        tolerable on the O(1) int read path, but the per-account reconcile
+        (`audit_ledger_completeness`) and the derive-reads tripwire scan every
+        account, so they pay it N times. Two single-column-leading indexes let
+        SQLite's OR-by-union satisfy each side of the OR; the trailing
+        sandbox_id covers the scoped (per-AI) sum. Index-only — no data change;
+        `IF NOT EXISTS` makes it idempotent and a no-op on fresh DBs (the base
+        schema already creates them).
+        """
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_source "
+            "ON chip_ledger_entries(source, sandbox_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_sink "
+            "ON chip_ledger_entries(sink, sandbox_id)"
+        )
+        # SQLite's planner only picks these for the `source=? OR sink=?` union
+        # once it has stats — without ANALYZE it keeps full-scanning (or uses the
+        # less-selective sandbox index), so the index would sit unused. Scope the
+        # ANALYZE to this one table: instant on a fresh/small ledger, one-time on
+        # a large upgrade (prod lands this while the ledger is still small).
+        conn.execute("ANALYZE chip_ledger_entries")
+        logger.info("Migration v151 complete: chip_ledger source/sink indexes + stats added")
+
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.
 
@@ -6644,7 +6947,7 @@ class SchemaManager:
             f"marked {updated} public personas circulating"
         )
 
-    def _migrate_v141_create_career_progress(self, conn: sqlite3.Connection) -> None:
+    def _migrate_v152_create_career_progress(self, conn: sqlite3.Connection) -> None:
         """Migration v141: create `career_progress` for the Act-1 spine.
 
         One row per (sandbox, owner). Holds the narrative keyring and tutorial
@@ -6976,6 +7279,299 @@ class SchemaManager:
             )
         """)
         logger.info("Migration v129 complete: cash_idle_metadata table created")
+
+    def _migrate_v141_create_tournaments(self, conn: sqlite3.Connection) -> None:
+        """Migration v141 (renumbered 132→141): create `tournaments` — durable multi-table tournament
+        (MTT) meta-state.
+
+        One row per tournament holding the serialized `TournamentSession`
+        (`session_json`, the source of truth for field/seating/standings), the
+        human's live `game_id` (NULL until they sit), `status`
+        ('active'|'complete'), and `resolver_kind` ('fake'|'engine', rebuilt on
+        rehydrate — resolvers aren't serialized). Makes a tournament
+        re-enterable across navigation / TTL eviction / server restart,
+        mirroring how cash sessions cold-load. The live per-table hand state
+        still lives in the `games` row.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). Renumbered from
+        v130 on the development→tournaments economy merge. See
+        `docs/plans/TOURNAMENT_PERSISTENCE_HANDOFF.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournaments (
+                tournament_id TEXT PRIMARY KEY,
+                owner_id      TEXT NOT NULL,
+                game_id       TEXT,
+                status        TEXT NOT NULL,
+                resolver_kind TEXT NOT NULL DEFAULT 'fake',
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL,
+                session_json  TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tournaments_owner ON tournaments(owner_id, status)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tournaments_game ON tournaments(game_id)")
+        logger.info("Migration v141 complete: tournaments table created")
+
+    def _migrate_v142_drop_tournament_tracker(self, conn: sqlite3.Connection) -> None:
+        """Migration v142 (renumbered 133→142): drop the legacy `tournament_tracker` table.
+
+        `TournamentTracker` was retired by the tournament-unification work (every
+        game is now a `TournamentSession`; a single game is a 1-table session).
+        The table lingered briefly, read-only, only to migrate legacy
+        saved-tracker blobs into sessions on cold-load — that shim is now removed.
+
+        Brute-force clean cut (pre-release, no real user data): any game that
+        still depended on the tracker is dropped along with the table rather than
+        migrated. Targeted by the tracker's own `game_id`s, so cash games and
+        session-backed games are untouched. May leave a few orphan rows in
+        related tables for those dropped games — acceptable for this cut.
+        Renumbered from v124 on the development→tournaments merge.
+        """
+        try:
+            conn.execute(
+                "DELETE FROM games WHERE game_id IN (SELECT game_id FROM tournament_tracker)"
+            )
+        except sqlite3.OperationalError:
+            pass  # table already absent on this DB — nothing to clean
+        conn.execute("DROP INDEX IF EXISTS idx_tournament_tracker_game")
+        conn.execute("DROP TABLE IF EXISTS tournament_tracker")
+        logger.info("Migration v142 complete: tournament_tracker dropped (legacy tracker retired)")
+
+    def _migrate_v143_add_tournament_economy(self, conn: sqlite3.Connection) -> None:
+        """Migration v143 (renumbered 134→143): add the real-chip economy columns to `tournaments`.
+
+        The funny-money field stays serialized in `session_json`; these columns
+        are the real-chip layer (escrow → overlay → payout) on top:
+
+          | Column | Meaning |
+          |---|---|
+          | `buy_in`        | per-entrant human buy-in (0 = freeroll) |
+          | `rake`          | absolute rake skimmed to the bank pool |
+          | `bank_overlay`  | house contribution beyond buy-ins (the drain dial) |
+          | `prize_pool`    | Σ buy_ins + overlay − rake (display snapshot) |
+          | `payout_status` | skipped \\| pending \\| in_progress \\| complete |
+
+        Additive (`ALTER TABLE ... ADD COLUMN`), each guarded so the migration is
+        idempotent against a DB where _init_db already created the column (fresh
+        DBs build the full table; only older DBs reach the ALTERs). Existing rows
+        default to `payout_status='skipped'` so the payout idempotency guard never
+        fires on a pre-economy tournament.
+        """
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(tournaments)")}
+        additions = (
+            ("buy_in", "INTEGER NOT NULL DEFAULT 0"),
+            ("rake", "INTEGER NOT NULL DEFAULT 0"),
+            ("bank_overlay", "INTEGER NOT NULL DEFAULT 0"),
+            ("prize_pool", "INTEGER NOT NULL DEFAULT 0"),
+            ("payout_status", "TEXT NOT NULL DEFAULT 'skipped'"),
+        )
+        for name, decl in additions:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE tournaments ADD COLUMN {name} {decl}")
+        logger.info("Migration v143 complete: tournament economy columns added")
+
+    def _migrate_v144_create_tournament_invites(self, conn: sqlite3.Connection) -> None:
+        """Migration v144 (renumbered 135→144): create `tournament_invites` — the circuit Main Event offer.
+
+        One open invite per owner that they accept (→ play it through the live
+        bridge), decline, or let expire (→ it runs autonomously). Durable so a
+        scheduled offer window survives navigation / TTL eviction / restart.
+        Non-destructive, idempotent (CREATE ... IF NOT EXISTS). See
+        `docs/plans/TOURNAMENT_CIRCUIT_SURFACING.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournament_invites (
+                invite_id     TEXT PRIMARY KEY,
+                owner_id      TEXT NOT NULL,
+                sandbox_id    TEXT NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'offered',
+                buy_in        INTEGER NOT NULL DEFAULT 0,
+                field_size    INTEGER NOT NULL,
+                table_size    INTEGER NOT NULL,
+                starting_stack INTEGER NOT NULL,
+                seed          INTEGER NOT NULL DEFAULT 0,
+                expires_at    TEXT,
+                tournament_id TEXT,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tournament_invites_owner "
+            "ON tournament_invites(owner_id, status)"
+        )
+        logger.info("Migration v144 complete: tournament_invites table created")
+
+    def _migrate_v146_avatar_personality_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v146 (renumbered 137→146): re-key `avatar_images` on the stable `personality_id`.
+
+        Avatars were the ONE identity surface keyed by the persona's *display
+        name* (`personality_name`, e.g. "Napoleon") while everything else keys on
+        the slug `personality_id` (e.g. "napoleon") — so a lookup by id (every
+        tournament seat) missed and regenerated, and a persona rename orphaned its
+        avatars. Add `personality_id` and backfill it by joining `personalities`
+        on the (unique) display name. `personality_name` is retained as a legacy/
+        debug column; the repo reads tolerate either key during the transition.
+
+        Additive + idempotent (guarded ALTER, backfill only touches NULLs). Rows
+        whose name doesn't match any persona (orphans) keep `personality_id` NULL
+        and are simply unreachable by the new id-keyed path — logged, not deleted.
+
+        NOTE: the name-join backfill is guarded on `personality_name` existing.
+        Fresh DBs run every migration 1→N over the CURRENT `_init_db` schema, and
+        as of v147 `_init_db` builds avatar_images WITHOUT `personality_name` —
+        so on a fresh DB this backfill is a skipped no-op (personality_id is
+        already the canonical key); on a real pre-v146 DB the column is present
+        and the backfill runs."""
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        if 'personality_id' not in existing:
+            conn.execute("ALTER TABLE avatar_images ADD COLUMN personality_id TEXT")
+        # Backfill from the unique display-name join (only fill the NULLs) —
+        # only when the legacy display-name column is actually present.
+        if 'personality_name' in existing:
+            conn.execute(
+                """
+                UPDATE avatar_images
+                   SET personality_id = (
+                       SELECT p.personality_id FROM personalities p
+                        WHERE p.name = avatar_images.personality_name
+                   )
+                 WHERE personality_id IS NULL
+                """
+            )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)")
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM avatar_images WHERE personality_id IS NULL"
+        ).fetchone()[0]
+        logger.info(
+            "Migration v146 complete: avatar_images re-keyed on personality_id "
+            "(%d row(s) left unmatched/orphan, reachable only by legacy name)",
+            orphans,
+        )
+
+    def _migrate_v147_avatar_drop_personality_name(self, conn: sqlite3.Connection) -> None:
+        """Migration v147 (renumbered 138→147): make `personality_id` the SOLE key
+        of avatar_images and drop the legacy `personality_name` column.
+
+        v146 added `personality_id` + backfilled it but kept `personality_name`
+        (and dual-key reads) for a safe transition. This completes the cut: rebuild
+        the table keyed on `personality_id` (NOT NULL, UNIQUE(personality_id,
+        emotion)), dropping the name column and its index. Rows with a NULL
+        `personality_id` (orphans the v137 name-join couldn't resolve) are DROPPED
+        — they were already unreachable by the id-keyed path.
+
+        SQLite can't drop a column that's part of a UNIQUE constraint in-place, so
+        this is the standard 12-step table rebuild. Idempotent: if
+        `personality_name` is already gone (fresh DB created by `_init_db` in the
+        new shape, or a re-run), it's a no-op."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(avatar_images)")}
+        if 'personality_name' not in cols:
+            return  # already in the new shape — nothing to do
+
+        dropped = conn.execute(
+            "SELECT COUNT(*) FROM avatar_images "
+            "WHERE personality_id IS NULL OR personality_id = ''"
+        ).fetchone()[0]
+
+        conn.execute("""
+            CREATE TABLE avatar_images_v147 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                personality_id TEXT NOT NULL,
+                emotion TEXT NOT NULL,
+                image_data BLOB NOT NULL,
+                content_type TEXT DEFAULT 'image/png',
+                width INTEGER DEFAULT 256,
+                height INTEGER DEFAULT 256,
+                file_size INTEGER,
+                full_image_data BLOB,
+                full_width INTEGER,
+                full_height INTEGER,
+                full_file_size INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(personality_id, emotion)
+            )
+        """)
+        # Copy only rows that resolved to a real personality_id. INSERT OR IGNORE
+        # guards the (unlikely) case of two legacy name rows that backfilled to the
+        # same pid+emotion — keep the first, drop the dup.
+        conn.execute("""
+            INSERT OR IGNORE INTO avatar_images_v147
+                (personality_id, emotion, image_data, content_type, width, height,
+                 file_size, full_image_data, full_width, full_height, full_file_size,
+                 created_at, updated_at)
+            SELECT personality_id, emotion, image_data, content_type, width, height,
+                   file_size, full_image_data, full_width, full_height, full_file_size,
+                   created_at, updated_at
+            FROM avatar_images
+            WHERE personality_id IS NOT NULL AND personality_id != ''
+        """)
+        conn.execute("DROP TABLE avatar_images")
+        conn.execute("ALTER TABLE avatar_images_v147 RENAME TO avatar_images")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_pid ON avatar_images(personality_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)")
+        logger.info(
+            "Migration v147 complete: avatar_images keyed solely on personality_id "
+            "(dropped personality_name column + %d orphan row(s) with no pid)",
+            dropped,
+        )
+
+    def _migrate_v148_invite_reserved_pids(self, conn: sqlite3.Connection) -> None:
+        """Migration v148: add reserved_pids + vacated_pids to tournament_invites
+        (tournaments-as-a-draw). The draw-selected field locked at offer time
+        (JSON array of personality_ids) and the subset that has vacated cash en
+        route. Additive nullable columns — existing offers read NULL (no
+        draw-selected field → random shuffle at spawn, unchanged). Guarded so
+        re-running / a fresh DB (column already present from `_init_db`) is a
+        no-op."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tournament_invites)")}
+        if "reserved_pids" not in cols:
+            conn.execute("ALTER TABLE tournament_invites ADD COLUMN reserved_pids TEXT")
+        if "vacated_pids" not in cols:
+            conn.execute("ALTER TABLE tournament_invites ADD COLUMN vacated_pids TEXT")
+        logger.info("Migration v148 complete: tournament_invites reserved_pids/vacated_pids added")
+
+    def _migrate_v145_one_open_invite_per_owner(self, conn: sqlite3.Connection) -> None:
+        """Migration v145 (renumbered 136→145): structurally enforce one open invite per owner.
+
+        A partial UNIQUE index over `owner_id` WHERE status = 'offered' makes a
+        second OPEN invite for the same owner unrepresentable — backing the
+        application-level guard in `tournament_invites.offer()` against a
+        cross-worker race (the in-memory sandbox lock doesn't span gunicorn
+        workers). Non-'offered' rows are excluded, so any number of resolved
+        invites coexist (`last_created_at()` walks invite history).
+
+        DEFENSIVE pre-step: collapse any pre-existing duplicate open invites (keep
+        the newest by created_at, expire the rest) so the index creation can never
+        fail with UNIQUE constraint on a live DB. The app already prevents dupes,
+        so this is a no-op on clean data. Non-destructive, idempotent.
+        """
+        # Keep the newest 'offered' invite per owner; expire any older duplicates.
+        conn.execute("""
+            UPDATE tournament_invites
+               SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+             WHERE status = 'offered'
+               AND invite_id NOT IN (
+                   SELECT invite_id FROM (
+                       SELECT invite_id,
+                              ROW_NUMBER() OVER (
+                                  PARTITION BY owner_id
+                                  ORDER BY created_at DESC, rowid DESC
+                              ) AS rn
+                         FROM tournament_invites
+                        WHERE status = 'offered'
+                   )
+                   WHERE rn = 1
+               )
+        """)
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_invites_one_open "
+            "ON tournament_invites(owner_id) WHERE status = 'offered'"
+        )
+        logger.info("Migration v145 complete: one-open-invite-per-owner partial unique index")
 
     def _migrate_v136_drop_4d_emotion(self, conn: sqlite3.Connection) -> None:
         """Migration v136: retire the deprecated 4D emotion model.

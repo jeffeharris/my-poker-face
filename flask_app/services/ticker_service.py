@@ -119,6 +119,18 @@ WATCHDOG_INTERVAL_SECONDS = 300.0
 # monotonic time of the last watchdog pass (None until the first run).
 _last_watchdog_at: Optional[float] = None
 
+# Payout-reconcile watchdog (tournament circuit). A tournament whose prize payout
+# crashed mid-distribute is left at `payout_status='in_progress'` with partial
+# credits and no retry path — `apply_payout_on_complete`'s guard actively BLOCKS
+# re-entry, so without this it stays wedged forever (escrow non-zero, finishers
+# unpaid). This janitor resumes each stuck payout from the ledger (pay only the
+# unpaid remainder — never a double credit). Flag-gated with the rest of the
+# circuit. Grace window so a payout in-flight on a request thread isn't stolen.
+PAYOUT_RECONCILE_INTERVAL_SECONDS = 300.0
+PAYOUT_RECONCILE_GRACE_SECONDS = 120.0
+# monotonic time of the last reconcile pass (None until the first run).
+_last_payout_reconcile_at: Optional[float] = None
+
 
 def start_world_ticker(socketio) -> None:
     """Start the shared ticker once. Idempotent across create_app() calls."""
@@ -165,6 +177,11 @@ def _run(socketio) -> None:
         except Exception:
             # The watchdog is a janitor; a failure must never kill the loop.
             logger.exception("[TICKER] stale-session watchdog failed")
+        try:
+            _maybe_run_payout_reconcile_watchdog()
+        except Exception:
+            # Same janitor discipline — never kill the loop on a reconcile hiccup.
+            logger.exception("[TICKER] payout-reconcile watchdog failed")
 
 
 def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> int:
@@ -221,6 +238,56 @@ def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> 
         # in-memory re-check the sweep does when given game_state_service.
         game_state_service=game_state_service,
     )
+
+
+def _maybe_run_payout_reconcile_watchdog(now_monotonic: Optional[float] = None) -> int:
+    """Resume tournament payouts wedged at `payout_status='in_progress'`, rate-
+    limited. Flag-gated with the circuit (`TOURNAMENT_CIRCUIT_ENABLED`); inert
+    when off or when nothing is stuck. Runs at most once per
+    `PAYOUT_RECONCILE_INTERVAL_SECONDS`, regardless of active sandboxes (a stuck
+    payout persists even when nobody's online). Returns the number of tournaments
+    reconciled to `complete`. Best-effort: failures are logged and swallowed."""
+    global _last_payout_reconcile_at
+    from cash_mode import economy_flags
+
+    if not economy_flags.TOURNAMENT_CIRCUIT_ENABLED:
+        return 0
+    now = now_monotonic if now_monotonic is not None else time.monotonic()
+    if (
+        _last_payout_reconcile_at is not None
+        and (now - _last_payout_reconcile_at) < PAYOUT_RECONCILE_INTERVAL_SECONDS
+    ):
+        return 0
+    # Stamp BEFORE the work so a persistently-failing sweep backs off to cadence.
+    _last_payout_reconcile_at = now
+
+    from datetime import datetime, timedelta
+
+    from flask_app import extensions
+    from flask_app.services import game_state_service, tournament_registry, tournament_ticker
+    from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+    session_repo = getattr(extensions, "tournament_session_repo", None)
+    ledger_repo = getattr(extensions, "chip_ledger_repo", None)
+    bankroll_repo = getattr(extensions, "bankroll_repo", None)
+    sandbox_repo = getattr(extensions, "sandbox_repo", None)
+    if session_repo is None or ledger_repo is None or bankroll_repo is None:
+        return 0
+
+    grace_iso = (datetime.utcnow() - timedelta(seconds=PAYOUT_RECONCILE_GRACE_SECONDS)).isoformat()
+    results = tournament_ticker.reconcile_stuck_payouts(
+        session_repo=session_repo,
+        ledger_repo=ledger_repo,
+        bankroll_repo=bankroll_repo,
+        registry=tournament_registry,
+        resolve_sandbox=lambda owner: resolve_default_sandbox_for(owner, sandbox_repo=sandbox_repo),
+        get_lock=game_state_service.get_sandbox_lock,
+        older_than_iso=grace_iso,
+    )
+    n = sum(1 for r in results if r.get('reconciled'))
+    if results:
+        logger.info("[TICKER] payout-reconcile: %d/%d stuck tournaments resolved", n, len(results))
+    return n
 
 
 def _run_cycle(socketio) -> None:
@@ -280,6 +347,32 @@ def _resolve_pace(owner_id: str) -> Tuple[float, int]:
     return _PACE_PARAMS.get(pace, _PACE_PARAMS[_DEFAULT_PACE])
 
 
+def _record_vacated(invite_repo, invite: dict, results: dict) -> None:
+    """Fold this tick's freshly-vacated reservations (each result's `.called_up`)
+    into the invite's `vacated_pids` — the observable gather progress. Best-effort
+    and idempotent: only the reserved pids that actually left are recorded, only
+    written when the set grew, never breaks the tick.
+
+    Observability ONLY — NOT a spawn gate. The autonomous run always spawns at
+    `expires_at` (via `expire_due`), never early "when gathered", so an
+    incomplete `vacated_pids` never changes spawn timing. It's fed from the
+    unseated-tables refresh here; reservations vacated off the human's OWN live
+    table (game_handler's hand-boundary refresh, outside this lock) leave cash
+    correctly but aren't folded in — deliberately, to avoid a cross-path invite
+    write race on a non-load-bearing field. Whereabouts derives bound/seated from
+    LIVE seat status, not from this."""
+    try:
+        reserved = set(invite.get('reserved_pids') or [])
+        vacated = set(invite.get('vacated_pids') or [])
+        for result in results.values():
+            vacated.update(getattr(result, 'called_up', None) or [])
+        vacated &= reserved  # only reserved personas count toward the gather
+        if vacated != set(invite.get('vacated_pids') or []):
+            invite_repo.set_vacated_pids(invite['invite_id'], sorted(vacated))
+    except Exception:  # noqa: BLE001 — gather bookkeeping is best-effort
+        logger.exception("gather: recording vacated_pids failed for %s", invite.get('invite_id'))
+
+
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
     from cash_mode import economy_flags
@@ -306,7 +399,18 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     # last-write-wins → a stranded already-debited AI buy-in or a double-seat /
     # seated_and_idle split-brain. See game_state_service.get_sandbox_lock.
     with game_state_service.get_sandbox_lock(sandbox_id):
-        refresh_unseated_tables(
+        # Cash→tournament draw (flag-gated): the reserved field of the owner's
+        # open Main Event is gathered off cash this tick — passed as
+        # called_up_pids so seated reservations leave + aren't re-seated. The
+        # actual leavers come back on each result's `.called_up`; record them
+        # as vacated_pids so the field's gather progress is observable.
+        from flask_app.services import tournament_invites as invites
+
+        invite_repo = getattr(extensions, "tournament_invite_repo", None)
+        gather_invite = invites.open_invite_for_gather(invite_repo, owner_id)
+        called_up = set(gather_invite['reserved_pids'] or []) if gather_invite else set()
+
+        results = refresh_unseated_tables(
             cash_table_repo=extensions.cash_table_repo,
             personality_repo=extensions.personality_repo,
             bankroll_repo=extensions.bankroll_repo,
@@ -321,7 +425,13 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
             prestige_snapshots_repo=extensions.prestige_snapshots_repo,
             live_seated_pids=live_cash_seated_pids(sandbox_id),
             human_headroom=economy_flags.LIVE_FILL_HUMAN_HEADROOM,
+            # Keep personas who are in a tournament out of cash seats.
+            tournament_repo=extensions.tournament_session_repo,
+            called_up_pids=called_up or None,
         )
+
+        if gather_invite and called_up:
+            _record_vacated(invite_repo, gather_invite, results)
 
     _maybe_record_holdings_snapshot(sandbox_id)
     # Recompute the human's reputation scoreboard. Placed before the
@@ -331,6 +441,12 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     # Career M2: fire an emergent vouch if a played-with AI now likes+respects the
     # player enough. Before the emit block so the EVENT_VOUCH rides out this tick.
     _maybe_fire_vouches(owner_id, sandbox_id)
+
+    # Circuit Main Event hook (flag-gated, default OFF): offer/expire invites on
+    # the tick and advance the owner's autonomous tournament one step, recording
+    # structural beats into the activity buffer so the emit block below ships
+    # them. Placed before the emit so this tick's beats ride out immediately.
+    _maybe_tick_tournament(owner_id, sandbox_id)
 
     room = presence.lobby_room_name(owner_id)
     # Push new ticker events (newest-first from the buffer; emit oldest
@@ -689,3 +805,94 @@ def _maybe_recompute_prestige(owner_id: str, sandbox_id: str) -> None:
             )
     except Exception:
         logger.exception("[TICKER] prestige recompute failed for owner=%s", owner_id)
+
+
+def _maybe_tick_tournament(owner_id: str, sandbox_id: str) -> None:
+    """Circuit Main Event world-tick hook (P3.7), flag-gated (default OFF).
+
+    Behind `economy_flags.TOURNAMENT_CIRCUIT_ENABLED`, per active sandbox:
+      (a) sweep expired invites to autonomous play + let the chairman offer a new
+          Main Event (FLUSH + cooldown) — so offers/expiries fire on the tick,
+          not only on lobby load; then
+      (b) advance the owner's *autonomous* tournament one round, recording its
+          structural beats into the activity buffer so `_tick_sandbox`'s emit
+          block ships them as `world_event`s (no separate emit needed).
+
+    Holds the per-sandbox lock around the work (the settle mutates the escrow),
+    matching `GET /api/tournament/invite`'s pattern. Best-effort: any failure is
+    logged and swallowed — the tournament hook must never break the cash world
+    tick. Inert when off, and a quick no-op when the sandbox has no tournament.
+    """
+    from cash_mode import economy_flags
+
+    if not economy_flags.TOURNAMENT_CIRCUIT_ENABLED:
+        return
+    try:
+        from cash_mode import activity
+        from flask_app import extensions
+        from flask_app.services import (
+            game_state_service,
+            tournament_invites as invites,
+            tournament_registry,
+            tournament_ticker,
+        )
+
+        invite_repo = getattr(extensions, "tournament_invite_repo", None)
+        session_repo = getattr(extensions, "tournament_session_repo", None)
+        ledger_repo = getattr(extensions, "chip_ledger_repo", None)
+        bankroll_repo = getattr(extensions, "bankroll_repo", None)
+        personality_repo = getattr(extensions, "personality_repo", None)
+        cash_table_repo = getattr(extensions, "cash_table_repo", None)
+        prestige_repo = getattr(extensions, "prestige_snapshots_repo", None)
+        if invite_repo is None or session_repo is None or ledger_repo is None:
+            return  # persistence not wired (e.g. unit context) — nothing to do
+        # The cash→tournament draw context (tournaments-as-a-draw); flag-gated
+        # downstream, so this is inert unless TOURNAMENT_DRAW_ENABLED.
+        draw_ctx = invites.draw_context(
+            personality_repo=personality_repo,
+            bankroll_repo=bankroll_repo,
+            prestige_repo=prestige_repo,
+            cash_table_repo=cash_table_repo,
+            ledger_repo=ledger_repo,
+        )
+
+        events: list = []
+        with game_state_service.get_sandbox_lock(sandbox_id):
+            try:
+                invites.expire_due(
+                    invite_repo=invite_repo,
+                    personality_repo=personality_repo,
+                    bankroll_repo=bankroll_repo,
+                    ledger_repo=ledger_repo,
+                    session_repo=session_repo,
+                    cash_table_repo=cash_table_repo,
+                    sandbox_id=sandbox_id,  # only sweep this sandbox (the lock we hold)
+                )
+                invites.maybe_offer_main_event(
+                    invite_repo=invite_repo,
+                    session_repo=session_repo,
+                    ledger_repo=ledger_repo,
+                    owner_id=owner_id,
+                    sandbox_id=sandbox_id,
+                    draw_ctx=draw_ctx,
+                )
+            except Exception:  # noqa: BLE001 — surfacing is best-effort
+                logger.exception("[TICKER] invite sweep failed for owner=%s", owner_id)
+
+            result = tournament_ticker.advance_owner_tournament(
+                owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                registry=tournament_registry,
+                session_repo=session_repo,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=ledger_repo,
+                personality_repo=personality_repo,
+                prestige_repo=getattr(extensions, "prestige_snapshots_repo", None),
+            )
+            if result:
+                events = result['events']
+        # Record outside the sandbox lock — the activity buffer has its own lock.
+        for event in events:
+            activity.record_event(event)
+    except Exception:  # noqa: BLE001 — the hook must never kill the cash tick
+        logger.exception("[TICKER] tournament tick failed for owner=%s", owner_id)

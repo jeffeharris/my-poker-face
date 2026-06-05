@@ -8,6 +8,8 @@ export interface ChatMessage {
   phase?: string; // Optional game phase for card-deal messages (e.g., "flop")
   cards?: string[]; // Optional card strings for card-deal messages (e.g., ["A♠", "K♦"])
   win_result?: WinResult; // Optional structured winning hand data
+  avatar_url?: string; // Fully-qualified avatar URL for AI messages — lets the chat
+  // bubble render the speaker's face even after they've left the table
 }
 
 /** Structured data for winning hand display in chat */
@@ -35,6 +37,7 @@ export interface BackendChatMessage {
   phase?: string; // Optional game phase for card-deal messages
   cards?: string[]; // Optional card strings for card-deal messages
   win_result?: WinResult; // Optional structured winning hand data
+  avatar_url?: string; // Speaker's avatar URL (relative path) for AI messages
 }
 
 /**

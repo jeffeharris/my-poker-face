@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import nullcontext
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from cash_mode.bankroll import (
     BANKROLL_KNOB_DEFAULTS,
@@ -127,6 +128,7 @@ class BankrollRepository(BaseRepository):
         *,
         sandbox_id: str,
         chip_ledger_repo=None,
+        conn=None,
     ) -> None:
         """Upsert the AI bankroll row in the given sandbox.
 
@@ -140,18 +142,28 @@ class BankrollRepository(BaseRepository):
         chip-ledger gap from `CASH_MODE_ECONOMY.md` Known Issues §2:
         without this, new sandboxes would create AI chips from thin
         air with no audit trail.
+
+        Chip-custody atomicity: the upsert AND the first-write `ai_seed`
+        ledger row are written on ONE connection inside ONE transaction, so
+        a crash can't land the int without its seed (or vice versa) — closing
+        the two-commit divergence window. When `conn` is passed, the upsert
+        joins the CALLER's open transaction (the caller commits); a casino
+        seed/drain uses this to commit its bank-pool ledger row + this int
+        together. `conn=None` (the default, every existing caller) opens and
+        commits our own connection.
         """
-        with self._get_connection() as conn:
+        ctx = nullcontext(conn) if conn is not None else self._get_connection()
+        with ctx as c:
             is_first_write = (
                 chip_ledger_repo is not None
-                and conn.execute(
+                and c.execute(
                     "SELECT 1 FROM ai_bankroll_state "
                     "WHERE personality_id = ? AND sandbox_id = ?",
                     (state.personality_id, sandbox_id),
                 ).fetchone()
                 is None
             )
-            conn.execute(
+            c.execute(
                 """
                 INSERT OR REPLACE INTO ai_bankroll_state
                     (personality_id, sandbox_id, chips, last_regen_tick)
@@ -164,16 +176,19 @@ class BankrollRepository(BaseRepository):
                     state.last_regen_tick.isoformat() if state.last_regen_tick else None,
                 ),
             )
-        if is_first_write and state.chips > 0:
-            from core.economy import ledger as chip_ledger
+            # Seed INSIDE the same transaction (on `c`) so int + seed commit
+            # together. Was previously a separate post-commit write.
+            if is_first_write and state.chips > 0:
+                from core.economy import ledger as chip_ledger
 
-            chip_ledger.record_ai_seed(
-                chip_ledger_repo,
-                personality_id=state.personality_id,
-                amount=int(state.chips),
-                context={'sandbox_id': sandbox_id, 'site': 'save_ai_bankroll'},
-                sandbox_id=sandbox_id,
-            )
+                chip_ledger.record_ai_seed(
+                    chip_ledger_repo,
+                    personality_id=state.personality_id,
+                    amount=int(state.chips),
+                    context={'sandbox_id': sandbox_id, 'site': 'save_ai_bankroll'},
+                    sandbox_id=sandbox_id,
+                    conn=c,
+                )
 
     def load_ai_bankroll(
         self,
@@ -378,6 +393,34 @@ class BankrollRepository(BaseRepository):
             ).fetchall()
         return [int(r["chips"]) for r in rows]
 
+    def iter_ai_bankrolls_raw(self, *, sandbox_id: Optional[str] = None):
+        """`(personality_id, sandbox_id, stored_chips)` for every AI bankroll row.
+
+        The RAW stored int — NOT routed through `_derived_or_cached_ai_chips` —
+        so the Phase E `audit_ledger_completeness` reconcile can compare the
+        authoritative cache against the ledger-derived balance regardless of the
+        `CHIP_CUSTODY_DERIVE_READS` flag. `sandbox_id=None` spans all sandboxes.
+        """
+        with self._get_connection() as conn:
+            if sandbox_id is None:
+                rows = conn.execute(
+                    "SELECT personality_id, sandbox_id, chips FROM ai_bankroll_state"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT personality_id, sandbox_id, chips FROM ai_bankroll_state "
+                    "WHERE sandbox_id = ?",
+                    (sandbox_id,),
+                ).fetchall()
+        return [(r["personality_id"], r["sandbox_id"], int(r["chips"])) for r in rows]
+
+    def iter_player_bankrolls_raw(self):
+        """`(player_id, stored_chips)` for every player bankroll row — RAW stored
+        int (no derivation). Player bankroll is global (no sandbox column)."""
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT player_id, chips FROM player_bankroll_state").fetchall()
+        return [(r["player_id"], int(r["chips"])) for r in rows]
+
     def load_aspiration_cooldown_until(
         self,
         personality_id: str,
@@ -442,6 +485,88 @@ class BankrollRepository(BaseRepository):
                 (value, personality_id, sandbox_id),
             )
             return cursor.rowcount > 0
+
+    def record_bankruptcy(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+        now: datetime,
+    ) -> int:
+        """Increment the AI's bankruptcy count and stamp the timestamp.
+
+        Called by the carry-resolution bankruptcy valve when an
+        insolvent borrower's carries are discharged. Bumps
+        `bankruptcy_count` and sets `last_bankruptcy_at = now` (v149
+        columns on `ai_bankroll_state`). Returns the new count.
+
+        Targets an existing row — the bankruptcy path has already
+        loaded and zeroed the bankroll, so the row is guaranteed to
+        exist. Returns 0 if no row matched (defensive; shouldn't
+        happen on the live path).
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE ai_bankroll_state
+                SET bankruptcy_count = COALESCE(bankruptcy_count, 0) + 1,
+                    last_bankruptcy_at = ?
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (now.isoformat(), personality_id, sandbox_id),
+            )
+            if cursor.rowcount <= 0:
+                return 0
+            row = conn.execute(
+                """
+                SELECT bankruptcy_count
+                FROM ai_bankroll_state
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (personality_id, sandbox_id),
+            ).fetchone()
+        return int(row["bankruptcy_count"]) if row else 0
+
+    def load_bankruptcy_state(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+    ) -> Tuple[int, Optional[datetime]]:
+        """Return the AI's (bankruptcy_count, last_bankruptcy_at) (v149).
+
+        Drives the post-bankruptcy loan-term penalty: a recently-bankrupt
+        borrower gets quoted a pricier cut, decaying off
+        `last_bankruptcy_at`. Returns (0, None) for a never-bankrupt AI
+        or a missing row. Malformed timestamp ⇒ count with None time
+        (treated as fully decayed) rather than crashing the refresh.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT bankruptcy_count, last_bankruptcy_at
+                FROM ai_bankroll_state
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (personality_id, sandbox_id),
+            ).fetchone()
+        if not row:
+            return (0, None)
+        count = int(row["bankruptcy_count"] or 0)
+        raw = row["last_bankruptcy_at"]
+        if raw is None:
+            return (count, None)
+        try:
+            return (count, datetime.fromisoformat(raw))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Personality %r in sandbox %r has malformed "
+                "last_bankruptcy_at %r; treating as fully decayed",
+                personality_id,
+                sandbox_id,
+                raw,
+            )
+            return (count, None)
 
     def sum_ai_bankroll_chips_stored(
         self,
@@ -546,16 +671,23 @@ class BankrollRepository(BaseRepository):
             )
         return derived
 
-    def save_player_bankroll(self, state: PlayerBankrollState) -> None:
+    def save_player_bankroll(self, state: PlayerBankrollState, *, conn=None) -> None:
         """Upsert the player bankroll row.
 
         Only `(chips, starting_bankroll)` are read from the state —
         the legacy `active_loan_*` columns (v89/v90) were dropped in
         v99 once the stakes-table cutover completed. Active stakes
         live in `StakeRepository` now; this row carries no loan state.
+
+        Chip-custody atomicity: when `conn` is passed, the upsert joins the
+        caller's open `transaction()` so the player int and its paired ledger
+        row (`player_buy_in` / `player_cash_out` / `stake_fund` / `stake_payoff`)
+        commit together. `conn=None` (every existing caller) opens and commits
+        our own connection, as before.
         """
-        with self._get_connection() as conn:
-            conn.execute(
+        ctx = nullcontext(conn) if conn is not None else self._get_connection()
+        with ctx as c:
+            c.execute(
                 """
                 INSERT OR REPLACE INTO player_bankroll_state
                     (player_id, chips, starting_bankroll)

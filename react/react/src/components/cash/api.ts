@@ -128,6 +128,31 @@ export async function submitIntake(
   return postJson('/intake', { name, reply, reply_id: replyId });
 }
 
+/** One row of the player's chip transaction history (GET /api/cash/ledger). */
+export interface LedgerEntry {
+  created_at: string;
+  reason: string;
+  /** Friendly label, e.g. "Tournament prize". */
+  label: string;
+  /** + when chips came IN, − when they went OUT. */
+  signed_amount: number;
+  /** Balance after this transaction (full-history accurate). */
+  balance_after: number;
+  /** Finishing place for tournament-payout rows, else null. */
+  finishing_position?: number | null;
+}
+
+export interface LedgerResponse {
+  entries: LedgerEntry[];
+  balance: number;
+}
+
+/** The player's itemized chip statement (cash + tournament + stakes), newest
+ *  first. Complements net-worth (a snapshot) with the actual transaction log. */
+export async function getLedger(limit = 200): Promise<LedgerResponse> {
+  return getJson(`/ledger?limit=${limit}`);
+}
+
 export async function getState(): Promise<CashStateResponse> {
   return getJson('/state');
 }

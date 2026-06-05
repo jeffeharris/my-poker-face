@@ -513,9 +513,8 @@ The fundamental issue: gpt-5-nano generates aggressive poker plans for ALL perso
 - [x] Experiment 113843: v2 stateless injection tested and rejected
 - [x] **Hand plan approach abandoned** — style-aware options alone give best differentiation
 
-### Next
-- [ ] Improve post-flop differentiation via option generation layer (profile-specific post-flop thresholds)
-- [ ] Phase 2: Character expression prompt (design + implement)
-- [ ] Chattiness/expressiveness gating for Phase 2 output volume
-- [ ] Wire emotional state → looseness modifier between hands
-- [ ] Experiment: full pipeline test (decision + character) vs current system
+> The original "Next" TODO checklist was trimmed (2026-06-03) as point-in-time
+> planning that has gone cold. This doc stands as a historical record of the hybrid
+> v2 design; the live decision system is the bounded-options pipeline documented in
+> `poker/CLAUDE.md` (Bounded Options System) and
+> `docs/technical/BOUNDED_OPTIONS_DECISION_FRAMEWORK.md`.

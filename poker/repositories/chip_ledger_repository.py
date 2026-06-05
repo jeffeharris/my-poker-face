@@ -38,6 +38,7 @@ class ChipLedgerRepository(BaseRepository):
         context: Optional[Dict[str, Any]] = None,
         *,
         sandbox_id: Optional[str] = None,
+        conn=None,
     ) -> int:
         """Append one ledger entry. Returns the row id.
 
@@ -54,18 +55,28 @@ class ChipLedgerRepository(BaseRepository):
         callers should always pass it; legacy migration helpers
         (`_migrate_v94_seed_pre_ledger_universe`) leave it NULL on
         purpose.
+
+        `conn` (chip-custody atomicity): when given, the INSERT runs on
+        the CALLER's open connection so the ledger row commits in the
+        SAME transaction as the caller's bankroll-int write (no two-commit
+        divergence window). The caller owns the commit. None → open + commit
+        our own connection (the standalone default; every existing caller).
         """
         context_blob = json.dumps(context) if context is not None else None
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO chip_ledger_entries
-                    (source, sink, amount, reason, context_json, sandbox_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (source, sink, int(amount), reason, context_blob, sandbox_id),
-            )
-            return cursor.lastrowid
+        sql = """
+            INSERT INTO chip_ledger_entries
+                (source, sink, amount, reason, context_json, sandbox_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """
+        params = (source, sink, int(amount), reason, context_blob, sandbox_id)
+        if conn is not None:
+            # Join the caller's transaction — they commit (or roll back) both
+            # the int write and this row together.
+            rid = conn.execute(sql, params).lastrowid
+        else:
+            with self._get_connection() as own:
+                rid = own.execute(sql, params).lastrowid
+        return int(rid) if rid is not None else 0
 
     def balance_of(
         self,
@@ -172,6 +183,37 @@ class ChipLedgerRepository(BaseRepository):
             ).fetchall()
         return {row['reason']: int(row['total'] or 0) for row in rows}
 
+    def payouts_by_sink(
+        self,
+        source: str,
+        *,
+        reason: str,
+        sandbox_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """Σ(amount) grouped by sink for rows where `source = <source>` and
+        `reason = <reason>`. The authoritative "what has this escrow already paid
+        each recipient" view that drives payout reconciliation: a tournament's
+        `tournament_payout` rows (source = `tournament(id)`) grouped by sink give
+        the per-finisher amounts already distributed, so a stuck (`in_progress`)
+        payout can be resumed by paying only the unpaid remainder per sink without
+        double-crediting anyone. Returns {sink_account: total}; empty if none."""
+        params: List[Any] = [source, reason]
+        where = "source = ? AND reason = ?"
+        if sandbox_id is not None:
+            where += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT sink, SUM(amount) AS total
+                FROM chip_ledger_entries
+                WHERE {where}
+                GROUP BY sink
+                """,
+                params,
+            ).fetchall()
+        return {row['sink']: int(row['total'] or 0) for row in rows}
+
     def non_bank_entries_since(
         self,
         since_iso: str,
@@ -265,6 +307,69 @@ class ChipLedgerRepository(BaseRepository):
                 'source': row['source'],
                 'sink': row['sink'],
                 'amount': int(row['amount']),
+                'reason': row['reason'],
+            }
+            raw = row['context_json']
+            if raw is None:
+                entry['context'] = None
+            else:
+                try:
+                    entry['context'] = json.loads(raw)
+                except (TypeError, ValueError):
+                    entry['context'] = None
+                    entry['context_raw'] = raw
+            out.append(entry)
+        return out
+
+    def entries_for_account(
+        self,
+        account: str,
+        *,
+        sandbox_id: Optional[str] = None,
+        limit: int = 200,
+        newest_first: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Itemized ledger entries where `account` is the source OR sink — one
+        account's statement (the player-facing "My Ledger" view).
+
+        Each row carries `signed_amount`: +amount when the account RECEIVES (it's
+        the `sink`) and -amount when it PAYS (it's the `source`). The running total
+        of `signed_amount` over the FULL history equals `balance_of(account)`.
+
+        `sandbox_id=None` (default) spans every sandbox — the human's
+        `player:<owner_id>` account is global (no sandbox_id on
+        `player_bankroll_state`), so a complete statement must not scope by save
+        file. `context_json` is parsed back to a dict (malformed → `context_raw`),
+        mirroring `recent_entries`."""
+        order = "DESC" if newest_first else "ASC"
+        where = "(source = ? OR sink = ?)"
+        params: List[Any] = [account, account]
+        if sandbox_id is not None:
+            where += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        params.append(int(limit))
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT entry_id, created_at, source, sink, amount, reason, context_json
+                FROM chip_ledger_entries
+                WHERE {where}
+                ORDER BY created_at {order}, entry_id {order}
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            amount = int(row['amount'])
+            entry: Dict[str, Any] = {
+                'entry_id': row['entry_id'],
+                'created_at': row['created_at'],
+                'source': row['source'],
+                'sink': row['sink'],
+                'amount': amount,
+                'signed_amount': amount if row['sink'] == account else -amount,
                 'reason': row['reason'],
             }
             raw = row['context_json']

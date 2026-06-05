@@ -1,0 +1,762 @@
+---
+purpose: Grounded narrative log of building the headless multi-table tournament engine (branch tournaments)
+type: reference
+created: 2026-05-29
+last_updated: 2026-06-02
+---
+
+<!-- newest entries at the bottom -->
+
+
+# Captain's log — multi-table tournament engine (tournaments worktree)
+
+Honest record of starting the WSOP-style multi-table tournament capability from
+`docs/plans/MULTI_TABLE_TOURNAMENT_PLAN.md`. Newest entries at the bottom. Wrong
+turns and corrections kept in, not just the wins.
+
+---
+
+## 2026-05-29 — brainstorm → plan → headless engine core
+
+**Started as a brainstorm, not a build.** The ask was big and open ("tournaments,
+eventually circuit/daily, buy-ins, staking, prestige, achievements, the ticker
+ties it together"). Rather than guess, I fanned out three explorers over the
+existing systems first. The useful finding that shaped everything: this is an
+**assembly job, not a greenfield build** — the sandbox is already an isolated
+world, `cash_tables` is already N-tables-per-sandbox with a `table_type`
+discriminator, `TournamentTracker` already models eliminations→standings, the
+world ticker + `lobby:{owner_id}` room is already a broadcast bus, the stakes
+system already has the buy-in vocabulary. The missing piece is an orchestration
+layer above the per-table loop. That reframing kept the plan honest about scope.
+
+**Locked the decisions before designing.** Via a few rounds of questions the user
+pinned: headless AI-only engine *first* (then wire the human in), 18–24 field /
+3–4 tables, tiered/rule bots with **0 LLM cost**, no economy in v1, funny-money
+chips, two decoupled ledgers (social carried in/out for career mode, chips always
+isolated), and a live-pacing model of 0/1/2 AI hands per human hand. One thing I
+got slightly wrong in the first question pass: I bundled "table fidelity" as the
+headline fork, but the user's real framing was "multi-table *simulation* first" —
+which made fidelity moot for v1 (all tables equally simulated). Re-asked and the
+build order fell out cleanly.
+
+**The architectural bet: field-as-source-of-truth + a pluggable resolver.** The
+hard part the user wanted right is balancing/shuffling — a between-hands concern.
+So I made the seating and standings layers pure data with zero engine dependency,
+and made hand-playing a `HandResolver` interface. A `FakeHandResolver`
+(deterministic, chip-conserving "everyone posts the blind, stack-weighted winner
+takes it") runs whole tournaments without the engine or any LLM, so the
+orchestration is testable and reproducible in 0.14s. Reading the engine first
+paid off: `simulate_bb100.run_6max_matchup` *already* rebuilds the game state +
+controllers fresh each hand from per-seat data — exactly the pattern I needed,
+which de-risked "how do I move players between tables" (you don't; the field owns
+seating, each hand is built from it).
+
+**Then the conservation invariant earned its keep on the very first engine run.**
+The fake path was green; the real-engine path immediately tripped the
+`sum(stacks) == field_size * starting_stack` assertion (in=60105, out=59301). My
+first instinct — "the tournament layer has a bug" — was wrong. The leak was in
+**core `poker_game.py::determine_winner`**, pre-existing, invisible to every
+existing eval because `simulate_bb100`/`sng_runner` use equal stacks every hand
+and never assert exact conservation. The plan had flagged this invariant as the
+safety net for exactly this; nice to see it fire on day one.
+
+**A wrong turn chasing it — bad instrument.** My first diagnostic monkeypatched
+`poker.poker_game.determine_winner` with a leak-detecting wrapper and ran the
+leaking seeds. It reported *zero* leak — which would have sent me looking in the
+wrong place. The wrapper was never actually called: the leak is real (a full
+manual reproduction confirmed 1500 chips vanishing), but my patched module
+attribute wasn't the reference the internal caller used. Echo of an earlier log's
+lesson: verify the instrument before trusting its silence. The manual repro —
+build the exact 6-seat state, run one hand, print every stack — was authoritative
+and pinpointed it.
+
+**Root cause + fix.** When an all-in short stack creates a main pot and only
+*one* live player remains eligible for the side tier, the old code returned only
+that lone player's own excess and stopped — but folded players had left "dead
+money" in that tier, and since folded players never enter the active loop, those
+chips stranded. Fix: the lone live player **wins** the folded dead money (capped
+at their contribution); only genuinely uncalled excess is returned; plus a
+post-loop safety sweep returns any residual folded over-contribution above all
+live players (a broader instance of the same leak). I had to be careful to
+*preserve* `test_multiple_side_pots_three_all_ins`, which deliberately asserts the
+silent-return behavior — but that case has no folded dead money, so the fix
+distinguishes them correctly. This touches **all** game modes (cash, SNG), not
+just tournaments — a latent chip leak fixed everywhere.
+
+**Verification.** 23 new tournament unit tests; 79 green across pot-distribution
+(with a new regression test), tournament-flow, functional-poker, chip-flow; 59
+more `determine_winner`-dependent tests green. 18- and 24-entrant tournaments run
+to a single winner on both resolvers with conservation asserted every round (the
+24-entrant engine run held across all 60 rounds of unequal-stack all-ins).
+
+**Deliberately deferred.** Per-table dead-button realism, eliminator attribution,
+results persistence, and the live-human seam — all Step 2+ in the plan. Kept this
+first cut to: prove the orchestration, prove conservation, fix what conservation
+exposed. Nothing committed yet; the engine fix arguably wants its own commit given
+its blast radius.
+
+## 2026-05-29 (later) — commit, event log, then realism
+
+**Committed in three slices**, with the core engine fix on its own (`96d6f7d0`)
+ahead of the scaffold (`3223043d`) precisely because it touches every game mode,
+not just tournaments — a reviewer should see it isolated.
+
+**Event log + eliminator attribution (`ec99187c`).** Added a `RoundReport` per
+round (level, eliminations, seat moves). The seat moves were already computed by
+the rebalance and silently discarded — capturing them is the raw feed the ticker
+and the standings view will render. Eliminator attribution is a deliberate
+heuristic: the biggest live chip-gainer at the busted player's table that hand.
+It's not always the literal knockout in a multiway pot, but it's resolver-agnostic
+(works for fake and engine alike without reaching into either) and good enough for
+v1 prestige. Flagged the heuristic in the code rather than pretending it's exact.
+
+**The persistence fork — and a good user call.** I'd lined up results persistence
+as the next step. The user pumped the brakes: don't persist yet, because we don't
+yet know the *shape* of the data we'll want — and that shape will fall out of the
+standings UX (an in-game tournament menu you back out to). Correct instinct;
+building a schema before the read patterns exist is how you get a migration you
+regret. Logged it as deferred.
+
+**A real design decision surfaced: player-gated time.** The user added that when
+you back out to the standings menu, the **whole world pauses** — no other table
+advances, the blind clock stops, nobody busts. That's the *opposite* of the
+cash/career world ticker (which keeps ticking while your table waits). It's the
+right model for a tournament — your position is too consequential to move while
+you're reading — and it happens to be exactly what the director already is: a
+round only advances by an explicit step, no background thread. Recorded it in the
+plan so Phase 2 doesn't accidentally bolt a ticker onto tournaments.
+
+**Realism now, since persistence is on hold (`4e086536`).** Reworked the table
+model from an occupied-only list to **fixed seat positions** with a **seat-based
+button** that moves forward to the next occupied seat (snapping past a seat a
+player just vacated). Stopped short of full casino dead-button: the engine derives
+blinds from the dealer index over the seated players, so a button resting on an
+empty seat would fight it for no v1 benefit — documented the limit rather than
+half-implementing it. The one test that had asserted `button < size` was now wrong
+by construction (button is a seat index, not bounded by the occupied count); fixed
+it to assert the *resolved dealer index* is valid instead — a small reminder that
+when the model gets more realistic, the old invariants need re-reading, not just
+re-running.
+
+## 2026-05-29 (later still) — the live-human seam, headless first
+
+**Built `TournamentSession` and resisted the urge to start with the UI.** The
+temptation with "let's go" on Phase 2 was to start wiring React + Flask + sockets
+so there'd be something to look at. I deliberately didn't — the hard, risky part
+of Phase 2 is the *seam*: pacing the AI field to the human, pausing the world when
+they step away, and relocating the human across table breaks without resurrecting
+the ghost-seat bug class. So I built that as a pure, headless-testable coordinator
+and simulated the human with the same FakeHandResolver, deferring all UI.
+
+**The relocation worry evaporated — by design, not luck.** I'd flagged human
+relocation as the top risk (it's the cash-mode ghost-seat class). But because the
+whole engine is field-as-source-of-truth, the human is just another entry in the
+one seating model; moving them is the *same* atomic op as moving any AI, and
+`seating.table_for(human)` is always the truth. There was no special human-move
+code to get wrong. The earlier architectural bet paid a second dividend here.
+
+**Pacing + the blind clock after the human busts.** Two things needed care.
+(1) The 0/1/2 burst can bust a player mid-burst, which would leave a dead seat in
+the table while the next hand in the burst tried to compute a dealer index over
+it — so a burst stops the moment a hand busts someone (the dead seat is cleared at
+round end). (2) "Human hand = the clock tick" is true while the human plays, but
+after they bust I still need blinds to keep rising as the field fast-forwards — so
+the clock runs off a single `rounds` counter that keeps incrementing through
+`play_out()`, not off the human's hand count. Small, but either would have been a
+subtle bug.
+
+**Defined the standings data contract now, the UI later.** `standings_view()` /
+`human_table_view()` return plain dicts (field counts, blind level, per-seat
+stacks with button + human flags, recent knockouts) — pure reads that never
+advance anything, which is also the world-pause guarantee in code form. Building
+the contract before the React layer means the UI and the (still-deferred)
+persistence schema can be shaped against real, tested output rather than a guess.
+
+**Verified with the real engine, not just the fake.** Ran a session where both
+the human callback and the AI tables go through `EngineHandResolver`: an 8-player
+event ran 48 human hands, the human actually won, and conservation held every
+round. Good enough confidence that the seam is sound before any wiring.
+
+## 2026-05-29 (evening) — API, then UI; recon first, reuse always
+
+**Reconnaissance before the API, on the user's nudge.** The user reframed the
+scope crisply: the single-table game is already built and reused by cash + the
+old single-table tournaments; the director/session is *only* the meta-layer
+(seating, chip movement, standings, clock). "Use the same patterns unless
+something's wrong." So before writing a line of API code I sent an explorer to
+map exactly how cash mode coordinates the human's live table with the rest of
+the world. The payoff was precise: the hook point is the *same*
+`handle_evaluating_hand_phase` hand-boundary seam cash uses; my `EngineHandResolver`
+is architecturally identical to `cash_mode/full_sim.py` (so: keep it, don't
+reinvent); and relocating the human means *building a fresh game* at the new
+table (the player set is per-`game_id`), with the seating model only telling you
+*where*. That last point retired a worry — no risky mutation of a live game's
+roster.
+
+**API layer (2a).** Mirrored cash's shape: an in-memory `tournament_registry`
+(twin of `game_state_service`) and `tournament_routes` (register / lobby /
+standings / advance / play-out / leave). The director/session stays pure; the
+routes are a thin shell over `standings_view()`. Deferred the deep game-handler
+bridge to 2c per the agreed ordering — until then advance/play-out auto-resolve
+the human's table so the UI has live data.
+
+**A dead fixture, found the honest way.** The route tests tripped on the shared
+`flask_app`/`flask_client` conftest fixtures — they patch a
+`flask_app.extensions.persistence` attribute that doesn't exist, so they've been
+quietly unusable. Rather than resurrect them, I did what the cash route tests do:
+build the app via `create_app()` in a local fixture. My routes are DB-free so
+that's clean. Noted the dead fixtures in the commit rather than pretending they
+worked.
+
+**UI (2b) via the frontend-design skill.** Committed to a single bold direction:
+a *broadcast tournament clock / leaderboard* — deep felt-charcoal, championship
+gold, knockout crimson, condensed Bebas Neue for the clock and tabular JetBrains
+Mono for chip counts. The "field paused" pulse makes player-gated time visible
+in the chrome itself. Mobile-first, two-up tables on desktop.
+
+**Seeing it, since the dev server won't show it.** `/tournament` is auth-gated
+and this project's dev server returns blank docs to headless browsers — a
+documented gotcha. So I verified the design the reliable way: a standalone static
+preview of the real CSS, served over `http.server`, screenshotted at phone and
+desktop widths. It looked the part on the first pass — the clock band, the
+"3rd / 28,450" hero, the gold-bordered YOUR TABLE with dealer-button discs and
+the highlighted YOU seat, the crimson KO feed. tsc + eslint clean; preview
+artifacts removed, not committed.
+
+**Naming collision caught in passing.** The home menu already calls cash mode
+"The Circuit," so I renamed the multi-table lobby to "The Main Event" and hung a
+"Main Event (Beta)" entry off the existing single-table tournament menu rather
+than inventing a new top-level card — least-surprise wiring.
+
+## 2026-05-29 (night) — starting 2c by de-risking, not by diving in
+
+The live bridge is the hardest, highest-blast-radius step — it edits the
+production `game_handler`, the same hand-boundary machinery cash and single-table
+games run through. This project's scar tissue (ghost seats, cold-load divergence)
+is almost all from that surface. So I deliberately started 2c by building and
+testing the *brain* in isolation rather than rushing edits into the handler:
+
+- `apply_live_round(human_table_result)` on the session — the live analog of
+  `play_round`, where the human's hand is already played by the real game and we
+  just fold the result in, then pace the AI tables and settle. `_round` grew a
+  `human_result` branch so the headless and live paths share one settle/rebalance
+  body (no second implementation to drift).
+- `tournament_handler.coordinate_after_human_hand` — a *pure* classifier:
+  continue / relocated / human_out / complete. And `human_table_seat_specs` — the
+  seat contract the builder and the continue-sync will both consume. Pure means I
+  could unit-test relocation detection, the human-out guards, and conservation
+  across a whole simulated event with a real session and plain dicts — 16 tests,
+  no Flask, no browser.
+
+What I intentionally did **not** do yet: touch `handle_evaluating_hand_phase`, or
+write `_build_tournament_game`. Those need an *in-process integration test* (build
+a tournament game, drive human actions through `progress_game`, assert the
+boundary coordinates correctly) — not a browser, which this project can't drive
+headlessly anyway. Wiring them blind into the production handler and hoping is how
+the ghost-seat bugs got written; the tested brain + the seat contract are the
+foundation that makes the wiring safe to add next.
+
+## 2026-05-29 (late night) — the wiring, and a codex no-show that paid off anyway
+
+Asked to run the wiring plan by codex-assist first. Codex **stalled for ~20
+minutes with zero output** (the `| tail` buffers until exit, so it was a silent
+hang, not slow streaming); killing it left only `SESSION: unknown`. Rather than
+gamble on another 20-minute stall I reviewed the plan myself — and being forced
+to be my own skeptic surfaced the best decision of the phase: **one game_id for
+the human's entire tournament.** I'd planned to build a fresh game (new game_id,
+client navigation) on relocation; but the game_id is just a key, so relocation is
+nothing more than a bigger roster change than a bust. Both `continue` and
+`relocated` now reconcile the live table in place and deal on; only `human_out` /
+`complete` stop. That deleted an entire class of work — new-game lifecycle,
+client-nav races, old-game cleanup — and shrank the production-handler footprint
+to one gated block.
+
+Other calls the self-review settled: AI seats on the human's live table use the
+**production** `build_tiered_controller` (expression layer off → no LLM), not the
+experiment `make_controller` that bypasses `__init__` and would lack attributes
+the handler touches. The multi-table game deliberately **omits** the single-table
+`tournament_tracker` and `cash_mode`, so `handle_eliminations`,
+`check_tournament_complete`, and the cash block all early-return — the session
+owns elimination/completion. Reconcile mirrors `_refill_cash_seats`' in-place
+swap because memory is name-keyed, so survivors keep their history.
+
+Verification without a browser: the `_drive` integration test runs the boundary
+end-to-end with a fake state-machine and stub controllers — simulate a hand,
+fold it in, pace the AI tables, settle, reconcile — asserting conservation and
+that the live roster matches the field every step, through relocation, to
+completion. Plus a `sit`-route smoke test that builds a *real* game (tiered
+controllers + memory, 12s). What's still only manually checkable: the gated hook
+firing through a full `progress_game` human hand (the 8-line glue calls
+already-tested code) and the frontend navigating register/sit → the live table.
+Left those honestly flagged rather than claimed.
+
+---
+
+## 2026-05-30 — UI review → persistence unification (steps 1+2)
+
+**Started as a UI review of the "Main Event," found a real layout bug, then the
+bigger fish was persistence.** The standings screen on mobile loaded with the
+clock + your-own-stack strip clipped off the top and unreachable — root cause was
+`.tourney` using `min-height:100dvh` inside the global `body { overflow:hidden;
+display:flex; align-items:center }` shell: a taller-than-viewport child gets
+vertically centered and the top overflows with no scroll. Every other screen
+dodges this via `PageLayout`; the tournament screens render raw. One-line fix
+(`height:100dvh` so centering is a no-op and it owns its scroll). Verified by
+measuring `.clock` at y=65 after the fix vs −296 before.
+
+**The real question the user raised: tournament games leaked into the saved-games
+list as standalone entries.** Traced it: `list_games` denylisted `cash-` but not
+`tourney-`, so the human's live MTT table (an ordinary `games` row keyed
+`tourney-…`) showed up detached from its `TournamentSession`. Worse, the generic
+cold-load path re-attached the legacy `tournament_tracker` but had *zero*
+references to `tournament_session` — so an evicted/restarted MTT table silently
+froze its field (the hand-boundary hook is gated on
+`game_data['tournament_session']`). The user's framing — "all games are
+tournaments; the old game is just a 1-table tournament" — is right, and pointed
+straight at the seam.
+
+**Scoped it honestly into 1 / 2 / (3 = design doc).** The thing I had to keep
+clear: the handler dispatches to the MTT completion path *purely* on
+`tournament_session is not None` (`game_handler:3490`). So literally wrapping
+single games in a `TournamentSession` can't be separated from unifying
+completion (`tournament_complete`/`TournamentResult` vs `mtt_complete`/standings)
+— that's step 3. Step 2 therefore wraps single games in a lightweight
+`tournaments` **envelope** (`resolver_kind='single'`, identity/index only, NOT
+attached to game_data) so they stay tracker-driven. Said so plainly rather than
+overreaching.
+
+**Wrong turn, caught by checking the live DB.** After wiring envelope-on-create
++ lazy-wrap-on-load, the dev DB showed `single-tourney-…` rows — MTT *orphan*
+tables (no session row) had fallen into the single branch and been mislabeled
+`single`. Added a prefix guard (`persist_single_envelope` refuses
+`tourney-`/`cash-` ids), a regression test, and cleaned the two bad rows. Lesson
+re-learned: verify against real DB state, not just green unit tests.
+
+**Verified the headline fix the real way.** Restarted the backend (evicts all
+in-memory games), cold-loaded ReviewBot's MTT table, drove ~20 hands through the
+action API: the field advanced rounds 0→10, persisted each boundary, chips
+conserved at 180,000. Without the re-attach that counter stays at 0. Also
+confirmed `/api/games` now hides the `tourney-` table, a new single game gets an
+envelope + still lists, and delete cleans the envelope. 17 new tests; full
+tournament + repo suite green. Step 3 written up in
+`docs/plans/TOURNAMENT_UNIFICATION_STEP3.md` and tracked as TRIAGE T3-75.
+
+## 2026-05-30 (cont.) — step 3: one wrapper, one completion (3A + 3B)
+
+**Mapped before touching.** The completion path is the most load-bearing code in
+the app, so I traced every seam first: the tracker owns career stats, the
+`TournamentComplete` screen, per-elim messages, the final-hand banner, AND AI
+spectator commentary — four things MTT had no equivalent for. The doc had
+under-stated that. Surfaced it, the user said full cutover, proceeded.
+
+**3A — unify completion (safe, additive).** Built a `TournamentSession → result`
+adapter + one `finalize_tournament` path; wired MTT completion to record career
+stats + show the same end screen. Two real finds: MTT humans usually bust EARLY
+(HUMAN_OUT), so finalize had to fire there too (the tracker records on human
+elimination) — not only at COMPLETE; and `useTournamentEvents.onComplete`
+auto-routed to the hub, so I had to drop that nav or the unified screen would
+flash-and-vanish. Checked mobile renders the screen too before trusting it.
+
+**3B — single games ARE 1-table tournaments.** The pivotal discovery:
+`PokerStateMachine` self-escalates blinds from its own `blind_config`
+(poker_state_machine.py:329). So the safe design is the session as a PASSIVE
+field observer — the live engine keeps full authority over play and blinds, zero
+gameplay change. Single games get a light boundary (`fold_live_hand` → record
+eliminations → end at the human's terminal moment), NOT the MTT reconcile/pacing
+path. Matched legacy behaviour exactly: a single game ends the instant the human
+busts (game_handler:3291), never AI-only spectating. Engine gained a
+named-player construction path so the field is the real players, not `P01..`.
+
+**Bugs I caught by reasoning / checking reality, not trusting green tests:**
+(1) `build_session_for_new_game` first read `players[0].stack` as the buy-in —
+but blinds are already posted at build time, so stacks differ and the field
+wouldn't conserve. The conservation guard caught my bad test input and I traced
+it to the real cause; fixed to pass the configured buy-in. (2) Live full-game
+driving via REST is impossible — AI turns need the socket/action flow, so a
+headless poll sits forever on an AI's turn (no bug, a harness limit). Pivoted to
+an in-process `progress_game` integration test (build a 1-table MTT game, flip
+`tournament_multi_table=False`) which drove a real single-table session game to
+completion and asserted one career-stats write. (3) A real Groq call leaked from
+the psychology-narration path in that integration test — pre-existing infra gap,
+flagged not fixed.
+
+**Paused before 3C, then did it.** Physically deleting the tracker sprawls into
+cash-mode guards (documented misroute-bug history), the schema table, a legacy
+tracker→session migration, and 6 test files — so I checkpointed, scoped it in
+TRIAGE T3-75, and the user said go.
+
+## 2026-05-30 (cont.) — 3C: retire TournamentTracker
+
+**Cash audit first (the riskiest surface).** The only cash dependency was the
+`cash_mode` guard *inside* the deleted functions — but cash is already isolated
+structurally: cash games carry no `tournament_session`, and the single-table
+dispatch is gated on one. So deleting `handle_eliminations` /
+`check_tournament_complete` is safe for cash; I replaced the obsolete cash-noop
+tests with one asserting the structural invariant.
+
+**Cold-load became the keystone.** To truly retire the tracker, cold-load had to
+stop building one. Now every non-cash game becomes session-backed on load:
+convert a legacy saved-tracker blob into a session
+(`session_from_legacy_tracker`, preserving elimination history + asserting
+conservation), else seed fresh. Deleted `poker/tournament_tracker.py`,
+`save_tournament_tracker`, and all live tracker branches; kept
+`load_tournament_tracker` read-only for the migration.
+
+**The long tail was test-infra, not the feature.** Running the affected test
+files together surfaced two PRE-EXISTING gremlins my combined command exposed:
+(1) a real **Groq narration call** leaking from `_run_async_narration` made the
+integration tests slow + network-bound (one run timed out at 400s) — stubbed it;
+(2) **import-copy/xdist pollution** — `game_handler` AND `message_handler` (and
+friends) do `from ..extensions import game_repo, …` at import time, so when a
+sibling test file imports them before `init_persistence`, the copies are None and
+the real `progress_game` loop NPEs (`save_game`, then `save_message` — whack-a-
+mole). Fixed generically: a helper that re-binds every None extension-global
+across all imported `flask_app.handlers.*` modules. Tests pass in isolation
+(the legitimate signal) and now in mixed single-process runs too. Lesson
+(again): green-in-isolation + red-in-combined ⇒ suspect the import-copy gotcha,
+per tests/CLAUDE.md — not the feature change.
+
+Net: one wrapper type, one completion path, one persistence/load path. ~40 new
+tests; tracker unit-tests dropped (logic now lives in `TournamentField` /
+`build_completion_result`).
+
+## 2026-05-30 (cont.) — streaming standings beats (ticker + toasts + hub feed)
+
+**The whole feature was plumbing, not computing — the data already existed and
+was being thrown away.** Every round, `session._round()` builds a `RoundReport`
+(eliminations with eliminator + finishing position, seat moves) and
+`apply_live_round` *returns* it — but `coordinate_after_human_hand` ignored the
+return value. So "stream tournament beats to the felt" was mostly: catch what's
+already produced, translate it, and ride it on the `mtt_update` emit that already
+fires every boundary. Reading the engine before designing kept the scope honest:
+no new socket event, no schema change, no money, conservation untouched.
+
+**One missing fact, derived cleanly.** Table breaks weren't explicit in the
+report. Rather than parse the seat-move list (a balance and a break both carry a
+`from_table`, so they're ambiguous from moves alone), I added one field —
+`RoundReport.broken_tables` — populated in `_round` by a `tables_before −
+tables_after` set diff around the rebalance. Exact (catches `_break_smallest`,
+final-table consolidation, and empty-table drops), defaulted to `()` so the
+headless director and its tests are untouched.
+
+**A pure adapter so the logic is testable without Flask.** `tournament/beats.py`
+turns a burst of reports into typed dicts (knockout / table_break / bubble /
+milestone) with `build_beats(...)`; the caller appends a `level_up` beat by
+comparing `current_level()` before/after the advance (cross-boundary level state
+I deliberately kept *out* of the pure function). 12 unit tests across single- and
+multi-round bursts, big multi-bust rounds, the bubble boy (`finishing_position ==
+paid_places + 1`), and milestone threshold crossings.
+
+**Product call: option 3 — always-on felt ticker + rare structural toasts + a
+live hub feed.** The user picked the most immersive surface. The discipline that
+keeps it from being a notification firehose: toasts fire ONLY for *structural*
+beats (table breaks, blinds up, bubble, milestones); routine knockouts ride the
+ticker and the hub feed only — the same "primary" filter the cash world ticker
+uses. The frontend clones that ticker's shape: a `tournamentBeats.ts` helper
+(icon / text / `beatKey` / `isStructuralBeat`), a capped+de-duped `gameStore`
+buffer, a fixed-overlay `TournamentTicker` mounted on both table layouts
+(`pointer-events: none` so it never eats a tap), and the hub's static "Recent
+Knockouts" upgraded to a live "Recent Activity" feed (falling back to the durable
+`recent_eliminations` on a cold reconnect — beats are ephemeral by design).
+
+**Player-gated time makes the cadence bursty, and that's correct.** Beats don't
+trickle — they arrive in a clump at each of the human's hand boundaries ("what
+happened across the field since your last hand"). Streaming already-resolved
+rounds advances nothing, so it never fights the world-pause guarantee.
+
+**Two real bugs caught by the reviewer, both off-by-something.** (1) The play-out
+route stamped the `level_up` beat with `session.rounds` (already advanced past the
+burst), so its de-dup key didn't sit with the round that produced it — fixed to
+the last report's `round_index`. (2) The milestone `kind` ladder checked
+`heads_up` before `final_table`, so a 2-handed final table would read "Heads up!"
+with a handshake instead of "Final table" — reordered. Added a regression test
+for the `table_size == 3` final-table case. The reviewer also flagged that the
+legacy `advance` route runs a full `play_out()` inside the request lock on
+`human_out` — but that predates this work (I only wrapped beats around it), so I
+left it as a separate concern.
+
+Verified: 137 tournament tests green, `tsc` + eslint clean. Not yet exercised in
+a live browser (this project can't drive its dev server headlessly) — the socket
+emit + the React buffering are unit/inspection-checked, honestly flagged as the
+one surface still wanting a manual pass.
+
+**Walk-back: killed the felt ticker (same day).** Seen live, the always-on strip
+underwhelmed — player-gated time means beats arrive sparsely, so most of the time
+it showed a single stale line ("it says just 1 thing"). An "always-on" strip
+that's usually one cold beat isn't worth the felt real estate. Pulled it
+(component + both mounts + the store buffer + the `.mtt-ticker` CSS). Kept the two
+surfaces that don't have the empty-state problem: the **structural toasts** (fire
+only on a real event — a break/blinds/bubble — then vanish) and the **hub activity
+feed** (a deliberate place you go to read history, where sparse-but-complete is
+exactly right). The backend beats plumbing stays — it feeds both. Lesson: an
+ambient strip needs an ambient *baseline* to justify being always-on; without one,
+event-triggered surfaces (toasts) and pull surfaces (the hub) fit bursty data better.
+
+**Then pulled the hub activity feed too — toasts only.** Same call extended: with
+the felt ticker gone, the user trimmed the standings-hub "Recent Activity" feed as
+well, leaving **just the structural toasts** as the tournament-event surface for
+now. Reverted `TournamentStandings` to its plain "Recent Knockouts" list, dropped
+the beat buffering in `TournamentPage`, removed the `.activity` CSS and the unused
+`beatKey` helper. What survives: the backend `RoundReport`→`build_beats`→`mtt_update`
+stream (untouched, fully tested) and `tournamentBeats.ts`'s icon/text/structural
+helpers — feeding the one remaining surface (`useTournamentEvents` toasts) and
+sitting ready if a richer surface is wanted again. The whole beats data path stayed
+worth keeping; only the always-rendered UI came off.
+
+## 2026-06-01 — economy/circuit design, a codex pass, the development merge, P2 handoff
+
+**Design, not code.** After the beats walk-back the thread turned to the economy.
+Rather than build P2 from the standalone blueprint, I pinned it to the cash state
+model that was landing on `development`: a tournament is the *tournament-shaped
+instance* of the same unified-ledger + chip-custody machines, not a parallel
+system. Wrote `TOURNAMENT_ECONOMY_ON_STATE_MODEL.md` (escrow as a ledger account
+sibling of `seat:<game_id>`; payout as an I6 idempotent terminal transition; one
+shared `EconomyChairman` signal feeding both the tournament and cash-rake levers)
+and `TOURNAMENT_CIRCUIT_SURFACING.md` (P3: how it shows up in circuit mode).
+
+**The user did the load-bearing simplifications, twice.** First the time model:
+I'd over-thought a "registration window in minutes-vs-hands" question; the user
+cut it — the tournament just rides the world tick when you're out, and entering
+*pauses the sandbox tick until you quit/bust/win*, persisting across days. Then
+the accounting: the user reframed payouts as "escrow the buy-ins, the runner
+returns a list of `(recipient, percent)` tuples, the sandbox distributes." That
+made the runner a pure funny-money function and the sandbox the sole real-chip
+authority — and it dissolved both holes a codex review then raised.
+
+**Codex earned its keep (after I fought the tooling).** Two self-inflicted
+`pkill -f` foot-guns (the pattern matched my own shell) and a mis-built waiter
+(codex buffers all output to exit, so watching for mid-run growth never fired)
+cost time before the review landed. Worth it: codex flagged (1) the global-bankroll
+↔ sandbox-scoped-audit boundary needs an explicit cross-scope transfer, (2)
+`tournament:<id>` alone doesn't separate overlay (a real bank draw) from buy-in (a
+transfer) — classify by *reason* at the source, and (3) "skip the whole sandbox
+tick" was too blunt: split a paused **simulation** tick from a still-running
+**maintenance** tick, and add a deadlock-recovery path (a wedged entered-tournament
+must never freeze the world forever). All three folded into the docs.
+
+**Then the substrate actually landed, so I merged it.** Development cut over the
+chip-custody machine (ledger projection, not a parcel store: `balance_of`,
+`record_ai_buy_in/cash_out`, settle-before-delete, schema v129). Merged
+`origin/development` into `tournaments`: **one conflict**, `schema_manager.py` —
+both branches had independently used v123/v124 for different migrations. Resolved
+by taking dev's file and renumbering ours to **v130 (create tournaments) / v131
+(drop tracker)**, `SCHEMA_VERSION=131`. 192 files auto-merged; frontend tsc + the
+fresh-DB tests green.
+
+**The schema collision bit the live DB, exactly as the docs warned.** Mid-merge the
+auto-reloader half-migrated this worktree's `data/poker_games.db` to v125 and
+crashed at v126 (it had applied *our* v124, never dev's v124 that creates
+`opponent_observation_lifetime`). I briefly conflated it with "the dev DB" — the
+user corrected me: the **development** worktree's DB is fine (v129); only my local
+throwaway was broken. Reset it (moved the broken copy aside, rebuilt fresh from
+`_init_db` at v131 with the full merged schema — `tournaments` + dev's
+`opponent_observation_lifetime`/`entity_presence`), backend healthy, the previously
+failing route/integration tests green.
+
+**Packaged the handoff honestly.** Asked if P2 was ready to hand to a fresh
+context, I checked instead of claiming: it wasn't. The obvious entry point
+(`MULTI_TABLE_TOURNAMENT_P2_ECONOMY.md`) was stale (v124, "two conservation
+statements", parcel framing) and didn't point at the superseding note — a fresh
+context would have built the wrong thing. Bannered it SUPERSEDED, wrote a single
+`P2_BUILD_HANDOFF.md` (substrate status, build order, the decided contracts, the
+version-corrected integration surface, the gotchas), and this entry. P2 is now a
+"hand this one doc to a fresh context and go" package — design complete, substrate
+landed, no code written.
+
+---
+
+## 2026-06-02 — P3.7 world-tick hook + P3.8 React Main Event surface
+
+Picked up the remaining circuit work from `P3_REMAINING_HANDOFF.md` with the P3
+backend already landed and green (239 tests in `tests/test_tournament/`). Two
+pieces left: the world-tick hook that plays a declined Main Event out at world
+pace, and the React card the player Registers/Declines from.
+
+**P3.7 — the autonomous advance hook.** The handoff flagged the one real wrinkle:
+`spawn_autonomous_tournament` writes the durable row + escrow but does NOT
+register in memory and has no live `game_id`, so the ticker has to (a) find the
+owner's autonomous tournament and (b) tell it apart from a *human* tournament
+(player-gated — must never auto-advance). The handoff floated a discriminator
+column. I went the migration-free way instead: an autonomous field simply has no
+`human:<owner>` seat (the human builder always seats one, the autonomous builder
+never does), so `is_autonomous` checks exactly that off the serialized field.
+Given the project's schema-collision scar tissue, skipping a v136 migration felt
+like the right call — and the invariant "one active tournament per owner" means a
+single `find_active_for_owner` + the seat check is enough.
+
+New `flask_app/services/tournament_ticker.py`: `is_autonomous`,
+`beats_to_world_events` (both pure, unit-testable), and `advance_owner_tournament`
+(registry + repos injected). The beats→events step keeps the *structural* subset —
+field-collapse milestones, the bubble, the winner — and drops per-hand knockouts /
+table breaks (the "never every hand" filter the handoff asked for). Each event
+gets a microsecond-staggered `created_at` so two milestones in one tick don't
+collide on the frontend's `created_at|type|personality_id` de-dup key (the empty
+personality_id would otherwise fold them into one).
+
+Wired into `ticker_service._tick_sandbox` as `_maybe_tick_tournament`, behind a new
+`economy_flags.TOURNAMENT_CIRCUIT_ENABLED` (default OFF). It records the beats into
+the activity buffer *before* the existing emit block, so they ride out as
+`world_event`s with no new emit path. One thing I had to be careful about: lock
+ordering. The `/advance` route takes the tournament lock then the sandbox lock; the
+ticker holds the sandbox lock. To avoid an inversion (and a theoretical deadlock if
+someone POSTs `/advance` on their autonomous tid), the ticker relies on the sandbox
+lock alone — no per-tournament registry lock — exactly as the handoff suggested.
+
+**P3.8 — the React card.** `tournamentApi.ts` (separate from `api.ts` since the
+routes live outside `/api/cash`) + `MainEventCard.tsx`/`.css`. Register →
+`acceptInvite` (stands the human up from cash first, server-side) → `sitTournament`
+→ navigate to `/game/<id>`; Decline → `declineInvite` (it runs autonomously). A
+buy-in > 0 asks for an inline confirm and a 402 surfaces the shortfall; v1 Main
+Events are freerolls so that path is mostly latent. Lobby fetches the invite on
+mount + every `lobby_tick` + the fallback poll (the GET also runs the chairman's
+offer/expire sweep, so polling keeps it fresh with no scheduler). The lifecycle
+beats already ride the existing `world_event` socket the lobby subscribes to — I
+just added the three `tournament_*` types to the `LobbyEvent` union and a Trophy
+glyph to `tickerEvents`.
+
+**Verification.** New `test_tournament_ticker.py` (8) + two gating tests in
+`test_ticker_service.py` — the flag-off path is inert, the enabled path records the
+returned events. Full `tests/test_tournament/` still **239 passed**; the two ticker
+files **27 passed**; frontend `tsc --noEmit` + eslint on the touched files clean.
+
+Did NOT flip the flag on. Per §6 of the handoff, EXP_006 tuned a *per-tick* overlay
+but production cadence is *per-tournament*; the economy sim wants a re-run under the
+real cadence before the thermostat goes live. So P3.7 ships dormant — the lobby card
+(P3.8) works today because the invite GET is not flag-gated; only the background
+autonomous advance waits on the flag. Deferred as before: staking into entries,
+the cash-rake thermostat, prestige carry-out (P4).
+
+---
+
+## 2026-06-02 (cont.) — §6 economy re-sim + four concurrency/lifecycle fixes
+
+**Ran the §6 gate the handoff demanded before flipping the economy on.** EXP_006
+had tuned a *per-tick* overlay; production fires *per tournament*. Added a
+`--mode tournament_cadence` to the thermostat harness that calls the REAL
+`should_offer_event` + `tournament_funding` (so it measures the actual production
+cadence, not a re-model) and a `--preload-reserves` knob so the regulated regime
+is reached without the ~1600-tick natural fill. Result was unambiguous across 3
+seeds: the per-tick `0.02 × reserves` overlay does NOT transfer — across the
+30-min cooldown it's ~225× too weak and the bank balloons at ~99 chips/tick (vs a
+130 baseline), barely better than no lever. I'd predicted this from the arithmetic
+(2% of reserves per 225-tick cooldown can't match a steady faucet) and the sim
+confirmed it. The fix — size each event to **drain reserves back to the setpoint**
+(`reserves − FLUSH_SETPOINT × holdings`, capped) — held the band (slope 6.9–12.0,
+178k–245k, conservation-clean). Shipped it into `tournament_funding`, updated the
+pinned tests, wrote up EXP_006 §6. Honest caveat recorded: the modeled-rake faucet
+understates the real vice faucet, so one hands-ON aged-sandbox run is still wanted
+before default-on — but the lever scales with reserves, so a bigger faucet means
+more chips per event, not a band escape. Conservation double-checked by hand:
+`holdings + reserves` was identical (2,470,000) across baseline and cadence
+sandboxes, and the overlay shifted exactly its recorded amount — the lever leaks
+nothing, it was just too small.
+
+**Then four production-readiness fixes Jeff flagged (used investigation agents to
+map each against the real code first, then implemented).** (1) Cross-worker accept
+double-debit: the in-memory sandbox lock doesn't span gunicorn workers, so two
+workers could both charge — fixed with a DB compare-and-swap (`claim()` /
+`revert_to_offered()`), accept claims before charging, and the human-spawn now
+deletes its durable row on buy-in failure so a reverted invite leaves no orphan
+tournament. (2) Payout `in_progress` reconcile: a crash mid-distribute left partial
+credits with no retry (the guard actively BLOCKS re-entry — the "leave in_progress
+for a reconcile pass" comment assumed a reconcile that never existed). Built
+`reconcile_stuck_payout`, ledger-authoritative (pays only `owed − ledger_paid` per
+sink, so never a double credit), driven by a flag-gated ticker watchdog + an admin
+route. Had to reorder the human payout branch ledger-first (the AI branch already
+was) so "ledger row present ⟹ paid" is a uniform invariant — otherwise reconcile
+could double-pay the human. (3) expire_due was sweeping every owner's invites under
+the caller's lock — scoped it to the held-lock sandbox. (4) Backed the
+one-open-invite rule with a v136 partial unique index + a defensive dup-collapse
+pre-step, and made `offer()` turn the lost-race IntegrityError into the open invite
+rather than a 500.
+
+Full `tests/test_tournament/` + ticker suite: **276 passed**. New: a reconcile test
+file (5) + 9 invite tests (CAS, scoping, index). tsc/eslint/ruff clean. Still all
+uncommitted on `tournaments`.
+
+---
+
+## 2026-06-02 (cont.) — second review pass: 8 concurrency/lifecycle hardening items
+
+Jeff ran a deeper review and surfaced 8 issues (one already fixed). Worked each
+against the real code (agents had mapped the first batch; this batch I did
+directly since the files overlapped too much to parallelize). The instructive one
+was #1: I'd discriminated autonomous-vs-human by "no `human:<owner>` seat", which
+broke the legacy `/register` route tests — `/register` builds an all-synthetic
+`P01..PNN` field with `human_id=P01`, so it has no `human:` seat either and got
+misclassified as autonomous (which also meant my P3.7 ticker would have wrongly
+auto-advanced `/register` tournaments). Sharpened `is_autonomous`: an
+all-synthetic field is the legacy human path (player drives P01 via /sit), only a
+real-persona field with no human seat is autonomous. Reads only `session.entries`
+so the existing stub tests still hold.
+
+The rest: routes 409 on autonomous (#1); `settle` only releases the field when the
+payout actually settled, else leaves it active+visible to the reconcile watchdog
+(#2 — the "reconcile pass" the code cited in 5 comments now genuinely exists from
+last batch, and this stops the failed-payout-hidden-forever case); recency-bound
+the double-presence exclusion so an abandoned tournament stops ghost-seating its
+field (#3); `draft_exclusions` now fails CLOSED — a scan error aborts the spawn
+rather than under-excluding a seated persona (#5); atomic `claim_payout` CAS
+replaces the read-check-set guard (#6); decline/expire report success when the
+invite was consumed even if no autonomous field could spawn (#7); persist before
+build_beats so a beat hiccup can't drop the winner beat (#8). #4 (expire_due
+cross-sandbox) was already fixed in the prior batch.
+
+New tests across the three areas (route-rejection, payout/recency/CAS, fail-closed
+spawn, decline marker). Targeted suites green; full run gating. Still uncommitted.
+
+---
+
+## 2026-06-02 — identity unification: tournaments look up players the way cash does
+
+The recurring tournament display bugs (real names on the live table, persona
+restore on cold-load, the invite-poll fixes) were all symptoms of ONE thing:
+tournaments resolved persona identity their own scattered way, while cash funnels
+everything through `personality_for_seat` → `load_personality_by_id`. So I built
+the tournament analogue — `tournament/identity.py::resolve_display_name` — the
+single path that turns a field id (personality_id slug / synthetic `P##` / human
+seat) into a display name, and routed every surface through it: the live builder,
+the relocation reconcile (which had a hardcoded `'You'` instead of the real owner
+name), the world-event ticker, and the completion standings.
+
+That surfaced two latent leaks the divergence had been hiding. The ticker's
+`winner_name = session.entries.get(wid, wid)` was rendering the bot ARCHETYPE
+("calling_station") as the Main Event champion — `entries` maps id→archetype, not
+id→name. And completion standings emitted the raw `personality_id` slug for MTT
+fields (single-table only worked by accident, because its `entries` are keyed by
+real display name). Both now resolve through the shared resolver.
+
+The honest part: this took THREE corrections, and the test harness caught what
+review and I both initially missed. (1) A code-review agent flagged that I'd
+resolved the standings `player_name` to a display name but left
+`human_player_name` as the raw `human_id` — and `update_career_stats`
+cross-references the standings BY that name, so MTT career stats would silently
+stop recording. (2) Same shape for `eliminated_by` (slug while `player_name`
+became a name) → the repo's knockout count zeroes out. (3) My fix for (1) —
+resolving the human seat to `owner_name` — was itself a wrong turn: it ASSUMED
+`owner_name` equals the human's table name, but single-table `human_id` IS the
+table name and can differ from the account name. Three integration tests
+(`test_completion_integration`, `test_single_table_boundary`) that assert
+`career_name == session.human_id` went red and set me straight. They were also a
+lesson in test hygiene: my "green" reads were `pytest | grep | tail` pipelines
+whose exit code came from `tail`, not pytest — the real "3 failed, 296 passed"
+summary was sitting in a captured line I'd skimmed past.
+
+The right model, finally: humans aren't personas — like cash (where the human's
+identity is `owner_id`, not a persona row), the human seat is NEVER routed through
+the persona resolver. It stays its `human_id` verbatim on every completion
+surface, which keeps `human_player_name` == its standings row (the career
+invariant) AND preserves the pre-change name. Only AI seats resolve. The resolver
+grew a `humanize_fallback` flag: the live felt humanizes a stray slug ("sun_tzu" →
+"Sun Tzu") for a friendlier label, but the completion/standings path passes
+`humanize_fallback=False` so an unresolved AI id stays verbatim — no `.title()`
+mangling of a single-table real name ("McQueen" → "Mcqueen"), and a synthetic
+`P07` stays legible.
+
+Field/session stay keyed on `personality_id` internally (the economic identity) —
+the unification is the LOOKUP path, not the storage key. Touched: new
+`tournament/identity.py`; builder/reconcile/ticker/completion all route through it;
+ticker winner + completion standings now resolve real names. `test_tournament` +
+`test_cash_mode` green (33-test targeted slice green incl. the 3 that caught me);
+new `test_identity.py`; fixed a ticker test that had enshrined the archetype bug.
+Uncommitted.

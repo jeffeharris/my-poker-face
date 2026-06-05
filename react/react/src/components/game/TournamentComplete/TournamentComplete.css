@@ -187,6 +187,20 @@
   font-weight: var(--font-weight-medium);
 }
 
+.standing-row .prize {
+  margin-left: var(--space-4);
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold);
+  white-space: nowrap;
+}
+
+.standing-row .prize .renown {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-normal);
+  font-size: var(--font-size-sm);
+}
+
 /* Stats */
 .tournament-stats {
   display: flex;

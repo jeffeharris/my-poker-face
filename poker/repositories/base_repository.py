@@ -117,14 +117,53 @@ class BaseRepository:
         Connections are reused within the same thread to avoid the overhead
         of creating a new connection per operation. The context manager
         commits on clean exit and rolls back on exception.
+
+        Transaction-aware: when this runs INSIDE an open `transaction()` block
+        (depth > 0), it does NOT commit/rollback — the outermost `transaction()`
+        owns that. This lets a multi-write unit-of-work compose several
+        repo-method calls into one atomic commit without any of them committing
+        early. Outside a transaction (depth 0) it commits per call, as before.
         """
         conn = self._ensure_connection()
+        depth = getattr(self._local, 'txn_depth', 0)
         try:
             yield conn
-            conn.commit()
+            if depth == 0:
+                conn.commit()
         except Exception:
-            conn.rollback()
+            if depth == 0:
+                conn.rollback()
             raise
+
+    @contextmanager
+    def transaction(self):
+        """Run several writes on ONE connection in ONE transaction.
+
+        Yields the thread-local connection; commits once on clean exit, rolls
+        back on exception. Re-entrant: a nested `transaction()` (or any
+        `_get_connection()` inside it) joins the outermost one — only the
+        outermost commits/rolls back — so chip-custody chokepoints can pass the
+        yielded connection to BOTH the bankroll-int upsert (`save_*_bankroll(
+        conn=...)`) and the ledger row (`record_*(conn=...)`), and a crash
+        between them can no longer land one without the other.
+
+        Because every repo connects to the same SQLite file, a ledger
+        `record(conn=...)` issued on this (bankroll repo's) connection writes
+        the `chip_ledger_entries` row in the same transaction as the int.
+        """
+        conn = self._ensure_connection()
+        depth = getattr(self._local, 'txn_depth', 0)
+        self._local.txn_depth = depth + 1
+        try:
+            yield conn
+            if depth == 0:
+                conn.commit()
+        except Exception:
+            if depth == 0:
+                conn.rollback()
+            raise
+        finally:
+            self._local.txn_depth = depth
 
     def _ensure_connection(self) -> sqlite3.Connection:
         """Return the thread-local connection, creating one if needed."""

@@ -586,6 +586,12 @@ _TENDENCIES = {
     'donk_when_weak': _donk_when_weak,
 }
 
+# Public, read-only view of the registered tendency names. Consumers that need
+# to validate a personality's `spot_tendencies` (e.g. the personality generator,
+# which must reject hallucinated names that would silently no-op) should check
+# against this rather than reaching into the private `_TENDENCIES` dict.
+REGISTERED_SPOT_TENDENCIES = frozenset(_TENDENCIES)
+
 
 def _fire_trace(
     before: StrategyProfile,

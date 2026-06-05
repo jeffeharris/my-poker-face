@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ResponsiveGameLayout } from '../shared';
-import { isCashGameId, isTrainingGameId } from '../../utils/gameId';
+import { isCashGameId, isTournamentGameId, isTrainingGameId } from '../../utils/gameId';
 
 interface GamePageProps {
   playerName: string;
@@ -26,8 +26,11 @@ export function GamePage({ playerName }: GamePageProps) {
       navigate('/menu/training');
       return;
     }
-    const isCashGame = isCashGameId(gameId);
-    navigate(isCashGame ? '/cash' : '/menu/tournament');
+    if (isTournamentGameId(gameId)) {
+      navigate('/tournament'); // multi-table event → standings hub
+      return;
+    }
+    navigate(isCashGameId(gameId) ? '/cash' : '/menu/tournament');
   };
 
   const handleGameCreated = (newGameId: string) => {
@@ -45,8 +48,12 @@ export function GamePage({ playerName }: GamePageProps) {
       navigate('/menu/training', { replace: true });
       return;
     }
-    const isCashGame = isCashGameId(gameId);
-    if (isCashGame) {
+    if (isTournamentGameId(gameId)) {
+      toast.error('Your tournament table ended — back to standings.');
+      navigate('/tournament', { replace: true });
+      return;
+    }
+    if (isCashGameId(gameId)) {
       toast.error('Your cash session ended — back to the cash menu.');
       navigate('/cash', { replace: true });
     } else {

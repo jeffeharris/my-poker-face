@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 from core.card import Card
 from poker.poker_game import Player, PokerGameState
+from poker.table.seat import seat_id_from_dict
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,16 @@ def restore_state_from_dict(state_dict: Dict[str, Any]) -> PokerGameState:
 
         player = Player(
             name=player_data['name'],
+            # Tournament seats key `name` on the raw field id and carry the
+            # friendly label here; without this, cold-load reverts it to None
+            # and the felt shows the raw id. None for cash (name is friendly).
+            nickname=player_data.get('nickname'),
+            # Stable persona identity (T3-80). Round-trips like nickname; .get so
+            # pre-migration saved games (no key) restore as None.
+            personality_id=player_data.get('personality_id'),
+            # Canonical typed seat identity (T3-80). Round-trips via SeatId; .get
+            # so pre-migration saves (no key) restore as None.
+            seat_id=seat_id_from_dict(player_data.get('seat_id')),
             stack=player_data['stack'],
             is_human=player_data['is_human'],
             bet=player_data['bet'],

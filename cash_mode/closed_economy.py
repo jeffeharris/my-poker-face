@@ -38,9 +38,9 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
-from cash_mode.bankroll import AIBankrollState, project_bankroll
+from cash_mode.bankroll import AIBankrollState, chip_unit_of_work, project_bankroll
 from core.economy import ledger as chip_ledger
 from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
@@ -195,6 +195,52 @@ def seed_bank_pool(
         sandbox_id=sandbox_id,
     )
     return int(amount)
+
+
+def ensure_genesis_reserve_seeded(
+    *,
+    chip_ledger_repo,
+    sandbox_id: str,
+    seed_actions: Optional[Dict[str, str]] = None,
+) -> int:
+    """Seed the bank pool to GENESIS_RESERVE_RATIO of holdings, ONCE at birth.
+
+    A fresh prod sandbox seeds AI bankrolls (holdings) but an empty pool, so the
+    world boots inert (no casinos, no tournaments) until rake/vice slowly fill
+    it. This injects the genesis reserve so the world boots lived-in. Returns the
+    chips seeded (0 if skipped). Drift-safe (via `seed_bank_pool`'s paired entry).
+
+    Flag-gated (`GENESIS_RESERVE_ENABLED`, default OFF) and scoped strictly to a
+    pristine fresh sandbox by three guards, so it can never inflate a mature
+    economy when the flag is flipped on:
+      1. `seed_actions` (from `ensure_ai_bankrolls_seeded`) must be non-empty and
+         ALL "created" — a fresh sandbox seeds its whole roster in one pass; an
+         existing one reports "skipped". (Skipped when `seed_actions` is None.)
+      2. current reserves must be ≤ 0 (no economy has run / no prior genesis),
+      3. holdings must be > 0 (there's a roster to size the reserve against).
+    """
+    from cash_mode import economy_flags
+    from core.economy.economy_signal import signal
+
+    if not economy_flags.GENESIS_RESERVE_ENABLED or chip_ledger_repo is None:
+        return 0
+    if not seed_actions or not all(a == 'created' for a in seed_actions.values()):
+        return 0
+    state = signal(chip_ledger_repo, sandbox_id=sandbox_id)
+    if state.reserves > 0 or state.holdings <= 0:
+        return 0
+    target = round(economy_flags.GENESIS_RESERVE_RATIO * state.holdings)
+    if target <= 0:
+        return 0
+    seeded = seed_bank_pool(chip_ledger_repo, sandbox_id=sandbox_id, amount=target)
+    logger.info(
+        "[GENESIS] seeded bank pool %d chips (%.1f%% of holdings=%d) for sandbox=%r",
+        seeded,
+        economy_flags.GENESIS_RESERVE_RATIO * 100,
+        state.holdings,
+        sandbox_id,
+    )
+    return seeded
 
 
 def compute_bank_pool_reserves(
@@ -490,38 +536,45 @@ def resolve_fake_vice_deposits(
 
     deposits: List[FakeViceDeposit] = []
     for pid, state, knobs, projected, amount, excess, prob in rolls:
-        # Commit any uncommitted regen first (matches the `try_ai_voluntary_payoff`
-        # pattern in ai_carry_resolution — the bankroll write captures the
-        # projected value, so the regen delta needs a ledger row.)
-        if projected > state.chips:
-            chip_ledger.record_ai_regen(
-                chip_ledger_repo,
-                personality_id=pid,
-                stored_chips=state.chips,
-                projected_chips=projected,
-                context={'site': 'fake_vice_regen_commit'},
-                sandbox_id=sandbox_id,
-            )
+        # Chip-custody atomicity: regen creation + int debit + the
+        # `bank_pool_deposit` destruction commit in ONE transaction. `conn` is
+        # None for test doubles / cross-DB → prior separate writes.
         new_chips = max(0, projected - amount)
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=pid,
-                chips=new_chips,
-                last_regen_tick=now,
-            ),
-            sandbox_id=sandbox_id,
+        new_state = AIBankrollState(
+            personality_id=pid,
+            chips=new_chips,
+            last_regen_tick=now,
         )
-        record_bank_pool_deposit(
-            chip_ledger_repo,
-            source=ai(pid),
-            amount=amount,
-            context={
-                'site': 'fake_vice_deposit',
-                'excess_ratio': round(excess, 3),
-                'vice_prob': round(prob, 3),
-            },
-            sandbox_id=sandbox_id,
-        )
+        with chip_unit_of_work(bankroll_repo, ledger_repo=chip_ledger_repo) as conn:
+            # Commit any uncommitted regen first (matches the
+            # `try_ai_voluntary_payoff` pattern — the bankroll write captures
+            # the projected value, so the regen delta needs a ledger row.)
+            if projected > state.chips:
+                chip_ledger.record_ai_regen(
+                    chip_ledger_repo,
+                    personality_id=pid,
+                    stored_chips=state.chips,
+                    projected_chips=projected,
+                    context={'site': 'fake_vice_regen_commit'},
+                    sandbox_id=sandbox_id,
+                    conn=conn,
+                )
+            if conn is not None:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id, conn=conn)
+            else:
+                bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+            record_bank_pool_deposit(
+                chip_ledger_repo,
+                source=ai(pid),
+                amount=amount,
+                context={
+                    'site': 'fake_vice_deposit',
+                    'excess_ratio': round(excess, 3),
+                    'vice_prob': round(prob, 3),
+                },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
         deposits.append(
             FakeViceDeposit(
                 personality_id=pid,

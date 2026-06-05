@@ -2,7 +2,7 @@
 purpose: Reference for all PromptConfig fields, game modes, and experiment overrides
 type: reference
 created: 2026-02-12
-last_updated: 2026-05-14
+last_updated: 2026-06-03
 ---
 
 # PromptConfig Reference
@@ -73,6 +73,12 @@ controller runs — `lean_bounded` is no longer a runtime flag.
 |-------|------|---------|-------------|----------|
 | `situational_guidance` | bool | True | Coaching for pot-committed, short-stack, made-hand situations | controllers.py |
 
+### Relationship Context
+
+| Field | Type | Default | Description | Consumer |
+|-------|------|---------|-------------|----------|
+| `relationship_context` | bool | False | Injects a "rival"/"friendly" block for opponents whose relationship axes have left neutral, plus 1-2 recent memorable hands per pair (`prompt_config.py:77`) | controllers.py → `poker/memory/relationship_prompt.py` |
+
 ### GTO Foundation
 
 | Field | Type | Default | Description | Consumer |
@@ -80,6 +86,7 @@ controller runs — `lean_bounded` is no longer a runtime flag.
 | `gto_equity` | bool | False | Always show equity vs required equity comparison | controllers.py |
 | `gto_verdict` | bool | False | Show explicit "+EV"/"-EV" verdict (only renders when `gto_equity` is also True) | controllers.py |
 | `use_enhanced_ranges` | bool | True | PFR/action-based range estimation (vs VPIP-only) | controllers.py, hand_ranges.py |
+| `hu_equity_offset` | bool | False | Applies `HEADS_UP_POSITION_OFFSETS` to the equity used for EV labelling in heads-up spots. Default off — the offsets (BTN +0.30, BB +0.20) were designed as range-% offsets and are 3-7x larger than true positional equity; enable only for a deliberate A/B (`prompt_config.py:112`) | hybrid_ai_controller.py |
 
 ### Personality & Response Format
 
@@ -103,8 +110,14 @@ controller runs — `lean_bounded` is no longer a runtime flag.
 | Field | Type | Default | Description | Consumer |
 |-------|------|---------|-------------|----------|
 | `composed_nudges` | bool | False | Replace raw EV labels with playstyle-colored nudge phrases | hybrid_ai_controller.py, nudge_phrases.py |
-| `randomize_option_order` | bool | False | Shuffle option order to eliminate position-1 bias | hybrid_ai_controller.py |
+| `show_ev_labels` | Optional[bool] | None | EV-label visibility override: `None` defers to the profile, `True`/`False` forces it (`prompt_config.py:98`) | hybrid_ai_controller.py |
+| `option_order` | str | `'default'` | Option ordering: `'default'` (generator order), `'shuffle'` (eliminate position-1 bias), `'ev_descending'` (`prompt_config.py:101`) | hybrid_ai_controller.py |
 | `preflop_range_gate` | bool | False | Bias EV labels for out-of-range preflop hands using range data | hybrid_ai_controller.py |
+
+> The boolean `randomize_option_order` was replaced by the `option_order`
+> string. It survives only as a legacy alias in `from_dict()`
+> (`prompt_config.py:155-160`): a truthy `randomize_option_order` maps to
+> `option_order='shuffle'`.
 
 ### Experiment Support
 
@@ -121,9 +134,12 @@ Source of truth: `config/game_modes.yaml` (synced to DB on startup). Factory met
 | **casual** | Fun, personality-driven poker | None (all defaults) |
 | **standard** | Balanced play with GTO awareness | `gto_equity=True` |
 | **pro** | GTO-focused, harder AIs | `gto_equity=True`, `gto_verdict=True`, `chattiness=False`, `dramatic_sequence=False`, `tilt_effects=False`, `guidance_injection=EXPLOITATIVE_GUIDANCE` |
-| **competitive** | Full GTO + personality + trash talk | `gto_equity=True`, `gto_verdict=True`, `guidance_injection=EXPLOITATIVE_GUIDANCE` |
+| ~~**competitive**~~ | **Deprecated** | Auto-maps to `pro` with a warning in `from_mode_name()` (`prompt_config.py:277-282`). Update configs to use `pro`. |
 
-Resolution order: `from_mode_name()` tries YAML first, falls back to factory methods.
+Resolution order: `from_mode_name()` tries YAML first, falls back to factory
+methods. The legacy `competitive` name is remapped to `pro` before resolution.
+Note: the game UI currently exposes only **casual** to players; the other modes
+are reachable via experiment / config overrides.
 
 ## Experiment Overrides
 

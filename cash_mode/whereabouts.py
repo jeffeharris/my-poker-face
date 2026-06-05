@@ -33,10 +33,13 @@ the leave mechanism (movement → idle pool → re-seat).
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from cash_mode.movement import project_idle_energy
+
+logger = logging.getLogger(__name__)
 
 # --- status values (single source of truth for the wire contract) ---
 
@@ -45,6 +48,11 @@ STATUS_IDLE = "idle"
 STATUS_SIDE_HUSTLE = "side_hustle"
 STATUS_VICE = "vice"
 STATUS_UNKNOWN = "unknown"
+# Tournaments-as-a-draw (cash→tournament migration). Defined now (Phase A) as
+# the wire contract; build_whereabouts starts surfacing them in a later phase
+# once the reserve/spawn lifecycle populates the sources.
+STATUS_TOURNAMENT = "tournament"  # currently IN an active tournament
+STATUS_TOURNAMENT_BOUND = "tournament_bound"  # drawn/reserved, en route — not yet vacated
 
 # --- stuck-flag values ---
 #
@@ -58,6 +66,7 @@ STUCK_SEATED_AND_IDLE = "seated_and_idle"  # seated AND in idle pool (split-brai
 STUCK_SEATED_AND_OFFGRID = "seated_and_offgrid"  # seated AND on hustle/vice
 STUCK_UNKNOWN_PERSONALITY = "unknown_personality"  # referenced pid not in DB
 STUCK_NO_BANKROLL = "no_bankroll"  # off-grid but no bankroll row (orphan)
+STUCK_SEATED_AND_TOURNAMENT = "seated_and_tournament"  # seated AND in a running tournament
 
 # Soft / temporal flags — "watch", not "stuck". The world only advances
 # while the player is present (the realtime ticker is presence-gated), so
@@ -69,6 +78,10 @@ STUCK_OVERDUE_HUSTLE = "overdue_hustle"  # hustle ends_at passed, not yet proces
 STUCK_OVERDUE_VICE = "overdue_vice"  # vice ends_at passed, not yet processed
 STUCK_STALE_IDLE = "stale_idle"  # idle far longer than expected
 STUCK_SEATED_TOO_LONG = "seated_too_long"  # parked at one table far longer than expected
+# Reserved for the Main Event but still cash-seated AFTER the invite expired —
+# the gather (trickle-vacate) didn't free them in time, so they missed the draw
+# (excluded at spawn). Soft: during the window reserved-and-seated is normal.
+STUCK_TOURNAMENT_BOUND_AND_SEATED = "tournament_bound_and_seated"
 
 # NOTE: idle + side-hustle/vice is the NORMAL forced-leave representation —
 # a broke AI stays in the idle pool (reason='forced_leave') while off
@@ -82,6 +95,7 @@ HARD_FLAGS = frozenset(
         STUCK_SEATED_AND_OFFGRID,
         STUCK_UNKNOWN_PERSONALITY,
         STUCK_NO_BANKROLL,
+        STUCK_SEATED_AND_TOURNAMENT,
     }
 )
 SOFT_FLAGS = frozenset(
@@ -90,6 +104,7 @@ SOFT_FLAGS = frozenset(
         STUCK_OVERDUE_VICE,
         STUCK_STALE_IDLE,
         STUCK_SEATED_TOO_LONG,
+        STUCK_TOURNAMENT_BOUND_AND_SEATED,
     }
 )
 
@@ -150,6 +165,29 @@ def _idle_recharge_fraction(
     return round(min(1.0, projected / baseline), 3)
 
 
+def _current_energy(
+    bankroll_repo: Any, pid: str, sandbox_id: str, idle_seconds: Optional[int]
+) -> Optional[float]:
+    """Absolute energy axis (0..1) for an AI — how peppy vs. drained it is right
+    now. Projects rest-recovery toward baseline when the AI is idle (mirrors the
+    re-seat gate's view); returns the stored value otherwise. None when there's
+    no persisted psychology to read. Best-effort — surfaced as a bar in the
+    admin panel so a flat-lined (exhausted) AI is visible at a glance."""
+    if bankroll_repo is None:
+        return None
+    try:
+        blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
+        if not blob:
+            return None
+        state = json.loads(blob)
+        stored = float(state.get("axes", {}).get("energy", 0.5))
+        baseline = float(state.get("anchors", {}).get("baseline_energy", stored))
+    except Exception:
+        return None
+    energy = project_idle_energy(stored, baseline, float(idle_seconds)) if idle_seconds else stored
+    return round(max(0.0, min(1.0, energy)), 3)
+
+
 def _recent_events_for(
     bankroll_repo: Any,
     pid: str,
@@ -206,6 +244,8 @@ def build_whereabouts(
     relationship_repo: Any,
     bankroll_repo: Any,
     personality_repo: Any,
+    tournament_session_repo: Any = None,
+    tournament_invite_repo: Any = None,
     stale_idle_seconds: int = DEFAULT_STALE_IDLE_SECONDS,
     seated_too_long_seconds: int = DEFAULT_SEATED_TOO_LONG_SECONDS,
 ) -> Dict[str, Any]:
@@ -264,8 +304,34 @@ def build_whereabouts(
         )
     }
 
+    # 5b. Tournament whereabouts (cash→tournament draw). `on_tournament` = pids
+    #     in a RUNNING tournament (away). `reserved` = the open invite's drawn
+    #     field being gathered off cash; `reserved_expired` marks it past its
+    #     registration window (a reserved-but-still-seated persona then missed
+    #     the draw — a soft flag). Both best-effort + None-repo safe (inert for
+    #     callers that don't wire the tournament repos).
+    on_tournament: set = set()
+    if tournament_session_repo is not None:
+        try:
+            on_tournament = set(tournament_session_repo.active_participant_pids(owner_id))
+        except Exception:  # noqa: BLE001 — observability only; never break the view
+            logger.exception("whereabouts: active-participant scan failed for %s", owner_id)
+    reserved: set = set()
+    reserved_expired = False
+    if tournament_invite_repo is not None:
+        try:
+            invite = tournament_invite_repo.active_for_owner(owner_id)
+            if invite:
+                reserved = set(invite.get("reserved_pids") or [])
+                exp = _parse_iso(invite.get("expires_at"))
+                reserved_expired = exp is not None and now >= exp
+        except Exception:  # noqa: BLE001
+            logger.exception("whereabouts: open-invite read failed for %s", owner_id)
+
     all_pids: List[str] = list(
-        dict.fromkeys([*seated.keys(), *idle.keys(), *hustle.keys(), *vice.keys()])
+        dict.fromkeys(
+            [*seated.keys(), *idle.keys(), *hustle.keys(), *vice.keys(), *on_tournament, *reserved]
+        )
     )
 
     # 6. Names in one query (side-effect-free; does not bump times_used).
@@ -277,6 +343,8 @@ def build_whereabouts(
         STATUS_IDLE: 0,
         STATUS_SIDE_HUSTLE: 0,
         STATUS_VICE: 0,
+        STATUS_TOURNAMENT: 0,
+        STATUS_TOURNAMENT_BOUND: 0,
         STATUS_UNKNOWN: 0,
         "stuck": 0,
         "watch": 0,
@@ -287,12 +355,19 @@ def build_whereabouts(
         in_idle = pid in idle
         in_hustle = pid in hustle
         in_vice = pid in vice
+        in_tournament = pid in on_tournament
+        in_reserved = pid in reserved
 
         # Primary status by precedence — the truest current activity wins.
-        # Seated is the live truth; among the rest, off-grid (actively
-        # earning/indulging) outranks idle, because a forced-leave hustler
-        # is BOTH idle and on a hustle and "off earning" is the useful read.
-        if in_seated:
+        # In a running tournament outranks everything (they're away at the Main
+        # Event; if ALSO seated, that's the double-presence bug — flagged below).
+        # Then seated (live cash truth); off-grid (earning/indulging) outranks
+        # idle; tournament-bound (reserved + already vacated off cash) sits just
+        # above unknown — a `called_up` leave adds no idle row, so a gathered
+        # persona would otherwise read as unknown.
+        if in_tournament:
+            status = STATUS_TOURNAMENT
+        elif in_seated:
             status = STATUS_SEATED
         elif in_hustle:
             status = STATUS_SIDE_HUSTLE
@@ -300,6 +375,8 @@ def build_whereabouts(
             status = STATUS_VICE
         elif in_idle:
             status = STATUS_IDLE
+        elif in_reserved:
+            status = STATUS_TOURNAMENT_BOUND
         else:
             status = STATUS_UNKNOWN
 
@@ -313,6 +390,13 @@ def build_whereabouts(
             flags.append(STUCK_SEATED_AND_IDLE)
         if in_seated and (in_hustle or in_vice):
             flags.append(STUCK_SEATED_AND_OFFGRID)
+        if in_seated and in_tournament:
+            # Cash-seated AND in a running tournament — a true double-presence.
+            flags.append(STUCK_SEATED_AND_TOURNAMENT)
+        if in_seated and in_reserved and reserved_expired:
+            # Still seated after the registration window closed → missed the
+            # gather (excluded at spawn). Soft: normal while the window is open.
+            flags.append(STUCK_TOURNAMENT_BOUND_AND_SEATED)
         if pid in hustle_overdue:
             flags.append(STUCK_OVERDUE_HUSTLE)
         if pid in vice_overdue:
@@ -364,6 +448,10 @@ def build_whereabouts(
             # Lets the lobby show how rested an idle AI is (1.0 = fully
             # recharged, ~ready to return to a seat).
             "recharge": None,
+            # energy — absolute energy axis (0..1), idle-recovery-projected;
+            # rendered as a bar so an exhausted (drained) AI stands out. None
+            # when the AI has no persisted psychology yet.
+            "energy": None,
             # recent notable hand events (bust/suckout/big pot), newest last;
             # [] for AIs with no recent drama. The world's short-term memory.
             "recent": _recent_events_for(bankroll_repo, pid, sandbox_id, names),
@@ -410,6 +498,16 @@ def build_whereabouts(
             record["ends_at"] = _iso(state.ends_at)
             record["seconds_in_state"] = _seconds_between(now, state.started_at)
             record["seconds_remaining"] = _seconds_between(state.ends_at, now)
+
+        # Energy bar (best-effort): project idle recovery only while idle,
+        # otherwise the stored axis. Available for every status that has
+        # persisted psychology.
+        record["energy"] = _current_energy(
+            bankroll_repo,
+            pid,
+            sandbox_id,
+            record["seconds_in_state"] if status == STATUS_IDLE else None,
+        )
 
         # Partition: hard flags are real bugs (alarm); soft flags are
         # temporal and expected after the player's been away (watch).

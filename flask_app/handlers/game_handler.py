@@ -139,6 +139,24 @@ def _off_grid_pids(sandbox_id: Optional[str], now: datetime) -> set:
     return pids
 
 
+def _tournament_bound_pids(owner_id: Optional[str]) -> set:
+    """Personas reserved for the owner's gathering Main Event (cash→tournament
+    draw). The human-table mirror of `_off_grid_pids`: these are kept out of the
+    seat-fill paths (`_refill_cash_seats`, `select_rejoin_candidates`,
+    `_refresh_lobby_table_for_session`) AND force-left via `called_up_pids`, so a
+    reserved opponent drifts to the tournament instead of being re-seated at the
+    human's table. Empty behind `TOURNAMENT_DRAW_ENABLED` or when there's no
+    gather-eligible invite. Best-effort: any error → empty (never blocks refill)."""
+    try:
+        from flask_app.extensions import tournament_invite_repo
+        from flask_app.services import tournament_invites
+
+        return tournament_invites.bound_pids(tournament_invite_repo, owner_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[CASH] tournament-bound pid lookup failed: %s", e)
+        return set()
+
+
 def live_cash_seated_pids(sandbox_id: Optional[str]) -> set:
     """Personality ids seated as AI opponents in any *live* cash game for
     `sandbox_id` — the authoritative "who is the human playing right now".
@@ -1015,7 +1033,7 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     # exclusion the autonomous lobby refresh applies. Without it a broke,
     # hustling AI gets pulled into the human's table mid-hustle (the
     # `seated_and_offgrid` split-brain). See `_off_grid_pids`.
-    off_grid = _off_grid_pids(sandbox_id, now)
+    off_grid = _off_grid_pids(sandbox_id, now) | _tournament_bound_pids(owner_id)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     eligible_pool = [
         e
@@ -1226,10 +1244,11 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
     occupied = {p.name for p in game_state.players if p.is_human or p.stack > 0}
 
     now = datetime.utcnow()
-    # Don't offer an off-grid AI (on a vice / side hustle) as a rejoin
-    # candidate — seating one would re-create the `seated_and_offgrid`
+    # Don't offer an off-grid AI (on a vice / side hustle) — or a persona
+    # reserved for the gathering Main Event — as a rejoin candidate; seating one
+    # would re-create the `seated_and_offgrid` (or seated-and-tournament-bound)
     # split-brain. Mirrors the autonomous lobby refresh's exclusion.
-    off_grid = _off_grid_pids(sandbox_id, now)
+    off_grid = _off_grid_pids(sandbox_id, now) | _tournament_bound_pids(owner_id)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     pool = [
         e for e in eligible if e['name'] not in occupied and e['personality_id'] not in off_grid
@@ -1632,7 +1651,11 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     # autonomous lobby refresh does. Live-filling a hustling AI here is
     # what produces the `seated_and_offgrid` split-brain at the human's
     # table. See `_off_grid_pids`.
-    off_grid = _off_grid_pids(sandbox_id, now)
+    # Cash→tournament draw: reserved personas are gathered off cash — kept out
+    # of this table's re-fill AND force-left below via called_up_pids. Computed
+    # once and reused so the exclusion and the call-up agree.
+    tournament_bound = _tournament_bound_pids(human_owner_id)
+    off_grid = _off_grid_pids(sandbox_id, now) | tournament_bound
     eligible = [
         cand
         for cand in personality_repo.list_eligible_for_cash_mode(user_id=human_owner_id)
@@ -1730,6 +1753,9 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         # built for the seat re-stamp above) so a missing `archetype='fish'`
         # stamp can't spuriously fire the dead-push or drop a fish's rebuy.
         fish_ids=fish_pids,
+        # Cash→tournament call-up: force a reserved opponent at the human's
+        # table to leave for the gathering Main Event (mirrors the lobby tick).
+        called_up_pids=tournament_bound or None,
     )
 
     # Apply rebuy decisions: debit each AI's bankroll for the top-up
@@ -1791,7 +1817,11 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         # path previously destroyed these chips on voluntary leaves
         # (bored_move / stake_up / take_break) — a monotonic ledger drift.
         try:
-            from flask_app.extensions import chip_ledger_repo
+            from flask_app.extensions import (
+                chip_ledger_repo,
+                relationship_repo,
+                stake_repo,
+            )
 
             _credit_departed_ai_bankrolls(
                 result,
@@ -1801,6 +1831,9 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
                 sandbox_id=sandbox_id,
                 now=now,
                 table_id=result.new_table.table_id,
+                stake_repo=stake_repo,
+                relationship_repo=relationship_repo,
+                personality_repo=personality_repo,
             )
         except Exception as e:
             logger.error(
@@ -2565,6 +2598,9 @@ def _credit_departed_ai_bankrolls(
     sandbox_id,
     now,
     table_id,
+    stake_repo=None,
+    relationship_repo=None,
+    personality_repo=None,
 ) -> int:
     """PRH-3: return each voluntarily-departed seated AI's seat chips to its
     bankroll (with a ledger row), instead of destroying them.
@@ -2582,19 +2618,68 @@ def _credit_departed_ai_bankrolls(
     `personality_id` carried on each `BankrollChange`, never the name map
     (PRH-13 — that map has a desync history).
 
-    Stake settlement on a seated voluntary leave is NOT replicated here:
-    the borrower is credited its full seat chips (chips are conserved); the
-    unseated path's staker-payout settlement is a separate, deferred concern.
+    Stake settlement: a staked AI leaving the human's table settles its
+    stake HERE, at this seat's stack, via the shared `settle_departed_ai_stake`
+    helper — the SAME settlement the unseated world-tick path runs. Without
+    it the staker's upside was silently transferred into the AI's own
+    bankroll and the stake settled later at an unrelated table (the
+    "AI walks with $43.6k, staker gets scraps" bug). When a stake settles,
+    its flows already credit the borrower's share, so that `from_seat` index
+    is excluded from the full-stack credit below (mirrors the unseated path's
+    `settled_from_seat_indices`). Requires `stake_repo`; when it (or the
+    relationship/personality repos) is None the settlement is skipped and the
+    AI is credited its full seat chips as before.
 
     Returns the total chips credited (for logging / test assertions).
     """
     from cash_mode.bankroll import credit_ai_cash_out
 
+    # Settle active stakes at the session-end leave (the LAST from_seat per
+    # departed pid — any earlier from_seat is a take_stake bust-chips return
+    # that must still credit normally), keyed by index so only the settled
+    # leave is excluded from the full-stack credit.
+    settled_indices: set = set()
+    if stake_repo is not None:
+        from cash_mode.lobby import settle_departed_ai_stake
+
+        last_from_seat_index: dict = {}
+        for i, bc in enumerate(result.bankroll_changes):
+            if bc.direction == "from_seat" and bc.personality_id in departed_pids:
+                last_from_seat_index[bc.personality_id] = i
+        for pid, idx in last_from_seat_index.items():
+            try:
+                settlement = settle_departed_ai_stake(
+                    pid,
+                    result.bankroll_changes[idx].amount,
+                    stake_repo=stake_repo,
+                    bankroll_repo=bankroll_repo,
+                    chip_ledger_repo=chip_ledger_repo,
+                    relationship_repo=relationship_repo,
+                    personality_repo=personality_repo,
+                    table_id=table_id,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                )
+            except Exception as exc:
+                logger.error(
+                    "[CASH][SEATED] stake settlement on seated leave failed " "for %s: %s",
+                    pid,
+                    exc,
+                    exc_info=True,
+                )
+                settlement = None
+            if settlement is not None:
+                settled_indices.add(idx)
+
     credited = 0
-    for bc in result.bankroll_changes:
+    for i, bc in enumerate(result.bankroll_changes):
         if bc.direction != "from_seat" or bc.amount <= 0:
             continue
         if bc.personality_id not in departed_pids:
+            continue
+        if i in settled_indices:
+            # Stake settlement already credited the borrower's share via its
+            # flows — crediting the full seat stack too would double-handle.
             continue
         credit_ai_cash_out(
             bankroll_repo,
@@ -2642,8 +2727,32 @@ def _remove_departed_ais_from_game(
 
     state_machine.game_state = game_state.update(players=remaining_players)
 
+    # T3-77 — an AI leaving the human's table heads back to the cash world
+    # (idle pool → re-seat / off-screen sim), so hand its evolved mood off NOW by
+    # flushing to the per-persona emotional_state_json. Doing it per-vacate (not
+    # only at human-leave) means a persona you tilted carries that mood onward
+    # even if it departs mid-session — and it's race-free, since a seated persona
+    # isn't simultaneously sim-played. Best-effort; runs before the controller is
+    # dropped.
+    from flask_app import extensions
+
+    flush_sandbox_id = game_data.get('sandbox_id')
+    flush_bankroll_repo = getattr(extensions, 'bankroll_repo', None)
+
     ai_controllers = game_data.get('ai_controllers', {})
     for name in departed_names:
+        if flush_sandbox_id and flush_bankroll_repo is not None:
+            ctrl = ai_controllers.get(name)
+            flush_pid = cash_pids.get(name)
+            if ctrl is not None and flush_pid:
+                try:
+                    from cash_mode.psychology_persistence import flush_persona_psychology
+
+                    flush_persona_psychology(ctrl, flush_pid, flush_bankroll_repo, flush_sandbox_id)
+                except Exception as e:  # noqa: BLE001 — flush is best-effort
+                    logger.warning(
+                        "[CASH][LOBBY] psychology flush on vacate failed for %r: %s", name, e
+                    )
         ai_controllers.pop(name, None)
         cash_pids.pop(name, None)
         logger.info(
@@ -2864,126 +2973,6 @@ def _detect_human_cash_bust(game_id: str, game_data: dict, state_machine) -> Non
     )
 
 
-def handle_eliminations(
-    game_id: str,
-    game_data: dict,
-    game_state,
-    winning_player_names: list,
-    pot_size: int,
-    final_hand_data: dict = None,
-) -> Optional[bool]:
-    """Handle player eliminations. Returns True if human was eliminated.
-
-    Args:
-        final_hand_data: Winner announcement data to include in tournament_complete event
-    """
-    # Cash games have no tracker and must never route to tournament
-    # elimination logic. The cold-load/warm builders omit the key for cash;
-    # the cash_mode check is belt-and-suspenders against a leaked tracker
-    # (PRH-4) so a cash bust always reaches the rebuy modal, not "Nth place".
-    if 'tournament_tracker' not in game_data or game_data.get('cash_mode'):
-        return None
-
-    tracker = game_data['tournament_tracker']
-    tracker.on_hand_complete(pot_size)
-
-    eliminated_players = [p for p in game_state.players if p.stack == 0]
-    eliminator = winning_player_names[0] if winning_player_names else None
-
-    human_eliminated = False
-    human_elimination_event = None
-
-    for player in eliminated_players:
-        try:
-            event = tracker.on_player_eliminated(
-                player_name=player.name, eliminator=eliminator, pot_size=pot_size
-            )
-
-            if player.is_human:
-                human_eliminated = True
-                human_elimination_event = event
-
-            socketio.emit(
-                'player_eliminated',
-                {
-                    'eliminated': player.name,
-                    'eliminator': eliminator,
-                    'finishing_position': event.finishing_position,
-                    'hand_number': event.hand_number,
-                    'remaining_players': tracker.active_player_count,
-                },
-                to=game_id,
-            )
-
-            position_suffix = (
-                'st'
-                if event.finishing_position == 1
-                else 'nd'
-                if event.finishing_position == 2
-                else 'rd'
-                if event.finishing_position == 3
-                else 'th'
-            )
-            send_message(
-                game_id,
-                "Table",
-                f"{player.name} has been eliminated in {event.finishing_position}{position_suffix} place!",
-                "system",
-            )
-        except ValueError as e:
-            logger.warning(f"Failed to record elimination for {player.name} in game {game_id}: {e}")
-
-    if human_eliminated and human_elimination_event:
-        result = tracker.get_result()
-        result['winner_name'] = None
-        result['human_eliminated'] = True
-
-        try:
-            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-            result['owner_id'] = owner_id
-            tournament_repo.save_tournament_result(game_id, result)
-            human_player = tracker.get_human_player()
-            if human_player and owner_id:
-                tournament_repo.update_career_stats(owner_id, human_player['name'], result)
-        except Exception as e:
-            logger.error(f"Failed to save tournament result after human elimination: {e}")
-
-        position_suffix = (
-            'st'
-            if human_elimination_event.finishing_position == 1
-            else 'nd'
-            if human_elimination_event.finishing_position == 2
-            else 'rd'
-            if human_elimination_event.finishing_position == 3
-            else 'th'
-        )
-        socketio.emit(
-            'tournament_complete',
-            {
-                'winner': None,
-                'standings': result['standings'],
-                'total_hands': result['total_hands'],
-                'biggest_pot': result['biggest_pot'],
-                'human_position': human_elimination_event.finishing_position,
-                'human_eliminated': True,
-                'game_id': game_id,
-                'final_hand_data': final_hand_data,
-            },
-            to=game_id,
-        )
-
-        send_message(
-            game_id,
-            "Table",
-            f"You finished in {human_elimination_event.finishing_position}{position_suffix} place!",
-            "system",
-        )
-
-        return True
-
-    return False
-
-
 def prepare_showdown_data(
     game_state,
     winner_info: dict,
@@ -3142,23 +3131,22 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         if not ai_controllers:
             return
     state_machine = game_data.get('state_machine')
-    tournament_tracker = game_data.get('tournament_tracker')
 
     # Get big blind for dynamic thresholds
     big_blind = None
     if state_machine and hasattr(state_machine, 'game_state'):
         big_blind = getattr(state_machine.game_state, 'current_ante', None)
 
-    # Get active players from tournament tracker
+    # Active players + elimination context for spectator commentary — from the
+    # tournament session field (single- or multi-table). Drives heckling by
+    # busted AIs. Cash games have no session, so this stays empty.
+    tournament_session = game_data.get('tournament_session')
     active_players = None
-    if tournament_tracker:
-        active_players = tournament_tracker._active_players
-
-    # Build elimination lookup for spectator context
     elimination_lookup = {}
-    if tournament_tracker:
-        for event in tournament_tracker.eliminations:
-            elimination_lookup[event.eliminated_player] = event
+    if tournament_session is not None:
+        active_players = set(tournament_session.field.active_ids())
+        for event in tournament_session.field.eliminations:
+            elimination_lookup[event.player_id] = event
 
     # Build ai_players dict with context for each player
     ai_players_with_context = {}
@@ -3287,53 +3275,6 @@ def _ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: dict = None) -> bool:
-    """Check if tournament is complete and handle if so. Returns True if complete.
-
-    Args:
-        final_hand_data: Winner announcement data to include in tournament_complete event
-    """
-    # Cash games never "complete" as a tournament — see handle_eliminations.
-    if 'tournament_tracker' not in game_data or game_data.get('cash_mode'):
-        return False
-
-    tracker = game_data['tournament_tracker']
-    if not tracker.is_complete():
-        return False
-
-    result = tracker.get_result()
-
-    try:
-        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        result['owner_id'] = owner_id
-        tournament_repo.save_tournament_result(game_id, result)
-        logger.info(f"Tournament {game_id} saved: winner={result['winner_name']}")
-
-        human_player_name = result.get('human_player_name')
-        if human_player_name and owner_id:
-            tournament_repo.update_career_stats(owner_id, human_player_name, result)
-            logger.info(f"Career stats updated for {human_player_name} (owner: {owner_id})")
-    except Exception as e:
-        logger.error(f"Failed to save tournament result: {e}")
-
-    socketio.emit(
-        'tournament_complete',
-        {
-            'winner': result['winner_name'],
-            'standings': result['standings'],
-            'total_hands': result['total_hands'],
-            'biggest_pot': result['biggest_pot'],
-            'human_position': result.get('human_finishing_position'),
-            'game_id': game_id,
-            'final_hand_data': final_hand_data,
-        },
-        to=game_id,
-    )
-
-    send_message(game_id, "Table", f"TOURNAMENT OVER! {result['winner_name']} wins!", "system")
-    return True
-
-
 def _run_async_narration(game_id: str, game_data: dict, pending: list) -> None:
     """Generate deferred emotional narration off the inter-hand critical path.
 
@@ -3418,7 +3359,15 @@ def _apply_player_table_rake(
         return game_state
 
     big_blind = game_state.current_ante
-    rake = economy_flags.compute_rake(pot_size, big_blind)
+    sandbox_id = _sandbox_id_for(game_data)
+    from flask_app.extensions import chip_ledger_repo as _ledger_repo
+
+    # Director rake (reserve-gated, flag-off by default): may expand the raked
+    # stakes / rate when the bank is empty; otherwise the static $1000 skim.
+    rake_stakes, rake_rate = economy_flags.resolve_rake_params(_ledger_repo, sandbox_id)
+    rake = economy_flags.compute_rake(
+        pot_size, big_blind, stake_big_blinds=rake_stakes, rate=rake_rate
+    )
     if rake <= 0:
         return game_state
 
@@ -3446,7 +3395,6 @@ def _apply_player_table_rake(
     # Resolve the ledger source string. For AI seats we use the
     # cash-mode personality map; for the human seat we use owner_id.
     cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
-    sandbox_id = _sandbox_id_for(game_data)
     from cash_mode import economy_flags
 
     custody = economy_flags.CHIP_CUSTODY_ENABLED
@@ -3481,8 +3429,6 @@ def _apply_player_table_rake(
         'winner_name': headline_name,
         'winner_is_human': winner_player.is_human,
     }
-    from flask_app.extensions import chip_ledger_repo as _ledger_repo
-
     chip_ledger.record_table_rake(
         _ledger_repo,
         source=source,
@@ -3601,17 +3547,19 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Determine if this is the final hand of the tournament
     is_final_hand = False
     tournament_outcome = None
-    if 'tournament_tracker' in game_data:
+    # Final-hand banner for any tournament game — legacy single-table
+    # (tracker), single-table session, or multi-table session. The human is read
+    # straight off the live seats, so this is wrapper-agnostic.
+    if game_data.get('tournament_session') is not None:
         # Count players who still have chips after this hand
         players_with_chips = [p for p in game_state.players if p.stack > 0]
         if len(players_with_chips) == 1:
             # Only one player has chips - this is the final hand
             is_final_hand = True
-            tracker = game_data['tournament_tracker']
-            human_player = tracker.get_human_player()
-            if human_player:
+            human_player = next((p for p in game_state.players if p.is_human), None)
+            if human_player is not None:
                 winner = players_with_chips[0]
-                human_won = winner.name == human_player['name']
+                human_won = winner.name == human_player.name
                 # Position: 1st if won, 2nd if lost (this only runs when 1 player has chips left)
                 human_position = 1 if human_won else 2
                 tournament_outcome = {'human_won': human_won, 'human_position': human_position}
@@ -3625,6 +3573,14 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     pot_dict = game_state.pot if isinstance(game_state.pot, dict) else {}
     winner_contributions = sum(pot_dict.get(name, 0) for name in winning_player_names)
     net_profit = total_pot - winner_contributions
+
+    # Track the biggest pot at a session-backed tournament's human table — the
+    # TournamentSession owns chips/eliminations but not pot sizes, so the live
+    # game feeds `biggest_pot` for the unified completion result + career stats.
+    if game_data.get('tournament_session') is not None:
+        game_data['tournament_biggest_pot'] = max(
+            game_data.get('tournament_biggest_pot', 0), total_pot
+        )
 
     if is_showdown:
         message_content = (
@@ -3831,42 +3787,26 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     except Exception as e:
         logger.warning(f"Coach progression hand-end check failed: {e}")
 
-    # Handle eliminations (needs updated game_state)
-    # Pass winner_data so it can be included in tournament_complete event
-    human_eliminated = handle_eliminations(
-        game_id,
-        game_data,
-        game_state,
-        winning_player_names,
-        pot_size_before_award,
-        final_hand_data=winner_data,
-    )
-    if human_eliminated:
-        # Set phase to GAME_OVER and save before returning
-        state_machine.current_phase = PokerPhase.GAME_OVER
-        game_data['state_machine'] = state_machine
-        game_state_service.set_game(game_id, game_data)
-        update_and_emit_game_state(game_id)
-        # Save final state to persistence
-        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-        if 'tournament_tracker' in game_data:
-            game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
-        return game_state, True
+    # Single-table tournament hand boundary. Every non-cash game is a one-table
+    # TournamentSession (TournamentTracker is retired): fold the finished hand
+    # into the field, feed per-elimination beats, and end the game the moment the
+    # human's fate is sealed (bust or heads-up win). Multi-table games
+    # (tournament_multi_table) run their own boundary later in the inter-hand
+    # step; cash games have no session and skip this entirely.
+    _st_session = game_data.get('tournament_session')
+    if _st_session is not None and not game_data.get('tournament_multi_table'):
+        from flask_app.handlers.single_table_tournament import single_table_hand_boundary
 
-    # Check tournament completion
-    if check_tournament_complete(game_id, game_data, final_hand_data=winner_data):
-        # Set phase to GAME_OVER and save before returning
-        state_machine.current_phase = PokerPhase.GAME_OVER
-        game_data['state_machine'] = state_machine
-        game_state_service.set_game(game_id, game_data)
-        update_and_emit_game_state(game_id)
-        # Save final state to persistence
-        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-        if 'tournament_tracker' in game_data:
-            game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
-        return game_state, True
+        if single_table_hand_boundary(
+            game_id, game_data, game_state, winning_player_names, winner_data
+        ):
+            state_machine.current_phase = PokerPhase.GAME_OVER
+            game_data['state_machine'] = state_machine
+            game_state_service.set_game(game_id, game_data)
+            update_and_emit_game_state(game_id)
+            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+            game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+            return game_state, True
 
     # Wait for commentary to complete before starting new hand
     # Commentary runs in parallel across AI players, but we need all to finish
@@ -4053,6 +3993,28 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data.pop('cash_solo_paused', None)
         game_data.pop('cash_rejoin_candidates', None)
 
+    # Multi-table tournament: the human plays one table; at each hand boundary
+    # fold the result into the field, pace the AI tables, settle, and either
+    # reconcile this table's roster/blinds for the next hand (continue/relocated)
+    # or pause the game (human out / tournament complete). Gated on a key only
+    # multi-table tournament games carry, so cash + single-table games are
+    # untouched.
+    if game_data.get('tournament_session') is not None:
+        try:
+            from flask_app.handlers.tournament_game_builder import tournament_hand_boundary
+
+            tournament_stop = tournament_hand_boundary(game_id, game_data, state_machine)
+        except Exception as e:
+            logger.error(f"[TOURNEY] hand-boundary failed for {game_id}: {e}", exc_info=True)
+            tournament_stop = True  # pause rather than risk a runaway loop
+        if tournament_stop:
+            game_data['state_machine'] = state_machine
+            game_state_service.set_game(game_id, game_data)
+            update_and_emit_game_state(game_id)
+            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+            game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+            return state_machine.game_state, True
+
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     try:
         state_machine.run_until_player_action()
@@ -4100,11 +4062,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             if p.stack < 10 * big_blind and p.stack > 0
         }
 
-    # Save state after hand evaluation completes (now in stable phase)
+    # Save state after hand evaluation completes (now in stable phase). The
+    # tournament session (eliminations/standings) is persisted separately by the
+    # hand boundary above.
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
     game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-    if 'tournament_tracker' in game_data:
-        game_repo.save_tournament_tracker(game_id, game_data['tournament_tracker'])
 
     limit_reached = _track_guest_hand(game_id, game_data)
     if limit_reached:

@@ -19,6 +19,7 @@ Usage (one job):
     --vice-ref median --challenger blackbeard --start 8000 --seed 1 \
     --ticks 8000 --db-path /tmp/ab_med_s1.db --out /tmp/ab_med_s1.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -125,17 +126,23 @@ def _ledger_breakdown(db_path, sandbox_id, pid):
     conn = sqlite3.connect(db_path)
     out_rows = conn.execute(
         "SELECT reason, COALESCE(SUM(amount),0) FROM chip_ledger_entries "
-        "WHERE sandbox_id=? AND source=? GROUP BY reason", (sandbox_id, acct)
+        "WHERE sandbox_id=? AND source=? GROUP BY reason",
+        (sandbox_id, acct),
     ).fetchall()
     in_rows = conn.execute(
         "SELECT reason, COALESCE(SUM(amount),0) FROM chip_ledger_entries "
-        "WHERE sandbox_id=? AND sink=? GROUP BY reason", (sandbox_id, acct)
+        "WHERE sandbox_id=? AND sink=? GROUP BY reason",
+        (sandbox_id, acct),
     ).fetchall()
     conn.close()
     out = {r: int(a) for r, a in out_rows}
     inn = {r: int(a) for r, a in in_rows}
-    return {"ledger_out": out, "ledger_in": inn,
-            "out_total": sum(out.values()), "in_total": sum(inn.values())}
+    return {
+        "ledger_out": out,
+        "ledger_in": inn,
+        "out_total": sum(out.values()),
+        "in_total": sum(inn.values()),
+    }
 
 
 def main() -> int:
@@ -144,8 +151,7 @@ def main() -> int:
     #   own_start    — each AI vs its own starting bankroll (legacy)
     #   field_liquid — vs the field's liquid net worth (vice + side-hustle
     #                  + grinder-hunger all field-relative)
-    ap.add_argument("--vice-ref", required=True,
-                    choices=["own_start", "field_liquid"])
+    ap.add_argument("--vice-ref", required=True, choices=["own_start", "field_liquid"])
     ap.add_argument("--challenger", default="blackbeard")
     ap.add_argument("--start", type=int, default=8000)
     ap.add_argument("--seed", type=int, required=True)
@@ -168,15 +174,23 @@ def main() -> int:
     )
     repos = create_repos(args.db_path)
     cfg = SimConfig(
-        sandbox_id=sandbox_id, num_ticks=args.ticks, start_at=_FIXED_START,
-        rng_seed=args.seed, metrics_every=25, audit_every=100000, progress_every=0,
+        sandbox_id=sandbox_id,
+        num_ticks=args.ticks,
+        start_at=_FIXED_START,
+        rng_seed=args.seed,
+        metrics_every=25,
+        audit_every=100000,
+        progress_every=0,
     )
     result = run_sim(cfg, repos=repos)
     last = [m for m in result.metrics if m.per_pid_networth][-1]
     nw_last = list(last.per_pid_networth.values())
     payload = {
-        "vice_ref": args.vice_ref, "challenger": args.challenger,
-        "start": args.start, "seed": args.seed, "ticks": args.ticks,
+        "vice_ref": args.vice_ref,
+        "challenger": args.challenger,
+        "start": args.start,
+        "seed": args.seed,
+        "ticks": args.ticks,
         "challenger_traj": _challenger_trajectory(result.metrics, args.challenger),
         "challenger_ledger": _ledger_breakdown(args.db_path, sandbox_id, args.challenger),
         # Gini on NET WORTH (the bankroll-only last.gini is mis-stated).
@@ -189,11 +203,14 @@ def main() -> int:
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(payload, indent=2))
     t = payload["challenger_traj"]
-    print(f"[{args.vice_ref} s{args.seed}] {args.challenger}: "
-          f"start={t['start_chips']} peak={t['peak_chips']} final={t['final_chips']} "
-          f"bestRk={t['best_rank']} endRk={t['final_rank']} "
-          f"toTier={t['ticks_to_top_tier']} to#1={t['ticks_to_rank1']} "
-          f"vice_out={payload['challenger_ledger']['ledger_out'].get('bank_pool_deposit', 0)}", flush=True)
+    print(
+        f"[{args.vice_ref} s{args.seed}] {args.challenger}: "
+        f"start={t['start_chips']} peak={t['peak_chips']} final={t['final_chips']} "
+        f"bestRk={t['best_rank']} endRk={t['final_rank']} "
+        f"toTier={t['ticks_to_top_tier']} to#1={t['ticks_to_rank1']} "
+        f"vice_out={payload['challenger_ledger']['ledger_out'].get('bank_pool_deposit', 0)}",
+        flush=True,
+    )
     return 0
 
 

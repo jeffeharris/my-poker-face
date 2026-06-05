@@ -147,6 +147,7 @@ jobs:
             'FLASK_DEBUG=1' \
             'SECRET_KEY=test-secret-key-for-ci' \
             'OPENAI_API_KEY=test-key-for-ci' \
+            'DEEPSEEK_API_KEY=test-key-for-ci' \
             'GOOGLE_CLIENT_ID=test' \
             'GOOGLE_CLIENT_SECRET=test' \
             'CORS_ORIGINS=*' \
@@ -167,7 +168,7 @@ jobs:
 
       - name: Upload test results
         if: failure() && (github.event_name != 'pull_request' || steps.filter.outputs.e2e_relevant == 'true')
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-results/

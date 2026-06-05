@@ -40,7 +40,6 @@ import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
-
 # ---------------------------------------------------------------------------
 # Inputs — SYMMETRIC: every field is populated for a human or an AI alike.
 # Field names mirror the data sources compute_prestige already reads
@@ -57,19 +56,19 @@ class RenownInputs:
     scalps: Dict[str, int] = field(default_factory=dict)
 
     # --- ★ time at #1 net worth (standing) ---
-    ticks_at_number_one: int = 0       # ticks spent atop the field net-worth rank
-    peak_net_worth: float = 0.0        # ratchets; in chips
+    ticks_at_number_one: int = 0  # ticks spent atop the field net-worth rank
+    peak_net_worth: float = 0.0  # ratchets; in chips
 
     # --- ★ kingmaker / backing ---
-    backing_volume: float = 0.0        # total chips staked to others (lifetime)
-    backing_profit: float = 0.0        # net return on backing (can be negative)
+    backing_volume: float = 0.0  # total chips staked to others (lifetime)
+    backing_profit: float = 0.0  # net return on backing (can be negative)
 
     # --- ★ legendary hands: sum of per-hand nugget weights (rare events) ---
     legendary_points: float = 0.0
 
     # --- volume-ish drivers (WALL-CLOCK denominated by design) ---
-    wall_clock_hours: float = 0.0      # presence at the felt, wall-clock
-    total_hands: int = 0               # raw hands — the TREADMILL axis (naive)
+    wall_clock_hours: float = 0.0  # presence at the felt, wall-clock
+    total_hands: int = 0  # raw hands — the TREADMILL axis (naive)
     breadth_opponents: Dict[str, int] = field(default_factory=dict)  # opp -> hands vs them
 
     # --- stakes mastery: {stake_label: hands_at_that_tier} ---
@@ -94,15 +93,15 @@ class RenownInputs:
 class Weights:
     # ★ core
     w_scalp: float = 4.0
-    scalp_base: float = 0.3            # a nobody's scalp is worth this fraction
-    scalp_quality: float = 1.0         # ...a TOP-of-field victim's scalp this much more
+    scalp_base: float = 0.3  # a nobody's scalp is worth this fraction
+    scalp_quality: float = 1.0  # ...a TOP-of-field victim's scalp this much more
     #   quality = scalp_base + scalp_quality * victim_field_percentile (∈[0,1]).
     #   Percentile (NOT raw renown) keeps the term bounded now that renown is
     #   uncapped — busting a "big name" is RELATIVE fame, robust to outliers.
-    w_top1: float = 0.8                # sqrt(ticks at #1)
-    w_peak_worth: float = 0.6          # log1p(peak_net_worth / unit)
+    w_top1: float = 0.8  # sqrt(ticks at #1)
+    w_peak_worth: float = 0.6  # log1p(peak_net_worth / unit)
     worth_unit: float = 5000.0
-    w_backing: float = 3.0             # log1p(volume/unit) + profit bonus
+    w_backing: float = 3.0  # log1p(volume/unit) + profit bonus
     backing_unit: float = 10000.0
     w_legendary: float = 1.5
 
@@ -116,7 +115,7 @@ class Weights:
     # ~denominator-robust, so the hands-denominated offline read proxies the
     # wall-clock design. Weights are larger because the log term is small.
     w_breadth: float = 9.0
-    breadth_per_opp_cap_hands: float = 200.0   # concavity knee per opponent
+    breadth_per_opp_cap_hands: float = 200.0  # concavity knee per opponent
     w_stakes: float = 0.4
     w_apex: float = 0.4
     apex_unit: float = 50000.0
@@ -162,7 +161,7 @@ def _relative(raw: float, median: float, fallback_unit: float) -> float:
     return _log1p(raw / denom)
 
 
-def _breadth_depth_sum(inp: "RenownInputs", w: "Weights") -> float:
+def _breadth_depth_sum(inp: RenownInputs, w: Weights) -> float:
     """Raw breadth depth (Σ per-opponent depth) BEFORE field-relativisation.
 
     Per-opponent depth is concave and denominated per `volume_denominator`, so
@@ -187,6 +186,7 @@ def _breadth_depth_sum(inp: "RenownInputs", w: "Weights") -> float:
 @dataclass
 class FieldContext:
     """Field-level aggregates needed to make drivers field-relative."""
+
     median_backing_volume: float = 0.0
     median_breadth_depth: float = 0.0
 
@@ -195,7 +195,7 @@ def compute_components(
     inp: RenownInputs,
     w: Weights,
     victim_percentile: Dict[str, float],
-    fctx: "FieldContext",
+    fctx: FieldContext,
 ) -> Dict[str, float]:
     """Return {driver_name: points}. Sum = total renown (uncapped).
 
@@ -224,8 +224,9 @@ def compute_components(
     # don't pay). Relativising fixes the Rung-2 collapse where near-universal
     # AI staking made every AI ~equally "high backing".
     backing = _relative(inp.backing_volume, fctx.median_backing_volume, w.backing_unit)
-    backing += 0.5 * _relative(max(0.0, inp.backing_profit),
-                               fctx.median_backing_volume, w.backing_unit)
+    backing += 0.5 * _relative(
+        max(0.0, inp.backing_profit), fctx.median_backing_volume, w.backing_unit
+    )
     c["backing"] = w.w_backing * backing
 
     # ★ Legendary nuggets (already a rare-event weighted sum; concave-light).
@@ -299,9 +300,7 @@ def _field_context(entities: Dict[str, RenownInputs], w: Weights) -> FieldContex
     )
 
 
-def score_field(
-    entities: Dict[str, RenownInputs], w: Weights
-) -> Dict[str, Dict[str, float]]:
+def score_field(entities: Dict[str, RenownInputs], w: Weights) -> Dict[str, Dict[str, float]]:
     """Return {id: components}. Two-pass: scalps weight by last-pass victim
     field-percentile (the 'last-tick renown' proxy — NOT a fixed point)."""
     fctx = _field_context(entities, w)  # raw-input medians; pass-invariant
@@ -381,7 +380,9 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         stakes_hands={"$200": 8_000, "$1000": 6_000},
         roster_net=600_000,
         breadth_opponents={f"ai{i}": 400 for i in range(20)},
-        regard_likability=0.30, regard_respect=0.35, regard_heat=0.02,
+        regard_likability=0.30,
+        regard_respect=0.35,
+        regard_heat=0.02,
     )
 
     # ROUTE 1 — Grinder: the dedicated regular everyone knows. Volume is the
@@ -395,7 +396,9 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         stakes_hands={"$2": 45_000, "$10": 25_000},
         breadth_opponents={f"ai{i}": 300 for i in range(48)},
         roster_net=90_000,
-        regard_likability=0.10, regard_respect=0.15, regard_heat=0.0,
+        regard_likability=0.10,
+        regard_respect=0.15,
+        regard_heat=0.0,
     )
 
     # ROUTE 2 — Whale: huge net worth, time at #1, high stakes, few hands.
@@ -410,7 +413,9 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         roster_net=500_000,
         scalps={"ai_nobody1": 3, "ai_nobody2": 2},
         backing_volume=40_000,  # whales dabble in backing, not their route
-        regard_likability=0.05, regard_respect=0.20, regard_heat=0.05,
+        regard_likability=0.05,
+        regard_respect=0.20,
+        regard_heat=0.05,
     )
 
     # ROUTE 3 — Patron: big backing volume + profit, modest own play.
@@ -423,15 +428,16 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         stakes_hands={"$50": 6_000, "$200": 3_000},
         breadth_opponents={f"ai{i}": 150 for i in range(12)},
         roster_net=60_000,
-        regard_likability=0.25, regard_respect=0.20, regard_heat=0.0,
+        regard_likability=0.25,
+        regard_respect=0.20,
+        regard_heat=0.0,
     )
 
     # ROUTE 4 — Villain: many HIGH-VALUE scalps (busts the legend + whale),
     # cruel legendary coolers, high heat (renown high, regard negative).
     villain = RenownInputs(
         label="Villain",
-        scalps={"Old Champion (legend)": 4, "Whale": 3,
-                "ai_nobody1": 5, "ai_nobody2": 6},
+        scalps={"Old Champion (legend)": 4, "Whale": 3, "ai_nobody1": 5, "ai_nobody2": 6},
         legendary_points=5.0,
         ticks_at_number_one=80,
         peak_net_worth=700_000,
@@ -441,7 +447,9 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         breadth_opponents={f"ai{i}": 220 for i in range(15)},
         roster_net=300_000,
         backing_volume=25_000,  # villains stake a little too
-        regard_likability=-0.30, regard_respect=0.25, regard_heat=0.55,
+        regard_likability=-0.30,
+        regard_respect=0.25,
+        regard_heat=0.55,
     )
 
     # CONTROL — Up-and-comer: modest everything, SHOULD be low renown.
@@ -452,7 +460,9 @@ def build_archetypes() -> Dict[str, RenownInputs]:
         stakes_hands={"$2": 2_000, "$10": 1_000},
         breadth_opponents={f"ai{i}": 80 for i in range(6)},
         roster_net=5_000,
-        regard_likability=0.08, regard_respect=0.05, regard_heat=0.0,
+        regard_likability=0.08,
+        regard_respect=0.05,
+        regard_heat=0.0,
     )
 
     # THE BOGEY — Fast bot: astronomical hand count in LITTLE wall-clock,
@@ -460,12 +470,14 @@ def build_archetypes() -> Dict[str, RenownInputs]:
     # hand-count formula this SHOULD dominate; under wall-clock it must NOT.
     fast_bot = RenownInputs(
         label="Fast bot (volume bogey)",
-        wall_clock_hours=12,                 # barely present in wall-clock
-        total_hands=600_000,                 # but plays forever
+        wall_clock_hours=12,  # barely present in wall-clock
+        total_hands=600_000,  # but plays forever
         stakes_hands={"$2": 400_000, "$10": 200_000},
         breadth_opponents={f"ai{i}": 6_000 for i in range(40)},
-        roster_net=8_000,                    # break-even
-        regard_likability=0.02, regard_respect=0.02, regard_heat=0.0,
+        roster_net=8_000,  # break-even
+        regard_likability=0.02,
+        regard_respect=0.02,
+        regard_heat=0.0,
     )
 
     field = {
@@ -490,19 +502,29 @@ def build_archetypes() -> Dict[str, RenownInputs]:
             wall_clock_hours=3 + intensity * 25,
             total_hands=hands,
             stakes_hands={"$2": hands},
-            breadth_opponents={f"ai{j}": int(40 + intensity * 200)
-                               for j in range(2 + i % 5)},
+            breadth_opponents={f"ai{j}": int(40 + intensity * 200) for j in range(2 + i % 5)},
             roster_net=intensity * 20_000 - 4_000,  # mostly break-even/small
             # most AIs do SOME backing (Rung-2 showed it's near-universal) — so
             # the field median is meaningful and the Patron reads as an outlier.
             backing_volume=intensity * 30_000,
-            regard_likability=0.02, regard_respect=0.01, regard_heat=0.0,
+            regard_likability=0.02,
+            regard_respect=0.01,
+            regard_heat=0.0,
         )
     return field
 
 
-DRIVER_ORDER = ["scalps", "top1", "peak_worth", "backing", "legendary",
-                "tenure", "breadth", "stakes", "apex"]
+DRIVER_ORDER = [
+    "scalps",
+    "top1",
+    "peak_worth",
+    "backing",
+    "legendary",
+    "tenure",
+    "breadth",
+    "stakes",
+    "apex",
+]
 
 
 def _print_board(title: str, entities, w: Weights):
@@ -513,10 +535,12 @@ def _print_board(title: str, entities, w: Weights):
 
     n_high = sum(1 for r in renowns.values() if r >= cut)
     print(f"\n{'='*92}\n{title}")
-    print(f"(field={len(entities)}; volume denominator = {w.volume_denominator!r}; "
-          f"high-renown = top {int(w.high_renown_top_fraction*100)}% of the field "
-          f"→ renown ≥ {cut:.2f}; "
-          f"{n_high} entities high)")
+    print(
+        f"(field={len(entities)}; volume denominator = {w.volume_denominator!r}; "
+        f"high-renown = top {int(w.high_renown_top_fraction*100)}% of the field "
+        f"→ renown ≥ {cut:.2f}; "
+        f"{n_high} entities high)"
+    )
     print("-" * 92)
     hdr = f"{'#':>3} {'entity':24} {'renown':>7} {'quad':>16}  dominant driver"
     print(hdr)
@@ -531,12 +555,16 @@ def _print_board(title: str, entities, w: Weights):
         top_driver = max(c, key=c.get)
         share = (c[top_driver] / ren * 100) if ren > 0 else 0
         flag = "  ⟵ HIGH" if ren >= cut else ""
-        print(f"{rank:>3} {entities[eid].label:24} {ren:7.2f} {q:>16}  "
-              f"{top_driver} ({share:.0f}%){flag}")
-    fillers = sorted((renowns[e] for e in entities if e.startswith("filler")))
+        print(
+            f"{rank:>3} {entities[eid].label:24} {ren:7.2f} {q:>16}  "
+            f"{top_driver} ({share:.0f}%){flag}"
+        )
+    fillers = sorted(renowns[e] for e in entities if e.startswith("filler"))
     if fillers:
-        print(f"    [{len(fillers)} filler AIs: renown {fillers[0]:.2f}–"
-              f"{fillers[-1]:.2f}, median {fillers[len(fillers)//2]:.2f}]")
+        print(
+            f"    [{len(fillers)} filler AIs: renown {fillers[0]:.2f}–"
+            f"{fillers[-1]:.2f}, median {fillers[len(fillers)//2]:.2f}]"
+        )
     return scored, renowns, cut
 
 
@@ -545,12 +573,15 @@ def main():
     w = Weights()
 
     print("RENOWN v2 — RUNG 1: synthetic archetype probe")
-    print("Pure fixtures, no DB, no sim. Two questions: (1) do the 4 routes "
-          "each reach\nhigh renown?  (2) does the volume bot dominate?")
+    print(
+        "Pure fixtures, no DB, no sim. Two questions: (1) do the 4 routes "
+        "each reach\nhigh renown?  (2) does the volume bot dominate?"
+    )
 
     # --- The design board (wall-clock denomination) ---
     scored, renowns, cut = _print_board(
-        "BOARD A — DESIGN (wall-clock denominated volume)", entities, w)
+        "BOARD A — DESIGN (wall-clock denominated volume)", entities, w
+    )
 
     # --- Per-driver breakdown so the routes are legible ---
     print(f"\n{'-'*92}\nPER-DRIVER BREAKDOWN (Board A)\n{'-'*92}")
@@ -559,13 +590,13 @@ def main():
         if eid.startswith("filler"):
             continue
         c = scored[eid]
-        print(f"{entities[eid].label:24} "
-              + " ".join(f"{c[d]:6.2f}" for d in DRIVER_ORDER))
+        print(f"{entities[eid].label:24} " + " ".join(f"{c[d]:6.2f}" for d in DRIVER_ORDER))
 
     # --- The treadmill counterfactual (hand-count denomination) ---
     w_naive = Weights(volume_denominator="hands")
-    _print_board("BOARD B — NAIVE COUNTERFACTUAL (hand-count denominated volume)",
-                 entities, w_naive)
+    _print_board(
+        "BOARD B — NAIVE COUNTERFACTUAL (hand-count denominated volume)", entities, w_naive
+    )
 
     # -----------------------------------------------------------------
     # Automated Rung-1 verdicts
@@ -578,27 +609,34 @@ def main():
     for r in routes:
         ok = renowns[r] >= cut
         all_routes_high &= ok
-        print(f"   {'PASS' if ok else 'FAIL'}  {r:14} renown={renowns[r]:.2f} "
-              f"(cut {cut:.2f})")
+        print(f"   {'PASS' if ok else 'FAIL'}  {r:14} renown={renowns[r]:.2f} " f"(cut {cut:.2f})")
     ctrl_ok = renowns["Up-and-comer"] < cut
-    print(f"   {'PASS' if ctrl_ok else 'FAIL'}  {'Up-and-comer':14} "
-          f"renown={renowns['Up-and-comer']:.2f}  (control must be BELOW cut)")
+    print(
+        f"   {'PASS' if ctrl_ok else 'FAIL'}  {'Up-and-comer':14} "
+        f"renown={renowns['Up-and-comer']:.2f}  (control must be BELOW cut)"
+    )
 
     print("\n[Q2] Does the volume bot dominate?")
     # Board A (design): fast bot must NOT be high renown.
     fb = "Fast bot (volume bogey)"
     fb_design_high = renowns[fb] >= cut
-    print(f"   Board A (wall-clock): fast-bot renown={renowns[fb]:.2f} "
-          f"→ {'HIGH ❌' if fb_design_high else 'not high ✅'}")
+    print(
+        f"   Board A (wall-clock): fast-bot renown={renowns[fb]:.2f} "
+        f"→ {'HIGH ❌' if fb_design_high else 'not high ✅'}"
+    )
     # Board B (naive): demonstrate the lever — fast bot SHOULD top the board.
     naive_scored = score_field(entities, w_naive)
     naive_ren = {eid: total_renown(c) for eid, c in naive_scored.items()}
     naive_rank = sorted(naive_ren, key=naive_ren.get, reverse=True).index(fb) + 1
     design_rank = sorted(renowns, key=renowns.get, reverse=True).index(fb) + 1
-    print(f"   Fast-bot rank: Board A (design) #{design_rank} of {len(entities)}"
-          f"   |   Board B (naive hands) #{naive_rank} of {len(entities)}")
-    print(f"   → wall-clock denomination moves the bogey from #{naive_rank} "
-          f"to #{design_rank}: the anti-treadmill lever {'WORKS ✅' if design_rank > naive_rank else 'NO EFFECT ❌'}")
+    print(
+        f"   Fast-bot rank: Board A (design) #{design_rank} of {len(entities)}"
+        f"   |   Board B (naive hands) #{naive_rank} of {len(entities)}"
+    )
+    print(
+        f"   → wall-clock denomination moves the bogey from #{naive_rank} "
+        f"to #{design_rank}: the anti-treadmill lever {'WORKS ✅' if design_rank > naive_rank else 'NO EFFECT ❌'}"
+    )
 
     # Driver-dominance: no single driver should carry the whole field.
     print("\n[Q3] Single-driver dominance check (Board A):")
@@ -614,14 +652,18 @@ def main():
             dominated.append((entities[eid].label, top, share))
     if dominated:
         for lbl, d, s in dominated:
-            print(f"   note: {lbl} is {s*100:.0f}% '{d}' (single-route, expected "
-                  f"for a pure archetype)")
+            print(
+                f"   note: {lbl} is {s*100:.0f}% '{d}' (single-route, expected "
+                f"for a pure archetype)"
+            )
     else:
         print("   no entity is >85% one driver")
 
     print(f"\n{'='*92}")
     verdict = all_routes_high and ctrl_ok and (not fb_design_high) and (design_rank > naive_rank)
-    print(f"RUNG 1: {'PASS ✅ — proceed to Rung 2 (score the real field)' if verdict else 'FAIL ❌ — retune before building'}")
+    print(
+        f"RUNG 1: {'PASS ✅ — proceed to Rung 2 (score the real field)' if verdict else 'FAIL ❌ — retune before building'}"
+    )
     print(f"{'='*92}")
 
 

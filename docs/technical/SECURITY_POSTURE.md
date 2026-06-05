@@ -123,7 +123,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 | Paid image-generation POST routes admin-gated | ✅ (PRH-1) | `image_routes.py` `_admin_only` |
 | Publishing a personality (cross-user content) is **admin-only**; non-admin owners may only set `private`; `save_personality` preserves visibility/owner on re-save | ✅ (PRH-27) | `personality_routes.py` visibility route; `personality_repository.save_personality` |
 | Admin bootstrap: a `guest_`-namespaced `INITIAL_ADMIN_EMAIL` is **refused in production** (bootstrap returns None; group-assign raises) — prod admin must be a verified OAuth email. Guest-namespace admin stays a dev-only convenience. | ✅ (PRH-38) | `poker/repositories/user_repository.py` |
-| First-class CSRF: double-submit `csrf_token` cookie + required `X-CSRF-Token` on mutating `/api/*` (constant-time compare → `403 CSRF_FAILED`); frontend attaches it via one global `fetch` wrapper. Armed in prod (same-origin), off in dev (cross-origin) + tests via `CSRF_PROTECTION_ENABLED`. On top of `SameSite=Lax`. | ✅ (PRH-36) | `flask_app/csrf.py`; `flask_app/config.py`; `react/.../utils/csrf.ts` |
+| First-class CSRF: double-submit `csrf_token` cookie + required `X-CSRF-Token` on mutating `/api/*` (constant-time compare → `403 CSRF_FAILED`); frontend attaches it via one global `fetch` wrapper. Armed in prod (same-origin), off in dev (cross-origin) + tests via `CSRF_PROTECTION_ENABLED`. On top of `SameSite=Lax`. Full flow, exemptions, and helper: [`CSRF.md`](CSRF.md). | ✅ (PRH-36) | `flask_app/csrf.py`; `flask_app/config.py`; `react/.../utils/csrf.ts` |
 
 ## Secrets handling ✅
 

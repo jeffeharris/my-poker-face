@@ -37,6 +37,10 @@ export function TournamentComplete({
   if (!result) return null;
 
   const humanStanding = result.standings.find((s) => s.is_human);
+  // The final-hand overlay has no players list to read is_human from, so pass
+  // the human's name explicitly from the standings (the authoritative is_human
+  // source) rather than the drift-prone App-level playerName prop.
+  const humanName = humanStanding?.player_name ?? playerName;
   const isWinner = humanStanding?.finishing_position === 1;
   const humanEliminated = result.human_eliminated && !result.winner;
   const sortedStandings = [...result.standings].sort(
@@ -85,6 +89,17 @@ export function TournamentComplete({
                 <span className="eliminated-info">
                   {standing.eliminated_by ? `by ${standing.eliminated_by}` : 'Winner'}
                 </span>
+                {standing.amount ? (
+                  <span className="prize">
+                    ${standing.amount.toLocaleString()}
+                    {standing.renown ? (
+                      <span className="renown" title="Renown earned">
+                        {' '}
+                        · ★{standing.renown}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
               </div>
             ))}
           </div>
@@ -92,6 +107,12 @@ export function TournamentComplete({
 
         {/* Stats Summary */}
         <div className="tournament-stats">
+          {result.prize_pool ? (
+            <div className="stat">
+              <span className="stat-value">${result.prize_pool.toLocaleString()}</span>
+              <span className="stat-label">Total Purse</span>
+            </div>
+          ) : null}
           <div className="stat">
             <span className="stat-value">{result.total_hands}</span>
             <span className="stat-label">Hands Played</span>
@@ -118,7 +139,7 @@ export function TournamentComplete({
       {/* Final Hand Overlay */}
       {showFinalHand &&
         result.final_hand_data &&
-        (isMobile && gameId && playerName && onSendMessage ? (
+        (isMobile && gameId && humanName && onSendMessage ? (
           <MobileWinnerAnnouncement
             winnerInfo={{
               ...result.final_hand_data,
@@ -126,7 +147,7 @@ export function TournamentComplete({
             }}
             onComplete={() => setShowFinalHand(false)}
             gameId={gameId}
-            playerName={playerName}
+            playerName={humanName}
             onSendMessage={onSendMessage}
           />
         ) : (

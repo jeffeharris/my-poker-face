@@ -31,14 +31,26 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from flask_app.handlers import game_handler
 
 
-def _fake_extensions(*, eligible, on_hustle=None, on_vice=None, starting_bankroll=5000):
+def _fake_extensions(
+    *, eligible, on_hustle=None, on_vice=None, starting_bankroll=5000, reserved=None
+):
     """Build a `flask_app.extensions` stand-in for the seat-fill paths.
 
     `eligible` is the public corpus the repo would return; `on_hustle` /
-    `on_vice` are the off-grid pid sets the respective repos report.
+    `on_vice` are the off-grid pid sets the respective repos report; `reserved`
+    is the open Main Event invite's drawn field (tournaments-as-a-draw) — the
+    tournament-bound exclusion mirror of off-grid.
     """
     on_hustle = set(on_hustle or set())
     on_vice = set(on_vice or set())
+    reserved = list(reserved or [])
+    tournament_invite_repo = SimpleNamespace(
+        active_for_owner=lambda owner_id: (
+            {"reserved_pids": list(reserved), "expires_at": "2099-01-01T00:00:00"}
+            if reserved
+            else None
+        ),
+    )
 
     personality_repo = SimpleNamespace(
         list_eligible_for_cash_mode=lambda *, user_id=None: list(eligible),
@@ -65,6 +77,7 @@ def _fake_extensions(*, eligible, on_hustle=None, on_vice=None, starting_bankrol
         bankroll_repo=bankroll_repo,
         side_hustle_state_repo=side_hustle_state_repo,
         vice_state_repo=vice_state_repo,
+        tournament_invite_repo=tournament_invite_repo,
     )
 
 
@@ -127,6 +140,53 @@ class TestSelectRejoinExcludesOffGrid(unittest.TestCase):
         repos = _fake_extensions(eligible=eligible)
         game_data, game_state = self._game()
         with patch.multiple('flask_app.extensions', **repos):
+            picks = game_handler.select_rejoin_candidates(game_data, game_state, limit=2)
+        self.assertEqual({p['personality_id'] for p in picks}, {'zeus', 'batman'})
+
+
+class TestSelectRejoinExcludesTournamentBound(unittest.TestCase):
+    """tournaments-as-a-draw (Phase C): a persona reserved for the gathering
+    Main Event must not be offered as a rejoin candidate at the human's table —
+    the seated-and-tournament-bound mirror of the off-grid exclusion."""
+
+    def _game(self):
+        game_data = {'owner_id': 'guest_test', 'sandbox_id': 'sb-1'}
+        you = SimpleNamespace(name='You', is_human=True, stack=500)
+        game_state = SimpleNamespace(current_ante=10, players=(you,))
+        return game_data, game_state
+
+    def test_reserved_candidate_is_dropped_when_flag_on(self):
+        from cash_mode import economy_flags
+
+        eligible = [
+            {'personality_id': 'zeus', 'name': 'Zeus'},
+            {'personality_id': 'batman', 'name': 'Batman'},
+        ]
+        repos = _fake_extensions(eligible=eligible, reserved={'zeus'})
+        game_data, game_state = self._game()
+        with (
+            patch.multiple('flask_app.extensions', **repos),
+            patch.object(economy_flags, 'TOURNAMENT_DRAW_ENABLED', True),
+        ):
+            picks = game_handler.select_rejoin_candidates(game_data, game_state, limit=2)
+        names = {p['personality_id'] for p in picks}
+        self.assertNotIn('zeus', names)
+        self.assertIn('batman', names)
+
+    def test_reserved_ignored_when_flag_off(self):
+        # Flag off → no gather → reserved personas are still seatable (inert).
+        from cash_mode import economy_flags
+
+        eligible = [
+            {'personality_id': 'zeus', 'name': 'Zeus'},
+            {'personality_id': 'batman', 'name': 'Batman'},
+        ]
+        repos = _fake_extensions(eligible=eligible, reserved={'zeus'})
+        game_data, game_state = self._game()
+        with (
+            patch.multiple('flask_app.extensions', **repos),
+            patch.object(economy_flags, 'TOURNAMENT_DRAW_ENABLED', False),
+        ):
             picks = game_handler.select_rejoin_candidates(game_data, game_state, limit=2)
         self.assertEqual({p['personality_id'] for p in picks}, {'zeus', 'batman'})
 

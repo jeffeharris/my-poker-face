@@ -16,6 +16,7 @@ Usage (one job):
     --start 8000 --seed 1 --ticks 8000 \
     --db-path /tmp/pace_8k_s1.db --out /tmp/pace_8k_s1.json
 """
+
 from __future__ import annotations
 
 import argparse

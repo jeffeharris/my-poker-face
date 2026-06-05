@@ -2,7 +2,7 @@
 purpose: How the cash economy regulates wealth distribution — the vice / side-hustle / grinder-hunger / rake levers and the own_start vs field_liquid reference model.
 type: reference
 created: 2026-06-03
-last_updated: 2026-06-03
+last_updated: 2026-06-04
 ---
 
 # Cash Mode Wealth Levers
@@ -40,6 +40,49 @@ The three forces compose into a self-correcting band: table play
 concentrates wealth (bigger stakes → bigger absolute swings), while vice
 (progressive tax) and side-hustle (bottom support) pull back toward the
 middle.
+
+## The Director thermostat (reserve-band gating)
+
+A second flag-gated layer, **orthogonal to `LEVER_REFERENCE_MODE`** and
+likewise **default-off**, gates vice *intensity* and the rake *schedule* on
+the **bank's reserve depth** instead of letting them run at a fixed rate. The
+"Director" is not an entity — it is a pure read-model over the ledger
+(`core/economy/economy_signal.py:signal`) that computes one number per
+decision, `r = reserves / holdings`, and drives every lever off it. Built for
+the fresh-prod-sandbox starting conditions; **full design + sim findings:
+[`docs/plans/PROD_STARTING_CONDITIONS.md`](../plans/PROD_STARTING_CONDITIONS.md)**
+(orientation: `…_HANDOFF.md`).
+
+The **canonical reserve ladder** (one source of truth, all levers reference
+it — `economy_signal.py:98–106`):
+
+| Constant | `r` | Band |
+|---|---|---|
+| `RESERVE_CRITICAL` | 0.03 | rake widest + top rate; vice full |
+| `RESERVE_HEALTHY` | 0.06 | healthy floor; also the tournament drain floor |
+| `RESERVE_TRIGGER` | 0.12 | offer a Main Event, drain back to `HEALTHY` |
+| `RESERVE_VICE_CEILING` | 0.18 | vice fully off (hot bank, braked) |
+
+The flags (all `_env_flag(..., False)` in `economy_flags.py`):
+
+| Flag | line | Effect |
+|---|---|---|
+| `GENESIS_RESERVE_ENABLED` | 172 | Seed the bank pool to 5% of holdings once at fresh-sandbox birth (`closed_economy.ensure_genesis_reserve_seeded`), so a prod sandbox boots lived-in instead of inert (empty pool → no casinos/tournaments). |
+| `VICE_RESERVE_GATED` | 156 | Scale the whole vice pass by the reserve deficit (`ai_vice_spending.reserve_vice_multiplier:661`): full at/below `HEALTHY`, tapering to off at `VICE_CEILING` — so vice is ~half-on *at* the trigger (pushes reserves across it) and brakes above it. |
+| `RAKE_RESERVE_GATED` | 210 | Graduate BOTH the raked stake tiers and the rate by band (`economy_signal.cash_rake_schedule:353`): `{1000}`@2% / `{1000,200}`@3% / `{1000,200,50}`@4%. The $1000 tier is always on (structural rake never switched off). |
+| `DIRECTOR_INEQUALITY_RAKE` | 220 | On a **flat** field (`field_inequality` `p90/median ≤ 2.5`, throttled), evaluate the rake one band lower so the even-skim leads the refill vice (no rich target) can't. |
+| `DIRECTOR_POLICY_HOLD` | 236 | **Hold** the resolved rake schedule for a `POLICY_WINDOW_SECONDS` (300s) window (`cash_mode/director_policy.py`, recomputed in the lobby refresh) so the per-hand rake reads a cached `(stakes, rate)` instead of re-running the `signal()` ledger scan every hand. `resolve_rake_params` exposes a `_fresh=` bypass: the refresh recomputes `_fresh=True`; per-hand reads the held value (cold cache → live compute). Implies `RAKE_RESERVE_GATED`. |
+| `CASINO_RELATIVE_THRESHOLDS` | 245 | Casino spawn/close/whale gates scale as fractions of holdings instead of absolute chip counts. |
+| `CASINO_RESEED_ON_SPENT` | 255 | Lean casino fish: 1 fish/casino (2 at $2), leaner prefund — turns the lumpy casino pool→field drain into a steady trickle. |
+
+The **tournament** is the big redistribution drain (gated separately by the
+pre-existing `TOURNAMENT_CIRCUIT_ENABLED`): `should_offer_event` fires a Main
+Event at `RESERVE_TRIGGER`; `tournament_funding` sizes the overlay to drain
+reserves back to `RESERVE_HEALTHY` (keeping half), redistributing to the
+field as prizes. Net effect across the layer is a **sawtooth**: reserves
+climb `HEALTHY → TRIGGER` on the vice+rake faucet, fire one event, drain to
+the floor, climb again. Sim-confirmed end-to-end (one fire, −163,607 overlay,
+re-climb) on the 76-cast — see the plan doc §1.6a.
 
 ## Reference model: `LEVER_REFERENCE_MODE`
 
@@ -154,6 +197,9 @@ vice):
 | Concern | File |
 |---|---|
 | Flags + knobs + `lever_field_mode()` | `cash_mode/economy_flags.py` |
+| Director read-model + reserve ladder + rake/overlay policy | `core/economy/economy_signal.py` |
+| Director rake policy hold (cached schedule) | `cash_mode/director_policy.py` |
+| Field inequality signal (instrument choice) | `cash_mode/field_inequality.py` |
 | Field snapshot (single source of truth) | `cash_mode/field_wealth.py` |
 | Real vice | `cash_mode/ai_vice_spending.py` |
 | Fake vice (sim stub) | `cash_mode/closed_economy.py` |

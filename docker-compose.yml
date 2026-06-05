@@ -45,6 +45,14 @@ services:
       # so existing balances reconcile; validate via scripts/validate_chip_custody.py.
       # Prod uses docker-compose.prod.yml.
       - CHIP_CUSTODY_ENABLED=${CHIP_CUSTODY_ENABLED:-0}
+      # Redirect tool caches OUT of the bind-mounted repo. The per-worktree
+      # docker-compose.override.yml mounts `.:/app`, and `make test` runs
+      # pytest/ruff in-container as root — which otherwise leaves root-owned
+      # .ruff_cache/.pytest_cache in the HOST worktree, breaking the host's
+      # pre-commit/pre-push hook (ruff can't write its cache as the host user).
+      # /tmp is container-internal (not mounted), so these stay ephemeral.
+      - RUFF_CACHE_DIR=/tmp/.ruff_cache
+      - PYTEST_ADDOPTS=-o cache_dir=/tmp/.pytest_cache
     env_file:
       - .env
     command: python -m flask_app.ui_web
@@ -120,3 +128,9 @@ volumes:
 networks:
   poker-network:
     driver: bridge
+    # Pin a dedicated subnet so this worktree's network doesn't collide with the
+    # other my-poker-face worktrees (desktop .45 / main .46 / circuit .47) when
+    # Docker's default address pool is exhausted. See the desktop-parity fix.
+    ipam:
+      config:
+        - subnet: 10.123.48.0/24

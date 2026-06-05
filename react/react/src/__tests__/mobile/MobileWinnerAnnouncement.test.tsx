@@ -295,6 +295,53 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
     });
   });
 
+  // Regression: the win/loss tone set must follow the backend is_human seat
+  // (same source as winnerInfo.winners), NOT the playerName prop — which is
+  // sourced from user.name and can drift from the seat's player.name. A drift
+  // used to flip playerWon false on a win, showing loser tones (salty/props).
+  describe('Case 5: tone set follows the is_human seat, not playerName', () => {
+    const seat = (name: string, is_human: boolean) => ({
+      name,
+      stack: 1000,
+      bet: 0,
+      is_folded: false,
+      is_all_in: false,
+      is_human,
+    });
+
+    it('shows WINNER tones when the human seat won, even if playerName points elsewhere', () => {
+      render(
+        <MobileWinnerAnnouncement
+          {...makeDefaultProps({
+            // winnerInfo: Batman wins. Batman is the human seat. The playerName
+            // prop is stale and names the loser — the old code would read this.
+            players: [seat('Batman', true), seat('TestPlayer', false)],
+            playerName: 'TestPlayer',
+          })}
+        />
+      );
+
+      expect(screen.getByText('Gloat')).toBeTruthy();
+      expect(screen.queryByText('Salty')).toBeNull();
+    });
+
+    it('shows LOSER tones when the human seat lost, even if playerName points to the winner', () => {
+      render(
+        <MobileWinnerAnnouncement
+          {...makeDefaultProps({
+            // winnerInfo: Batman wins. TestPlayer is the human seat (a loser).
+            // The playerName prop is stale and names the winner.
+            players: [seat('Batman', false), seat('TestPlayer', true)],
+            playerName: 'Batman',
+          })}
+        />
+      );
+
+      expect(screen.getByText('Salty')).toBeTruthy();
+      expect(screen.queryByText('Gloat')).toBeNull();
+    });
+  });
+
   describe('Auto-dismiss behavior', () => {
     it('auto-dismisses showdown after 12 seconds', () => {
       const onComplete = vi.fn();
@@ -333,6 +380,34 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
       );
 
       expect(container.querySelector('.mobile-winner-overlay')).toBeNull();
+    });
+  });
+
+  describe('Auto-dismiss countdown ring', () => {
+    it('shows the countdown ring on a showdown win', () => {
+      const { container } = render(<MobileWinnerAnnouncement {...makeDefaultProps()} />);
+
+      expect(container.querySelector('.mobile-winner-timer-ring')).not.toBeNull();
+    });
+
+    it('does not show the ring on a fold-out win', () => {
+      const { container } = render(
+        <MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })} />
+      );
+
+      expect(container.querySelector('.mobile-winner-timer-ring')).toBeNull();
+    });
+
+    it('does not show the ring on the final hand (no auto-dismiss)', () => {
+      const { container } = render(
+        <MobileWinnerAnnouncement
+          {...makeDefaultProps({
+            winnerInfo: makeShowdownWinnerInfo({ is_final_hand: true }),
+          })}
+        />
+      );
+
+      expect(container.querySelector('.mobile-winner-timer-ring')).toBeNull();
     });
   });
 });

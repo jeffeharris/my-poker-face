@@ -458,6 +458,51 @@ export function CharacterDetailCard({
     [identifier, buyingSection, onIntelChanged]
   );
 
+  // Credit-history (bankruptcy record) row. Standalone unlock: revealed
+  // free when the viewer has first-hand exposure or was bought from the
+  // informant; otherwise a locked "pull credit report" buy. Reuses
+  // handleBuyInformant (it refetches the dossier on success).
+  const renderCreditHistory = () => {
+    const credit = fetched?.credit_history ?? null;
+    if (!credit) return null;
+    if (credit.revealed) {
+      const n = credit.bankruptcy_count;
+      return (
+        <DataRow
+          label="Credit history"
+          value={
+            <span className="dossier__money">
+              {n > 0
+                ? `${n} ${n === 1 ? 'bankruptcy' : 'bankruptcies'}`
+                : 'No bankruptcies on record'}
+              {credit.recently_bankrupt && <span className="dossier__money-note"> · recent</span>}
+            </span>
+          }
+        />
+      );
+    }
+    if (!circuitContext || !identifier) return null;
+    const { section_id, price } = credit.unlock;
+    const cantAfford = fetched?.player_bankroll != null && fetched.player_bankroll < price;
+    return (
+      <DataRow
+        label="Credit history"
+        value={
+          <button
+            type="button"
+            className="dossier__credit-unlock"
+            disabled={buyingSection === section_id || cantAfford}
+            onClick={() => handleBuyInformant(section_id)}
+          >
+            {buyingSection === section_id
+              ? 'Pulling…'
+              : `Pull credit report — $${price.toLocaleString()}`}
+          </button>
+        }
+      />
+    );
+  };
+
   // Debounced autosave: 600ms after the last keystroke. Cancels any
   // pending save when a new keystroke comes in or the card closes.
   const scheduleNoteSave = useCallback(
@@ -1241,6 +1286,7 @@ export function CharacterDetailCard({
                       }
                     />
                   ) : null}
+                  {renderCreditHistory()}
                   {hasObserved && merged.observed?.handsObserved !== undefined && (
                     <DataRow
                       label="Hands observed"

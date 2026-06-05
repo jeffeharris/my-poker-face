@@ -33,7 +33,6 @@ from poker.poker_state_machine import (
     run_betting_round_transition,
 )
 from poker.repositories import create_repos
-from poker.tournament_tracker import EliminationEvent, TournamentTracker
 
 pytestmark = pytest.mark.integration
 
@@ -167,71 +166,6 @@ class TestRunItOutPersistence(unittest.TestCase):
         self.assertFalse(loaded.game_state.run_it_out)
 
 
-class TestTournamentTrackerPersistence(unittest.TestCase):
-    """Tests for tournament tracker persistence."""
-
-    def setUp(self):
-        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        repos = create_repos(self.test_db.name)
-        self.game_repo = repos['game_repo']
-        self.game_id = 'test_tournament_123'
-
-    def tearDown(self):
-        os.unlink(self.test_db.name)
-
-    def test_tracker_with_eliminations_survives_reload(self):
-        """Tournament tracker with eliminations should persist."""
-        # Create tracker with eliminations
-        starting_players = [
-            {'name': 'Human', 'is_human': True},
-            {'name': 'AI1', 'is_human': False},
-            {'name': 'AI2', 'is_human': False},
-            {'name': 'AI3', 'is_human': False},
-        ]
-        tracker = TournamentTracker(game_id=self.game_id, starting_players=starting_players)
-
-        # Record eliminations
-        tracker.on_player_eliminated('AI3', 'AI1', pot_size=500)
-        tracker.on_player_eliminated('AI2', 'Human', pot_size=800)
-        tracker.hand_count = 15
-        tracker.biggest_pot = 1200
-
-        # Save
-        self.game_repo.save_tournament_tracker(self.game_id, tracker)
-
-        # Load
-        tracker_data = self.game_repo.load_tournament_tracker(self.game_id)
-        loaded_tracker = TournamentTracker.from_dict(tracker_data)
-
-        # Assert
-        self.assertEqual(len(loaded_tracker.eliminations), 2)
-        self.assertEqual(len(loaded_tracker.starting_players), 4)
-        self.assertEqual(loaded_tracker.hand_count, 15)
-        self.assertEqual(loaded_tracker.biggest_pot, 1200)
-        self.assertEqual(loaded_tracker.active_player_count, 2)
-
-        # Check elimination details
-        self.assertEqual(loaded_tracker.eliminations[0].eliminated_player, 'AI3')
-        self.assertEqual(loaded_tracker.eliminations[0].finishing_position, 4)
-        self.assertEqual(loaded_tracker.eliminations[1].eliminated_player, 'AI2')
-        self.assertEqual(loaded_tracker.eliminations[1].finishing_position, 3)
-
-    def test_empty_tracker_survives_reload(self):
-        """New tournament tracker with no eliminations should persist."""
-        starting_players = [
-            {'name': 'Human', 'is_human': True},
-            {'name': 'AI1', 'is_human': False},
-        ]
-        tracker = TournamentTracker(game_id=self.game_id, starting_players=starting_players)
-
-        self.game_repo.save_tournament_tracker(self.game_id, tracker)
-        tracker_data = self.game_repo.load_tournament_tracker(self.game_id)
-        loaded_tracker = TournamentTracker.from_dict(tracker_data)
-
-        self.assertEqual(len(loaded_tracker.eliminations), 0)
-        self.assertEqual(loaded_tracker.active_player_count, 2)
-
-
 def get_winners_from_pot_breakdown(winner_info: Dict) -> List[str]:
     """Extract winner names from pot_breakdown structure."""
     winners = set()
@@ -357,115 +291,6 @@ class TestMultiWayAllIn(unittest.TestCase):
 
         # P1 should win the most (has best hand)
         self.assertGreater(p1.stack, 0)
-
-
-class TestMidTournamentElimination(unittest.TestCase):
-    """Tests for eliminations during tournament (not final hand)."""
-
-    def test_elimination_records_correct_position(self):
-        """Eliminating a player should record correct finishing position."""
-        starting_players = [
-            {'name': 'Human', 'is_human': True},
-            {'name': 'AI1', 'is_human': False},
-            {'name': 'AI2', 'is_human': False},
-            {'name': 'AI3', 'is_human': False},
-        ]
-        tracker = TournamentTracker(game_id='test_game', starting_players=starting_players)
-
-        # First elimination - should be 4th place
-        event1 = tracker.on_player_eliminated('AI3', 'AI1', pot_size=500)
-        self.assertEqual(event1.finishing_position, 4)
-        self.assertEqual(tracker.active_player_count, 3)
-
-        # Second elimination - should be 3rd place
-        event2 = tracker.on_player_eliminated('AI2', 'Human', pot_size=800)
-        self.assertEqual(event2.finishing_position, 3)
-        self.assertEqual(tracker.active_player_count, 2)
-
-    def test_elimination_updates_active_players(self):
-        """Eliminating a player should update active players set."""
-        starting_players = [
-            {'name': 'Human', 'is_human': True},
-            {'name': 'AI1', 'is_human': False},
-            {'name': 'AI2', 'is_human': False},
-        ]
-        tracker = TournamentTracker(game_id='test_game', starting_players=starting_players)
-
-        self.assertIn('AI2', tracker._active_players)
-        self.assertEqual(tracker.active_player_count, 3)
-
-        tracker.on_player_eliminated('AI2', 'Human')
-
-        self.assertNotIn('AI2', tracker._active_players)
-        self.assertEqual(tracker.active_player_count, 2)
-
-    def test_cannot_eliminate_same_player_twice(self):
-        """Eliminating an already eliminated player should raise error."""
-        tracker = TournamentTracker(
-            game_id='test_game',
-            starting_players=[
-                {'name': 'P1', 'is_human': False},
-                {'name': 'P2', 'is_human': False},
-            ],
-        )
-
-        tracker.on_player_eliminated('P2', 'P1')
-
-        with self.assertRaises(ValueError):
-            tracker.on_player_eliminated('P2', 'P1')
-
-
-class TestTournamentStandings(unittest.TestCase):
-    """Tests for tournament standings generation."""
-
-    def test_standings_ordered_by_position(self):
-        """Standings should be ordered by finishing position."""
-        tracker = TournamentTracker(
-            game_id='test_game',
-            starting_players=[
-                {'name': 'P1', 'is_human': True},
-                {'name': 'P2', 'is_human': False},
-                {'name': 'P3', 'is_human': False},
-                {'name': 'P4', 'is_human': False},
-            ],
-        )
-
-        # Eliminate in order: P4 (4th), P3 (3rd), P2 (2nd)
-        tracker.on_player_eliminated('P4', 'P1')
-        tracker.on_player_eliminated('P3', 'P1')
-        tracker.on_player_eliminated('P2', 'P1')
-
-        standings = tracker.get_standings()
-
-        self.assertEqual(len(standings), 4)
-        self.assertEqual(standings[0].player_name, 'P1')  # Winner
-        self.assertEqual(standings[0].finishing_position, 1)
-        self.assertEqual(standings[1].player_name, 'P2')
-        self.assertEqual(standings[1].finishing_position, 2)
-        self.assertEqual(standings[2].player_name, 'P3')
-        self.assertEqual(standings[2].finishing_position, 3)
-        self.assertEqual(standings[3].player_name, 'P4')
-        self.assertEqual(standings[3].finishing_position, 4)
-
-    def test_human_player_identified_in_standings(self):
-        """Human player should be correctly identified in standings."""
-        tracker = TournamentTracker(
-            game_id='test_game',
-            starting_players=[
-                {'name': 'Human', 'is_human': True},
-                {'name': 'AI1', 'is_human': False},
-                {'name': 'AI2', 'is_human': False},
-            ],
-        )
-
-        tracker.on_player_eliminated('AI2', 'Human')
-        tracker.on_player_eliminated('AI1', 'Human')
-
-        standings = tracker.get_standings()
-
-        human_standing = next(s for s in standings if s.player_name == 'Human')
-        self.assertTrue(human_standing.is_human)
-        self.assertEqual(human_standing.finishing_position, 1)
 
 
 class TestWinnerInfoStructure(unittest.TestCase):
