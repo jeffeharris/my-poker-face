@@ -736,13 +736,21 @@
   color: var(--ink-faint);
 }
 
-/* Dotted leader line between label and value — magazine TOC trick */
+/* Dotted leader line between label and value — magazine TOC trick.
+   The leader is an otherwise-empty grid cell; an empty box has no real text
+   baseline, so `align-items: baseline` falls back to a *synthesized* baseline
+   whose position is width-dependent — fine on desktop, but floating the dots
+   high on narrow (mobile) widths. A zero-width invisible nbsp gives the cell a
+   genuine text baseline (same font-size as the row), so the dotted underline
+   lands on the row's first text line deterministically at any width. */
 .dossier__data-leader {
   border-bottom: 1px dotted var(--ink-faint);
-  position: relative;
-  top: -4px;
-  height: 0;
   opacity: 0.55;
+  overflow: hidden;
+  min-width: 0;
+}
+.dossier__data-leader::before {
+  content: '\00a0';
 }
 
 .dossier__data-value {
