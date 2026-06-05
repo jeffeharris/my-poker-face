@@ -1463,7 +1463,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
 
     from cash_mode.bankroll import AIBankrollState
     from cash_mode.lobby import _global_seated_set
-    from cash_mode.movement import refresh_table_roster
+    from cash_mode.movement import SEATED_ENERGY_DRAIN_PER_HAND, refresh_table_roster
     from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
     from cash_mode.tables import ai_slot, ai_slot_fish, human_slot, open_slot
@@ -1648,6 +1648,14 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
             zone = 'neutral'
         prior = getattr(ctrl, '_detached_hands', 0)
         ctrl._detached_hands = (prior + 1) if zone == 'detached' else 0
+        # Seated fatigue: one hand of seated play wears energy down (the drain
+        # half of the energy loop — idle rest springs it back). Applied here so
+        # the lowered value feeds `_psych_lookup` → refresh_table_roster's
+        # `tenure` leave term THIS hand. Best-effort; never block the refresh.
+        try:
+            psych.apply_seated_fatigue(SEATED_ENERGY_DRAIN_PER_HAND)
+        except Exception:  # noqa: BLE001 — fatigue is non-critical bookkeeping
+            pass
 
     def _psych_lookup(pid: str) -> Dict[str, Any]:
         ctrl = pid_to_controller.get(pid)
