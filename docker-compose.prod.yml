@@ -83,7 +83,10 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      # Probe 127.0.0.1, not localhost: in-container `localhost` resolves to ::1
+      # first, but nginx binds IPv4 only (`listen 80;`) → the probe gets
+      # connection-refused while real traffic is served fine (false "unhealthy").
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
       interval: 30s
       timeout: 10s
       retries: 3
