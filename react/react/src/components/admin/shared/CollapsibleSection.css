@@ -1,0 +1,80 @@
+/* ============================================
+   Shared Admin Collapsible Section
+   Extracted from PersonalityManager (.pm-section*) so admin editors can
+   share one accordion. Visuals are intentionally identical to the original.
+   ============================================ */
+
+.admin-collapsible {
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: var(--transition-all-base);
+}
+
+.admin-collapsible:hover {
+  border-color: var(--color-border-hover);
+}
+
+.admin-collapsible--open {
+  border-color: var(--color-border-gold);
+}
+
+.admin-collapsible__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: var(--transition-all-base);
+}
+
+.admin-collapsible__header:hover {
+  background: var(--color-bg-surface);
+}
+
+.admin-collapsible__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+}
+
+.admin-collapsible__title {
+  flex: 1;
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.admin-collapsible__badge {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-gold-muted);
+  color: var(--color-gold);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-full);
+}
+
+.admin-collapsible__chevron {
+  color: var(--color-text-muted);
+  transition: transform 0.3s var(--ease-out-expo);
+}
+
+.admin-collapsible--open .admin-collapsible__chevron {
+  transform: rotate(180deg);
+}
+
+.admin-collapsible__content {
+  overflow: hidden;
+  transition: height 0.3s var(--ease-out-expo);
+}
+
+.admin-collapsible__inner {
+  padding: 0 var(--space-4) var(--space-4);
+}
