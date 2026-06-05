@@ -2097,7 +2097,17 @@ def refresh_unseated_tables(
         # order inside the burst loop above (one rotation per sim hand,
         # synchronized with `play_one_hand`'s starting dealer), so we
         # don't need a separate `advance_dealer` step here.
-        cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
+        # Thread the real leave reason/target into save_table so the presence
+        # idle satellite (cash_idle_metadata) records the actual reason rather
+        # than defaulting every row to 'forced_leave'.
+        idle_metadata = {
+            change.entry.personality_id: change.entry
+            for change in result.idle_changes
+            if change.kind == "add" and change.entry is not None
+        }
+        cash_table_repo.save_table(
+            result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
+        )
         # SHADOW (Presence cutover Phase 1): mirror the post-burst seat map
         # into `entity_presence`. The reconcile records anyone now seated who
         # wasn't already (e.g. a take_stake reseat) and is a no-op for the

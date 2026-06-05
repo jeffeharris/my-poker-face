@@ -1740,8 +1740,18 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         except Exception as e:
             logger.error("[CASH][LOBBY] rebuy application failed: %s", e, exc_info=True)
 
-    # Persist table + idle changes.
-    cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
+    # Persist table + idle changes. Thread the real leave reason/target into
+    # save_table so the presence-machine idle satellite (cash_idle_metadata)
+    # records the actual reason instead of defaulting every row to
+    # 'forced_leave' (the metadata write has no other source for it).
+    idle_metadata = {
+        change.entry.personality_id: change.entry
+        for change in result.idle_changes
+        if change.kind == "add" and change.entry is not None
+    }
+    cash_table_repo.save_table(
+        result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
+    )
     for change in result.idle_changes:
         if change.kind == "add" and change.entry is not None:
             cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
