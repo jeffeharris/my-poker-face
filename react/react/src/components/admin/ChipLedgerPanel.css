@@ -23,6 +23,13 @@
   color: var(--text-secondary, #999);
 }
 
+.chip-ledger-ticks {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #999);
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
 .chip-ledger-sandbox-label {
   display: flex;
   align-items: center;
