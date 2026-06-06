@@ -44,8 +44,8 @@ are sim-tunable starting points, not calibrated values.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
 
@@ -64,6 +64,31 @@ W_HUNGER = 2.0  # how hard low bankroll amplifies the fish pull
 # just *motivated* instead of blind). The sequential-greedy seating loop
 # recomputes this between picks so sharks spread across fish.
 W_CROWD = 0.5
+
+# --- Table affinity: success-weighted room stickiness (TABLE_AFFINITY_ENABLED) ---
+# An AI is drawn back to rooms it WINS at and away from rooms it LOSES at, via
+# `W_AFFINITY · tanh(net_buyins / AFFINITY_SCALE_BUYINS)` added to the score. tanh
+# saturates so one big pot doesn't pin a room; an untried room reads net=0 →
+# affinity 0, so ranking is won-at > untried > lost-at.
+#
+# Net is normalized to BUY-INS (net_chips / table max buy-in), NOT absolute
+# chips — an absolute-chip scale is stake-blind (a $2 stint nets tens of chips,
+# a $1000 stint nets thousands), so a fixed chip scale makes affinity vanish at
+# low stakes and saturate at high ones — exactly backwards from where the career
+# arc needs it. In buy-ins, "up 2 buy-ins" pulls equally at every stake.
+# AFFINITY_SCALE_BUYINS sets the half-saturation point (tanh(1)≈0.76). Sim-tuned.
+W_AFFINITY = 1.0
+AFFINITY_SCALE_BUYINS = 2.0
+
+
+def table_affinity(net_chips: int, max_buy_in: int) -> float:
+    """Success-weighted room pull in [-1, 1]: tanh of cumulative net at the
+    table, normalized to buy-ins (net_chips / max_buy_in) so the pull is
+    stake-relative. 0 for an untried room (net 0) or unknown buy-in."""
+    if max_buy_in <= 0:
+        return 0.0
+    return math.tanh((net_chips / max_buy_in) / AFFINITY_SCALE_BUYINS)
+
 
 # --- Base attractor: the room-prestige climb (the rich are pulled up) ---
 W_CLIMB = 1.0  # strength of the rich → prestigious-room pull
@@ -391,6 +416,7 @@ def table_attractiveness(
     venue_appeal: float = 1.0,
     marquee_prestige: float = 0.0,
     status_appetite: float = 0.0,
+    net_at_table: int = 0,
 ) -> float:
     """Full attractiveness of a table for an AI (spec §1).
 
@@ -438,7 +464,19 @@ def table_attractiveness(
     # the fish/whale draw rides on top, so a fishy casino can still out-pull
     # a dead lobby table; the score stays positive so a casino is a valid
     # fallback when it's the only open seat.
-    return venue_appeal * base * hunger_mult * draw - crowd
+    #
+    # Table affinity (TABLE_AFFINITY_ENABLED): a success-weighted pull back
+    # toward rooms the AI wins at — but SUBORDINATE TO TIER. Scaling by
+    # `stake_fit` means affinity only differentiates rooms WITHIN a stake the AI
+    # is suited to; it can't drag the AI to an ill-fitting tier it happened to
+    # win a few hands at, and a newly-affordable better tier (higher stake_fit)
+    # wins over a won-at room a tier down. The caller passes `net_at_table=0`
+    # when the flag is off, so the term vanishes.
+    fit = stake_fit(
+        projected_bankroll, comfort_zone, stake_label, buy_in_multiplier=buy_in_multiplier
+    )
+    affinity = W_AFFINITY * fit * table_affinity(net_at_table, max_bi)
+    return venue_appeal * base * hunger_mult * draw - crowd + affinity
 
 
 # --- Greedy seat selection (the loop inversion, spec §2) ----------------
@@ -477,6 +515,10 @@ class SeatSeeker:
     # `status_appetite`). 0 = doesn't chase marquee tables (the default, so the
     # marquee term is inert until the lobby populates it behind the flag).
     status_appetite: float = 0.0
+    # Table affinity (TABLE_AFFINITY_ENABLED): this AI's cumulative net chips per
+    # table_id. Empty (the default) → the affinity term is 0, so it's inert until
+    # the lobby populates it behind the flag.
+    net_by_table: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -548,6 +590,7 @@ def assign_seats_greedy(
                 venue_appeal=table.venue_appeal,
                 marquee_prestige=table.marquee_prestige,
                 status_appetite=seeker.status_appetite,
+                net_at_table=seeker.net_by_table.get(tid, 0),
             )
             if best_score is None or score > best_score:
                 best_score = score

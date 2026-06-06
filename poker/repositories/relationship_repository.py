@@ -1,16 +1,21 @@
-"""Repository for relationship_states and cash_pair_stats tables.
+"""Repository for relationship_states, cash_pair_stats, and ai_table_hand_counts.
 
-Two cross-session/cross-game tables introduced in schema v87:
+Cross-session/cross-game tables owned by this repository:
 
-- `relationship_states`: per-(observer, opponent) affinity axes
+- `relationship_states` (v87): per-(observer, opponent) affinity axes
   (heat, respect, likability). Heat decays via `project_heat`; the
   stored value is the "heat as of last_decay_tick" snapshot. Default
   read methods apply projection; raw reads are admin-only and
   explicitly named.
 
-- `cash_pair_stats`: cash-mode-only cumulative PnL between pairs.
+- `cash_pair_stats` (v87): cash-mode-only cumulative PnL between pairs.
   Distinct from relationship_states because PnL is meaningless in
   tournaments.
+
+- `ai_table_hand_counts` (v153): per-(sandbox, ai, table) hand counter
+  for the Career-M2 home-table resolver — an AI vouches the player into
+  the lobby room where it has played the most hands. Incremented once
+  per AI per hand (not bilateral, unlike cash_pair_stats).
 
 All persistence APIs use **stable personality_ids** for keys, not
 display names. The relationship layer's read paths consume
@@ -76,7 +81,7 @@ def _state_from_row(row, *, project_to: Optional[datetime] = None) -> Relationsh
 
 
 class RelationshipRepository(BaseRepository):
-    """CRUD for relationship_states + cash_pair_stats.
+    """CRUD for relationship_states, cash_pair_stats, and ai_table_hand_counts.
 
     Schema is created by `SchemaManager.ensure_schema()`; this class
     only touches data. Callers go through this rather than emitting
@@ -512,6 +517,136 @@ class RelationshipRepository(BaseRepository):
                 )
                 for row in rows
             ]
+
+    # --- ai table hand counts (v153) — Career-M2 home-table resolver ---
+
+    def increment_ai_table_hands(
+        self,
+        ai_id: str,
+        table_id: str,
+        *,
+        sandbox_id: str,
+        net_delta: int = 0,
+        now: Optional[str] = None,
+    ) -> None:
+        """Record one hand played by `ai_id` at `table_id` in `sandbox_id`.
+
+        Call ONCE per AI per hand — NOT bilateral. (Contrast
+        `apply_cash_pair_pnl`, which writes N×(N−1) pair rows per hand;
+        this writes one row per seated AI.) The first hand inserts
+        `hands = 1`; later hands bump it. `net_delta` is this AI's signed
+        chip result for the hand (won − lost), accumulated into `net_chips`
+        for the success-weighted table-affinity term. `now` is an ISO-8601
+        string stamped as `last_hand_at` for auditability.
+
+        Feeds `resolve_home_table` (most-played room) and, via `net_chips`,
+        the table-affinity attractiveness lever. Best-effort by convention —
+        callers wrap this so a counter write never breaks hand resolution.
+        """
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_table_hand_counts
+                    (sandbox_id, ai_id, table_id, hands, net_chips, last_hand_at)
+                VALUES (?, ?, ?, 1, ?, ?)
+                ON CONFLICT(sandbox_id, ai_id, table_id)
+                DO UPDATE SET
+                    hands = hands + 1,
+                    net_chips = net_chips + excluded.net_chips,
+                    last_hand_at = COALESCE(excluded.last_hand_at, ai_table_hand_counts.last_hand_at)
+                """,
+                (sandbox_id, ai_id, table_id, int(net_delta), now),
+            )
+
+    def load_ai_table_net(
+        self,
+        ai_id: str,
+        *,
+        sandbox_id: str,
+    ) -> dict[str, int]:
+        """Load all `{table_id: net_chips}` rows for one AI in one sandbox.
+
+        The read behind the table-affinity attractiveness term — the seating
+        path uses it to bias an AI toward rooms it wins at and away from rooms
+        it loses at. Empty dict when the AI has no recorded hands.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT table_id, net_chips
+                FROM ai_table_hand_counts
+                WHERE sandbox_id = ? AND ai_id = ?
+                """,
+                (sandbox_id, ai_id),
+            ).fetchall()
+        return {row["table_id"]: int(row["net_chips"]) for row in rows}
+
+    def load_ai_table_hands(
+        self,
+        ai_id: str,
+        *,
+        sandbox_id: str,
+    ) -> dict[str, int]:
+        """Return `{table_id: hands}` for one AI in one sandbox.
+
+        The raw read behind `resolve_home_table` — exposed for tests and
+        admin/debug surfaces. Empty dict when the AI has no recorded hands.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT table_id, hands
+                FROM ai_table_hand_counts
+                WHERE sandbox_id = ? AND ai_id = ?
+                """,
+                (sandbox_id, ai_id),
+            ).fetchall()
+        return {row["table_id"]: int(row["hands"]) for row in rows}
+
+    def resolve_home_table(
+        self,
+        ai_id: str,
+        *,
+        sandbox_id: str,
+        eligible_table_ids: frozenset,
+        min_hands: int = 30,
+    ) -> Optional[str]:
+        """The AI's home table: where it has played the most hands.
+
+        Returns the `table_id` with the highest hand count for `ai_id`
+        that (a) has at least `min_hands` hands and (b) is in
+        `eligible_table_ids`. Returns None when no row qualifies — by
+        design the AI then vouches no one this tick (no fallback).
+
+        `min_hands` is a *fluke guard* (don't call a 3-hand stint a "home"),
+        NOT a vouch gate — keep it low. In a live world an AI's affinity is
+        long-established, so the floor rarely bites; it only matters at a cold
+        start where every AI begins at zero. 30 ≈ a real session's worth.
+
+        `eligible_table_ids` is the caller-supplied set of currently-live
+        LOBBY tables in the sandbox (the resolver stays ignorant of
+        `cash_tables`; the ticker passes the live lobby set). Filtering in
+        Python after the ordered fetch keeps casino/scripted tables and
+        closed rooms out automatically — a counted table that's no longer
+        a live lobby room is simply skipped. Ties break on
+        `hands DESC, table_id ASC` (deterministic).
+        """
+        if not eligible_table_ids:
+            return None
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT table_id
+                FROM ai_table_hand_counts
+                WHERE sandbox_id = ? AND ai_id = ? AND hands >= ?
+                ORDER BY hands DESC, table_id ASC
+                """,
+                (sandbox_id, ai_id, min_hands),
+            ).fetchall()
+        for row in rows:
+            if row["table_id"] in eligible_table_ids:
+                return row["table_id"]
+        return None
 
     # --- notes (v95) ---
 

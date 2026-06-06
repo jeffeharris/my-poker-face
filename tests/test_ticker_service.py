@@ -254,6 +254,14 @@ def _vouch_stubs(
                 for ai, (r, lk) in (inbound or {}).items()
             }
 
+        def resolve_home_table(self, ai_id, *, sandbox_id, eligible_table_ids, min_hands=50):
+            # Stub: an AI's home table is where it's seated (the home-table
+            # *counter* itself is covered by tests/test_cash_mode/test_ai_home_table.py;
+            # here we only exercise _maybe_fire_vouches' ranking/gating). Returns
+            # None when between rooms / not an eligible lobby table.
+            tid = (seated or {}).get(ai_id)
+            return tid if tid in eligible_table_ids else None
+
     class TableRepo:
         def list_all_tables(self, sandbox_id=None):
             tables = {}

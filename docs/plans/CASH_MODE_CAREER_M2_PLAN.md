@@ -2,7 +2,7 @@
 purpose: Build plan for Career M2 — the real, emergent vouch_ready (respect-gated, likability-driven) over the relationship graph, evaluated on the world ticker
 type: spec
 created: 2026-06-04
-last_updated: 2026-06-04
+last_updated: 2026-06-06
 ---
 
 # Career M2 — emergent vouches (`vouch_ready`)
@@ -13,6 +13,19 @@ vouch (Sal reveals a random room on graduation). M2 makes vouches **emerge from
 relationships**: anyone you've actually played with, who respects you enough and
 likes you enough, opens the door to *their* room. Without it the world dead-ends
 after the first vouch.
+
+> **Shipped 2026-06-06 (flag-gated `CAREER_VOUCH_ENABLED`, default OFF).** The
+> reveal target changed from this plan's original "the voucher's **current
+> room**" to the voucher's **home table** — the lobby room where that AI has
+> played the **most hands** (≥ 50), resolved at fire time. This needed a new
+> per-`(sandbox, ai, table)` counter (`ai_table_hand_counts`, schema **v153**,
+> on `RelationshipRepository`: `increment_ai_table_hands` / `resolve_home_table`),
+> incremented once per AI per hand in **both** the lobby sim (`full_sim`) and
+> live games (`game_handler`). The ticker resolver is `_resolve_ai_home_table`
+> (replacing `_resolve_ai_room`). A vouch fires only once an AI has an
+> **established home** (no current-seat fallback). Sections below that say
+> "current room / current table" are superseded by this. Tests:
+> `tests/test_cash_mode/test_ai_home_table.py` + `tests/test_ticker_service.py`.
 
 ## Step 0 — verification (handoff's required first step): DONE
 

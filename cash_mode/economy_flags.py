@@ -437,6 +437,16 @@ PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 # tutorial_complete). See docs/plans/CASH_MODE_CAREER_M2_PLAN.md.
 CAREER_VOUCH_ENABLED: bool = _env_flag("CAREER_VOUCH_ENABLED", False)
 
+# Table affinity — success-weighted room stickiness. When on, an idle AI's
+# table-selection score gains `W_AFFINITY · tanh(net_chips / SCALE)` per
+# candidate room (cash_mode.attractiveness): it drifts back to rooms it wins at
+# and away from rooms it loses at, concentrating its hands into a real home room.
+# This counteracts the within-tier smear (2-3 tables per stake) that otherwise
+# stops low-stakes regulars from ever clearing the Career-M2 home-table floor —
+# i.e. it's what makes vouching work at the $2/$10 stakes where the career arc
+# begins. A chip-flow/movement change → sim-validate before enabling. Default OFF.
+TABLE_AFFINITY_ENABLED: bool = _env_flag("TABLE_AFFINITY_ENABLED", False)
+
 
 def compute_rake(
     pot: int,

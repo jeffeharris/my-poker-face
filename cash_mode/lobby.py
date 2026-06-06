@@ -818,6 +818,7 @@ def _process_global_greedy_fills(
     sandbox_id,
     now,
     rng,
+    relationship_repo=None,
     seek_rate: float = DEFAULT_SEEK_RATE,
     human_headroom: int = 0,
     renown_percentiles: Optional[Dict[str, float]] = None,
@@ -841,6 +842,7 @@ def _process_global_greedy_fills(
     if not fill_ctx:
         return
 
+    from cash_mode import economy_flags
     from cash_mode.bankroll import debit_bankroll_for_seat
 
     # 1. Build a FillableTable + the usable open-seat indices per table.
@@ -1043,6 +1045,15 @@ def _process_global_greedy_fills(
             if renown_percentiles is not None
             else 0.0
         )
+        # Table affinity (TABLE_AFFINITY_ENABLED): this AI's per-table net chips,
+        # so the score pulls it back toward rooms it wins at. Empty when the flag
+        # is off / no repo → the affinity term is inert.
+        net_by_table: Dict[str, int] = {}
+        if economy_flags.TABLE_AFFINITY_ENABLED and relationship_repo is not None:
+            try:
+                net_by_table = relationship_repo.load_ai_table_net(pid, sandbox_id=sandbox_id)
+            except Exception:
+                net_by_table = {}
         seekers.append(
             SeatSeeker(
                 personality_id=pid,
@@ -1052,6 +1063,7 @@ def _process_global_greedy_fills(
                 allowed_table_ids=frozenset(allowed),
                 buy_in_multiplier=knobs.buy_in_multiplier,
                 status_appetite=appetite,
+                net_by_table=net_by_table,
             )
         )
         if entry is not None:
@@ -2312,6 +2324,7 @@ def refresh_unseated_tables(
         cash_table_repo=cash_table_repo,
         chip_ledger_repo=chip_ledger_repo,
         personality_repo=personality_repo,
+        relationship_repo=relationship_repo,
         sandbox_id=sandbox_id,
         now=now,
         rng=rng,

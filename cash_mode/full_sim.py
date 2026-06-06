@@ -976,6 +976,28 @@ def _play_one_hand_inner(
         pid = seats[idx]["personality_id"]
         new_seats[idx] = {**new_seats[idx], "chips": int(final_chips.get(pid, 0))}
 
+    # Career-M2 home-table tracking: record one hand for each seated AI at
+    # this table so the vouch evaluator can resolve an AI's home court (the
+    # lobby table where it has played the most hands). ONE increment per AI
+    # per hand — not bilateral. Best-effort; a counter write never breaks
+    # the ~227 hand/sec loop. Most AI hands happen here off-screen, so this
+    # is where home tables are mostly established.
+    if table_id and sandbox_id and memory_manager is not None:
+        _rel_repo = getattr(memory_manager, "_relationship_repo", None)
+        if _rel_repo is not None:
+            try:
+                for idx in ai_indices:
+                    pid = seats[idx]["personality_id"]
+                    net = int(final_chips.get(pid, 0)) - int(starting_chips.get(pid, 0))
+                    _rel_repo.increment_ai_table_hands(
+                        pid,
+                        table_id,
+                        sandbox_id=sandbox_id,
+                        net_delta=net,
+                    )
+            except Exception as exc:
+                logger.debug("[FULL_SIM] ai_table_hands incr failed: %s", exc)
+
     hand_events = _detect_hand_events(
         starting_chips=starting_chips,
         final_chips=final_chips,

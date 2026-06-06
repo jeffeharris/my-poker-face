@@ -344,7 +344,7 @@ _test_schema_template_path = None
 #       revealed cardrooms; the world doesn't grow, the player's view does.
 #       Renumbered (v124 → v132 → v141 → v152) to land after development's v151
 #       on the circuit-progression→development merge.
-SCHEMA_VERSION = 152
+SCHEMA_VERSION = 154
 
 
 class SchemaManager:
@@ -778,6 +778,29 @@ class SchemaManager:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_cash_pair_stats_observer
                     ON cash_pair_stats(observer_id)
+            """)
+
+            # 10c-bis. AI table hand counts (v153) — how many hands an AI has
+            #      played at each table, per sandbox. Incremented ONCE per AI
+            #      per hand (NOT bilateral like cash_pair_stats). Feeds the
+            #      Career-M2 "home table" resolver: an AI vouches the player
+            #      into the lobby table where it has played the most hands
+            #      (>= a floor), so the vouch reveals the AI's real home court
+            #      rather than wherever it happens to be sitting this tick.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
+                    sandbox_id   TEXT NOT NULL,
+                    ai_id        TEXT NOT NULL,
+                    table_id     TEXT NOT NULL,
+                    hands        INTEGER NOT NULL DEFAULT 0,
+                    net_chips    INTEGER NOT NULL DEFAULT 0,
+                    last_hand_at TIMESTAMP,
+                    PRIMARY KEY (sandbox_id, ai_id, table_id)
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ai_table_hand_counts_ai
+                    ON ai_table_hand_counts(sandbox_id, ai_id)
             """)
 
             # 10d. AI bankroll state (v88) — per-personality persistent bankroll.
@@ -2309,6 +2332,14 @@ class SchemaManager:
             152: (
                 self._migrate_v152_create_career_progress,
                 "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger. Renumbered 141→152 to clear the development merge collision.",
+            ),
+            153: (
+                self._migrate_v153_create_ai_table_hand_counts,
+                "Create ai_table_hand_counts — per-(sandbox, ai, table) hand counter for the Career-M2 home-table resolver; an AI vouches the player into the lobby table where it has played the most hands (>= floor). Incremented once per AI per hand. Additive/idempotent.",
+            ),
+            154: (
+                self._migrate_v154_add_ai_table_net_chips,
+                "Add net_chips to ai_table_hand_counts — cumulative per-(sandbox, ai, table) PnL feeding the success-weighted table-affinity attractiveness term (TABLE_AFFINITY_ENABLED): AIs drift back to rooms they win at, concentrating homes. Guarded ALTER, additive.",
             ),
         }
 
@@ -6948,7 +6979,7 @@ class SchemaManager:
         )
 
     def _migrate_v152_create_career_progress(self, conn: sqlite3.Connection) -> None:
-        """Migration v141: create `career_progress` for the Act-1 spine.
+        """Migration v152: create `career_progress` for the Act-1 spine.
 
         One row per (sandbox, owner). Holds the narrative keyring and tutorial
         state for `CASH_MODE_CAREER_PROGRESSION.md` as a single JSON blob so the
@@ -6979,7 +7010,64 @@ class SchemaManager:
                 PRIMARY KEY (sandbox_id, owner_id)
             )
         """)
-        logger.info("Migration v141 complete: career_progress table created")
+        logger.info("Migration v152 complete: career_progress table created")
+
+    def _migrate_v153_create_ai_table_hand_counts(self, conn: sqlite3.Connection) -> None:
+        """Migration v153: create `ai_table_hand_counts` for the home-table resolver.
+
+        One row per (sandbox_id, ai_id, table_id). `ai_id` is the raw
+        `personality_id` (no prefix), matching `cash_tables.seats` and the
+        relationship graph. `hands` is incremented ONCE per hand for each AI
+        seated at the table — NOT bilateral (cash_pair_stats writes N*(N-1)
+        pair rows per hand; this writes N rows, one per seated AI).
+
+        The Career-M2 vouch evaluator reads these rows at fire time: an AI's
+        "home table" is the lobby table where it has played the most hands
+        (subject to a floor), and the vouch reveals THAT room — so a vouch
+        opens the AI's real home court, not wherever it happens to sit this
+        tick. Casino/scripted tables are filtered out by the resolver (it
+        intersects against the sandbox's live lobby tables), so their counts
+        are harmless if recorded.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
+                sandbox_id   TEXT NOT NULL,
+                ai_id        TEXT NOT NULL,
+                table_id     TEXT NOT NULL,
+                hands        INTEGER NOT NULL DEFAULT 0,
+                last_hand_at TIMESTAMP,
+                PRIMARY KEY (sandbox_id, ai_id, table_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ai_table_hand_counts_ai
+                ON ai_table_hand_counts(sandbox_id, ai_id)
+        """)
+        logger.info("Migration v153 complete: ai_table_hand_counts table created")
+
+    def _migrate_v154_add_ai_table_net_chips(self, conn: sqlite3.Connection) -> None:
+        """Migration v154: add `net_chips` to `ai_table_hand_counts`.
+
+        Cumulative signed PnL per (sandbox_id, ai_id, table_id), accumulated
+        once per AI per hand alongside `hands` at the same sim + live hooks.
+        Feeds the success-weighted **table-affinity** attractiveness term
+        (`TABLE_AFFINITY_ENABLED`): an AI is drawn back to rooms it wins at and
+        away from rooms it loses at, concentrating its hands into a real home
+        room (counteracts the within-tier smear that otherwise keeps low-stakes
+        regulars from ever clearing the home-table floor).
+
+        Guarded ALTER (PRAGMA check) so it's safe on a partially-applied DB.
+        Existing rows read net_chips = 0. Non-destructive, idempotent.
+        """
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_table_hand_counts)")}
+        if "net_chips" not in cols:
+            conn.execute(
+                "ALTER TABLE ai_table_hand_counts "
+                "ADD COLUMN net_chips INTEGER NOT NULL DEFAULT 0"
+            )
+        logger.info("Migration v154 complete: ai_table_hand_counts.net_chips added")
 
     def _migrate_v124_create_opponent_observation_lifetime(self, conn: sqlite3.Connection) -> None:
         """Migration v124: create `opponent_observation_lifetime` + add the

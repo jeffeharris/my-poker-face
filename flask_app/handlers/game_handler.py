@@ -3488,6 +3488,48 @@ def _record_cash_scalps(game_data: dict, game_state, winner_name: str) -> None:
         repo.record_many(sandbox_id, scalps, now=datetime.now().isoformat())
 
 
+def _record_ai_table_hands(game_data: dict, game_state) -> None:
+    """Career-M2 home-table tracking: record one hand for each AI dealt into
+    this cash hand, so the vouch evaluator can resolve an AI's home court (the
+    lobby table where it has played the most hands). ONE increment per AI per
+    hand — not bilateral. Mirrors `_record_cash_scalps`' wiring (live counterpart
+    to the lobby-sim hook in `full_sim`). Pure best-effort — the caller wraps it;
+    this also self-guards so a missing repo / table id / unmapped ids no-ops."""
+    from flask_app import extensions
+
+    repo = getattr(extensions, "relationship_repo", None)
+    if repo is None:
+        return
+    sandbox_id = _sandbox_id_for(game_data)
+    table_id = game_data.get("cash_table_id")
+    if not sandbox_id or not table_id:
+        return
+    cash_pids = game_data.get("cash_personality_ids") or {}  # display name -> pid
+    if not cash_pids:
+        return
+
+    from datetime import datetime
+
+    now = datetime.now().isoformat()
+    # Per-AI net for this hand = current stack − stack at hand start (already
+    # snapshotted on game_data for the pressure detectors). Feeds the
+    # success-weighted table-affinity term; 0 when the snapshot is absent.
+    start_stacks = game_data.get("hand_start_stacks") or {}
+    # Dedup defensively: the sim hook iterates seat indices (never repeat), but
+    # cash_pids is a client-built display-name→pid map that could collide, and a
+    # double increment for one pid in one hand would over-count its home table.
+    counted: set = set()
+    for p in game_state.players:
+        if getattr(p, "is_human", False):
+            continue
+        pid = cash_pids.get(p.name)
+        if not pid or pid in counted:
+            continue
+        counted.add(pid)
+        net = int(p.stack) - int(start_stacks.get(p.name, p.stack))
+        repo.increment_ai_table_hands(pid, table_id, sandbox_id=sandbox_id, net_delta=net, now=now)
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -3533,6 +3575,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             _record_cash_scalps(game_data, game_state, winning_player_names[0])
         except Exception:
             logger.debug("[CASH] scalp record failed (non-fatal)", exc_info=True)
+
+    # Career-M2 home-table tracking: count this hand for each seated AI so an
+    # AI's vouch can reveal the lobby room it actually plays most. Best-effort —
+    # never let it taint the hand flow.
+    if game_data.get('cash_mode'):
+        try:
+            _record_ai_table_hands(game_data, game_state)
+        except Exception:
+            logger.debug("[CASH] ai_table_hands record failed (non-fatal)", exc_info=True)
 
     # Prepare winner announcement data
     winning_players_string = (

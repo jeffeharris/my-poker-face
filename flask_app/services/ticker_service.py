@@ -502,22 +502,47 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     socketio.emit("lobby_tick", {"sandbox_id": sandbox_id, "ts": time.time()}, to=room)
 
 
-def _resolve_ai_room(table_repo, sandbox_id: str, ai_id: str):
-    """Where `ai_id` currently sits in this sandbox, as
-    (table_id, stake_label, table_name, ai_display_name), or None if not seated.
+def _resolve_ai_home_table(table_repo, rel_repo, personality_repo, sandbox_id: str, ai_id: str):
+    """`ai_id`'s home table — the lobby room where it has played the MOST hands
+    (>= the home-table floor) — as (table_id, stake_label, table_name,
+    ai_display_name), or None if it has no established home among the live rooms.
 
-    Restricted to the cardroom ladder (`table_type == 'lobby'`) — a vouch reveals
-    a real next room, never the scripted Scene-0 table or the ephemeral casino floor.
+    Career M2: a vouch reveals the AI's home court (where it actually grinds),
+    not wherever it happens to sit this tick. Eligible rooms = the sandbox's
+    current `table_type == 'lobby'` tables, so casino/scripted are never vouched
+    and a counted room that has since closed is skipped. No fallback to the
+    current seat — an AI with no established home simply doesn't vouch this tick.
     """
-    for table in table_repo.list_all_tables(sandbox_id=sandbox_id):
-        if getattr(table, "table_type", "lobby") != "lobby":
-            continue
-        for seat in table.seats or []:
-            if isinstance(seat, dict) and seat.get("personality_id") == ai_id:
-                ai_name = seat.get("name") or ai_id
-                table_name = table.name or table.stake_label
-                return table.table_id, table.stake_label, table_name, ai_name
-    return None
+    lobby_tables = [
+        t
+        for t in table_repo.list_all_tables(sandbox_id=sandbox_id)
+        if getattr(t, "table_type", "lobby") == "lobby"
+    ]
+    if not lobby_tables:
+        return None
+    by_id = {t.table_id: t for t in lobby_tables}
+
+    home_table_id = rel_repo.resolve_home_table(
+        ai_id,
+        sandbox_id=sandbox_id,
+        eligible_table_ids=frozenset(by_id),
+    )
+    if home_table_id is None:
+        return None
+    table = by_id[home_table_id]
+
+    # Display name: seat dicts carry no name, and the AI may not even be seated
+    # at its home table this tick — resolve via the personality repo, falling
+    # back to the raw id.
+    ai_name = ai_id
+    if personality_repo is not None:
+        try:
+            ai_name = personality_repo.display_names_by_ids([ai_id]).get(ai_id) or ai_id
+        except Exception:
+            pass
+
+    table_name = table.name or table.stake_label
+    return table.table_id, table.stake_label, table_name, ai_name
 
 
 def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
@@ -525,9 +550,11 @@ def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
 
     Reads the player's inbound regard, ranks the `vouch_ready` (respect-gated,
     likability-driven), not-yet-vouched AIs they've played with by eagerness, and
-    reveals the warmest one's current room. Flag-gated (`CAREER_VOUCH_ENABLED`),
-    career-only (`career_active + tutorial_complete`), one per sandbox per tick
-    (slow growth). Best-effort — a failure here never breaks the world tick.
+    reveals the warmest one's HOME table — the lobby room where that AI has played
+    the most hands (`resolve_home_table`), not wherever it happens to sit this
+    tick. Flag-gated (`CAREER_VOUCH_ENABLED`), career-only (`career_active +
+    tutorial_complete`), one per sandbox per tick (slow growth). Best-effort — a
+    failure here never breaks the world tick.
     """
     from cash_mode import career_progression as cp, economy_flags
     from flask_app import extensions
@@ -537,6 +564,7 @@ def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
     repo = getattr(extensions, "career_progress_repo", None)
     rel_repo = getattr(extensions, "relationship_repo", None)
     table_repo = getattr(extensions, "cash_table_repo", None)
+    personality_repo = getattr(extensions, "personality_repo", None)
     if repo is None or rel_repo is None or table_repo is None:
         return
 
@@ -579,9 +607,11 @@ def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
         # Warmest first; fire exactly one (the world blooms a room at a time).
         ready.sort(key=lambda t: t[0], reverse=True)
         _eager, voucher_id = ready[0]
-        room = _resolve_ai_room(table_repo, sandbox_id, voucher_id)
+        room = _resolve_ai_home_table(
+            table_repo, rel_repo, personality_repo, sandbox_id, voucher_id
+        )
         if room is None:
-            return  # voucher is between rooms — try again next tick
+            return  # voucher has no established home yet — try again next tick
         table_id, stake_label, table_name, voucher_name = room
         cp.fire_vouch(
             career_progress_repo=repo,
