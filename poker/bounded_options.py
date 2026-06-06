@@ -424,8 +424,27 @@ def _get_raise_options(
     value_betting = equity >= vbt
     equity_pct = int(equity * 100)
 
+    # Raise-TO targets must be ANCHORED on the chips already in front of the
+    # actor, because this engine never resets `player.bet` / `pot['total']`
+    # between streets (both are cumulative for the whole hand) and `raise_to` is
+    # an absolute bet level (player_raise adds `raise_to - player.bet`). A bet of
+    # `sizing * pot` must therefore be ADDED on top of that anchor — omitting it
+    # silently under-bets by the prior commitment. Mirrors
+    # strategy.action_mapper.resolve_postflop_sizing:
+    #   - betting (no bet to face): anchor = player.bet, pot = pot_total
+    #   - raising (facing a bet):   anchor = highest_bet, pot = pot after we call
+    already_bet = context.get('already_bet', 0)
+    highest_bet = context.get('highest_bet', 0)
+    cost_to_call = context.get('cost_to_call', 0)
+    if cost_to_call > 0:
+        anchor = highest_bet
+        sizing_pot = pot + cost_to_call
+    else:
+        anchor = already_bet
+        sizing_pot = pot
+
     # Small (profile.sizing_small * pot or min raise)
-    small = max(min_raise, int(pot * profile.sizing_small))
+    small = max(min_raise, anchor + int(sizing_pot * profile.sizing_small))
     if small <= max_raise:
         if value_betting:
             rationale = f"Value bet ({equity_pct}% equity)"
@@ -434,7 +453,7 @@ def _get_raise_options(
         options.append((small, rationale, "conservative"))
 
     # Medium (profile.sizing_medium * pot)
-    medium = int(pot * profile.sizing_medium)
+    medium = anchor + int(sizing_pot * profile.sizing_medium)
     if medium > small and medium < max_raise and medium >= min_raise:
         if value_betting:
             rationale = f"Bet for value ({equity_pct}% equity)"
@@ -443,7 +462,7 @@ def _get_raise_options(
         options.append((medium, rationale, "standard"))
 
     # Large (profile.sizing_large * pot)
-    large = int(pot * profile.sizing_large)
+    large = anchor + int(sizing_pot * profile.sizing_large)
     if large > medium and large <= max_raise and large >= min_raise:
         if value_betting:
             rationale = f"Strong value bet ({equity_pct}% equity)"

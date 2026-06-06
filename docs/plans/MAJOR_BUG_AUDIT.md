@@ -62,6 +62,20 @@ Severity: **S1** critical · **S2** major · **S3** moderate. Status: ✅ fixed 
   `test_all_in_loser_produces_nonzero_chip_flow` (end-to-end: shove → contribution → ChipFlow). Also
   collapsed that file's divergent `_normalize_call_amount` re-implementation onto the shared helper.
 
+### ✅ 4. Bounded-options postflop bet sizing ignored already-committed chips — S2 *(under-betting)*
+- **Was:** `_get_raise_options` emitted raise-TO targets as raw `pot * sizing`, omitting the anchor
+  (the chips already in front of the actor). This engine keeps `player.bet`/`pot['total']` cumulative
+  across streets and `raise_to` is an absolute bet level (`player_raise` adds `raise_to - player.bet`),
+  so every postflop bet/raise by the `standard`/`lean` bots was under-sized by the prior commitment —
+  a table-wide exploitable leak diverging from the solver (`sharp`) bots, whose
+  `action_mapper.resolve_postflop_sizing` anchors correctly and warns against exactly this.
+- **Fix:** Anchor the targets in `_get_raise_options`, mirroring `action_mapper`: betting
+  (`cost_to_call == 0`) → `already_bet + sizing * pot`; raising (facing a bet) →
+  `highest_bet + sizing * (pot + cost_to_call)`. `poker/bounded_options.py`. Backward-compatible: with
+  no prior commitment / no bet faced the anchor is 0, so existing behavior (and tests) are unchanged.
+- **Regression:** `tests/test_bounded_options.py::TestRaiseSizingAnchor` (betting adds prior
+  commitment; raising anchors on highest_bet + pot-after-call; shift equals the anchor exactly).
+
 ---
 
 ## Open — ranked
@@ -77,14 +91,6 @@ audits stay green (masked). Triggers only on a mid-distribute crash.
 - **Files:** `flask_app/services/tournament_ticker.py:289-318`, `tournament_economy_service.py:282,472`,
   `flask_app/routes/tournament_routes.py:151`, `flask_app/handlers/tournament_game_builder.py:557`.
 - **Scope:** Reconcile must reuse the live derivation (`real_persona_ids_for` + `session.human_id`).
-
-#### ⬜ 4. Bounded-options postflop bet sizing ignores already-committed chips → systematic under-betting
-`_get_raise_options` emits raise-to amounts as raw pot fractions, omitting the `highest_bet`
-already committed (bets aren't reset between streets). Sibling `action_mapper.resolve_postflop_sizing`
-does it correctly and even warns against this. Every postflop bet/raise by `standard`/`lean` bots is
-under-sized → table-wide exploitable leak; diverges from solver bots. Strategy-quality (bets stay legal).
-- **Files:** `poker/bounded_options.py:428,437,446` vs `poker/strategy/action_mapper.py:196-214`.
-- **Scope:** Add the `highest_bet`/`player.bet` term; converge on the action_mapper formula.
 
 ### S3 (mid tier — real but narrower)
 
