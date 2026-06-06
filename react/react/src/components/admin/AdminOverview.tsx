@@ -1,4 +1,3 @@
-import { ChevronRight } from 'lucide-react';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import type { AdminTab } from './AdminSidebar';
 import './AdminOverview.css';
@@ -28,7 +27,6 @@ export function AdminOverview({ onSelect }: AdminOverviewProps) {
               <span className="admin-overview__card-title">{item.label}</span>
               <span className="admin-overview__card-desc">{item.description}</span>
             </span>
-            <ChevronRight size={18} className="admin-overview__card-arrow" />
           </button>
         ))}
       </div>
