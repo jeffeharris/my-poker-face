@@ -67,8 +67,8 @@ interface CaptureDetailPanelProps {
 }
 
 // Render the parsed prompt-config (TieredBot decisions only).
-function renderPromptConfig(capture: PromptCapture) {
-  if (!capture.prompt_config_json) return null;
+function renderPromptConfig(capture: PromptCapture | null) {
+  if (!capture?.prompt_config_json) return null;
 
   let configDisplay: string;
   try {
@@ -133,20 +133,22 @@ export function CaptureDetailPanel({
   const wrapperClass =
     variant === 'mobile' ? 'capture-detail capture-detail--mobile-fullwidth' : 'capture-detail';
 
-  if (!capture) {
+  // Nothing selected at all (no decision, no capture).
+  if (!capture && !analysis) {
     return (
       <div className={wrapperClass}>
-        <div className="no-selection">Select a capture from the list to view details</div>
+        <div className="no-selection">Select a decision from the list to view details</div>
       </div>
     );
   }
 
-  // A decision that skipped the LLM (a human, or a solver / TieredBot) is
-  // served as a stub capture with empty prompt/response fields. For those we
-  // hide the prompt, replay, and interrogate UI (none of it applies) and show a
-  // short note — the meaningful data is the decision-analysis / pipeline panels
-  // above.
-  const hasLlmCall = Boolean(capture.system_prompt || capture.user_message || capture.ai_response);
+  // A decision that skipped the LLM (a human, or a solver / TieredBot) has NO
+  // prompt capture at all (`capture` is null). For those we hide the prompt,
+  // replay, and interrogate UI (none of it applies) and show a short note —
+  // the meaningful data is the decision-analysis / pipeline panels above.
+  const hasLlmCall = Boolean(
+    capture?.system_prompt || capture?.user_message || capture?.ai_response
+  );
 
   // Distinguish a human's decision from an AI solver's: AI strategy bots always
   // carry a pipeline trace / snapshot, humans never do. (Both are already on the
@@ -163,7 +165,7 @@ export function CaptureDetailPanel({
       {variant === 'desktop' && (
         <div className="detail-header">
           <h3>
-            {capture.player_name} - {ctx.phase || '-'}
+            {capture?.player_name ?? analysis?.player_name ?? '-'} - {ctx.phase || '-'}
           </h3>
           <span className={`detail-action ${getActionColor(ctx.action_taken)}`}>
             {ctx.action_taken?.toUpperCase()}
@@ -200,7 +202,7 @@ export function CaptureDetailPanel({
       </div>
 
       {/* Error/Correction Info */}
-      {(capture.error_type || capture.parent_id) && (
+      {capture && (capture.error_type || capture.parent_id) && (
         <div className="error-info-panel">
           {capture.error_type && (
             <div className="error-info-item">
@@ -255,7 +257,7 @@ export function CaptureDetailPanel({
 
       {!hasLlmCall && <div className="no-llm-call">{noLlmMessage}</div>}
 
-      {hasLlmCall && (
+      {capture && hasLlmCall && (
         <>
           <div className="detail-tabs">
             <button

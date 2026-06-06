@@ -341,26 +341,30 @@ export function DecisionAnalyzer({
       }
 
       const data = await response.json();
-      setSelectedCapture(data.capture);
+      // `capture` is null for decisions that skipped the LLM (solver / tiered
+      // / RuleBot / human) — those have no prompt to replay/interrogate. The
+      // analysis is the spine; the capture is optional LLM context.
+      const capture = data.capture || null;
+      setSelectedCapture(capture);
       setSelectedAnalysis(data.decision_analysis || null);
-      setModifiedSystemPrompt(data.capture.system_prompt);
-      setModifiedUserMessage(data.capture.user_message);
-      setModifiedConversationHistory(data.capture.conversation_history || []);
+      setModifiedSystemPrompt(capture?.system_prompt || '');
+      setModifiedUserMessage(capture?.user_message || '');
+      setModifiedConversationHistory(capture?.conversation_history || []);
       setUseHistory(true);
       setMode('view');
       setReplayResult(null);
       // On mobile, switch to detail panel view
       setShowMobileDetail(true);
       // Set initial provider/model/reasoning from capture (use original values)
-      setReplayProvider(data.capture.provider || 'openai');
-      setReplayModel(data.capture.model || 'gpt-5-nano');
-      setReplayReasoningEffort(data.capture.reasoning_effort || 'minimal');
+      setReplayProvider(capture?.provider || 'openai');
+      setReplayModel(capture?.model || 'gpt-5-nano');
+      setReplayReasoningEffort(capture?.reasoning_effort || 'minimal');
       // Reset interrogation state for new capture
       setInterrogationMessages([]);
       setInterrogationSessionId(null);
-      setInterrogateProvider(data.capture.provider || 'openai');
-      setInterrogateModel(data.capture.model || 'gpt-5-nano');
-      setInterrogateReasoningEffort(data.capture.reasoning_effort || 'minimal');
+      setInterrogateProvider(capture?.provider || 'openai');
+      setInterrogateModel(capture?.model || 'gpt-5-nano');
+      setInterrogateReasoningEffort(capture?.reasoning_effort || 'minimal');
       // Notify parent to update URL
       if (updateUrl) {
         onCaptureSelect?.(captureId);

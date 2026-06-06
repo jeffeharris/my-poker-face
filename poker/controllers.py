@@ -638,6 +638,16 @@ class AIPlayerController:
     # (now async) narration call — see PsychologyPipeline._update_composure.
     USES_EMOTIONAL_NARRATION = True
 
+    # Whether this controller persists its own player_decision_analysis row
+    # (with the fresh, in-call pipeline snapshot + intervention trace) from
+    # inside its decision path. True for every LLM/solver controller whose
+    # `_get_ai_decision` calls `_analyze_decision` (chaos base, hybrid/lean,
+    # tiered). RuleBot overrides this to False — it never self-saves and
+    # relies on the handler-level analyzer instead. The handler uses this flag
+    # to decide whether to skip writing a (snapshot-less) duplicate row, which
+    # replaces the old fragile in-memory `_last_analyzed_decision` handshake.
+    WRITES_OWN_DECISION_ANALYSIS = True
+
     def __init__(
         self,
         player_name,
@@ -2230,22 +2240,6 @@ class AIPlayerController:
             )
 
             self._decision_analysis_repo.save_decision_analysis(analysis)
-
-            # Stamp this decision so the handler-level fallback analyzer
-            # (analyze_player_decision) can detect that this richer
-            # controller-side row already exists and skip its impoverished
-            # duplicate (no capture_id, psychology, or menu compliance).
-            # Keyed on the same pre-normalization fields the handler
-            # reconstructs; consumed there on match so a stale stamp can
-            # never wrongly skip a later decision that didn't self-analyze.
-            phase_name = (
-                self.state_machine.current_phase.name if self.state_machine.current_phase else None
-            )
-            self._last_analyzed_decision = (
-                self.current_hand_number,
-                phase_name,
-                response_dict.get('action'),
-            )
 
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
             menu_str = (
