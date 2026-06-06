@@ -237,28 +237,6 @@ def _track_guest_hand(game_id: str, game_data: dict) -> bool:
         return False
 
 
-def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
-    """Emit avatar update for a run-out reaction.
-
-    `is_reaction` marks this as an authoritative emotion change (a run-out
-    reaction the player should see *now*), distinct from a late-arriving
-    generated avatar image. The frontend applies the emotion immediately for
-    reactions but must not clobber the displayed emotion for generation
-    arrivals — see the `avatar_update` handler in usePokerGame.ts.
-    """
-    avatar_url = get_avatar_url_with_fallback(game_id, player_name, emotion)
-    socketio.emit(
-        'avatar_update',
-        {
-            'player_name': player_name,
-            'avatar_url': avatar_url,
-            'avatar_emotion': emotion,
-            'is_reaction': True,
-        },
-        to=game_id,
-    )
-
-
 def _feed_opponent_observations(memory_manager, observer: str, observations: List[str]) -> None:
     """Feed opponent observations from commentary into opponent models.
 
@@ -3410,10 +3388,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if not commentary_complete.wait(timeout=commentary_timeout):
         logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
 
-    # Small additional delay for visual pacing
-    delay = (1 if is_showdown else 0.5) * config.ANIMATION_SPEED
-    if delay > 0:
-        _ff_aware_sleep(game_id, delay)
+    # Result/inter-hand pacing is owned by the client sequencer now (the winner
+    # overlay's hold + the shuffle beat), so the backend no longer sleeps here —
+    # it just yields so the cleared-state emit below flushes.
+    socketio.sleep(0)
 
     # Clear fast-forward at the hand boundary. FF is a single-hand
     # affordance — the player asked to skip *this* orbit, not commit to
@@ -3445,8 +3423,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         )
         return state_machine.game_state, False
 
-    # Brief delay (150ms at 1x speed) for frontend to receive cleared state and begin card exit animation
-    _ff_aware_sleep(game_id, 0.15 * config.ANIMATION_SPEED)
+    # Yield so the cleared-state emit flushes; the client sequencer paces the
+    # card exit / shuffle beat (no backend hold).
+    socketio.sleep(0)
 
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
@@ -3454,6 +3433,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     game_data['last_announced_phase'] = None
     game_data.pop('runout_reaction_schedule', None)
     game_data.pop('runout_emotion_overrides', None)
+    # Drop the cached game-speed so the next hand re-resolves the owner's current
+    # preference — a mid-game change in Settings then applies on the next hand
+    # instead of only on a brand-new game. (Re-resolution is one cheap DB read
+    # per hand boundary, not per AI turn.)
+    game_data.pop('game_speed', None)
 
     # Cash mode: refill empty seats with fresh AIs before dealing the
     # next hand. Tournament mode skips this — busted players stay
@@ -3977,82 +3961,26 @@ def progress_game(game_id: str) -> None:
                     current_game_data['runout_emotion_overrides'] = {}
                     game_state_service.set_game(game_id, current_game_data)
 
-                    # Brief pause for players to register the all-in matchup
-                    # before the board runs out (see config.RUNOUT_REVEAL_HOLD).
-                    delay = config.RUNOUT_REVEAL_HOLD * config.ANIMATION_SPEED
-                    if delay > 0:
-                        _ff_aware_sleep(game_id, delay)
+                    # The matchup hold before the board runs is owned by the
+                    # client sequencer's reveal beat now; just yield so the
+                    # reveal + runout_schedule emits flush.
+                    socketio.sleep(0)
 
-                # Wait for card animation to finish, then emit reactions,
-                # then hold so the player can absorb before next street.
-                # Flop (3 cards): ~2.825s animation (2s stagger + 0.825s)
-                # Turn/River (1 card): ~0.825s animation
-                # PRE_FLOP is the reveal step — no community card is dealt, so
-                # there's no animation to wait for. Skipping it removes a dead
-                # ~1s before the board ran out; the reveal cascade already plays
-                # during RUNOUT_REVEAL_HOLD above, and the reaction_hold below
-                # now shows the preflop (INITIAL) reactions.
-                if current_phase == PokerPhase.FLOP:
-                    animation_sleep = 3
-                elif current_phase in (PokerPhase.TURN, PokerPhase.RIVER):
-                    animation_sleep = 1
-                else:
-                    animation_sleep = 0
-                reaction_hold = 1.5
-                delay = animation_sleep * config.ANIMATION_SPEED
-                if delay > 0:
-                    _ff_aware_sleep(game_id, delay)
+                # The client sequencer owns the entire board run-out timeline now:
+                # the card-deal gates, the per-card avatar reaction beats (walked
+                # from the precomputed `runout_schedule` emitted once at reveal),
+                # and the showdown lock-up hold — all on one client clock. The
+                # backend therefore streams each street's state as fast as it can
+                # and just yields; it no longer sleeps for animation/reaction
+                # pacing, and no longer emits per-street avatar reactions (those
+                # were redundant with `runout_schedule` and dropped client-side
+                # while the sequencer owned faces).
+                socketio.sleep(0)
 
-                # Check if game was deleted during sleep
+                # Bail if the game was deleted while yielding.
                 current_game_data = game_state_service.get_game(game_id)
                 if not current_game_data:
                     return
-
-                # Emit pre-computed avatar reactions for this street
-                reaction_schedule = current_game_data.get('runout_reaction_schedule')
-                if reaction_schedule:
-                    # The PRE_FLOP reveal step shows the INITIAL (hole-card)
-                    # reactions — the players' read on the matchup — now as their
-                    # own beat, after the reveal has settled.
-                    phase_name = (
-                        'INITIAL' if current_phase == PokerPhase.PRE_FLOP else current_phase.name
-                    )
-                    overrides = current_game_data.get('runout_emotion_overrides', {})
-                    for reaction in reaction_schedule.reactions_by_phase.get(phase_name, []):
-                        current = overrides.get(reaction.player_name)
-                        if current == reaction.emotion:
-                            continue  # Already showing this emotion
-                        overrides[reaction.player_name] = reaction.emotion
-                        _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
-                    current_game_data['runout_emotion_overrides'] = overrides
-                    game_state_service.set_game(game_id, current_game_data)
-
-                # Hold so the player can see reactions before next street
-                delay = reaction_hold * config.ANIMATION_SPEED
-                if delay > 0:
-                    _ff_aware_sleep(game_id, delay)
-                # Emit showdown reactions after all cards are dealt
-                current_phase = state_machine.current_phase
-                if current_phase == PokerPhase.RIVER:
-                    current_game_data = game_state_service.get_game(game_id)
-                    if current_game_data:
-                        reaction_schedule = current_game_data.get('runout_reaction_schedule')
-                        if reaction_schedule:
-                            overrides = current_game_data.get('runout_emotion_overrides', {})
-                            for reaction in reaction_schedule.reactions_by_phase.get(
-                                'SHOWDOWN', []
-                            ):
-                                if overrides.get(reaction.player_name) == reaction.emotion:
-                                    continue
-                                overrides[reaction.player_name] = reaction.emotion
-                                _emit_avatar_reaction(
-                                    game_id, reaction.player_name, reaction.emotion
-                                )
-                            current_game_data['runout_emotion_overrides'] = overrides
-                            game_state_service.set_game(game_id, current_game_data)
-                        delay = 1.5 * config.ANIMATION_SPEED
-                        if delay > 0:
-                            _ff_aware_sleep(game_id, delay)
 
                 # Determine next phase (skip betting, go to dealing or showdown)
                 if current_phase == PokerPhase.RIVER:
