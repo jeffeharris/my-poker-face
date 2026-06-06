@@ -59,10 +59,6 @@ services:
       # Scaling Stage 0: 500 -> 250 to halve the per-decision CPU burst (still
       # analytics-only; no gameplay impact).
       - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
-      # Scaling Stage 0: skip LLM narration of off-screen vice/side-hustle world
-      # events in the ticker (templated path) — drops per-tick LLM spend/latency
-      # off the single worker. Reversible (set true to restore LLM flavor).
-      - WORLD_TICKER_LLM_NARRATION=${WORLD_TICKER_LLM_NARRATION:-false}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com

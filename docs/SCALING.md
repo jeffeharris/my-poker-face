@@ -124,10 +124,12 @@ test to confirm the win:
   `docker-compose.prod.yml`. Analytics-only (`decision_analyzer.py:966` confirms it's
   *not* the bot's decision), so it halves the per-AI-decision equity-MC CPU burst with
   zero gameplay impact. *Env — reversible.*
-- ✅ **Off-screen narration → templated** — `WORLD_TICKER_LLM_NARRATION` (new env,
-  default `true`/unchanged; prod set `false`) wires `vice/hustle_use_llm_narration=False`
-  into the ticker's `refresh_unseated_tables` call (`ticker_service.py`), dropping
-  per-tick LLM spend + latency off the worker. *Env — reversible.*
+- 🔧 **Off-screen narration → async (keep the LLM flavor)** — the LLM narration
+  stays (no templates in the live feed); it just moves **off the tick's hot path**.
+  Resolve vice/hustle economics in-tick, fire the LLM narration in a background
+  greenlet (`socketio.start_background_task`), record the world event when it returns;
+  the next ticker poll (`recent_events`) emits it into the feed. Removes per-tick LLM
+  *latency* from the worker without losing flavor.
 - ✅ **Ticker pacing now env-tunable** — `WORLD_TICKER_INTERVAL_SECONDS` (BASE_TICK,
   def 2.0) + `WORLD_TICKER_CYCLE_BUDGET_MS` (def 250) are env vars now (were hard
   constants). Defaults unchanged; ease them only if a load test shows ticker contention
