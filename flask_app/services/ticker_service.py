@@ -45,11 +45,6 @@ BASE_TICK_SECONDS = float(os.environ.get('WORLD_TICKER_INTERVAL_SECONDS', '2.0')
 CYCLE_BUDGET_MS = float(os.environ.get('WORLD_TICKER_CYCLE_BUDGET_MS', '250'))
 # Max new ticker events scanned/pushed per sandbox per tick (cosmetic).
 WORLD_EVENT_LIMIT = 20
-# Stage-0 scaling lever: when false, the off-screen world ticker skips LLM
-# narration of vice / side-hustle events (uses the templated path instead),
-# dropping per-tick LLM spend + latency off the single worker. Default on
-# (behavior unchanged); prod can set WORLD_TICKER_LLM_NARRATION=false.
-TICKER_LLM_NARRATION = os.environ.get('WORLD_TICKER_LLM_NARRATION', 'true').lower() != 'false'
 # PRH-14: hard cap on how many distinct sandboxes one cycle advances. The
 # CYCLE_BUDGET already bounds wall-clock per cycle, but background work +
 # narration spend scale with the number of active sandboxes; this caps that
@@ -471,10 +466,6 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
             # Keep personas who are in a tournament out of cash seats.
             tournament_repo=extensions.tournament_session_repo,
             called_up_pids=called_up or None,
-            # Stage-0 scaling lever: templated (no-LLM) off-screen narration when
-            # WORLD_TICKER_LLM_NARRATION=false.
-            vice_use_llm_narration=TICKER_LLM_NARRATION,
-            hustle_use_llm_narration=TICKER_LLM_NARRATION,
         )
 
         if gather_invite and called_up:
