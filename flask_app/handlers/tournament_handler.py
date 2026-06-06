@@ -111,6 +111,33 @@ def _real_persona_ids_for_session(session: TournamentSession) -> frozenset:
         return frozenset()
 
 
+def _session_display_to_pid(session: TournamentSession) -> dict[str, str]:
+    """Inverse of the builder's `seat_displays`: `{display_name: field_pid}` for the
+    AI seats at the human's current table. Used to recover a live seat's field id
+    when the per-hand deal (or a cold load) leaves it without a typed `seat_id`, so
+    `seat_key` would otherwise fall back to the unmatchable display name.
+
+    Best-effort — a resolver miss just leaves that name unmapped (the caller keeps
+    the `seat_key` fallback), never breaks the boundary."""
+    try:
+        from flask_app import extensions
+        from tournament.identity import resolve_display_name
+
+        table = session.human_table
+        if table is None:
+            return {}
+        repo = getattr(extensions, 'personality_repo', None)
+        mapping: dict[str, str] = {}
+        for pid in table.players:
+            if pid == session.human_id:
+                continue
+            display = resolve_display_name(pid, personality_repo=repo)
+            mapping[display] = pid
+        return mapping
+    except Exception:  # noqa: BLE001 — recovery helper, never break the boundary
+        return {}
+
+
 def reconcile_live_table(
     state_machine,
     ai_controllers: dict,
@@ -243,6 +270,7 @@ def advance_tournament_after_hand(
     from poker.table.seat import seat_key
 
     session: TournamentSession = game_data['tournament_session']
+    field_ids = set(session.field.stacks)
     # Fall back to the session's own table id when game_data is missing the
     # key. A cold load can re-attach the session without re-stamping
     # tournament_table_id (or an older in-memory dict predates it), which
@@ -259,10 +287,23 @@ def advance_tournament_after_hand(
     # which we read straight off game_data rather than re-deriving from the seat.
     human_field_id = game_data.get('tournament_human_id')
 
+    # Display name → field pid for the human's table. The per-hand deal can drop a
+    # live Player's typed `seat_id`/`personality_id` (so `seat_key` falls back to
+    # the display `name`), and a cold-loaded game's players are rebuilt with no
+    # identity at all — in both cases `seat_key(p)` returns the display name, which
+    # never matches the field's slug pids and freezes the boundary guard. Rebuild
+    # the inverse map from the session's own roster (always authoritative) so we
+    # can recover the pid from the display name. Mirrors the builder's
+    # `seat_displays` (tournament_game_builder.py) but derived live.
+    display_to_pid = _session_display_to_pid(session)
+
     def _field_key(p):
         if p.is_human and human_field_id is not None:
             return human_field_id
-        return seat_key(p)
+        key = seat_key(p)
+        if key in field_ids:
+            return key  # identity survived (or name IS the pid) — trust it
+        return display_to_pid.get(p.name, key)
 
     result = {_field_key(p): p.stack for p in state_machine.game_state.players}
 
