@@ -148,7 +148,6 @@ export function MobilePokerTable({
   const smallBlind = useGameStore((state) => state.smallBlind);
   const handNumber = useGameStore((state) => state.handNumber);
   const bettingContext = useGameStore((state) => state.bettingContext);
-  const newlyDealtCount = useGameStore((state) => state.newlyDealtCount);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
   const cashMode = useGameStore((state) => state.cashMode);
@@ -293,10 +292,7 @@ export function MobilePokerTable({
   });
 
   // Community card animation hook - handles slide-in with cascade delays
-  const communityCardAnimations = useCommunityCardAnimation(
-    newlyDealtCount,
-    communityCards?.length ?? 0
-  );
+  const communityCardAnimations = useCommunityCardAnimation(communityCards?.length ?? 0);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {

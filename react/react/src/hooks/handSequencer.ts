@@ -33,7 +33,12 @@ export type Effect =
   | { kind: 'reactions'; phase: string; cardIndex: number }
   | { kind: 'setActive'; active: boolean }
   | { kind: 'setWinner'; winner: WinnerInfo }
-  | { kind: 'recap'; winner: WinnerInfo };
+  | { kind: 'recap'; winner: WinnerInfo }
+  // Authoritative community-card deal trigger: the engine alone decides a deal
+  // happened (and how many cards), so the board animation fires exactly once per
+  // real deal instead of the renderer inferring it from count deltas. `total` is
+  // the board size after the deal; the new cards are the last `count` of them.
+  | { kind: 'dealCards'; count: number; total: number };
 
 /** One effect scheduled at an offset (ms) from the start of its event's beat. */
 export interface TimedEffect {
@@ -128,7 +133,15 @@ function planState(state: EngineState, g: GameState, tier: PacingTier): Plan {
 
   const phase = phaseForCount(newCount);
   const newCards = newCount - state.communityCount; // 3 (flop) or 1 (turn/river)
-  const timeline: TimedEffect[] = [...lead, { at: 0, effect: { kind: 'applyState', state: g } }];
+  // Apply the state (cards into the store), then fire the one authoritative deal
+  // trigger for the board animation. A duplicate deal push never reaches here:
+  // `isDeal` is false once `communityCount` has caught up, so the board can't
+  // re-animate the same street.
+  const timeline: TimedEffect[] = [
+    ...lead,
+    { at: 0, effect: { kind: 'applyState', state: g } },
+    { at: 0, effect: { kind: 'dealCards', count: newCards, total: newCount } },
+  ];
   let duration = newCards === 3 ? scale(BEAT.flopGate, tier) : scale(BEAT.cardGate, tier);
   const next = { ...base };
 

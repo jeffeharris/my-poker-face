@@ -146,7 +146,6 @@ export function PokerTable({
 
   // Community-card deal-in animation timing (flop cascade, turn/river single).
   const communityCardAnimations = useCommunityCardAnimation(
-    gameState?.newly_dealt_count,
     gameState?.community_cards?.length ?? 0
   );
 

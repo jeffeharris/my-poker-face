@@ -55,7 +55,8 @@ winner is the last beat — it can never outrun the actions, *by construction*.
 | `useRunoutDirector` (reactions, hero gesture) | **Absorbed** |
 | `useWinnerRevealGate` (verdict hold) | **Absorbed** — ordering makes most of it unnecessary; the fold-watch breather moves into the winner beat |
 | `useInterhandDirector` (shuffle beat) | **Kept** — already correct; now fed by an engine-ordered `winnerInfo` |
-| `useCommunityCardAnimation`, `heroCardAnimation` | **Kept** — pure CSS presentation driven by store state the engine sets |
+| `useCommunityCardAnimation` | **Kept but rewired** — now animates off the engine's authoritative `dealCards` token (`store.cardDeal`) instead of inferring a deal from card-count deltas, so the board can't double-deal (a duplicate push / re-render / cold-load re-assert never re-fires it). The engine's `communityCount` baseline drops duplicate deals upstream; the token is the render-side half. |
+| `heroCardAnimation` | **Kept** — pure CSS presentation driven by store state the engine sets |
 | Backend run-out `_ff_aware_sleep` pacing | **Removed** (Phase 3) → `socketio.sleep(0)` yields; the client owns all pacing |
 
 ### Board pacing moves fully client-side

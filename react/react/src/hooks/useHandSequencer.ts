@@ -60,6 +60,7 @@ export function useHandSequencer({
 }: UseHandSequencerParams): HandSequencer {
   const updatePlayers = useGameStore((s) => s.updatePlayers);
   const setRunoutDirectorActive = useGameStore((s) => s.setRunoutDirectorActive);
+  const signalCardDeal = useGameStore((s) => s.signalCardDeal);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [heroCommitted, setHeroCommitted] = useState(false);
@@ -124,6 +125,9 @@ export function useHandSequencer({
         case 'setActive':
           setRunoutDirectorActive(effect.active);
           break;
+        case 'dealCards':
+          signalCardDeal(effect.count, effect.total);
+          break;
         case 'hero':
           if (effect.mode === 'commit') {
             setHeroCommitted(true);
@@ -148,7 +152,7 @@ export function useHandSequencer({
           break;
       }
     },
-    [applyReaction, setRunoutDirectorActive]
+    [applyReaction, setRunoutDirectorActive, signalCardDeal]
   );
 
   // Drain one event: plan it, fire its effects at their offsets, then schedule

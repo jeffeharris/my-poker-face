@@ -55,6 +55,12 @@ interface GameStore {
   // `applyGameState` keeps the sequencer-set face over an incoming full push, so
   // neither clobbers the finer per-card reactions.
   runoutDirectorActive: boolean;
+  // Authoritative community-card deal trigger from the sequencer. `token` is
+  // monotonic — the board animation fires once per token, so a re-render or a
+  // duplicate state push can't re-deal the same street. `count` new cards landed
+  // on a board of size `total` (the new ones are the last `count`). Null until
+  // the first deal of the session.
+  cardDeal: { token: number; count: number; total: number } | null;
   // Optimistic-action rollback snapshot. When the human commits a chip action
   // we move chips to the pot immediately (before the server confirms) for
   // responsiveness; this holds the pre-action slices so we can revert if the
@@ -67,6 +73,9 @@ interface GameStore {
   updatePlayerOptions: (options: string[]) => void;
   pushWorldEvent: (event: LobbyEvent) => void;
   setRunoutDirectorActive: (active: boolean) => void;
+  /** Fire the board-deal animation for `count` cards on a board of `total`
+   *  (bumps the monotonic token). Called by the sequencer's deal beat. */
+  signalCardDeal: (count: number, total: number) => void;
   /** Optimistically move chips to the pot for the acting player's commit. */
   applyOptimisticAction: (action: string, amount: number | undefined) => void;
   /** Revert the last optimistic action (used when the server rejects it). */
@@ -106,6 +115,7 @@ const initialState = {
   aiInstant: false,
   alwaysFastForward: false,
   runoutDirectorActive: false,
+  cardDeal: null as { token: number; count: number; total: number } | null,
   optimisticSnapshot: null as OptimisticSnapshot | null,
 };
 
@@ -242,6 +252,12 @@ export const useGameStore = create<GameStore>((set) => ({
 
   setRunoutDirectorActive: (active) => {
     set({ runoutDirectorActive: active });
+  },
+
+  signalCardDeal: (count, total) => {
+    set((prev) => ({
+      cardDeal: { token: (prev.cardDeal?.token ?? 0) + 1, count, total },
+    }));
   },
 
   applyOptimisticAction: (action, amount) => {

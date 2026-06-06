@@ -83,6 +83,21 @@ describe('planEvent — community deal', () => {
     expect(offsets(plan, 'reactions')).toEqual([]);
     expect(offsets(plan, 'hero')).toEqual([]);
     expect(offsets(plan, 'applyState')).toEqual([0]);
+    // exactly one authoritative deal trigger, for 3 cards on a 3-card board
+    const deal = plan.timeline.find((t) => t.effect.kind === 'dealCards');
+    expect(deal?.effect).toEqual({ kind: 'dealCards', count: 3, total: 3 });
+  });
+
+  it('a duplicate deal push (board already caught up) does NOT re-deal', () => {
+    const g = gameState({ community_cards: cards(3), newly_dealt_count: 3 });
+    // engine already shows 3 community cards — the same flop arriving again
+    const plan = planEvent(
+      { ...initialEngineState, handNumber: 1, communityCount: 3 },
+      { kind: 'state', state: g },
+      'watchable'
+    );
+    expect(offsets(plan, 'dealCards')).toEqual([]); // no re-animation
+    expect(plan.durationMs).toBe(1000); // treated as a plain action beat
   });
 
   it('flop during a run-out: hero retreats and each card reacts on the cascade', () => {
