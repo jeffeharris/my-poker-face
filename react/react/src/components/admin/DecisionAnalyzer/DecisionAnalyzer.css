@@ -176,6 +176,30 @@
   min-height: 600px;
 }
 
+/* Desktop: fill the full height of the admin content area instead of capping
+   the panels at ~700px, so the list and detail each scroll independently and
+   the analyzer uses all the vertical space (it previously left a large empty
+   gap below on tall screens). Scoped to the embedded admin shell + the
+   side-by-side layout (>=901px) so the mobile/stacked paths are untouched. */
+@media (min-width: 901px) {
+  .admin-main__content > .decision-analyzer {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .admin-main__content > .decision-analyzer .debugger-layout {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .admin-main__content > .decision-analyzer .capture-list,
+  .admin-main__content > .decision-analyzer .capture-detail {
+    max-height: none;
+    height: 100%;
+    min-height: 0;
+  }
+}
+
 @media (max-width: 900px) {
   .debugger-layout {
     grid-template-columns: 1fr;
