@@ -209,36 +209,6 @@
    Form Elements
    ============================================ */
 
-.prm-select {
-  padding: var(--space-2) var(--space-3);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-
-.prm-select:focus {
-  outline: none;
-  border-color: var(--color-gold);
-}
-
-.prm-input {
-  padding: var(--space-2) var(--space-3);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-  width: 100%;
-}
-
-.prm-input:focus {
-  outline: none;
-  border-color: var(--color-gold);
-}
-
 .prm-checkbox {
   display: flex;
   align-items: center;
@@ -256,55 +226,9 @@
    Buttons
    ============================================ */
 
-.prm-btn {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border: none;
-}
-
-.prm-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.prm-btn--primary {
-  background: var(--color-gold);
-  color: var(--color-felt);
-}
-
-.prm-btn--primary:hover:not(:disabled) {
-  background: var(--color-gold-light);
-}
-
-.prm-btn--ghost {
-  background: transparent;
-  color: var(--color-text-muted);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.prm-btn--ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--color-text);
-}
-
-.prm-btn--danger {
-  background: #ef4444;
-  color: white;
-}
-
-.prm-btn--danger:hover:not(:disabled) {
-  background: #dc2626;
-}
-
-.prm-btn--sm {
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-xs);
-}
-
+/* prm-btn base + primary/ghost/danger/sm migrated to the shared admin-btn kit.
+   prm-btn--save-all kept as a bespoke modifier (no admin-btn equivalent yet);
+   applied as `admin-btn prm-btn--save-all`, so admin-btn supplies the base. */
 .prm-btn--save-all {
   background: rgba(251, 191, 36, 0.15);
   border: 1px solid rgba(251, 191, 36, 0.4);

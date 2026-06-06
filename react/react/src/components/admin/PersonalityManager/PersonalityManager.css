@@ -118,54 +118,10 @@
   visibility: visible;
 }
 
-.pm-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  max-height: 80dvh;
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
-  transform: translateY(100%);
-  transition: transform 0.4s var(--ease-out-expo);
-  z-index: calc(var(--z-modal) + 1);
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
-}
-
-.pm-sheet--open {
-  transform: translateY(0);
-}
-
-.pm-sheet__handle {
-  padding: var(--space-3) 0;
-  display: flex;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.pm-sheet__handle-bar {
-  width: 40px;
-  height: 4px;
-  background: var(--color-text-disabled);
-  border-radius: var(--radius-full);
-}
-
-.pm-sheet__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 var(--space-5) var(--space-3);
-}
-
-.pm-sheet__title {
-  font-family: var(--font-display);
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
-  margin: 0;
-}
+/* NOTE: the sheet shell (formerly `.pm-sheet`, `.pm-sheet__handle/header/title`)
+   now comes from the shared <BottomSheet> primitive. Only the inner
+   search/list/create surface (`.pm-sheet__*` below) and the tablet-sidebar
+   `.pm-sheet-backdrop` above remain bespoke. */
 
 .pm-sheet__count {
   font-size: var(--font-size-sm);
@@ -328,80 +284,8 @@
   gap: var(--space-3);
 }
 
-.pm-section {
-  background: var(--gradient-card);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  transition: var(--transition-all-base);
-}
-
-.pm-section:hover {
-  border-color: var(--color-border-hover);
-}
-
-.pm-section--open {
-  border-color: var(--color-border-gold);
-}
-
-.pm-section__header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: var(--transition-all-base);
-}
-
-.pm-section__header:hover {
-  background: var(--color-bg-surface);
-}
-
-.pm-section__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-secondary);
-}
-
-.pm-section__title {
-  flex: 1;
-  text-align: left;
-  font-family: var(--font-display);
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-}
-
-.pm-section__badge {
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-gold-muted);
-  color: var(--color-gold);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  border-radius: var(--radius-full);
-}
-
-.pm-section__chevron {
-  color: var(--color-text-muted);
-  transition: transform 0.3s var(--ease-out-expo);
-}
-
-.pm-section--open .pm-section__chevron {
-  transform: rotate(180deg);
-}
-
-.pm-section__content {
-  overflow: hidden;
-  transition: height 0.3s var(--ease-out-expo);
-}
-
-.pm-section__inner {
-  padding: 0 var(--space-4) var(--space-4);
-}
+/* NOTE: the collapsible section chrome (formerly `.pm-section*`) now lives in
+   the shared admin/shared/CollapsibleSection.css as `.admin-collapsible*`. */
 
 /* ============================================
    Trait Sliders
@@ -1554,4 +1438,56 @@
 
 .admin-master__section-header:first-child {
   margin-top: 0;
+}
+
+/* ============================================
+   Spot Tendencies editor
+   ============================================ */
+.pm-spot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pm-spot__entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pm-spot__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pm-spot__name {
+  flex: 1 1 40%;
+  min-width: 0;
+}
+
+.pm-spot__strength {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pm-spot__strength input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.pm-spot__strength-value {
+  flex-shrink: 0;
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.pm-spot__hint {
+  margin: 0 0 var(--space-1);
+  font-size: 11.5px;
 }

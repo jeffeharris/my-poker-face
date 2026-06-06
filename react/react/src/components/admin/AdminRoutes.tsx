@@ -1,21 +1,46 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 'lucide-react';
+import { MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
-import { SIDEBAR_ITEMS } from './adminSidebarItems';
-import { AdminSidebar } from './AdminSidebar';
-import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
-import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
-import { ReplayResults } from './ReplayResults';
-import { DecisionAnalyzer } from './DecisionAnalyzer';
-import { UnifiedSettings, type SettingsCategory } from './UnifiedSettings';
-import { AdminMenuContainer } from './AdminMenuContainer';
+import { AdminToolLayout } from './AdminToolLayout';
+import { getAdminOrigin } from './adminOrigin';
+import type { AssistantPanelProps } from './ExperimentDesigner';
+import type { SettingsCategory } from './UnifiedSettings';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { AdminTab } from './AdminSidebar';
 import './AdminShared.css';
+
+// Heavy admin tools are lazy-loaded so they don't bloat the main AdminRoutes
+// chunk. Each is a NAMED export, so map it onto `default` for React.lazy.
+const ExperimentDesigner = lazy(() =>
+  import('./ExperimentDesigner/ExperimentDesigner').then((m) => ({ default: m.ExperimentDesigner }))
+);
+const ExperimentChat = lazy(() =>
+  import('./ExperimentDesigner/ExperimentChat').then((m) => ({ default: m.ExperimentChat }))
+);
+const ExperimentDetail = lazy(() =>
+  import('./ExperimentDesigner/ExperimentDetail').then((m) => ({ default: m.ExperimentDetail }))
+);
+const ReplayResults = lazy(() =>
+  import('./ReplayResults').then((m) => ({ default: m.ReplayResults }))
+);
+const DecisionAnalyzer = lazy(() =>
+  import('./DecisionAnalyzer').then((m) => ({ default: m.DecisionAnalyzer }))
+);
+const UnifiedSettings = lazy(() =>
+  import('./UnifiedSettings').then((m) => ({ default: m.UnifiedSettings }))
+);
+
+// Local Suspense fallback for the inline ExperimentChat panel (the tool
+// layout has its own copy for the main content area).
+const toolFallback = (
+  <div style={{ padding: '2rem', textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
+    Loading…
+  </div>
+);
 
 const VALID_TABS: AdminTab[] = [
   'users',
@@ -52,7 +77,6 @@ function ExperimentDetailWrapper() {
   const { experimentId } = useParams<{ experimentId: string }>();
   const navigate = useNavigate();
   const { isMobile } = useViewport();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Page-level assistant state
   const [showAssistant, setShowAssistant] = useState(false);
@@ -269,80 +293,34 @@ function ExperimentDetailWrapper() {
     </div>
   );
 
-  // Mobile layout
-  if (isMobile) {
-    return (
-      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <div className="admin-main__content admin-main__content--mobile">
-          <ExperimentDetail
-            experimentId={experimentIdNum}
-            onBack={handleBack}
-            onEditInLabAssistant={handleEditInLabAssistant}
-            onBuildFromSuggestion={handleBuildFromSuggestion}
-            onOpenAssistant={handleOpenAssistant}
-          />
+  // Docked panel is desktop-only; mobile always uses the full-screen overlay.
+  const dockedAssistant =
+    !isMobile && showDockedAssistant ? <AssistantPanel isDocked={true} /> : undefined;
+  const overlayAssistant =
+    showAssistant && (isMobile || !isDockedMode) ? (
+      <div className="admin-assistant-overlay" onClick={() => setShowAssistant(false)}>
+        <div onClick={(e) => e.stopPropagation()}>
+          <AssistantPanel isDocked={false} />
         </div>
-        {/* Mobile always uses overlay */}
-        {showAssistant && (
-          <div className="admin-assistant-overlay" onClick={() => setShowAssistant(false)}>
-            <div onClick={(e) => e.stopPropagation()}>
-              <AssistantPanel isDocked={false} />
-            </div>
-          </div>
-        )}
       </div>
-    );
-  }
+    ) : undefined;
 
-  // Desktop layout with sidebar + content + optional docked assistant
   return (
-    <div
-      className={`admin-dashboard-layout ${showDockedAssistant ? 'admin-dashboard-layout--with-assistant' : ''}`}
+    <AdminToolLayout
+      activeTab="experiments"
+      title="Experiment Details"
+      subtitle="View experiment results and analysis"
+      assistant={dockedAssistant}
+      overlay={overlayAssistant}
     >
-      <AdminSidebar
-        items={SIDEBAR_ITEMS}
-        activeTab="experiments"
-        onTabChange={(tab) => navigate(`/admin/${tab}`)}
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
+      <ExperimentDetail
+        experimentId={experimentIdNum}
+        onBack={handleBack}
+        onEditInLabAssistant={handleEditInLabAssistant}
+        onBuildFromSuggestion={handleBuildFromSuggestion}
+        onOpenAssistant={handleOpenAssistant}
       />
-      <main className="admin-main">
-        <header className="admin-main__header">
-          <button
-            className="admin-main__back admin-back-button admin-back-button--icon"
-            onClick={handleBack}
-            aria-label="Go back to experiments"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="admin-main__header-text">
-            <h1 className="admin-main__title">Experiment Details</h1>
-            <p className="admin-main__subtitle">View experiment results and analysis</p>
-          </div>
-        </header>
-        <div className="admin-main__content">
-          <ExperimentDetail
-            experimentId={experimentIdNum}
-            onBack={handleBack}
-            onEditInLabAssistant={handleEditInLabAssistant}
-            onBuildFromSuggestion={handleBuildFromSuggestion}
-            onOpenAssistant={handleOpenAssistant}
-          />
-        </div>
-      </main>
-
-      {/* Docked Assistant Panel (page-level) */}
-      {showDockedAssistant && <AssistantPanel isDocked={true} />}
-
-      {/* Overlay Assistant Panel */}
-      {showAssistant && !isDockedMode && (
-        <div className="admin-assistant-overlay" onClick={() => setShowAssistant(false)}>
-          <div onClick={(e) => e.stopPropagation()}>
-            <AssistantPanel isDocked={false} />
-          </div>
-        </div>
-      )}
-    </div>
+    </AdminToolLayout>
   );
 }
 
@@ -352,8 +330,6 @@ function ExperimentDetailWrapper() {
 function ReplayResultsWrapper() {
   const { experimentId } = useParams<{ experimentId: string }>();
   const navigate = useNavigate();
-  const { isMobile } = useViewport();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const experimentIdNum = experimentId ? parseInt(experimentId, 10) : NaN;
 
@@ -365,46 +341,14 @@ function ReplayResultsWrapper() {
     return <Navigate to="/admin/experiments" replace />;
   }
 
-  // Mobile layout
-  if (isMobile) {
-    return (
-      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <div className="admin-main__content admin-main__content--mobile">
-          <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
-        </div>
-      </div>
-    );
-  }
-
-  // Desktop layout with sidebar + content
   return (
-    <div className="admin-dashboard-layout">
-      <AdminSidebar
-        items={SIDEBAR_ITEMS}
-        activeTab="experiments"
-        onTabChange={(tab) => navigate(`/admin/${tab}`)}
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
-      />
-      <main className="admin-main">
-        <header className="admin-main__header">
-          <button
-            className="admin-main__back admin-back-button admin-back-button--icon"
-            onClick={handleBack}
-            aria-label="Go back to experiments"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="admin-main__header-text">
-            <h1 className="admin-main__title">Replay Results</h1>
-            <p className="admin-main__subtitle">View replay experiment results and analysis</p>
-          </div>
-        </header>
-        <div className="admin-main__content">
-          <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
-        </div>
-      </main>
-    </div>
+    <AdminToolLayout
+      activeTab="experiments"
+      title="Replay Results"
+      subtitle="View replay experiment results and analysis"
+    >
+      <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
+    </AdminToolLayout>
   );
 }
 
@@ -412,78 +356,37 @@ function ReplayResultsWrapper() {
  * Wrapper for new experiment design page (/admin/experiments/new)
  */
 function NewExperimentWrapper() {
-  const navigate = useNavigate();
-  const { isMobile } = useViewport();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [assistantPanelProps, setAssistantPanelProps] = useState<AssistantPanelProps | null>(null);
 
-  const handleBack = () => {
-    navigate('/admin/experiments');
-  };
-
-  // Mobile layout
-  if (isMobile) {
-    return (
-      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <div className="admin-main__content admin-main__content--mobile">
-          <ExperimentDesigner
-            embedded
-            initialMode="design"
-            onAssistantPanelChange={setAssistantPanelProps}
-          />
-        </div>
+  // Docked Lab Assistant panel (desktop only — AdminToolLayout ignores it on
+  // mobile, where ExperimentDesigner manages its own assistant).
+  const assistant = assistantPanelProps ? (
+    <div className="admin-assistant-panel admin-assistant-panel--docked">
+      <div className="admin-assistant-panel__header">
+        <h3>
+          <MessageSquare size={18} />
+          Lab Assistant
+        </h3>
       </div>
-    );
-  }
-
-  // Desktop layout with sidebar + content + assistant panel
-  return (
-    <div
-      className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}
-    >
-      <AdminSidebar
-        items={SIDEBAR_ITEMS}
-        activeTab="experiments"
-        onTabChange={(tab) => navigate(`/admin/${tab}`)}
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
-      />
-      <main className="admin-main">
-        <header className="admin-main__header">
-          <button
-            className="admin-main__back admin-back-button admin-back-button--icon"
-            onClick={handleBack}
-            aria-label="Go back to experiments"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="admin-main__header-text">
-            <h1 className="admin-main__title">New Experiment</h1>
-            <p className="admin-main__subtitle">Design a new experiment with the Lab Assistant</p>
-          </div>
-        </header>
-        <div className="admin-main__content">
-          <ExperimentDesigner
-            embedded
-            initialMode="design"
-            onAssistantPanelChange={setAssistantPanelProps}
-          />
-        </div>
-      </main>
-
-      {/* Docked Assistant Panel (page-level) */}
-      {assistantPanelProps && (
-        <div className="admin-assistant-panel admin-assistant-panel--docked">
-          <div className="admin-assistant-panel__header">
-            <h3>
-              <MessageSquare size={18} />
-              Lab Assistant
-            </h3>
-          </div>
-          <ExperimentChat {...assistantPanelProps} />
-        </div>
-      )}
+      <Suspense fallback={toolFallback}>
+        <ExperimentChat {...assistantPanelProps} />
+      </Suspense>
     </div>
+  ) : undefined;
+
+  return (
+    <AdminToolLayout
+      activeTab="experiments"
+      title="New Experiment"
+      subtitle="Design a new experiment with the Lab Assistant"
+      assistant={assistant}
+    >
+      <ExperimentDesigner
+        embedded
+        initialMode="design"
+        onAssistantPanelChange={setAssistantPanelProps}
+      />
+    </AdminToolLayout>
   );
 }
 
@@ -492,91 +395,63 @@ function NewExperimentWrapper() {
  */
 function DecisionAnalyzerWrapper() {
   const { captureId } = useParams<{ captureId: string }>();
-  const navigate = useNavigate();
-  const { isMobile } = useViewport();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
   const captureIdNum = captureId ? parseInt(captureId, 10) : undefined;
 
-  const handleBack = () => {
-    navigate('/admin/analyzer');
-  };
+  // The analyzer updates the URL via history.replaceState (no remount), which
+  // useParams/useLocation never observe — so the breadcrumb leaf must track
+  // the live selection in state, not the (stale) route param.
+  const [selectedCapture, setSelectedCapture] = useState<number | undefined>(captureIdNum);
+  // Re-sync if the route param itself changes (e.g. a direct navigation to a
+  // different /admin/analyzer/:id while this wrapper stays mounted).
+  useEffect(() => {
+    setSelectedCapture(captureIdNum);
+  }, [captureIdNum]);
+  const updateCaptureUrl = useCaptureSelectHandler();
+  const handleCaptureSelect = useCallback(
+    (id: number | null) => {
+      setSelectedCapture(id ?? undefined);
+      updateCaptureUrl(id);
+    },
+    [updateCaptureUrl]
+  );
+  const captureLeafLabel = selectedCapture ? `Capture #${selectedCapture}` : null;
 
-  const handleCaptureSelect = useCaptureSelectHandler();
-
-  // Mobile layout
-  if (isMobile) {
-    return (
-      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <div className="admin-main__content admin-main__content--mobile">
-          <DecisionAnalyzer
-            embedded
-            initialCaptureId={captureIdNum}
-            onCaptureSelect={handleCaptureSelect}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Desktop layout with sidebar + content
   return (
-    <div className="admin-dashboard-layout">
-      <AdminSidebar
-        items={SIDEBAR_ITEMS}
-        activeTab="analyzer"
-        onTabChange={(tab) => navigate(`/admin/${tab}`)}
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
+    <AdminToolLayout
+      activeTab="analyzer"
+      title="Decision Analyzer"
+      subtitle="Analyze and replay AI decision prompts"
+      leafLabel={captureLeafLabel}
+    >
+      <DecisionAnalyzer
+        embedded
+        initialCaptureId={captureIdNum}
+        onCaptureSelect={handleCaptureSelect}
       />
-      <main className="admin-main">
-        <header className="admin-main__header">
-          {captureIdNum && (
-            <button
-              className="admin-main__back"
-              onClick={handleBack}
-              aria-label="Go back to analyzer list"
-            >
-              <ArrowLeft size={20} />
-            </button>
-          )}
-          <div className="admin-main__header-text">
-            <h1 className="admin-main__title">Decision Analyzer</h1>
-            <p className="admin-main__subtitle">
-              {captureIdNum ? `Capture #${captureIdNum}` : 'Analyze and replay AI decision prompts'}
-            </p>
-          </div>
-        </header>
-        <div className="admin-main__content">
-          <DecisionAnalyzer
-            embedded
-            initialCaptureId={captureIdNum}
-            onCaptureSelect={handleCaptureSelect}
-          />
-        </div>
-      </main>
-    </div>
+    </AdminToolLayout>
   );
 }
 
-const VALID_SETTINGS_CATEGORIES: SettingsCategory[] = ['models', 'capture', 'storage', 'pricing'];
+const VALID_SETTINGS_CATEGORIES: SettingsCategory[] = [
+  'models',
+  'capture',
+  'storage',
+  'pricing',
+  'appearance',
+  'alerting',
+];
 
 function SettingsWrapper() {
   const { category } = useParams<{ category: string }>();
   const navigate = useNavigate();
-  const { isMobile } = useViewport();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const validCategory = VALID_SETTINGS_CATEGORIES.includes(category as SettingsCategory)
     ? (category as SettingsCategory)
     : 'models';
 
+  // Mobile-only: desktop's back-arrow lives in AdminHeader (useAdminNav).
   const handleBack = () => {
-    if (isMobile) {
-      navigate('/admin', { replace: true });
-    } else {
-      navigate(-1);
-    }
+    navigate('/admin', { replace: true });
   };
 
   const handleCategoryChange = useCallback(
@@ -586,76 +461,43 @@ function SettingsWrapper() {
     [navigate]
   );
 
-  // Mobile layout
-  if (isMobile) {
-    return (
-      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <AdminMenuContainer title="Settings" onBack={handleBack}>
-          <div className="admin-main__content admin-main__content--mobile">
-            <UnifiedSettings
-              embedded
-              initialCategory={validCategory}
-              onCategoryChange={handleCategoryChange}
-            />
-          </div>
-        </AdminMenuContainer>
-      </div>
-    );
-  }
-
-  // Desktop layout with sidebar
   return (
-    <div className="admin-dashboard-layout">
-      <AdminSidebar
-        items={SIDEBAR_ITEMS}
-        activeTab="settings"
-        onTabChange={(tab) => navigate(`/admin/${tab}`)}
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
+    <AdminToolLayout
+      activeTab="settings"
+      title="Settings"
+      subtitle="Models, capture, storage, and pricing"
+      mobileChrome="menu"
+      mobileTitle="Settings"
+      onMobileBack={handleBack}
+    >
+      <UnifiedSettings
+        embedded
+        initialCategory={validCategory}
+        onCategoryChange={handleCategoryChange}
       />
-      <main className="admin-main">
-        <header className="admin-main__header">
-          <button className="admin-main__back" onClick={handleBack} aria-label="Go back">
-            <ArrowLeft size={20} />
-          </button>
-          <div className="admin-main__header-text">
-            <h1 className="admin-main__title">Settings</h1>
-            <p className="admin-main__subtitle">Models, capture, storage, and pricing</p>
-          </div>
-        </header>
-        <div className="admin-main__content">
-          <UnifiedSettings
-            embedded
-            initialCategory={validCategory}
-            onCategoryChange={handleCategoryChange}
-          />
-        </div>
-      </main>
-    </div>
+    </AdminToolLayout>
   );
 }
 
 function AdminTabWrapper() {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
-  const { isMobile } = useViewport();
 
   // Validate the tab parameter
   const validTab = VALID_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'personalities';
 
+  // Mobile-only: desktop's back-arrow lives in AdminHeader (useAdminNav). On
+  // mobile, go up to the admin menu (replace so the original origin stays as
+  // the next back destination).
   const handleBack = () => {
-    // On mobile, go back to admin menu (replace history to preserve original back destination);
-    // on desktop, go back to where they came from
-    if (isMobile) {
-      navigate('/admin', { replace: true });
-    } else {
-      navigate(-1);
-    }
+    navigate('/admin', { replace: true });
   };
 
   const handleTabChange = (newTab: AdminTab) => {
     if (newTab) {
-      navigate(`/admin/${newTab}`);
+      // Lateral tool switch — replace so "back" always means up the nav path,
+      // never "the previous tool I happened to click".
+      navigate(`/admin/${newTab}`, { replace: true });
     } else {
       // Going back to admin menu - replace history to preserve original back destination
       navigate('/admin', { replace: true });
@@ -676,17 +518,14 @@ function AdminTabWrapper() {
 
 function AdminIndex() {
   const navigate = useNavigate();
-  const { isMobile } = useViewport();
 
-  // On desktop, redirect to personalities tab
-  // On mobile, show the menu via AdminDashboard with no tab selected
-  if (!isMobile) {
-    return <Navigate to="/admin/personalities" replace />;
-  }
+  // Both desktop and mobile land on the admin tool menu (AdminDashboard with no
+  // tab selected) — desktop shows the AdminOverview grid, mobile its own menu.
 
   const handleBack = () => {
-    // Go back to where the user came from (game or menu)
-    navigate(-1);
+    // At the admin root, "back" exits to wherever the user entered from
+    // (the game, the cash lobby, a menu) — captured in sessionStorage on entry.
+    navigate(getAdminOrigin());
   };
 
   const handleTabChange = (newTab: AdminTab) => {

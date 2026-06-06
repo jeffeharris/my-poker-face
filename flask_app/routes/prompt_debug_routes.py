@@ -37,185 +37,75 @@ during the game, but focus on explaining your thought process.
 
 @prompt_debug_bp.route('/api/prompt-debug/captures', methods=['GET'])
 def list_captures():
-    """List prompt captures with optional filtering.
+    """List decisions for the Decision Analyzer.
+
+    Spined on player_decision_analysis: one row per decision (LLM, solver,
+    RuleBot, or human), addressed by its real positive `id`. The linked
+    prompt capture (if any) is LEFT JOINed only for LLM-side display fields.
+    Capture-only browse (call_type / error / corrections / labels of
+    non-decision captures) lives in the Prompt Playground, not here.
 
     Query params:
         game_id: Filter by game
-        player_name: Filter by AI player
+        player_name: Filter by player
         action: Filter by action (fold, check, call, raise)
         phase: Filter by phase (PRE_FLOP, FLOP, TURN, RIVER)
-        min_pot_odds: Filter by minimum pot odds
-        max_pot_odds: Filter by maximum pot odds
-        min_pot_size: Filter by minimum pot total
-        max_pot_size: Filter by maximum pot total
-        min_big_blind: Filter by minimum big blind value
-        max_big_blind: Filter by maximum big blind value
-        tags: Comma-separated tags to filter by
-        labels: Comma-separated labels to filter by (uses capture_labels table)
-        label_match_all: If 'true', require ALL labels; if 'false' (default), require ANY
-        call_type: Filter by call type. If omitted and no other call_type-related
-            filter is set, defaults to "captures with attached decision_analysis"
-            so the list shows decisions from both LLM bots (player_decision
-            captures) and TieredBot (whose trace lives on commentary captures).
-            Pass 'all' to disable any call_type / decision filter.
-        has_decision_analysis: 'true'/'false' to filter by presence of a linked
-            decision_analysis row.
-        error_type: Filter by specific error type (e.g., malformed_json, missing_field)
-        has_error: Filter to captures with errors ('true') or without ('false')
-        is_correction: Filter to correction attempts ('true') or originals only ('false')
+        min_pot_odds / max_pot_odds: Filter by derived pot odds
+        min_pot_size / max_pot_size: Filter by pot total
+        display_emotion: Filter by displayed emotion
+        min_tilt_level / max_tilt_level: Filter by tilt level
+        decision_quality: Filter by graded quality (correct/mistake/...)
+        min_ev_lost: Filter by minimum EV lost
         limit: Max results (default 50)
         offset: Pagination offset (default 0)
+
+    The response key stays `captures` for client compatibility, but each item
+    is a decision row keyed by its player_decision_analysis id.
     """
-    # Parse decision-analysis presence filter
-    has_decision_analysis_str = request.args.get('has_decision_analysis')
-    has_decision_analysis: Optional[bool]
-    if has_decision_analysis_str == 'true':
-        has_decision_analysis = True
-    elif has_decision_analysis_str == 'false':
-        has_decision_analysis = False
-    else:
-        has_decision_analysis = None
 
-    # call_type filter. New default: when caller doesn't constrain
-    # call_type and doesn't pass has_decision_analysis, show all
-    # captures that have a linked decision_analysis. That surfaces both
-    # LLM-driven `player_decision` captures and TieredBot's
-    # `commentary` captures that anchor an intervention trace.
-    call_type_arg = request.args.get('call_type')
-    if call_type_arg == 'all':
-        call_type = None
-    elif call_type_arg is None:
-        call_type = None
-        if has_decision_analysis is None:
-            has_decision_analysis = True
-    else:
-        call_type = call_type_arg
+    def _float(name):
+        raw = request.args.get(name)
+        try:
+            return float(raw) if raw else None
+        except (ValueError, TypeError):
+            return None
 
-    # Parse labels filter
-    labels_str = request.args.get('labels', '')
-    labels = [l.strip() for l in labels_str.split(',') if l.strip()] if labels_str else None
-    label_match_all = request.args.get('label_match_all', 'false').lower() == 'true'
+    result = extensions.decision_analysis_repo.list_decisions(
+        game_id=request.args.get('game_id'),
+        player_name=request.args.get('player_name'),
+        action=request.args.get('action'),
+        phase=request.args.get('phase'),
+        min_pot_odds=_float('min_pot_odds'),
+        max_pot_odds=_float('max_pot_odds'),
+        min_pot_size=_float('min_pot_size'),
+        max_pot_size=_float('max_pot_size'),
+        display_emotion=request.args.get('display_emotion'),
+        min_tilt_level=_float('min_tilt_level'),
+        max_tilt_level=_float('max_tilt_level'),
+        decision_quality=request.args.get('decision_quality'),
+        min_ev_lost=_float('min_ev_lost'),
+        limit=int(request.args.get('limit', 50)),
+        offset=int(request.args.get('offset', 0)),
+    )
 
-    # Parse error/correction filters
-    error_type = request.args.get('error_type')
-    has_error_str = request.args.get('has_error')
-    has_error = None
-    if has_error_str == 'true':
-        has_error = True
-    elif has_error_str == 'false':
-        has_error = False
-
-    is_correction_str = request.args.get('is_correction')
-    is_correction = None
-    if is_correction_str == 'true':
-        is_correction = True
-    elif is_correction_str == 'false':
-        is_correction = False
-
-    # Parse psychology filters
-    display_emotion = request.args.get('display_emotion')
-    try:
-        min_tilt_level = (
-            float(request.args.get('min_tilt_level'))
-            if request.args.get('min_tilt_level')
-            else None
-        )
-    except (ValueError, TypeError):
-        min_tilt_level = None
-    try:
-        max_tilt_level = (
-            float(request.args.get('max_tilt_level'))
-            if request.args.get('max_tilt_level')
-            else None
-        )
-    except (ValueError, TypeError):
-        max_tilt_level = None
-
-    filters = {
-        'game_id': request.args.get('game_id'),
-        'player_name': request.args.get('player_name'),
-        'action': request.args.get('action'),
-        'phase': request.args.get('phase'),
-        'min_pot_odds': float(request.args.get('min_pot_odds'))
-        if request.args.get('min_pot_odds')
-        else None,
-        'max_pot_odds': float(request.args.get('max_pot_odds'))
-        if request.args.get('max_pot_odds')
-        else None,
-        'min_pot_size': float(request.args.get('min_pot_size'))
-        if request.args.get('min_pot_size')
-        else None,
-        'max_pot_size': float(request.args.get('max_pot_size'))
-        if request.args.get('max_pot_size')
-        else None,
-        'min_big_blind': float(request.args.get('min_big_blind'))
-        if request.args.get('min_big_blind')
-        else None,
-        'max_big_blind': float(request.args.get('max_big_blind'))
-        if request.args.get('max_big_blind')
-        else None,
-        'tags': request.args.get('tags', '').split(',') if request.args.get('tags') else None,
-        'call_type': call_type,
-        'error_type': error_type,
-        'has_error': has_error,
-        'is_correction': is_correction,
-        'display_emotion': display_emotion,
-        'min_tilt_level': min_tilt_level,
-        'max_tilt_level': max_tilt_level,
-        'has_decision_analysis': has_decision_analysis,
-        'limit': int(request.args.get('limit', 50)),
-        'offset': int(request.args.get('offset', 0)),
-    }
-
-    # Remove None values
-    filters = {k: v for k, v in filters.items() if v is not None}
-
-    # Use label-based search if labels are provided, otherwise use regular listing
-    if labels:
-        result = extensions.capture_label_repo.search_captures_with_labels(
-            labels=labels,
-            match_all=label_match_all,
-            game_id=filters.get('game_id'),
-            player_name=filters.get('player_name'),
-            action=filters.get('action'),
-            phase=filters.get('phase'),
-            min_pot_odds=filters.get('min_pot_odds'),
-            max_pot_odds=filters.get('max_pot_odds'),
-            call_type=filters.get('call_type'),
-            min_pot_size=filters.get('min_pot_size'),
-            max_pot_size=filters.get('max_pot_size'),
-            min_big_blind=filters.get('min_big_blind'),
-            max_big_blind=filters.get('max_big_blind'),
-            limit=filters.get('limit', 50),
-            offset=filters.get('offset', 0),
-        )
-    else:
-        result = extensions.prompt_capture_repo.list_prompt_captures(**filters)
-
-    # Stats are expensive (full-table aggregations) and block the list response.
-    # Callers that want the list to paint fast can pass include_stats=false and
-    # fetch /stats + /label-stats separately (lazy load). Defaults to true for
-    # backwards compatibility.
+    # Stats are expensive (full-table aggregations). Callers that want the
+    # list to paint fast pass include_stats=false and fetch /stats +
+    # /analysis-stats separately. Defaults to true for backwards compat.
     include_stats = request.args.get('include_stats', 'true').lower() != 'false'
     if include_stats:
-        # Pass call_type filter to ensure stats match the filtered view
-        stats = extensions.prompt_capture_repo.get_prompt_capture_stats(
-            game_id=filters.get('game_id'), call_type=filters.get('call_type')
-        )
-        label_stats = extensions.capture_label_repo.get_label_stats(
-            game_id=filters.get('game_id'), call_type=filters.get('call_type')
+        stats = extensions.decision_analysis_repo.get_decision_analysis_stats(
+            game_id=request.args.get('game_id')
         )
     else:
         stats = None
-        label_stats = None
 
     return jsonify(
         {
             'success': True,
-            'captures': result['captures'],
+            'captures': result['decisions'],
             'total': result['total'],
             'stats': stats,
-            'label_stats': label_stats,
+            'label_stats': None,
         }
     )
 
@@ -225,6 +115,13 @@ def get_distinct_emotions():
     """Get distinct display_emotion values from decision analyses."""
     emotions = extensions.prompt_capture_repo.get_distinct_emotions()
     return jsonify({'success': True, 'emotions': emotions})
+
+
+@prompt_debug_bp.route('/api/prompt-debug/players', methods=['GET'])
+def get_distinct_players():
+    """Get distinct player_name values (for the player filter)."""
+    players = extensions.prompt_capture_repo.get_distinct_players()
+    return jsonify({'success': True, 'players': players})
 
 
 @prompt_debug_bp.route('/api/prompt-debug/label-stats', methods=['GET'])
@@ -252,98 +149,30 @@ def get_label_stats():
     return jsonify({'success': True, 'label_stats': label_stats})
 
 
-@prompt_debug_bp.route('/api/prompt-debug/captures/<int(signed=true):capture_id>', methods=['GET'])
-def get_capture(capture_id):
-    """Get a single prompt capture with full details and linked decision analysis.
+@prompt_debug_bp.route('/api/prompt-debug/captures/<int:decision_id>', methods=['GET'])
+def get_capture(decision_id):
+    """Get a single decision with its analysis and (if any) linked prompt capture.
 
-    A negative `capture_id` is the synthetic id used by the listing endpoint
-    for orphan player_decision_analysis rows (sharp/tiered bots that skip the
-    LLM entirely). For those we fetch the PDA directly and synthesize a stub
-    capture so the detail panel still renders — the meaningful data lives on
-    the analysis side anyway.
+    `decision_id` is the real positive `player_decision_analysis.id` — the
+    same id the listing endpoint now returns. The decision is the spine; the
+    prompt capture is fetched via the analysis's `capture_id` and is `null`
+    for decisions that skipped the LLM (solver/tiered/RuleBot/human). The
+    response keeps the `{capture, decision_analysis}` shape the detail panel
+    expects; it degrades gracefully when `capture` is null (LLM-only tabs
+    hide). Replaces the old negative-id / stub-capture indirection.
     """
-    if capture_id < 0:
-        analysis = extensions.decision_analysis_repo.get_decision_analysis(-capture_id)
-        if not analysis:
-            return jsonify({'success': False, 'error': 'Analysis not found'}), 404
-        capture = _stub_capture_from_analysis(analysis, capture_id)
-        decision_analysis = hydrate_decision_analysis(analysis)
-        return jsonify(
-            {
-                'success': True,
-                'capture': capture,
-                'decision_analysis': decision_analysis,
-            }
-        )
+    analysis = extensions.decision_analysis_repo.get_decision_analysis(decision_id)
+    if not analysis:
+        return jsonify({'success': False, 'error': 'Decision not found'}), 404
 
-    capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
+    capture = None
+    capture_id = analysis.get('capture_id')
+    if capture_id:
+        capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
 
-    if not capture:
-        return jsonify({'success': False, 'error': 'Capture not found'}), 404
-
-    # Get linked decision analysis if it exists
-    decision_analysis = extensions.decision_analysis_repo.get_decision_analysis_by_capture(
-        capture_id
-    )
-    decision_analysis = hydrate_decision_analysis(decision_analysis)
+    decision_analysis = hydrate_decision_analysis(analysis)
 
     return jsonify({'success': True, 'capture': capture, 'decision_analysis': decision_analysis})
-
-
-def _stub_capture_from_analysis(analysis: dict, synthetic_id: int) -> dict:
-    """Build a capture-shaped dict from a decision_analysis row.
-
-    Used when the underlying decision skipped the LLM (no prompt capture
-    exists). All prompt/response fields are empty — the detail UI degrades
-    gracefully and the rich pipeline data is shown via the analysis panel.
-    """
-    import json as _json
-
-    def _maybe_parse(value):
-        if isinstance(value, str):
-            try:
-                return _json.loads(value)
-            except (ValueError, TypeError):
-                return None
-        return value
-
-    return {
-        'id': synthetic_id,
-        'created_at': analysis.get('created_at'),
-        'game_id': analysis.get('game_id'),
-        'player_name': analysis.get('player_name'),
-        'hand_number': analysis.get('hand_number'),
-        'phase': analysis.get('phase'),
-        'action_taken': analysis.get('action_taken'),
-        'system_prompt': '',
-        'user_message': '',
-        'ai_response': '',
-        'conversation_history': None,
-        'pot_total': analysis.get('pot_total'),
-        'cost_to_call': analysis.get('cost_to_call'),
-        'pot_odds': None,
-        'player_stack': analysis.get('player_stack'),
-        'community_cards': _maybe_parse(analysis.get('community_cards')),
-        'player_hand': _maybe_parse(analysis.get('player_hand')),
-        'valid_actions': None,
-        'raise_amount': analysis.get('raise_amount'),
-        'provider': None,
-        'model': None,
-        'reasoning_effort': None,
-        'latency_ms': None,
-        'input_tokens': None,
-        'output_tokens': None,
-        'cached_tokens': None,
-        'reasoning_tokens': None,
-        'estimated_cost': None,
-        'tags': [],
-        'notes': None,
-        'error_type': None,
-        'error_description': None,
-        'parent_id': None,
-        'correction_attempt': None,
-        'call_type': None,
-    }
 
 
 @prompt_debug_bp.route('/api/prompt-debug/captures/<int:capture_id>/replay', methods=['POST'])
