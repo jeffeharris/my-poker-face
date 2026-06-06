@@ -1,14 +1,21 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
-import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
-import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
+import type {
+  ChatMessage,
+  GameState,
+  WinnerInfo,
+  BackendChatMessage,
+  RevealedCardsInfo,
+} from '../types';
+import type { TournamentResult, EliminationEvent } from '../types/tournament';
 import type { CashBustEvent, LobbyEvent } from '../components/cash/types';
 import type { RunoutSchedule } from '../types/runout';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
+import { useHandSequencer } from './useHandSequencer';
 
 interface SkillEvaluationFeedback {
   skill_id: string;
@@ -44,25 +51,6 @@ interface UsePokerGameOptions {
 
 export type QueuedAction = 'check_fold' | null;
 
-// State buffer for card animation gating
-enum BufferState {
-  NORMAL = 'NORMAL', // Apply updates immediately
-  GATED = 'GATED', // Cards animating — queue incoming updates
-  REPLAYING = 'REPLAYING', // Animation done — replay queued updates with delays
-}
-
-interface QueuedStateUpdate {
-  gameState: GameState;
-  timestamp: number;
-  handNumber: number; // For staleness detection - ignore updates from previous hands
-}
-
-// Type for revealed hole cards during run-it-out showdown
-interface RevealedCardsInfo {
-  players_cards: Record<string, BackendCard[]>;
-  community_cards: BackendCard[];
-}
-
 interface UsePokerGameResult {
   gameState: GameState | null;
   loading: boolean;
@@ -72,6 +60,13 @@ interface UsePokerGameResult {
   aiThinking: boolean;
   winnerInfo: WinnerInfo | null;
   revealedCards: RevealedCardsInfo | null;
+  /** Sequencer: true while the hand timeline is still playing back (actions /
+   *  board / reactions draining). The "still going, not stalled" signal. */
+  isPlaying: boolean;
+  /** Sequencer: hero hole cards lifted to "present" at an all-in matchup. */
+  heroCommitted: boolean;
+  /** Sequencer: hero hole cards pulled back as the run-out board deals. */
+  heroRetreating: boolean;
   tournamentResult: TournamentResult | null;
   eliminationEvents: EliminationEvent[];
   socketRef: React.MutableRefObject<Socket | null>;
@@ -99,9 +94,6 @@ interface UsePokerGameResult {
 // Cap message arrays to prevent unbounded memory growth in long games
 const MAX_MESSAGES = 200;
 
-// Delay between replaying queued state updates (allows UI to show each action separately)
-const REPLAY_DELAY_MS = 1000;
-
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
   return fetch(url, {
     ...options,
@@ -121,7 +113,6 @@ export function usePokerGame({
   const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const updateStorePlayerOptions = useGameStore((state) => state.updatePlayerOptions);
   const pushWorldEvent = useGameStore((state) => state.pushWorldEvent);
-  const setRunoutSchedule = useGameStore((state) => state.setRunoutSchedule);
   const applyOptimisticAction = useGameStore((state) => state.applyOptimisticAction);
   const rollbackOptimisticAction = useGameStore((state) => state.rollbackOptimisticAction);
   const gameState = useGameStore(useShallow(selectGameState));
@@ -165,15 +156,6 @@ export function usePokerGame({
   // skip subsequent refreshes.
   const gameGoneRef = useRef(false);
 
-  // State buffer for card animation gating
-  // Use refs (not useState) because socket callbacks capture values at registration time,
-  // and we need to read the current buffer state when updates arrive
-  const bufferStateRef = useRef<BufferState>(BufferState.NORMAL);
-  const updateQueueRef = useRef<QueuedStateUpdate[]>([]);
-  const replayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const gateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevCommunityCardCountRef = useRef<number>(0);
-
   const clearWinnerInfo = useCallback(() => {
     setWinnerInfo(null);
     setRevealedCards(null);
@@ -197,48 +179,8 @@ export function usePokerGame({
   }, []);
 
   // ========================================================================
-  // State Buffer for Card Animation Gating
+  // Hand-presentation sequencer (replaces the old card-animation state buffer)
   // ========================================================================
-
-  /**
-   * Calculate gate duration based on newly dealt card count.
-   * Matches frontend animation timing in useCommunityCardAnimation.ts
-   */
-  const calculateGateDuration = useCallback((newlyDealtCount: number): number => {
-    if (newlyDealtCount === 3) {
-      // Flop: 3 cards with 1s cascade delays (0s, 1s, 2s) + 0.825s animation each
-      // Last card starts at 2s delay + 0.825s duration = 2.825s when last card lands
-      return 2825;
-    } else if (newlyDealtCount === 1) {
-      // Turn/River: single card with 0.825s animation duration
-      return 825;
-    }
-    return 0;
-  }, []);
-
-  /**
-   * Clear gate and replay timeouts.
-   */
-  const clearBufferTimers = useCallback(() => {
-    if (gateTimeoutRef.current) {
-      clearTimeout(gateTimeoutRef.current);
-      gateTimeoutRef.current = null;
-    }
-    if (replayTimeoutRef.current) {
-      clearTimeout(replayTimeoutRef.current);
-      replayTimeoutRef.current = null;
-    }
-  }, []);
-
-  /**
-   * Reset buffer to initial state (used on disconnect, refresh, etc.)
-   */
-  const resetBuffer = useCallback(() => {
-    clearBufferTimers();
-    updateQueueRef.current = [];
-    bufferStateRef.current = BufferState.NORMAL;
-    prevCommunityCardCountRef.current = 0;
-  }, [clearBufferTimers]);
 
   /**
    * Handle messages from a game state update.
@@ -298,159 +240,26 @@ export function usePokerGame({
     [applyGameState, handleMessagesFromState, updateAiThinkingFromState]
   );
 
-  /**
-   * Replay queued updates one by one with 1s delay between each.
-   */
-  const scheduleNextReplay = useCallback(() => {
-    if (updateQueueRef.current.length === 0) {
-      logger.debug('[BUFFER] Replay complete, returning to NORMAL');
-      bufferStateRef.current = BufferState.NORMAL;
-      replayTimeoutRef.current = null;
-      return;
-    }
-
-    const nextUpdate = updateQueueRef.current.shift();
-    if (!nextUpdate) {
-      // Defensive check - should not happen given length check above
-      logger.error('[BUFFER] Unexpected empty queue during replay');
-      bufferStateRef.current = BufferState.NORMAL;
-      replayTimeoutRef.current = null;
-      return;
-    }
-
-    logger.debug('[BUFFER] Replaying update', {
-      remaining: updateQueueRef.current.length,
-      queuedAt: nextUpdate.timestamp,
-    });
-
-    applyStateUpdate(nextUpdate.gameState);
-
-    // If this replayed update dealt community cards, hold the next update back
-    // until the deal animation finishes — otherwise the follow-up state would
-    // clobber the in-flight cascade (cards snap mid-flight). Non-deal updates
-    // use the standard inter-action delay.
-    const replayedDealCount = nextUpdate.gameState.newly_dealt_count ?? 0;
-    const nextDelay =
-      replayedDealCount > 0 ? calculateGateDuration(replayedDealCount) : REPLAY_DELAY_MS;
-
-    // Schedule next replay after delay
-    replayTimeoutRef.current = setTimeout(() => {
-      try {
-        scheduleNextReplay();
-      } catch (error) {
-        logger.error('[BUFFER] Replay failed, resetting to NORMAL:', error);
-        resetBuffer();
-      }
-    }, nextDelay);
-  }, [applyStateUpdate, calculateGateDuration, resetBuffer]);
-
-  /**
-   * Start replaying queued updates after gate expires.
-   */
-  const startReplay = useCallback(() => {
-    gateTimeoutRef.current = null;
-
-    if (updateQueueRef.current.length === 0) {
-      logger.debug('[BUFFER] No queued updates, returning to NORMAL');
-      bufferStateRef.current = BufferState.NORMAL;
-      return;
-    }
-
-    logger.debug('[BUFFER] Starting replay', {
-      queueLength: updateQueueRef.current.length,
-    });
-    bufferStateRef.current = BufferState.REPLAYING;
-    scheduleNextReplay();
-  }, [scheduleNextReplay]);
-
-  /**
-   * Process an incoming game state update with buffering logic.
-   * - Detects newly dealt cards and opens a gate
-   * - Queues updates during gate/replay
-   * - Applies updates immediately in NORMAL state
-   * - Interrupts replay and clears queue if new cards arrive during REPLAYING state
-   */
-  const processStateUpdate = useCallback(
-    (data: { game_state: GameState }) => {
-      try {
-        // Validate incoming data
-        if (!data?.game_state) {
-          logger.error('[BUFFER] Received invalid state update - missing game_state', { data });
-          return;
-        }
-
-        const transformedState: GameState = {
-          ...data.game_state,
-          messages: data.game_state.messages || [],
-        };
-
-        // Detect newly dealt community cards
-        const currentCardCount = transformedState.community_cards?.length ?? 0;
-        const newlyDealtCount = transformedState.newly_dealt_count ?? 0;
-        const cardsJustDealt =
-          newlyDealtCount > 0 && currentCardCount > prevCommunityCardCountRef.current;
-
-        // Update tracking ref
-        prevCommunityCardCountRef.current = currentCardCount;
-
-        if (cardsJustDealt && bufferStateRef.current === BufferState.NORMAL) {
-          // Cards dealt while idle - apply immediately (so animation starts) and open gate
-          logger.debug('[BUFFER] Cards dealt, opening gate', { newlyDealtCount, currentCardCount });
-
-          // Apply card-dealing state immediately
-          applyStateUpdate(transformedState);
-
-          // Enter GATED state
-          bufferStateRef.current = BufferState.GATED;
-
-          // Set timer to start replay after animation completes
-          const gateDuration = calculateGateDuration(newlyDealtCount);
-          gateTimeoutRef.current = setTimeout(() => {
-            try {
-              startReplay();
-            } catch (error) {
-              logger.error('[BUFFER] startReplay failed, resetting to NORMAL:', error);
-              resetBuffer();
-            }
-          }, gateDuration);
-
-          return;
-        }
-
-        // Handle based on current buffer state
-        if (bufferStateRef.current === BufferState.NORMAL) {
-          // Normal mode: apply immediately
-          applyStateUpdate(transformedState);
-        } else {
-          // GATED or REPLAYING: queue the update to preserve ordering and pacing.
-          //
-          // A deal that arrives mid-gate (e.g. the next street, when betting
-          // finished faster than the current cascade) must NOT be applied
-          // immediately — that would clobber the in-flight animation and the
-          // earlier cards would snap mid-flight. Queue it with newly_dealt_count
-          // intact so it animates cleanly when replayed (scheduleNextReplay then
-          // re-gates for the deal's duration). Non-deal updates have their count
-          // zeroed so a replayed state never re-triggers the animation hook.
-          logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
-            queueLength: updateQueueRef.current.length + 1,
-            cardsJustDealt,
-          });
-          updateQueueRef.current.push({
-            gameState: cardsJustDealt
-              ? transformedState
-              : { ...transformedState, newly_dealt_count: 0 },
-            timestamp: Date.now(),
-            handNumber: transformedState.hand_number ?? 0,
-          });
-        }
-      } catch (error) {
-        logger.error('[BUFFER] Failed to process state update:', error);
-        // Attempt recovery: reset buffer to prevent stuck state
-        resetBuffer();
-      }
-    },
-    [applyStateUpdate, calculateGateDuration, resetBuffer, startReplay]
-  );
+  // The sequencer owns the whole hand-playback timeline: it queues every backend
+  // signal (actions, deals, the all-in reveal, the winner) and drains them beat-
+  // by-beat on one clock, so the result is always the last beat (never outruns
+  // the actions) and the run-out paces itself client-side. See
+  // docs/plans/RUNOUT_PRESENTATION_SEQUENCER.md.
+  const sequencer = useHandSequencer({
+    applyState: applyStateUpdate,
+    setReveal: setRevealedCards,
+    setWinner: setWinnerInfo,
+  });
+  const {
+    enqueueState,
+    enqueueReveal,
+    enqueueWinner,
+    setSchedule,
+    reset: resetSequencer,
+    isPlaying,
+    heroCommitted,
+    heroRetreating,
+  } = sequencer;
 
   // ========================================================================
   // Socket Listeners
@@ -463,8 +272,8 @@ export function usePokerGame({
         // Clear aiThinking so UI doesn't appear stuck while disconnected
         setAiThinking(false);
         clearAiThinkingTimeout();
-        // Reset state buffer on disconnect
-        resetBuffer();
+        // Drop any in-flight sequencer timeline on disconnect
+        resetSequencer();
       });
 
       socket.on('player_joined', (_data: { message: string }) => {
@@ -472,9 +281,14 @@ export function usePokerGame({
       });
 
       socket.on('update_game_state', (data: { game_state: GameState }) => {
+        if (!data?.game_state) {
+          logger.error('[SEQUENCER] Received invalid state update — missing game_state', { data });
+          return;
+        }
         clearAiThinkingTimeout();
-        // Use buffer logic to handle card animation timing
-        processStateUpdate(data);
+        // Feed the state into the sequencer as an ordered beat. Messages arrive
+        // on a normalized empty array so downstream message handling is uniform.
+        enqueueState({ ...data.game_state, messages: data.game_state.messages || [] });
       });
 
       // Listen for new message (singular - desktop format)
@@ -554,22 +368,26 @@ export function usePokerGame({
 
       socket.on('winner_announcement', (data: WinnerInfo) => {
         clearAiThinkingTimeout();
-        setWinnerInfo(data);
+        // Enqueue the verdict as the terminal beat — it lands only after every
+        // queued action/board beat has drained, so the result can't outrun the
+        // actions that produced it.
+        enqueueWinner(data);
         // Clear queue when hand ends (sync ref immediately for consistency)
         queuedActionRef.current = null;
         setQueuedAction(null);
       });
 
-      // Listen for hole cards reveal during run-it-out showdown
+      // Hole cards reveal at an all-in run-out showdown — a sequencer beat so the
+      // matchup hold and the hero card-commit gesture are paced on the one clock.
       socket.on('reveal_hole_cards', (data: RevealedCardsInfo) => {
-        setRevealedCards(data);
+        enqueueReveal(data);
       });
 
-      // Per-card run-out reaction schedule (mobile director, Phase 2). Emitted
-      // once at the all-in hole-card reveal; carries reactions + timing only (no
-      // board cards). The mobile `useRunoutDirector` walks it; desktop ignores it.
+      // Per-card run-out reaction schedule. Emitted once at the all-in hole-card
+      // reveal; carries reactions + timing only (no board cards). Stored as data;
+      // the sequencer resolves each card's faces from it at fire time.
       socket.on('runout_schedule', (data: RunoutSchedule) => {
-        setRunoutSchedule(data);
+        setSchedule(data);
       });
 
       socket.on('player_eliminated', (data: EliminationEvent) => {
@@ -711,9 +529,11 @@ export function usePokerGame({
       updateStorePlayers,
       updateStorePlayerOptions,
       pushWorldEvent,
-      setRunoutSchedule,
-      resetBuffer,
-      processStateUpdate,
+      resetSequencer,
+      enqueueState,
+      enqueueReveal,
+      enqueueWinner,
+      setSchedule,
     ]
   );
 
@@ -738,8 +558,9 @@ export function usePokerGame({
       if (gameGoneRef.current) return false;
       try {
         clearAiThinkingTimeout();
-        // Reset buffer on full refresh to prevent stale queued state
-        resetBuffer();
+        // Drop any in-flight sequencer timeline on a full refresh — the fetched
+        // state is applied directly below, with no stale replay.
+        resetSequencer();
 
         // Fetch with a bounded retry on 404. A cash session that's
         // only in the DB (server restarted mid-session) rehydrates on
@@ -778,8 +599,6 @@ export function usePokerGame({
         const currentPlayer = data.players[data.current_player_idx];
 
         applyGameState(data);
-        // Update card count ref to match refreshed state (prevents false gate trigger)
-        prevCommunityCardCountRef.current = data.community_cards?.length ?? 0;
 
         if (!silent) {
           setLoading(false);
@@ -801,7 +620,7 @@ export function usePokerGame({
         return false;
       }
     },
-    [clearAiThinkingTimeout, applyGameState, resetBuffer, handleGameGone]
+    [clearAiThinkingTimeout, applyGameState, resetSequencer, handleGameGone]
   );
 
   // Keep ref in sync for socket callback access
@@ -944,10 +763,10 @@ export function usePokerGame({
       if (aiThinkingTimeoutRef.current) {
         clearTimeout(aiThinkingTimeoutRef.current);
       }
-      // Clear buffer timers
-      clearBufferTimers();
+      // Drop any pending sequencer timers (the sequencer also self-cleans on unmount).
+      resetSequencer();
     };
-  }, [clearBufferTimers]);
+  }, [resetSequencer]);
 
   const handlePlayerAction = useCallback(
     async (action: string, amount?: number) => {
@@ -1218,6 +1037,9 @@ export function usePokerGame({
     aiThinking,
     winnerInfo,
     revealedCards,
+    isPlaying,
+    heroCommitted,
+    heroRetreating,
     tournamentResult,
     eliminationEvents,
     socketRef,
