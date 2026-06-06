@@ -18,6 +18,37 @@ ticker as its **own dedicated process**. Everything ships behind **default-off
 flags** with the current in-memory path as a no-regression fallback. See the
 broader context in `docs/SCALING.md`.
 
+## ⚠️ Review corrections (2026-06-06, Codex, code-grounded)
+Read these before implementing — they change scope and ordering:
+
+1. **`gunicorn -w 2` does NOT work** with `GeventWebSocketWorker` (Flask-SocketIO
+   can't multi-worker under one master). Phase 6 / "Stage 2" must be **multiple
+   single-worker *containers*** behind sticky Caddy + the Redis MQ — never `-w 2`.
+2. **The ticker reads web-worker-local memory** — `_tick_sandbox` →
+   `live_cash_seated_pids()` (avoid reusing personas in live hands, `ticker_service.py:461`,
+   `lobby.py:1188`) and the stale-session watchdog's `skip_game_ids` (`ticker_service.py:220`).
+   A standalone process can't see those → **live-table corruption**. **Prerequisite:**
+   replace those reads with durable DB/session-state queries *before* extraction.
+3. **The sandbox-lock race is REAL, not "near-disjoint."** Human `sit` starts from an
+   *unseated/open* table and races the ticker's live-fill on the **same `cash_tables`
+   seat JSON** (`cash_routes.py:1352` vs `ticker_service.py:430`). The "option (a)
+   accept the split" below is **wrong** — a cross-process Redis lock (option b) is
+   **required**, not deferrable.
+4. **The 5-step rollout is NOT safe as written.** Step 4's double-tick window is
+   genuinely unsafe (world mutation is non-idempotent, fires every 2 s). Use a Redis
+   **ticker-owner lease** (or stop web ticking *before* starting the external ticker).
+5. **Redis presence design fixes:** add a `presence:sid_owner:{sid} → owner` reverse
+   map (`mark_inactive(sid)` only gets a sid); ZSETs can't TTL members (use
+   `ZREMRANGEBYSCORE`); a live socket must **not** expire on a 60 s TTL (today
+   `active_sessions()` treats `bool(sids)` as active regardless of `last_seen`,
+   `presence.py:151`; handlers only write on connect/disconnect, `game_routes.py:2467`)
+   → add a heartbeat or preserve `bool(sids)` semantics.
+6. Ticker process won't get `create_app()`'s DB-teardown lifecycle — test long-running
+   ticker DB connection behavior, not just "world ticker started."
+
+**Net:** 1B is a P1 project gated on prerequisites #2/#3, not the immediate next step.
+For ~20 users, do the Stage 0 tuning in `docs/SCALING.md` first (keep `-w 1`).
+
 ## Flags (all default OFF)
 | Flag | Effect |
 |---|---|

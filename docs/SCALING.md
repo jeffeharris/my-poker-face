@@ -88,14 +88,36 @@ registered users.
 
 ## Staged scaling blueprint (cheapest-first)
 
+> **Reviewed 2026-06-06 (Codex, code-grounded) — two corrections folded in:**
+> (1) **`gunicorn -w 2` does NOT work** with `GeventWebSocketWorker`: Flask-SocketIO
+> can't run multiple workers under one gunicorn master (no inter-worker sticky
+> routing). The real horizontal path is multiple **single-worker *containers*** behind
+> a sticky LB + Redis `message_queue` — never `-w 2`.
+> (2) The ticker **can't simply move to its own process**: it reads web-worker-local
+> game memory (`live_cash_seated_pids()` to avoid reusing personas in live hands;
+> the stale-session watchdog) and races the human-`sit` path on the same
+> `cash_tables` seat JSON. So 1B has **hard prerequisites** and drops below the cheap
+> tuning wins.
+
 | Stage | Move | Effort | Removes |
 |---|---|---|---|
-| **1A** | Memoize strategy tables in `tiered_factory.py` | ~2 h, ~0 risk | per-game-start JSON re-reads |
-| **1B** | Extract ticker → own process + Redis presence + Socket.IO `message_queue` | 3–5 d | the `-w 1` lock (PRH-10) |
-| **2** | Web tier `-w 2+` (needs RAM) | 1–2 d | single-core foreground ceiling |
-| **3** | Bigger box (CPX21 4 GB ≈ +€6/mo) + `-w 3` | ~1 h, no code | RAM cap on workers — **best ROI** |
+| **0 — tuning** | Relieve the single worker (knobs below), keep `-w 1` | ~1 d | foreground contention — **likely enough for 20** |
+| **1A** ✅ done | Memoize strategy tables in `tiered_factory.py` | ~2 h | per-game-start JSON re-reads |
+| **3** | Bigger box (CPX21 4 GB ≈ +€6/mo) | ~1 h, no code | RAM/CPU headroom — **best ROI** |
+| **1B** | Extract ticker → own process + Redis presence + Socket.IO MQ — **has prerequisites (below)** | 1–2 wk | the `-w 1` lock |
+| **2** | Multiple single-worker *containers* + sticky Caddy + Redis MQ (**not** `-w 2`) | 3–5 d | single-process foreground ceiling |
 | **4** | Per-owner sandbox sharding (consistent-hash `owner_id`) | 1–2 wk | horizontal ceiling / SPOF |
 | **5** | SQLite → Postgres (per-sandbox schemas) | 2–4 wk | concurrent-write limit |
+
+**For the 20-user target, Stage 0 + (if needed) Stage 3 is very likely sufficient — without 1B/2 at all.**
+
+### Stage 0 — tune the single worker (do first, for 20 users)
+Keep `-w 1`; just reduce what competes for the one gevent core. Low risk, mostly env/config:
+- **`DECISION_ANALYSIS_ITERATIONS`** (env, prod=500; `decision_analyzer.py:981` even notes lowering it "raises the concurrent-hands ceiling") → drop to ~200–300. Directly cuts the per-AI-decision equity-MC CPU burst (the main non-yielding foreground cost).
+- **`SOCKETIO_ASYNC_MODE=gevent`** (env, currently `threading` — `config.py:63`) → validate in prod; better cooperative yielding under the gevent-websocket worker.
+- **Ticker pacing** (`ticker_service.py`): lower `WORLD_TICKER_MAX_SANDBOXES` (env, default 50) and make `CYCLE_BUDGET_MS` (const 250 ms, line 42) + the ~2 s tick interval env-tunable, then give the foreground more core (slower world is fine — casual).
+- **Off-screen narration → templated** (`vice_use_llm_narration` / `hustle_use_llm_narration` in `cash_mode/lobby.py`, default True; the `False` path already exists) → removes the ticker's LLM calls/latency.
+- Already shipped: Stage 1A memoization + the `mem_limit` cap.
 
 ### Stage 1A — memoize strategy tables (do now)
 `flask_app/handlers/tiered_factory.py` calls `load_strategy_table()` /
@@ -106,38 +128,46 @@ behind a lock, mirroring `cash_mode/full_sim.py:340-366`. Tables are immutable �
 safe to share. Removes ~20–50 ms of cold-start latency and the per-start
 filesystem reads. Zero risk.
 
-### Stage 1B — extract the world ticker (the keystone)
-The only thing forcing `-w 1` is that presence + ticker are in-process singletons.
-- Add a `RedisPresenceStore` (`presence.py`) behind `PRESENCE_REDIS_ENABLED`
-  (in-memory stays as the default/fallback — no regression). Web workers write
-  presence to Redis on connect/disconnect/touch; the ticker reads it.
-- New `flask_app/services/ticker_worker.py`: `create_app()` to wire repos, then
-  `start_world_ticker(socketio)` and park. Run as a dedicated `ticker` service in
-  compose (one elected ticker).
-- Guard `start_world_ticker()` in `flask_app/__init__.py` behind
-  `TICKER_PROCESS_EXTERNAL != '1'` so the web workers stop running their own.
-- Add `message_queue=REDIS_URL` to the `SocketIO(...)` ctor (`flask_app/extensions.py`)
-  so the ticker process can emit to clients on the web workers via Redis pub/sub.
-- **Highest-risk piece:** the sandbox seat-mutation lock
-  (`game_state_service.get_sandbox_lock`) is in-memory. Across processes, the
-  ticker (touches *unseated* tables via `refresh_unseated_tables`) and web workers
-  (human `sit` on *seated* tables) barely overlap — option (a) accept that
-  near-disjoint split initially; option (b) Redis `SET NX PX` distributed lock.
-  Confirm the overlap is narrow before relying on (a).
+### Stage 1B — extract the world ticker (only after prerequisites)
+Moving the ticker to its own process is what eventually breaks the `-w 1` lock,
+but it is **not** mechanical. Full plan + risks: `docs/plans/SCALING_STAGE_1B.md`.
+**Hard prerequisites (must land first):**
+1. **Decouple the ticker from web-worker memory.** `_tick_sandbox` feeds
+   `refresh_unseated_tables` from `live_cash_seated_pids()` (avoid reusing personas
+   in *live* hands) and the stale-session watchdog reads local `game_state_service.games`.
+   A separate process can't see those → live-table corruption. Replace those reads
+   with durable DB/session-state queries first.
+2. **Cross-process seat lock.** Human `sit` starts from an *unseated/open* table and
+   races the ticker's live-fill on the **same `cash_tables` seat JSON**
+   (`cash_routes.py` vs `ticker_service.py` `refresh_unseated_tables`). The in-memory
+   `get_sandbox_lock` won't coordinate two processes — needs a Redis `SET NX PX`
+   lock on all seat-mutation paths. (The earlier "near-disjoint, defer it" take was
+   wrong.)
+3. **No double-tick on rollout.** World mutation is non-idempotent and fires every
+   2 s; never run the in-process and dedicated tickers concurrently. Use a Redis
+   **ticker-owner lease** (or stop web ticking *before* starting the external one).
 
-Develop entirely behind the flag (off) without touching prod.
+Foundations safe to build behind off-flags meanwhile: `RedisPresenceStore`
+(`PRESENCE_REDIS_ENABLED`, in-memory fallback — note the live-socket-must-not-expire
+TTL + `sid→owner` reverse-map gotchas in the 1B plan) and Socket.IO
+`message_queue=REDIS_URL` (`SOCKETIO_REDIS_MQ_ENABLED`) — keep the in-process ticker
+as owner while validating.
 
-### Stage 2 — multi-worker web tier
-After 1B: bump `-w 1` → `-w 2+`. Requires `message_queue=REDIS_URL` (Stage 1B)
-for cross-worker Socket.IO, and **sticky sessions** (Caddy `ip_hash` / cookie) so a
-live game stays on its worker (game state remains per-worker; no need to move it
-to Redis). **RAM gate:** 2 workers × ~550 MB > the current 1200 MB cap — raise
-`mem_limit` or do Stage 3 first.
+### Stage 2 — more concurrency: multiple single-worker *containers* (NOT `-w 2`)
+`gunicorn -w 2` is unusable here: Flask-SocketIO under `GeventWebSocketWorker`
+cannot run multiple workers under one master (no sticky routing between them). To
+add foreground capacity, run **N separate backend *containers*, each `gunicorn -w 1`**,
+behind **Caddy sticky routing** (cookie/IP) + the Redis `message_queue` (so emits
+cross processes). Prerequisite: audit process-local state first
+(`game_state_service.games`/`game_locks`, the preflop-leak cache, boot/watchdog
+jobs) — sticky sessions keep a live game on one container but do NOT protect shared
+SQLite rows from concurrent writers across containers. Each container pays the
+~550 MB baseline.
 
 ### Stage 3 — bigger box (best ROI)
-Hetzner CPX21 (4 GB, ~+€6/mo) → `mem_limit` headroom for `-w 3` = ~3× foreground
-throughput. Pure ops change (`docker-compose.prod.yml` + Hetzner resize). Likely
-carries to ~50 concurrent active users.
+Hetzner CPX21 (4 GB, ~+€6/mo) gives RAM/CPU headroom on the single box. Pure ops
+change (`docker-compose.prod.yml` + Hetzner resize). Combined with Stage 0 tuning,
+this is the cheapest route to comfortable 20-user headroom.
 
 ### Stage 4 — per-owner sandbox sharding
 Consistent-hash on `owner_id` → each user pinned to a shard (box/container group)
@@ -153,15 +183,18 @@ migrations in `schema_manager.py`, the `sqlite3` usage in `base_repository.py`.
 **Defer until Stage 3 is exhausted** — SQLite+WAL+`retry_on_lock` is robust well
 past current traffic.
 
-## Near-term recommendation
+## Near-term recommendation (the 20-user target)
 
-- **Now:** Stage 1A (2 h win) + start Stage 1B's `RedisPresenceStore` behind a
-  default-off flag (zero prod risk to build).
-- **First real scale-out (when sustained concurrent active users cross ~15):**
-  ship 1B + 2 + the 4 GB box together. Sequence: deploy RedisPresenceStore (flag
-  off) → add Socket.IO `message_queue` → flip `PRESENCE_REDIS_ENABLED` → deploy the
-  `ticker` service → set `TICKER_PROCESS_EXTERNAL=1` on the backend → raise
-  `mem_limit` + `-w 2` (+ box upgrade).
+- **Stage 1A** ✅ done.
+- **Stage 0 tuning is the actual 20-user fix** — keep `-w 1`: lower
+  `DECISION_ANALYSIS_ITERATIONS` (~250), validate `SOCKETIO_ASYNC_MODE=gevent`, ease
+  ticker pacing, templated off-screen narration. Cheap, low-risk, reversible per knob.
+- **Stage 3** (4 GB box) if tuning alone leaves it tight — best ROI.
+- **1B / 2 are NOT needed for 20 users** and carry real correctness work (the 1B
+  prerequisites above + the no-`-w 2` constraint). Defer until a single *tuned*
+  `-w 1` box is genuinely exhausted.
+- The `RedisPresenceStore` + Socket.IO MQ foundations can be built behind off-flags
+  any time (zero prod risk), but they don't add capacity until 1B/2 land.
 
 ## What NOT to do
 
@@ -169,8 +202,14 @@ past current traffic.
   per-user sim is ~free and self-throttling).
 - **Don't jump to Postgres early** — exhaust Stage 3 first; the migration surface
   is large and SQLite handles current load comfortably.
-- **Don't add workers without RAM** — each worker pays the ~550 MB baseline; 2 on
-  the current 1.9 GB box exceeds the budget.
+- **Don't run `gunicorn -w 2`** — Flask-SocketIO + `GeventWebSocketWorker` can't
+  multi-worker under one master (no inter-worker sticky routing). Add capacity with
+  separate single-worker *containers* behind a sticky LB + Redis MQ instead.
+- **Don't add backend containers without RAM** — each pays the ~550 MB baseline; two
+  on the current 1.9 GB box exceeds the budget.
+- **Don't extract the ticker before its prerequisites** (decouple from web-worker
+  game memory + cross-process seat lock + ticker-owner lease) — it mutates live
+  tables and will corrupt seats/ledgers across processes otherwise.
 - **Don't deploy from a dev box** — manual `./deploy.sh` from a laptop has bitten
   prod (local DB sidecars clobbering prod's WAL, file-mode/perm drift). Use the CI
   pipeline (clean checkout + `chown` + `data/`-excluded rsync).
