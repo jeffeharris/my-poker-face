@@ -1320,6 +1320,13 @@ class AITournamentRunner:
                         action = response.get('action', 'fold')
                         amount = response.get('raise_to', 0)
 
+                        # Snapshot pre-action values for amount normalization
+                        # (current_player is a frozen pre-action player; game_state
+                        # is reassigned by play_turn below).
+                        pre_highest_bet = game_state.highest_bet
+                        pre_player_bet = current_player.bet
+                        pre_player_stack = current_player.stack
+
                         logger.debug(
                             f"  {current_player.name}: {action} {amount if amount else ''}"
                         )
@@ -1340,14 +1347,26 @@ class AITournamentRunner:
                         # Apply action
                         game_state = play_turn(game_state, action, amount)
 
-                        # Record action for opponent modeling
+                        # Record action for opponent modeling. Normalize
+                        # call/all_in (raise_to=0) to the real chip increment via
+                        # the shared helper so contributions + chip flow are
+                        # non-zero (matches the live web + lobby sim paths).
+                        from poker.memory.memory_manager import normalize_action_amount
+
                         active_player_names = [
                             p.name for p in game_state.players if not p.is_folded and p.stack > 0
                         ]
+                        record_amount = normalize_action_amount(
+                            action,
+                            amount,
+                            highest_bet=pre_highest_bet,
+                            player_bet=pre_player_bet,
+                            player_stack=pre_player_stack,
+                        )
                         memory_manager.on_action(
                             player_name=current_player.name,
                             action=action,
-                            amount=amount,
+                            amount=record_amount,
                             phase=state_machine.current_phase.name,
                             pot_total=game_state.pot['total'],
                             active_players=active_player_names,

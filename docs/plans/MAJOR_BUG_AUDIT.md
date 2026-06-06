@@ -43,25 +43,30 @@ Severity: **S1** critical · **S2** major · **S3** moderate. Status: ✅ fixed 
   `test_explicit_id_collision_raises`.
 - **Regression:** `test_resave_preserves_times_used`, `test_resave_preserves_id_and_created_at`.
 
+### ✅ 1. Call/all-in actions recorded with `amount=0` → relationship + off-screen economy corrupted — S2 *(cluster of 2)*
+- **Was:** `BoundedOption.raise_to == 0` for both `call` and `all_in`. Only the live web path
+  normalized `call`; nothing normalized `all_in`, and the sim/experiment paths normalized neither.
+  `get_player_contributions` then credited 0 chips and `allocate_chip_flow` dropped any loser with
+  `contrib<=0`, killing `ChipFlow` → no BIG_WIN/BIG_LOSS/KNOCKOUT and no `cash_pair_stats` PnL. The
+  lobby sim was worst (no normalization AND no blinds recorded → pure call-down losses emitted zero
+  flow). Real chip ledger unaffected → invisible; accumulated wrong AI memory indefinitely.
+- **Fix:** One shared helper `poker.memory.memory_manager.normalize_action_amount(action, raw, *,
+  highest_bet, player_bet, player_stack)` — `call` → cost-to-call clamped to stack, `all_in` →
+  remaining stack, else passthrough. Called by all three recording paths:
+  - `flask_app/handlers/game_handler.py` (web; replaced the inline call-only normalization, now also
+    handles `all_in`),
+  - `cash_mode/full_sim.py` (lobby sim; + added the missing `record_blinds` after the first deal),
+  - `experiments/run_ai_tournament.py` (experiment runner).
+- **Regression:** `tests/test_memory/test_call_amount_recording.py` —
+  `TestAllInAmountNormalization`, `test_all_in_records_stack_not_zero`,
+  `test_all_in_loser_produces_nonzero_chip_flow` (end-to-end: shove → contribution → ChipFlow). Also
+  collapsed that file's divergent `_normalize_call_amount` re-implementation onto the shared helper.
+
 ---
 
 ## Open — ranked
 
 ### S2 (top tier)
-
-#### ⬜ 1. Call/all-in actions recorded with `amount=0` → relationship + off-screen economy corrupted *(cluster of 2)*
-`BoundedOption.raise_to == 0` for both `call` and `all_in`. Only the live web path normalizes
-`call` to its real cost; nothing normalizes `all_in`, and the sim/experiment paths normalize
-neither. `get_player_contributions` then credits 0 chips and `allocate_chip_flow` drops any loser
-with `contrib<=0`, killing `ChipFlow` → no BIG_WIN/BIG_LOSS/KNOCKOUT and no `cash_pair_stats` PnL.
-Lobby-sim path is worst (no call-norm and no blinds → pure call-down losses emit zero flow). Real
-chip ledger unaffected → invisible; accumulates wrong AI memory indefinitely.
-- **Files:** `poker/memory/hand_history.py:209,219`, `poker/memory/chip_flow.py:99`,
-  `poker/memory/hand_outcome_detector.py:336,1230`, `flask_app/handlers/game_handler.py:4566`,
-  `poker/bounded_options.py:868,1106`, `cash_mode/full_sim.py:1219`,
-  `experiments/run_ai_tournament.py:1321,1350`.
-- **Scope:** Normalize `all_in` (and add call-norm + `record_blinds` to the two sim paths) at a
-  shared recording chokepoint mirroring the existing web `call` normalization.
 
 #### ⬜ 3. Tournament stuck-payout reconcile mis-derives `(human_owner_id, real_persona_ids)` → pays wrong accounts
 Crash-recovery `reconcile_stuck_payouts` re-derives the human/persona split with a
@@ -198,9 +203,9 @@ table-specific.
 
 ## Cross-cutting themes
 
-- **`BoundedOption.raise_to == 0` for call/all-in + per-path normalization** — the single biggest
-  damage source (#1). Three recording paths each normalize differently; only web's `call` is correct.
-  Fix once at a shared chokepoint.
+- **`BoundedOption.raise_to == 0` for call/all-in + per-path normalization** — was the single biggest
+  damage source (#1, ✅ FIXED). Three recording paths each normalized differently; resolved by one
+  shared `normalize_action_amount` helper they all call.
 - **SQLite `INSERT OR REPLACE` clobbers omitted columns** — DELETE+INSERT resets any column not in the
   write list (often added by a later migration, or owned by a different writer). The recurring trap:
   an upsert on a *stable/recurring* PK where a *different* path writes a column this statement omits.

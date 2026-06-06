@@ -4546,15 +4546,21 @@ def handle_ai_action(game_id: str) -> None:
         ai_controllers=current_game_data.get('ai_controllers'),
     )
 
-    # Normalize the recorded amount for calls: the LLM/UI passes raise_to=0 for
-    # calls since they're not raising, but downstream consumers (opponent model,
-    # c-bet detector, hand recap, decision analysis) expect the actual call
-    # cost. Compute it from the pre-action state.
-    record_amount = amount
-    if action == 'call':
-        record_amount = max(
-            0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack)
-        )
+    # Normalize the recorded amount: the LLM/UI passes raise_to=0 for `call` and
+    # `all_in` (those read cost/stack directly), but downstream consumers
+    # (opponent model, c-bet detector, hand recap, decision analysis, and chip-
+    # flow / cash_pair_stats accounting) expect the actual chip increment.
+    # Compute it from the pre-action state via the shared helper so all three
+    # recording paths stay consistent.
+    from poker.memory.memory_manager import normalize_action_amount
+
+    record_amount = normalize_action_amount(
+        action,
+        amount,
+        highest_bet=pre_action_state.highest_bet,
+        player_bet=current_player.bet,
+        player_stack=current_player.stack,
+    )
     record_action_in_memory(
         current_game_data, current_player.name, action, record_amount, game_state, state_machine
     )
