@@ -23,10 +23,15 @@ via `app_settings` without a deploy.
 
 | Tier | Code default (`config.py`) | Prod (`app_settings`) | Used for |
 |---|---|---|---|
-| DEFAULT | `openai/gpt-5-mini` | same | commentary, end-of-hand narration, theme gen, image description, sharp-bot in-hand narration |
-| FAST | `groq/llama-3.1-8b-instant` | **`xai/grok-4-fast`** | chat suggestions, categorization, vice/side-hustle narration, beat cleanup |
+| DEFAULT | `openai/gpt-5-mini` | same | commentary, end-of-hand + sharp-bot narration, theme gen, image description |
+| FAST | `groq/llama-3.1-8b-instant` | **`xai/grok-4-fast`** | player-read flavor: chat suggestions, vice/side-hustle narration |
+| NANO | `groq/llama-3.1-8b-instant` | same | mechanical, never-read: beat cleanup, categorization |
 | ASSISTANT | `deepseek/deepseek-chat` | same | coaching, personality gen, experiment design/analysis, theme |
 | IMAGE | `runware/runware:400@1` (FLUX.2 dev) | same | avatar / character images |
+
+NANO exists so the mechanical plumbing stays on the cheapest/fastest model even
+when prod bumps FAST to a pricier, more characterful model (grok) for the lines
+players actually read. All tiers are editable in the admin Settings UI.
 
 Which models are **enabled** at DB init is `DEFAULT_ENABLED_MODELS` in
 `config.py` (seeded into `enabled_models` by `schema_manager`): currently
@@ -71,12 +76,20 @@ fire-and-forget. **Ticker**: runs in the single shared world-tick greenlet.
 | Chat suggestions / targeted / post-round | `stats_routes.py` (3 routes) | FAST (minimal) | 15s / JSON error |
 | Coaching reactive `ask` | `coach_assistant.py:228` | ASSISTANT | route 504/500/503 |
 
-### Action-incidental but currently BLOCKING the hand (Phase-2 async candidates)
-| Call | Site | Tier | Why it's deferrable |
+### In-hand flavor — must stay SYNC, but kept cheap/fast
+These run synchronously on the AI turn and **cannot be made async**: the narration
+has to be delivered *with* the action it describes (async would detach the line
+from its hand), and beat cleanup has to finish *before* the comment can post. The
+lever is the model, not the dispatch.
+| Call | Site | Tier | Why sync |
 |---|---|---|---|
-| Sharp-bot Layer-3 narration | `tiered_bot_controller.py:4060` → `expression_generator.py` | DEFAULT (minimal) | action is solver-locked *before* this; pure flavor. Sharp = default opponent |
-| Beat cleanup | `controllers.py` / `expression_generator.py` cleanup client | FAST (minimal) | cosmetic format repair of already-decided text |
-| End-of-hand commentary join | `game_handler.py` `commentary_complete.wait(10)` | DEFAULT (minimal) | commentary already streams per-player via callback; the 10s next-hand join is dead wait |
+| Sharp-bot Layer-3 narration | `tiered_bot_controller.py:4060` → `expression_generator.py` | DEFAULT (minimal) | the comment must match the action it narrates (held until ready) |
+| Beat cleanup | `controllers.py` / `expression_generator.py` / `commentary_generator.py` cleanup clients | **NANO** (minimal) | reformats the narration before it can post; mechanical → cheapest model |
+
+### Genuinely reducible (Phase 2)
+| Call | Site | Why |
+|---|---|---|
+| End-of-hand commentary join | `game_handler.py` `commentary_complete.wait(10)` | commentary already streams per-player via callback; the 10s next-hand join is mostly dead wait and can be shortened/removed |
 
 ### Already async (the correct template)
 `_run_async_narration` (fire-and-forget), proactive-coach prefetch (overlaps
@@ -120,6 +133,11 @@ now quality-vs-cost, not latency.
   none. Set tier defaults: DEFAULT=`gpt-5-mini`, FAST=`llama-3.1-8b-instant`
   (prod overrides to grok), IMAGE=`runware:400@1`; enabled them as system models
   at DB init.
-- **Phase 2 (planned):** move the three "action-incidental but blocking" calls off
-  the synchronous hand path (stream narration after the action; drop the
-  commentary join).
+- **2026-06-06 (NANO tier):** added a 5th tier for mechanical, never-read work
+  (beat cleanup, categorization) defaulting to `groq/llama-3.1-8b-instant`, so it
+  stays cheap/fast even when prod points FAST at grok. Exposed in the admin
+  Settings UI alongside the other tiers. Corrected the earlier plan: sharp-bot
+  narration and beat cleanup must stay SYNC (the narration matches its action;
+  cleanup precedes posting) — the lever was the tier, not async.
+- **Phase 2 (planned):** shorten/remove the end-of-hand commentary 10s join (the
+  only genuinely reducible blocker; commentary already streams per-player).

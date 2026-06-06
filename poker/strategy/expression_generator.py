@@ -86,14 +86,14 @@ class ExpressionGenerator:
         try:
             from core.llm import LLMClient
             from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
-            from core.llm.settings import get_fast_model, get_fast_provider
+            from core.llm.settings import get_nano_model, get_nano_provider
 
             self._cleanup_client = LLMClient(
-                provider=get_fast_provider(),
-                model=get_fast_model(),
-                # Cosmetic beat-repair: minimal reasoning selects the non-reasoning
-                # variant on toggleable FAST models (xAI grok-4-fast) instead of the
-                # slow default-"low" reasoning variant.
+                provider=get_nano_provider(),
+                model=get_nano_model(),
+                # NANO tier: cosmetic beat-repair is mechanical and never read, so
+                # the cheapest/fastest model (not the FAST flavor model). minimal
+                # reasoning also picks the non-reasoning variant on toggleable models.
                 reasoning_effort="minimal",
                 # PRH-18: in-game (sharp-bot Layer-3) narration — bound it so a
                 # stalled provider can't hang the hand under the per-game lock.

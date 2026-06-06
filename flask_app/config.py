@@ -218,6 +218,8 @@ from core.llm.settings import (  # noqa: F401
     get_fast_provider,
     get_image_model,
     get_image_provider,
+    get_nano_model,
+    get_nano_provider,
 )
 
 # Database path

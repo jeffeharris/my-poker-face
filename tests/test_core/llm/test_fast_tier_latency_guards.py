@@ -45,6 +45,17 @@ def test_llmclient_default_effort_picks_reasoning_minimal_picks_fast(monkeypatch
     )
 
 
+def test_nano_tier_defaults_to_cheapest_model():
+    # NANO is the mechanical/never-read tier — must stay on the cheap/fast model
+    # regardless of what FAST is pointed at (prod bumps FAST to grok).
+    from core.llm import config, settings
+
+    assert config.NANO_PROVIDER == "groq"
+    assert config.NANO_MODEL == "llama-3.1-8b-instant"
+    assert callable(settings.get_nano_model)
+    assert callable(settings.get_nano_provider)
+
+
 @pytest.mark.parametrize("provider_cls", [XAIProvider, OpenAIProvider, GroqProvider])
 def test_sdk_retries_disabled(provider_cls):
     # The app-level loop owns retries; the SDK must not add its own (which would

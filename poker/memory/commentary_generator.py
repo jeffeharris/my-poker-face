@@ -152,13 +152,13 @@ class CommentaryGenerator:
             return self._cleanup_client
         try:
             from core.llm.config import FAST_LLM_TIMEOUT_SECONDS
-            from core.llm.settings import get_fast_model, get_fast_provider
+            from core.llm.settings import get_nano_model, get_nano_provider
 
             self._cleanup_client = LLMClient(
-                provider=get_fast_provider(),
-                model=get_fast_model(),
-                # Cosmetic beat-repair: minimal reasoning (non-reasoning variant on
-                # toggleable FAST models) + a bounded timeout.
+                provider=get_nano_provider(),
+                model=get_nano_model(),
+                # NANO tier: cosmetic beat-repair is mechanical and never read —
+                # cheapest/fastest model + minimal reasoning + a bounded timeout.
                 reasoning_effort="minimal",
                 default_timeout=FAST_LLM_TIMEOUT_SECONDS,
             )

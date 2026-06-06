@@ -73,6 +73,8 @@ interface SystemSettingsData {
   DEFAULT_MODEL: SettingConfig;
   FAST_PROVIDER: SettingConfig;
   FAST_MODEL: SettingConfig;
+  NANO_PROVIDER: SettingConfig;
+  NANO_MODEL: SettingConfig;
   IMAGE_PROVIDER: SettingConfig;
   IMAGE_MODEL: SettingConfig;
   ASSISTANT_PROVIDER: SettingConfig;
@@ -224,6 +226,7 @@ export function UnifiedSettings({
   const [systemLoading, setSystemLoading] = useState(true);
   const [editedGeneralModel, setEditedGeneralModel] = useState(''); // "openai:gpt-5-nano"
   const [editedFastModel, setEditedFastModel] = useState(''); // "openai:gpt-5-nano"
+  const [editedNanoModel, setEditedNanoModel] = useState(''); // "groq:llama-3.1-8b-instant"
   const [editedImageModel, setEditedImageModel] = useState(''); // "runware:runware:101@1"
   const [editedAssistantModel, setEditedAssistantModel] = useState(''); // "deepseek:deepseek-reasoner"
   const [systemSaving, setSystemSaving] = useState(false);
@@ -555,6 +558,7 @@ export function UnifiedSettings({
         // Initialize edited values as "provider:model" combined strings
         setEditedGeneralModel(`${settings.DEFAULT_PROVIDER.value}:${settings.DEFAULT_MODEL.value}`);
         setEditedFastModel(`${settings.FAST_PROVIDER.value}:${settings.FAST_MODEL.value}`);
+        setEditedNanoModel(`${settings.NANO_PROVIDER.value}:${settings.NANO_MODEL.value}`);
         setEditedImageModel(`${settings.IMAGE_PROVIDER.value}:${settings.IMAGE_MODEL.value}`);
         setEditedAssistantModel(
           `${settings.ASSISTANT_PROVIDER.value}:${settings.ASSISTANT_MODEL.value}`
@@ -614,6 +618,27 @@ export function UnifiedSettings({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: 'FAST_MODEL', value: fastModel }),
+          })
+        );
+      }
+
+      // Parse nano model
+      const [nanoProvider, ...nanoModelParts] = editedNanoModel.split(':');
+      const nanoModel = nanoModelParts.join(':');
+      const originalNano = `${systemSettings.NANO_PROVIDER.value}:${systemSettings.NANO_MODEL.value}`;
+      if (editedNanoModel !== originalNano) {
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'NANO_PROVIDER', value: nanoProvider }),
+          })
+        );
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'NANO_MODEL', value: nanoModel }),
           })
         );
       }
@@ -679,6 +704,8 @@ export function UnifiedSettings({
         'DEFAULT_MODEL',
         'FAST_PROVIDER',
         'FAST_MODEL',
+        'NANO_PROVIDER',
+        'NANO_MODEL',
         'IMAGE_PROVIDER',
         'IMAGE_MODEL',
         'ASSISTANT_PROVIDER',
@@ -708,6 +735,8 @@ export function UnifiedSettings({
       `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}` ||
       editedFastModel !==
         `${systemSettings.FAST_PROVIDER.value}:${systemSettings.FAST_MODEL.value}` ||
+      editedNanoModel !==
+        `${systemSettings.NANO_PROVIDER.value}:${systemSettings.NANO_MODEL.value}` ||
       editedImageModel !==
         `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}` ||
       editedAssistantModel !==
@@ -864,12 +893,21 @@ export function UnifiedSettings({
               )}
               {renderModelSelectorCard(
                 'Fast',
-                'Chat suggestions, categorization, quick tasks',
+                'Player-read flavor: chat suggestions, lobby narration',
                 editedFastModel,
                 setEditedFastModel,
                 fastModels,
                 systemSettings.FAST_PROVIDER,
                 systemSettings.FAST_MODEL
+              )}
+              {renderModelSelectorCard(
+                'Nano',
+                'Mechanical, never-read tasks: beat cleanup, categorization',
+                editedNanoModel,
+                setEditedNanoModel,
+                fastModels,
+                systemSettings.NANO_PROVIDER,
+                systemSettings.NANO_MODEL
               )}
               {renderModelSelectorCard(
                 'Image',

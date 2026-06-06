@@ -47,6 +47,14 @@ DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "openai")
 FAST_MODEL = os.environ.get("FAST_MODEL", "llama-3.1-8b-instant")
 FAST_PROVIDER = os.environ.get("FAST_PROVIDER", "groq")
 
+# NANO tier — mechanical, internal-only work that no user reads and that needs no
+# comprehension (beat-format cleanup, emotion/action categorization). Always the
+# cheapest, fastest model regardless of what FAST is pointed at: prod bumps FAST
+# to a pricier, more characterful model (grok) for player-read flavor, but this
+# plumbing should never pay that cost. Kept separate so it stays on llama.
+NANO_MODEL = os.environ.get("NANO_MODEL", "llama-3.1-8b-instant")
+NANO_PROVIDER = os.environ.get("NANO_PROVIDER", "groq")
+
 # Model for assistants (experiment designer, etc.)
 # Default: DeepSeek Chat (supports tools + optional thinking mode)
 # Note: deepseek-reasoner does NOT support tool calling
