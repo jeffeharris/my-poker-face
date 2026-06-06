@@ -14,11 +14,14 @@ consumes the `SeatSpec`s this module produces.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from flask_app.services.tournament_naming import named_standings
 from tournament.beats import build_beats, level_transition_beats
 from tournament.session import TournamentSession, paid_places_for
+
+logger = logging.getLogger(__name__)
 
 # Outcome kinds for the human's game after a hand boundary.
 CONTINUE = 'continue'  # human still in, same table — deal the next hand
@@ -207,6 +210,11 @@ def reconcile_live_table(
         current_ante=big_blind,
         last_raise_amount=big_blind,
         current_dealer_idx=dealer_idx,
+        # Reset to 0: the roster just changed size, so a stale current_player_idx
+        # could point past the new (possibly shorter) tuple. The index is
+        # meaningless between hands and the next deal re-derives it; leaving it
+        # stale would IndexError on the next read (see poker_game.current_player).
+        current_player_idx=0,
     )
 
     # ai_controllers keys on the display name (like cash); map display -> pid so
@@ -270,6 +278,18 @@ def advance_tournament_after_hand(
     from poker.table.seat import seat_key
 
     session: TournamentSession = game_data['tournament_session']
+
+    # Terminal short-circuit: if the field is already complete or the human is
+    # already out, do NOT call apply_live_round (it raises RuntimeError on a
+    # terminal session). This happens on a re-entered boundary — e.g. a prior
+    # boundary advanced the session to terminal but the game wasn't stopped, or
+    # two boundary calls race. Return the terminal outcome so the game finalizes
+    # on the win/standings screen instead of wedging.
+    if session.is_complete() or session.human_out:
+        standings = named_standings(session)
+        kind = COMPLETE if session.is_complete() else HUMAN_OUT
+        return BoundaryOutcome(kind, None, standings, [])
+
     field_ids = set(session.field.stacks)
     # Fall back to the session's own table id when game_data is missing the
     # key. A cold load can re-attach the session without re-stamping
@@ -337,11 +357,21 @@ def human_table_seat_specs(session: TournamentSession) -> list[SeatSpec]:
     dealer_index = table.dealer_index_in_occupied()
     specs: list[SeatSpec] = []
     for i, pid in enumerate(table.players):
+        # Defensive `.get()` (mirrors session._apply_result): a pid seated at the
+        # table but missing from the field stacks/entries is a live/session desync.
+        # `[]` here would KeyError and PERMANENTLY freeze the human's game at the
+        # boundary; instead treat the unknown seat as busted (stack 0 → reconcile
+        # drops it) and log, so the event keeps moving.
+        if pid not in session.field.stacks:
+            logger.warning(
+                "seat %s at the human's table is absent from the field — treating as out",
+                pid,
+            )
         specs.append(
             SeatSpec(
                 player_id=pid,
-                stack=session.field.stacks[pid],
-                archetype=session.entries[pid],
+                stack=session.field.stacks.get(pid, 0),
+                archetype=session.entries.get(pid, 'TAG'),
                 is_human=(pid == session.human_id),
                 is_button=(i == dealer_index),
             )

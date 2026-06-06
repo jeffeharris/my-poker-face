@@ -232,6 +232,12 @@ class PokerGameState:
         Returns:
         bool: True if the big blind player can raise or check, False otherwise.
         """
+        # Defensive: reached from are_pot_contributions_valid on the read-only
+        # to_dict() path. With a shrunk players tuple the current index can point
+        # past the end — there's no current player who could act, so return False
+        # rather than IndexError-storming the poll loop.
+        if not 0 <= self.current_player_idx < len(self.players):
+            return False
         # Check if no community cards are dealt, which would indicate that we are in the pre-flop round of betting
         no_community_cards_dealt = len(self.community_cards) == 0
         big_blind_player = self.players[self.big_blind_idx]
@@ -250,6 +256,13 @@ class PokerGameState:
         Used when the player's turn comes up to display the available actions.
         Build the list functionally without mutations.
         """
+        # Defensive: this property is computed unconditionally by to_dict() on the
+        # read-only API/emit path. If the players tuple has shrunk (e.g. busted
+        # seats pruned at a HAND_OVER pause) the index can transiently point past
+        # the end — return no options rather than IndexError-storming every poll.
+        # The next deal re-derives a valid index.
+        if not 0 <= self.current_player_idx < len(self.players):
+            return []
         player = self.current_player
         # How much is it to call the bet for the player?
         player_cost_to_call = self.highest_bet - player.bet
