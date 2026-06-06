@@ -5,6 +5,11 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Cap backend RAM so a runaway/leak recycles ONLY the backend instead of
+    # letting the kernel OOM-kill a random container on this small (1.9G) box.
+    # Steady state is ~770M; 1200m leaves growth headroom but bounds it.
+    mem_limit: 1200m
+    mem_reservation: 768m
     dns:
       - 8.8.8.8
       - 8.8.4.4
