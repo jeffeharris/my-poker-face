@@ -148,6 +148,19 @@ class BettingContext:
         Returns:
             A BettingContext with all betting constraints for current player.
         """
+        # Defensive: api_game_state builds this unconditionally on every poll. When
+        # the players tuple has shrunk at a between-hands pause the index can point
+        # past the end — return a benign empty context instead of IndexError-
+        # storming the poll loop. The next deal re-derives a valid index.
+        if not 0 <= game_state.current_player_idx < len(game_state.players):
+            return BettingContext(
+                player_stack=0,
+                player_current_bet=0,
+                highest_bet=game_state.highest_bet,
+                pot_total=game_state.pot.get('total', 0),
+                min_raise_amount=game_state.min_raise_amount,
+                available_actions=(),
+            )
         player = game_state.current_player
 
         return BettingContext(
