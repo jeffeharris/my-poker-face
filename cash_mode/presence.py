@@ -1,15 +1,18 @@
-"""Entity-Presence state machine — pure, non-authoritative (Cut 3, Phase 2 core).
+"""Entity-Presence state machine — the pure core of the live seat authority.
 
 This module implements the *Presence* half of the two-machine model described in
 ``docs/plans/CASH_MODE_STATE_MODEL.md`` (§5.1, §6). It answers one question:
 **"where is this actor?"** — and makes the ``seated_and_idle`` / ``double_seat``
 contradiction class *unrepresentable* rather than merely detected.
 
-Status: ADDITIVE AND DORMANT. Nothing in the live cash-mode codepaths calls this
-yet. The pure machine here and its backing table (``entity_presence``) exist so a
-later, human-reviewed phase can reroute the seat (``save_table``, 25 callsites) /
-idle-pool / hustle / vice writers through it (see
-``docs/plans/CASH_MODE_PRESENCE_MIGRATION.md``).
+Status: LIVE (cutover complete). ``PRESENCE_AUTHORITY_ENABLED`` defaults True and
+is set in every compose file, so this machine and its backing table
+(``entity_presence``) are the AUTHORITATIVE seat / idle / whereabouts source in
+prod — not dormant. The seat writers (``save_table`` et al.) route through it.
+Treat ``entity_presence`` as load-bearing: bootstrapping cash seats outside
+``save_table``, or truncating the table, will make seated players vanish.
+(History: this began as an additive/dormant shadow; see
+``docs/plans/CASH_MODE_PRESENCE_MIGRATION.md``.)
 
 Design contract (mirrors ``poker/poker_state_machine.py``):
 

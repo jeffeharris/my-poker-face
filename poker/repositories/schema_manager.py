@@ -7259,12 +7259,12 @@ class SchemaManager:
         'seated'` (enforced in the application layer by the pure machine and
         structurally by the CHECK constraint below).
 
-        ADDITIVE AND DORMANT: nothing reads or writes this table yet. A later,
-        human-reviewed phase reroutes the seat / idle-pool / hustle / vice writers
-        through the machine (see `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`).
-        Until then `cash_idle_pool`, `ai_side_hustle_state`, `ai_vice_state`, and
-        the occupancy half of `cash_tables` remain the authorities — this table
-        changes no behaviour.
+        NOTE (cutover complete): the presence machine is now LIVE
+        (`PRESENCE_AUTHORITY_ENABLED` defaults True), so this table is the
+        authoritative seat source and the seat / idle-pool / hustle / vice writers
+        route through it (see `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`). It was
+        additive-and-dormant when first created at this migration; that is history,
+        not current behaviour.
 
         Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). See
         `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6).

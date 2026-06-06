@@ -68,8 +68,10 @@ def apply_pot_odds_floor(
        invested more chips than you have left. Folding forfeits a large
        sunk-cost claim on the pot to save very little. Target: `call`.
 
-    3. **Tiny pot odds** (`cost / (cost + pot) <= 0.15`): need ≤15%
-       equity to break even. Any non-zero-equity hand is +EV to call.
+    3. **Tiny pot odds** (`cost / (cost + pot) <= 0.05`, the
+       `TINY_POT_ODDS_RATIO` constant): need ≤5% equity to break even
+       (and `cost_to_call < TINY_CALL_BB_THRESHOLD` so it doesn't fire on
+       routine deep-stack spots). Any non-zero-equity hand is +EV to call.
        Target: `call`.
 
     Phase 7.6 (Step 4): returns `(strategy, trace)`. The legacy second

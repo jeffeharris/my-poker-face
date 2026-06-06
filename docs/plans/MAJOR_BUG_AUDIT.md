@@ -179,11 +179,11 @@ conservation intact.
 | ⬜ 19 | Seated→leave vice intercept bypasses the reserve gate that throttles the idle path | `ai_vice_spending.py:905-1012,769-787`, `lobby.py:2491-2494` | When `VICE_RESERVE_GATED` armed (prod default ON), over-refills reserves |
 | ⬜ 20 | Two divergent `paid_places_for` (15% display vs 30% payout) | `tournament/session.py:46-51` vs `tournament/economy.py:21-33` | Bubble beat fires at wrong moment; no chip mishandling |
 | ⬜ 21 | Anthropic provider double-counts extended-thinking tokens in cost estimation | `core/llm/providers/anthropic.py:207-212`, `tracking.py:476-491` | Over-estimates spend; non-default tier |
-| ⬜ 22 | THEME_GENERATION routed to Assistant tier (deepseek), not documented Default (gpt-5-mini) | `personality_routes.py:689,703` + CLAUDE.md tier map | Cost-attribution drift; possibly the doc is stale, not the code |
-| ⬜ 23 | Presence subsystem docstrings say "DORMANT — nothing reads/writes" while it's the default-ON prod seat authority | `cash_mode/presence.py:8-12`, `entity_presence_repository.py:9-12`, `schema_manager.py:7157-7162` | Stale-doc footgun; runtime is correct + self-healing |
-| ⬜ 24 | `OpenAIProvider.image_model` returns Runware id for the default model | `core/llm/providers/openai.py:71-74`, `config.py:75` | Dead path; guaranteed 400 if ever hit |
-| ⬜ 25 | AI chat-bubble avatars always render `confident` (dead branch reads removed attr) | `message_handler.py:159`, `game_handler.py:596` | Cosmetic; only the departed-AI farewell edge case |
-| ⬜ 26 | `math_floor` docstring (0.15 / "≤15%") contradicts active constant (0.05) | `poker/strategy/math_floor.py:44,71-73,124` | Doc only; zero behavioral effect |
+| ✅ 22 | THEME_GENERATION tier doc-drift | CLAUDE.md tier map | FIXED — code intentionally uses Assistant tier (PRH-7); doc updated to Assistant + noted `call_type` is a tracking tag, not a selector |
+| ✅ 23 | Presence docstrings said "DORMANT" while it's the default-ON prod seat authority | `cash_mode/presence.py`, `entity_presence_repository.py`, `schema_manager.py` (v128) | FIXED — docstrings updated to LIVE/load-bearing |
+| ✅ 24 | `OpenAIProvider.image_model` returned the Runware SKU for the default model | `core/llm/providers/openai.py` | FIXED — falls back to `dall-e-3` (OpenAI's own image model); dropped the orphaned IMAGE_MODEL import |
+| ✅ 25 | AI chat-bubble avatars always rendered `confident` (dead read of removed `emotional_state`) | `message_handler.py`, `game_routes.py` | FIXED — read `controller.psychology.get_display_emotion()`; updated the false-green avatar test (it mocked the dead attr) |
+| ✅ 26 | `math_floor` docstring (0.15 / "≤15%") contradicted active constant (0.05) | `poker/strategy/math_floor.py` | FIXED — docstring now matches `TINY_POT_ODDS_RATIO=0.05` |
 
 ---
 

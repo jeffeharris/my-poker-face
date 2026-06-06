@@ -340,7 +340,7 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    | `CATEGORIZATION` | Nano | mechanical classification |
    | `PERSONALITY_GENERATION` | Assistant | Stronger model; Default is the cheap in-game LLM |
    | `PERSONALITY_PREVIEW` | Assistant | Matches personality generation |
-   | `THEME_GENERATION` | Default | |
+   | `THEME_GENERATION` | Assistant | Stronger model; the `/generate-theme` route builds an Assistant-tier client (PRH-7). `call_type` is only a tracking tag — it does not drive tier selection. |
    | `IMAGE_GENERATION` | Image | |
    | `IMAGE_DESCRIPTION` | Default | drives image prompts — needs comprehension |
    | `EXPERIMENT_DESIGN` | Assistant | |
