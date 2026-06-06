@@ -291,16 +291,12 @@ class _CashSitRouteBase(unittest.TestCase):
         # "session already active" 409 on the next test's sit.
         with self.cash_table_repo._get_connection() as conn:
             conn.execute("DELETE FROM cash_tables")
-            conn.execute("DELETE FROM cash_idle_pool")
+            conn.execute("DELETE FROM cash_idle_metadata")
             conn.execute("DELETE FROM games WHERE game_id LIKE 'cash-%'")
-            # Wipe presence too: tests that flip authority ON write
-            # `entity_presence` rows that would otherwise leak into the next
-            # test (which re-seeds the lobby under authority-OFF, leaving stale
-            # SEATED rows that the projection trusts).
-            try:
-                conn.execute("DELETE FROM entity_presence")
-            except Exception:
-                pass
+            # Wipe presence too: every seat write under authority (now permanent)
+            # records `entity_presence` rows that would otherwise leak into the
+            # next test, leaving stale SEATED rows the read-side projection trusts.
+            conn.execute("DELETE FROM entity_presence")
         ensure_lobby_seeded(
             cash_table_repo=self.cash_table_repo,
             personality_repo=self.personality_repo,
@@ -335,11 +331,8 @@ class _CashSitRouteBase(unittest.TestCase):
 
         with self.cash_table_repo._get_connection() as conn:
             conn.execute("DELETE FROM cash_tables")
-            conn.execute("DELETE FROM cash_idle_pool")
-            try:
-                conn.execute("DELETE FROM entity_presence")
-            except Exception:
-                pass
+            conn.execute("DELETE FROM cash_idle_metadata")
+            conn.execute("DELETE FROM entity_presence")
         ensure_lobby_seeded(
             cash_table_repo=self.cash_table_repo,
             personality_repo=self.personality_repo,
@@ -405,9 +398,12 @@ class TestSitAll(_CashSitRouteBase):
 
     def test_full_table_409(self):
         # A genuinely full table (no open seat to fall back to) still 409s,
-        # now with a "Table is full" message.
+        # now with a "Table is full" message. Each seat is a DISTINCT AI:
+        # presence is the occupancy authority (one entity = one seat), so the
+        # same persona in every seat would only confirm one — the read-side
+        # projection would render the rest open and the sit would succeed.
         table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
-        full_seats = [ai_slot(self.napoleon_id, 80) for _ in table.seats]
+        full_seats = [ai_slot(f"{self.napoleon_id}-fill-{i}", 80) for i in range(len(table.seats))]
         self.cash_table_repo.save_table(
             CashTableState(
                 table_id=table.table_id,

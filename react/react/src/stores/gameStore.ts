@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import type { Player } from '../types/player';
 import type { GameState, BettingContext, CashModeInfo } from '../types/game';
 import type { LobbyEvent } from '../components/cash/types';
-import type { RunoutSchedule } from '../types/runout';
 
 // Stable references to avoid creating new objects on every selectGameState call
 const EMPTY_MESSAGES: never[] = [];
@@ -50,15 +49,18 @@ interface GameStore {
   aiInstant: boolean;
   /** Owner's game speed is 'always' (fast-forward every turn) → FF button hidden. */
   alwaysFastForward: boolean;
-  // Run-out reveal director (mobile, all-in run-outs). The backend emits the
-  // per-card reaction schedule once at reveal; `useRunoutDirector` walks it to
-  // play per-card avatar reactions on a client-owned beat. `runoutDirectorActive`
-  // marks that the director owns reactions right now — the socket layer drops
-  // the backend's street-level `is_reaction` avatar updates while it's true so
-  // they don't clobber the finer per-card faces (desktop, which has no director,
-  // leaves it false and keeps the backend reactions).
-  runoutSchedule: RunoutSchedule | null;
+  // Hand-presentation sequencer (all-in run-outs). `runoutDirectorActive` marks
+  // that the sequencer owns avatar faces right now — the socket layer drops the
+  // backend's street-level `is_reaction` avatar updates while it's true, and
+  // `applyGameState` keeps the sequencer-set face over an incoming full push, so
+  // neither clobbers the finer per-card reactions.
   runoutDirectorActive: boolean;
+  // Authoritative community-card deal trigger from the sequencer. `token` is
+  // monotonic — the board animation fires once per token, so a re-render or a
+  // duplicate state push can't re-deal the same street. `count` new cards landed
+  // on a board of size `total` (the new ones are the last `count`). Null until
+  // the first deal of the session.
+  cardDeal: { token: number; count: number; total: number } | null;
   // Optimistic-action rollback snapshot. When the human commits a chip action
   // we move chips to the pot immediately (before the server confirms) for
   // responsiveness; this holds the pre-action slices so we can revert if the
@@ -70,8 +72,10 @@ interface GameStore {
   updatePlayers: (updater: (prev: Player[] | null) => Player[] | null) => void;
   updatePlayerOptions: (options: string[]) => void;
   pushWorldEvent: (event: LobbyEvent) => void;
-  setRunoutSchedule: (schedule: RunoutSchedule | null) => void;
   setRunoutDirectorActive: (active: boolean) => void;
+  /** Fire the board-deal animation for `count` cards on a board of `total`
+   *  (bumps the monotonic token). Called by the sequencer's deal beat. */
+  signalCardDeal: (count: number, total: number) => void;
   /** Optimistically move chips to the pot for the acting player's commit. */
   applyOptimisticAction: (action: string, amount: number | undefined) => void;
   /** Revert the last optimistic action (used when the server rejects it). */
@@ -110,8 +114,8 @@ const initialState = {
   worldEvents: [] as BufferedWorldEvent[],
   aiInstant: false,
   alwaysFastForward: false,
-  runoutSchedule: null as RunoutSchedule | null,
   runoutDirectorActive: false,
+  cardDeal: null as { token: number; count: number; total: number } | null,
   optimisticSnapshot: null as OptimisticSnapshot | null,
 };
 
@@ -246,12 +250,14 @@ export const useGameStore = create<GameStore>((set) => ({
     set({ playerOptions: options });
   },
 
-  setRunoutSchedule: (schedule) => {
-    set({ runoutSchedule: schedule });
-  },
-
   setRunoutDirectorActive: (active) => {
     set({ runoutDirectorActive: active });
+  },
+
+  signalCardDeal: (count, total) => {
+    set((prev) => ({
+      cardDeal: { token: (prev.cardDeal?.token ?? 0) + 1, count, total },
+    }));
   },
 
   applyOptimisticAction: (action, amount) => {
@@ -364,5 +370,10 @@ export function selectGameState(state: GameStore): GameState | null {
     run_it_out: state.runItOut,
     cash_mode: state.cashMode ?? undefined,
     fast_forward: state.fastForward,
+    // Surface the speed flags so the desktop table (which reads this composed
+    // object, not the store directly) can hide the FF button under
+    // 'always'/instant — matching mobile, which reads the store slices directly.
+    ai_instant: state.aiInstant,
+    always_fast_forward: state.alwaysFastForward,
   };
 }

@@ -120,6 +120,28 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
         self.game_state_service = game_state_service
         game_state_service.game_locks.pop(GAME_ID, None)
+        # Clear the WHOLE in-memory games dict, not just GAME_ID: it's a global
+        # shared across all tests, and `_find_active_cash_game_id` scans it for
+        # ANY cash-mode game matching this owner — a leftover from another test
+        # would make /api/cash/leave operate on the wrong game and not free our
+        # seat (the order-dependent failure this guards against).
+        game_state_service.games.clear()
+
+        # This class shares ONE db across its methods (setUpClass) and the leave
+        # route reads its repos via the live `flask_app.extensions` globals,
+        # which other test files repoint. Re-pin them to this class's repos and
+        # wipe the shared cash state so each method is order-independent (the
+        # shared db retains rows between methods; tearDown only clears games).
+        import flask_app.extensions as ext
+
+        for key, repo in self.repos.items():
+            if key != 'db_path':
+                setattr(ext, key, repo)
+        with self.repos['cash_table_repo']._get_connection() as conn:
+            conn.execute("DELETE FROM cash_tables")
+            conn.execute("DELETE FROM entity_presence")
+            conn.execute("DELETE FROM cash_idle_metadata")
+            conn.execute("DELETE FROM cash_sessions")
 
     def tearDown(self):
         self.game_state_service.games.pop(GAME_ID, None)
@@ -141,6 +163,29 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
             for i, s in enumerate(table.seats)
             if s.get("kind") == "human" and s.get("personality_id") == OWNER_ID
         ]
+
+    def _inject_ghost_human(self, table_id: str, seat_index: int, chips: int) -> None:
+        """Plant a raw `cash_tables` human slot with NO confirming
+        `entity_presence` row — a ghost. Writes the cache `seats_json` directly,
+        bypassing the save_table chokepoint (which would write presence). The
+        table row must already exist (save an empty table first). This is how a
+        ghost is staged now that presence is the permanent occupancy authority
+        (the old way — saving while PRESENCE_AUTHORITY_ENABLED was off — is gone)."""
+        import json
+        import sqlite3
+
+        db = self.repos['cash_table_repo'].db_path
+        with sqlite3.connect(db) as conn:
+            row = conn.execute(
+                "SELECT seats_json FROM cash_tables WHERE table_id=? AND sandbox_id=?",
+                (table_id, self.sandbox_id),
+            ).fetchone()
+            seats = json.loads(row[0])
+            seats[seat_index] = human_slot(OWNER_ID, chips)
+            conn.execute(
+                "UPDATE cash_tables SET seats_json=? WHERE table_id=? AND sandbox_id=?",
+                (json.dumps(seats), table_id, self.sandbox_id),
+            )
 
     def _stub_game_data(self, table_id: str, seat_index: int) -> dict:
         return {
@@ -379,21 +424,18 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         never shows the player as seated. This pins that the projection (not a
         leave-time sweep) is what hides it.
         """
-        import cash_mode.economy_flags as ef
-
         table_id = "cash-table-200-001"
-        seats = [open_slot()] * 6
-        seats[3] = human_slot(OWNER_ID, 900)
-        # Plant the orphan with authority OFF → no presence row is written,
-        # so this is a raw cache slot the projection must hide.
+        # Create the table row empty (no presence), then plant a RAW human slot
+        # with no confirming presence row — a ghost the projection must hide.
         self.repos['cash_table_repo'].save_table(
             CashTableState(
                 table_id=table_id,
                 stake_label="$200",
-                seats=seats,
+                seats=[open_slot()] * 6,
             ),
             sandbox_id=self.sandbox_id,
         )
+        self._inject_ghost_human(table_id, 3, 900)
 
         game_data = self._stub_game_data(table_id, seat_index=3)
         # Simulate the sponsor-session gap: the game knows nothing about
@@ -402,19 +444,15 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         game_data['cash_seat_index'] = None
         self.game_state_service.set_game(GAME_ID, game_data)
 
-        ef.PRESENCE_AUTHORITY_ENABLED = True
-        try:
-            resp = self.client.post('/api/cash/leave')
-            self.assertEqual(resp.status_code, 200)
+        resp = self.client.post('/api/cash/leave')
+        self.assertEqual(resp.status_code, 200)
 
-            self.assertEqual(
-                self._seated_indices(table_id),
-                [],
-                "ghost human seat (no presence row) was not hidden by the "
-                "read-side occupancy projection",
-            )
-        finally:
-            ef.PRESENCE_AUTHORITY_ENABLED = False
+        self.assertEqual(
+            self._seated_indices(table_id),
+            [],
+            "ghost human seat (no presence row) was not hidden by the "
+            "read-side occupancy projection",
+        )
 
     def test_leave_orphan_seat_at_different_table_is_hidden_by_projection(self):
         """Active seat at table A + orphan seat at table B (same sandbox).
@@ -423,11 +461,10 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         projection (the cross-table `_free_ghost_human_seats` sweep that used
         to reap it was retired 2026-06-01).
         """
-        import cash_mode.economy_flags as ef
-
         active_table = "cash-table-200-001"
         orphan_table = "cash-table-50-001"
 
+        # A: the real active seat — saved normally, so it gets a presence row.
         active_seats = [open_slot()] * 6
         active_seats[2] = human_slot(OWNER_ID, 1000)
         self.repos['cash_table_repo'].save_table(
@@ -439,37 +476,33 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
             sandbox_id=self.sandbox_id,
         )
 
-        orphan_seats = [open_slot()] * 6
-        orphan_seats[0] = human_slot(OWNER_ID, 500)
-        # Authority OFF → no presence row for the orphan (raw cache slot).
+        # B: an empty table row, then a RAW orphan human slot with no presence
+        # row (a human has exactly one presence row — it's at A; B is a ghost).
         self.repos['cash_table_repo'].save_table(
             CashTableState(
                 table_id=orphan_table,
                 stake_label="$50",
-                seats=orphan_seats,
+                seats=[open_slot()] * 6,
             ),
             sandbox_id=self.sandbox_id,
         )
+        self._inject_ghost_human(orphan_table, 0, 500)
 
         self.game_state_service.set_game(
             GAME_ID,
             self._stub_game_data(active_table, seat_index=2),
         )
 
-        ef.PRESENCE_AUTHORITY_ENABLED = True
-        try:
-            resp = self.client.post('/api/cash/leave')
-            self.assertEqual(resp.status_code, 200)
+        resp = self.client.post('/api/cash/leave')
+        self.assertEqual(resp.status_code, 200)
 
-            self.assertEqual(self._seated_indices(active_table), [])
-            self.assertEqual(
-                self._seated_indices(orphan_table),
-                [],
-                "orphan human seat on a different table (no presence row) was "
-                "not hidden by the read-side occupancy projection",
-            )
-        finally:
-            ef.PRESENCE_AUTHORITY_ENABLED = False
+        self.assertEqual(self._seated_indices(active_table), [])
+        self.assertEqual(
+            self._seated_indices(orphan_table),
+            [],
+            "orphan human seat on a different table (no presence row) was "
+            "not hidden by the read-side occupancy projection",
+        )
 
 
 if __name__ == '__main__':

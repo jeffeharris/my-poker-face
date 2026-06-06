@@ -1,49 +1,42 @@
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from 'react';
-import toast from 'react-hot-toast';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
-import { Check, X, MessageCircle, Bot, FastForward } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
-import { Card } from '../cards';
-import { MobileActionButtons } from './MobileActionButtons';
+import { MobileOpponents } from './MobileOpponents';
+import { MobileCommunityCards } from './MobileCommunityCards';
+import { MobileHero } from './MobileHero';
+import { MobileActionArea } from './MobileActionArea';
 import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
-import { ShuffleLoading, type TickerLine } from '../shared/ShuffleLoading';
-import { selectInterhandTicker } from '../cash/interhandTicker';
-import { feedEventKey, renderEventIcon } from '../cash/tickerEvents';
-import { pickQuote } from '../game/WinnerAnnouncement/quote-flavor';
+import { ShuffleLoading } from '../shared/ShuffleLoading';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
-import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
 import { CoachButton } from './CoachButton';
 import { CoachPanel } from './CoachPanel';
 import { CoachBubble } from './CoachBubble';
-import { MobileCashButton } from '../cash/MobileCashButton';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { BustModal } from '../cash/BustModal';
 import { SoloTableModal } from '../cash/SoloTableModal';
 import { CharacterDetailCard } from '../character';
 import { dossierFromPlayer } from '../character/dossierFromPlayer';
-import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
+import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useTournamentEvents } from '../../hooks/useTournamentEvents';
 import { useGameStore } from '../../stores/gameStore';
 import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
-import { useCoach } from '../../hooks/useCoach';
+import { useMobileCoach } from '../../hooks/useMobileCoach';
+import { useInterhandMessaging } from '../../hooks/useInterhandMessaging';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
-import { useRunoutDirector } from '../../hooks/useRunoutDirector';
-import { useWinnerRevealGate } from '../../hooks/useWinnerRevealGate';
 import { isBettingPhase } from '../../constants/gamePhases';
-import { heroCardAnimation } from './heroCardAnimation';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { logger } from '../../utils/logger';
-import { gameAPI } from '../../utils/api';
-import { avatarUrlForEmotion } from '../../utils/avatarUrl';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
 import './MobilePokerTable.css';
@@ -56,10 +49,6 @@ interface MobilePokerTableProps {
   onBack?: () => void;
   onGameLoadFailed?: () => void;
 }
-
-// How many world-ticker beats the interhand "meanwhile, elsewhere" strip
-// shows at once. A few of the biggest/rarest — not a full feed.
-const MAX_INTERHAND_TICKER = 3;
 
 export function MobilePokerTable({
   gameId: providedGameId,
@@ -110,30 +99,22 @@ export function MobilePokerTable({
     setDossierPlayer(player);
   }, []);
 
-  // When the chat sheet is opened from the dossier ("Send chat" button),
-  // remember which player to pre-select as the target. Cleared when the
-  // sheet closes so a fresh open from the chat button starts at "table".
-  const [chatInitialTarget, setChatInitialTarget] = useState<string | null>(null);
-
   // Stable callbacks for child components to avoid re-renders
   const openChatSheet = useCallback(() => setShowChatSheet(true), []);
-  const closeChatSheet = useCallback(() => {
-    setShowChatSheet(false);
-    setChatInitialTarget(null);
-  }, []);
-  const openChatWithTarget = useCallback((targetName: string) => {
-    setChatInitialTarget(targetName);
-    setDossierPlayer(null);
-    setShowChatSheet(true);
-  }, []);
+  const closeChatSheet = useCallback(() => setShowChatSheet(false), []);
   const openCashSheet = useCallback(() => setShowCashSheet(true), []);
   const closeCashSheet = useCallback(() => setShowCashSheet(false), []);
   const openCoachPanel = useCallback(() => setShowCoachPanel(true), []);
   const closeCoachPanel = useCallback(() => setShowCoachPanel(false), []);
   const closeDebugModal = useCallback(() => setDebugModalPlayer(null), []);
+  const navigate = useNavigate();
   const navigateToAdmin = useCallback(() => {
-    window.location.href = '/admin';
-  }, []);
+    // Soft-navigate (not window.location.href) so the SPA history stack
+    // survives — and record this game as the admin return origin, so the
+    // admin back-arrow lands the player right back at this table.
+    if (providedGameId) rememberAdminOrigin(`/game/${providedGameId}`);
+    navigate('/admin');
+  }, [navigate, providedGameId]);
   const handleFadeComplete = useCallback(() => setFadeKey((k) => k + 1), []);
 
   // Game state from Zustand store (granular selectors for fewer re-renders)
@@ -150,13 +131,8 @@ export function MobilePokerTable({
   const smallBlind = useGameStore((state) => state.smallBlind);
   const handNumber = useGameStore((state) => state.handNumber);
   const bettingContext = useGameStore((state) => state.bettingContext);
-  const newlyDealtCount = useGameStore((state) => state.newlyDealtCount);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
-  const runoutSchedule = useGameStore((state) => state.runoutSchedule);
-  const runoutDirectorActive = useGameStore((state) => state.runoutDirectorActive);
-  const setRunoutDirectorActive = useGameStore((state) => state.setRunoutDirectorActive);
-  const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
@@ -171,6 +147,8 @@ export function MobilePokerTable({
     aiThinking,
     winnerInfo,
     revealedCards,
+    heroCommitted,
+    heroRetreating,
     tournamentResult,
     socketRef,
     isConnected,
@@ -236,58 +214,13 @@ export function MobilePokerTable({
   // beat (and calls handleResultComplete when its hold elapses or the player
   // taps Continue); the director owns the "shuffle" beat that follows. The two
   // are never on screen at once — shuffle starts only once the winner is
-  // cleared — which kills the old overlap/flash where both ran on independent
-  // clocks driven by the backend phase string.
+  // cleared. The run-out reactions, the hero card-commit gesture, and the
+  // ordered verdict are all owned by the hand sequencer in usePokerGame now
+  // (heroCommitted / heroRetreating come from there), so there's no separate
+  // run-out director or winner-reveal gate to coordinate here.
   const { isShuffling, beginShuffle } = useInterhandDirector({
     hasWinner: !!winnerInfo,
     handNumber,
-  });
-
-  // Run-out reaction director (mobile, all-in run-outs). Plays the backend's
-  // per-card reaction schedule on a client-owned beat so faces change card-by-
-  // card during the board run-out, instead of one lumped street reaction. The
-  // board itself stays backend-paced (option B); this only re-times reactions.
-  const applyRunoutReaction = useCallback(
-    (playerName: string, emotion: string) => {
-      updateStorePlayers((prev) => {
-        if (!prev) return prev;
-        return prev.map((p) =>
-          p.name === playerName
-            ? {
-                ...p,
-                avatar_emotion: emotion,
-                avatar_url: avatarUrlForEmotion(p.avatar_url, emotion),
-              }
-            : p
-        );
-      });
-    },
-    [updateStorePlayers]
-  );
-
-  const { heroCommitted, heroRetreating } = useRunoutDirector({
-    schedule: runoutSchedule,
-    runItOut,
-    revealed: !!revealedCards,
-    heroFolded: !!humanPlayer?.is_folded,
-    communityCardCount: communityCards?.length ?? 0,
-    handNumber,
-    fastForward,
-    applyReaction: applyRunoutReaction,
-    setActive: setRunoutDirectorActive,
-  });
-
-  // Hold the verdict overlay until the run-out / fold play-out has visually
-  // finished, so the winner doesn't spoil the board + reactions still landing.
-  // Fast-forward (manual FF / always / instant AI) drops the gate — that's Skip.
-  const { holdWinner } = useWinnerRevealGate({
-    hasWinner: !!winnerInfo,
-    isShowdown: !!winnerInfo?.showdown,
-    handNumber,
-    runItOut,
-    heroFolded: !!humanPlayer?.is_folded,
-    runoutDirectorActive,
-    rushing: fastForward || alwaysFastForward || aiInstant,
   });
 
   const handleResultComplete = useCallback(() => {
@@ -299,31 +232,18 @@ export function MobilePokerTable({
     clearWinnerInfo();
   }, [winnerInfo, beginShuffle, clearWinnerInfo]);
 
-  // Pick a flavor quote for the interhand shuffle. Memoized by handNumber so
-  // it stays stable across re-renders during a single shuffle and changes
-  // each hand.
-  const interhandQuote = useMemo(() => {
-    const q = pickQuote('between_hands');
-    return q ? { text: q.text, attribution: q.attribution } : undefined;
-    // handNumber is an intentional recompute key (not read inside): it re-picks
-    // the random quote each new hand while staying stable on re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handNumber]);
-
-  // Cash/career mode: turn the interhand pause into a "meanwhile, elsewhere"
-  // world ticker — the bigger, rarer beats from around the room since this
-  // hand started (events tagged with the hand that just ended), minus routine
-  // sit-downs/leaves. `undefined` in tournament mode, where the world isn't
-  // simulated and the hand-number badge stays.
-  const interhandTicker = useMemo<TickerLine[] | undefined>(() => {
-    if (!cashMode) return undefined;
-    const thisHand = worldEvents.filter((w) => w.hand === handNumber).map((w) => w.event);
-    return selectInterhandTicker(thisHand, MAX_INTERHAND_TICKER).map((e) => ({
-      key: feedEventKey(e),
-      icon: renderEventIcon(e.type),
-      message: e.message,
-    }));
-  }, [cashMode, worldEvents, handNumber]);
+  // Between-hands ShuffleLoading content: the fold-out "walk" result line, a
+  // per-hand flavor quote, and the cash-mode world ticker. The walk-result path
+  // also drives the shuffle beat + clears the winner, so it takes those in.
+  const { interhandMessage, interhandSubmessage, interhandQuote, interhandTicker } =
+    useInterhandMessaging({
+      winnerInfo,
+      handNumber,
+      cashMode,
+      worldEvents,
+      beginShuffle,
+      clearWinnerInfo,
+    });
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
@@ -342,10 +262,7 @@ export function MobilePokerTable({
   });
 
   // Community card animation hook - handles slide-in with cascade delays
-  const communityCardAnimations = useCommunityCardAnimation(
-    newlyDealtCount,
-    communityCards?.length ?? 0
-  );
+  const communityCardAnimations = useCommunityCardAnimation(communityCards?.length ?? 0);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -430,67 +347,17 @@ export function MobilePokerTable({
   const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
   const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
 
-  // Fold-out (walk) wins are intentionally uneventful: no winner overlay, just
-  // the shuffle screen with the winner line in place of "Shuffling". Capture
-  // that line, hand straight off to the director's shuffle beat (whose minimum
-  // floor keeps it from flashing), and clear winnerInfo so the showdown overlay
-  // never mounts for a walk.
-  const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
-  const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (!winnerInfo || winnerInfo.showdown) return;
-    // Compute net profit (gross winnings minus what the winner put in)
-    let netProfit: number | null = null;
-    if (winnerInfo.pot_breakdown) {
-      const gross = winnerInfo.pot_breakdown.reduce(
-        (sum, pot) => sum + pot.winners.reduce((s, w) => s + w.amount, 0),
-        0
-      );
-      const contributions = winnerInfo.pot_contributions ?? {};
-      const winnerContrib = winnerInfo.winners.reduce(
-        (sum, name) => sum + (contributions[name] ?? 0),
-        0
-      );
-      netProfit = gross - winnerContrib;
-    }
-    const names =
-      winnerInfo.winners.length > 1 ? winnerInfo.winners.join(' & ') : winnerInfo.winners[0];
-    const verb = winnerInfo.winners.length > 1 ? 'SPLIT' : 'WON';
-    // Name on its own line (the hero); the amount drops to the line below as
-    // "WON $X" — no animated dots, since the hand is finished, not loading.
-    setInterhandMessage(names);
-    setInterhandSubmessage(
-      netProfit != null && netProfit > 0 ? `${verb} $${netProfit.toLocaleString()}` : verb
-    );
-
-    if (!winnerInfo.is_final_hand) {
-      beginShuffle();
-    }
-    clearWinnerInfo();
-  }, [winnerInfo, clearWinnerInfo, beginShuffle]);
-
-  // Clear the walk message once the next hand starts.
-  useEffect(() => {
-    setInterhandMessage(null);
-    setInterhandSubmessage(undefined);
-  }, [handNumber]);
-
-  // Coach hook
-  const coach = useCoach({
-    gameId: providedGameId ?? null,
-    playerName: playerName || '',
-    isPlayerTurn: !!showActionButtons,
-  });
-
-  const coachEnabled = !isGuest && coach.mode !== 'off';
-
-  // Memoize coach recommendation values to prevent unnecessary re-renders of MobileActionButtons
-  // - Proactive mode: Show coach's recommendation after proactive tip (coachAction)
-  // - Reactive mode: Only show recommendation after player asks a question (coachAction)
-  // - Off mode: No highlighting
-  const recommendedAction = coach.mode === 'off' ? null : coach.coachAction;
-  const raiseToAmount = coach.mode === 'off' ? null : coach.coachRaiseTo;
+  // Coach integration (wraps useCoach + table glue: toggle, post-hand review,
+  // unread-clear, skill-unlock toasts, recommendation values).
+  const { coach, coachEnabled, recommendedAction, raiseToAmount, handleCoachToggle } =
+    useMobileCoach({
+      gameId: providedGameId ?? null,
+      playerName: playerName || '',
+      isPlayerTurn: !!showActionButtons,
+      isGuest,
+      winnerInfo,
+      showCoachPanel,
+    });
 
   const menuBarCenter = useMemo(
     () => (
@@ -504,74 +371,6 @@ export function MobilePokerTable({
     ),
     [phase, smallBlind, bigBlind, handNumber, cashMode?.table_name]
   );
-
-  const handleCoachToggle = useCallback(() => {
-    try {
-      if (coachEnabled) {
-        // Save current mode before turning off
-        localStorage.setItem('coach_mode_before_off', coach.mode);
-        coach.setMode('off');
-      } else {
-        // Restore previous mode
-        const previous = localStorage.getItem('coach_mode_before_off');
-        coach.setMode(previous === 'proactive' || previous === 'reactive' ? previous : 'reactive');
-      }
-    } catch (err) {
-      logger.warn('localStorage unavailable for coach mode toggle:', err);
-      coach.setMode(coachEnabled ? 'off' : 'reactive');
-    }
-  }, [coachEnabled, coach]);
-
-  // When a hand ends, request a post-hand review from the coach.
-  // coach.mode is omitted: we only want to trigger on winnerInfo change,
-  // not re-fire when mode toggles while a winner banner is showing.
-  useEffect(() => {
-    if (winnerInfo && coach.mode !== 'off') {
-      coach.fetchHandReview();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winnerInfo, coach.fetchHandReview]);
-
-  // Clear unread review indicator when coach panel is opened.
-  // coach.hasUnreadReview is omitted: we only want to clear when the panel
-  // opens, not re-fire when a new review arrives while the panel is already open.
-  useEffect(() => {
-    if (showCoachPanel && coach.hasUnreadReview) {
-      coach.clearUnreadReview();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCoachPanel, coach.clearUnreadReview]);
-
-  // Skill unlock toasts — show all staggered, then dismiss entire batch
-  useEffect(() => {
-    if (coach.skillUnlockQueue.length === 0) return;
-
-    // Snapshot the queue and dismiss immediately so the effect won't re-fire
-    const batch = [...coach.skillUnlockQueue];
-    batch.forEach((id) => coach.dismissSkillUnlock(id));
-
-    const timers = batch.map((skillId, i) => {
-      const skillName =
-        coach.progression?.skill_states[skillId]?.name ?? skillId.replace(/_/g, ' ');
-      return setTimeout(() => {
-        toast(`New skill unlocked: ${skillName}`, {
-          duration: 4000,
-          style: {
-            background: 'rgba(20, 22, 30, 0.95)',
-            color: '#eee',
-            border: '1px solid rgba(52, 211, 153, 0.3)',
-            borderRadius: '12px',
-            fontSize: '13px',
-          },
-        });
-      }, i * 600);
-    });
-
-    return () => {
-      timers.forEach(clearTimeout);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coach.skillUnlockQueue]);
 
   const isInitialLoading = loading && !storePlayers;
   const hasGameData = Boolean(storePlayers && pot);
@@ -642,7 +441,6 @@ export function MobilePokerTable({
             character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
             origin={dossierOrigin}
             identifier={dossierPlayer?.name}
-            onSendChat={openChatWithTarget}
           />
 
           {/* Cash mode: slide-up sheet — opens from the button inside
@@ -662,185 +460,35 @@ export function MobilePokerTable({
           )}
 
           {/* Opponents Section */}
-          <div className={`opponents-wrapper ${isInShowdown ? 'showdown-mode' : ''}`}>
-            {/* Ghost Rail - folded players as small circles during showdown */}
-            {isInShowdown && foldedOpponents.length > 0 && (
-              <div className="ghost-rail" data-testid="ghost-rail">
-                {foldedOpponents.map((player) => (
-                  <div key={player.name} className="ghost-avatar" title={displayNickname(player)}>
-                    {player.avatar_url ? (
-                      <img
-                        src={`${config.API_URL}${player.avatar_url}`}
-                        alt={displayNickname(player)}
-                      />
-                    ) : (
-                      <span className="ghost-initial">{player.name.charAt(0).toUpperCase()}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Opponents Row - shows only active players during showdown */}
-            <div
-              className={[
-                'mobile-opponents',
-                isHeadsUp && 'heads-up-mode',
-                isTwoOpponents && 'two-opponents-mode',
-                isThreeOpponentsNormal && 'three-opponents-mode',
-                isThreeOpponentsShowdown && 'three-opponents-showdown-mode',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              data-testid="mobile-opponents"
-              ref={opponentsContainerRef}
-            >
-              {(isInShowdown ? activeOpponents : opponents).map((opponent) => {
-                const opponentIdx = storePlayers!.findIndex((p) => p.name === opponent.name);
-                const isCurrentPlayer =
-                  shouldHighlightActivePlayer && opponentIdx === currentPlayerIdx;
-                const isDealer = opponentIdx === dealerIdx;
-                const isDebugEnabled = config.ENABLE_AI_DEBUG && !!opponent.llm_debug;
-
-                // Swap the avatar image to the "thinking" emotion variant
-                // when the AI for this seat is the one currently deciding.
-                // Mirrors PokerTable.tsx — the backend serves a per-emotion
-                // image at /api/avatar/{name}/{emotion}, so we rewrite the
-                // URL rather than just toggling a CSS class. Without the
-                // rewrite the same default avatar shows the whole hand
-                // even though the player object exposes avatar_emotion.
-                const isAiThinking = isCurrentPlayer && aiThinking && !opponent.is_human;
-                const avatarUrl = isAiThinking
-                  ? avatarUrlForEmotion(opponent.avatar_url, 'thinking')
-                  : opponent.avatar_url;
-                const avatarEmotion = isAiThinking
-                  ? 'thinking'
-                  : opponent.avatar_emotion || 'avatar';
-
-                return (
-                  <div
-                    key={opponent.name}
-                    ref={(el) => {
-                      if (el) {
-                        opponentRefs.current.set(opponent.name, el);
-                      } else {
-                        opponentRefs.current.delete(opponent.name);
-                      }
-                    }}
-                    className={[
-                      'mobile-opponent',
-                      opponent.is_folded && 'folded',
-                      opponent.is_all_in && 'all-in',
-                      isCurrentPlayer && !isInShowdown && 'thinking',
-                      isHeadsUp && 'heads-up-avatar',
-                      isTwoOpponents && 'two-opponents-avatar',
-                      isThreeOpponents && 'three-opponents-avatar',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    data-testid="mobile-opponent"
-                  >
-                    <div
-                      className={`opponent-avatar ${isDebugEnabled ? 'debug-enabled' : 'dossier-enabled'}`}
-                      onClick={
-                        isDebugEnabled
-                          ? () => setDebugModalPlayer(opponent)
-                          : (e) => openDossierForPlayer(opponent, e.currentTarget as HTMLElement)
-                      }
-                      role="button"
-                      tabIndex={0}
-                      aria-label={
-                        isDebugEnabled
-                          ? `View ${opponent.name}'s AI model info`
-                          : `Open dossier for ${opponent.name}`
-                      }
-                    >
-                      {avatarUrl ? (
-                        <img
-                          src={`${config.API_URL}${avatarUrl}`}
-                          alt={`${opponent.name} - ${avatarEmotion}`}
-                          className={`avatar-image ${
-                            isAiThinking ? 'avatar-image--thinking' : ''
-                          } ${isShowdown ? 'avatar-image--showdown' : ''}`}
-                          onLoad={(e) => {
-                            // Clear any display:none left over from a prior 404.
-                            // Without this, the avatar stays hidden after switching
-                            // back from a missing /thinking variant to a valid URL.
-                            e.currentTarget.style.display = '';
-                          }}
-                          onError={(e) => {
-                            const img = e.currentTarget;
-                            // If the rewritten /thinking variant 404s, fall back to
-                            // the server-provided avatar_url (which has its own
-                            // emotion fallback). Avoids loop by tracking attempt.
-                            if (
-                              isAiThinking &&
-                              opponent.avatar_url &&
-                              img.dataset.thinkingFallbackTried !== 'true' &&
-                              img.src !== `${config.API_URL}${opponent.avatar_url}`
-                            ) {
-                              img.dataset.thinkingFallbackTried = 'true';
-                              img.src = `${config.API_URL}${opponent.avatar_url}`;
-                              return;
-                            }
-                            img.style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        opponent.name.charAt(0).toUpperCase()
-                      )}
-                      {isDealer && <span className="dealer-badge">D</span>}
-                      {opponent.is_rule_bot && (
-                        <span className="bot-badge" title="Rule-based training bot">
-                          <Bot size={12} aria-hidden />
-                        </span>
-                      )}
-                      {/* Debug indicator badge */}
-                      {config.ENABLE_AI_DEBUG && opponent.llm_debug && (
-                        <span className="debug-badge" title="Tap to view AI model info"></span>
-                      )}
-                    </div>
-                    <div className="opponent-info">
-                      <span className="opponent-name" data-testid="opponent-name">
-                        {displayNickname(opponent)}
-                      </span>
-                      <span className="opponent-stack" data-testid="opponent-stack">
-                        ${opponent.stack}
-                      </span>
-                    </div>
-                    {opponent.bet > 0 && <div className="opponent-bet">${opponent.bet}</div>}
-                    {/* Revealed hole cards during run-it-out showdown */}
-                    {revealedCards?.players_cards[opponent.name] && (
-                      <div
-                        className="opponent-revealed-cards"
-                        style={
-                          { '--reveal-index': revealOrder.get(opponent.name) ?? 0 } as CSSProperties
-                        }
-                      >
-                        {revealedCards.players_cards[opponent.name].map((card, i) => (
-                          <Card key={i} card={card} faceDown={false} size="large" />
-                        ))}
-                      </div>
-                    )}
-                    <ActionBadge
-                      player={opponent}
-                      lastKnownActions={lastKnownActions}
-                      onFadeComplete={handleFadeComplete}
-                    />
-                  </div>
-                );
-              })}
-
-              {/* Heads-up psychology panel */}
-              {isHeadsUp && headsUpOpponent && providedGameId && (
-                <HeadsUpOpponentPanel
-                  opponent={headsUpOpponent}
-                  gameId={providedGameId}
-                  humanPlayerName={humanPlayer?.name}
-                />
-              )}
-            </div>
-          </div>
+          <MobileOpponents
+            opponents={opponents}
+            activeOpponents={activeOpponents}
+            foldedOpponents={foldedOpponents}
+            isInShowdown={!!isInShowdown}
+            isShowdown={isShowdown}
+            storePlayers={storePlayers!}
+            currentPlayerIdx={currentPlayerIdx}
+            dealerIdx={dealerIdx}
+            shouldHighlightActivePlayer={shouldHighlightActivePlayer}
+            aiThinking={aiThinking}
+            isHeadsUp={isHeadsUp}
+            isTwoOpponents={isTwoOpponents}
+            isThreeOpponents={isThreeOpponents}
+            isThreeOpponentsNormal={isThreeOpponentsNormal}
+            isThreeOpponentsShowdown={!!isThreeOpponentsShowdown}
+            headsUpOpponent={headsUpOpponent}
+            providedGameId={providedGameId}
+            humanPlayerName={humanPlayer?.name}
+            displayNickname={displayNickname}
+            revealedCards={revealedCards}
+            revealOrder={revealOrder}
+            lastKnownActions={lastKnownActions}
+            onFadeComplete={handleFadeComplete}
+            containerRef={opponentsContainerRef}
+            opponentRefs={opponentRefs}
+            onOpenDebug={setDebugModalPlayer}
+            onOpenDossier={openDossierForPlayer}
+          />
 
           {/* Floating Pot Display - between opponents and community cards */}
           <div className="mobile-floating-pot" data-testid="mobile-pot">
@@ -848,44 +496,10 @@ export function MobilePokerTable({
           </div>
 
           {/* Community Cards - Always show 5 slots */}
-          <div className="mobile-community" data-testid="mobile-community">
-            <div className="community-cards-row">
-              {Array.from({ length: 5 }).map((_, i) => {
-                const card = communityCards[i];
-                const anim = communityCardAnimations[i];
-                const isDealt = !!card;
-                const isAnimating = anim?.shouldAnimate;
-                return (
-                  <div key={i} className="community-card-slot">
-                    {/* Placeholder fades out when card arrives */}
-                    <div
-                      className={`community-card-placeholder ${isDealt ? (isAnimating ? 'fade-out-delayed' : 'hidden') : ''}`}
-                      style={
-                        isAnimating
-                          ? { animationDelay: `${anim.delay + anim.duration * 0.6}s` }
-                          : undefined
-                      }
-                    />
-                    {/* Card overlays placeholder */}
-                    {isDealt && (
-                      <div
-                        className="community-card-overlay"
-                        style={
-                          isAnimating
-                            ? {
-                                animation: `communityCardDealIn ${anim.duration}s cubic-bezier(0.16, 1, 0.3, 1) ${anim.delay}s both`,
-                              }
-                            : undefined
-                        }
-                      >
-                        <Card card={card} faceDown={false} size="medium" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <MobileCommunityCards
+            communityCards={communityCards}
+            animations={communityCardAnimations}
+          />
 
           {/* Floating AI Message */}
           <FloatingChat
@@ -895,256 +509,60 @@ export function MobilePokerTable({
           />
 
           {/* Hero Section - Your Cards */}
-          <div
-            className={[
-              'mobile-hero',
-              currentPlayer?.is_human && 'active-turn',
-              humanPlayer?.is_folded && 'folded',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            data-testid="mobile-hero"
-          >
-            {/* Cash button - positioned in upper left of hero panel */}
-            {cashMode && <MobileCashButton bankroll={cashMode.bankroll} onClick={openCashSheet} />}
-            {/* Dealer chip - positioned in upper right */}
-            {storePlayers?.findIndex((p) => p.is_human) === dealerIdx && (
-              <span className="dealer-chip">D</span>
-            )}
-            <div className="hero-info">
-              <div className="hero-name">{humanPlayer?.name}</div>
-              <div className="hero-stack">${humanPlayer?.stack}</div>
-            </div>
-            {/* Bet chip - positioned at top edge of hero section */}
-            {humanPlayer && humanPlayer.bet > 0 && (
-              <div className="hero-bet">${humanPlayer.bet}</div>
-            )}
-            <div
-              className={`hero-cards${heroCommitted ? ' hero-cards--committed' : ''}`}
-              data-testid="hero-cards"
-              style={{
-                gap: `${cardTransforms.gap}px`,
-                transition: cardsNeat ? 'gap 0.2s ease-out' : 'none',
-              }}
-            >
-              {isExiting && displayCards?.[0] && displayCards?.[1] ? (
-                /* Exit animation - cards sweep off, then onAnimationEnd triggers new cards */
-                <>
-                  <div
-                    style={
-                      {
-                        animation: `dealCardOut1 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
-                        '--exit-start-x': `${cardTransforms.card1.offsetX}px`,
-                        '--exit-start-y': `${cardTransforms.card1.offsetY}px`,
-                        '--exit-start-rotation': `${cardTransforms.card1.rotation}deg`,
-                        '--exit-converge-x': `${cardTransforms.card2.offsetX + cardTransforms.gap}px`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <Card
-                      card={displayCards[0]}
-                      faceDown={false}
-                      size="xlarge"
-                      className="hero-card"
-                    />
-                  </div>
-                  <div
-                    onAnimationEnd={handleExitAnimationEnd}
-                    style={
-                      {
-                        animation: `dealCardOut2 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
-                        '--exit-start-x': `${cardTransforms.card2.offsetX}px`,
-                        '--exit-start-y': `${cardTransforms.card2.offsetY}px`,
-                        '--exit-start-rotation': `${cardTransforms.card2.rotation}deg`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <Card
-                      card={displayCards[1]}
-                      faceDown={false}
-                      size="xlarge"
-                      className="hero-card"
-                    />
-                  </div>
-                </>
-              ) : displayCards?.[0] && displayCards?.[1] ? (
-                <>
-                  <div
-                    onClick={toggleCardsNeat}
-                    style={
-                      {
-                        transform: `rotate(${cardTransforms.card1.rotation}deg) translateX(${cardTransforms.card1.offsetX}px) translateY(${cardTransforms.card1.offsetY}px)`,
-                        transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
-                        cursor: 'pointer',
-                        // Run-out matchup: throw the left card up to present over
-                        // the board and HOLD it there; pull it back down only once
-                        // the run-out starts dealing (heroRetreating), so the board
-                        // is clear. Same easing as the deal-in — reads smooth.
-                        animation: heroCardAnimation('Left', {
-                          heroRetreating,
-                          heroCommitted,
-                          isDealing,
-                        }),
-                        opacity: humanPlayer?.is_folded ? 0.5 : 1,
-                        '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
-                        '--deal-start-rotation': `${cardTransforms.card1.startRotation}deg`,
-                        '--deal-offset-x': `${cardTransforms.card1.offsetX}px`,
-                        '--deal-offset-y': `${cardTransforms.card1.offsetY}px`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <Card
-                      card={displayCards[0]}
-                      faceDown={false}
-                      size="xlarge"
-                      className="hero-card"
-                    />
-                  </div>
-                  <div
-                    onClick={toggleCardsNeat}
-                    style={
-                      {
-                        transform: `rotate(${cardTransforms.card2.rotation}deg) translateX(${cardTransforms.card2.offsetX}px) translateY(${cardTransforms.card2.offsetY}px)`,
-                        transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
-                        cursor: 'pointer',
-                        // ...then, a beat later, the right card up beside it.
-                        animation: heroCardAnimation('Right', {
-                          heroRetreating,
-                          heroCommitted,
-                          isDealing,
-                        }),
-                        opacity: humanPlayer?.is_folded ? 0.5 : 1,
-                        '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
-                        '--deal-start-rotation': `${cardTransforms.card2.startRotation}deg`,
-                        '--deal-offset-x': `${cardTransforms.card2.offsetX}px`,
-                        '--deal-offset-y': `${cardTransforms.card2.offsetY}px`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <Card
-                      card={displayCards[1]}
-                      faceDown={false}
-                      size="xlarge"
-                      className="hero-card"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="card-placeholder" />
-                  <div className="card-placeholder" />
-                </>
-              )}
-            </div>
-          </div>
+          <MobileHero
+            humanPlayer={humanPlayer}
+            currentPlayerIsHuman={!!currentPlayer?.is_human}
+            cashMode={cashMode}
+            onOpenCash={openCashSheet}
+            isHumanDealer={storePlayers?.findIndex((p) => p.is_human) === dealerIdx}
+            heroCommitted={heroCommitted}
+            heroRetreating={heroRetreating}
+            isExiting={isExiting}
+            isDealing={isDealing}
+            displayCards={displayCards}
+            cardTransforms={cardTransforms}
+            cardsNeat={cardsNeat}
+            toggleCardsNeat={toggleCardsNeat}
+            onExitAnimationEnd={handleExitAnimationEnd}
+          />
 
           {/* Action Buttons - Always visible area */}
-          <div className="mobile-action-area">
-            {showActionButtons && currentPlayer && !winnerInfo && !isShuffling ? (
-              <MobileActionButtons
-                playerOptions={playerOptions}
-                currentPlayerStack={currentPlayer.stack}
-                highestBet={highestBet}
-                currentPlayerBet={currentPlayer.bet}
-                minRaise={minRaise}
-                bigBlind={bigBlind}
-                potSize={pot!.total}
-                onAction={handlePlayerAction}
-                onQuickChat={openChatSheet}
-                bettingContext={bettingContext ?? undefined}
-                recommendedAction={recommendedAction}
-                raiseToAmount={raiseToAmount}
-              />
-            ) : (
-              <div className="mobile-action-buttons">
-                {/* Preemptive Check/Fold - shows when AI is thinking and it's this player's view */}
-                {humanPlayer &&
-                  humanPlayer.name === playerName &&
-                  !humanPlayer.is_folded &&
-                  aiThinking &&
-                  currentPlayer &&
-                  !currentPlayer.is_human && (
-                    <button
-                      className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
-                      data-testid="action-btn-preemptive"
-                      onClick={() =>
-                        setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')
-                      }
-                    >
-                      <span className="action-icon">
-                        {queuedAction === 'check_fold' ? (
-                          <Check />
-                        ) : (
-                          <>
-                            <Check />
-                            <X />
-                          </>
-                        )}
-                      </span>
-                      <span className="btn-label">
-                        {queuedAction === 'check_fold' ? 'Queued' : 'Chk/Fold'}
-                      </span>
-                    </button>
-                  )}
-                <span className="waiting-text" data-testid="waiting-text">
-                  {aiThinking && currentPlayer && !currentPlayer.is_human
-                    ? `${currentPlayer.name} is thinking...`
-                    : aiThinking
-                      ? 'Submitting...'
-                      : 'Waiting...'}
-                </span>
-                {/* Fast-forward: any time someone else is acting — including
-                while the human is folded (waiting out the hand is exactly
-                when FF matters). The auto-reset fires when action returns
-                to the human on the next hand's preflop. */}
-                {gameId &&
-                  humanPlayer &&
-                  currentPlayer &&
-                  !currentPlayer.is_human &&
-                  !aiInstant &&
-                  !alwaysFastForward && (
-                    <button
-                      className={`action-btn ff-btn ${fastForward ? 'queued' : ''}`}
-                      data-testid="action-btn-ff"
-                      onClick={() => {
-                        gameAPI.fastForward(gameId, !fastForward).catch((e) => {
-                          logger.warn('[FF] toggle failed', e);
-                        });
-                      }}
-                      title={
-                        fastForward
-                          ? 'Tap to return to normal speed'
-                          : 'Skip AI deliberation — resolve to your next turn'
-                      }
-                    >
-                      <span className="action-icon">
-                        <FastForward />
-                      </span>
-                      <span className="btn-label">{fastForward ? 'Stop' : 'FF'}</span>
-                    </button>
-                  )}
-                <button
-                  className="action-btn chat-btn"
-                  data-testid="action-btn-chat"
-                  onClick={openChatSheet}
-                >
-                  <span className="action-icon">
-                    <MessageCircle />
-                  </span>
-                  <span className="btn-label">Chat</span>
-                </button>
-              </div>
-            )}
-          </div>
+          <MobileActionArea
+            showActionButtons={!!showActionButtons}
+            currentPlayer={currentPlayer}
+            hasWinner={!!winnerInfo}
+            isShuffling={isShuffling}
+            playerOptions={playerOptions}
+            highestBet={highestBet}
+            minRaise={minRaise}
+            bigBlind={bigBlind}
+            potTotal={pot!.total}
+            onAction={handlePlayerAction}
+            onQuickChat={openChatSheet}
+            bettingContext={bettingContext}
+            recommendedAction={recommendedAction}
+            raiseToAmount={raiseToAmount}
+            humanPlayer={humanPlayer}
+            playerName={playerName}
+            aiThinking={aiThinking}
+            queuedAction={queuedAction}
+            setQueuedAction={setQueuedAction}
+            gameId={gameId}
+            aiInstant={aiInstant}
+            alwaysFastForward={alwaysFastForward}
+            fastForward={fastForward}
+          />
 
           {/* Winner Announcement — the "result" beat for showdown wins only.
           Fold-out walks stay uneventful (their winner line shows in the shuffle
-          screen below). When the overlay's hold elapses or the player taps
-          Continue, handleResultComplete hands off to the shuffle beat and clears
-          the winner, so the overlay and shuffle never overlap. */}
+          screen below). The sequencer only sets winnerInfo once the actions /
+          board / run-out reactions have drained, so mounting on it directly is
+          already correctly ordered — no separate reveal gate needed. When the
+          overlay's hold elapses or the player taps Continue, handleResultComplete
+          hands off to the shuffle beat and clears the winner. */}
           {/* The human is identified from the players list's is_human seat
               inside MobileWinnerAnnouncement; playerName is only a fallback. */}
-          {winnerInfo && winnerInfo.showdown && !holdWinner && (
+          {winnerInfo && winnerInfo.showdown && (
             <MobileWinnerAnnouncement
               winnerInfo={winnerInfo}
               onComplete={handleResultComplete}
@@ -1194,7 +612,6 @@ export function MobilePokerTable({
             players={storePlayers || []}
             guestChatDisabled={guestChatDisabled}
             guestFreeChatLocked={guestFreeChatLocked}
-            initialTarget={chatInitialTarget}
           />
 
           {/* LLM Debug Modal */}

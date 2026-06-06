@@ -55,9 +55,11 @@ class TestFreeHumanSeatOnDelete:
         assert table.seats[0]["kind"] == "open"
         assert player_entity_id("guest_x") not in _seated_ids(repos)
 
-    def test_noop_when_authority_off(self, repos):
+    def test_noop_when_authority_off(self, repos, monkeypatch):
+        # Authority is hardwired True in prod; force it off to exercise the
+        # gated-off branch (the sweep is inert: returns 0, leaves the seat).
+        monkeypatch.setattr("cash_mode.economy_flags.PRESENCE_AUTHORITY_ENABLED", False)
         _save(repos, [human_slot("guest_x", 500), open_slot()])
-        # Authority off → sweep is inert (returns 0, leaves the seat).
         assert free_human_seat_on_delete(owner_id="guest_x", sandbox_id=SB, repos=repos) == 0
 
     def test_ignores_other_owners_seat(self, repos, authority_on):
@@ -79,6 +81,9 @@ class TestSweepPresenceOnPersonaDelete:
         assert table.seats[0]["kind"] == "open"
         assert ai_entity_id("zeus") not in _seated_ids(repos)
 
-    def test_noop_when_authority_off(self, repos):
+    def test_noop_when_authority_off(self, repos, monkeypatch):
+        # Authority is hardwired True in prod; force it off to exercise the
+        # gated-off branch (the persona-delete sweep is inert: returns 0).
+        monkeypatch.setattr("cash_mode.economy_flags.PRESENCE_AUTHORITY_ENABLED", False)
         _save(repos, [ai_slot("zeus", 1000), open_slot()])
         assert sweep_presence_on_persona_delete(personality_id="zeus", repos=repos) == 0

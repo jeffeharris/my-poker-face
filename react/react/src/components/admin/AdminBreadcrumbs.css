@@ -1,0 +1,36 @@
+.admin-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.admin-breadcrumbs__link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.6);
+  transition: color 0.15s ease;
+}
+
+.admin-breadcrumbs__link:hover {
+  color: #ffd700;
+  text-decoration: underline;
+}
+
+.admin-breadcrumbs__current {
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+}
+
+.admin-breadcrumbs__sep {
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}

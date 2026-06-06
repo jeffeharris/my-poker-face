@@ -40,6 +40,9 @@ export type { ThemedSelectProps } from './ThemedSelect';
 export { UserDropdown } from './UserDropdown';
 export type { UserDropdownProps } from './UserDropdown';
 
+export { FloatingUserMenu } from './FloatingUserMenu';
+export type { FloatingUserMenuProps } from './FloatingUserMenu';
+
 export { ShuffleLoading } from './ShuffleLoading';
 
 export { ActionBadge } from './ActionBadge';

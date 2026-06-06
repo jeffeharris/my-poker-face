@@ -86,10 +86,14 @@ lever is the model, not the dispatch.
 | Sharp-bot Layer-3 narration | `tiered_bot_controller.py:4060` → `expression_generator.py` | DEFAULT (minimal) | the comment must match the action it narrates (held until ready) |
 | Beat cleanup | `controllers.py` / `expression_generator.py` / `commentary_generator.py` cleanup clients | **NANO** (minimal) | reformats the narration before it can post; mechanical → cheapest model |
 
-### Genuinely reducible (Phase 2)
-| Call | Site | Why |
-|---|---|---|
-| End-of-hand commentary join | `game_handler.py` `commentary_complete.wait(10)` | commentary already streams per-player via callback; the 10s next-hand join is mostly dead wait and can be shortened/removed |
+### End-of-hand commentary — capped, early-releasing wait (working as intended)
+`game_handler.py` runs commentary in a background task; each line streams the
+moment it's ready (`emit_commentary_immediately`), and the next hand is gated by
+`commentary_complete.wait(timeout=COMMENTARY_LLM_TIMEOUT_SECONDS)` — an Event wait
+that **releases early** when commentary finishes or **caps at 8s** and proceeds.
+The commentary LLM call carries the *same* 8s `default_timeout`, so when the wait
+gives up the in-flight call is actually aborted (not left on the 600s httpx
+default leaking a late line into the next hand). Not "dead wait" — a real cap.
 
 ### Already async (the correct template)
 `_run_async_narration` (fire-and-forget), proactive-coach prefetch (overlaps
@@ -139,5 +143,8 @@ now quality-vs-cost, not latency.
   Settings UI alongside the other tiers. Corrected the earlier plan: sharp-bot
   narration and beat cleanup must stay SYNC (the narration matches its action;
   cleanup precedes posting) — the lever was the tier, not async.
-- **Phase 2 (planned):** shorten/remove the end-of-hand commentary 10s join (the
-  only genuinely reducible blocker; commentary already streams per-player).
+- **2026-06-06 (commentary cap):** reduced the end-of-hand commentary wait cap
+  10s→8s and gave the commentary LLM call its own matching `default_timeout`
+  (`COMMENTARY_LLM_TIMEOUT_SECONDS=8`), so the cut-off actually aborts the call
+  instead of letting it ride the 600s httpx default. (Corrected the earlier
+  "dead wait" note — the wait early-releases and was always a real cap.)

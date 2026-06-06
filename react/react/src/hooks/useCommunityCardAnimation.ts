@@ -1,4 +1,5 @@
 import { useState, useRef, useLayoutEffect, useMemo } from 'react';
+import { useGameStore } from '../stores/gameStore';
 
 interface CardAnimationState {
   shouldAnimate: boolean;
@@ -7,57 +8,47 @@ interface CardAnimationState {
 }
 
 /**
- * Hook that tracks when new community cards are dealt and returns
- * per-card animation state with cascade delays.
+ * Per-card community-card slide animation, driven by the hand sequencer's
+ * authoritative deal trigger (`store.cardDeal`) rather than inferring a deal from
+ * card-count deltas. The sequencer fires one monotonic `token` per real deal
+ * beat, so the board animates exactly once per street — a re-render, a duplicate
+ * state push, or a cold-load that re-asserts the board can't re-deal it. (The
+ * engine's own `communityCount` baseline already drops duplicate deals upstream;
+ * the token is the render-side half of the same guarantee.)
  *
- * Flop (3 cards): 0s/1s/2s delays, 0.825s duration each
- * Turn/River (1 card): 0s delay, 0.825s duration
+ * Flop (3 cards): 0s/1s/2s cascade delays, 0.825s duration each.
+ * Turn/River (1 card): 0s delay, 0.825s duration.
  */
-export function useCommunityCardAnimation(
-  newlyDealtCount: number | undefined,
-  totalCards: number
-): CardAnimationState[] {
+export function useCommunityCardAnimation(totalCards: number): CardAnimationState[] {
+  const cardDeal = useGameStore((s) => s.cardDeal);
+
   const [animatingIndices, setAnimatingIndices] = useState<Set<number>>(new Set());
-  const prevCardCountRef = useRef(0);
-  const isInitialMount = useRef(true);
+  const lastTokenRef = useRef(0);
+  const prevCardCountRef = useRef(totalCards);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // NOTE: layout effect (not useEffect) so the "which cards animate" decision is
-  // committed BEFORE the browser paints. Otherwise the first render after a deal
-  // paints the card statically in its final spot (isAnimating=false), then this
-  // effect flips it and it flies in — a visible flash, worst under fast bot play.
+  // Animate the cards a new deal token brings in. Keyed on the token (not the
+  // count), so the same deal never animates twice. layout effect (not effect) so
+  // the decision is committed before paint — otherwise the card paints statically
+  // in its final spot for one frame, then flies in (a visible flash).
   useLayoutEffect(() => {
-    const count = newlyDealtCount ?? 0;
+    if (!cardDeal || cardDeal.token === lastTokenRef.current) return;
+    lastTokenRef.current = cardDeal.token;
 
-    // On initial mount with cards already present (e.g. page refresh), skip animation
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      prevCardCountRef.current = totalCards;
-      return;
-    }
+    const { count, total } = cardDeal;
+    const newIndices = new Set<number>();
+    for (let i = total - count; i < total; i++) newIndices.add(i);
+    setAnimatingIndices(newIndices);
 
-    // New cards were dealt
-    if (count > 0 && totalCards > prevCardCountRef.current) {
-      const newIndices = new Set<number>();
-      for (let i = totalCards - count; i < totalCards; i++) {
-        newIndices.add(i);
-      }
-      setAnimatingIndices(newIndices);
+    // Clear once the cascade finishes: last card starts at (count-1)×1s and
+    // slides for 0.825s, plus a small tail.
+    const clearAfter = ((count - 1) * 1.0 + 0.825 + 0.2) * 1000;
+    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    clearTimerRef.current = setTimeout(() => setAnimatingIndices(new Set()), clearAfter);
+  }, [cardDeal]);
 
-      // Clear animation state after all animations complete
-      // For flop: last card starts at 2s + 0.825s duration = 2.825s
-      const maxDelay = (count - 1) * 1.0;
-      const clearAfter = (maxDelay + 0.825 + 0.2) * 1000;
-
-      if (clearTimerRef.current) {
-        clearTimeout(clearTimerRef.current);
-      }
-      clearTimerRef.current = setTimeout(() => {
-        setAnimatingIndices(new Set());
-      }, clearAfter);
-    }
-
-    // Cards decreased (new hand started) - clear animations and pending timers
+  // New hand (board shrank) — drop any in-flight animation + pending clear.
+  useLayoutEffect(() => {
     if (totalCards < prevCardCountRef.current) {
       setAnimatingIndices(new Set());
       if (clearTimerRef.current) {
@@ -65,37 +56,27 @@ export function useCommunityCardAnimation(
         clearTimerRef.current = undefined;
       }
     }
-
     prevCardCountRef.current = totalCards;
+  }, [totalCards]);
 
+  // Cleanup on unmount.
+  useLayoutEffect(() => {
     return () => {
-      if (clearTimerRef.current) {
-        clearTimeout(clearTimerRef.current);
-        clearTimerRef.current = undefined;
-      }
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
     };
-  }, [newlyDealtCount, totalCards]);
+  }, []);
 
-  // Build animation state array for all 5 community card positions
+  // Build animation state for all 5 community-card positions.
   return useMemo(
     () =>
       Array.from({ length: 5 }, (_, index) => {
         if (!animatingIndices.has(index)) {
           return { shouldAnimate: false, delay: 0, duration: 0.55 };
         }
-
-        // Position within the newly dealt batch (0, 1, 2 for flop)
+        // Position within the newly dealt batch (0, 1, 2 for the flop).
         const batchStart = totalCards - animatingIndices.size;
         const positionInBatch = index - batchStart;
-
-        // Cascade delay: 1 second between each card
-        const delay = positionInBatch * 1.0;
-
-        // All cards travel the same distance (-100vw relative to their own position),
-        // so a fixed duration gives consistent velocity.
-        const duration = 0.825;
-
-        return { shouldAnimate: true, delay, duration };
+        return { shouldAnimate: true, delay: positionInBatch * 1.0, duration: 0.825 };
       }),
     [animatingIndices, totalCards]
   );

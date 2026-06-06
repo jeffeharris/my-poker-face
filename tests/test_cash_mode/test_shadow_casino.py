@@ -111,16 +111,6 @@ def shadow_on(monkeypatch):
     return repo
 
 
-@pytest.fixture
-def shadow_off(monkeypatch):
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False)
-    repo = FakePresenceRepo()
-    import flask_app.extensions as extensions
-
-    monkeypatch.setattr(extensions, "entity_presence_repo", repo, raising=False)
-    return repo
-
-
 class FakeCashTableRepo:
     def __init__(self, tables):
         self._tables = {t.table_id: t for t in tables}
@@ -265,21 +255,6 @@ def test_drain_no_shadow_when_no_chips(shadow_on):
         FakeBankrollRepo({pid: 0}),
         FakeLedgerRepo(),
         personality_id=pid,
-        sandbox_id=SANDBOX,
-        now=NOW,
-        reason_detail="casino_teardown",
-    )
-    assert repo.calls == []
-
-
-def test_drain_no_rows_when_flag_off(shadow_off):
-    from cash_mode.casino_provisioning import _drain_fish_bankroll_to_pool
-
-    repo = shadow_off
-    _drain_fish_bankroll_to_pool(
-        FakeBankrollRepo({"fish_a": 500}),
-        FakeLedgerRepo(),
-        personality_id="fish_a",
         sandbox_id=SANDBOX,
         now=NOW,
         reason_detail="casino_teardown",

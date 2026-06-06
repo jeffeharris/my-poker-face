@@ -231,6 +231,9 @@ await gameAPI.sendMessage(gameId, message, sender);
 
 ## Related docs
 
+- [`FRONTEND_RENDERING.md`](FRONTEND_RENDERING.md) — how socket-driven re-renders
+  stay cheap: structural sharing, the memoization contract, desktop/mobile
+  consumption asymmetry, and the measured render baseline.
 - `react/CLAUDE.md` — working guide for this app (state-management contract,
   memoization rules, key-file table).
 - Backend: Flask + Socket.IO API (`flask_app/`).

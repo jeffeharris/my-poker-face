@@ -237,28 +237,6 @@ def _track_guest_hand(game_id: str, game_data: dict) -> bool:
         return False
 
 
-def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
-    """Emit avatar update for a run-out reaction.
-
-    `is_reaction` marks this as an authoritative emotion change (a run-out
-    reaction the player should see *now*), distinct from a late-arriving
-    generated avatar image. The frontend applies the emotion immediately for
-    reactions but must not clobber the displayed emotion for generation
-    arrivals — see the `avatar_update` handler in usePokerGame.ts.
-    """
-    avatar_url = get_avatar_url_with_fallback(game_id, player_name, emotion)
-    socketio.emit(
-        'avatar_update',
-        {
-            'player_name': player_name,
-            'avatar_url': avatar_url,
-            'avatar_emotion': emotion,
-            'is_reaction': True,
-        },
-        to=game_id,
-    )
-
-
 def _feed_opponent_observations(memory_manager, observer: str, observations: List[str]) -> None:
     """Feed opponent observations from commentary into opponent models.
 
@@ -1751,7 +1729,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     # Persist table + idle changes. Thread the real leave reason/target into
     # save_table so the presence-machine idle satellite (cash_idle_metadata)
     # records the actual reason instead of defaulting every row to
-    # 'forced_leave' (the metadata write has no other source for it).
+    # 'forced_leave' (the metadata write has no other source for it). The
+    # save_table chokepoint writes each departed AI's IDLE presence + metadata,
+    # so 'add' changes need no separate persistence here; only re-seats/reaps
+    # ('remove') must clear a now-stale IDLE row.
     idle_metadata = {
         change.entry.personality_id: change.entry
         for change in result.idle_changes
@@ -1761,9 +1742,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
     )
     for change in result.idle_changes:
-        if change.kind == "add" and change.entry is not None:
-            cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
-        elif change.kind == "remove":
+        if change.kind == "remove":
             cash_table_repo.delete_idle(change.personality_id, sandbox_id=sandbox_id)
 
     # Surface movement to the seated player's in-game chat. The lobby
@@ -3081,6 +3060,48 @@ def _record_cash_scalps(game_data: dict, game_state, winner_name: str) -> None:
         repo.record_many(sandbox_id, scalps, now=datetime.now().isoformat())
 
 
+def _record_ai_table_hands(game_data: dict, game_state) -> None:
+    """Record each AI's hand + net result at this cash table (ai_table_hand_counts).
+
+    Per-room hand/net tally that feeds the success-weighted table-affinity lever
+    (an AI drifts back to rooms it wins at). ONE increment per AI per hand — not
+    bilateral. Mirrors `_record_cash_scalps`' wiring (the live counterpart to the
+    lobby-sim hook in `full_sim`). Net = current stack − stack at hand start
+    (already snapshotted on game_data for the pressure detectors). Pure
+    best-effort — the caller wraps it; self-guards on a missing repo / table id /
+    unmapped ids."""
+    from flask_app import extensions
+
+    repo = getattr(extensions, "relationship_repo", None)
+    if repo is None:
+        return
+    sandbox_id = _sandbox_id_for(game_data)
+    table_id = game_data.get("cash_table_id")
+    if not sandbox_id or not table_id:
+        return
+    cash_pids = game_data.get("cash_personality_ids") or {}  # display name -> pid
+    if not cash_pids:
+        return
+
+    from datetime import datetime
+
+    now = datetime.now().isoformat()
+    start_stacks = game_data.get("hand_start_stacks") or {}
+    # Dedup defensively: the sim hook iterates seat indices (never repeat), but
+    # cash_pids is a client-built display-name→pid map that could collide, and a
+    # double increment for one pid in one hand would over-count its net.
+    counted: set = set()
+    for p in game_state.players:
+        if getattr(p, "is_human", False):
+            continue
+        pid = cash_pids.get(p.name)
+        if not pid or pid in counted:
+            continue
+        counted.add(pid)
+        net = int(p.stack) - int(start_stacks.get(p.name, p.stack))
+        repo.increment_ai_table_hands(pid, table_id, sandbox_id=sandbox_id, net_delta=net, now=now)
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -3126,6 +3147,14 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             _record_cash_scalps(game_data, game_state, winning_player_names[0])
         except Exception:
             logger.debug("[CASH] scalp record failed (non-fatal)", exc_info=True)
+
+    # Per-table hand/net counter (feeds table affinity): record each seated AI's
+    # hand + net result. Best-effort — never let it taint the hand flow.
+    if game_data.get('cash_mode'):
+        try:
+            _record_ai_table_hands(game_data, game_state)
+        except Exception:
+            logger.debug("[CASH] ai_table_hands record failed (non-fatal)", exc_info=True)
 
     # Prepare winner announcement data
     winning_players_string = (
@@ -3401,17 +3430,19 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
             return game_state, True
 
-    # Wait for commentary to complete before starting new hand
-    # Commentary runs in parallel across AI players, but we need all to finish
-    # Use a timeout to prevent indefinite blocking if something goes wrong
-    commentary_timeout = 10  # seconds
+    # Wait for commentary to complete before starting new hand. Commentary runs in
+    # the background across AI players (each line streams the moment it's ready);
+    # this only gates the NEXT hand. Cap it so a slow provider can't stall pacing —
+    # the same value bounds the commentary LLM calls themselves (config), so when
+    # the wait gives up the in-flight call is aborted, not left running to 600s.
+    commentary_timeout = config.COMMENTARY_LLM_TIMEOUT_SECONDS
     if not commentary_complete.wait(timeout=commentary_timeout):
         logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
 
-    # Small additional delay for visual pacing
-    delay = (1 if is_showdown else 0.5) * config.ANIMATION_SPEED
-    if delay > 0:
-        _ff_aware_sleep(game_id, delay)
+    # Result/inter-hand pacing is owned by the client sequencer now (the winner
+    # overlay's hold + the shuffle beat), so the backend no longer sleeps here —
+    # it just yields so the cleared-state emit below flushes.
+    socketio.sleep(0)
 
     # Clear fast-forward at the hand boundary. FF is a single-hand
     # affordance — the player asked to skip *this* orbit, not commit to
@@ -3443,8 +3474,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         )
         return state_machine.game_state, False
 
-    # Brief delay (150ms at 1x speed) for frontend to receive cleared state and begin card exit animation
-    _ff_aware_sleep(game_id, 0.15 * config.ANIMATION_SPEED)
+    # Yield so the cleared-state emit flushes; the client sequencer paces the
+    # card exit / shuffle beat (no backend hold).
+    socketio.sleep(0)
 
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
@@ -3452,6 +3484,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     game_data['last_announced_phase'] = None
     game_data.pop('runout_reaction_schedule', None)
     game_data.pop('runout_emotion_overrides', None)
+    # Drop the cached game-speed so the next hand re-resolves the owner's current
+    # preference — a mid-game change in Settings then applies on the next hand
+    # instead of only on a brand-new game. (Re-resolution is one cheap DB read
+    # per hand boundary, not per AI turn.)
+    game_data.pop('game_speed', None)
 
     # Cash mode: refill empty seats with fresh AIs before dealing the
     # next hand. Tournament mode skips this — busted players stay
@@ -3975,82 +4012,26 @@ def progress_game(game_id: str) -> None:
                     current_game_data['runout_emotion_overrides'] = {}
                     game_state_service.set_game(game_id, current_game_data)
 
-                    # Brief pause for players to register the all-in matchup
-                    # before the board runs out (see config.RUNOUT_REVEAL_HOLD).
-                    delay = config.RUNOUT_REVEAL_HOLD * config.ANIMATION_SPEED
-                    if delay > 0:
-                        _ff_aware_sleep(game_id, delay)
+                    # The matchup hold before the board runs is owned by the
+                    # client sequencer's reveal beat now; just yield so the
+                    # reveal + runout_schedule emits flush.
+                    socketio.sleep(0)
 
-                # Wait for card animation to finish, then emit reactions,
-                # then hold so the player can absorb before next street.
-                # Flop (3 cards): ~2.825s animation (2s stagger + 0.825s)
-                # Turn/River (1 card): ~0.825s animation
-                # PRE_FLOP is the reveal step — no community card is dealt, so
-                # there's no animation to wait for. Skipping it removes a dead
-                # ~1s before the board ran out; the reveal cascade already plays
-                # during RUNOUT_REVEAL_HOLD above, and the reaction_hold below
-                # now shows the preflop (INITIAL) reactions.
-                if current_phase == PokerPhase.FLOP:
-                    animation_sleep = 3
-                elif current_phase in (PokerPhase.TURN, PokerPhase.RIVER):
-                    animation_sleep = 1
-                else:
-                    animation_sleep = 0
-                reaction_hold = 1.5
-                delay = animation_sleep * config.ANIMATION_SPEED
-                if delay > 0:
-                    _ff_aware_sleep(game_id, delay)
+                # The client sequencer owns the entire board run-out timeline now:
+                # the card-deal gates, the per-card avatar reaction beats (walked
+                # from the precomputed `runout_schedule` emitted once at reveal),
+                # and the showdown lock-up hold — all on one client clock. The
+                # backend therefore streams each street's state as fast as it can
+                # and just yields; it no longer sleeps for animation/reaction
+                # pacing, and no longer emits per-street avatar reactions (those
+                # were redundant with `runout_schedule` and dropped client-side
+                # while the sequencer owned faces).
+                socketio.sleep(0)
 
-                # Check if game was deleted during sleep
+                # Bail if the game was deleted while yielding.
                 current_game_data = game_state_service.get_game(game_id)
                 if not current_game_data:
                     return
-
-                # Emit pre-computed avatar reactions for this street
-                reaction_schedule = current_game_data.get('runout_reaction_schedule')
-                if reaction_schedule:
-                    # The PRE_FLOP reveal step shows the INITIAL (hole-card)
-                    # reactions — the players' read on the matchup — now as their
-                    # own beat, after the reveal has settled.
-                    phase_name = (
-                        'INITIAL' if current_phase == PokerPhase.PRE_FLOP else current_phase.name
-                    )
-                    overrides = current_game_data.get('runout_emotion_overrides', {})
-                    for reaction in reaction_schedule.reactions_by_phase.get(phase_name, []):
-                        current = overrides.get(reaction.player_name)
-                        if current == reaction.emotion:
-                            continue  # Already showing this emotion
-                        overrides[reaction.player_name] = reaction.emotion
-                        _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
-                    current_game_data['runout_emotion_overrides'] = overrides
-                    game_state_service.set_game(game_id, current_game_data)
-
-                # Hold so the player can see reactions before next street
-                delay = reaction_hold * config.ANIMATION_SPEED
-                if delay > 0:
-                    _ff_aware_sleep(game_id, delay)
-                # Emit showdown reactions after all cards are dealt
-                current_phase = state_machine.current_phase
-                if current_phase == PokerPhase.RIVER:
-                    current_game_data = game_state_service.get_game(game_id)
-                    if current_game_data:
-                        reaction_schedule = current_game_data.get('runout_reaction_schedule')
-                        if reaction_schedule:
-                            overrides = current_game_data.get('runout_emotion_overrides', {})
-                            for reaction in reaction_schedule.reactions_by_phase.get(
-                                'SHOWDOWN', []
-                            ):
-                                if overrides.get(reaction.player_name) == reaction.emotion:
-                                    continue
-                                overrides[reaction.player_name] = reaction.emotion
-                                _emit_avatar_reaction(
-                                    game_id, reaction.player_name, reaction.emotion
-                                )
-                            current_game_data['runout_emotion_overrides'] = overrides
-                            game_state_service.set_game(game_id, current_game_data)
-                        delay = 1.5 * config.ANIMATION_SPEED
-                        if delay > 0:
-                            _ff_aware_sleep(game_id, delay)
 
                 # Determine next phase (skip betting, go to dealing or showdown)
                 if current_phase == PokerPhase.RIVER:
@@ -4476,8 +4457,14 @@ def handle_ai_action(game_id: str) -> None:
     highest_bet = state_machine.game_state.highest_bet
     action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
-    # Send action as Table message (consistent with human actions)
-    send_message(game_id, "Table", action_text, "table")
+    # Defer the action-text + comment onto the action's own game-state push
+    # (immediate=False) so the client surfaces them on its paced action beat,
+    # coupled to the chip-move, instead of racing ahead on the instant channel.
+    # This is the shared path for every bot type (LLM, tiered/sharp, rule bots),
+    # so the coupling is uniform — and it's what fixes fast tiered bots whose
+    # instant decisions otherwise flood the queue and desync from their comments.
+    # No backend `sleep` here either: the client sequencer owns the pacing now.
+    send_message(game_id, "Table", action_text, "table", immediate=False)
 
     # Send AI message if player has something to say or show. addressing
     # carries the speaker's declared callout targets so the next bot's
@@ -4488,8 +4475,8 @@ def handle_ai_action(game_id: str) -> None:
             current_player.name,
             full_message,
             "ai",
-            sleep=1,
             addressing=response_addressing,
+            immediate=False,
         )
 
     if action == 'fold':

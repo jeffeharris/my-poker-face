@@ -1,0 +1,114 @@
+/* ==========================================================================
+   Capture Section (mode options + statistics)
+   Shared form layout (.us-capture, __retention, __actions, __options, __unit)
+   lives in the always-loaded orchestrator UnifiedSettings.css.
+   ========================================================================== */
+
+.us-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.us-option:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-surface-hover, rgba(255, 255, 255, 0.05));
+}
+
+.us-option--selected {
+  background: rgba(212, 165, 116, 0.1);
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.us-option__label {
+  font-weight: var(--font-weight-medium);
+}
+
+.us-option__default {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* Statistics */
+.us-stats {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.us-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.us-stat__value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold);
+}
+
+.us-stat__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.us-stat-breakdown {
+  border-top: 1px solid var(--admin-card-border);
+  padding-top: var(--space-3);
+}
+
+.us-stat-breakdown__title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.us-stat-breakdown__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.us-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-1) 0;
+}
+
+.us-stat-item__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.us-stat-item__value {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .us-option {
+    width: 100%;
+    justify-content: center;
+  }
+}

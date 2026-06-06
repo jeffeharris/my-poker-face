@@ -220,22 +220,26 @@ def analyze_player_decision(
     try:
         from poker.decision_analyzer import get_analyzer
 
-        # Skip the duplicate analysis when the acting player's controller
-        # already wrote the richer controller-side row for THIS decision.
-        # Self-analyzing controllers (standard/lean/chaos, and tiered when a
-        # decision_analysis repo is attached) stamp (hand_number, phase,
-        # action) after saving; that row carries the capture_id, psychology
-        # snapshot, and menu compliance this fallback path can't reconstruct.
-        # Consume the stamp on match so a stale stamp can never wrongly skip
-        # a later decision that didn't self-analyze (humans, narration-skipped
-        # sharp bots, or any controller without a repo wired).
+        # Skip when the acting player's controller already persisted the
+        # richer controller-side row for THIS decision from inside its own
+        # decision path. Self-saving controllers (chaos/standard/lean/tiered)
+        # write the row with the capture_id, psychology snapshot, menu
+        # compliance, and — critically — the FRESH, in-call pipeline snapshot
+        # that this handler cannot reconstruct. We discriminate on a static
+        # capability flag (+ a repo actually being wired) rather than the old
+        # in-memory `_last_analyzed_decision` stamp: the stamp was an
+        # order-of-operations handshake that, on controller-instance
+        # divergence (cold-load), silently fell through here and grafted a
+        # STALE snapshot off the controller. RuleBot/casebot does not
+        # self-save (WRITES_OWN_DECISION_ANALYSIS = False) and still falls
+        # through to the basic row below.
         controller = (ai_controllers or {}).get(player_name)
-        if controller is not None:
-            phase_name = state_machine.current_phase.name if state_machine.current_phase else None
-            stamp = getattr(controller, '_last_analyzed_decision', None)
-            if stamp is not None and stamp == (hand_number, phase_name, action):
-                controller._last_analyzed_decision = None
-                return
+        if (
+            controller is not None
+            and getattr(controller, 'WRITES_OWN_DECISION_ANALYSIS', False)
+            and getattr(controller, '_decision_analysis_repo', None) is not None
+        ):
+            return
 
         player = game_state.current_player
         if player.name != player_name:
@@ -318,26 +322,16 @@ def analyze_player_decision(
             opponent_infos=opponent_infos,
         )
 
-        # Tiered/sharp bots stash their decision pipeline state on the
-        # controller. Persist it on the analysis row so the Pipeline panel
-        # has data to render — without this, sharp-bot decisions whose
-        # narration was skipped show up in the analyzer with an empty trace.
-        if ai_controllers:
-            controller = ai_controllers.get(player_name)
-            if controller is not None:
-                from poker.controllers import (
-                    _serialize_intervention_trace,
-                    _serialize_pipeline_snapshot,
-                )
-
-                analysis.intervention_trace_json = _serialize_intervention_trace(
-                    getattr(controller, '_last_intervention_trace', None),
-                    player_name=player_name,
-                )
-                analysis.strategy_pipeline_snapshot_json = _serialize_pipeline_snapshot(
-                    getattr(controller, '_last_pipeline_snapshot', None),
-                    player_name=player_name,
-                )
+        # NOTE: this path intentionally does NOT attach a pipeline snapshot or
+        # intervention trace. Those belong to the bot's decision pipeline and
+        # are persisted — fresh, in the same decision call — by the controller's
+        # own `_analyze_decision` (see WRITES_OWN_DECISION_ANALYSIS, skipped
+        # above). The rows reaching here are humans and RuleBot/casebot, which
+        # have no pipeline snapshot. Reading the controller's `_last_*`
+        # accumulators here was the source of stale "resolved RAISE next to an
+        # actual FOLD" rows when a self-saving bot fell through (cold-load
+        # instance divergence): the accumulators held the player's PREVIOUS
+        # decision. A snapshot-less row is honest; a grafted one lied.
 
         # Capture the EXACT solver-chart node (scenario|position|opener|hand) from
         # the pre-action state, so chart-graded coach leaks can grade against the
