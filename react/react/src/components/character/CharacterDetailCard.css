@@ -253,47 +253,6 @@
   outline-offset: 3px;
 }
 
-/* "Send chat" — sits to the left of the close dot, paper-tab style. */
-.dossier__chat-btn {
-  position: absolute;
-  top: 12px;
-  right: 54px;
-  z-index: 5;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 16px;
-  background: var(--ink);
-  color: var(--paper-hi);
-  font-family: 'Fraunces', 'Bodoni Moda', serif;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.45),
-    0 0 0 3px rgba(255, 246, 220, 0.5);
-  transition:
-    transform 0.18s ease-out,
-    background 0.18s ease-out;
-}
-.dossier__chat-btn:hover {
-  background: var(--gold-bright, #c39034);
-  color: var(--ink);
-  transform: translateY(-1px);
-}
-.dossier__chat-btn:focus-visible {
-  outline: 2px solid var(--gold-bright);
-  outline-offset: 3px;
-}
-.dossier__chat-btn-label {
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
 /* ───────────────────────────────────────────────────────────────
    Header
    ─────────────────────────────────────────────────────────────── */
@@ -736,13 +695,21 @@
   color: var(--ink-faint);
 }
 
-/* Dotted leader line between label and value — magazine TOC trick */
+/* Dotted leader line between label and value — magazine TOC trick.
+   The leader is an otherwise-empty grid cell; an empty box has no real text
+   baseline, so `align-items: baseline` falls back to a *synthesized* baseline
+   whose position is width-dependent — fine on desktop, but floating the dots
+   high on narrow (mobile) widths. A zero-width invisible nbsp gives the cell a
+   genuine text baseline (same font-size as the row), so the dotted underline
+   lands on the row's first text line deterministically at any width. */
 .dossier__data-leader {
   border-bottom: 1px dotted var(--ink-faint);
-  position: relative;
-  top: -4px;
-  height: 0;
   opacity: 0.55;
+  overflow: hidden;
+  min-width: 0;
+}
+.dossier__data-leader::before {
+  content: '\00a0';
 }
 
 .dossier__data-value {
