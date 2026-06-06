@@ -65,6 +65,7 @@ from cash_mode.stakes import (
 )
 from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
 from cash_mode.staking_tier import TIER_HOUSE_ONLY, resolve_tier
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +299,7 @@ def _relationship_axes(
     except Exception:
         rel = None
     if rel is None:
-        return 0.5, 0.5, 0.0
+        return REGARD_NEUTRAL, REGARD_NEUTRAL, 0.0
     return rel.likability, rel.respect, rel.heat
 
 

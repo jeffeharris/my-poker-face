@@ -40,6 +40,7 @@ from cash_mode.staking_tier import (
     TIER_STANDARD,
     resolve_tier,
 )
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -441,8 +442,8 @@ def compute_personality_offers(
         `GARNISHMENT_RATE_CAP` (+20pp).
 
     No-relationship-row case: `relationship_repo.load_relationship_state`
-    returns None → treated as default neutral state (respect=0.5,
-    heat=0.0, likability=0.5). This means a stranger lender extends
+    returns None → treated as default neutral state (respect/likability =
+    REGARD_NEUTRAL, heat=0.0). This means a stranger lender extends
     their anchor terms unmodified.
 
     "No outstanding loan from THIS lender" gate (eligibility 5 in the
@@ -595,7 +596,7 @@ def compute_personality_offers(
             now=now,
         )
         if rel is None:
-            respect, heat, likability = 0.5, 0.0, 0.5
+            respect, heat, likability = REGARD_NEUTRAL, 0.0, REGARD_NEUTRAL
         else:
             respect = rel.respect
             heat = rel.heat
