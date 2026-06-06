@@ -1,4 +1,4 @@
-import { Suspense, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AdminSidebar, type AdminTab } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
@@ -61,6 +61,20 @@ export function AdminToolLayout({
   const navigate = useNavigate();
   const { isMobile } = useViewport();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Cmd/Ctrl+K toggles the sidebar — mirrors AdminDashboard so the shortcut
+  // works on the deep tool routes too, not just /admin/:tab.
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      setSidebarCollapsed((prev) => !prev);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   const content = <Suspense fallback={toolFallback}>{children}</Suspense>;
 
