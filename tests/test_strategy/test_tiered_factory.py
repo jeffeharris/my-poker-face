@@ -2,8 +2,23 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
-from flask_app.handlers.tiered_factory import build_tiered_controller
+from flask_app.handlers.tiered_factory import (
+    build_tiered_controller,
+    reset_strategy_tables_cache,
+)
+
+
+@pytest.fixture(autouse=True)
+def _reset_factory_cache():
+    """The factory memoizes the strategy tables process-wide. Reset around each
+    test so `load_strategy_table` is actually called (cold cache) and this
+    test's mock table never leaks into the shared cache for later tests."""
+    reset_strategy_tables_cache()
+    yield
+    reset_strategy_tables_cache()
 
 
 @patch('flask_app.handlers.tiered_factory.LLMClient')

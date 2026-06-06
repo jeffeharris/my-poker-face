@@ -59,6 +59,25 @@ def _get_strategy_tables() -> tuple[StrategyTable, Optional[StrategyTable], dict
     )
 
 
+def reset_strategy_tables_cache() -> None:
+    """Clear the memoized strategy tables.
+
+    The tables are process-shared and otherwise persist for the whole run, so
+    tests that patch `load_strategy_table` (and assert its call count, or that
+    the loaded table is wired onto the controller) must reset the cache around
+    themselves — both to start cold and to avoid leaving their mock table
+    cached for later tests. See `tests/test_strategy/test_tiered_factory.py`.
+    """
+    global _strategy_tables_loaded, _strategy_table, _hu_strategy_table
+    global _depth_strategy_tables, _archetype_preflop_tables
+    with _strategy_tables_lock:
+        _strategy_tables_loaded = False
+        _strategy_table = None
+        _hu_strategy_table = None
+        _depth_strategy_tables = {}
+        _archetype_preflop_tables = {}
+
+
 def build_tiered_controller(
     *,
     player_name: str,
