@@ -477,6 +477,50 @@ class TestNicknameOverrideRoundTrip:
         assert loaded.likability == 0.4
 
 
+class TestAffinityWritePreservesPlayerData:
+    """Regression: save_relationship_state (the terminal step of every
+    record_event) must NOT wipe player-authored notes / nickname_override.
+
+    These columns (notes v95, nickname_override v101) are written by
+    separate paths (save_note / save_nickname_override) against the same
+    (observer_id, opponent_id) key. The old INSERT OR REPLACE did a
+    DELETE+INSERT that NULLed them on every showdown/social event. The
+    fix upserts via ON CONFLICT DO UPDATE of only the affinity columns.
+    """
+
+    def test_affinity_write_keeps_note(self, repo):
+        repo.save_note("alice", "bob", "calls light on the turn")
+        repo.save_relationship_state("alice", "bob", RelationshipState(heat=0.7))
+        assert repo.load_note("alice", "bob") == "calls light on the turn"
+
+    def test_affinity_write_keeps_nickname_override(self, repo):
+        repo.save_nickname_override("alice", "bob", "tight guy in red")
+        repo.save_relationship_state("alice", "bob", RelationshipState(heat=0.7))
+        assert repo.load_nickname_override("alice", "bob") == "tight guy in red"
+
+    def test_repeated_affinity_writes_keep_both(self, repo):
+        # The damaging case: a note/rename, then a stream of social
+        # events each re-firing the affinity upsert on the same key.
+        repo.save_note("alice", "bob", "bluffs the river")
+        repo.save_nickname_override("alice", "bob", "river bluffer")
+        for h in (0.2, 0.5, 0.8, 0.3):
+            repo.save_relationship_state("alice", "bob", RelationshipState(heat=h))
+        assert repo.load_note("alice", "bob") == "bluffs the river"
+        assert repo.load_nickname_override("alice", "bob") == "river bluffer"
+        # And the affinity axis still reflects the latest write.
+        assert repo.load_raw_relationship_state("alice", "bob").heat == 0.3
+
+    def test_affinity_write_still_updates_axes_when_note_present(self, repo):
+        repo.save_note("alice", "bob", "note")
+        repo.save_relationship_state(
+            "alice", "bob", RelationshipState(heat=0.6, respect=0.9, likability=0.2)
+        )
+        loaded = repo.load_raw_relationship_state("alice", "bob")
+        assert loaded.respect == 0.9
+        assert loaded.likability == 0.2
+        assert repo.load_note("alice", "bob") == "note"
+
+
 class TestLoadAllNicknameOverrides:
     def test_empty_when_observer_has_no_overrides(self, repo):
         assert repo.load_all_nickname_overrides("alice") == {}

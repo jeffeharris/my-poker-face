@@ -69,7 +69,7 @@ class PersonalityRepository(BaseRepository):
             personality_id: Stable identifier (slug-style). If omitted,
                 generated from name via slugify_personality_name. The
                 method preserves an existing row's personality_id when
-                INSERT OR REPLACE fires on the name UNIQUE constraint.
+                the upsert fires on the name UNIQUE constraint.
 
         Returns:
             The personality_id assigned to the row (newly generated or
@@ -126,9 +126,10 @@ class PersonalityRepository(BaseRepository):
                     )
 
             # Preserve owner_id / visibility on a re-save unless the caller
-            # explicitly overrides them. INSERT OR REPLACE rewrites the whole
-            # row, so without this an avatar/visual-identity edit (which passes
-            # neither) would silently orphan + publish a private personality.
+            # explicitly overrides them. These columns ARE in the upsert's
+            # DO UPDATE SET, so without resolving to the existing value first an
+            # avatar/visual-identity edit (which passes neither) would silently
+            # orphan + publish a private personality.
             resolved_owner_id = owner_id
             if resolved_owner_id is None and existing is not None and has_ownership:
                 resolved_owner_id = existing['owner_id']
@@ -141,10 +142,9 @@ class PersonalityRepository(BaseRepository):
 
             # Resolve `circulating` the same way: explicit param wins, else
             # preserve the existing row's value, else a new row defaults to
-            # 0 (NOT circulating). INSERT OR REPLACE below can't carry a
-            # conditional column cleanly across the four schema branches, so
-            # it's applied as a branch-agnostic follow-up UPDATE once the row
-            # exists. Read here, before the REPLACE rewrites the row.
+            # 0 (NOT circulating). The upsert below omits `circulating` from all
+            # four schema branches, so it's applied as a branch-agnostic
+            # follow-up UPDATE once the row exists. Read here, before the write.
             resolved_circulating: Optional[int] = None
             if has_circulating:
                 if circulating is not None:
@@ -154,13 +154,27 @@ class PersonalityRepository(BaseRepository):
                 else:
                     resolved_circulating = 0
 
+            # Upsert via `ON CONFLICT(name) DO UPDATE` (not `INSERT OR REPLACE`).
+            # A DELETE+INSERT replace resets every column omitted from the write
+            # list: it zeroed `times_used` (bumped on every load, drives the
+            # lobby `ORDER BY times_used DESC`), reset `created_at` to now, and
+            # reallocated the AUTOINCREMENT `id`. The DO UPDATE form touches only
+            # the columns this save owns, leaving usage/birth-time/id intact.
             if has_personality_id and has_elasticity and has_ownership:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO personalities
+                    INSERT INTO personalities
                     (name, config_json, elasticity_config, source, owner_id,
                      visibility, personality_id, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(name) DO UPDATE SET
+                        config_json = excluded.config_json,
+                        elasticity_config = excluded.elasticity_config,
+                        source = excluded.source,
+                        owner_id = excluded.owner_id,
+                        visibility = excluded.visibility,
+                        personality_id = excluded.personality_id,
+                        updated_at = CURRENT_TIMESTAMP
                 """,
                     (
                         name,
@@ -175,9 +189,16 @@ class PersonalityRepository(BaseRepository):
             elif has_elasticity and has_ownership:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO personalities
+                    INSERT INTO personalities
                     (name, config_json, elasticity_config, source, owner_id, visibility, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(name) DO UPDATE SET
+                        config_json = excluded.config_json,
+                        elasticity_config = excluded.elasticity_config,
+                        source = excluded.source,
+                        owner_id = excluded.owner_id,
+                        visibility = excluded.visibility,
+                        updated_at = CURRENT_TIMESTAMP
                 """,
                     (
                         name,
@@ -191,9 +212,14 @@ class PersonalityRepository(BaseRepository):
             elif has_elasticity:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO personalities
+                    INSERT INTO personalities
                     (name, config_json, elasticity_config, source, updated_at)
                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(name) DO UPDATE SET
+                        config_json = excluded.config_json,
+                        elasticity_config = excluded.elasticity_config,
+                        source = excluded.source,
+                        updated_at = CURRENT_TIMESTAMP
                 """,
                     (
                         name,
@@ -205,17 +231,21 @@ class PersonalityRepository(BaseRepository):
             else:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO personalities
+                    INSERT INTO personalities
                     (name, config_json, source, updated_at)
                     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(name) DO UPDATE SET
+                        config_json = excluded.config_json,
+                        source = excluded.source,
+                        updated_at = CURRENT_TIMESTAMP
                 """,
                     (name, json.dumps(config), source),
                 )
 
-            # INSERT OR REPLACE above either left `circulating` at the column
-            # default (0) for a fresh row or reset it on a re-save; write the
-            # resolved value explicitly so re-saves preserve it and seeds keep
-            # their circulating=1. Branch-agnostic — runs for every path.
+            # The upsert above leaves `circulating` at the column default (0) for
+            # a fresh row and untouched on a re-save; write the resolved value
+            # explicitly so an explicit override lands and seeds keep their
+            # circulating=1. Branch-agnostic — runs for every path.
             if has_circulating and resolved_circulating is not None:
                 conn.execute(
                     "UPDATE personalities SET circulating = ? WHERE name = ?",

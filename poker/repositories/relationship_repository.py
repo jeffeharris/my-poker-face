@@ -104,14 +104,28 @@ class RelationshipRepository(BaseRepository):
         is responsible for projecting heat through decay *before*
         applying event shifts, so the snapshot in the DB always
         represents "heat after most recent event."
+
+        Uses `ON CONFLICT DO UPDATE` (not `INSERT OR REPLACE`) so the
+        affinity write only touches the columns it owns. `notes` (v95)
+        and `nickname_override` (v101) are written by separate paths
+        (`save_note`, `save_nickname_override`) against the same
+        `(observer_id, opponent_id)` key; a DELETE+INSERT replace would
+        NULL them on every social event. See those siblings, which
+        upsert the same way.
         """
         with self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO relationship_states
+                INSERT INTO relationship_states
                     (observer_id, opponent_id, heat, respect, likability,
                      last_seen, last_decay_tick)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(observer_id, opponent_id) DO UPDATE SET
+                    heat = excluded.heat,
+                    respect = excluded.respect,
+                    likability = excluded.likability,
+                    last_seen = excluded.last_seen,
+                    last_decay_tick = excluded.last_decay_tick
                 """,
                 (
                     observer_id,
