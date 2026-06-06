@@ -285,10 +285,18 @@ TIER_RATE_BUMP = {
 # surface at all. Falling below either kicks the lender out of the pool.
 # Premium is open to everyone the legacy gates allow; standard is mildly
 # selective; restricted requires high trust on both axes.
+# Floors are expressed relative to REGARD_NEUTRAL so they track the neutral
+# baseline: standard sits at neutral (open to a no-edge stranger), restricted
+# a deliberate +0.10 above it. Re-anchored with the 0.5->0.35 rebaseline to
+# preserve the prior eligibility behaviour (the old literals 0.4/0.5/0.6 were
+# tuned against the old neutral of 0.5).
 TIER_RELATIONSHIP_FLOORS = {
     TIER_PREMIUM: {"likability": 0.0, "respect": 0.0},
-    TIER_STANDARD: {"likability": 0.4, "respect": 0.5},
-    TIER_RESTRICTED: {"likability": 0.6, "respect": 0.6},
+    TIER_STANDARD: {"likability": REGARD_NEUTRAL - 0.10, "respect": REGARD_NEUTRAL},
+    TIER_RESTRICTED: {
+        "likability": REGARD_NEUTRAL + 0.10,
+        "respect": REGARD_NEUTRAL + 0.10,
+    },
     TIER_HOUSE_ONLY: {"likability": 1.1, "respect": 1.1},  # impossible
 }
 
@@ -322,25 +330,29 @@ def _adjusted_terms(
     Returns `(floor, rate)` clamped to `[1.00, 1.50]` / `[0.00, 0.55]`.
 
     Adjustments are additive deltas off the profile's anchors:
-      - High likability (>0.5): "friend tax" — floor and rate trim by
-        0.05 each. Friends lend on softer terms.
+      - Above-neutral likability (> REGARD_NEUTRAL): "friend tax" — floor
+        and rate trim by 0.05 each. Friends lend on softer terms.
       - High heat (>0.4): "I'll lend, but you'll pay" — floor and rate
         each bump up 0.10. Heat overrides likability when both fire.
-      - High respect (>0.5): "I think you'll win, fair terms" — floor
-        and rate trim by 0.03 each.
+      - Above-neutral respect (> REGARD_NEUTRAL): "I think you'll win, fair
+        terms" — floor and rate trim by 0.03 each.
+
+    The likability/respect bars track REGARD_NEUTRAL (re-anchored from the
+    old hardcoded 0.5) so "above neutral earns softer terms" survives the
+    0.5->0.35 rebaseline. Heat stays absolute (one-sided, 0-based).
 
     Clamps prevent edge-case profiles from generating predatory or
     impossibly-generous offers via stacked modifiers.
     """
     floor = profile.floor_anchor
     rate = profile.rate_anchor
-    if likability > 0.5:
+    if likability > REGARD_NEUTRAL:
         floor -= 0.05
         rate -= 0.05
     if heat > 0.4:
         floor += 0.10
         rate += 0.10
-    if respect > 0.5:
+    if respect > REGARD_NEUTRAL:
         floor -= 0.03
         rate -= 0.03
     floor = max(1.00, min(1.50, floor))
@@ -366,11 +378,11 @@ def _relationship_hint(
         return "wants their money back"
     if heat > 0.2:
         return "watching you"
-    if respect > 0.6 and likability > 0.5:
+    if respect > REGARD_NEUTRAL + 0.10 and likability > REGARD_NEUTRAL:
         return "trusts you"
-    if respect > 0.5:
+    if respect > REGARD_NEUTRAL:
         return "respects your game"
-    if likability > 0.5:
+    if likability > REGARD_NEUTRAL:
         return "friendly"
     return ""
 
@@ -430,8 +442,9 @@ def compute_personality_offers(
       5. **Tier floors (Phase 2):** when `stake_repo`+`stake_label`
          are provided, the borrower's tier is resolved and lenders
          falling below the tier's likability/respect floors drop out
-         (standard ≥ 0.4 likability + 0.5 respect; restricted ≥ 0.6 on
-         both; house_only returns []).
+         (standard ≥ neutral on respect / neutral−0.10 on likability;
+         restricted ≥ neutral+0.10 on both — see TIER_RELATIONSHIP_FLOORS;
+         house_only returns []).
 
     For each qualifying candidate, terms are trimmed by relationship
     axes (see `_adjusted_terms`) and then bumped by:
