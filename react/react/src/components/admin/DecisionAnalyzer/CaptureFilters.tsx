@@ -80,15 +80,9 @@ export function CaptureFilters({
           <FilterSheetContent
             accentColor="teal"
             onClear={() => {
-              onFiltersChange({
-                limit: 50,
-                offset: 0,
-                labels: undefined,
-                error_type: undefined,
-                has_error: undefined,
-                is_correction: undefined,
-                player_name: undefined,
-              });
+              // Full reset, matching the desktop "Clear Filters" button — the
+              // old partial object left action/phase/emotion/tilt set.
+              onFiltersChange(DEFAULT_FILTERS);
               onFilterSheetOpenChange(false);
             }}
             onApply={() => onFilterSheetOpenChange(false)}
