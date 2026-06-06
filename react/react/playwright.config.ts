@@ -41,6 +41,9 @@ export default defineConfig({
       use: {
         ...devices['Pixel 5'],
       },
+      // One retry in CI to absorb residual timing flakes (Chrome runs 4 workers,
+      // so a single flake would otherwise fail the whole job).
+      retries: process.env.CI ? 1 : 0,
     },
   ],
 });

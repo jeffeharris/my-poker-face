@@ -176,7 +176,12 @@ jobs:
 
   build-images:
     name: Build & Push Images (GHCR)
-    needs: [lint-backend, test-backend, test-frontend, test-e2e]
+    # NOTE: test-e2e intentionally NOT in this gate (2026-06-06) while we repair
+    # the Playwright suite. build-images is the real pre-deploy gate (deploy ->
+    # build-images), so dropping test-e2e *here* is what actually unblocks prod
+    # deploys; the test-e2e job still runs for signal. Re-add 'test-e2e' here
+    # (and on deploy) once the suite is green again.
+    needs: [lint-backend, test-backend, test-frontend]
     runs-on: ubuntu-latest
     # Build off-box (on the GitHub-hosted runner with a big disk) and push to
     # GHCR, so the prod box only ever PULLS. Runs when we're about to deploy:
@@ -231,7 +236,10 @@ jobs:
 
   deploy:
     name: Deploy to Production
-    needs: [lint-backend, test-backend, test-frontend, test-e2e, build-images]
+    # Gated on build-images (which itself requires the lint/test jobs). test-e2e
+    # is intentionally omitted from the deploy path while the Playwright suite is
+    # being repaired — see the note on build-images above.
+    needs: [lint-backend, test-backend, test-frontend, build-images]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:

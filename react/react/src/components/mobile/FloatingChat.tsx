@@ -1,5 +1,12 @@
 import { memo, useEffect, useState, useRef, forwardRef } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
+import {
+  motion,
+  AnimatePresence,
+  useMotionValue,
+  useTransform,
+  animate,
+  useReducedMotion,
+} from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
 import type { ChatMessage } from '../../types';
 import {
@@ -285,6 +292,13 @@ export const FloatingChat = memo(function FloatingChat({
   playerAvatars,
 }: FloatingChatProps) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
+  // Reduced-motion users opted out of the animated auto-dismiss countdown.
+  // When set, bubbles never start their TTL timer (timerStartedAt stays null —
+  // the existing "paused" state), so they persist until swiped and the
+  // countdown ring sits full/static. This also makes E2E deterministic:
+  // Playwright runs with reducedMotion:'reduce', so bubbles don't race a 3s
+  // auto-dismiss while assertions wait on the typed-out message.
+  const prefersReduced = useReducedMotion();
   const processedIdsRef = useRef<Set<string>>(new Set());
   // Keep a ref to current messages for timer callbacks (avoids stale closures)
   const messagesRef = useRef<MessageWithMeta[]>([]);
@@ -304,21 +318,29 @@ export const FloatingChat = memo(function FloatingChat({
         const newPosition = prev.length;
         const isInActiveZone = newPosition < ACTIVE_MESSAGE_LIMIT;
 
-        return [
+        const next = [
           ...prev,
           {
             ...message,
             addedAt: Date.now(),
             displayDuration: msgDuration,
-            timerStartedAt: isInActiveZone ? Date.now() : null,
+            // Reduced motion: leave the timer paused (no auto-dismiss).
+            timerStartedAt: prefersReduced ? null : isInActiveZone ? Date.now() : null,
           },
         ];
+
+        // Without an auto-dismiss timer the stack would grow unbounded, so for
+        // reduced-motion users keep only the most recent few bubbles.
+        return prefersReduced && next.length > ACTIVE_MESSAGE_LIMIT
+          ? next.slice(next.length - ACTIVE_MESSAGE_LIMIT)
+          : next;
       });
     }
-  }, [message]);
+  }, [message, prefersReduced]);
 
   // Activate timers for messages that moved into the visible zone
   useEffect(() => {
+    if (prefersReduced) return; // reduced motion: timers never start
     setMessages((prev) => {
       let changed = false;
       const updated = prev.map((msg, index) => {
@@ -336,7 +358,7 @@ export const FloatingChat = memo(function FloatingChat({
       });
       return changed ? updated : prev;
     });
-  }, [messages.length]); // Re-check when message count changes
+  }, [messages.length, prefersReduced]); // Re-check when message count changes
 
   // When all messages are cleared, notify parent
   useEffect(() => {
@@ -349,6 +371,7 @@ export const FloatingChat = memo(function FloatingChat({
   // Handle TTL expiration
   useEffect(() => {
     if (messages.length === 0) return;
+    if (prefersReduced) return; // reduced motion: bubbles never auto-expire
 
     const checkExpired = () => {
       const now = Date.now();
@@ -381,7 +404,7 @@ export const FloatingChat = memo(function FloatingChat({
 
     const timer = setTimeout(checkExpired, Math.max(0, nextDelay));
     return () => clearTimeout(timer);
-  }, [messages.length]);
+  }, [messages.length, prefersReduced]);
 
   const handleDismiss = (id: string) => {
     setMessages((prev) => prev.filter((msg) => msg.id !== id));
