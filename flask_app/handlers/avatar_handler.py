@@ -24,6 +24,7 @@ from poker.character_images import (
     has_character_images,
 )
 
+from .. import config
 from ..extensions import socketio
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,15 @@ def start_single_emotion_generation(game_id: Optional[str], player_name: str, em
         player_name: Player name
         emotion: Emotion to generate
     """
+    # Honor the avatar-generation kill switch on the on-demand path too. The
+    # background batch path is gated at its call site (game_routes), but this
+    # on-demand entry has many callers (game-state serialization, message
+    # handler, image routes) — without this gate a game flow fires a real
+    # image-provider call even when generation is disabled (e.g. the test
+    # backend, or prod with the feature off), 401-ing or burning credits.
+    if not config.ENABLE_AVATAR_GENERATION:
+        return
+
     key = (player_name, emotion)
     with _generation_lock:
         service = get_character_image_service()
