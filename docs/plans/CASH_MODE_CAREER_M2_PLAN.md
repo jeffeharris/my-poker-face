@@ -27,6 +27,28 @@ after the first vouch.
 > "current room / current table" are superseded by this. Tests:
 > `tests/test_cash_mode/test_ai_home_table.py` + `tests/test_ticker_service.py`.
 
+## Eligibility decision (2026-06-06): social-accrual-only (v1)
+
+After tracing the regard mechanics end-to-end, **emergent vouches (non-Sal) rely
+entirely on the player raising likability through play + social events** — there is
+**no warm seed for home-court regulars** (only the mentor, Sal, is seeded warm, at
+`cash_routes.py` 0.85/0.85 on the graduation stake, and Sal has already vouched).
+Findings that drove the call:
+
+- **Respect ≥ `RESPECT_FLOOR` (0.50) is easy** — it equals the neutral default and
+  *rises* when you play well (e.g. `BIG_LOSS` for the AI = +0.08 respect to you).
+- **Likability ≥ `LIKE_THRESHOLD` (0.70) is the real gate, and raw poker ERODES
+  it** (`BAD_BEAT` −0.10, `DOMINATED_SHOWDOWN`, `BLUFFED_OFF` all negative). The
+  only way up is **social** events from `chat_relationship.py`: `COMPLIMENT`
+  (+0.05 like), `PROPS` (+0.10 resp/+0.02 like), `FRIENDLY_BANTER` (+0.03),
+  `COMMISERATE` (+0.05). ~+0.20 from neutral ≈ 4+ positive chats with no
+  offsetting negatives.
+
+**Decision (user, 2026-06-06): ship social-accrual-only as-is. No new
+eligibility code.** Emergent vouches are a **rare reward for the socially-engaged
+player**, not something a heads-down grinder trips. Measure real reachability from
+the live `[VOUCH] eval` instrumentation before adding levers (see Follow-ups).
+
 ## Step 0 — verification (handoff's required first step): DONE
 
 The handoff said *verify the regard-edge instrumentation exists before tuning.*
@@ -136,6 +158,37 @@ gated behind the same flag.
   ticker must reload-modify-save atomically per sandbox (mirror `fire_first_vouch`).
 - **Flag discipline:** `CAREER_VOUCH_ENABLED` default OFF; a custom (non-career)
   sandbox never evaluates (gated on `career_active`).
+
+## Follow-ups (next)
+
+**More ways to raise likability** — deferred from the eligibility decision above.
+v1 ships social-accrual-only; once the live `[VOUCH] eval` logs show whether 0.70
+is realistically reached, consider adding (in rough order of fidelity to canon):
+
+1. **Warm-seed home-court regulars** — when the player first sits at a *revealed*
+   home court, give its regular AIs a mild-warm lean toward the player (a small
+   respect+likability bump, well below 0.70) so continued play + the occasional
+   social chat tips a few over the gate → they vouch the player onward to *their*
+   home tables. This is the original canon's "home-court regulars seed a high
+   baseline" — the most faithful realization of the "relationships → climb" loop.
+   Mirror the mentor seed at `cash_routes.py` (the 0.85/0.85 Sal write) but smaller.
+2. **Reward repeat sessions with the same AI** — a per-session likability drip for
+   sitting with someone again (familiarity), independent of chat.
+3. **Small drip for non-hostile play** — a tiny per-session likability nudge for
+   playing without stacking people cruelly (rewards "good table citizen" directly,
+   not only via chat events).
+
+Discipline: don't lower `LIKE_THRESHOLD` to force blooms (cheapens the vouch and
+breaks "liked ≠ a gimme"); add *sources of likability* instead. Tune magnitudes so
+a vouch still takes a genuinely warm relationship, not a single session.
+
+**Threshold re-tune vs. the regard rebaseline (if it lands).** The parked regard
+rebaseline (`REGARD_NEUTRAL = 0.35`, see `REGARD_NEUTRAL_REBASELINE_HANDOFF.md`)
+would move neutral from 0.50 → 0.35. If it lands, re-tune here: `RESPECT_FLOOR`
+(0.50 = the *old* neutral → should become genuinely *earned*, e.g. ~0.55),
+`LIKE_THRESHOLD` (0.70; the climb from 0.35 is now +0.35), and
+`HOME_TABLE_REVEAL_LIKABILITY` (0.60). Until it lands, the current 0.50-neutral
+values are internally consistent — leave them.
 
 ## Why M2 before the Dream Table
 The dream table (`CASH_MODE_DREAM_TABLE.md`) rides the vouch/graduation seam and

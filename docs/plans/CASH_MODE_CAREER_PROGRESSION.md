@@ -2,7 +2,7 @@
 purpose: A progressive, scene-based career narrative where the player earns their way into a growing world of cardrooms through vouches (likability-driven, respect-gated) rather than being dropped into the full lobby
 type: design
 created: 2026-05-26
-last_updated: 2026-05-31
+last_updated: 2026-06-06
 ---
 
 > **M1 shipped (2026-05-30, branch `circuit-progression`).** The thinnest
@@ -281,10 +281,25 @@ vouch_ready(ai → human):
   (0.80+) is too tough to demand for *every* door; ~0.70 is reachable
   through a good session without being a gimme. The further likability
   climbs above it, the sooner/more eagerly they vouch.
-- **Mentors start warm.** Curated personas (and home-court regulars you
-  click with) seed a relatively **high baseline regard** toward you, so
-  you're "already kind of high" and only need to close the last gap with
-  a memorable hand or two — not grind a relationship up from zero.
+- **Mentors start warm; everyone else earns it (v1, shipped).** Only the
+  **mentor (Sal)** is seeded with a high baseline regard toward you
+  (`cash_routes.py`, 0.85/0.85 on the graduation stake — load-bearing for
+  forgiveness). Sal has *already* vouched (scripted), so emergent vouches
+  come from **other** AIs, who start at **neutral** and must be raised by
+  *play + social events*. Respect ≥ floor is easy (it equals neutral and
+  rises when you play well); **likability ≥ 0.70 is the real gate**, and
+  raw poker *erodes* it (bad beats, dominated showdowns) — so the only way
+  up is **social warmth**: compliments, props, friendly banter,
+  commiseration (`chat_relationship.py`). Net effect: emergent vouches are
+  a **rare reward for the socially-engaged player**, not something a
+  heads-down grinder trips. This matches "warmth opens doors" below.
+  > **FOLLOW-UP (next): more ways to raise likability.** The original
+  > "home-court regulars also seed a high baseline" idea is **deliberately
+  > deferred** — we ship social-accrual-only first and measure reachability
+  > from the live `[VOUCH] eval` instrumentation. Candidate follow-ups:
+  > seed home-court regulars warm on first sit; reward repeat sessions with
+  > the same AI; small per-session likability drip for non-hostile play.
+  > See `CASH_MODE_CAREER_M2_PLAN.md` § "Follow-ups".
 
 The two failure modes are thematically clean and **opposite to the
 prestige axis** (where respect dominates — see the attractiveness doc):
