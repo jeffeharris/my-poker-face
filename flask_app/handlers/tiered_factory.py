@@ -89,6 +89,11 @@ def build_tiered_controller(
         llm_client = LLMClient(
             provider=llm_config.get('provider') or get_default_provider(),
             model=llm_config.get('model') or get_default_model(),
+            # Sharp-bot narration is pure flavor (the action is already
+            # solver-locked). minimal reasoning keeps it snappy on a reasoning
+            # DEFAULT model (gpt-5-mini → minimal effort; grok → non-reasoning
+            # variant; llama → no-op).
+            reasoning_effort="minimal",
             # PRH-18: in-game narration — bound it so a stalled provider can't
             # hang the hand under the per-game lock.
             default_timeout=INGAME_LLM_TIMEOUT_SECONDS,

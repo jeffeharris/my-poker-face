@@ -823,11 +823,17 @@ class AIPlayerController:
             return client
         try:
             from core.llm import LLMClient
-            from core.llm.settings import get_fast_model, get_fast_provider
+            from core.llm.config import FAST_LLM_TIMEOUT_SECONDS
+            from core.llm.settings import get_nano_model, get_nano_provider
 
             client = LLMClient(
-                provider=get_fast_provider(),
-                model=get_fast_model(),
+                provider=get_nano_provider(),
+                model=get_nano_model(),
+                # NANO tier: cosmetic beat-repair is mechanical and never read —
+                # cheapest/fastest model. minimal reasoning + a bounded timeout so it
+                # never hangs the AI turn it runs (synchronously) inside.
+                reasoning_effort="minimal",
+                default_timeout=FAST_LLM_TIMEOUT_SECONDS,
             )
         except Exception as e:
             logger.warning(f"[CLEANUP_CLIENT] Falling back to decision client: {e}")

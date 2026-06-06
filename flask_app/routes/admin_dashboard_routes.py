@@ -1165,6 +1165,8 @@ VALID_SETTING_KEYS = {
     'DEFAULT_MODEL',
     'FAST_PROVIDER',
     'FAST_MODEL',
+    'NANO_PROVIDER',
+    'NANO_MODEL',
     'IMAGE_PROVIDER',
     'IMAGE_MODEL',
     'ASSISTANT_PROVIDER',
@@ -1200,6 +1202,8 @@ def api_get_settings():
         DEFAULT_MODEL,
         FAST_MODEL,
         FAST_PROVIDER,
+        NANO_MODEL,
+        NANO_PROVIDER,
     )
     from flask_app.services.alerting import get_webhook_url, mask_url
 
@@ -1225,6 +1229,8 @@ def api_get_settings():
         )
         fast_provider = extensions.settings_repo.get_setting('FAST_PROVIDER', '') or FAST_PROVIDER
         fast_model = extensions.settings_repo.get_setting('FAST_MODEL', '') or FAST_MODEL
+        nano_provider = extensions.settings_repo.get_setting('NANO_PROVIDER', '') or NANO_PROVIDER
+        nano_model = extensions.settings_repo.get_setting('NANO_MODEL', '') or NANO_MODEL
         assistant_provider = (
             extensions.settings_repo.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
         )
@@ -1268,9 +1274,21 @@ def api_get_settings():
             },
             'FAST_MODEL': {
                 'value': fast_model,
-                'description': 'Fast model for chat suggestions, categorization, quick tasks',
+                'description': 'Fast model for player-read flavor: chat suggestions, lobby narration',
                 'env_default': FAST_MODEL,
                 'is_db_override': 'FAST_MODEL' in db_settings,
+            },
+            'NANO_PROVIDER': {
+                'value': nano_provider,
+                'description': 'Provider for mechanical, never-read tasks (beat cleanup, categorization)',
+                'env_default': NANO_PROVIDER,
+                'is_db_override': 'NANO_PROVIDER' in db_settings,
+            },
+            'NANO_MODEL': {
+                'value': nano_model,
+                'description': 'Cheapest/fastest model for mechanical work users never read (beat cleanup, categorization)',
+                'env_default': NANO_MODEL,
+                'is_db_override': 'NANO_MODEL' in db_settings,
             },
             'IMAGE_PROVIDER': {
                 'value': image_provider,

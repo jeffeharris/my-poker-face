@@ -21,21 +21,39 @@ INGAME_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_INGAME_TIMEOUT", "30.0"))
 # timeout. Override with LLM_TICKER_TIMEOUT.
 TICKER_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TICKER_TIMEOUT", "10.0"))
 
+# User-facing FAST-tier calls (chat suggestions, beat cleanup) that a player is
+# actively waiting on in a request. Without an explicit per-call timeout these
+# build LLMClients that fall through to the 600s shared-httpx default, so a
+# provider stall hangs the user's request for minutes. Bound it to a snappy
+# ceiling. Override with LLM_FAST_TIMEOUT.
+FAST_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_FAST_TIMEOUT", "15.0"))
+
 # =============================================================================
 # OpenAI Configuration
 # =============================================================================
 
-# Default model for all LLM operations. The tiered ("Solver") bot is the
-# default opponent and only calls the LLM for table-talk/narration, so a cheap,
-# fast model (groq llama-3.1-8b-instant) is the right baseline. Override per-tier
-# via env or the admin Settings (DB app_settings) for design-time tasks that
-# want a stronger model (e.g. personality generation).
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "llama-3.1-8b-instant")
-DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "groq")
+# DEFAULT tier — commentary, end-of-hand narration, theme/image-description, and
+# game-support tasks that want coherent prose. gpt-5-mini (reasoning_effort
+# 'minimal') is the baseline. Override per-tier via env or admin Settings (DB
+# app_settings).
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-5-mini")
+DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "openai")
 
-# Fast model for quick operations (chat suggestions, categorization, etc.)
-FAST_MODEL = os.environ.get("FAST_MODEL", DEFAULT_MODEL)
+# FAST tier — quick, latency-sensitive flavor (chat suggestions, categorization,
+# vice/side-hustle narration, beat cleanup). Code default is groq
+# llama-3.1-8b-instant: sub-second and cheap. NOTE: prod overrides this to
+# xAI grok-4-fast (via DB app_settings) for more entertaining/coherent lines —
+# decoupled from DEFAULT so changing the DEFAULT model doesn't drag FAST with it.
+FAST_MODEL = os.environ.get("FAST_MODEL", "llama-3.1-8b-instant")
 FAST_PROVIDER = os.environ.get("FAST_PROVIDER", "groq")
+
+# NANO tier — mechanical, internal-only work that no user reads and that needs no
+# comprehension (beat-format cleanup, emotion/action categorization). Always the
+# cheapest, fastest model regardless of what FAST is pointed at: prod bumps FAST
+# to a pricier, more characterful model (grok) for player-read flavor, but this
+# plumbing should never pay that cost. Kept separate so it stays on llama.
+NANO_MODEL = os.environ.get("NANO_MODEL", "llama-3.1-8b-instant")
+NANO_PROVIDER = os.environ.get("NANO_PROVIDER", "groq")
 
 # Model for assistants (experiment designer, etc.)
 # Default: DeepSeek Chat (supports tools + optional thinking mode)
@@ -50,9 +68,11 @@ DEFAULT_REASONING_EFFORT = "minimal"
 # Available OpenAI models for UI selection
 OPENAI_AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5", "dall-e-2"]
 
-# Image generation
-IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")
-IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "dall-e-2")
+# IMAGE tier — avatar / character image generation. Runware FLUX.2 [dev]
+# (runware:400@1) is the default: higher quality than Schnell, far cheaper than
+# DALL-E. Override via env or admin Settings.
+IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "runware")
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "runware:400@1")
 
 # =============================================================================
 # Groq Configuration
@@ -225,9 +245,13 @@ AVAILABLE_PROVIDERS = [
 # To enable all models by default, set this to None or an empty dict.
 # To restrict to specific models, list them by provider.
 DEFAULT_ENABLED_MODELS = {
-    "openai": ["gpt-5-nano", "dall-e-2"],  # Cheapest OpenAI model + image generation
-    "groq": ["llama-3.1-8b-instant"],  # Fast and free-tier friendly
-    "runware": ["runware:100@1"],  # FLUX.1 Schnell - fast image generation
+    # gpt-5-mini = DEFAULT tier; gpt-5-nano kept enabled (cheap fallback); dall-e-2
+    # kept for image fallback though IMAGE now defaults to runware.
+    "openai": ["gpt-5-mini", "gpt-5-nano", "dall-e-2"],
+    "groq": ["llama-3.1-8b-instant"],  # FAST tier code default — fast + cheap
+    "xai": ["grok-4-fast"],  # prod FAST override — toggles reasoning via effort
+    # FLUX.2 [dev] = IMAGE tier default; Schnell kept enabled as a fast fallback.
+    "runware": ["runware:400@1", "runware:100@1"],
 }
 
 # Models by provider for UI selection

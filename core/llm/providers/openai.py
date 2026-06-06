@@ -44,6 +44,13 @@ class OpenAIProvider(LLMProvider):
         self._client = OpenAI(
             api_key=resolved_key,
             http_client=shared_http_client,
+            # Retries are owned by the app-level loop in LLMClient.complete
+            # (max_retries=2, retryable-error aware). The SDK default of 2 would
+            # STACK on top of that (3 app x 3 SDK = up to 9 HTTP attempts), and
+            # since the per-call `timeout` is applied PER attempt, that turns a
+            # 10-30s timeout into a 90-270s wall-clock stall. Disable SDK retries
+            # so the configured timeout is a real ceiling.
+            max_retries=0,
         )
 
     @property
