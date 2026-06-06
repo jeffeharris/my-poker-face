@@ -33,7 +33,6 @@ import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { useCoach } from '../../../hooks/useCoach';
 import { logger } from '../../../utils/logger';
 import { gameAPI } from '../../../utils/api';
-import { avatarUrlForEmotion } from '../../../utils/avatarUrl';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import { useTournamentEvents } from '../../../hooks/useTournamentEvents';

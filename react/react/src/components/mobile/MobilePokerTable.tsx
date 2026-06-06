@@ -35,7 +35,6 @@ import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { logger } from '../../utils/logger';
-import { avatarUrlForEmotion } from '../../utils/avatarUrl';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
 import './MobilePokerTable.css';

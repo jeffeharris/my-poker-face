@@ -12,7 +12,7 @@
 import type { CSSProperties, MutableRefObject, RefObject } from 'react';
 import { Bot } from 'lucide-react';
 import type { Player } from '../../types/player';
-import type { RevealedCardsInfo } from '../../hooks/usePokerGame';
+import type { RevealedCardsInfo } from '../../types';
 import { Card } from '../cards';
 import { ActionBadge } from '../shared';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';

@@ -22,8 +22,7 @@ import { ActionBadge } from '../../shared';
 import { avatarUrlForEmotion } from '../../../utils/avatarUrl';
 import { config } from '../../../config';
 import type { Player } from '../../../types/player';
-import type { ChatMessage } from '../../../types';
-import type { RevealedCardsInfo } from '../../../hooks/usePokerGame';
+import type { ChatMessage, RevealedCardsInfo } from '../../../types';
 import { getStadiumSeatStyle } from './stadiumSeat';
 
 export const PlayerSeat = memo(function PlayerSeat({
