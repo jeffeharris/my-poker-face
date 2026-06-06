@@ -61,6 +61,9 @@ vi.mock('framer-motion', () => ({
   useMotionValue: (initial: number) => ({ get: () => initial, set: () => {}, on: () => () => {} }),
   useTransform: () => ({ get: () => 1, set: () => {}, on: () => () => {} }),
   animate: () => ({ stop: () => {} }),
+  // Default to "motion allowed" so the auto-dismiss TTL behaves as in production;
+  // the reduced-motion (no auto-dismiss) path is covered by the E2E suite.
+  useReducedMotion: () => false,
 }));
 
 function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
