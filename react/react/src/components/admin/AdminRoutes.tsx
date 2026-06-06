@@ -1,14 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import { AdminSidebar } from './AdminSidebar';
-import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
-import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
-import { ReplayResults } from './ReplayResults';
-import { DecisionAnalyzer } from './DecisionAnalyzer';
-import { UnifiedSettings, type SettingsCategory } from './UnifiedSettings';
+import type { AssistantPanelProps } from './ExperimentDesigner';
+import type { SettingsCategory } from './UnifiedSettings';
 import { AdminMenuContainer } from './AdminMenuContainer';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
@@ -16,6 +13,33 @@ import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { AdminTab } from './AdminSidebar';
 import './AdminShared.css';
+
+// Heavy admin tools are lazy-loaded so they don't bloat the main AdminRoutes
+// chunk. Each is a NAMED export, so map it onto `default` for React.lazy.
+const ExperimentDesigner = lazy(() =>
+  import('./ExperimentDesigner/ExperimentDesigner').then((m) => ({ default: m.ExperimentDesigner }))
+);
+const ExperimentChat = lazy(() =>
+  import('./ExperimentDesigner/ExperimentChat').then((m) => ({ default: m.ExperimentChat }))
+);
+const ExperimentDetail = lazy(() =>
+  import('./ExperimentDesigner/ExperimentDetail').then((m) => ({ default: m.ExperimentDetail }))
+);
+const ReplayResults = lazy(() =>
+  import('./ReplayResults').then((m) => ({ default: m.ReplayResults }))
+);
+const DecisionAnalyzer = lazy(() =>
+  import('./DecisionAnalyzer').then((m) => ({ default: m.DecisionAnalyzer }))
+);
+const UnifiedSettings = lazy(() =>
+  import('./UnifiedSettings').then((m) => ({ default: m.UnifiedSettings }))
+);
+
+const toolFallback = (
+  <div style={{ padding: '2rem', textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
+    Loading…
+  </div>
+);
 
 const VALID_TABS: AdminTab[] = [
   'users',
@@ -274,13 +298,15 @@ function ExperimentDetailWrapper() {
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <div className="admin-main__content admin-main__content--mobile">
-          <ExperimentDetail
-            experimentId={experimentIdNum}
-            onBack={handleBack}
-            onEditInLabAssistant={handleEditInLabAssistant}
-            onBuildFromSuggestion={handleBuildFromSuggestion}
-            onOpenAssistant={handleOpenAssistant}
-          />
+          <Suspense fallback={toolFallback}>
+            <ExperimentDetail
+              experimentId={experimentIdNum}
+              onBack={handleBack}
+              onEditInLabAssistant={handleEditInLabAssistant}
+              onBuildFromSuggestion={handleBuildFromSuggestion}
+              onOpenAssistant={handleOpenAssistant}
+            />
+          </Suspense>
         </div>
         {/* Mobile always uses overlay */}
         {showAssistant && (
@@ -321,13 +347,15 @@ function ExperimentDetailWrapper() {
           </div>
         </header>
         <div className="admin-main__content">
-          <ExperimentDetail
-            experimentId={experimentIdNum}
-            onBack={handleBack}
-            onEditInLabAssistant={handleEditInLabAssistant}
-            onBuildFromSuggestion={handleBuildFromSuggestion}
-            onOpenAssistant={handleOpenAssistant}
-          />
+          <Suspense fallback={toolFallback}>
+            <ExperimentDetail
+              experimentId={experimentIdNum}
+              onBack={handleBack}
+              onEditInLabAssistant={handleEditInLabAssistant}
+              onBuildFromSuggestion={handleBuildFromSuggestion}
+              onOpenAssistant={handleOpenAssistant}
+            />
+          </Suspense>
         </div>
       </main>
 
@@ -370,7 +398,9 @@ function ReplayResultsWrapper() {
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <div className="admin-main__content admin-main__content--mobile">
-          <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
+          <Suspense fallback={toolFallback}>
+            <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
+          </Suspense>
         </div>
       </div>
     );
@@ -401,7 +431,9 @@ function ReplayResultsWrapper() {
           </div>
         </header>
         <div className="admin-main__content">
-          <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
+          <Suspense fallback={toolFallback}>
+            <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
+          </Suspense>
         </div>
       </main>
     </div>
@@ -426,11 +458,13 @@ function NewExperimentWrapper() {
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <div className="admin-main__content admin-main__content--mobile">
-          <ExperimentDesigner
-            embedded
-            initialMode="design"
-            onAssistantPanelChange={setAssistantPanelProps}
-          />
+          <Suspense fallback={toolFallback}>
+            <ExperimentDesigner
+              embedded
+              initialMode="design"
+              onAssistantPanelChange={setAssistantPanelProps}
+            />
+          </Suspense>
         </div>
       </div>
     );
@@ -463,11 +497,13 @@ function NewExperimentWrapper() {
           </div>
         </header>
         <div className="admin-main__content">
-          <ExperimentDesigner
-            embedded
-            initialMode="design"
-            onAssistantPanelChange={setAssistantPanelProps}
-          />
+          <Suspense fallback={toolFallback}>
+            <ExperimentDesigner
+              embedded
+              initialMode="design"
+              onAssistantPanelChange={setAssistantPanelProps}
+            />
+          </Suspense>
         </div>
       </main>
 
@@ -480,7 +516,9 @@ function NewExperimentWrapper() {
               Lab Assistant
             </h3>
           </div>
-          <ExperimentChat {...assistantPanelProps} />
+          <Suspense fallback={toolFallback}>
+            <ExperimentChat {...assistantPanelProps} />
+          </Suspense>
         </div>
       )}
     </div>
@@ -509,11 +547,13 @@ function DecisionAnalyzerWrapper() {
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <div className="admin-main__content admin-main__content--mobile">
-          <DecisionAnalyzer
-            embedded
-            initialCaptureId={captureIdNum}
-            onCaptureSelect={handleCaptureSelect}
-          />
+          <Suspense fallback={toolFallback}>
+            <DecisionAnalyzer
+              embedded
+              initialCaptureId={captureIdNum}
+              onCaptureSelect={handleCaptureSelect}
+            />
+          </Suspense>
         </div>
       </div>
     );
@@ -548,11 +588,13 @@ function DecisionAnalyzerWrapper() {
           </div>
         </header>
         <div className="admin-main__content">
-          <DecisionAnalyzer
-            embedded
-            initialCaptureId={captureIdNum}
-            onCaptureSelect={handleCaptureSelect}
-          />
+          <Suspense fallback={toolFallback}>
+            <DecisionAnalyzer
+              embedded
+              initialCaptureId={captureIdNum}
+              onCaptureSelect={handleCaptureSelect}
+            />
+          </Suspense>
         </div>
       </main>
     </div>
@@ -599,11 +641,13 @@ function SettingsWrapper() {
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <AdminMenuContainer title="Settings" onBack={handleBack}>
           <div className="admin-main__content admin-main__content--mobile">
-            <UnifiedSettings
-              embedded
-              initialCategory={validCategory}
-              onCategoryChange={handleCategoryChange}
-            />
+            <Suspense fallback={toolFallback}>
+              <UnifiedSettings
+                embedded
+                initialCategory={validCategory}
+                onCategoryChange={handleCategoryChange}
+              />
+            </Suspense>
           </div>
         </AdminMenuContainer>
       </div>
@@ -631,11 +675,13 @@ function SettingsWrapper() {
           </div>
         </header>
         <div className="admin-main__content">
-          <UnifiedSettings
-            embedded
-            initialCategory={validCategory}
-            onCategoryChange={handleCategoryChange}
-          />
+          <Suspense fallback={toolFallback}>
+            <UnifiedSettings
+              embedded
+              initialCategory={validCategory}
+              onCategoryChange={handleCategoryChange}
+            />
+          </Suspense>
         </div>
       </main>
     </div>
