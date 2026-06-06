@@ -193,6 +193,54 @@ migrations in `schema_manager.py`, the `sqlite3` usage in `base_repository.py`.
 **Defer until Stage 3 is exhausted** — SQLite+WAL+`retry_on_lock` is robust well
 past current traffic.
 
+## Capacity checkpoints (estimates — not load-tested)
+
+⚠️ Order-of-magnitude **from the code, not measured.** The biggest unknown is
+per-process throughput; one real load test at ~50 would re-calibrate the whole
+model. Validate before relying on any tier.
+
+**Per-unit assumptions:**
+- 1 concurrent *active* user = 1 sandbox (~74 AIs) ticked every ~2 s (~5–20 ms
+  CPU/tick + periodic DB writes) — the world-sim cost applies to **every** active
+  session, even lobby idlers.
+- ~30–40% of active users are mid-hand (foreground) at any instant (casual).
+- 1 tuned `-w 1` web process ≈ **25–40 concurrent foreground players** (gevent is
+  I/O-bound; the ~5 ms non-yielding equity-MC bursts are the limiter). No `-w 2` —
+  scale = more single-worker *containers*.
+- 1 dedicated ticker core ≈ **150–250 active sandboxes** at ~2 s cadence.
+- ~550 MB RAM per process + ~10 MB per live game.
+- SQLite ≈ 30–50 concurrent writers → Postgres (single) into low-thousands
+  writes/s → shard by `owner_id` beyond.
+
+| Concurrent active | Stage / shape | Web | Ticker | Datastore | ~RAM | vCPU | ~infra €/mo\* |
+|---|---|---|---|---|---|---|---|
+| **50** | 1B + 2–3 containers, 1 box | ~2 proc | ~½ core | SQLite **at its edge** | 2–3 GB | ~4 | ~€15 |
+| **100** | + Postgres, sticky LB | ~3–4 proc | ~½–1 core | Postgres (single) | 4–5 GB | ~6–8 | ~€45 |
+| **500** | Horizontal fleet | ~6–8 proc | ~2–3 cores (1–2 shards) | Postgres + replica | 12–16 GB | ~20–24 | ~€200 |
+| **1000** | + ticker sharding by owner | ~12–16 proc | ~5 cores (3–4 shards) | Postgres write-heavy | 25–35 GB | ~40–50 | ~€500 |
+| **5000** | Owner-sharded, autoscaled | ~60–80 proc | ~12–15 cores | **Sharded Postgres** | 120–160 GB | ~200 | ~€2–3k |
+| **10000** | Full distributed | ~120–160 proc | ~25 cores | Sharded PG + write-coalescing | 250–350 GB | ~400 | ~€5k+ |
+
+\*Compute only — excludes LLM spend + bandwidth/ops.
+
+**What bites, in order:**
+1. **Per-tick DB write amplification is the real wall** — every active sandbox writes
+   the world every ~2 s, so DB write load scales with *total active users*, not just
+   players. Kills SQLite at ~50–100; forces Postgres sharding by ~1000–5000.
+   **Highest-leverage fix: coalesce/batch ticker writes** (or in-memory world state +
+   periodic durable snapshots) — cuts the dominant cost at every tier above 500.
+2. **The ~550 MB per-process baseline makes horizontal RAM-expensive** — paid 100+×
+   at 5000+. Trim it (lazy-load/mmap the strategy tables, slim the image) before ~500.
+3. **LLM $ (not compute) is the dominant *variable* cost at 1000+** and a
+   provider-rate-limit constraint; the budget caps + LLM-free `sharp` default need
+   deliberate tuning, not the launch defaults.
+
+**Journey shape:** ≤100 vertical-ish (one big box → extract ticker → Postgres);
+100→1000 horizontal app fleet + owner-sharded ticker (the 1:1 design *is* the shard
+key — worlds never share state); 1000→10000 owner-sharded Postgres + autoscaling +
+the ticker-write-coalescing fix. The casual "your own world" model shards cleanly the
+whole way; it just multiplies the write/RAM baseline you'll want to trim first.
+
 ## Near-term recommendation (the 20-user target)
 
 - **Stage 1A** ✅ done.
