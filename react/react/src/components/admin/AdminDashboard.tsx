@@ -15,6 +15,7 @@ import { CoachEffectivenessPanel } from './CoachEffectivenessPanel';
 import { HandReplayBrowser } from './HandReplay';
 import { UnifiedSettings } from './UnifiedSettings';
 import { AdminMenuContainer } from './AdminMenuContainer';
+import { AdminOverview } from './AdminOverview';
 import { UserManagement } from './UserManagement';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
@@ -96,43 +97,50 @@ export function AdminDashboard({
   }, [handleKeyDown]);
 
   // Tab content component
-  const renderTabContent = () => (
-    <>
-      {activeTab === 'users' && <UserManagement embedded />}
-      {activeTab === 'personalities' && <PersonalityManager embedded />}
-      {activeTab === 'analyzer' && (
-        <DecisionAnalyzer
-          embedded
-          onDetailModeChange={handleAnalyzerDetailModeChange}
-          onCaptureSelect={onCaptureSelect}
-        />
-      )}
-      {activeTab === 'hand-replay' && <HandReplayBrowser />}
-      {activeTab === 'playground' && <PromptPlayground embedded />}
-      {activeTab === 'experiments' && (
-        <ExperimentDesigner
-          embedded
-          onAssistantPanelChange={setAssistantPanelProps}
-          onDesignModeChange={setIsDesignMode}
-        />
-      )}
-      {activeTab === 'presets' && <PromptPresetManager embedded />}
-      {activeTab === 'templates' && <TemplateEditor embedded />}
-      {activeTab === 'settings' && (
-        <UnifiedSettings
-          embedded
-          onCategoryChange={(category) => {
-            window.history.replaceState(null, '', `/admin/settings/${category}`);
-          }}
-        />
-      )}
-      {activeTab === 'debug' && <DebugTools embedded />}
-      {activeTab === 'chip-ledger' && <ChipLedgerPanel embedded />}
-      {activeTab === 'whereabouts' && <CashWhereaboutsPanel embedded />}
-      {activeTab === 'range-explorer' && <RangeExplorer embedded />}
-      {activeTab === 'coach-metrics' && <CoachEffectivenessPanel embedded />}
-    </>
-  );
+  const renderTabContent = () => {
+    // No tab selected (desktop landing) -> show the lightweight tool menu.
+    // Mobile renders its own menu before ever calling this.
+    if (!activeTab) {
+      return <AdminOverview onSelect={handleTabChange} />;
+    }
+    return (
+      <>
+        {activeTab === 'users' && <UserManagement embedded />}
+        {activeTab === 'personalities' && <PersonalityManager embedded />}
+        {activeTab === 'analyzer' && (
+          <DecisionAnalyzer
+            embedded
+            onDetailModeChange={handleAnalyzerDetailModeChange}
+            onCaptureSelect={onCaptureSelect}
+          />
+        )}
+        {activeTab === 'hand-replay' && <HandReplayBrowser />}
+        {activeTab === 'playground' && <PromptPlayground embedded />}
+        {activeTab === 'experiments' && (
+          <ExperimentDesigner
+            embedded
+            onAssistantPanelChange={setAssistantPanelProps}
+            onDesignModeChange={setIsDesignMode}
+          />
+        )}
+        {activeTab === 'presets' && <PromptPresetManager embedded />}
+        {activeTab === 'templates' && <TemplateEditor embedded />}
+        {activeTab === 'settings' && (
+          <UnifiedSettings
+            embedded
+            onCategoryChange={(category) => {
+              window.history.replaceState(null, '', `/admin/settings/${category}`);
+            }}
+          />
+        )}
+        {activeTab === 'debug' && <DebugTools embedded />}
+        {activeTab === 'chip-ledger' && <ChipLedgerPanel embedded />}
+        {activeTab === 'whereabouts' && <CashWhereaboutsPanel embedded />}
+        {activeTab === 'range-explorer' && <RangeExplorer embedded />}
+        {activeTab === 'coach-metrics' && <CoachEffectivenessPanel embedded />}
+      </>
+    );
+  };
 
   // Mobile layout - show menu if no tab selected, otherwise show content
   if (isMobile) {
@@ -220,8 +228,10 @@ export function AdminDashboard({
             <ArrowLeft size={20} />
           </button>
           <div className="admin-main__header-text">
-            <h1 className="admin-main__title">{activeTabConfig?.label || 'Admin'}</h1>
-            <p className="admin-main__subtitle">{activeTabConfig?.description}</p>
+            <h1 className="admin-main__title">{activeTabConfig?.label || 'Admin Tools'}</h1>
+            <p className="admin-main__subtitle">
+              {activeTabConfig?.description || 'Select a tool to get started'}
+            </p>
           </div>
         </header>
 

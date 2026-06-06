@@ -683,13 +683,9 @@ function AdminTabWrapper() {
 
 function AdminIndex() {
   const navigate = useNavigate();
-  const { isMobile } = useViewport();
 
-  // On desktop, redirect to personalities tab
-  // On mobile, show the menu via AdminDashboard with no tab selected
-  if (!isMobile) {
-    return <Navigate to="/admin/personalities" replace />;
-  }
+  // Both desktop and mobile land on the admin tool menu (AdminDashboard with no
+  // tab selected) — desktop shows the AdminOverview grid, mobile its own menu.
 
   const handleBack = () => {
     // Go back to where the user came from (game or menu)
