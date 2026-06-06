@@ -204,6 +204,14 @@
   background: rgba(196, 139, 250, 0.16);
   color: #c4a9ff;
 }
+.cwp-status--tournament {
+  background: rgba(255, 184, 77, 0.18);
+  color: #ffc964;
+}
+.cwp-status--tournament_bound {
+  background: rgba(255, 184, 77, 0.1);
+  color: #e0b878;
+}
 .cwp-status--unknown {
   background: rgba(255, 122, 122, 0.16);
   color: #ff9a9a;
