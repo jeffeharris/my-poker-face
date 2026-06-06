@@ -90,14 +90,23 @@ def seed_personalities(force: bool = False) -> dict:
             else:
                 skipped += 1
         else:
-            # Add new personality. The canonical roster is meant to auto-seat
-            # into the Circuit (cash mode), so new rows circulate by default
-            # (v123 circulating gate). We only force this on ADD — the --force
-            # update path above passes no `circulating`, so save_personality
-            # preserves any deliberate demotion (circulating=0) already in the DB.
-            personality_repo.save_personality(name, config, source='json_import', circulating=True)
+            # Add new personality. The curated roster IS the live pool, so a
+            # row circulates by DEFAULT (v123 circulating gate) — but a persona
+            # can opt OUT with `"circulating": false` in its JSON entry (used to
+            # keep eval/control bots, IP-risk holdovers, fish, and bench extras
+            # out of the auto-seeded lobby while still shipping them in the
+            # corpus). Honour the per-persona flag exactly as the canonical
+            # `seed_personalities_from_json` does. The flag lives in its own
+            # column, not config_json, so strip it from the config before save.
+            # (The --force update path above passes no `circulating`, so
+            # save_personality preserves any deliberate demotion already in DB.)
+            circ = bool(config.get('circulating', True))
+            seed_config = {k: v for k, v in config.items() if k != 'circulating'}
+            personality_repo.save_personality(
+                name, seed_config, source='json_import', circulating=circ
+            )
             added += 1
-            print(f"  Added: {name}")
+            print(f"  Added: {name}{'' if circ else '  (bench / non-circulating)'}")
 
     # Final count
     final = personality_repo.list_personalities(limit=200)

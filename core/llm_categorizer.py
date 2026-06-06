@@ -146,16 +146,19 @@ class StructuredLLMCategorizer:
             timeout_seconds: Timeout for LLM calls
             fallback_generator: Function to generate fallback output from context
         """
-        from flask_app.config import get_fast_model, get_fast_provider
+        from flask_app.config import get_nano_model, get_nano_provider
 
         self.schema = schema
-        self.model = model or get_fast_model()
+        # NANO tier: categorization is mechanical, internal, never read by a user —
+        # always the cheapest/fastest model (not the FAST flavor model prod may bump
+        # to grok). A caller-supplied `model` still wins for tests/overrides.
+        self.model = model or get_nano_model()
         self.timeout_seconds = timeout_seconds
         self.fallback_generator = fallback_generator
 
         # Initialize LLM client with minimal reasoning for fast/cheap categorization
         self._llm_client = LLMClient(
-            model=self.model, provider=get_fast_provider(), reasoning_effort="minimal"
+            model=self.model, provider=get_nano_provider(), reasoning_effort="minimal"
         )
 
         # Thread pool for timeout handling

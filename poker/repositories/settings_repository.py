@@ -64,6 +64,60 @@ class SettingsRepository(BaseRepository):
             logger.error(f"Failed to set setting '{key}': {e}")
             return False
 
+    def increment_counter(self, key: str, *, by: int = 1, description: Optional[str] = None) -> int:
+        """Atomically increment an integer-valued setting and return the new total.
+
+        A missing or non-integer stored value is treated as 0, so the first
+        call lands at `by`. The increment is a single UPSERT so concurrent
+        callers can't lose a tick to a read-modify-write race. Returns the new
+        value, or 0 on error (e.g. table missing during startup).
+        """
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO app_settings (key, value, description, updated_at)
+                    VALUES (?, CAST(? AS TEXT), ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = CAST(
+                            CAST(COALESCE(NULLIF(app_settings.value, ''), '0') AS INTEGER) + ?
+                            AS TEXT
+                        ),
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (key, str(by), description, by),
+                )
+                cursor = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+                row = cursor.fetchone()
+                return int(row[0]) if row and str(row[0]).lstrip("-").isdigit() else 0
+        except Exception as e:  # noqa: BLE001 — counter is best-effort telemetry
+            logger.warning("Failed to increment counter '%s': %s", key, e)
+            return 0
+
+    def get_counter(self, key: str) -> int:
+        """Read an integer-valued setting, returning 0 if missing/non-integer."""
+        raw = self.get_setting(key)
+        return int(raw) if raw is not None and str(raw).lstrip("-").isdigit() else 0
+
+    def sum_counters_with_prefix(self, prefix: str) -> int:
+        """Sum every integer-valued setting whose key starts with `prefix`.
+
+        Used for cross-sandbox roll-ups of per-sandbox counters. Non-integer
+        values cast to 0 in SQLite, so they're ignored harmlessly.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT COALESCE(SUM(CAST(value AS INTEGER)), 0) "
+                    "FROM app_settings WHERE key LIKE ?",
+                    (prefix + "%",),
+                )
+                row = cursor.fetchone()
+                return int(row[0]) if row and row[0] is not None else 0
+        except Exception as e:  # noqa: BLE001 — best-effort roll-up
+            logger.warning("Failed to sum counters with prefix '%s': %s", prefix, e)
+            return 0
+
     def get_all_settings(self) -> Dict[str, Dict[str, Any]]:
         """Get all app settings.
 

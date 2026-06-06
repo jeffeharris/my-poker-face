@@ -39,6 +39,7 @@ from cash_mode.fake_sim import (
     DEFAULT_FAKE_HAND_PROB,
     DEFAULT_MAX_POT_BB,
 )
+from cash_mode.movement import SEATED_ENERGY_DRAIN_PER_HAND
 from cash_mode.psychology_persistence import (
     flush_persona_psychology as _flush_psychology,
     hydrate_persona_psychology as _hydrate_psychology,
@@ -929,6 +930,15 @@ def _play_one_hand_inner(
     for player in players:
         pid = seat_pid_by_name[player.name]
         ctrl = controllers[player.name]
+        # Seated fatigue (parity with the live game-handler path): one hand of
+        # seated play wears energy down so off-screen grinders eventually tire
+        # and rotate, instead of farming a fish table forever.
+        _psych = getattr(ctrl, "psychology", None)
+        if _psych is not None:
+            try:
+                _psych.apply_seated_fatigue(SEATED_ENERGY_DRAIN_PER_HAND)
+            except Exception:  # noqa: BLE001 — fatigue is non-critical bookkeeping
+                pass
         _maybe_flush_psychology(ctrl, pid, bankroll_repo, sandbox_id)
     _maybe_flush_opponent_models(memory_manager, sandbox_id, db_path_for_memory)
 

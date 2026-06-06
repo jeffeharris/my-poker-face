@@ -56,6 +56,7 @@ def chip_ledger_audit():
     `compute_audit`'s docstring.
     """
     try:
+        sandbox_id = _sandbox_arg()
         data = compute_audit(
             ledger_repo=extensions.chip_ledger_repo,
             bankroll_repo=extensions.bankroll_repo,
@@ -64,8 +65,16 @@ def chip_ledger_audit():
             db_path=extensions.persistence_db_path,
             list_game_ids_fn=game_state_service.list_game_ids,
             get_game_fn=game_state_service.get_game,
-            sandbox_id=_sandbox_arg(),
+            sandbox_id=sandbox_id,
         )
+        # World-tick count (economy maturity) for the selected sandbox, or
+        # summed across all when unscoped. Cheap KV read; never fails the audit.
+        try:
+            from flask_app.services.ticker_service import world_tick_count
+
+            data['world_ticks'] = world_tick_count(sandbox_id)
+        except Exception:  # noqa: BLE001 — telemetry, not load-bearing
+            data['world_ticks'] = None
         return jsonify(data)
     except Exception as e:
         logger.error("chip-ledger audit failed: %s", e, exc_info=True)
