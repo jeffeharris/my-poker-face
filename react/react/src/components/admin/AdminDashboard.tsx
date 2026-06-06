@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react';
+import { ChevronRight, MessageSquare } from 'lucide-react';
 import { AdminSidebar, type AdminTab } from './AdminSidebar';
+import { AdminHeader } from './AdminHeader';
 import type { AssistantPanelProps } from './ExperimentDesigner';
 import { AdminMenuContainer } from './AdminMenuContainer';
 import { AdminOverview } from './AdminOverview';
@@ -257,22 +258,11 @@ export function AdminDashboard({
 
       {/* Main Content Area */}
       <main className="admin-main">
-        {/* Content Header */}
-        <header className="admin-main__header">
-          <button
-            className="admin-main__back admin-back-button admin-back-button--icon"
-            onClick={onBack}
-            aria-label="Go back"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="admin-main__header-text">
-            <h1 className="admin-main__title">{activeTabConfig?.label || 'Admin Tools'}</h1>
-            <p className="admin-main__subtitle">
-              {activeTabConfig?.description || 'Select a tool to get started'}
-            </p>
-          </div>
-        </header>
+        {/* Content Header — shared breadcrumb + deterministic back-arrow */}
+        <AdminHeader
+          title={activeTabConfig?.label || 'Admin Tools'}
+          subtitle={activeTabConfig?.description || 'Select a tool to get started'}
+        />
 
         {/* Tab Content */}
         <div className="admin-main__content">{renderTabContent()}</div>
