@@ -819,10 +819,23 @@ def reset_game_state_for_new_hand(
         game_state: Current game state
         deck_seed: Optional seed for deterministic deck shuffling (for A/B experiments)
     """
-    # Create new players with reset flags to prepare for the next round
+    # Create new players with reset flags to prepare for the next round. Carry
+    # the stable seat identity (typed `seat_id`, the legacy `personality_id`, and
+    # the display `nickname`) across the deal — these never change hand to hand.
+    # Dropping them silently broke the multi-table tournament bridge: the live
+    # table's `seat_key(player)` fell back to the display `name`, which never
+    # matches the field's slug pids, freezing the hand-boundary guard on the very
+    # first deal (`tournament/session.py:_guard_table_result`).
     new_players = []
     for player in game_state.players:
-        new_player = Player(name=player.name, stack=player.stack, is_human=player.is_human)
+        new_player = Player(
+            name=player.name,
+            stack=player.stack,
+            is_human=player.is_human,
+            nickname=player.nickname,
+            personality_id=player.personality_id,
+            seat_id=player.seat_id,
+        )
         new_players.append(new_player)
 
     # Rotate the dealer position to the next active player in the game. This needs to come after the players are
