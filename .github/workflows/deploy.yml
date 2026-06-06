@@ -174,11 +174,72 @@ jobs:
           path: playwright-results/
           retention-days: 7
 
+  build-images:
+    name: Build & Push Images (GHCR)
+    needs: [lint-backend, test-backend, test-frontend, test-e2e]
+    runs-on: ubuntu-latest
+    # Build off-box (on the GitHub-hosted runner with a big disk) and push to
+    # GHCR, so the prod box only ever PULLS. Runs when we're about to deploy:
+    # a push to main, OR a manual workflow_dispatch — dispatch on a feature
+    # branch lets us smoke-test the GHCR push without deploying (the deploy job
+    # below stays gated to refs/heads/main).
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/jeffeharris/my-poker-face-backend:${{ github.sha }}
+            ghcr.io/jeffeharris/my-poker-face-backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./react/react
+          file: ./react/react/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/jeffeharris/my-poker-face-frontend:${{ github.sha }}
+            ghcr.io/jeffeharris/my-poker-face-frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
   deploy:
     name: Deploy to Production
-    needs: [lint-backend, test-backend, test-frontend, test-e2e]
+    needs: [lint-backend, test-backend, test-frontend, test-e2e, build-images]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+      packages: read
+    env:
+      # Pin the exact images built by build-images for this commit.
+      TAG: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v6
@@ -222,10 +283,24 @@ jobs:
             echo "No database file found, skipping backup"
           fi
 
-      - name: Build and deploy containers
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and deploy containers
         working-directory: /opt/poker
+        env:
+          TAG: ${{ github.sha }}
         run: |
-          docker compose -f docker-compose.prod.yml up -d --build
+          # Pull the pre-built images (built off-box by build-images) instead of
+          # building on the small prod disk. --no-build is a hard guarantee that
+          # a deploy can never trigger an on-box build (the disk-fill failure
+          # mode); if an image is missing the pull step above already failed.
+          docker compose -f docker-compose.prod.yml pull
+          docker compose -f docker-compose.prod.yml up -d --no-build
 
       - name: Wait for services to start
         run: sleep 15
