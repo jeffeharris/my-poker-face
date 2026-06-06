@@ -6,12 +6,14 @@ Mirrors the canonical pattern in experiments/run_ai_tournament.py.
 """
 
 import logging
+import threading
 from typing import Optional
 
 from core.llm import CallType, LLMClient
 from poker.strategy.expression_generator import ExpressionGenerator
 from poker.strategy.skill_tiers import DEFAULT_SKILL_TIER, apply_skill_tier
 from poker.strategy.strategy_table import (
+    StrategyTable,
     load_archetype_preflop_tables,
     load_depth_strategy_tables,
     load_hu_strategy_table,
@@ -20,6 +22,41 @@ from poker.strategy.strategy_table import (
 from poker.tiered_bot_controller import BaselineSolverBot, TieredBotController
 
 logger = logging.getLogger(__name__)
+
+
+# Strategy tables are immutable for the process lifetime. Load them once and
+# share across every controller instead of re-reading the JSON from disk on each
+# build_tiered_controller call (cold game start / restore). Mirrors the
+# memoization in cash_mode/full_sim.py, extended to all four tables this factory
+# uses. (~20-50 ms + filesystem hit saved per game build.)
+_strategy_tables_lock = threading.Lock()
+_strategy_tables_loaded = False
+_strategy_table: Optional[StrategyTable] = None
+_hu_strategy_table: Optional[StrategyTable] = None
+_depth_strategy_tables: dict = {}
+_archetype_preflop_tables: dict = {}
+
+
+def _get_strategy_tables() -> tuple[StrategyTable, Optional[StrategyTable], dict, dict]:
+    """Lazy-load + memoize the four strategy tables (base preflop, heads-up,
+    depth-keyed, archetype-width). Returns the shared, immutable instances."""
+    global _strategy_tables_loaded, _strategy_table, _hu_strategy_table
+    global _depth_strategy_tables, _archetype_preflop_tables
+    if not _strategy_tables_loaded:  # slow path only until warm; no lock once loaded
+        with _strategy_tables_lock:
+            if not _strategy_tables_loaded:
+                _strategy_table = load_strategy_table()
+                _hu_strategy_table = load_hu_strategy_table()  # None if file missing
+                _depth_strategy_tables = load_depth_strategy_tables()  # {} if missing
+                _archetype_preflop_tables = load_archetype_preflop_tables()  # {} if missing
+                _strategy_tables_loaded = True
+    assert _strategy_table is not None  # set above; narrows Optional for callers
+    return (
+        _strategy_table,
+        _hu_strategy_table,
+        _depth_strategy_tables,
+        _archetype_preflop_tables,
+    )
 
 
 def build_tiered_controller(
@@ -47,13 +84,16 @@ def build_tiered_controller(
             stab-defense/overbet intensities post-construction.
     """
     llm_config = llm_config or {}
-    strategy_table = load_strategy_table()
-    hu_strategy_table = load_hu_strategy_table()  # None if file missing
-    depth_strategy_tables = load_depth_strategy_tables()  # {} if files missing
-    # Width-tier preflop charts (loose/station/tight) keyed by archetype; {} if
-    # files missing → every archetype uses the base table. BaselineSolverBot
+    # Memoized, process-shared immutable tables (see _get_strategy_tables).
+    # Width-tier preflop charts (loose/station/tight) keyed by archetype are {}
+    # if files missing → every archetype uses the base table; BaselineSolverBot
     # classifies as 'baseline' (not in the map) so it always uses the base.
-    archetype_preflop_tables = load_archetype_preflop_tables()
+    (
+        strategy_table,
+        hu_strategy_table,
+        depth_strategy_tables,
+        archetype_preflop_tables,
+    ) = _get_strategy_tables()
     controller_cls = BaselineSolverBot if baseline else TieredBotController
     controller = controller_cls(
         player_name=player_name,
