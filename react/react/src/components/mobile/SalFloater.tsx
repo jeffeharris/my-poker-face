@@ -49,10 +49,7 @@ export function SalFloater({ queue, onShown }: SalFloaterProps) {
   const currentId = current?.id ?? null;
   // Beat-ify his line: each sentence on its own line so the print-style renderer
   // types it out with a pause after every sentence (Sal speaks in measured beats).
-  const beatText = useMemo(
-    () => (current ? splitSentences(current.message) : ''),
-    [current]
-  );
+  const beatText = useMemo(() => (current ? splitSentences(current.message) : ''), [current]);
   // Tied to currentId: only changes when the head line changes, so the timer
   // isn't reset by unrelated queue churn while a line is showing. The bubble must
   // outlast the full type-out + pauses, so floor the generous read budget at the
@@ -67,16 +64,30 @@ export function SalFloater({ queue, onShown }: SalFloaterProps) {
 
   if (!current) return null;
 
+  // The floater is character-agnostic: a queue item carries its speaker's name
+  // (`sender`) and portrait (`avatar_url`). Sal's Scene-0 lines omit both and
+  // fall back to his static portrait; an emergent voucher popping into the lobby
+  // supplies their own. A broken portrait hides the img (the bubble still lands).
+  const speaker = current.sender || 'Sal';
+  const portrait = current.avatar_url || '/sal.png';
+
   return (
     <div
       className="sal-floater"
       onClick={() => onShown(current.id)}
       role="button"
-      aria-label="Sal says"
+      aria-label={`${speaker} says`}
     >
-      <img className="sal-floater__img" src="/sal.png" alt="Sal Monroe" />
+      <img
+        className="sal-floater__img"
+        src={portrait}
+        alt={speaker}
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+        }}
+      />
       <div className="sal-floater__bubble">
-        <span className="sal-floater__name">Sal</span>
+        <span className="sal-floater__name">{speaker}</span>
         <DramaticReserve text={beatText} />
       </div>
     </div>

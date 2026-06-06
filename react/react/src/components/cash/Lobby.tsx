@@ -70,6 +70,7 @@ import type {
   WorldPace,
 } from './types';
 import { STAKES } from './types';
+import { avatarUrlForName } from './avatarUrl';
 import type { ChatMessage } from '../../types/chat';
 import { SalFloater } from '../mobile/SalFloater';
 import { rememberAdminOrigin } from '../admin/adminOrigin';
@@ -265,6 +266,25 @@ export function Lobby() {
           ]
         : [],
     [mentorIntro]
+  );
+  // Emergent vouches (M2): when an AI vouches you into its home room, it pops
+  // into the lobby in person to deliver the invite (reusing the Sal floater),
+  // then the revealed room appears. Socket-driven (world_event), so it's a queue
+  // the floater plays alongside Sal's mentor-intro line.
+  const [voucherInvites, setVoucherInvites] = useState<ChatMessage[]>([]);
+  const floaterQueue = useMemo<ChatMessage[]>(
+    () => [...mentorIntroQueue, ...voucherInvites],
+    [mentorIntroQueue, voucherInvites]
+  );
+  const dismissFloaterMessage = useCallback(
+    (id: string) => {
+      if (id.startsWith('mentor-intro')) {
+        dismissMentorIntro();
+      } else {
+        setVoucherInvites((prev) => prev.filter((m) => m.id !== id));
+      }
+    },
+    [dismissMentorIntro]
   );
   const [intelHubOpen, setIntelHubOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
@@ -553,6 +573,27 @@ export function Lobby() {
       // appears immediately rather than on the next debounced tick.
       if (event.type === 'vouch') {
         void reloadLobbyRef.current();
+        // The voucher pops into the lobby to deliver the invite in person
+        // (reusing the Sal floater) before/while the revealed room appears.
+        if (event.name) {
+          const first = event.name.split(' ')[0] || event.name;
+          const inviteId = `vouch-${event.table_id ?? event.created_at}`;
+          setVoucherInvites((prev) =>
+            prev.some((m) => m.id === inviteId)
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    id: inviteId,
+                    sender: event.name,
+                    message: `You're in — come find me at my game. Tell 'em ${first} sent ya.`,
+                    avatar_url: avatarUrlForName(event.name) ?? undefined,
+                    timestamp: '',
+                    type: 'ai',
+                  },
+                ]
+          );
+        }
       }
       // Future: curated "signal" toasts (whale arrived / on a heater /
       // on tilt) hang off this same channel — see CASH_MODE_REALTIME_TICKER.md.
@@ -1133,7 +1174,7 @@ export function Lobby() {
         {showIntake && <LuckyStackIntake onDone={handleIntakeDone} />}
         {/* Sal's post-graduation handoff: his portrait + bubble walk the player
             to the spotlighted home court. Same floater used at the table. */}
-        <SalFloater queue={mentorIntroQueue} onShown={dismissMentorIntro} />
+        <SalFloater queue={floaterQueue} onShown={dismissFloaterMessage} />
         <StakeOfferModal
           target={stakeTarget}
           bankroll={bankroll ?? 0}
