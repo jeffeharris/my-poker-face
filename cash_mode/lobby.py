@@ -25,6 +25,7 @@ from __future__ import annotations
 import itertools
 import logging
 import random
+import sqlite3
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -665,7 +666,27 @@ def ensure_lobby_seeded(
                 last_activity_at=now,
                 name=display_name,
             )
-            cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
+            try:
+                cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
+            except sqlite3.IntegrityError:
+                # Concurrent first-load seed race: two lobby polls both pass the
+                # `by_id` existence check on a fresh sandbox before either
+                # inserts, so the loser hits UNIQUE(table_id, sandbox_id). Benign
+                # — a sibling request already seeded this table. Adopt the
+                # winner's persisted row instead of 500ing the user. (It would
+                # self-heal on the next poll anyway, but swallowing it here spares
+                # the very first user on a fresh sandbox a hard error.)
+                winner = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+                if winner is None:
+                    raise
+                out_tables.append(winner)
+                logger.info(
+                    "[CASH][LOBBY] seed %s: table %r already created by a "
+                    "concurrent request — adopting the existing row",
+                    stake_label,
+                    table_id,
+                )
+                continue
             # SHADOW (Presence cutover Phase 1): mirror the freshly-seeded
             # AI seats into `entity_presence` (SEED→SIT, derived as SIT from
             # OFFLINE by the reconcile). Additive, flag-gated, best-effort.

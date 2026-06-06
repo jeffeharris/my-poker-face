@@ -154,31 +154,43 @@ class BankrollRepository(BaseRepository):
         """
         ctx = nullcontext(conn) if conn is not None else self._get_connection()
         with ctx as c:
-            is_first_write = (
-                chip_ledger_repo is not None
-                and c.execute(
-                    "SELECT 1 FROM ai_bankroll_state "
-                    "WHERE personality_id = ? AND sandbox_id = ?",
-                    (state.personality_id, sandbox_id),
-                ).fetchone()
-                is None
-            )
-            c.execute(
+            last_regen = state.last_regen_tick.isoformat() if state.last_regen_tick else None
+            # Atomic first-write detection. The old code SELECTed "is there a
+            # row?" then INSERT-OR-REPLACEd then seeded if the read saw no row —
+            # a check-then-act across two connections. Under a concurrent
+            # first-load lobby race BOTH requests passed the read before either
+            # committed, so both emitted `ai_seed` and the genesis mint was
+            # double-recorded (the fresh-sandbox ~$672k holdings drift,
+            # 2026-06-05). Claim the row with an INSERT that no-ops on the
+            # (personality_id, sandbox_id) PK conflict instead: exactly one racer
+            # actually inserts (rowcount==1) and seeds; the loser falls through
+            # to the UPDATE below and seeds nothing.
+            cur = c.execute(
                 """
-                INSERT OR REPLACE INTO ai_bankroll_state
+                INSERT INTO ai_bankroll_state
                     (personality_id, sandbox_id, chips, last_regen_tick)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT(personality_id, sandbox_id) DO NOTHING
                 """,
-                (
-                    state.personality_id,
-                    sandbox_id,
-                    state.chips,
-                    state.last_regen_tick.isoformat() if state.last_regen_tick else None,
-                ),
+                (state.personality_id, sandbox_id, state.chips, last_regen),
             )
+            inserted = cur.rowcount == 1
+            if not inserted:
+                # Row already existed (a normal post-event update, a placeholder
+                # repair, or the losing racer): write the requested snapshot
+                # verbatim, exactly as the old INSERT OR REPLACE did. No seed —
+                # these chips were not minted here.
+                c.execute(
+                    """
+                    UPDATE ai_bankroll_state
+                    SET chips = ?, last_regen_tick = ?
+                    WHERE personality_id = ? AND sandbox_id = ?
+                    """,
+                    (state.chips, last_regen, state.personality_id, sandbox_id),
+                )
             # Seed INSIDE the same transaction (on `c`) so int + seed commit
-            # together. Was previously a separate post-commit write.
-            if is_first_write and state.chips > 0:
+            # together. Only on a genuine first insert.
+            if inserted and chip_ledger_repo is not None and state.chips > 0:
                 from core.economy import ledger as chip_ledger
 
                 chip_ledger.record_ai_seed(
