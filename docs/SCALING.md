@@ -60,8 +60,12 @@ on `owner_id`; see Stage 4).
 
 The sim is **cheap and self-throttling**: total ticker CPU is hard-capped at
 ~250 ms per 2 s (~12.5% of one core) regardless of user count. More active users
-→ each world evolves slightly slower (round-robin), **not** more box CPU. It
-costs **~$0 in LLM**. It only runs while a user is **active** (idle/offline
+→ each world evolves slightly slower (round-robin), **not** more box CPU. The
+off-screen *hands* are rule-based (no LLM), but ⚠️ the ticker **does** make
+world-event **narration** LLM calls today — `vice_use_llm_narration` /
+`hustle_use_llm_narration` default `True` and the ticker's `refresh_unseated_tables`
+call (`ticker_service.py:448`) doesn't override them; Stage 0 wires the existing
+deterministic path in. It only runs while a user is **active** (idle/offline
 worlds aren't ticked) — so cost scales with *concurrent active* users, not
 registered users.
 
@@ -74,6 +78,7 @@ registered users.
 - SQLite save after each action: ~2–5 ms.
 
 ### What binds first (in order)
+*Ordering is code-grounded; the user-count numbers below are estimates, not load-tested.*
 
 1. **Single-worker cooperative CPU** — the ticker + foreground equity-MC bursts +
    SQLite writes all share one gevent core; the ~5 ms MC bursts don't yield.
@@ -101,23 +106,26 @@ registered users.
 
 | Stage | Move | Effort | Removes |
 |---|---|---|---|
-| **0 — tuning** | Relieve the single worker (knobs below), keep `-w 1` | ~1 d | foreground contention — **likely enough for 20** |
+| **0 — tuning** | Relieve the single worker (knobs below), keep `-w 1` | ~1 d | foreground contention — **the main 20-user lever (validate under load)** |
 | **1A** ✅ done | Memoize strategy tables in `tiered_factory.py` | ~2 h | per-game-start JSON re-reads |
-| **3** | Bigger box (CPX21 4 GB ≈ +€6/mo) | ~1 h, no code | RAM/CPU headroom — **best ROI** |
+| **3** | Bigger box (CPX21 4 GB ≈ +€6/mo) | ~1 h, no code | RAM + co-tenant contention relief (**not** foreground parallelism under `-w 1`) |
 | **1B** | Extract ticker → own process + Redis presence + Socket.IO MQ — **has prerequisites (below)** | 1–2 wk | the `-w 1` lock |
 | **2** | Multiple single-worker *containers* + sticky Caddy + Redis MQ (**not** `-w 2`) | 3–5 d | single-process foreground ceiling |
 | **4** | Per-owner sandbox sharding (consistent-hash `owner_id`) | 1–2 wk | horizontal ceiling / SPOF |
 | **5** | SQLite → Postgres (per-sandbox schemas) | 2–4 wk | concurrent-write limit |
 
-**For the 20-user target, Stage 0 + (if needed) Stage 3 is very likely sufficient — without 1B/2 at all.**
+**For ~20 users, Stage 0 (+ maybe Stage 3) is the cheapest first path and is *plausibly* sufficient without 1B/2 — but validate under representative load before relying on it; the user-count is an estimate, not measured.**
 
 ### Stage 0 — tune the single worker (do first, for 20 users)
-Keep `-w 1`; just reduce what competes for the one gevent core. Low risk, mostly env/config:
-- **`DECISION_ANALYSIS_ITERATIONS`** (env, prod=500; `decision_analyzer.py:981` even notes lowering it "raises the concurrent-hands ceiling") → drop to ~200–300. Directly cuts the per-AI-decision equity-MC CPU burst (the main non-yielding foreground cost).
-- **`SOCKETIO_ASYNC_MODE=gevent`** (env, currently `threading` — `config.py:63`) → validate in prod; better cooperative yielding under the gevent-websocket worker.
-- **Ticker pacing** (`ticker_service.py`): lower `WORLD_TICKER_MAX_SANDBOXES` (env, default 50) and make `CYCLE_BUDGET_MS` (const 250 ms, line 42) + the ~2 s tick interval env-tunable, then give the foreground more core (slower world is fine — casual).
-- **Off-screen narration → templated** (`vice_use_llm_narration` / `hustle_use_llm_narration` in `cash_mode/lobby.py`, default True; the `False` path already exists) → removes the ticker's LLM calls/latency.
+Keep `-w 1`; reduce what competes for the one gevent core. A **mix of env flips and
+small code changes** (not all pure env), each low-risk:
+- **`DECISION_ANALYSIS_ITERATIONS`** (env, prod=500; `decision_analyzer.py:981` notes lowering it "raises the concurrent-hands ceiling") → drop to ~200–300. Directly cuts the per-AI-decision equity-MC CPU burst (the main non-yielding foreground cost). *Env — reversible.*
+- **`SOCKETIO_ASYNC_MODE=gevent`** (env, currently `threading` — `config.py:63`) → validate in prod; better cooperative yielding under the gevent-websocket worker. *Env — reversible.*
+- **`WORLD_TICKER_MAX_SANDBOXES`** (env, default 50 — `ticker_service.py:51`) → lower the per-cycle fan-out. *Env — reversible.*
+- **Ticker pacing — code change:** `CYCLE_BUDGET_MS` and `BASE_TICK_SECONDS` are hard constants (`ticker_service.py:41`); env-ify them, then ease the budget / lengthen the ~2 s tick so the foreground gets more core (slower world is fine — casual).
+- **Off-screen narration → templated — code change:** the deterministic (no-LLM) path exists (`cash_mode/lobby.py:2479,2601`) but the ticker's `refresh_unseated_tables` call (`ticker_service.py:448`) doesn't pass `vice_use_llm_narration=False`/`hustle_use_llm_narration=False`. Wire those in to drop the ticker's LLM spend/latency.
 - Already shipped: Stage 1A memoization + the `mem_limit` cap.
+- **Validate under representative load** (~20 simulated concurrent active sessions) before declaring victory — the thresholds below are estimates, not measured.
 
 ### Stage 1A — memoize strategy tables (do now)
 `flask_app/handlers/tiered_factory.py` calls `load_strategy_table()` /
@@ -164,10 +172,12 @@ jobs) — sticky sessions keep a live game on one container but do NOT protect s
 SQLite rows from concurrent writers across containers. Each container pays the
 ~550 MB baseline.
 
-### Stage 3 — bigger box (best ROI)
-Hetzner CPX21 (4 GB, ~+€6/mo) gives RAM/CPU headroom on the single box. Pure ops
-change (`docker-compose.prod.yml` + Hetzner resize). Combined with Stage 0 tuning,
-this is the cheapest route to comfortable 20-user headroom.
+### Stage 3 — bigger box (RAM + contention relief, not foreground parallelism)
+Hetzner CPX21 (4 GB, ~+€6/mo). Under `-w 1` a bigger box does **not** parallelize
+foreground work — one gevent core still serves every hand; it buys **RAM headroom**
+and frees that core from co-tenant contention (other containers). Pure ops change
+(`docker-compose.prod.yml` + Hetzner resize). Cheap insurance alongside Stage 0,
+but **tuning, not the box, is what relieves the single-core ceiling**.
 
 ### Stage 4 — per-owner sandbox sharding
 Consistent-hash on `owner_id` → each user pinned to a shard (box/container group)
@@ -186,13 +196,16 @@ past current traffic.
 ## Near-term recommendation (the 20-user target)
 
 - **Stage 1A** ✅ done.
-- **Stage 0 tuning is the actual 20-user fix** — keep `-w 1`: lower
-  `DECISION_ANALYSIS_ITERATIONS` (~250), validate `SOCKETIO_ASYNC_MODE=gevent`, ease
-  ticker pacing, templated off-screen narration. Cheap, low-risk, reversible per knob.
-- **Stage 3** (4 GB box) if tuning alone leaves it tight — best ROI.
-- **1B / 2 are NOT needed for 20 users** and carry real correctness work (the 1B
-  prerequisites above + the no-`-w 2` constraint). Defer until a single *tuned*
-  `-w 1` box is genuinely exhausted.
+- **Stage 0 tuning is the cheapest first path to ~20 users** — keep `-w 1`: lower
+  `DECISION_ANALYSIS_ITERATIONS` (~250) + validate `SOCKETIO_ASYNC_MODE=gevent` (env,
+  reversible), then ease ticker pacing + templated off-screen narration (small code
+  changes). Then **load-test ~20 concurrent sessions** to confirm — the number is an
+  estimate until then.
+- **Stage 3** (4 GB box) if tuning leaves it tight — buys RAM + co-tenant contention
+  relief, *not* foreground parallelism under `-w 1`.
+- **1B / 2 are likely not needed for ~20 users** and carry real correctness work (the
+  1B prerequisites above + the no-`-w 2` constraint). Defer until a *tuned,
+  load-tested* `-w 1` box is genuinely exhausted.
 - The `RedisPresenceStore` + Socket.IO MQ foundations can be built behind off-flags
   any time (zero prod risk), but they don't add capacity until 1B/2 land.
 
