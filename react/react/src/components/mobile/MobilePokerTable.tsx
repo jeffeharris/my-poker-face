@@ -98,22 +98,9 @@ export function MobilePokerTable({
     setDossierPlayer(player);
   }, []);
 
-  // When the chat sheet is opened from the dossier ("Send chat" button),
-  // remember which player to pre-select as the target. Cleared when the
-  // sheet closes so a fresh open from the chat button starts at "table".
-  const [chatInitialTarget, setChatInitialTarget] = useState<string | null>(null);
-
   // Stable callbacks for child components to avoid re-renders
   const openChatSheet = useCallback(() => setShowChatSheet(true), []);
-  const closeChatSheet = useCallback(() => {
-    setShowChatSheet(false);
-    setChatInitialTarget(null);
-  }, []);
-  const openChatWithTarget = useCallback((targetName: string) => {
-    setChatInitialTarget(targetName);
-    setDossierPlayer(null);
-    setShowChatSheet(true);
-  }, []);
+  const closeChatSheet = useCallback(() => setShowChatSheet(false), []);
   const openCashSheet = useCallback(() => setShowCashSheet(true), []);
   const closeCashSheet = useCallback(() => setShowCashSheet(false), []);
   const openCoachPanel = useCallback(() => setShowCoachPanel(true), []);
@@ -448,7 +435,6 @@ export function MobilePokerTable({
             character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
             origin={dossierOrigin}
             identifier={dossierPlayer?.name}
-            onSendChat={openChatWithTarget}
           />
 
           {/* Cash mode: slide-up sheet — opens from the button inside
@@ -620,7 +606,6 @@ export function MobilePokerTable({
             players={storePlayers || []}
             guestChatDisabled={guestChatDisabled}
             guestFreeChatLocked={guestFreeChatLocked}
-            initialTarget={chatInitialTarget}
           />
 
           {/* LLM Debug Modal */}

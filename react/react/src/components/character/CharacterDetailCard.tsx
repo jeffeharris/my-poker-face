@@ -47,7 +47,6 @@ export function CharacterDetailCard({
   identifier,
   circuitContext = false,
   onIntelChanged,
-  onSendChat,
 }: CharacterDetailCardProps) {
   // ESC to close — felt-tabletop UX expects it.
   useEffect(() => {
@@ -189,19 +188,6 @@ export function CharacterDetailCard({
             >
               <span aria-hidden="true">×</span>
             </button>
-
-            {onSendChat && (
-              <button
-                type="button"
-                className="dossier__chat-btn"
-                onClick={() => onSendChat(merged.name)}
-                aria-label={`Send a message to ${merged.name}`}
-                title={`Send a message to ${merged.name}`}
-              >
-                <span aria-hidden="true">✉</span>
-                <span className="dossier__chat-btn-label">Send chat</span>
-              </button>
-            )}
 
             <header className="dossier__header">
               <div className="dossier__classification">

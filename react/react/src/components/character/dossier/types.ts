@@ -85,12 +85,6 @@ export interface CharacterDetailCardProps {
    * that surface to reflect the new unlock state.
    */
   onIntelChanged?: () => void;
-  /**
-   * Optional handler for the "Send chat" affordance. Receives the
-   * dossier subject's name so the caller can open the chat sheet
-   * pre-targeted to that player. When omitted the button is hidden.
-   */
-  onSendChat?: (targetName: string) => void;
 }
 
 export const RELATIONSHIP_COPY: Record<RelationshipKind, { label: string; tone: string }> = {
