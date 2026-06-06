@@ -1,16 +1,22 @@
-"""Repository for relationship_states and cash_pair_stats tables.
+"""Repository for relationship_states, cash_pair_stats, and ai_table_hand_counts.
 
-Two cross-session/cross-game tables introduced in schema v87:
+Cross-session/cross-game tables owned by this repository:
 
-- `relationship_states`: per-(observer, opponent) affinity axes
+- `relationship_states` (v87): per-(observer, opponent) affinity axes
   (heat, respect, likability). Heat decays via `project_heat`; the
   stored value is the "heat as of last_decay_tick" snapshot. Default
   read methods apply projection; raw reads are admin-only and
   explicitly named.
 
-- `cash_pair_stats`: cash-mode-only cumulative PnL between pairs.
+- `cash_pair_stats` (v87): cash-mode-only cumulative PnL between pairs.
   Distinct from relationship_states because PnL is meaningless in
   tournaments.
+
+- `ai_table_hand_counts` (v153/v154): per-(sandbox, ai, table) hand +
+  cumulative-net counter. Incremented once per AI per hand (not bilateral,
+  unlike cash_pair_stats). `net_chips` feeds the success-weighted
+  table-affinity attractiveness lever (an AI drifts back to rooms it wins
+  at); `hands` is a general per-room activity tally.
 
 All persistence APIs use **stable personality_ids** for keys, not
 display names. The relationship layer's read paths consume
@@ -76,7 +82,7 @@ def _state_from_row(row, *, project_to: Optional[datetime] = None) -> Relationsh
 
 
 class RelationshipRepository(BaseRepository):
-    """CRUD for relationship_states + cash_pair_stats.
+    """CRUD for relationship_states, cash_pair_stats, and ai_table_hand_counts.
 
     Schema is created by `SchemaManager.ensure_schema()`; this class
     only touches data. Callers go through this rather than emitting
@@ -512,6 +518,91 @@ class RelationshipRepository(BaseRepository):
                 )
                 for row in rows
             ]
+
+    # --- ai table hand counts (v153/v154) — per-room hand+net, feeds table affinity ---
+
+    def increment_ai_table_hands(
+        self,
+        ai_id: str,
+        table_id: str,
+        *,
+        sandbox_id: str,
+        net_delta: int = 0,
+        now: Optional[str] = None,
+    ) -> None:
+        """Record one hand played by `ai_id` at `table_id` in `sandbox_id`.
+
+        Call ONCE per AI per hand — NOT bilateral. (Contrast
+        `apply_cash_pair_pnl`, which writes N×(N−1) pair rows per hand;
+        this writes one row per seated AI.) The first hand inserts
+        `hands = 1`; later hands bump it. `net_delta` is this AI's signed
+        chip result for the hand (won − lost), accumulated into `net_chips`
+        for the success-weighted table-affinity term. `now` is an ISO-8601
+        string stamped as `last_hand_at` for auditability.
+
+        Via `net_chips`, feeds the table-affinity attractiveness lever.
+        Best-effort by convention — callers wrap this so a counter write
+        never breaks hand resolution.
+        """
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_table_hand_counts
+                    (sandbox_id, ai_id, table_id, hands, net_chips, last_hand_at)
+                VALUES (?, ?, ?, 1, ?, ?)
+                ON CONFLICT(sandbox_id, ai_id, table_id)
+                DO UPDATE SET
+                    hands = hands + 1,
+                    net_chips = net_chips + excluded.net_chips,
+                    last_hand_at = COALESCE(excluded.last_hand_at, ai_table_hand_counts.last_hand_at)
+                """,
+                (sandbox_id, ai_id, table_id, int(net_delta), now),
+            )
+
+    def load_ai_table_net(
+        self,
+        ai_id: str,
+        *,
+        sandbox_id: str,
+    ) -> dict[str, int]:
+        """Load all `{table_id: net_chips}` rows for one AI in one sandbox.
+
+        The read behind the table-affinity attractiveness term — the seating
+        path uses it to bias an AI toward rooms it wins at and away from rooms
+        it loses at. Empty dict when the AI has no recorded hands.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT table_id, net_chips
+                FROM ai_table_hand_counts
+                WHERE sandbox_id = ? AND ai_id = ?
+                """,
+                (sandbox_id, ai_id),
+            ).fetchall()
+        return {row["table_id"]: int(row["net_chips"]) for row in rows}
+
+    def load_ai_table_hands(
+        self,
+        ai_id: str,
+        *,
+        sandbox_id: str,
+    ) -> dict[str, int]:
+        """Return `{table_id: hands}` for one AI in one sandbox.
+
+        Per-room activity tally — exposed for tests and admin/debug surfaces.
+        Empty dict when the AI has no recorded hands.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT table_id, hands
+                FROM ai_table_hand_counts
+                WHERE sandbox_id = ? AND ai_id = ?
+                """,
+                (sandbox_id, ai_id),
+            ).fetchall()
+        return {row["table_id"]: int(row["hands"]) for row in rows}
 
     # --- notes (v95) ---
 
