@@ -6254,7 +6254,24 @@ def get_lobby():
     # with real scroll-back history; the client merges these into its
     # rolling feed (it accumulates further over the session). Bounded by
     # the activity ring buffer's own cap.
-    events_payload = [serialize_event(e) for e in recent_events(limit=30, sandbox_id=sandbox_id)]
+    # Awareness-gate the feed snapshot for a Circuit player (keyring rooms +
+    # global beats); full feed for non-career sandboxes. Mirrors the ticker's
+    # live push. Best-effort — any hiccup falls back to the full slice.
+    _feed_events = recent_events(limit=30, sandbox_id=sandbox_id)
+    try:
+        from cash_mode.activity import filter_events_for_player
+        from flask_app.extensions import career_progress_repo
+
+        if career_progress_repo is not None:
+            _prog = career_progress_repo.load(sandbox_id, owner_id)
+            _feed_events = filter_events_for_player(
+                _feed_events,
+                career_active=_prog.career_active,
+                revealed_table_ids=_prog.revealed_table_ids,
+            )
+    except Exception as exc:
+        logger.debug("[CASH][LOBBY] feed awareness-gate failed: %s", exc)
+    events_payload = [serialize_event(e) for e in _feed_events]
 
     # The player's own last-stand line — bankroll is $0 and they have a
     # stack in play, so their entire net worth is on a single table. The

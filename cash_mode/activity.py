@@ -313,6 +313,28 @@ def clear_events() -> None:
         _events.clear()
 
 
+def filter_events_for_player(events, *, career_active: bool, revealed_table_ids):
+    """Awareness-gate the activity feed for a Circuit (career) player.
+
+    A career player hears only about rooms on their keyring: an event tied to a
+    table they haven't been revealed is dropped. Roomless events (falsy
+    `table_id` — tournament beats use `""`, plus reputation shifts, vice /
+    hustle, the player's own vouch) always pierce, so the wider-world +
+    addressed-to-you signals still land. A vouch's own event passes either way
+    because `fire_vouch` adds the room to `revealed_table_ids` before emitting it.
+
+    Non-career sandboxes (`career_active` False — legacy / grandfathered lobbies)
+    are unchanged: the full feed, as before. Mirrors the lobby's
+    `career_progression.visible_tables` filter so the feed matches what the
+    player can actually see.
+    """
+    if not career_active:
+        return list(events)
+    revealed = set(revealed_table_ids or ())
+    # Falsy table_id (None or "") = roomless/global beat → always pierce.
+    return [e for e in events if not e.table_id or e.table_id in revealed]
+
+
 # --- Message formatters -----------------------------------------------------
 
 

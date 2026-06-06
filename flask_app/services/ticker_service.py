@@ -411,7 +411,11 @@ def world_tick_count(sandbox_id: Optional[str]) -> int:
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
     from cash_mode import economy_flags
-    from cash_mode.activity import recent_events, serialize_event
+    from cash_mode.activity import (
+        filter_events_for_player,
+        recent_events,
+        serialize_event,
+    )
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
     from flask_app.handlers.game_handler import live_cash_seated_pids
@@ -494,8 +498,25 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         if e.created_at > prev_marker
     ]
     if fresh:
+        # Advance the marker over ALL fresh events (visible or not) so
+        # awareness-hidden events don't re-qualify as fresh every tick.
         _last_marker[owner_id] = fresh[0].created_at
-        for event in reversed(fresh):
+        # Awareness-gate for a Circuit player: only push beats from rooms on
+        # their keyring (+ roomless/global beats). Full feed for non-career
+        # sandboxes. Best-effort — a progress-load hiccup falls back to all.
+        visible = fresh
+        repo = getattr(extensions, "career_progress_repo", None)
+        if repo is not None:
+            try:
+                progress = repo.load(sandbox_id, owner_id)
+                visible = filter_events_for_player(
+                    fresh,
+                    career_active=progress.career_active,
+                    revealed_table_ids=progress.revealed_table_ids,
+                )
+            except Exception:
+                visible = fresh
+        for event in reversed(visible):
             socketio.emit("world_event", serialize_event(event), to=room)
 
     # Lightweight nudge so a mounted lobby refetches the snapshot.
