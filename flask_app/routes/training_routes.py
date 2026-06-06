@@ -97,9 +97,14 @@ def _make_controller(
     # Rule-based controllers (psychology-aware). casebot/gto_lite map to named
     # strategies; everything else is a BUILT_IN_STRATEGIES key passed straight
     # through (matches restore's else-branch → RuleBotController(strategy=name)).
+    # Use the CANONICAL map from tiered_factory so a training opponent resolves
+    # to the same strategy as the cold-load/restore path. The old local dict
+    # mapped casebot→case_based (v1) while restore uses case_based_v2, so a
+    # `casebot` silently swapped strength on eviction/restore.
+    from flask_app.handlers.tiered_factory import _RULE_BOT_STRATEGY_MAP
     from poker.rule_bot_controller import RuleBotController
 
-    strategy = {"casebot": "case_based", "gto_lite": "pot_odds_robot"}.get(bot_type, bot_type)
+    strategy = _RULE_BOT_STRATEGY_MAP.get(bot_type, bot_type)
     return RuleBotController(
         player_name=player_name,
         state_machine=state_machine,

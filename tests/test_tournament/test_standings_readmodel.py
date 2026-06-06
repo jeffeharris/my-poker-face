@@ -15,11 +15,13 @@ def _session(field_size=18, table_size=6, seed=2):
     return TournamentSession(cfg, ai_resolver=FakeHandResolver(), human_id='P01')
 
 
-def test_paid_places_scales_with_field_min_two():
-    assert paid_places_for(18) == 3  # round(2.7)
-    assert paid_places_for(45) == 7  # round(6.75)
-    assert paid_places_for(2) == 2  # floor of min 2
-    assert paid_places_for(3) == 2  # round(0.45)=0 -> min 2
+def test_paid_places_matches_payout_structure():
+    # Delegates to the economy's actual 0.30 payout structure (was a separate
+    # display-only 0.15 ITM fraction, so the bubble fired at the wrong place).
+    assert paid_places_for(18) == 5  # round(5.4)
+    assert paid_places_for(45) == 14  # round(13.5)
+    assert paid_places_for(6) == 2  # round(1.8)
+    assert paid_places_for(2) == 1  # at least the winner is always paid
 
 
 def test_leaderboard_orders_by_stack_and_flags_human():
@@ -37,37 +39,37 @@ def test_leaderboard_orders_by_stack_and_flags_human():
 
 
 def test_payout_bubble_and_in_money_transitions():
-    s = _session(field_size=18)  # paid_places = 3
+    s = _session(field_size=18)  # paid_places = 5 (round(18*0.30))
     assert s.payout_view() == {
-        'paid_places': 3,
-        'players_to_money': 15,
+        'paid_places': 5,
+        'players_to_money': 13,
         'on_bubble': False,
         'in_money': False,
     }
-    # Bust down to 4 remaining -> on the bubble.
-    for pid in [f'P{i:02d}' for i in range(5, 19)]:  # bust 14, leaving P01..P04
+    # Bust down to 6 remaining -> on the bubble (paid_places + 1).
+    for pid in [f'P{i:02d}' for i in range(7, 19)]:  # bust 12, leaving P01..P06
         s.field.record_eliminations([(pid, s.field.stacks[pid])], 0, {})
-    assert s.field.active_count == 4
+    assert s.field.active_count == 6
     pv = s.payout_view()
     assert pv['on_bubble'] is True and pv['players_to_money'] == 1 and pv['in_money'] is False
     # One more bust -> bubble bursts, everyone left is ITM.
-    s.field.record_eliminations([('P04', s.field.stacks['P04'])], 0, {})
+    s.field.record_eliminations([('P06', s.field.stacks['P06'])], 0, {})
     pv = s.payout_view()
     assert pv['in_money'] is True and pv['players_to_money'] == 0 and pv['on_bubble'] is False
 
 
 def test_human_in_money_when_field_collapses_to_paid():
-    s = _session(field_size=4)  # paid_places = 2
-    # bust two non-humans -> 2 remain (incl human) -> human ITM
-    s.field.record_eliminations([('P04', s.field.stacks['P04'])], 0, {})
-    s.field.record_eliminations([('P03', s.field.stacks['P03'])], 0, {})
+    s = _session(field_size=6)  # paid_places = 2 (round(6*0.30))
+    # bust four non-humans -> 2 remain (incl human) -> human ITM
+    for pid in ('P06', 'P05', 'P04', 'P03'):
+        s.field.record_eliminations([(pid, s.field.stacks[pid])], 0, {})
     sv = s.standings_view()
     assert sv['payout']['in_money'] is True
     assert sv['human']['in_money'] is True
 
 
 def test_human_in_money_reflects_cashed_finish_when_out():
-    s = _session(field_size=4)  # paid_places = 2
+    s = _session(field_size=6)  # paid_places = 2
     # Human busts in 2nd (a paid place) -> cashed even though out.
     s.field.eliminations.append(
         Elimination(player_id=s.human_id, finishing_position=2, round_index=0)
@@ -76,12 +78,12 @@ def test_human_in_money_reflects_cashed_finish_when_out():
     assert s.human_out
     assert s._human_in_money(2) is True
     # ...but a 3rd-place bust in a 2-paid field did NOT cash.
-    s2 = _session(field_size=4)
+    s2 = _session(field_size=6)
     s2.field.eliminations.append(
         Elimination(player_id=s2.human_id, finishing_position=3, round_index=0)
     )
     s2.field.stacks.pop(s2.human_id, None)
-    assert s2._human_in_money(2) is False
+    assert s2._human_in_money(2) is False  # finished 3rd, only 2 paid
 
 
 def test_next_level_counts_down_and_caps_at_top():
