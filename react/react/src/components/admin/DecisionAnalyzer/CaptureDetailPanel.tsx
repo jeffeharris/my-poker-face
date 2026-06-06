@@ -141,11 +141,22 @@ export function CaptureDetailPanel({
     );
   }
 
-  // A decision that skipped the LLM (solver / TieredBot) is served as a stub
-  // capture with empty prompt/response fields. For those we hide the prompt,
-  // replay, and interrogate UI (none of it applies) and show a short note —
-  // the meaningful data is the decision-analysis / pipeline panels above.
+  // A decision that skipped the LLM (a human, or a solver / TieredBot) is
+  // served as a stub capture with empty prompt/response fields. For those we
+  // hide the prompt, replay, and interrogate UI (none of it applies) and show a
+  // short note — the meaningful data is the decision-analysis / pipeline panels
+  // above.
   const hasLlmCall = Boolean(capture.system_prompt || capture.user_message || capture.ai_response);
+
+  // Distinguish a human's decision from an AI solver's: AI strategy bots always
+  // carry a pipeline trace / snapshot, humans never do. (Both are already on the
+  // analysis payload.)
+  const isAiDecision = Boolean(
+    analysis?.intervention_trace?.length || analysis?.strategy_pipeline_snapshot
+  );
+  const noLlmMessage = isAiDecision
+    ? 'No LLM call made for this decision.'
+    : 'No LLM call for human decisions.';
 
   return (
     <div className={wrapperClass}>
@@ -242,7 +253,7 @@ export function CaptureDetailPanel({
       {/* Prompt Config */}
       {renderPromptConfig(capture)}
 
-      {!hasLlmCall && <div className="no-llm-call">No LLM call made for this decision.</div>}
+      {!hasLlmCall && <div className="no-llm-call">{noLlmMessage}</div>}
 
       {hasLlmCall && (
         <>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { RefreshCw, ChevronLeft, ChevronRight, Globe } from 'lucide-react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
@@ -7,6 +7,7 @@ import { useViewport } from '../../../hooks/useViewport';
 import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 import { logger } from '../../../utils/logger';
 import { MobileFilterBar } from '../shared/MobileFilterBar';
+import { CollapsibleSection } from '../shared/CollapsibleSection';
 import type {
   PromptCapture,
   CaptureStats,
@@ -60,6 +61,10 @@ export function DecisionAnalyzer({
 
   // Mobile filter sheet state
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+
+  // Whether the (game-wide) stats summary is expanded. Collapsible so it can be
+  // tucked away to give the list/detail below more room.
+  const [statsOpen, setStatsOpen] = useState(true);
 
   const [captures, setCaptures] = useState<PromptCapture[]>([]);
   const [stats, setStats] = useState<CaptureStats | null>(null);
@@ -595,15 +600,25 @@ export function DecisionAnalyzer({
         </div>
       )}
 
-      {/* Decision Analysis Stats - hidden on mobile when showing detail */}
+      {/* Decision Analysis Stats - hidden on mobile when showing detail.
+          Labelled "Global" because the numbers are game-wide, not filtered;
+          collapsible to reclaim space for the list/detail below. */}
       {analysisStats && analysisStats.total > 0 && (!isMobile || !showMobileDetail) && (
-        <AnalysisStatsBar
-          analysisStats={analysisStats}
-          stats={stats}
-          labelStats={labelStats}
-          filters={filters}
-          onToggleLabel={toggleLabelFilter}
-        />
+        <CollapsibleSection
+          title="Stats"
+          badge="Global"
+          icon={<Globe size={16} />}
+          isOpen={statsOpen}
+          onToggle={() => setStatsOpen((o) => !o)}
+        >
+          <AnalysisStatsBar
+            analysisStats={analysisStats}
+            stats={stats}
+            labelStats={labelStats}
+            filters={filters}
+            onToggleLabel={toggleLabelFilter}
+          />
+        </CollapsibleSection>
       )}
 
       {/* Filters - desktop only (mobile filters are in header) */}
