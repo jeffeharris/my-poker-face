@@ -1,0 +1,12 @@
+.floating-user-menu {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 200;
+}
+
+/* The dropdown menu opens downward from the avatar; keep it clear of the
+   table chrome and aligned to the right edge. */
+.floating-user-menu .user-dropdown__menu {
+  right: 0;
+}

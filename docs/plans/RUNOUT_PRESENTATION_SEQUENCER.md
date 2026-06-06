@@ -132,3 +132,31 @@ directly (no stale replay). Best-effort; not a hard requirement.
 4. **3-tier polish + progress signal** — tier behaviors, the "still going" indicator,
    the fastest-tier recap via existing narrators.
 5. *(deferred)* Desktop friendliness + reconnect resilience.
+
+## Known follow-ups (captured during playtest)
+
+- **Cadence done (uncommitted on `run-out-ux`):** watchable-tier salience pacing
+  (`ACTION_BEAT_MS`: fold/check ~450, call/bet/raise ~1000, all-in ~1400) + a
+  commentary floor (`COMMENTARY_BEAT_MS` ~3200) so the comment lingers on the actor;
+  FF/fastest stay flat. Plus **comment↔action coupling**: `send_message(immediate=False)`
+  in `handle_ai_action` defers the AI comment + Table action-text onto the action's
+  state push (backend `sleep=1` dropped), so they surface together on the paced beat
+  for *all* bot types (esp. fixes fast tiered/"sharp" bots).
+- **Tournament bust skips the run-out (BUG, to fix).** On a single-table tournament
+  final hand where the human goes all-in and *loses*, it jumps straight to the
+  TournamentComplete screen — no run-out, no revealed cards, no winner/showdown. The
+  player never sees their hand or why they lost. Cause: `single_table_hand_boundary`
+  (flask_app/handlers/single_table_tournament.py) sets `GAME_OVER` + emits
+  `tournament_complete` immediately, bypassing the sequencer's reveal→board→winner
+  beats. Fix direction: the tournament-end transition must be the *last* beat —
+  play the run-out + show the result (and a beat to absorb it) before the end screen.
+- **Action badge missing on an all-in (BUG, cause TBD — needs repro).** The
+  *action chip* on top of the avatar — `ActionBadge` (`components/shared/ActionBadge.tsx`):
+  FOLD / ALL-IN / last_action(CALL/RAISE/CHECK, with fade) — did not show for the
+  *caller* of an all-in (observed: Fred Durst calling Hulk Hogan all-in → no chip for
+  Fred). NOT occlusion (badge is `top:0`, z-index 15, above the revealed cards). NOT
+  the message-coupling change (badge keys on state fields `is_all_in`/`last_action`,
+  which we never touched). Candidates to verify by reproducing an AI-vs-AI all-in:
+  (a) caller *covers* (not all-in) → shows a transient CALL badge that clears/fades the
+  instant the run-out advances the phase; (b) `is_all_in` not set on the caller in the
+  displayed state; (c) a state/beat gap. Don't guess-fix — repro first.

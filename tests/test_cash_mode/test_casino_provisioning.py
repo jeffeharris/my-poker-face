@@ -60,7 +60,6 @@ from cash_mode.closed_economy import (
 from cash_mode.stakes_ladder import table_buy_in_window
 from cash_mode.tables import (
     CashTableState,
-    IdlePoolEntry,
     ai_slot,
     ai_slot_fish,
     open_slot,
@@ -485,7 +484,7 @@ class TestCasinoRefill:
         assert len(refill_batch.refills) == 1
         assert refill_batch.refills[0].table_id == casino.table_id
 
-    def test_refill_clears_seated_fish_idle_row(self, db_setup):
+    def test_refill_clears_seated_fish_idle_row(self, db_setup, seed_idle):
         """Regression: a fish that left a casino on `take_break` keeps an
         idle-pool row; when refill re-seats it, that row must be cleared.
         Casino provisioning seats straight into `cash_tables` (not via the
@@ -529,14 +528,7 @@ class TestCasinoRefill:
         # Every fish carries a stale `take_break` idle row — whichever one
         # refill picks, its row should be gone afterward.
         for pid in db_setup["fish_pids"]:
-            tables.save_idle(
-                IdlePoolEntry(
-                    personality_id=pid,
-                    left_at=ANCHOR,
-                    reason="take_break",
-                ),
-                sandbox_id=SBX,
-            )
+            seed_idle(tables, pid, sandbox_id=SBX, reason="take_break", left_at=ANCHOR)
         idle_before = {e.personality_id for e in tables.list_idle(sandbox_id=SBX)}
 
         refill_batch = resolve_casino_provisioning(

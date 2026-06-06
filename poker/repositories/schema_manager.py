@@ -336,15 +336,22 @@ _test_schema_template_path = None
 #       backfill by the unique display-name join). (was v137)
 # v147: Make `personality_id` the SOLE avatar key — drop the legacy
 #       `personality_name` column + dual-key reads. (was v138)
-# v152: Create `career_progress` — per-(sandbox, owner) narrative state for the
+# v152: Drop the legacy `cash_idle_pool` cache — the Presence cutover is
+#       complete; `entity_presence` (state='idle') + `cash_idle_metadata` are
+#       the authoritative idle store.
+# v153: Create `ai_table_hand_counts` — per-(sandbox, ai, table) hand counter
+#       (net added v154); foundation for the table-affinity lever + per-room reads.
+# v154: Add `net_chips` to ai_table_hand_counts — cumulative per-room PnL feeding
+#       the success-weighted table-affinity term (`TABLE_AFFINITY_ENABLED`).
+# v155: Create `career_progress` — per-(sandbox, owner) narrative state for the
 #       Act-1 career-progression spine (`CASH_MODE_CAREER_PROGRESSION.md`). A
 #       small JSON blob holds the keyring (`revealed_table_ids`), the Scene-0
 #       tutorial flags (seeded / fish id / graduated), the chosen home court,
 #       and the per-AI one-vouch ledger (`vouched_by`). The lobby renders only
 #       revealed cardrooms; the world doesn't grow, the player's view does.
-#       Renumbered (v124 → v132 → v141 → v152) to land after development's v151
-#       on the circuit-progression→development merge.
-SCHEMA_VERSION = 154
+#       Renumbered (v124 → v132 → v141 → v152 → v155) to land after main's
+#       v152 (drop_cash_idle_pool) on the main→circuit-progression sync.
+SCHEMA_VERSION = 155
 
 
 class SchemaManager:
@@ -2330,16 +2337,20 @@ class SchemaManager:
                 "Add (source, sandbox_id) + (sink, sandbox_id) indexes to chip_ledger_entries so `balance_of` (Σ where source=? OR sink=?) stops full-scanning. Speeds the per-account reconcile (audit_ledger_completeness) and the derive-reads path as the ledger grows. Index-only (CREATE INDEX IF NOT EXISTS); no data change.",
             ),
             152: (
-                self._migrate_v152_create_career_progress,
-                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger. Renumbered 141→152 to clear the development merge collision.",
+                self._migrate_v152_drop_cash_idle_pool,
+                "Drop the legacy `cash_idle_pool` cache — the Presence cutover is complete. Idle AIs are now read from `entity_presence` (state='idle') joined with the `cash_idle_metadata` satellite (reason/target_stake/left_at); the pool was a redundant dual-written copy. `cash_idle_metadata` is retained (the satellite). `DROP TABLE IF EXISTS` — idempotent, a no-op on a DB that never had the table.",
             ),
             153: (
                 self._migrate_v153_create_ai_table_hand_counts,
-                "Create ai_table_hand_counts — per-(sandbox, ai, table) hand counter for the Career-M2 home-table resolver; an AI vouches the player into the lobby table where it has played the most hands (>= floor). Incremented once per AI per hand. Additive/idempotent.",
+                "Create ai_table_hand_counts — per-(sandbox, ai, table) hand counter. Incremented once per AI per hand (not bilateral). Foundation for the table-affinity lever (net added in v154) and per-room activity reads. Additive/idempotent.",
             ),
             154: (
                 self._migrate_v154_add_ai_table_net_chips,
-                "Add net_chips to ai_table_hand_counts — cumulative per-(sandbox, ai, table) PnL feeding the success-weighted table-affinity attractiveness term (TABLE_AFFINITY_ENABLED): AIs drift back to rooms they win at, concentrating homes. Guarded ALTER, additive.",
+                "Add net_chips to ai_table_hand_counts — cumulative per-(sandbox, ai, table) PnL feeding the success-weighted table-affinity attractiveness term (TABLE_AFFINITY_ENABLED): AIs drift back to rooms they win at. Guarded ALTER, additive.",
+            ),
+            155: (
+                self._migrate_v155_create_career_progress,
+                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger. Renumbered 141→152→155 to land after main's v152 (drop_cash_idle_pool) on the main sync.",
             ),
         }
 
@@ -6331,6 +6342,25 @@ class SchemaManager:
         conn.execute("ANALYZE chip_ledger_entries")
         logger.info("Migration v151 complete: chip_ledger source/sink indexes + stats added")
 
+    def _migrate_v152_drop_cash_idle_pool(self, conn: sqlite3.Connection) -> None:
+        """Migration v152: drop the legacy `cash_idle_pool` cache.
+
+        The Presence cutover is complete. `entity_presence` (state='idle') is the
+        authoritative record of which AIs are between cash sessions, and the
+        `cash_idle_metadata` satellite carries the routing payload
+        (reason / target_stake / left_at). `cash_idle_pool` was a redundant copy
+        that the seat/idle writers dual-wrote alongside presence; nothing reads it
+        anymore (idle listing derives from presence — see
+        `CashTableRepository.list_idle` / `_list_idle_from_presence`). Dropping it
+        removes the last split-brain source for the `seated_and_idle` bug class.
+
+        `cash_idle_metadata` is deliberately KEPT — it is the satellite, not the
+        cache. `DROP TABLE IF EXISTS` is idempotent and a no-op on any DB that
+        never created the pool (or already dropped it).
+        """
+        conn.execute("DROP TABLE IF EXISTS cash_idle_pool")
+        logger.info("Migration v152 complete: dropped legacy cash_idle_pool cache")
+
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.
 
@@ -6978,8 +7008,8 @@ class SchemaManager:
             f"marked {updated} public personas circulating"
         )
 
-    def _migrate_v152_create_career_progress(self, conn: sqlite3.Connection) -> None:
-        """Migration v152: create `career_progress` for the Act-1 spine.
+    def _migrate_v155_create_career_progress(self, conn: sqlite3.Connection) -> None:
+        """Migration v155: create `career_progress` for the Act-1 spine.
 
         One row per (sandbox, owner). Holds the narrative keyring and tutorial
         state for `CASH_MODE_CAREER_PROGRESSION.md` as a single JSON blob so the
@@ -7010,7 +7040,7 @@ class SchemaManager:
                 PRIMARY KEY (sandbox_id, owner_id)
             )
         """)
-        logger.info("Migration v152 complete: career_progress table created")
+        logger.info("Migration v155 complete: career_progress table created")
 
     def _migrate_v153_create_ai_table_hand_counts(self, conn: sqlite3.Connection) -> None:
         """Migration v153: create `ai_table_hand_counts` for the home-table resolver.

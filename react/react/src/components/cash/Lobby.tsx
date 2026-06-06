@@ -72,6 +72,7 @@ import type {
 import { STAKES } from './types';
 import type { ChatMessage } from '../../types/chat';
 import { SalFloater } from '../mobile/SalFloater';
+import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { CharacterDetailCard, type CharacterDossierData } from '../character';
@@ -842,7 +843,10 @@ export function Lobby() {
         title="The Circuit"
         showUserInfo
         onMainMenu={() => navigate('/menu')}
-        onAdminTools={() => navigate('/admin')}
+        onAdminTools={() => {
+          rememberAdminOrigin('/cash');
+          navigate('/admin');
+        }}
       />
       <PageLayout variant="top" glowColor="gold" hasMenuBar className="cash-lobby-layout">
         <div className="cash-entry">

@@ -21,7 +21,7 @@ import { CashControls } from '../../cash/CashControls';
 import { BustModal } from '../../cash/BustModal';
 import { SoloTableModal } from '../../cash/SoloTableModal';
 import { ActivityFeed } from '../ActivityFeed';
-import { GuestLimitModal } from '../../shared';
+import { GuestLimitModal, FloatingUserMenu } from '../../shared';
 import { ShuffleLoading, type TickerLine } from '../../shared/ShuffleLoading';
 import { selectInterhandTicker } from '../../cash/interhandTicker';
 import { feedEventKey, renderEventIcon } from '../../cash/tickerEvents';
@@ -450,6 +450,9 @@ export function PokerTable({
 
   return (
     <>
+      {/* Floating avatar menu — the desktop game's only route into Settings /
+          Main Menu / Admin Tools. Records this game as the admin return origin. */}
+      {providedGameId && <FloatingUserMenu returnTo={`/game/${providedGameId}`} />}
       {showReconnecting && (
         <div className="desktop-reconnecting-overlay" data-testid="reconnecting-overlay">
           <div className="desktop-reconnecting-indicator">

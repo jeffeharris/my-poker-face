@@ -914,7 +914,11 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         from flask_app import extensions
 
         cash_table_repo = extensions.cash_table_repo
-        seats = [ai_slot(self.napoleon_id, 400) for _ in range(6)]
+        # DISTINCT AIs per seat: presence is the occupancy authority (one entity
+        # = one seat), so the same persona in every seat would only confirm one
+        # — the read-side projection would render the rest open and the sit would
+        # succeed (200). Distinct ids make the table genuinely full → 409.
+        seats = [ai_slot(f"{self.napoleon_id}-fill-{i}", 400) for i in range(6)]
         cash_table_repo.save_table(
             CashTableState(
                 table_id='cash-table-10-001',

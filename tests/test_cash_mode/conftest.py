@@ -80,12 +80,19 @@ def reset_presence_cutover_flags():
     wins)."""
     import cash_mode.economy_flags as ef
 
+    # The Presence cutover is COMPLETE: PRESENCE_AUTHORITY_ENABLED is hardwired
+    # True in production. Reset it to TRUE (not False) per-test — entity_presence
+    # is the permanent authority; forcing it off would break every cash-seating
+    # test now that the cash_idle_pool fallback is dropped — and resetting to the
+    # production value also restores isolation for tests that mutate the global
+    # directly. PRESENCE_SHADOW_WRITE_ENABLED is vestigial (off-grid writes run
+    # under authority regardless) but kept reset. Chip-custody flags still toggle.
     prior_shadow = ef.PRESENCE_SHADOW_WRITE_ENABLED
     prior_authority = ef.PRESENCE_AUTHORITY_ENABLED
     prior_custody = ef.CHIP_CUSTODY_ENABLED
     prior_derive = ef.CHIP_CUSTODY_DERIVE_READS
     ef.PRESENCE_SHADOW_WRITE_ENABLED = False
-    ef.PRESENCE_AUTHORITY_ENABLED = False
+    ef.PRESENCE_AUTHORITY_ENABLED = True
     ef.CHIP_CUSTODY_ENABLED = False
     ef.CHIP_CUSTODY_DERIVE_READS = False
     try:

@@ -135,7 +135,23 @@ class TournamentSession:
         events = self.field.record_eliminations(busted, self.rounds, attribution)
         self._hand_counter += 1
         self.rounds += 1
-        self.field.assert_conservation()
+        # The live poker engine is the chip authority for the human's (single)
+        # table, so RECONCILE to its stacks — warn on a conservation mismatch,
+        # never raise. A raised guard here permanently freezes the human's game
+        # at the boundary: the exception 500s out of `progress_game`, and every
+        # subsequent poll/fast-forward re-enters this same boundary and re-raises,
+        # bricking the end screen (observed on an all-in run-out bust, off by 50).
+        # This mirrors the multi-table `_apply_result` reconcile-and-warn; the
+        # AI-resolver / director paths keep the hard `assert_conservation`, where
+        # a desync is a real engine bug rather than a recoverable live snapshot.
+        actual = self.field.chip_sum()
+        if actual != self.field.total_chips:
+            logger.warning(
+                "single-table live result broke chip conservation "
+                "(reconciling to live, not raising): sum(stacks)=%d != total=%d",
+                actual,
+                self.field.total_chips,
+            )
         return events
 
     # ── status / views ─────────────────────────────────────────────────────────
@@ -429,6 +445,22 @@ class TournamentSession:
                 sum(result.values()),
             )
         for pid, new_stack in result.items():
+            if pid not in self.field.stacks:
+                # The live result still lists a seat the field has already removed
+                # (a busted player the live game keeps reporting — the ghost-seat
+                # class — or a cold-load divergence). Writing it RESURRECTS the
+                # player into the field; next round their <=0 stack is detected as
+                # a bust and they are recorded a SECOND time, producing a duplicate
+                # standings row (hidden by tournament_standings' UNIQUE constraint
+                # but shipped in the tournament_complete socket payload → a React
+                # duplicate-key crash). The field already finalized this seat, so
+                # ignore the stale entry. Conservation-safe: the field's own total
+                # is unchanged. Mirrors the single-table `fold_live_hand` guard.
+                logger.warning(
+                    "ignoring live result for non-field seat %s (already eliminated / unknown)",
+                    pid,
+                )
+                continue
             self.field.stacks[pid] = new_stack
         table.advance_button()
 

@@ -38,7 +38,9 @@ interface UseHandSequencerParams {
 }
 
 export interface HandSequencer {
-  enqueueState: (state: GameState) => void;
+  /** Queue a game-state beat. `commentary` = this push carries new AI table talk,
+   *  so a sped-up watchable beat is floored to leave reading time. */
+  enqueueState: (state: GameState, commentary?: boolean) => void;
   enqueueReveal: (revealed: RevealedCardsInfo) => void;
   enqueueWinner: (winner: WinnerInfo) => void;
   /** Store the per-card reaction schedule (data, resolved at fire time). */
@@ -195,7 +197,7 @@ export function useHandSequencer({
   );
 
   const enqueueState = useCallback(
-    (state: GameState) => enqueue({ kind: 'state', state }),
+    (state: GameState, commentary = false) => enqueue({ kind: 'state', state, commentary }),
     [enqueue]
   );
   const enqueueReveal = useCallback(

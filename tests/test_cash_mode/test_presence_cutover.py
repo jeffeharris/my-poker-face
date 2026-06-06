@@ -304,10 +304,10 @@ def test_coldload_binding_prefers_presence_over_stale_cash_session(tmp_path, mon
 
 
 def test_list_idle_derives_from_presence_excludes_hustlers(tmp_path, monkeypatch):
-    """Read-side idle projection: under authority, list_idle returns the
-    genuinely-idle set from entity_presence (+ metadata), and an off-grid AI
-    (SIDE_HUSTLE) is correctly EXCLUDED even though it'd linger in the legacy
-    pool. Authority-off keeps reading the physical cash_idle_pool."""
+    """list_idle returns the genuinely-idle set from entity_presence (+ the
+    cash_idle_metadata satellite), and an off-grid AI (SIDE_HUSTLE) is correctly
+    EXCLUDED. The cutover is complete: idle is always derived from presence (the
+    legacy cash_idle_pool cache was dropped in v152)."""
     from poker.repositories.cash_table_repository import CashTableRepository
     from poker.repositories.entity_presence_repository import EntityPresenceRepository
 
@@ -340,10 +340,6 @@ def test_list_idle_derives_from_presence_excludes_hustlers(tmp_path, monkeypatch
     alice = next(e for e in out if e.personality_id == "alice")
     assert alice.reason == "stake_up_queued" and alice.target_stake == "$5"
 
-    # authority OFF → physical cash_idle_pool (empty here) — not presence
-    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False)
-    assert ctr.list_idle(sandbox_id=SANDBOX) == []
-
 
 def test_delete_idle_clears_stale_presence_but_not_seated(tmp_path, monkeypatch):
     """Under authority, delete_idle clears a STALE presence IDLE row (reaped from
@@ -370,22 +366,3 @@ def test_delete_idle_clears_stale_presence_but_not_seated(tmp_path, monkeypatch)
     )
     ctr.delete_idle("carol", sandbox_id=SANDBOX)  # re-seat cleanup must not offline her
     assert epr.load(ai_entity_id("carol"), SANDBOX).state is Presence.SEATED
-
-
-def test_reconcile_skipped_under_authority(tmp_path, monkeypatch):
-    """Review finding 2: the legacy call-site _shadow_reconcile_table must NOT
-    run under authority (save_table is the sole seat writer; the separate-conn
-    reconcile risks a spurious LEAVE in a TOCTOU window)."""
-    from cash_mode import lobby
-    from poker.repositories.entity_presence_repository import EntityPresenceRepository
-
-    db = str(tmp_path / "r.db")
-    SchemaManager(db).ensure_schema()
-    repo = EntityPresenceRepository(db)
-    import flask_app.extensions as ext
-
-    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False)
-    monkeypatch.setattr(ext, "entity_presence_repo", repo, raising=False)
-    lobby._shadow_reconcile_table(_table(TID, [ai_slot("a", 1)]), SANDBOX)
-    assert repo.list_for_sandbox(SANDBOX) == []  # nothing written by the reconcile

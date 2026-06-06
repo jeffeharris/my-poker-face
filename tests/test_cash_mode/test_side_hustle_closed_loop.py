@@ -26,7 +26,6 @@ pytestmark = pytest.mark.integration
 from cash_mode.bankroll import AIBankrollState
 from cash_mode.closed_economy import compute_bank_pool_reserves, seed_bank_pool
 from cash_mode.lobby import refresh_unseated_tables
-from cash_mode.tables import IdlePoolEntry
 from flask_app.services.chip_ledger_audit import compute_audit
 from poker.repositories import create_repos
 
@@ -86,7 +85,7 @@ def _audit_drift(repos_dict, db_path):
     return audit["drift"]
 
 
-def test_broke_ais_hustle_and_recover_from_pool(repos):
+def test_broke_ais_hustle_and_recover_from_pool(repos, seed_idle):
     repos_dict, db_path = repos
     bankroll = repos_dict["bankroll_repo"]
     ledger = repos_dict["chip_ledger_repo"]
@@ -105,15 +104,7 @@ def test_broke_ais_hustle_and_recover_from_pool(repos):
             sandbox_id=SBX,
             chip_ledger_repo=ledger,
         )
-        cash_table.save_idle(
-            IdlePoolEntry(
-                personality_id=pid,
-                left_at=T0,
-                reason="forced_leave",
-                target_stake=None,
-            ),
-            sandbox_id=SBX,
-        )
+        seed_idle(cash_table, pid, sandbox_id=SBX, reason="forced_leave", left_at=T0)
 
     # Fund the bank pool so the hustle has chips to draw.
     seed_bank_pool(ledger, sandbox_id=SBX, amount=50_000)
@@ -154,7 +145,7 @@ def test_broke_ais_hustle_and_recover_from_pool(repos):
     assert _audit_drift(repos_dict, db_path) == 0
 
 
-def test_empty_pool_blocks_payout_but_keeps_drift_zero(repos):
+def test_empty_pool_blocks_payout_but_keeps_drift_zero(repos, seed_idle):
     """With no pool funding, a hustle returns empty-handed — the broke AI
     stays broke (real scarcity) and conservation still holds."""
     repos_dict, db_path = repos
@@ -168,15 +159,7 @@ def test_empty_pool_blocks_payout_but_keeps_drift_zero(repos):
         sandbox_id=SBX,
         chip_ledger_repo=ledger,
     )
-    cash_table.save_idle(
-        IdlePoolEntry(
-            personality_id="broke_solo",
-            left_at=T0,
-            reason="forced_leave",
-            target_stake=None,
-        ),
-        sandbox_id=SBX,
-    )
+    seed_idle(cash_table, "broke_solo", sandbox_id=SBX, reason="forced_leave", left_at=T0)
     # No seed_bank_pool — the pool is empty.
 
     _refresh(repos_dict, now=T0)

@@ -10,7 +10,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from poker.repositories.base_repository import BaseRepository
-from poker.repositories.repository_utils import build_where_clause
+from poker.repositories.repository_utils import build_where_clause, parse_json_fields
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +249,140 @@ class DecisionAnalysisRepository(BaseRepository):
             analyses = [dict(row) for row in cursor.fetchall()]
 
             return {'analyses': analyses, 'total': total}
+
+    def list_decisions(
+        self,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        action: Optional[str] = None,
+        phase: Optional[str] = None,
+        min_pot_odds: Optional[float] = None,
+        max_pot_odds: Optional[float] = None,
+        min_pot_size: Optional[float] = None,
+        max_pot_size: Optional[float] = None,
+        display_emotion: Optional[str] = None,
+        min_tilt_level: Optional[float] = None,
+        max_tilt_level: Optional[float] = None,
+        decision_quality: Optional[str] = None,
+        min_ev_lost: Optional[float] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List decisions for the Decision Analyzer, spined on
+        player_decision_analysis (NOT prompt_captures).
+
+        Every decision — LLM, solver/tiered, RuleBot, or human — is exactly
+        one `player_decision_analysis` row, addressed by its real positive
+        `id`. The prompt capture (if any) is LEFT JOINed only to surface
+        LLM-side display fields (model/provider/latency/error/correction).
+        This replaces the old prompt_captures-spined listing that fabricated
+        synthetic negative ids (`-pda.id`) for capture-less decisions.
+
+        Capture-only browse filters (call_type, error_type, has_error,
+        is_correction, raw tags, labels) are intentionally NOT supported here
+        — non-decision captures live in the Prompt Playground.
+
+        Returns:
+            Dict with 'decisions' list and 'total' count.
+        """
+        conditions: List[str] = []
+        params: List[Any] = []
+
+        if game_id:
+            conditions.append("pda.game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("pda.player_name = ?")
+            params.append(player_name)
+        if action:
+            conditions.append("pda.action_taken = ?")
+            params.append(action)
+        if phase:
+            conditions.append("pda.phase = ?")
+            params.append(phase)
+        if min_pot_size is not None:
+            conditions.append("pda.pot_total >= ?")
+            params.append(min_pot_size)
+        if max_pot_size is not None:
+            conditions.append("pda.pot_total <= ?")
+            params.append(max_pot_size)
+        # pot_odds is derived (pot/cost); guard against div-by-zero.
+        if min_pot_odds is not None:
+            conditions.append(
+                "(pda.cost_to_call > 0 AND CAST(pda.pot_total AS REAL) / pda.cost_to_call >= ?)"
+            )
+            params.append(min_pot_odds)
+        if max_pot_odds is not None:
+            conditions.append(
+                "(pda.cost_to_call > 0 AND CAST(pda.pot_total AS REAL) / pda.cost_to_call <= ?)"
+            )
+            params.append(max_pot_odds)
+        if display_emotion:
+            conditions.append("pda.display_emotion = ?")
+            params.append(display_emotion)
+        if min_tilt_level is not None:
+            conditions.append("pda.tilt_level >= ?")
+            params.append(min_tilt_level)
+        if max_tilt_level is not None:
+            conditions.append("pda.tilt_level <= ?")
+            params.append(max_tilt_level)
+        if decision_quality:
+            conditions.append("pda.decision_quality = ?")
+            params.append(decision_quality)
+        if min_ev_lost is not None:
+            conditions.append("pda.ev_lost >= ?")
+            params.append(min_ev_lost)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # LEFT JOIN the capture purely for LLM-side display fields. The
+        # decision row is the spine, so capture-less decisions still list.
+        select = f"""
+            SELECT pda.id AS id, pda.created_at, pda.game_id, pda.player_name,
+                   pda.hand_number, pda.phase, pda.action_taken,
+                   pda.pot_total, pda.cost_to_call,
+                   CASE WHEN pda.cost_to_call > 0
+                        THEN CAST(pda.pot_total AS REAL) / pda.cost_to_call
+                        ELSE NULL
+                   END AS pot_odds,
+                   pda.player_stack, pda.community_cards, pda.player_hand,
+                   pda.decision_quality, pda.ev_lost, pda.display_emotion,
+                   pc.id AS capture_id,
+                   pc.model, pc.provider, pc.latency_ms, pc.tags, pc.notes,
+                   pc.call_type,
+                   pc.error_type, pc.error_description, pc.parent_id, pc.correction_attempt
+            FROM player_decision_analysis pda
+            LEFT JOIN prompt_captures pc ON pc.id = pda.capture_id
+            {where_clause}
+        """
+
+        with self._get_connection() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM player_decision_analysis pda {where_clause}",
+                params,
+            ).fetchone()[0]
+
+            # Whole-second created_at means many decisions in a hand share a
+            # timestamp; tie-break on id (now a real positive id) for stable
+            # newest-first ordering.
+            query = f"""
+                {select}
+                ORDER BY pda.created_at DESC, pda.id DESC
+                LIMIT ? OFFSET ?
+            """
+            cursor = conn.execute(query, params + [limit, offset])
+
+            decisions = []
+            for row in cursor.fetchall():
+                decision = dict(row)
+                parse_json_fields(
+                    decision,
+                    ['community_cards', 'player_hand', 'tags'],
+                    context=f"decision {decision.get('id')}",
+                )
+                decisions.append(decision)
+
+            return {'decisions': decisions, 'total': total}
 
     def get_decision_analysis_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
         """Get aggregate statistics for decision analyses.

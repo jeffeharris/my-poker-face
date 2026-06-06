@@ -267,81 +267,72 @@ class TestListAllTables:
 # --- Idle pool ---
 
 
+def _idle_by_pid(repo, pid):
+    """Single idle entry for `pid` from the (presence-derived) idle list, or None."""
+    return next(
+        (e for e in repo.list_idle(sandbox_id=SANDBOX_ID) if e.personality_id == pid),
+        None,
+    )
+
+
 class TestSchemaMigrationV92:
-    def test_cash_idle_pool_exists(self, db_path):
+    def test_cash_idle_pool_dropped(self, db_path):
+        # v152 retired the legacy cash_idle_pool cache; idle now lives in
+        # entity_presence (state='idle') + the cash_idle_metadata satellite.
         with sqlite3.connect(db_path) as conn:
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(cash_idle_pool)")}
-        assert "personality_id" in cols
-        assert "left_at" in cols
-        assert "reason" in cols
-        assert "target_stake" in cols
+            tabs = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "cash_idle_pool" not in tabs
+        assert "cash_idle_metadata" in tabs
+        assert "entity_presence" in tabs
 
     def test_schema_version_at_least_92(self, db_path):
         with sqlite3.connect(db_path) as conn:
             version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         assert version >= 92
 
-    def test_personality_id_is_primary_key(self, db_path):
-        # v102: composite PK (personality_id, sandbox_id) — idle-pool
-        # is per-sandbox.
+    def test_idle_metadata_primary_key(self, db_path):
+        # cash_idle_metadata is the satellite, keyed per-sandbox (matches the
+        # entity_presence (entity_id, sandbox_id) grain).
         with sqlite3.connect(db_path) as conn:
-            info = conn.execute("PRAGMA table_info(cash_idle_pool)").fetchall()
+            info = conn.execute("PRAGMA table_info(cash_idle_metadata)").fetchall()
         pk_cols = [row[1] for row in info if row[5]]
         assert set(pk_cols) == {"personality_id", "sandbox_id"}
 
 
 class TestIdlePoolRoundtrip:
-    def test_save_and_load(self, repo):
+    def test_seed_and_list(self, repo, seed_idle):
         now = datetime(2026, 5, 18, 12, 0, 0)
-        entry = IdlePoolEntry(
-            personality_id="napoleon",
-            left_at=now,
-            reason="forced_leave",
-        )
-        repo.save_idle(entry, sandbox_id=SANDBOX_ID)
-        loaded = repo.load_idle("napoleon", sandbox_id=SANDBOX_ID)
+        seed_idle(repo, "napoleon", sandbox_id=SANDBOX_ID, reason="forced_leave", left_at=now)
+        loaded = _idle_by_pid(repo, "napoleon")
         assert loaded is not None
         assert loaded.personality_id == "napoleon"
         assert loaded.left_at == now
         assert loaded.reason == "forced_leave"
         assert loaded.target_stake is None
 
-    def test_save_with_target_stake(self, repo):
+    def test_seed_with_target_stake(self, repo, seed_idle):
         now = datetime(2026, 5, 18, 12, 0, 0)
-        entry = IdlePoolEntry(
-            personality_id="zeus",
-            left_at=now,
+        seed_idle(
+            repo,
+            "zeus",
+            sandbox_id=SANDBOX_ID,
             reason="stake_up_queued",
+            left_at=now,
             target_stake="$50",
         )
-        repo.save_idle(entry, sandbox_id=SANDBOX_ID)
-        loaded = repo.load_idle("zeus", sandbox_id=SANDBOX_ID)
+        loaded = _idle_by_pid(repo, "zeus")
         assert loaded.target_stake == "$50"
         assert loaded.reason == "stake_up_queued"
 
-    def test_load_missing_returns_none(self, repo):
-        assert repo.load_idle("nobody", sandbox_id=SANDBOX_ID) is None
+    def test_missing_returns_none(self, repo):
+        assert _idle_by_pid(repo, "nobody") is None
 
-    def test_upsert(self, repo):
+    def test_reseed_overwrites(self, repo, seed_idle):
         t1 = datetime(2026, 5, 18, 12, 0, 0)
         t2 = datetime(2026, 5, 18, 13, 0, 0)
-        repo.save_idle(
-            IdlePoolEntry(
-                personality_id="napoleon",
-                left_at=t1,
-                reason="bored_move",
-            ),
-            sandbox_id=SANDBOX_ID,
-        )
-        repo.save_idle(
-            IdlePoolEntry(
-                personality_id="napoleon",
-                left_at=t2,
-                reason="forced_leave",
-            ),
-            sandbox_id=SANDBOX_ID,
-        )
-        loaded = repo.load_idle("napoleon", sandbox_id=SANDBOX_ID)
+        seed_idle(repo, "napoleon", sandbox_id=SANDBOX_ID, reason="bored_move", left_at=t1)
+        seed_idle(repo, "napoleon", sandbox_id=SANDBOX_ID, reason="forced_leave", left_at=t2)
+        loaded = _idle_by_pid(repo, "napoleon")
         # Last write wins.
         assert loaded.left_at == t2
         assert loaded.reason == "forced_leave"
@@ -351,48 +342,44 @@ class TestIdlePoolList:
     def test_empty_returns_empty(self, repo):
         assert repo.list_idle(sandbox_id=SANDBOX_ID) == []
 
-    def test_ordered_by_left_at_asc(self, repo):
-        # Insert out of order; should come back oldest-first.
-        repo.save_idle(
-            IdlePoolEntry(
-                personality_id="newest",
-                left_at=datetime(2026, 5, 18, 15, 0),
-                reason="bored_move",
-            ),
+    def test_ordered_by_left_at_asc(self, repo, seed_idle):
+        # Seed out of order; should come back oldest-first.
+        seed_idle(
+            repo,
+            "newest",
             sandbox_id=SANDBOX_ID,
+            reason="bored_move",
+            left_at=datetime(2026, 5, 18, 15, 0),
         )
-        repo.save_idle(
-            IdlePoolEntry(
-                personality_id="oldest",
-                left_at=datetime(2026, 5, 18, 9, 0),
-                reason="forced_leave",
-            ),
+        seed_idle(
+            repo,
+            "oldest",
             sandbox_id=SANDBOX_ID,
+            reason="forced_leave",
+            left_at=datetime(2026, 5, 18, 9, 0),
         )
-        repo.save_idle(
-            IdlePoolEntry(
-                personality_id="middle",
-                left_at=datetime(2026, 5, 18, 12, 0),
-                reason="take_break",
-            ),
+        seed_idle(
+            repo,
+            "middle",
             sandbox_id=SANDBOX_ID,
+            reason="take_break",
+            left_at=datetime(2026, 5, 18, 12, 0),
         )
         ids = [e.personality_id for e in repo.list_idle(sandbox_id=SANDBOX_ID)]
         assert ids == ["oldest", "middle", "newest"]
 
 
 class TestIdlePoolDelete:
-    def test_delete_existing_returns_true(self, repo):
-        repo.save_idle(
-            IdlePoolEntry(
-                personality_id="napoleon",
-                left_at=datetime(2026, 5, 18, 12, 0),
-                reason="bored_move",
-            ),
+    def test_delete_existing_returns_true(self, repo, seed_idle):
+        seed_idle(
+            repo,
+            "napoleon",
             sandbox_id=SANDBOX_ID,
+            reason="bored_move",
+            left_at=datetime(2026, 5, 18, 12, 0),
         )
         assert repo.delete_idle("napoleon", sandbox_id=SANDBOX_ID) is True
-        assert repo.load_idle("napoleon", sandbox_id=SANDBOX_ID) is None
+        assert _idle_by_pid(repo, "napoleon") is None
 
     def test_delete_missing_returns_false(self, repo):
         assert repo.delete_idle("ghost", sandbox_id=SANDBOX_ID) is False
@@ -400,14 +387,15 @@ class TestIdlePoolDelete:
 
 class TestIdleReasonEnum:
     @pytest.mark.parametrize("reason", IDLE_REASONS)
-    def test_all_reasons_roundtrip(self, repo, reason):
-        entry = IdlePoolEntry(
-            personality_id=f"p-{reason}",
-            left_at=datetime(2026, 5, 18, 12, 0),
+    def test_all_reasons_roundtrip(self, repo, seed_idle, reason):
+        seed_idle(
+            repo,
+            f"p-{reason}",
+            sandbox_id=SANDBOX_ID,
             reason=reason,
+            left_at=datetime(2026, 5, 18, 12, 0),
         )
-        repo.save_idle(entry, sandbox_id=SANDBOX_ID)
-        loaded = repo.load_idle(f"p-{reason}", sandbox_id=SANDBOX_ID)
+        loaded = _idle_by_pid(repo, f"p-{reason}")
         assert loaded.reason == reason
 
     def test_unknown_reason_rejected_in_dataclass(self):

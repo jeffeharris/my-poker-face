@@ -159,8 +159,9 @@ def load_personality_from_json(name):
 # silently flips behaviour under tests that assert the OFF baseline. That broke
 # 6 casino_provisioning + 3 economy_flags tests locally while CI stayed green
 # (CI sets only SECRET_KEY/OPENAI_API_KEY → all flags defaulted). Forcing them
-# all OFF reproduces CI's effective baseline (every flag's code default is False
-# except PRESENCE_AUTHORITY_ENABLED, which this suite has always pinned OFF too).
+# all OFF reproduces CI's effective baseline (every flag's code default is now
+# False except PRESENCE_AUTHORITY_ENABLED, whose code default is True since the
+# Presence cutover completed — the fixture resets it to True, not False).
 #
 # DEPRECATION CONTROL POINT: keep this list complete. `test_economy_flag_defaults.py`
 # fails if it drifts from the module — a NEW flag missing here would re-open the
@@ -174,8 +175,11 @@ RESET_ECONOMY_FLAGS = (
     "DIRECTOR_POLICY_HOLD",
     "CASINO_RELATIVE_THRESHOLDS",
     "CASINO_RESEED_ON_SPENT",
-    "PRESENCE_SHADOW_WRITE_ENABLED",
-    "PRESENCE_AUTHORITY_ENABLED",
+    # PRESENCE_SHADOW_WRITE_ENABLED / PRESENCE_AUTHORITY_ENABLED are no longer
+    # `_env_flag(...)` reads (the Presence cutover hardwired authority True and
+    # left shadow a vestigial constant), so they're intentionally absent here —
+    # `test_economy_flag_defaults` only tracks env-driven flags. The fixture
+    # pins PRESENCE_AUTHORITY_ENABLED = True explicitly below.
     "CHIP_CUSTODY_ENABLED",
     "CHIP_CUSTODY_DERIVE_READS",
     "TOURNAMENT_CIRCUIT_ENABLED",
@@ -190,17 +194,27 @@ RESET_ECONOMY_FLAGS = (
 
 @pytest.fixture(autouse=True)
 def _reset_cutover_flags():
-    """Force all cash-mode economy flags OFF for EVERY test (see RESET_ECONOMY_FLAGS).
+    """Reset the cash-mode economy flags to their test baseline for EVERY test
+    (see RESET_ECONOMY_FLAGS).
 
-    Makes the suite deterministic regardless of the ambient env / dev `.env`. A
-    test that exercises a mode sets the flag explicitly (runs after this fixture,
-    so it wins). `test_cash_mode/conftest.py` has its own narrower copy for that
-    package — harmless redundancy."""
+    Makes the suite deterministic regardless of the ambient env / dev `.env`: the
+    flags read the environment at import, so a dev/prod container with e.g.
+    `CHIP_CUSTODY_ENABLED=1` would otherwise leak into pytest. A test that
+    exercises a mode sets the flag explicitly (runs after this fixture, so it
+    wins). `test_cash_mode/conftest.py` has its own narrower copy.
+
+    Every flag resets to its code default (False) EXCEPT
+    `PRESENCE_AUTHORITY_ENABLED`: the Presence cutover is complete, so it is
+    hardwired True in production and reset to True here — forcing it off would
+    break every cash-seating test (the dropped `cash_idle_pool` fallback is gone).
+    Pinning it to the production value also restores isolation for the few tests
+    that mutate the module global directly (vs monkeypatch)."""
     import cash_mode.economy_flags as ef
 
     prior = {n: getattr(ef, n) for n in RESET_ECONOMY_FLAGS}
     for n in RESET_ECONOMY_FLAGS:
         setattr(ef, n, False)
+    ef.PRESENCE_AUTHORITY_ENABLED = True
     try:
         yield
     finally:
@@ -226,6 +240,50 @@ def db_path(tmp_path):
 def repos(db_path):
     """Yield a dict of all repository instances backed by a temporary database."""
     return create_repos(db_path)
+
+
+@pytest.fixture
+def seed_idle():
+    """Stage an AI as idle the authoritative way (Presence cutover complete).
+
+    The legacy `cash_idle_pool` cache was dropped (schema v152): an idle AI now
+    lives as an `entity_presence` row (state='idle') plus a `cash_idle_metadata`
+    satellite row (reason / target_stake / left_at). This helper writes both,
+    mirroring exactly what the `save_table` chokepoint emits on a LEAVE→IDLE, so
+    tests can stage idle state without a full seat-then-vacate dance.
+
+    Accepts either a repository (anything with a `.db_path`) or a raw db-path
+    string. `left_at` may be a datetime or ISO string.
+    """
+    import sqlite3 as _sqlite3
+    from datetime import datetime as _dt
+
+    def _seed(
+        repo_or_path,
+        personality_id,
+        *,
+        sandbox_id,
+        reason="forced_leave",
+        left_at,
+        target_stake=None,
+    ):
+        path = getattr(repo_or_path, "db_path", repo_or_path)
+        iso = left_at.isoformat() if isinstance(left_at, _dt) else str(left_at)
+        with _sqlite3.connect(path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO entity_presence "
+                "(entity_id, sandbox_id, state, table_id, seat_index, updated_at) "
+                "VALUES (?, ?, 'idle', NULL, NULL, ?)",
+                (f"ai:{personality_id}", sandbox_id, iso),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO cash_idle_metadata "
+                "(personality_id, sandbox_id, reason, target_stake, left_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (personality_id, sandbox_id, reason, target_stake, iso),
+            )
+
+    return _seed
 
 
 # ---------------------------------------------------------------------------

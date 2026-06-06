@@ -2,11 +2,23 @@
 purpose: Handoff for resuming the cash-mode Presence-machine cutover from a fresh context — what's merged, what's next, and the one irreversible step that was deliberately deferred
 type: guide
 created: 2026-05-31
-last_updated: 2026-05-31
+last_updated: 2026-06-06
 ---
 
 # Cash Presence Cutover — Handoff
 
+> **✅ COMPLETE 2026-06-06 (branch `chore/retire-cash-idle-pool`).** The cutover
+> is finished: `entity_presence` is the permanent, authoritative actor-location
+> store and the legacy `cash_idle_pool` cache has been **dropped (schema v152)**.
+> `PRESENCE_AUTHORITY_ENABLED` is hardwired `True` with no env override (the
+> rollback escape hatch is gone). Idle AIs are read from `entity_presence`
+> (state='idle') joined with the `cash_idle_metadata` satellite; the legacy
+> `save_idle`/`load_idle` repo methods and the call-site `_shadow_reconcile_table`
+> scaffolding were removed. Gate before the cut: the authority-mode divergence
+> validation (`scripts/validate_presence_shadow.py --authority`, 1010 ticks / 10
+> checkpoints) passed with **0 unexpected** divergences. The rest of this doc is
+> the historical record of how we got here.
+>
 > **UPDATE 2026-05-31:** Steps 1 (validate) and 2 (§C dedup) below are now DONE
 > on `development`. The shadow's divergence audit is GREEN. The flip (Step 3) is
 > still deliberately deferred. See `docs/captains-log/development/presence-shadow-cutover-step2.md`.

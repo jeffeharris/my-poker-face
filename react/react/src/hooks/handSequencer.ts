@@ -13,13 +13,19 @@
  * docs/plans/RUNOUT_PRESENTATION_SEQUENCER.md.
  */
 import type { GameState, WinnerInfo, RevealedCardsInfo } from '../types/game';
-import { BEAT, scale, type PacingTier } from '../constants/presentationTiming';
+import {
+  BEAT,
+  scale,
+  actionBeatMs,
+  COMMENTARY_BEAT_MS,
+  type PacingTier,
+} from '../constants/presentationTiming';
 
 /** A signal from the backend, fed to the engine in arrival order.
  *  (`runout_schedule` is data, not a beat — the hook stores it for reaction
  *  lookup at fire time, so it never needs to be a queued event here.) */
 export type SourceEvent =
-  | { kind: 'state'; state: GameState }
+  | { kind: 'state'; state: GameState; commentary?: boolean }
   | { kind: 'reveal'; revealed: RevealedCardsInfo }
   | { kind: 'winner'; winner: WinnerInfo };
 
@@ -57,6 +63,9 @@ export interface EngineState {
   inRunout: boolean;
   /** The human folded this hand (a spectator) — drives the hero gesture + verdict. */
   heroFolded: boolean;
+  /** The seat that was on the clock in the last applied state — i.e. whoever just
+   *  acted in the next one. Lets a beat pace by the actor's action (salience). */
+  prevCurrentIdx: number;
 }
 
 export interface Plan {
@@ -74,6 +83,7 @@ export const initialEngineState: EngineState = {
   revealed: false,
   inRunout: false,
   heroFolded: false,
+  prevCurrentIdx: 0,
 };
 
 function communityCount(s: GameState): number {
@@ -95,7 +105,7 @@ function phaseForCount(count: number): 'FLOP' | 'TURN' | 'RIVER' | null {
 export function planEvent(state: EngineState, event: SourceEvent, tier: PacingTier): Plan {
   switch (event.kind) {
     case 'state':
-      return planState(state, event.state, tier);
+      return planState(state, event.state, tier, event.commentary ?? false);
     case 'reveal':
       return planReveal(state, event.revealed, tier);
     case 'winner':
@@ -103,7 +113,7 @@ export function planEvent(state: EngineState, event: SourceEvent, tier: PacingTi
   }
 }
 
-function planState(state: EngineState, g: GameState, tier: PacingTier): Plan {
+function planState(state: EngineState, g: GameState, tier: PacingTier, commentary: boolean): Plan {
   const newCount = communityCount(g);
   const handChanged = state.handNumber !== 0 && g.hand_number !== state.handNumber;
   const isDeal = (g.newly_dealt_count ?? 0) > 0 && newCount > state.communityCount && !handChanged;
@@ -115,6 +125,7 @@ function planState(state: EngineState, g: GameState, tier: PacingTier): Plan {
     heroFolded: heroFoldedOf(g),
     revealed: handChanged ? false : state.revealed,
     inRunout: handChanged ? false : state.inRunout,
+    prevCurrentIdx: g.current_player_idx, // who's on the clock now → next actor
   };
 
   // A new hand drops any lingering hero card-commit gesture so the next run-out
@@ -124,9 +135,20 @@ function planState(state: EngineState, g: GameState, tier: PacingTier): Plan {
     : [];
 
   if (!isDeal) {
+    // Watchable mode paces by the acting seat's action (the seat on the clock in
+    // the prior state is whoever just acted here): folds/checks flow, raises land,
+    // all-ins linger. A floor keeps a sped-up beat from racing past AI table talk.
+    // The fast/fastest tiers stay flat.
+    let durationMs: number;
+    if (tier === 'watchable') {
+      durationMs = actionBeatMs(g.players?.[state.prevCurrentIdx]?.last_action);
+      if (commentary) durationMs = Math.max(durationMs, COMMENTARY_BEAT_MS);
+    } else {
+      durationMs = scale(BEAT.action, tier);
+    }
     return {
       timeline: [...lead, { at: 0, effect: { kind: 'applyState', state: g } }],
-      durationMs: scale(BEAT.action, tier),
+      durationMs,
       next: base,
     };
   }

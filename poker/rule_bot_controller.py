@@ -43,6 +43,12 @@ class RuleBotController(AIPlayerController):
     Overrides only the decision-making method to use rules instead of LLM.
     """
 
+    # Unlike the LLM/solver controllers, `_get_ai_decision` here never calls
+    # `_analyze_decision`, so this controller does NOT persist its own
+    # player_decision_analysis row. The handler-level analyzer (web) and the
+    # sim harness (experiments/simulate_bb100.py) write it instead.
+    WRITES_OWN_DECISION_ANALYSIS = False
+
     # Rule decision (_get_ai_decision) ignores the prompt, so the emotional
     # narration prose is unused for play — only generated in heads-up for the
     # opponent panel. See PsychologyPipeline._update_composure.

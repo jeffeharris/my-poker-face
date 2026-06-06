@@ -1,22 +1,63 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { ChevronRight, MessageSquare } from 'lucide-react';
 import { AdminSidebar, type AdminTab } from './AdminSidebar';
-import { PersonalityManager } from './PersonalityManager';
-import { DecisionAnalyzer } from './DecisionAnalyzer';
-import { PromptPlayground } from '../debug/PromptPlayground';
-import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
-import { PromptPresetManager } from './PromptPresetManager';
-import { TemplateEditor } from './TemplateEditor';
-import { DebugTools } from './DebugTools';
-import { ChipLedgerPanel } from './ChipLedgerPanel';
-import { CashWhereaboutsPanel } from './CashWhereaboutsPanel';
-import { RangeExplorer } from './RangeExplorer';
-import { CoachEffectivenessPanel } from './CoachEffectivenessPanel';
-import { HandReplayBrowser } from './HandReplay';
-import { UnifiedSettings } from './UnifiedSettings';
+import { AdminHeader } from './AdminHeader';
+import type { AssistantPanelProps } from './ExperimentDesigner';
 import { AdminMenuContainer } from './AdminMenuContainer';
-import { UserManagement } from './UserManagement';
+import { AdminOverview } from './AdminOverview';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
+
+// Heavy admin tools are lazy-loaded so they don't bloat the main AdminRoutes
+// chunk. Each is a NAMED export, so map it onto `default` for React.lazy.
+const PersonalityManager = lazy(() =>
+  import('./PersonalityManager').then((m) => ({ default: m.PersonalityManager }))
+);
+const DecisionAnalyzer = lazy(() =>
+  import('./DecisionAnalyzer').then((m) => ({ default: m.DecisionAnalyzer }))
+);
+const PromptPlayground = lazy(() =>
+  import('../debug/PromptPlayground').then((m) => ({ default: m.PromptPlayground }))
+);
+const ExperimentDesigner = lazy(() =>
+  import('./ExperimentDesigner/ExperimentDesigner').then((m) => ({ default: m.ExperimentDesigner }))
+);
+const ExperimentChat = lazy(() =>
+  import('./ExperimentDesigner/ExperimentChat').then((m) => ({ default: m.ExperimentChat }))
+);
+const PromptPresetManager = lazy(() =>
+  import('./PromptPresetManager').then((m) => ({ default: m.PromptPresetManager }))
+);
+const TemplateEditor = lazy(() =>
+  import('./TemplateEditor').then((m) => ({ default: m.TemplateEditor }))
+);
+const DebugTools = lazy(() => import('./DebugTools').then((m) => ({ default: m.DebugTools })));
+const ChipLedgerPanel = lazy(() =>
+  import('./ChipLedgerPanel').then((m) => ({ default: m.ChipLedgerPanel }))
+);
+const CashWhereaboutsPanel = lazy(() =>
+  import('./CashWhereaboutsPanel').then((m) => ({ default: m.CashWhereaboutsPanel }))
+);
+const RangeExplorer = lazy(() =>
+  import('./RangeExplorer').then((m) => ({ default: m.RangeExplorer }))
+);
+const CoachEffectivenessPanel = lazy(() =>
+  import('./CoachEffectivenessPanel').then((m) => ({ default: m.CoachEffectivenessPanel }))
+);
+const HandReplayBrowser = lazy(() =>
+  import('./HandReplay').then((m) => ({ default: m.HandReplayBrowser }))
+);
+const UnifiedSettings = lazy(() =>
+  import('./UnifiedSettings').then((m) => ({ default: m.UnifiedSettings }))
+);
+const UserManagement = lazy(() =>
+  import('./UserManagement').then((m) => ({ default: m.UserManagement }))
+);
+
+const toolFallback = (
+  <div style={{ padding: '2rem', textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
+    Loading…
+  </div>
+);
 import { useViewport } from '../../hooks/useViewport';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import './AdminDashboard.css';
@@ -96,43 +137,50 @@ export function AdminDashboard({
   }, [handleKeyDown]);
 
   // Tab content component
-  const renderTabContent = () => (
-    <>
-      {activeTab === 'users' && <UserManagement embedded />}
-      {activeTab === 'personalities' && <PersonalityManager embedded />}
-      {activeTab === 'analyzer' && (
-        <DecisionAnalyzer
-          embedded
-          onDetailModeChange={handleAnalyzerDetailModeChange}
-          onCaptureSelect={onCaptureSelect}
-        />
-      )}
-      {activeTab === 'hand-replay' && <HandReplayBrowser />}
-      {activeTab === 'playground' && <PromptPlayground embedded />}
-      {activeTab === 'experiments' && (
-        <ExperimentDesigner
-          embedded
-          onAssistantPanelChange={setAssistantPanelProps}
-          onDesignModeChange={setIsDesignMode}
-        />
-      )}
-      {activeTab === 'presets' && <PromptPresetManager embedded />}
-      {activeTab === 'templates' && <TemplateEditor embedded />}
-      {activeTab === 'settings' && (
-        <UnifiedSettings
-          embedded
-          onCategoryChange={(category) => {
-            window.history.replaceState(null, '', `/admin/settings/${category}`);
-          }}
-        />
-      )}
-      {activeTab === 'debug' && <DebugTools embedded />}
-      {activeTab === 'chip-ledger' && <ChipLedgerPanel embedded />}
-      {activeTab === 'whereabouts' && <CashWhereaboutsPanel embedded />}
-      {activeTab === 'range-explorer' && <RangeExplorer embedded />}
-      {activeTab === 'coach-metrics' && <CoachEffectivenessPanel embedded />}
-    </>
-  );
+  const renderTabContent = () => {
+    // No tab selected (desktop landing) -> show the lightweight tool menu.
+    // Mobile renders its own menu before ever calling this.
+    if (!activeTab) {
+      return <AdminOverview onSelect={handleTabChange} />;
+    }
+    return (
+      <Suspense fallback={toolFallback}>
+        {activeTab === 'users' && <UserManagement embedded />}
+        {activeTab === 'personalities' && <PersonalityManager embedded />}
+        {activeTab === 'analyzer' && (
+          <DecisionAnalyzer
+            embedded
+            onDetailModeChange={handleAnalyzerDetailModeChange}
+            onCaptureSelect={onCaptureSelect}
+          />
+        )}
+        {activeTab === 'hand-replay' && <HandReplayBrowser />}
+        {activeTab === 'playground' && <PromptPlayground embedded />}
+        {activeTab === 'experiments' && (
+          <ExperimentDesigner
+            embedded
+            onAssistantPanelChange={setAssistantPanelProps}
+            onDesignModeChange={setIsDesignMode}
+          />
+        )}
+        {activeTab === 'presets' && <PromptPresetManager embedded />}
+        {activeTab === 'templates' && <TemplateEditor embedded />}
+        {activeTab === 'settings' && (
+          <UnifiedSettings
+            embedded
+            onCategoryChange={(category) => {
+              window.history.replaceState(null, '', `/admin/settings/${category}`);
+            }}
+          />
+        )}
+        {activeTab === 'debug' && <DebugTools embedded />}
+        {activeTab === 'chip-ledger' && <ChipLedgerPanel embedded />}
+        {activeTab === 'whereabouts' && <CashWhereaboutsPanel embedded />}
+        {activeTab === 'range-explorer' && <RangeExplorer embedded />}
+        {activeTab === 'coach-metrics' && <CoachEffectivenessPanel embedded />}
+      </Suspense>
+    );
+  };
 
   // Mobile layout - show menu if no tab selected, otherwise show content
   if (isMobile) {
@@ -210,20 +258,11 @@ export function AdminDashboard({
 
       {/* Main Content Area */}
       <main className="admin-main">
-        {/* Content Header */}
-        <header className="admin-main__header">
-          <button
-            className="admin-main__back admin-back-button admin-back-button--icon"
-            onClick={onBack}
-            aria-label="Go back"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="admin-main__header-text">
-            <h1 className="admin-main__title">{activeTabConfig?.label || 'Admin'}</h1>
-            <p className="admin-main__subtitle">{activeTabConfig?.description}</p>
-          </div>
-        </header>
+        {/* Content Header — shared breadcrumb + deterministic back-arrow */}
+        <AdminHeader
+          title={activeTabConfig?.label || 'Admin Tools'}
+          subtitle={activeTabConfig?.description || 'Select a tool to get started'}
+        />
 
         {/* Tab Content */}
         <div className="admin-main__content">{renderTabContent()}</div>
@@ -239,7 +278,9 @@ export function AdminDashboard({
             </h3>
           </div>
           {assistantPanelProps ? (
-            <ExperimentChat {...assistantPanelProps} />
+            <Suspense fallback={toolFallback}>
+              <ExperimentChat {...assistantPanelProps} />
+            </Suspense>
           ) : (
             <div style={{ padding: '1rem', color: '#888' }}>Loading chat...</div>
           )}

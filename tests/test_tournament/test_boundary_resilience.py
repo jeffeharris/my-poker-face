@@ -61,6 +61,45 @@ def test_apply_result_reconciles_on_set_mismatch():
 
     session._apply_result(table, result)  # must not raise
 
+    # And it must NOT resurrect the ghost seat into the field — re-adding a seat
+    # the field never had (or already eliminated) gets it "eliminated" next round,
+    # producing a duplicate standings row.
+    assert "ghost_seat" not in session.field.stacks
+
+
+def test_apply_result_does_not_resurrect_eliminated_seat():
+    """The ghost-seat duplicate-standings bug: when the live game keeps reporting
+    an already-eliminated seat (a stale 0-stack player, or a cold-load
+    divergence), `_apply_result` must not re-add it. Resurrecting it gets the
+    player eliminated a SECOND time — a duplicate elimination that the DB's
+    UNIQUE(game_id, player_name) hides but the tournament_complete socket payload
+    ships, crashing React with a duplicate key."""
+    session = _session(field_size=6, seed=0)  # one table of 6, all at the human's table
+    seats = list(session.human_table.players)
+    human = session.human_id
+    victim = next(p for p in seats if p != human)
+    survivor = next(p for p in seats if p not in (human, victim))
+
+    # Round 1: bust `victim` at the human's table; chips go to `survivor` (conserve).
+    r1 = {pid: session.field.stacks[pid] for pid in seats}
+    r1[survivor] += r1[victim]
+    r1[victim] = 0
+    session.apply_live_round(r1)
+    assert [e.player_id for e in session.field.eliminations] == [victim]
+    assert victim not in session.field.stacks
+
+    # Round 2: the live game keeps reporting the busted seat (a ghost). Without the
+    # guard this re-adds `victim` at 0, who is then eliminated a SECOND time.
+    alive = [p for p in seats if p != victim]
+    r2 = {pid: session.field.stacks[pid] for pid in alive}
+    r2[victim] = 0  # stale ghost seat the live game still lists
+    session.apply_live_round(r2)
+
+    elim_ids = [e.player_id for e in session.field.eliminations]
+    assert elim_ids.count(victim) == 1, f"victim eliminated twice: {elim_ids}"
+    assert victim not in session.field.stacks
+    session.field.assert_conservation()
+
 
 def test_seat_specs_tolerate_missing_field_stack():
     """A seat present at the table but absent from the field must be treated as

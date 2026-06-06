@@ -75,7 +75,7 @@ def _mode() -> Optional[str]:
     return None
 
 
-# --- slot → entity id (mirrors lobby._shadow_seat_state) ------------------
+# --- slot → entity id -----------------------------------------------------
 
 
 def _entity_id_for_slot(slot: Dict[str, Any]) -> Optional[str]:

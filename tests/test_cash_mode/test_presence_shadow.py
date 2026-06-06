@@ -28,15 +28,21 @@ def repo(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _flag_off():
-    """Default the kill switch OFF around every test; restore after."""
-    prev = economy_flags.PRESENCE_SHADOW_WRITE_ENABLED
+    """Default BOTH presence gates OFF around every test; restore after. These
+    are shadow-flag-isolation unit tests: `presence_shadow.is_enabled()` is
+    `SHADOW or AUTHORITY`, and authority is hardwired True in prod, so we pin it
+    off here to isolate the shadow flag's effect."""
+    prev_shadow = economy_flags.PRESENCE_SHADOW_WRITE_ENABLED
+    prev_authority = economy_flags.PRESENCE_AUTHORITY_ENABLED
     economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = False
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = False
     yield
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = prev
+    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = prev_shadow
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = prev_authority
 
 
 def test_disabled_is_a_noop(repo):
-    """Default off: a shadow call writes nothing."""
+    """Both gates off → a shadow call writes nothing."""
     eid = player_entity_id("jeff")
     presence_shadow.shadow_transition(
         entity_id=eid,

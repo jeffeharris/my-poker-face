@@ -47,8 +47,40 @@ export function scale(ms: number, tier: PacingTier): number {
  * these. The deal gates match the community-card slide cascade in
  * `useCommunityCardAnimation` (1.0s/card stagger, ~0.825s slide).
  */
+/**
+ * Watchable-tier per-action beat (salience-based): routine actions flow,
+ * consequential ones land. The `fast` and `fastest` tiers ignore this and use
+ * the flat scaled `BEAT.action` so a speed-up stays uniform. Keyed off the
+ * acting player's `last_action`.
+ */
+export const ACTION_BEAT_MS: Record<string, number> = {
+  fold: 450,
+  check: 450,
+  call: 1000,
+  bet: 1000,
+  raise: 1000,
+  all_in: 1400,
+};
+export const DEFAULT_ACTION_BEAT_MS = 1000;
+
+/**
+ * When an action carries AI table talk, hold the beat at least this long
+ * (watchable tier). The comment + chip-move land together at the start of the
+ * beat; this hold then lingers on that player for a beat or two so the human
+ * connects the comment to who said it and sees the action they took, before the
+ * table moves on. (The chat bubble also persists on its own reading timer in
+ * FloatingChat.) Tune the linger here.
+ */
+export const COMMENTARY_BEAT_MS = 3200;
+
+/** Salience beat for an action (watchable tier), defaulting unknown actions. */
+export function actionBeatMs(lastAction: string | null | undefined): number {
+  if (!lastAction) return DEFAULT_ACTION_BEAT_MS;
+  return ACTION_BEAT_MS[lastAction.toLowerCase()] ?? DEFAULT_ACTION_BEAT_MS;
+}
+
 export const BEAT = {
-  /** Hold after an AI action so the player can read what happened. */
+  /** Flat post-action hold for the fast/fastest tiers (watchable uses ACTION_BEAT_MS). */
   action: 1000,
   /** Flop (3 cards): 2×1.0s stagger + 0.825s slide ≈ 2.825s settle. */
   flopGate: 2825,

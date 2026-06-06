@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
@@ -127,9 +129,14 @@ export function MobilePokerTable({
   const openCoachPanel = useCallback(() => setShowCoachPanel(true), []);
   const closeCoachPanel = useCallback(() => setShowCoachPanel(false), []);
   const closeDebugModal = useCallback(() => setDebugModalPlayer(null), []);
+  const navigate = useNavigate();
   const navigateToAdmin = useCallback(() => {
-    window.location.href = '/admin';
-  }, []);
+    // Soft-navigate (not window.location.href) so the SPA history stack
+    // survives — and record this game as the admin return origin, so the
+    // admin back-arrow lands the player right back at this table.
+    if (providedGameId) rememberAdminOrigin(`/game/${providedGameId}`);
+    navigate('/admin');
+  }, [navigate, providedGameId]);
   const handleFadeComplete = useCallback(() => setFadeKey((k) => k + 1), []);
 
   // Game state from Zustand store (granular selectors for fewer re-renders)

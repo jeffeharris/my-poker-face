@@ -128,6 +128,10 @@ export function usePokerGame({
   const socketRef = useRef<Socket | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
+  // AI message ids already seen at *enqueue* time — lets the sequencer flag the
+  // beat that first carries each AI line (separate from messageIdsRef, which is
+  // the apply-time display dedup).
+  const enqueuedAiMsgIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<WinnerInfo | null>(null);
   const [revealedCards, setRevealedCards] = useState<RevealedCardsInfo | null>(null);
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
@@ -299,9 +303,19 @@ export function usePokerGame({
           return;
         }
         clearAiThinkingTimeout();
-        // Feed the state into the sequencer as an ordered beat. Messages arrive
-        // on a normalized empty array so downstream message handling is uniform.
-        enqueueState({ ...data.game_state, messages: data.game_state.messages || [] });
+        const state = { ...data.game_state, messages: data.game_state.messages || [] };
+        // Does this push carry new AI table talk? (messages are cumulative, so
+        // track ids seen at enqueue time — independent of the apply-time dedup —
+        // to flag the beat that first carries each AI line.) The sequencer floors
+        // that beat in watchable mode so a sped-up action doesn't cut off the quip.
+        let commentary = false;
+        for (const msg of state.messages) {
+          if (msg.type === 'ai' && !enqueuedAiMsgIdsRef.current.has(msg.id)) {
+            enqueuedAiMsgIdsRef.current.add(msg.id);
+            commentary = true;
+          }
+        }
+        enqueueState(state, commentary);
       });
 
       // Listen for new message (singular - desktop format)
@@ -624,7 +638,11 @@ export function usePokerGame({
           setMessages(capped);
           // Clear and repopulate to prevent unbounded growth
           messageIdsRef.current.clear();
-          capped.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+          enqueuedAiMsgIdsRef.current.clear();
+          capped.forEach((msg: ChatMessage) => {
+            messageIdsRef.current.add(msg.id);
+            if (msg.type === 'ai') enqueuedAiMsgIdsRef.current.add(msg.id);
+          });
         }
 
         setAiThinking(!currentPlayer.is_human);

@@ -6,6 +6,7 @@ import { TournamentMenu, type QuickPlayConfig } from './components/menus/Tournam
 import { LoginForm } from './components/auth/LoginForm';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
+import { rememberAdminOrigin } from './components/admin/adminOrigin';
 import { useAuth } from './hooks/useAuth';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useUsageStats } from './hooks/useUsageStats';
@@ -512,7 +513,10 @@ function App() {
                     onCashMode={() => navigate('/cash')}
                     onTournament={() => navigate('/menu/tournament')}
                     onTraining={() => navigate('/menu/training')}
-                    onAdminDashboard={() => navigate('/admin')}
+                    onAdminDashboard={() => {
+                      rememberAdminOrigin(location.pathname);
+                      navigate('/admin');
+                    }}
                   />
                 </ProtectedRoute>
               }
@@ -571,7 +575,10 @@ function App() {
                     onThemedGame={() => navigate('/game/new/themed')}
                     onContinueGame={() => navigate('/games')}
                     onViewStats={() => navigate('/stats')}
-                    onAdminDashboard={() => navigate('/admin')}
+                    onAdminDashboard={() => {
+                      rememberAdminOrigin(location.pathname);
+                      navigate('/admin');
+                    }}
                     onMultiTable={() => navigate('/tournament')}
                     onBack={() => navigate('/menu')}
                     savedGamesCount={savedGamesCount}

@@ -1767,7 +1767,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     # Persist table + idle changes. Thread the real leave reason/target into
     # save_table so the presence-machine idle satellite (cash_idle_metadata)
     # records the actual reason instead of defaulting every row to
-    # 'forced_leave' (the metadata write has no other source for it).
+    # 'forced_leave' (the metadata write has no other source for it). The
+    # save_table chokepoint writes each departed AI's IDLE presence + metadata,
+    # so 'add' changes need no separate persistence here; only re-seats/reaps
+    # ('remove') must clear a now-stale IDLE row.
     idle_metadata = {
         change.entry.personality_id: change.entry
         for change in result.idle_changes
@@ -1777,9 +1780,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
     )
     for change in result.idle_changes:
-        if change.kind == "add" and change.entry is not None:
-            cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
-        elif change.kind == "remove":
+        if change.kind == "remove":
             cash_table_repo.delete_idle(change.personality_id, sandbox_id=sandbox_id)
 
     # Surface movement to the seated player's in-game chat. The lobby
@@ -4920,8 +4921,14 @@ def handle_ai_action(game_id: str) -> None:
     highest_bet = state_machine.game_state.highest_bet
     action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
-    # Send action as Table message (consistent with human actions)
-    send_message(game_id, "Table", action_text, "table")
+    # Defer the action-text + comment onto the action's own game-state push
+    # (immediate=False) so the client surfaces them on its paced action beat,
+    # coupled to the chip-move, instead of racing ahead on the instant channel.
+    # This is the shared path for every bot type (LLM, tiered/sharp, rule bots),
+    # so the coupling is uniform — and it's what fixes fast tiered bots whose
+    # instant decisions otherwise flood the queue and desync from their comments.
+    # No backend `sleep` here either: the client sequencer owns the pacing now.
+    send_message(game_id, "Table", action_text, "table", immediate=False)
 
     # Send AI message if player has something to say or show. addressing
     # carries the speaker's declared callout targets so the next bot's
@@ -4932,8 +4939,8 @@ def handle_ai_action(game_id: str) -> None:
             current_player.name,
             full_message,
             "ai",
-            sleep=1,
             addressing=response_addressing,
+            immediate=False,
         )
 
     if action == 'fold':

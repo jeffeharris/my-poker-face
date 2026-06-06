@@ -835,8 +835,9 @@ class RosterRefreshResult:
 
     `new_table` is the updated CashTableState (always returned, even
     when no movement happened — the timestamp will still bump on save).
-    `idle_changes` lists the moves the caller must persist to
-    `cash_idle_pool`. `freshly_seated_personality_ids` is the set of
+    `idle_changes` lists the idle moves the caller threads into
+    `save_table` (the presence chokepoint records IDLE state +
+    metadata). `freshly_seated_personality_ids` is the set of
     AIs newly added to the table; the caller can use it to update the
     global "seated_globally" set if it tracks one.
 
