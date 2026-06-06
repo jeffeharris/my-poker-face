@@ -30,13 +30,6 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-# Presence-machine dual-write shadow (cutover Phase 1). These mirror each
-# authoritative `save_table` seat write into the dormant `entity_presence`
-# table via `presence_shadow.shadow_transition`, which is a guarded no-op
-# unless `economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` is on and is wrapped
-# in try/except so it can never break the real seat write it shadows. See
-# `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md` §Sequencing step 1.
-from cash_mode import presence_shadow
 from cash_mode.attractiveness import (
     CASINO_VENUE_APPEAL,
     DEFAULT_SEEK_RATE,
@@ -69,7 +62,6 @@ from cash_mode.movement import (
     refresh_table_roster,
     reseat_readiness,
 )
-from cash_mode.presence import PresenceEvent, ai_entity_id, player_entity_id
 from cash_mode.scalps import eliminations_from_sim
 from cash_mode.seat_registry import SeatOccupancyRegistry
 from cash_mode.staker_history import StakerHistoryStats
@@ -90,57 +82,6 @@ from cash_mode.tables import (
 logger = logging.getLogger(__name__)
 
 
-def _shadow_seat_state(table: CashTableState) -> Dict[str, Tuple[str, int]]:
-    """Map of `entity_id -> (table_id, seat_index)` for the *occupied* seats
-    of `table`, in the Presence ledger-entity convention
-    (`player:<owner_id>` / `ai:<personality_id>`).
-
-    The real lobby seat writers persist a whole `CashTableState` rather than
-    moving one entity at a time, so the dual-write shadow derives "who is
-    where" from the table that was just saved. Open / reserved seats are
-    skipped (only `kind in {ai, human}` produce a Presence row).
-    """
-    out: Dict[str, Tuple[str, int]] = {}
-    for idx, slot in enumerate(table.seats):
-        kind = slot.get("kind")
-        if kind == "ai":
-            pid = slot.get("personality_id")
-            if pid:
-                out[ai_entity_id(pid)] = (table.table_id, idx)
-        elif kind == "human":
-            # `human_slot` (cash_mode/tables.py) stores the player owner_id in
-            # `personality_id` (so the routing layer can treat human + AI seats
-            # uniformly when checking occupancy). Check it LAST so the explicit
-            # owner_id/player_id/user_id keys still win if a slot ever carries
-            # them — but without `personality_id` the human is silently dropped
-            # and never gets a Presence row (the merged Phase-1 reader's bug).
-            owner = (
-                slot.get("owner_id")
-                or slot.get("player_id")
-                or slot.get("user_id")
-                or slot.get("personality_id")
-            )
-            if owner:
-                out[player_entity_id(owner)] = (table.table_id, idx)
-    return out
-
-
-def _shadow_repo():
-    """Resolve the `entity_presence` repository the same way
-    `presence_shadow.shadow_transition` does, so the dual-write reconcile can
-    *read* current presence to emit minimal, legal transitions. Returns None
-    (silently) when shadow writes are off or the repo isn't wired (sim / cold
-    boot) — the reconcile then degrades to no-ops, exactly like the helper."""
-    if not presence_shadow.is_enabled():
-        return None
-    try:
-        from flask_app import extensions
-
-        return getattr(extensions, "entity_presence_repo", None)
-    except Exception:  # noqa: BLE001 — never let shadow plumbing break the real path
-        return None
-
-
 def _cash_scalps_repo():
     """Lazily resolve the durable scalp counter from extensions (mirrors the
     entity-presence getter so the lobby stays import-light / Flask-free in
@@ -152,123 +93,6 @@ def _cash_scalps_repo():
         return getattr(extensions, "cash_scalps_repo", None)
     except Exception:  # noqa: BLE001 — scalp recording must never break the tick
         return None
-
-
-def _shadow_reconcile_table(
-    table: CashTableState,
-    sandbox_id: Optional[str],
-    *,
-    repo=None,
-) -> None:
-    """Dual-write SHADOW: make `entity_presence` agree with the seat map of a
-    table that was just authoritatively saved.
-
-    Because the lobby persists a whole `CashTableState` (not per-entity
-    seat/vacate ops), we derive the Presence transitions by diffing the saved
-    seat map against current shadow state:
-
-      - occupant not currently SEATED here    -> `SIT` (legal from
-        OFFLINE/IDLE/POOL — a fresh seed, an idle re-seat, or a pool fish);
-      - occupant currently SEATED *elsewhere* -> `LEAVE` then `SIT` (a move);
-      - occupant already SEATED at this exact seat -> nothing (avoids the
-        illegal `SEATED --sit--> SEATED` self-edge, which would otherwise spam
-        the divergence log every refresh tick).
-
-    Vacated seats ARE turned into `LEAVE`s here (§C dedup decision): an entity
-    that left this table to the idle pool / off-grid / a bust appears only as
-    its absence from the new seat map, so step (1) below LEAVE-clears any stale
-    `SEATED` row this table still holds in the shadow. Without that, the stale
-    row keeps occupying the seat in the partial-unique index and the next
-    rightful `SIT` collides and is swallowed, stranding that entity unseated.
-    A cross-table *move* is still handled per-entity in step (2) (LEAVE-then-SIT
-    against the source table). The destination of a bare idle departure is left
-    to the machine's IDLE state; the idle-pool repo is deliberately NOT also
-    shadow-wired (that would double-drive — migration inventory §C).
-
-    Flag-gated + best-effort throughout (`_shadow_repo` returns None when the
-    switch is off; each transition goes through `presence_shadow`'s
-    try/except). `sandbox_id` must be the real sandbox — never the
-    `entity_presence` `'default'` fallback bucket (migration doc gotcha).
-    """
-    if sandbox_id is None:
-        return
-    # Under the AUTHORITY flip, `save_table` drives presence authoritatively
-    # inside its own transaction — this call-site reconcile (a separate
-    # connection, AFTER the commit) would be redundant and, in a TOCTOU window,
-    # could emit a spurious LEAVE against an entity a later save just seated.
-    # So skip entirely once authority is on; the chokepoint is the sole seat
-    # writer. (Off-grid mirroring still runs via presence_shadow.)
-    from cash_mode import economy_flags
-
-    if getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
-        return
-    if repo is None:
-        repo = _shadow_repo()
-    if repo is None:
-        return
-
-    desired = _shadow_seat_state(table)  # entity_id -> (table_id, seat_index)
-
-    # (1) Clear STALE occupants of this table first. The lobby persists a whole
-    # `CashTableState`, so a seat an entity vacated (to the idle pool / off-grid
-    # / a bust) shows up only as that entity's *absence* from the new seat map —
-    # never as an event. If we don't emit its `LEAVE`, the shadow keeps a stale
-    # `SEATED` row holding that seat in the partial-unique index, and the next
-    # entity that legitimately takes the seat collides (`IntegrityError`, which
-    # `shadow_transition` swallows) and is stranded unseated. This is the §C
-    # dedup decision (CASH_MODE_PRESENCE_MIGRATION.md): the seat->IDLE `LEAVE` is
-    # emitted HERE, by the reconcile that already sees the seat go empty — not at
-    # the idle-pool repo layer. So: LEAVE everyone the shadow currently has
-    # SEATED at THIS table who is not still in the new map at the same seat.
-    try:
-        seated_here = [
-            s
-            for s in repo.list_for_sandbox(sandbox_id)
-            if s.is_seated and s.table_id == table.table_id
-        ]
-    except Exception:  # noqa: BLE001 — read failure must not break the real path
-        seated_here = []
-    for s in seated_here:
-        if desired.get(s.entity_id) == (s.table_id, s.seat_index):
-            continue  # still correctly seated here — leave it be
-        presence_shadow.shadow_transition(
-            entity_id=s.entity_id,
-            sandbox_id=sandbox_id,
-            event=PresenceEvent.LEAVE,
-            repo=repo,
-        )
-
-    # (2) Seat the desired occupants. A `SIT` is legal from OFFLINE/IDLE/POOL;
-    # an entity SEATED *elsewhere* (a cross-table move) is LEAVE-then-SIT'd here
-    # (step 1 only clears stale rows on THIS table, not the source table of a
-    # move — and SIT-from-SEATED is illegal by design).
-    for entity_id, (table_id, seat_index) in desired.items():
-        try:
-            current = repo.load(entity_id, sandbox_id)
-        except Exception:  # noqa: BLE001 — read failure must not break the real path
-            current = None
-
-        if current is not None and current.is_seated:
-            if current.table_id == table_id and current.seat_index == seat_index:
-                continue  # already correct in the shadow — no-op
-            # Seated elsewhere (or a different seat): model the move as
-            # LEAVE then SIT so the machine's one-seat-at-a-time invariant
-            # holds (SIT-from-SEATED is illegal by design).
-            presence_shadow.shadow_transition(
-                entity_id=entity_id,
-                sandbox_id=sandbox_id,
-                event=PresenceEvent.LEAVE,
-                repo=repo,
-            )
-
-        presence_shadow.shadow_transition(
-            entity_id=entity_id,
-            sandbox_id=sandbox_id,
-            event=PresenceEvent.SIT,
-            table_id=table_id,
-            seat_index=seat_index,
-            repo=repo,
-        )
 
 
 def _next_occupied_seat(
@@ -687,10 +511,6 @@ def ensure_lobby_seeded(
                     table_id,
                 )
                 continue
-            # SHADOW (Presence cutover Phase 1): mirror the freshly-seeded
-            # AI seats into `entity_presence` (SEED→SIT, derived as SIT from
-            # OFFLINE by the reconcile). Additive, flag-gated, best-effort.
-            _shadow_reconcile_table(new_state, sandbox_id)
             out_tables.append(new_state)
             logger.info(
                 "[CASH][LOBBY] seed %s: created table %r (%r) with %d AI seats",
@@ -1113,12 +933,6 @@ def _process_global_greedy_fills(
     for tid, pids in affected.items():
         result, _preburst = fill_ctx[tid]
         cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
-        # SHADOW (Presence cutover Phase 1): mirror this greedy fill's seat
-        # writes. The reconcile diffs the saved seat map vs current shadow
-        # state, so the AIs just seated here (idle→SIT / eligible→SIT, or a
-        # cross-table move as LEAVE+SIT) are recorded and unchanged
-        # neighbours are left alone. Additive, flag-gated, best-effort.
-        _shadow_reconcile_table(result.new_table, sandbox_id)
         _emit_activity_events(
             table=result.new_table,
             previous_table=result.new_table,  # unused by the emitter
@@ -2147,20 +1961,11 @@ def refresh_unseated_tables(
             result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
         )
         # SHADOW (Presence cutover Phase 1): mirror the post-burst seat map
-        # into `entity_presence`. The reconcile records anyone now seated who
-        # wasn't already (e.g. a take_stake reseat) and is a no-op for the
-        # already-seated cast. AIs that LEFT this table during the burst are
-        # NOT turned into shadow LEAVEs here — that's owned by the idle-pool /
-        # hustle / vice writers (migration inventory C–E, out of scope for
-        # this lobby-only pass); their idle `save_idle` below is the
-        # authoritative record of the departure for now. Additive,
-        # flag-gated, best-effort.
-        _shadow_reconcile_table(result.new_table, sandbox_id)
-
+        # The save_table chokepoint above wrote each departed AI's IDLE presence
+        # + metadata (from idle_metadata), so 'add' changes need no separate
+        # persistence; only re-seats/reaps ('remove') must clear a stale IDLE row.
         for change in result.idle_changes:
-            if change.kind == "add" and change.entry is not None:
-                cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
-            elif change.kind == "remove":
+            if change.kind == "remove":
                 cash_table_repo.delete_idle(change.personality_id, sandbox_id=sandbox_id)
 
         # Phase 4 Commit 3: settle AI-borrower stakes BEFORE the normal

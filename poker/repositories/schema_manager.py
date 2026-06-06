@@ -336,7 +336,10 @@ _test_schema_template_path = None
 #       backfill by the unique display-name join). (was v137)
 # v147: Make `personality_id` the SOLE avatar key — drop the legacy
 #       `personality_name` column + dual-key reads. (was v138)
-SCHEMA_VERSION = 151
+# v152: Drop the legacy `cash_idle_pool` cache — the Presence cutover is
+#       complete; `entity_presence` (state='idle') + `cash_idle_metadata` are
+#       the authoritative idle store.
+SCHEMA_VERSION = 152
 
 
 class SchemaManager:
@@ -2297,6 +2300,10 @@ class SchemaManager:
             151: (
                 self._migrate_v151_chip_ledger_source_sink_index,
                 "Add (source, sandbox_id) + (sink, sandbox_id) indexes to chip_ledger_entries so `balance_of` (Σ where source=? OR sink=?) stops full-scanning. Speeds the per-account reconcile (audit_ledger_completeness) and the derive-reads path as the ledger grows. Index-only (CREATE INDEX IF NOT EXISTS); no data change.",
+            ),
+            152: (
+                self._migrate_v152_drop_cash_idle_pool,
+                "Drop the legacy `cash_idle_pool` cache — the Presence cutover is complete. Idle AIs are now read from `entity_presence` (state='idle') joined with the `cash_idle_metadata` satellite (reason/target_stake/left_at); the pool was a redundant dual-written copy. `cash_idle_metadata` is retained (the satellite). `DROP TABLE IF EXISTS` — idempotent, a no-op on a DB that never had the table.",
             ),
         }
 
@@ -6287,6 +6294,25 @@ class SchemaManager:
         # a large upgrade (prod lands this while the ledger is still small).
         conn.execute("ANALYZE chip_ledger_entries")
         logger.info("Migration v151 complete: chip_ledger source/sink indexes + stats added")
+
+    def _migrate_v152_drop_cash_idle_pool(self, conn: sqlite3.Connection) -> None:
+        """Migration v152: drop the legacy `cash_idle_pool` cache.
+
+        The Presence cutover is complete. `entity_presence` (state='idle') is the
+        authoritative record of which AIs are between cash sessions, and the
+        `cash_idle_metadata` satellite carries the routing payload
+        (reason / target_stake / left_at). `cash_idle_pool` was a redundant copy
+        that the seat/idle writers dual-wrote alongside presence; nothing reads it
+        anymore (idle listing derives from presence — see
+        `CashTableRepository.list_idle` / `_list_idle_from_presence`). Dropping it
+        removes the last split-brain source for the `seated_and_idle` bug class.
+
+        `cash_idle_metadata` is deliberately KEPT — it is the satellite, not the
+        cache. `DROP TABLE IF EXISTS` is idempotent and a no-op on any DB that
+        never created the pool (or already dropped it).
+        """
+        conn.execute("DROP TABLE IF EXISTS cash_idle_pool")
+        logger.info("Migration v152 complete: dropped legacy cash_idle_pool cache")
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.

@@ -299,36 +299,27 @@ LIVE_FILL_HUMAN_HEADROOM: int = 1
 DOSSIER_SCOUTING_GATE_ENABLED: bool = True
 
 
-# --- Presence machine cutover (dual-write shadow phase) -------------------
+# --- Presence machine (the authoritative actor-location store) -----------
 
-# Kill switch for the Presence state-machine SHADOW writes. When True, the
-# cash-mode seat / idle / hustle / vice writers ALSO record the corresponding
-# transition into `entity_presence` (the dormant Cut-3 table) *alongside* the
-# existing authoritative stores — a dual-write used to prove the machine tracks
-# reality on live traffic before authority is flipped to it (design Phase 3,
-# CASH_MODE_PRESENCE_MIGRATION.md §Sequencing step 1). Default **False**: every
-# shadow write is a guarded no-op, so the cutover code is inert until an
-# operator opts in. The shadow path is additionally wrapped in try/except
-# (`cash_mode/presence_shadow.py`) so even when enabled it can never break the
-# real seat write — a shadow failure is logged and swallowed. The authoritative
-# stores (`cash_tables`, `cash_idle_pool`, `ai_*_state`) remain the source of
-# truth throughout this phase; only the eventual flip (a separate change) makes
-# `entity_presence` authoritative.
-PRESENCE_SHADOW_WRITE_ENABLED: bool = _env_flag("PRESENCE_SHADOW_WRITE_ENABLED", False)
-
-# Phase 3 — the AUTHORITY flip. When True, `entity_presence` becomes the
-# authoritative record of actor location: the seat-write chokepoint
+# The Presence cutover is COMPLETE: `entity_presence` is the permanent,
+# authoritative record of actor location. The seat-write chokepoint
 # (`CashTableRepository.save_table`) drives presence transitions inside its own
-# transaction (presence + seats commit together), and the old stores
-# (`cash_tables` seat map / `cash_idle_pool` / `ai_*_state`) become projections.
-# Default **False** — every authoritative presence path is a no-op until the
-# operator opts in. This is SEPARATE from the shadow flag above: with authority
-# OFF and shadow ON, presence is mirrored best-effort (validation); with
-# authority ON, presence is the source of truth. Flipping this to True (in
-# `cash_mode/economy_flags.py` or via env) is the single irreversible cut —
-# everything else in the cutover is reversible. See
-# `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md`.
-PRESENCE_AUTHORITY_ENABLED: bool = _env_flag("PRESENCE_AUTHORITY_ENABLED", True)
+# transaction (presence + seats commit together); the cash_tables seat map and
+# `ai_*_state` are projections of it; the legacy `cash_idle_pool` cache has been
+# retired (schema v152). This flag is hardwired True with NO env override — the
+# rollback escape hatch was deliberately removed when the cache was dropped (a
+# fresh DB no longer has `cash_idle_pool` to fall back to). Code still reads it
+# (`if PRESENCE_AUTHORITY_ENABLED:`) at the call sites; those branches are now
+# always taken.
+PRESENCE_AUTHORITY_ENABLED: bool = True
+
+# Vestigial. Was the kill switch for the pre-flip SHADOW dual-write (mirror to
+# `entity_presence` to validate the machine before authority was flipped). With
+# authority now permanent, `presence_shadow.is_enabled()` is True regardless of
+# this flag (it is `SHADOW or AUTHORITY`), so the off-grid hustle/vice writers
+# still record presence. Kept only so the few remaining references resolve; it
+# no longer changes any behaviour.
+PRESENCE_SHADOW_WRITE_ENABLED: bool = False
 
 
 # --- Chip-custody machine cutover (the Presence twin) ---------------------

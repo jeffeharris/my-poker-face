@@ -85,17 +85,6 @@ def test_ghost_slot_projected_open(repos, authority_on):
     assert lt.seats[1]["kind"] == "open"
 
 
-def test_projection_inert_when_authority_off(repos):
-    repos["cash_table_repo"].save_table(
-        CashTableState(table_id=TID, stake_label="$10", seats=_seats(ai_slot("zeus", 1000))),
-        sandbox_id=SB,
-    )
-    _inject_ghost(repos, TID, 1, ai_slot("ghost_pid", 999))
-    # authority off (autouse default) → no projection → ghost visible.
-    t = repos["cash_table_repo"].load_table(TID, sandbox_id=SB)
-    assert t.seats[1]["kind"] == "ai"
-
-
 def test_reserved_hold_not_projected(repos, authority_on):
     # A reserved hold is a pre-sit hold with no presence SEATED row; it must
     # NOT be projected away.
