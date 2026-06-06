@@ -74,6 +74,9 @@ export function DossierSections({
     (character.chips.atTable !== undefined || character.chips.bankroll !== undefined);
   const hasAffiliation = !!character.affiliation?.sponsor || !!character.affiliation?.relationship;
   const hasStanding = !!fetched?.relationship;
+  // Home-table intel — shown whether revealed or locked (a locked teaser nudges
+  // the player to get friendlier; revealed names the room a vouch could open).
+  const homeTable = fetched?.home_table;
   // Pressure-summary surfaces only the highlights with non-zero values;
   // omitting them entirely keeps the card from showing rows of zeros
   // for opponents the human hasn't tangled with yet.
@@ -152,6 +155,32 @@ export function DossierSections({
                   ›
                 </span>
                 <em>{fetched.relationship.hint}</em>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {homeTable && (
+        <>
+          <SectionRule>HOME GAME</SectionRule>
+          <section className="dossier__home-game">
+            {homeTable.revealed ? (
+              <DataRow
+                label="Plays most at"
+                value={
+                  <span className="dossier__home-room">
+                    {homeTable.table_name}
+                    {homeTable.stake_label ? ` (${homeTable.stake_label})` : ''}
+                  </span>
+                }
+              />
+            ) : (
+              <div className="dossier__standing-hint">
+                <span className="dossier__standing-mark" aria-hidden="true">
+                  ›
+                </span>
+                <em>{homeTable.hint || 'Get friendlier to learn where they play.'}</em>
               </div>
             )}
           </section>

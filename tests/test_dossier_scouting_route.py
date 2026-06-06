@@ -23,8 +23,11 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
+from cash_mode.career_progression import HOME_TABLE_REVEAL_LIKABILITY
+from cash_mode.tables import TABLE_SEAT_COUNT, CashTableState, ai_slot, open_slot
 from flask_app import create_app
 from flask_app.services import sandbox_resolver
+from poker.memory.opponent_model import RelationshipState
 from poker.repositories import create_repos
 from poker.repositories.schema_manager import SchemaManager
 
@@ -460,3 +463,50 @@ class TestDossierScoutingRoute(unittest.TestCase):
         self.assertEqual(body['dossiers_unlocked'], 1)  # greg (500h) fully unlocked
         # Sorted most-observed first.
         self.assertEqual(body['people'][0]['personality_id'], 'greg')
+
+    # --- Home-table intel (relationship-gated scouting↔vouch loop) -----------
+
+    def _seed_home(self, table_id, stake, name, hands):
+        """Create a lobby table and give PERSONALITY `hands` recorded there."""
+        seats = [ai_slot(PERSONALITY, 200)] + [open_slot() for _ in range(TABLE_SEAT_COUNT - 1)]
+        self.repos['cash_table_repo'].save_table(
+            CashTableState(
+                table_id=table_id, stake_label=stake, seats=seats, table_type='lobby', name=name
+            ),
+            sandbox_id=self.sandbox_id,
+        )
+        for _ in range(hands):
+            self.repos['relationship_repo'].increment_ai_table_hands(
+                PERSONALITY, table_id, sandbox_id=self.sandbox_id
+            )
+
+    def _set_inbound_like(self, likability):
+        """Set how much the AI likes the player (the axis the vouch + reveal use)."""
+        self.repos['relationship_repo'].save_relationship_state(
+            PERSONALITY, OBSERVER, RelationshipState(heat=0.0, respect=0.5, likability=likability)
+        )
+
+    def test_home_table_locked_below_likability(self):
+        # Established home, but the AI doesn't like the player enough yet.
+        self._seed_home('cash-table-10-001', '$10', 'The Garage', 35)
+        self._set_inbound_like(0.40)
+        ht = self._dossier()['home_table']
+        self.assertIsNotNone(ht)
+        self.assertFalse(ht['revealed'])
+        self.assertTrue(ht['has_home'])  # there IS a home, just not revealed yet
+
+    def test_home_table_revealed_when_liked(self):
+        self._seed_home('cash-table-10-001', '$10', 'The Garage', 35)
+        self._set_inbound_like(HOME_TABLE_REVEAL_LIKABILITY + 0.05)
+        ht = self._dossier()['home_table']
+        self.assertTrue(ht['revealed'])
+        self.assertEqual(ht['table_name'], 'The Garage')
+        self.assertEqual(ht['stake_label'], '$10')
+
+    def test_home_table_locked_when_no_established_home(self):
+        # Liked enough, but the AI has no >=floor home (only 5 hands anywhere).
+        self._seed_home('cash-table-10-001', '$10', 'The Garage', 5)
+        self._set_inbound_like(HOME_TABLE_REVEAL_LIKABILITY + 0.05)
+        ht = self._dossier()['home_table']
+        self.assertFalse(ht['revealed'])
+        self.assertFalse(ht['has_home'])

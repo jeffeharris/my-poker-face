@@ -70,6 +70,13 @@ HOME_COURT_STAKE = "$2"
 RESPECT_FLOOR = 0.50
 LIKE_THRESHOLD = 0.70
 
+# Home-table intel reveal (dossier scouting↔vouch loop). The voucher's home
+# room is revealed on the player's dossier once the AI likes them enough —
+# inbound likability ≥ this, set BELOW LIKE_THRESHOLD so learning where an AI
+# plays is a visible milestone on the road to its vouch (get friendly → learn
+# their home game → get friendlier → they vouch you in). Tunable.
+HOME_TABLE_REVEAL_LIKABILITY = 0.60
+
 # --- Scripted graduation gate (M1: crude; tuned in playtest from M1 logging) --
 # Min hands at the Scene-0 table before the vouch can fire — you can't graduate
 # on hand one. Counted from the live session hand count.
