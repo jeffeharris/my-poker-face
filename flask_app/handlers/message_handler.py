@@ -97,6 +97,7 @@ def send_message(
     cards: Optional[list] = None,
     win_result: Optional[dict] = None,
     addressing: Optional[list] = None,
+    immediate: bool = True,
 ) -> None:
     """Send a message to the specified game chat.
 
@@ -112,6 +113,12 @@ def send_message(
         win_result: Optional structured data for winning hand display.
         addressing: Optional list of opponent names the speaker is directly
             addressing. Drives downstream find_callouts detection.
+        immediate: When True (default), emit the message on the `new_message`
+            socket channel right away. When False, the message is still appended
+            to game_data + persisted, but NOT emitted — it rides the next
+            `update_game_state` push instead. Used for AI *action* commentary so
+            the comment surfaces on the client's paced action beat (coupled to the
+            chip-move) rather than racing ahead on the immediate channel.
     """
     game_data = game_state_service.get_game(game_id)
     if not game_data:
@@ -174,8 +181,11 @@ def send_message(
     # Save message to database
     game_repo.save_message(game_id, message_type, f"{sender}: {content}")
 
-    # Emit only the new message to reduce payload size
-    socketio.emit('new_message', {'message': new_message}, to=game_id)
+    # Emit only the new message to reduce payload size. Deferred messages
+    # (immediate=False) skip this and ride the next game-state push instead, so
+    # the client surfaces them on the paced beat rather than the instant channel.
+    if immediate:
+        socketio.emit('new_message', {'message': new_message}, to=game_id)
 
     if sleep:
         from .. import config
