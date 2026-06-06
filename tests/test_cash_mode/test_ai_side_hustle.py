@@ -293,8 +293,11 @@ class TestResolve:
         _seed_bankroll(repos, "napoleon", 500)
         _seed_pool(repos, 5_000)
 
-        def narrate(pid, amount):
-            return (f"{pid} flips ${amount} of real estate", "short")
+        # narrate_fn is flavor-only now: (pid, amount, duration_bucket) -> str.
+        # The bucket is chosen system-side; with _FixedRng.random()==0.0 the
+        # weighted picker lands on 'short'.
+        def narrate(pid, amount, duration_bucket):
+            return f"{pid} flips ${amount} of real estate ({duration_bucket})"
 
         out = resolve_ai_side_hustle(
             candidates={"napoleon"},

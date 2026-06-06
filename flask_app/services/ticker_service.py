@@ -79,6 +79,19 @@ def is_enabled() -> bool:
     return os.environ.get("WORLD_TICKER_ENABLED", "true").lower() != "false"
 
 
+def _async_narration_enabled() -> bool:
+    """Whether vice/side-hustle START narration runs OFF the tick (default on).
+
+    When on, `_tick_sandbox` passes a `narration_scheduler` into
+    `refresh_unseated_tables`: economics commit in-tick (no LLM, the duration
+    is system-chosen) and the flavor line is produced in a background greenlet,
+    landing in the feed a tick or two later (ASYNC_TICKER_NARRATION.md Step 2).
+    Kill switch (`TICKER_ASYNC_NARRATION_ENABLED=false`) reverts to synchronous
+    in-tick narration — the pre-Step-2 behavior.
+    """
+    return os.environ.get("TICKER_ASYNC_NARRATION_ENABLED", "true").lower() != "false"
+
+
 _started = False
 _start_lock = threading.RLock()
 _stop = threading.Event()
@@ -411,6 +424,117 @@ def world_tick_count(sandbox_id: Optional[str]) -> int:
     return repo.sum_counters_with_prefix(WORLD_TICK_COUNTER_PREFIX)
 
 
+def _narrate_and_emit(kind: str, starts: list, sandbox_id: Optional[str]) -> None:
+    """Background greenlet: produce the flavor line for deferred vice/hustle
+    STARTs and record the feed event (ASYNC_TICKER_NARRATION.md Step 2).
+
+    Spawned (off the tick) by the `narration_scheduler` the ticker passes into
+    `refresh_unseated_tables`. The economics already committed in-tick with a
+    templated placeholder; here, per start, we call the (fail-soft) flavor LLM,
+    update the off-grid state row so the active-vice/whereabouts surfaces show
+    the real line, and record the ticker `LobbyEvent`. The NEXT `_tick_sandbox`
+    poll emits it as a `world_event`.
+
+    The event is recorded with a FRESH `utcnow()` timestamp (not the original
+    tick's `now`): `_tick_sandbox` advances its per-owner marker to the newest
+    event each tick and only emits `created_at > marker`, so a stale (tick-time)
+    timestamp would be filtered out and never reach the client.
+
+    Runs outside `get_sandbox_lock` and only records activity events + a narrow
+    narration UPDATE — no seat/bankroll mutation — so it can't reintroduce the
+    seat race. Wrapped fail-soft: a narration error must never crash the ticker.
+    """
+    if not starts:
+        return
+    import dataclasses
+    from datetime import datetime
+
+    from flask_app import extensions
+
+    personality_repo = getattr(extensions, "personality_repo", None)
+    try:
+        if kind == 'vice':
+            from cash_mode.lobby import _emit_vice_spending_events
+            from cash_mode.vice_narration import narrate_vice
+
+            repo = getattr(extensions, "vice_state_repo", None)
+            for s in starts:
+                try:
+                    # The fire-time psych snapshot rides along on the result so
+                    # the off-tick narrator gets the same cue context the
+                    # synchronous path had (confidence / composure / energy).
+                    line = narrate_vice(
+                        s.personality_id,
+                        s.amount,
+                        getattr(s, "psychology_snapshot", None),
+                        s.duration_bucket,
+                        personality_repo=personality_repo,
+                    )
+                    if repo is not None:
+                        try:
+                            repo.update_narration(
+                                s.personality_id, sandbox_id=sandbox_id, narration=line
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "[TICKER] vice update_narration failed pid=%r: %s",
+                                s.personality_id,
+                                exc,
+                            )
+                    _emit_vice_spending_events(
+                        starts=[dataclasses.replace(s, narration=line)],
+                        ends=[],
+                        personality_repo=personality_repo,
+                        now=datetime.utcnow(),
+                        sandbox_id=sandbox_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[TICKER] async vice narration failed pid=%r: %s",
+                        getattr(s, "personality_id", "?"),
+                        exc,
+                    )
+        elif kind == 'hustle':
+            from cash_mode.lobby import _emit_side_hustle_events
+            from cash_mode.side_hustle_narration import narrate_side_hustle
+
+            repo = getattr(extensions, "side_hustle_state_repo", None)
+            for s in starts:
+                try:
+                    line = narrate_side_hustle(
+                        s.personality_id,
+                        s.amount,
+                        s.duration_bucket,
+                        personality_repo=personality_repo,
+                    )
+                    if repo is not None:
+                        try:
+                            repo.update_narration(
+                                s.personality_id, sandbox_id=sandbox_id, narration=line
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "[TICKER] hustle update_narration failed pid=%r: %s",
+                                s.personality_id,
+                                exc,
+                            )
+                    _emit_side_hustle_events(
+                        starts=[dataclasses.replace(s, narration=line)],
+                        ends=[],
+                        personality_repo=personality_repo,
+                        now=datetime.utcnow(),
+                        sandbox_id=sandbox_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[TICKER] async hustle narration failed pid=%r: %s",
+                        getattr(s, "personality_id", "?"),
+                        exc,
+                    )
+    except Exception as exc:  # belt-and-suspenders: never let the greenlet die loud
+        logger.warning("[TICKER] _narrate_and_emit(%s) failed: %s", kind, exc)
+
+
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
     from cash_mode import economy_flags
@@ -448,6 +572,16 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         gather_invite = invites.open_invite_for_gather(invite_repo, owner_id)
         called_up = set(gather_invite['reserved_pids'] or []) if gather_invite else set()
 
+        # Async narration (Step 2): off-tick flavor for vice/hustle starts.
+        # Spawns a background greenlet (it records the feed event; the next
+        # tick emits it). None → synchronous in-tick narration (kill switch).
+        def _schedule_narration(kind: str, starts: list, sbx: Optional[str]) -> None:
+            if not starts:
+                return
+            socketio.start_background_task(_narrate_and_emit, kind, list(starts), sbx)
+
+        narration_scheduler = _schedule_narration if _async_narration_enabled() else None
+
         results = refresh_unseated_tables(
             cash_table_repo=extensions.cash_table_repo,
             personality_repo=extensions.personality_repo,
@@ -466,6 +600,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
             # Keep personas who are in a tournament out of cash seats.
             tournament_repo=extensions.tournament_session_repo,
             called_up_pids=called_up or None,
+            narration_scheduler=narration_scheduler,
         )
 
         if gather_invite and called_up:

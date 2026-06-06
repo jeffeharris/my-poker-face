@@ -27,7 +27,7 @@ import json
 import logging
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -127,6 +127,20 @@ land on the same minute."""
 DEFAULT_DURATION_BUCKET = 'medium'
 """Used when the narration callback fails or returns an unknown bucket."""
 
+VICE_BUCKET_WEIGHTS: Dict[str, float] = {'short': 0.45, 'medium': 0.40, 'long': 0.15}
+"""Base distribution the system samples a vice duration bucket from.
+
+The duration is no longer the LLM's call (it used to come back in the
+narration JSON) — the system picks it deterministically from these
+weights so the economics never wait on (or depend on) an LLM. Tunable;
+the headless sim gets the same distribution with zero LLM calls."""
+
+VICE_PRESSURE_SKEW = 0.5
+"""How strongly `pressure` (1 − min(confidence, composure, energy)) skews
+the bucket toward `long`. At full pressure this fraction of `short`'s mass
+is moved to `long` — a drained/tilted AI escapes for longer (escapism).
+0 disables the skew (flat weights)."""
+
 
 # --- Cost gates -------------------------------------------------------------
 
@@ -156,6 +170,13 @@ class ViceStartResult:
     narration: str
     excess_ratio: float
     pressure: float
+    # The `{confidence, composure, energy}` snapshot at fire time, carried so
+    # the async ticker narration (ASYNC_TICKER_NARRATION.md Step 2) can pass it
+    # as cue context to the off-tick flavor LLM — the narration is produced
+    # after this result is returned, so the snapshot has to ride along. Default
+    # None: the synchronous path doesn't need it (it narrates in-tick with psych
+    # still in scope), and it keeps the dataclass back-compatible.
+    psychology_snapshot: Optional[Dict[str, float]] = None
 
 
 @dataclass(frozen=True)
@@ -361,6 +382,45 @@ def duration_for_bucket(bucket: str, rng: random.Random) -> timedelta:
     return timedelta(seconds=delta_s)
 
 
+def pick_duration_bucket(
+    pressure: float,
+    rng: random.Random,
+    *,
+    weights: Optional[Dict[str, float]] = None,
+    pressure_skew: float = VICE_PRESSURE_SKEW,
+) -> str:
+    """System-side duration bucket picker — deterministic given `rng`.
+
+    Replaces the old "LLM returns the duration" coupling. The bucket is
+    sampled from `weights` (default `VICE_BUCKET_WEIGHTS`); higher
+    `pressure` skews the draw toward `long` (a strung-out AI escapes for
+    longer). At `pressure=1.0`, `pressure_skew` of `short`'s mass is moved
+    onto `long`; at `pressure=0` the base weights are used unchanged.
+
+    Pure / reproducible: same `rng` state + inputs → same bucket, so the
+    headless sim runs vice durations with no LLM call.
+    """
+    if weights is None:
+        weights = VICE_BUCKET_WEIGHTS
+    p = max(0.0, min(1.0, pressure))
+    shift = weights.get('short', 0.0) * p * pressure_skew
+    skewed = {
+        'short': weights.get('short', 0.0) - shift,
+        'medium': weights.get('medium', 0.0),
+        'long': weights.get('long', 0.0) + shift,
+    }
+    total = sum(skewed.values())
+    if total <= 0:
+        return DEFAULT_DURATION_BUCKET
+    roll = rng.random() * total
+    cumulative = 0.0
+    for bucket in ('short', 'medium', 'long'):
+        cumulative += skewed[bucket]
+        if roll < cumulative:
+            return bucket
+    return 'long'
+
+
 def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
 
@@ -368,13 +428,14 @@ def _clamp01(value: float) -> float:
 # --- Narration callback type ------------------------------------------------
 
 
-NarrateFn = Callable[[str, int, Optional[Dict]], Tuple[str, str]]
-"""Signature: (personality_id, amount, psychology_snapshot) ->
-(narration, duration_bucket). The bucket is one of 'short' /
-'medium' / 'long'.
+NarrateFn = Callable[[str, int, Optional[Dict], str], str]
+"""Signature: (personality_id, amount, psychology_snapshot,
+duration_bucket) -> narration. Flavor-only.
 
-In Commit 1 the dispatcher uses `_templated_narrate_fn` as a stub.
-Commit 3 plugs in the real LLM-backed narrator.
+The duration bucket is now chosen system-side (`pick_duration_bucket`)
+and passed *into* the narrator so the line is consistent with the chosen
+duration — the narrator no longer decides how long the AI is gone. The
+fallback is `_templated_narrate_fn`.
 """
 
 
@@ -382,15 +443,16 @@ def _templated_narrate_fn(
     personality_id: str,
     amount: int,
     psychology_snapshot: Optional[Dict],
-) -> Tuple[str, str]:
-    """Fallback narrator used by Commit 1 and by Commit 3 on LLM failure.
+    duration_bucket: str = DEFAULT_DURATION_BUCKET,
+) -> str:
+    """Fallback narrator — plain templated line (flavor only).
 
-    Produces a plain templated line and always picks the medium bucket.
+    Used by the headless sim and by the LLM narrator on failure. The
+    duration is decided by the caller (`pick_duration_bucket`); the
+    bucket arg is accepted for signature parity but doesn't change the
+    plain line.
     """
-    return (
-        f"{personality_id} stepped out to spend ${amount:,} on something",
-        DEFAULT_DURATION_BUCKET,
-    )
+    return f"{personality_id} stepped out to spend ${amount:,} on something"
 
 
 # --- Psych helpers ----------------------------------------------------------
@@ -867,18 +929,19 @@ def resolve_ai_vice_spending(
 
     out: List[ViceStartResult] = []
     for pid, amount, excess, pressure, psych in selected:
-        # Synchronous narration — duration comes back with the line.
+        # Duration is chosen system-side (deterministic, tunable, no LLM)
+        # and passed into the narrator so the flavor line fits the chosen
+        # length. The narration is flavor-only now.
+        duration_bucket = pick_duration_bucket(pressure, rng)
         try:
-            narration, duration_bucket = narrate_fn(pid, amount, psych)
+            narration = narrate_fn(pid, amount, psych, duration_bucket)
         except Exception as exc:
             logger.warning(
                 "[VICE] narrate_fn failed pid=%r: %s; using fallback",
                 pid,
                 exc,
             )
-            narration, duration_bucket = _templated_narrate_fn(pid, amount, psych)
-        if duration_bucket not in DURATION_RANGES:
-            duration_bucket = DEFAULT_DURATION_BUCKET
+            narration = _templated_narrate_fn(pid, amount, psych, duration_bucket)
 
         delta = duration_for_bucket(duration_bucket, rng)
         ends_at = now + delta
@@ -898,7 +961,9 @@ def resolve_ai_vice_spending(
             pressure=pressure,
         )
         if committed:
-            out.append(committed)
+            # Carry the psych snapshot so the async ticker narration can use it
+            # as cue context off the tick (the line is produced later).
+            out.append(replace(committed, psychology_snapshot=psych))
     return out
 
 
@@ -983,20 +1048,19 @@ def commit_leave_vice(
     if amount <= 0:
         return None
 
+    duration_bucket = pick_duration_bucket(pressure, rng)
     try:
-        narration, duration_bucket = narrate_fn(personality_id, amount, psych)
+        narration = narrate_fn(personality_id, amount, psych, duration_bucket)
     except Exception as exc:
         logger.warning(
             "[VICE] leave-vice narrate_fn failed pid=%r: %s; using fallback",
             personality_id,
             exc,
         )
-        narration, duration_bucket = _templated_narrate_fn(personality_id, amount, psych)
-    if duration_bucket not in DURATION_RANGES:
-        duration_bucket = DEFAULT_DURATION_BUCKET
+        narration = _templated_narrate_fn(personality_id, amount, psych, duration_bucket)
 
     ends_at = now + duration_for_bucket(duration_bucket, rng)
-    return _commit_vice_start(
+    committed = _commit_vice_start(
         bankroll_repo=bankroll_repo,
         chip_ledger_repo=chip_ledger_repo,
         vice_repo=vice_repo,
@@ -1010,6 +1074,8 @@ def commit_leave_vice(
         excess_ratio=excess,
         pressure=pressure,
     )
+    # Carry the psych snapshot for the async narration cue context (as above).
+    return replace(committed, psychology_snapshot=psych) if committed else committed
 
 
 # --- Internals --------------------------------------------------------------

@@ -2,7 +2,7 @@
 purpose: Implementation plan to decouple vice/side-hustle duration from the LLM (system-side, tunable) and make the flavor narration async off the ticker's hot path, inserting into the feed when it returns
 type: guide
 created: 2026-06-06
-last_updated: 2026-06-06
+last_updated: 2026-06-07
 ---
 
 # Async ticker narration + system-side duration
@@ -140,4 +140,49 @@ hand — record the event when the LLM returns and the next tick emits it.
 - Already landed (Stage 0, branch `scaling-stage1`): `DECISION_ANALYSIS_ITERATIONS`
   500→250, env-tunable ticker pacing constants. The earlier *templated-narration*
   attempt was reverted (`e56a31ca`) in favor of this async design.
-- Not started: Step 1 / Step 2 above.
+- **Step 1 DONE (uncommitted, 2026-06-07)** — duration decoupled to a system-side
+  picker; narration is flavor-only.
+  - `ai_vice_spending.py`: `VICE_BUCKET_WEIGHTS`, `VICE_PRESSURE_SKEW`,
+    `pick_duration_bucket(pressure, rng, *, weights, pressure_skew)` (deterministic;
+    higher pressure → `long`). `NarrateFn` → `(pid, amount, psych, bucket) -> str`;
+    `_templated_narrate_fn` returns the line only; `resolve_ai_vice_spending` +
+    `commit_leave_vice` pick the bucket then call the flavor-only `narrate_fn`.
+  - `ai_side_hustle.py`: `HUSTLE_BUCKET_WEIGHTS` + `pick_hustle_duration_bucket(
+    deficit_ratio, rng)` (reuses vice's picker, deficit drives the skew). `NarrateFn`
+    → `(pid, amount, bucket) -> str`.
+  - `vice_narration.py` / `side_hustle_narration.py`: `narrate_*` take `duration_bucket`,
+    return `str`; prompt states the chosen duration (`_DURATION_HINTS`); parse drops the
+    duration field.
+  - `lobby.py`: `_vice_narrate` / `_hustle_narrate` thread the bucket through.
+  - Tests: narration tests rewritten for the string return + bucket-in-prompt;
+    `test_ai_side_hustle::test_uses_narrate_fn` updated; `TestPickDurationBucket` added
+    (determinism, base-weight distribution, pressure skew, clamping, degenerate weights).
+  - **Sim now runs vice/hustle economics with zero LLM calls** (narrate_fn=None + system bucket).
+- **Step 2 DONE (uncommitted, 2026-06-07)** — flavor narration moved OFF the tick.
+  Reviewed by Codex (session `async-narration-step2`); the two required adjustments
+  (fresh emit-time timestamps; the user-visible state-row placeholder) are folded in.
+  - `refresh_unseated_tables(..., narration_scheduler=None)`: when set (ticker only),
+    resolve vice+hustle with `narrate_fn=None` (in-tick placeholder, no LLM), emit ENDS
+    inline, hand STARTS to `narration_scheduler('vice'|'hustle', starts, sandbox_id)`.
+    Default None preserves the inline-sync path (routes / tests / sim).
+  - `ViceStartResult` gains a `psychology_snapshot` field (default None), attached via
+    `dataclasses.replace` in `resolve_ai_vice_spending` + `commit_leave_vice`, so the
+    off-tick narrator gets the same `{confidence, composure, energy}` cue context the
+    synchronous path had (the line is produced after the result is returned).
+  - `ticker_service.py`: `_async_narration_enabled()` flag
+    (`TICKER_ASYNC_NARRATION_ENABLED`, default on; kill switch reverts to sync); a
+    per-tick `_schedule_narration` closure → `socketio.start_background_task(
+    _narrate_and_emit, ...)`. `_narrate_and_emit` (fail-soft greenlet): per start, calls
+    the flavor LLM (passing the carried psych snapshot + chosen bucket), updates the
+    state-row narration, and records the feed event with a **fresh `utcnow()`** timestamp
+    (NOT the tick's `now` — else the per-owner marker filters it out). The next poll emits
+    the `world_event`.
+  - `vice_state_repository.py` / `side_hustle_state_repository.py`: narrow
+    `update_narration(pid, *, sandbox_id, narration)` so the active-vice (`cash_routes`)
+    and `whereabouts` surfaces show the real line, not the placeholder.
+  - Tests: `tests/test_cash_mode/test_async_narration.py` (update_narration repo round-trip
+    + missing-row; `_narrate_and_emit` vice/hustle record the real line + update the row +
+    pass the bucket to the LLM; fail-soft never raises; empty no-op).
+  - Full `test_cash_mode/` + `test_ticker_service` + repo + sim/route-touching tests green.
+- **Not yet done:** live verification on prod; commit (held per request until the scaling
+  branch is the active commit target).
