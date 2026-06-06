@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
@@ -11,10 +10,7 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
-import { ShuffleLoading, type TickerLine } from '../shared/ShuffleLoading';
-import { selectInterhandTicker } from '../cash/interhandTicker';
-import { feedEventKey, renderEventIcon } from '../cash/tickerEvents';
-import { pickQuote } from '../game/WinnerAnnouncement/quote-flavor';
+import { ShuffleLoading } from '../shared/ShuffleLoading';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { LLMDebugModal } from './LLMDebugModal';
@@ -33,7 +29,8 @@ import { useGameStore } from '../../stores/gameStore';
 import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
-import { useCoach } from '../../hooks/useCoach';
+import { useMobileCoach } from '../../hooks/useMobileCoach';
+import { useInterhandMessaging } from '../../hooks/useInterhandMessaging';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
@@ -51,10 +48,6 @@ interface MobilePokerTableProps {
   onBack?: () => void;
   onGameLoadFailed?: () => void;
 }
-
-// How many world-ticker beats the interhand "meanwhile, elsewhere" strip
-// shows at once. A few of the biggest/rarest — not a full feed.
-const MAX_INTERHAND_TICKER = 3;
 
 export function MobilePokerTable({
   gameId: providedGameId,
@@ -246,31 +239,18 @@ export function MobilePokerTable({
     clearWinnerInfo();
   }, [winnerInfo, beginShuffle, clearWinnerInfo]);
 
-  // Pick a flavor quote for the interhand shuffle. Memoized by handNumber so
-  // it stays stable across re-renders during a single shuffle and changes
-  // each hand.
-  const interhandQuote = useMemo(() => {
-    const q = pickQuote('between_hands');
-    return q ? { text: q.text, attribution: q.attribution } : undefined;
-    // handNumber is an intentional recompute key (not read inside): it re-picks
-    // the random quote each new hand while staying stable on re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handNumber]);
-
-  // Cash/career mode: turn the interhand pause into a "meanwhile, elsewhere"
-  // world ticker — the bigger, rarer beats from around the room since this
-  // hand started (events tagged with the hand that just ended), minus routine
-  // sit-downs/leaves. `undefined` in tournament mode, where the world isn't
-  // simulated and the hand-number badge stays.
-  const interhandTicker = useMemo<TickerLine[] | undefined>(() => {
-    if (!cashMode) return undefined;
-    const thisHand = worldEvents.filter((w) => w.hand === handNumber).map((w) => w.event);
-    return selectInterhandTicker(thisHand, MAX_INTERHAND_TICKER).map((e) => ({
-      key: feedEventKey(e),
-      icon: renderEventIcon(e.type),
-      message: e.message,
-    }));
-  }, [cashMode, worldEvents, handNumber]);
+  // Between-hands ShuffleLoading content: the fold-out "walk" result line, a
+  // per-hand flavor quote, and the cash-mode world ticker. The walk-result path
+  // also drives the shuffle beat + clears the winner, so it takes those in.
+  const { interhandMessage, interhandSubmessage, interhandQuote, interhandTicker } =
+    useInterhandMessaging({
+      winnerInfo,
+      handNumber,
+      cashMode,
+      worldEvents,
+      beginShuffle,
+      clearWinnerInfo,
+    });
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
@@ -374,67 +354,17 @@ export function MobilePokerTable({
   const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
   const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
 
-  // Fold-out (walk) wins are intentionally uneventful: no winner overlay, just
-  // the shuffle screen with the winner line in place of "Shuffling". Capture
-  // that line, hand straight off to the director's shuffle beat (whose minimum
-  // floor keeps it from flashing), and clear winnerInfo so the showdown overlay
-  // never mounts for a walk.
-  const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
-  const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (!winnerInfo || winnerInfo.showdown) return;
-    // Compute net profit (gross winnings minus what the winner put in)
-    let netProfit: number | null = null;
-    if (winnerInfo.pot_breakdown) {
-      const gross = winnerInfo.pot_breakdown.reduce(
-        (sum, pot) => sum + pot.winners.reduce((s, w) => s + w.amount, 0),
-        0
-      );
-      const contributions = winnerInfo.pot_contributions ?? {};
-      const winnerContrib = winnerInfo.winners.reduce(
-        (sum, name) => sum + (contributions[name] ?? 0),
-        0
-      );
-      netProfit = gross - winnerContrib;
-    }
-    const names =
-      winnerInfo.winners.length > 1 ? winnerInfo.winners.join(' & ') : winnerInfo.winners[0];
-    const verb = winnerInfo.winners.length > 1 ? 'SPLIT' : 'WON';
-    // Name on its own line (the hero); the amount drops to the line below as
-    // "WON $X" — no animated dots, since the hand is finished, not loading.
-    setInterhandMessage(names);
-    setInterhandSubmessage(
-      netProfit != null && netProfit > 0 ? `${verb} $${netProfit.toLocaleString()}` : verb
-    );
-
-    if (!winnerInfo.is_final_hand) {
-      beginShuffle();
-    }
-    clearWinnerInfo();
-  }, [winnerInfo, clearWinnerInfo, beginShuffle]);
-
-  // Clear the walk message once the next hand starts.
-  useEffect(() => {
-    setInterhandMessage(null);
-    setInterhandSubmessage(undefined);
-  }, [handNumber]);
-
-  // Coach hook
-  const coach = useCoach({
-    gameId: providedGameId ?? null,
-    playerName: playerName || '',
-    isPlayerTurn: !!showActionButtons,
-  });
-
-  const coachEnabled = !isGuest && coach.mode !== 'off';
-
-  // Memoize coach recommendation values to prevent unnecessary re-renders of MobileActionButtons
-  // - Proactive mode: Show coach's recommendation after proactive tip (coachAction)
-  // - Reactive mode: Only show recommendation after player asks a question (coachAction)
-  // - Off mode: No highlighting
-  const recommendedAction = coach.mode === 'off' ? null : coach.coachAction;
-  const raiseToAmount = coach.mode === 'off' ? null : coach.coachRaiseTo;
+  // Coach integration (wraps useCoach + table glue: toggle, post-hand review,
+  // unread-clear, skill-unlock toasts, recommendation values).
+  const { coach, coachEnabled, recommendedAction, raiseToAmount, handleCoachToggle } =
+    useMobileCoach({
+      gameId: providedGameId ?? null,
+      playerName: playerName || '',
+      isPlayerTurn: !!showActionButtons,
+      isGuest,
+      winnerInfo,
+      showCoachPanel,
+    });
 
   const menuBarCenter = useMemo(
     () => (
@@ -448,74 +378,6 @@ export function MobilePokerTable({
     ),
     [phase, smallBlind, bigBlind, handNumber, cashMode?.table_name]
   );
-
-  const handleCoachToggle = useCallback(() => {
-    try {
-      if (coachEnabled) {
-        // Save current mode before turning off
-        localStorage.setItem('coach_mode_before_off', coach.mode);
-        coach.setMode('off');
-      } else {
-        // Restore previous mode
-        const previous = localStorage.getItem('coach_mode_before_off');
-        coach.setMode(previous === 'proactive' || previous === 'reactive' ? previous : 'reactive');
-      }
-    } catch (err) {
-      logger.warn('localStorage unavailable for coach mode toggle:', err);
-      coach.setMode(coachEnabled ? 'off' : 'reactive');
-    }
-  }, [coachEnabled, coach]);
-
-  // When a hand ends, request a post-hand review from the coach.
-  // coach.mode is omitted: we only want to trigger on winnerInfo change,
-  // not re-fire when mode toggles while a winner banner is showing.
-  useEffect(() => {
-    if (winnerInfo && coach.mode !== 'off') {
-      coach.fetchHandReview();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winnerInfo, coach.fetchHandReview]);
-
-  // Clear unread review indicator when coach panel is opened.
-  // coach.hasUnreadReview is omitted: we only want to clear when the panel
-  // opens, not re-fire when a new review arrives while the panel is already open.
-  useEffect(() => {
-    if (showCoachPanel && coach.hasUnreadReview) {
-      coach.clearUnreadReview();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCoachPanel, coach.clearUnreadReview]);
-
-  // Skill unlock toasts — show all staggered, then dismiss entire batch
-  useEffect(() => {
-    if (coach.skillUnlockQueue.length === 0) return;
-
-    // Snapshot the queue and dismiss immediately so the effect won't re-fire
-    const batch = [...coach.skillUnlockQueue];
-    batch.forEach((id) => coach.dismissSkillUnlock(id));
-
-    const timers = batch.map((skillId, i) => {
-      const skillName =
-        coach.progression?.skill_states[skillId]?.name ?? skillId.replace(/_/g, ' ');
-      return setTimeout(() => {
-        toast(`New skill unlocked: ${skillName}`, {
-          duration: 4000,
-          style: {
-            background: 'rgba(20, 22, 30, 0.95)',
-            color: '#eee',
-            border: '1px solid rgba(52, 211, 153, 0.3)',
-            borderRadius: '12px',
-            fontSize: '13px',
-          },
-        });
-      }, i * 600);
-    });
-
-    return () => {
-      timers.forEach(clearTimeout);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coach.skillUnlockQueue]);
 
   const isInitialLoading = loading && !storePlayers;
   const hasGameData = Boolean(storePlayers && pot);
