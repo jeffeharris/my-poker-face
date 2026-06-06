@@ -227,6 +227,13 @@ def get_distinct_emotions():
     return jsonify({'success': True, 'emotions': emotions})
 
 
+@prompt_debug_bp.route('/api/prompt-debug/players', methods=['GET'])
+def get_distinct_players():
+    """Get distinct player_name values (for the player filter)."""
+    players = extensions.prompt_capture_repo.get_distinct_players()
+    return jsonify({'success': True, 'players': players})
+
+
 @prompt_debug_bp.route('/api/prompt-debug/label-stats', methods=['GET'])
 def get_label_stats():
     """Get label statistics for prompt captures.

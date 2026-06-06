@@ -1,17 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, ChevronLeft, ChevronRight, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Globe } from 'lucide-react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { useViewport } from '../../../hooks/useViewport';
 import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 import { logger } from '../../../utils/logger';
-import { MobileFilterBar } from '../shared/MobileFilterBar';
 import { CollapsibleSection } from '../shared/CollapsibleSection';
 import type {
   PromptCapture,
   CaptureStats,
-  CaptureFilters,
+  CaptureFilters as CaptureFiltersType,
   ReplayResponse,
   DecisionAnalysisStats,
   ConversationMessage,
@@ -24,8 +23,7 @@ import { getActionColor } from './utils';
 import { AnalysisStatsBar } from './AnalysisStatsBar';
 import { CaptureList } from './CaptureList';
 import { CaptureDetailPanel } from './CaptureDetailPanel';
-import { DesktopFilterBar } from './DesktopFilterBar';
-import { CaptureFilterSheet } from './CaptureFilterSheet';
+import { CaptureFilters } from './CaptureFilters';
 import './DecisionAnalyzer.css';
 
 interface DecisionAnalyzerProps {
@@ -77,9 +75,10 @@ export function DecisionAnalyzer({
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [availableEmotions, setAvailableEmotions] = useState<string[]>([]);
+  const [availablePlayers, setAvailablePlayers] = useState<string[]>([]);
 
   // Filters
-  const [filters, setFilters] = useState<CaptureFilters>({
+  const [filters, setFilters] = useState<CaptureFiltersType>({
     limit: 50,
     offset: 0,
   });
@@ -263,19 +262,24 @@ export function DecisionAnalyzer({
     }
   }, [filters.game_id]);
 
-  // Fetch distinct emotions for filter dropdown (once on mount)
+  // Fetch distinct emotions + players for the filter dropdowns (once on mount)
   useEffect(() => {
     (async () => {
       try {
-        const response = await fetch(`${config.API_URL}/api/prompt-debug/emotions`, {
-          credentials: 'include',
-        });
-        if (response.ok) {
-          const data = await response.json();
+        const [emotionsRes, playersRes] = await Promise.all([
+          fetch(`${config.API_URL}/api/prompt-debug/emotions`, { credentials: 'include' }),
+          fetch(`${config.API_URL}/api/prompt-debug/players`, { credentials: 'include' }),
+        ]);
+        if (emotionsRes.ok) {
+          const data = await emotionsRes.json();
           setAvailableEmotions(data.emotions || []);
         }
+        if (playersRes.ok) {
+          const data = await playersRes.json();
+          setAvailablePlayers(data.players || []);
+        }
       } catch (err) {
-        logger.debug('Failed to fetch emotions:', err);
+        logger.debug('Failed to fetch filter options:', err);
       }
     })();
   }, []);
@@ -432,6 +436,7 @@ export function DecisionAnalyzer({
   // Count active filters for mobile filter button badge
   const getActiveFilterCount = () => {
     let count = 0;
+    if (filters.player_name) count++;
     if (filters.action) count++;
     if (filters.phase) count++;
     if (filters.min_pot_odds !== undefined) count++;
@@ -572,24 +577,22 @@ export function DecisionAnalyzer({
         </div>
       )}
 
-      {/* Mobile list header bar - shows filter and refresh icons */}
-      {isMobile && !showMobileDetail && (
-        <MobileFilterBar
-          activeFilterCount={activeFilterCount}
-          onFilterClick={() => setFilterSheetOpen(true)}
-          actions={
-            <button
-              className="mobile-filter-bar__icon-btn"
-              onClick={fetchCaptures}
-              disabled={loading}
-              type="button"
-              aria-label="Refresh"
-            >
-              <RefreshCw size={20} className={loading ? 'spinning' : ''} />
-            </button>
-          }
-        />
-      )}
+      {/* Filters: desktop inline row, or mobile filter bar + sheet */}
+      <CaptureFilters
+        isMobile={isMobile}
+        showMobileDetail={showMobileDetail}
+        filters={filters}
+        onFiltersChange={setFilters}
+        availablePlayers={availablePlayers}
+        availableEmotions={availableEmotions}
+        labelStats={labelStats}
+        loading={loading}
+        onRefresh={fetchCaptures}
+        onToggleLabel={toggleLabelFilter}
+        activeFilterCount={activeFilterCount}
+        filterSheetOpen={filterSheetOpen}
+        onFilterSheetOpenChange={setFilterSheetOpen}
+      />
 
       {/* Stats still computing - list is already visible above */}
       {statsLoading && !analysisStats && !stats && (!isMobile || !showMobileDetail) && (
@@ -621,19 +624,6 @@ export function DecisionAnalyzer({
         </CollapsibleSection>
       )}
 
-      {/* Filters - desktop only (mobile filters are in header) */}
-      {!isMobile && (
-        <DesktopFilterBar
-          filters={filters}
-          onFiltersChange={setFilters}
-          availableEmotions={availableEmotions}
-          labelStats={labelStats}
-          loading={loading}
-          onRefresh={fetchCaptures}
-          onToggleLabel={toggleLabelFilter}
-        />
-      )}
-
       {error && <div className="debugger-error">{error}</div>}
 
       {/* Mobile: Show list OR detail based on showMobileDetail state */}
@@ -650,17 +640,6 @@ export function DecisionAnalyzer({
           <CaptureDetailPanel variant="desktop" {...detailPanelProps} />
         </div>
       )}
-
-      {/* Mobile Filter Sheet */}
-      <CaptureFilterSheet
-        isOpen={filterSheetOpen}
-        onClose={() => setFilterSheetOpen(false)}
-        filters={filters}
-        onFiltersChange={setFilters}
-        availableEmotions={availableEmotions}
-        labelStats={labelStats}
-        onToggleLabel={toggleLabelFilter}
-      />
     </div>
   );
 

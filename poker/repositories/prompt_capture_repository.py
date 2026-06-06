@@ -444,6 +444,23 @@ class PromptCaptureRepository(BaseRepository):
             )
             return [row[0] for row in cursor.fetchall()]
 
+    def get_distinct_players(self) -> List[str]:
+        """Get distinct player_name values across captures and analyses.
+
+        Unions both sources so the filter covers LLM-bot captures and the
+        analysis-only rows (solver / TieredBot / human decisions that skipped
+        the LLM and have no prompt capture).
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT DISTINCT player_name FROM ("
+                "  SELECT player_name FROM prompt_captures WHERE player_name IS NOT NULL"
+                "  UNION"
+                "  SELECT player_name FROM player_decision_analysis WHERE player_name IS NOT NULL"
+                ") ORDER BY player_name"
+            )
+            return [row[0] for row in cursor.fetchall()]
+
     def get_prompt_capture_stats(
         self, game_id: Optional[str] = None, call_type: Optional[str] = None
     ) -> Dict[str, Any]:
