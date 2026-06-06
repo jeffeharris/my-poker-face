@@ -106,7 +106,7 @@ export function PricingFilters({
   return (
     <div className="prm-filters">
       <select
-        className="prm-select"
+        className="admin-input admin-select"
         value={filterProvider}
         onChange={(e) => setFilterProvider(e.target.value)}
       >
@@ -119,7 +119,7 @@ export function PricingFilters({
       </select>
       <input
         type="text"
-        className="prm-input prm-filters__search"
+        className="admin-input prm-filters__search"
         placeholder="Search models..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}

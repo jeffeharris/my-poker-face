@@ -78,7 +78,7 @@ export const PricingSlideOut = forwardRef<SlideOutRef, SlideOutProps>(function P
             <label>Valid From</label>
             <input
               type="date"
-              className="prm-input"
+              className="admin-input"
               value={validFrom}
               onChange={(e) => setValidFrom(e.target.value)}
             />
@@ -91,7 +91,7 @@ export const PricingSlideOut = forwardRef<SlideOutRef, SlideOutProps>(function P
               <label>{unitLabels[unit]}</label>
               <input
                 type="number"
-                className="prm-input"
+                className="admin-input"
                 value={editValues[unit]}
                 onChange={(e) => setEditValues((prev) => ({ ...prev, [unit]: e.target.value }))}
                 onKeyDown={(e) => {
@@ -110,11 +110,11 @@ export const PricingSlideOut = forwardRef<SlideOutRef, SlideOutProps>(function P
         <div className="prm-slideout__footer">
           <div className="prm-slideout__hint">↑↓ Navigate models</div>
           <div className="prm-slideout__actions">
-            <button className="prm-btn prm-btn--ghost" onClick={onClose} disabled={saving}>
+            <button className="admin-btn admin-btn--ghost" onClick={onClose} disabled={saving}>
               Cancel
             </button>
             <button
-              className="prm-btn prm-btn--primary"
+              className="admin-btn admin-btn--primary"
               onClick={handleSave}
               disabled={!isDirty || saving}
             >

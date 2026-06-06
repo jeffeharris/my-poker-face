@@ -27,7 +27,7 @@ export function AddPricingModal({
             <label>Provider *</label>
             <input
               type="text"
-              className="prm-input"
+              className="admin-input"
               value={newPricing.provider}
               onChange={(e) => setNewPricing((p) => ({ ...p, provider: e.target.value }))}
               placeholder="e.g., openai"
@@ -44,7 +44,7 @@ export function AddPricingModal({
             <label>Model *</label>
             <input
               type="text"
-              className="prm-input"
+              className="admin-input"
               value={newPricing.model}
               onChange={(e) => setNewPricing((p) => ({ ...p, model: e.target.value }))}
               placeholder="e.g., gpt-4o"
@@ -54,7 +54,7 @@ export function AddPricingModal({
           <div className="prm-form__group">
             <label>Unit *</label>
             <select
-              className="prm-select"
+              className="admin-input admin-select"
               value={newPricing.unit}
               onChange={(e) => setNewPricing((p) => ({ ...p, unit: e.target.value }))}
             >
@@ -79,7 +79,7 @@ export function AddPricingModal({
             <label>Cost (USD) *</label>
             <input
               type="number"
-              className="prm-input"
+              className="admin-input"
               value={newPricing.cost}
               onChange={(e) => setNewPricing((p) => ({ ...p, cost: e.target.value }))}
               placeholder="e.g., 2.50"
@@ -92,7 +92,7 @@ export function AddPricingModal({
             <label>Notes</label>
             <input
               type="text"
-              className="prm-input"
+              className="admin-input"
               value={newPricing.notes}
               onChange={(e) => setNewPricing((p) => ({ ...p, notes: e.target.value }))}
               placeholder="Optional notes"
@@ -101,10 +101,10 @@ export function AddPricingModal({
         </div>
 
         <div className="prm-modal__actions">
-          <button className="prm-btn prm-btn--ghost" onClick={onCancel}>
+          <button className="admin-btn admin-btn--ghost" onClick={onCancel}>
             Cancel
           </button>
-          <button className="prm-btn prm-btn--primary" onClick={onAdd}>
+          <button className="admin-btn admin-btn--primary" onClick={onAdd}>
             Add Entry
           </button>
         </div>

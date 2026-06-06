@@ -480,12 +480,16 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
         </button>
         <div className="prm-tabs__actions">
           {pendingChanges.size > 0 && (
-            <button className="prm-btn prm-btn--save-all" onClick={handleSaveAll} disabled={saving}>
+            <button
+              className="admin-btn prm-btn--save-all"
+              onClick={handleSaveAll}
+              disabled={saving}
+            >
               {saving ? 'Saving...' : `Save All (${pendingChanges.size})`}
             </button>
           )}
           {!isMobile && (
-            <button className="prm-btn prm-btn--primary" onClick={() => setShowAddModal(true)}>
+            <button className="admin-btn admin-btn--primary" onClick={() => setShowAddModal(true)}>
               + Add Entry
             </button>
           )}
