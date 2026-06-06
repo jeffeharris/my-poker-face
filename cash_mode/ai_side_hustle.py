@@ -50,8 +50,8 @@ from cash_mode import presence_shadow
 # their own ranges, lift these into a shared module then.
 from cash_mode.ai_vice_spending import (
     DEFAULT_DURATION_BUCKET,
-    DURATION_RANGES,
     duration_for_bucket,
+    pick_duration_bucket,
 )
 from cash_mode.presence import PresenceEvent, ai_entity_id
 
@@ -82,6 +82,27 @@ HUSTLE_STARTS_PER_REFRESH = 2
 """How many hustle STARTS fire per refresh. Bounds the LLM narration
 latency added to the refresh path (one sync call per start). Surplus
 candidates re-roll next refresh."""
+
+
+# --- Duration constants -----------------------------------------------------
+
+HUSTLE_BUCKET_WEIGHTS = {'short': 0.40, 'medium': 0.45, 'long': 0.15}
+"""Base distribution the system samples a hustle duration bucket from.
+Like vice, the duration is now chosen system-side (no LLM). A deeper
+deficit skews toward `long` (a bigger venture to climb out of the hole),
+reusing vice's `pick_duration_bucket` with `deficit_ratio` as the skew
+driver."""
+
+
+def pick_hustle_duration_bucket(deficit_ratio: float, rng: random.Random) -> str:
+    """System-side hustle duration picker — deterministic given `rng`.
+
+    Reuses vice's weighted picker with the hustle weight set; the deeper
+    the AI's deficit, the more it skews toward `long` (a real venture vs
+    a quick gig). Pure / reproducible so the sim runs durations with no
+    LLM call.
+    """
+    return pick_duration_bucket(deficit_ratio, rng, weights=HUSTLE_BUCKET_WEIGHTS)
 
 
 # --- Deadlock escape valve --------------------------------------------------
@@ -243,24 +264,29 @@ def compute_field_hustle_amount(
 # --- Narration callback type ------------------------------------------------
 
 
-NarrateFn = Callable[[str, int], Tuple[str, str]]
-"""Signature: (personality_id, amount) -> (narration, duration_bucket).
-The bucket is one of 'short' / 'medium' / 'long'.
+NarrateFn = Callable[[str, int, str], str]
+"""Signature: (personality_id, amount, duration_bucket) -> narration.
+Flavor-only.
 
-Phase 4 uses `_templated_narrate_fn`; Phase 7 plugs in the LLM-backed
-narrator. Unlike vice, the hustle narration doesn't take a psych
-snapshot — it's flavored by persona identity, not emotional state."""
+The duration bucket is now chosen system-side (`pick_hustle_duration_bucket`)
+and passed *into* the narrator so the line fits the chosen length — the
+narrator no longer decides how long the AI is gone. Unlike vice, the
+hustle narration doesn't take a psych snapshot — it's flavored by persona
+identity, not emotional state. The fallback is `_templated_narrate_fn`."""
 
 
-def _templated_narrate_fn(personality_id: str, amount: int) -> Tuple[str, str]:
-    """Fallback narrator — plain templated line, medium bucket.
+def _templated_narrate_fn(
+    personality_id: str,
+    amount: int,
+    duration_bucket: str = DEFAULT_DURATION_BUCKET,
+) -> str:
+    """Fallback narrator — plain templated line (flavor only).
 
-    Used in Phase 4 and by the Phase 7 LLM narrator on failure.
+    Used by the headless sim and by the LLM narrator on failure. The
+    duration is decided by the caller; the bucket arg is accepted for
+    signature parity but doesn't change the plain line.
     """
-    return (
-        f"{personality_id} stepped out to earn ${amount:,} on the side",
-        DEFAULT_DURATION_BUCKET,
-    )
+    return f"{personality_id} stepped out to earn ${amount:,} on the side"
 
 
 # --- Public entry points ----------------------------------------------------
@@ -387,17 +413,19 @@ def resolve_ai_side_hustle(
                 # earn nothing; it stays idle and retries next refresh.
                 continue
 
+        # Duration is chosen system-side (deterministic, tunable, no LLM)
+        # from the deficit, then passed into the narrator so the flavor
+        # line fits the chosen length. Narration is flavor-only now.
+        duration_bucket = pick_hustle_duration_bucket(deficit_ratio, rng)
         try:
-            narration, duration_bucket = narrate_fn(pid, payout)
+            narration = narrate_fn(pid, payout, duration_bucket)
         except Exception as exc:
             logger.warning(
                 "[HUSTLE] narrate_fn failed pid=%r: %s; using fallback",
                 pid,
                 exc,
             )
-            narration, duration_bucket = _templated_narrate_fn(pid, payout)
-        if duration_bucket not in DURATION_RANGES:
-            duration_bucket = DEFAULT_DURATION_BUCKET
+            narration = _templated_narrate_fn(pid, payout, duration_bucket)
 
         ends_at = now + duration_for_bucket(duration_bucket, rng)
 

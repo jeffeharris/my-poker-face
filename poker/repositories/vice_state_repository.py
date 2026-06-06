@@ -152,6 +152,35 @@ class ViceStateRepository(BaseRepository):
             return None
         return _row_to_vice_state(row)
 
+    def update_narration(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+        narration: str,
+    ) -> bool:
+        """Replace the narration on an existing vice row. Returns True iff
+        a row was updated.
+
+        Used by the async ticker narration path: the row is written
+        in-tick with a templated placeholder (the duration is already
+        chosen system-side), then a background greenlet replaces it with
+        the LLM flavor line once it returns — so the active-vice /
+        whereabouts surfaces (which read this row's narration for the
+        whole off-grid duration) show the real line, not the placeholder.
+        See `docs/plans/ASYNC_TICKER_NARRATION.md`.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE ai_vice_state
+                SET narration = ?
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (narration, personality_id, sandbox_id),
+            )
+            return cursor.rowcount > 0
+
     def delete(self, personality_id: str, *, sandbox_id: str) -> bool:
         """Delete the vice row. Returns True iff a row was removed."""
         with self._get_connection() as conn:
