@@ -874,8 +874,13 @@ def generate_bounded_options(
 
     # === ALL-IN option ===
     if 'all_in' in valid_actions:
-        # All-in is +EV with strong hands or when pot-committed
-        if equity >= 0.65 or (cost_to_call > context.get('player_stack', 0) * 0.5):
+        # All-in is +EV with a strong hand, OR when pot-committed AND the equity
+        # at least meets the price. The old code marked it +EV on the bet-size
+        # ratio alone (`cost_to_call > stack*0.5`), labelling an overbet shove
+        # we're priced out of (equity ~0.05–0.45 facing >½-stack) as +EV.
+        required_equity = context.get('required_equity', 0.5)
+        pot_committed = cost_to_call > context.get('player_stack', 0) * 0.5
+        if equity >= 0.65 or (pot_committed and equity >= required_equity):
             all_in_ev = "+EV"
         elif equity >= 0.45:
             all_in_ev = "neutral"
@@ -1502,13 +1507,25 @@ def get_emotional_shift(psychology) -> EmotionalShift:
         'detached': 'dissociated',
     }
 
+    # Corner zones (BOTH axes extreme) take precedence over single-axis edge
+    # zones. Their intensity is a PRODUCT of two depths, so it's always smaller
+    # than the corresponding edge zone's single depth — without this, `shaken`
+    # (low confidence AND low composure) could never win against `tilted` (low
+    # composure alone), and a scared player got the AGGRESSIVE tilted shift
+    # instead of the protective shaken one. When a corner fires, both axes ARE
+    # extreme, so it is the dominant read.
+    corner_zones = {'shaken', 'overheated', 'detached'}
+    mapped_penalties = [
+        (zone, intensity) for zone, intensity in penalties.items() if state_map.get(zone)
+    ]
+    corner = [(z, i) for z, i in mapped_penalties if z in corner_zones and i > 0]
+    pool = corner if corner else mapped_penalties
+
     best_state = 'composed'
     best_intensity = 0.0
-
-    for zone_name, intensity in penalties.items():
-        mapped = state_map.get(zone_name)
-        if mapped and intensity > best_intensity:
-            best_state = mapped
+    for zone_name, intensity in pool:
+        if intensity > best_intensity:
+            best_state = state_map[zone_name]
             best_intensity = intensity
 
     if best_intensity <= 0:

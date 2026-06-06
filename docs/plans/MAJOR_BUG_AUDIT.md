@@ -127,48 +127,47 @@ Severity: **S1** critical · **S2** major · **S3** moderate. Status: ✅ fixed 
 - **Fix:** stamp `bot_types`/`player_llm_configs` for each freshly-filled seat and persist them with an
   explicit `save_game(llm_configs=…)`. `flask_app/handlers/game_handler.py`. Cash-mode suite (1284) green.
 
+### ✅ 10. ALL-IN `+EV` label ignored equity — S3
+- **Was:** `+EV if equity>=0.65 OR cost_to_call > stack*0.5` — the second disjunct labelled an
+  overbet shove `+EV` purely on bet size, even at 5% equity.
+- **Fix:** the pot-committed disjunct now also requires `equity >= required_equity` (the pot odds).
+  `poker/bounded_options.py`.
+
+### ✅ 11. Postflop IP/OOP inverted SB vs BB in blind-vs-blind — S3
+- **Was:** a single `_POSITION_ORDER` ranked SB more in-position than BB; SB acts first postflop (OOP)
+  in 6-max, so the sharp/tiered bot picked the wrong solver chart in BvB (and mis-routed the induce 2×2).
+- **Fix:** table-aware ordering — 6-max ranks BB ahead of SB; heads-up keeps SB (the button) ahead of
+  BB. `_determine_position` detects HU (button == small_blind_player). `poker/strategy/postflop_classifier.py`.
+  Regressions: `test_bvb_6max_bb_is_ip_sb_is_oop`, `test_heads_up_button_sb_is_ip`.
+
+### ✅ 12. SPR bucket used hero's own stack, not effective — S3
+- **Was:** `_determine_spr_bucket` set `effective_stack = player.stack`, overstating SPR when hero
+  covers a shorter opp and suppressing the low-SPR `postflop_commit` chart.
+- **Fix:** uses `stack_utils.effective_stack_chips` (min hero / largest active opp).
+  `poker/strategy/postflop_classifier.py`. Regression: `test_spr_uses_effective_stack`.
+
+### ✅ 13. `shaken` corner zone was unreachable → scared players got an AGGRESSIVE shift — S3
+- **Was:** `get_emotional_shift` picks the highest-intensity penalty, but `shaken`'s intensity is a
+  PRODUCT of two depths (always < `tilted`'s single depth), so a scared (low conf + low comp) player
+  always resolved to the aggressive `tilted` shift instead of the protective `shaken` one.
+- **Fix:** corner zones (both axes extreme: shaken/overheated/detached) take precedence over single-axis
+  edge zones. `poker/bounded_options.py`. Regression: `TestGetEmotionalShiftCornerPrecedence`.
+
 ---
 
 ## Open — ranked
 
 ### S3 (strategy / rules)
 
-#### ⬜ 10. ALL-IN option labeled `+EV` purely on bet-size ratio, ignoring equity
-`all_in_ev = "+EV" if equity>=0.65 or cost_to_call > stack*0.5` — second disjunct ignores equity.
-Mislabels overbet shoves (equity ~0.05–0.45 facing >½-stack bet) as +EV. LLM still has fold/call.
-- **Files:** `poker/bounded_options.py:857-864`.
-- **Scope:** Gate the second disjunct on equity (pot-odds/committed, not remaining-stack ratio).
-
-#### ⬜ 11. Postflop IP/OOP classifier inverts SB vs BB in blind-vs-blind pots
-`_POSITION_ORDER` ranks SB more in-position than BB; SB acts first postflop so it's OOP. Sharp/Tiered
-bot picks wrong solver chart + mis-routes the induce 2×2 in BvB. HU special-casing makes a naive fix
-break heads-up.
-- **Files:** `poker/strategy/postflop_classifier.py:17,51-72`, `poker/strategy/induce_override.py:704-774`.
-- **Scope:** Fix SB/BB order without breaking the HU button-collapse path.
-
-#### ⬜ 12. SPR bucket uses hero's own stack, not effective (min) stack
-`_determine_spr_bucket` sets `effective_stack = player.stack` (mislabeled), overstating SPR when hero
-covers a shorter opp → suppresses `postflop_commit`. One-directional, sharp bot only; SPR fallback
-degrades to 'high' anyway.
-- **Files:** `poker/strategy/postflop_classifier.py:93-107` (correct helper unused in `stack_utils.py`).
-- **Scope:** Use `effective_stack_chips` (min hero/opp).
-
-#### ⬜ 13. `shaken` corner zone unreachable in emotional shift → scared+tilted players get AGGRESSIVE shift
-`tilted` and `shaken` share the 0.35 composure threshold and `shaken_intensity` is always a strict
-fraction of `tilted_intensity`, so tilted always wins. In band confidence ∈ [0.10,0.35) with
-composure<0.35, risk-averse personas get an all-in nudge instead of fold-and-protect. Partly offset
-by `compute_modifiers`. (The `shaken` STATE is still reachable via the `timid` zone.) **Tests mock
-impossible penalty dicts → false green.**
-- **Files:** `poker/zone_detection.py:303-315`, `poker/bounded_options.py:1442-1506,1013-1019`, `poker/psychology_model.py:595-611`.
-- **Scope:** Separate the thresholds or re-weight shaken intensity; fix the misleading tests.
-
-#### ⬜ 14. Short all-in reopens betting for already-acted players (illegal re-raise)
+#### ⬜ 14. Short all-in reopens betting for already-acted players (illegal re-raise) — DEFERRED
 `place_bet` unconditionally calls `reset_player_action_flags(exclude_current_player=True)` whenever
-the high bet rises, even for a sub-min-raise all-in; `player_all_in` only implements the
-min-raise-sizing half of "don't reopen." NLHE rules violation; narrow conjunction; no crash,
+the high bet rises, even for a sub-min-raise all-in. NLHE rules violation; narrow conjunction; no crash,
 conservation intact.
-- **Files:** `poker/poker_game.py:489-492,591-623,497-508`, `poker/poker_state_machine.py:289-294`.
-- **Scope:** Gate the flag reset on whether the increment is a full legal raise.
+- **Files:** `poker/poker_game.py:489-492,591-623`, `poker/poker_state_machine.py`.
+- **Why deferred:** the audit's "gate the flag reset on a full legal raise" is NOT a complete fix — it
+  would stop already-acted players from getting their *legal* call/fold on the short all-in (they may
+  call or fold, just not re-raise). A correct fix needs call-but-not-raise legal-action restriction in
+  core betting logic + heavy round-termination testing. Too risky for a batch; needs its own change.
 
 ### S3 (low tier — flavor / dormant / doc-drift)
 
