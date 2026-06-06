@@ -106,7 +106,7 @@ registered users.
 
 | Stage | Move | Effort | Removes |
 |---|---|---|---|
-| **0 — tuning** | Relieve the single worker (knobs below), keep `-w 1` | ~1 d | foreground contention — **the main 20-user lever (validate under load)** |
+| **0 — tuning** ✅ code landed | Relieve the single worker (knobs below), keep `-w 1` | ~1 d | foreground contention — **the main 20-user lever (validate under load)** |
 | **1A** ✅ done | Memoize strategy tables in `tiered_factory.py` | ~2 h | per-game-start JSON re-reads |
 | **3** | Bigger box (CPX21 4 GB ≈ +€6/mo) | ~1 h, no code | RAM + co-tenant contention relief (**not** foreground parallelism under `-w 1`) |
 | **1B** | Extract ticker → own process + Redis presence + Socket.IO MQ — **has prerequisites (below)** | 1–2 wk | the `-w 1` lock |
@@ -117,17 +117,30 @@ registered users.
 **For ~20 users, Stage 0 (+ maybe Stage 3) is the cheapest first path and is *plausibly* sufficient without 1B/2 — but validate under representative load before relying on it; the user-count is an estimate, not measured.**
 
 ### Stage 0 — tune the single worker (do first, for 20 users)
-Keep `-w 1`; reduce what competes for the one gevent core. A **mix of env flips and
-small code changes** (not all pure env), each low-risk:
-- **`DECISION_ANALYSIS_ITERATIONS`** (env, prod=500; `decision_analyzer.py:981` notes lowering it "raises the concurrent-hands ceiling") → drop to ~200–300. Directly cuts the per-AI-decision equity-MC CPU burst (the main non-yielding foreground cost). *Env — reversible.*
-- **`SOCKETIO_ASYNC_MODE=gevent`** (env, currently `threading` — `config.py:63`) → validate in prod; better cooperative yielding under the gevent-websocket worker. *Env — reversible.*
-- **`WORLD_TICKER_MAX_SANDBOXES`** (env, default 50 — `ticker_service.py:51`) → lower the per-cycle fan-out. *Env — reversible.*
-- **Ticker pacing — code change:** `CYCLE_BUDGET_MS` and `BASE_TICK_SECONDS` are hard constants (`ticker_service.py:41`); env-ify them, then ease the budget / lengthen the ~2 s tick so the foreground gets more core (slower world is fine — casual).
-- **Off-screen narration → templated — code change:** the deterministic (no-LLM) path exists (`cash_mode/lobby.py:2479,2601`) but the ticker's `refresh_unseated_tables` call (`ticker_service.py:448`) doesn't pass `vice_use_llm_narration=False`/`hustle_use_llm_narration=False`. Wire those in to drop the ticker's LLM spend/latency.
-- Already shipped: Stage 1A memoization + the `mem_limit` cap.
-- **Validate under representative load** (~20 simulated concurrent active sessions) before declaring victory — the thresholds below are estimates, not measured.
+Keep `-w 1`; reduce what competes for the one gevent core. **Implemented on
+`scaling-stage1`** (code + prod-compose defaults) — still needs a ~20-session load
+test to confirm the win:
+- ✅ **`DECISION_ANALYSIS_ITERATIONS`** — prod default lowered **500 → 250** in
+  `docker-compose.prod.yml`. Analytics-only (`decision_analyzer.py:966` confirms it's
+  *not* the bot's decision), so it halves the per-AI-decision equity-MC CPU burst with
+  zero gameplay impact. *Env — reversible.*
+- ✅ **Off-screen narration → templated** — `WORLD_TICKER_LLM_NARRATION` (new env,
+  default `true`/unchanged; prod set `false`) wires `vice/hustle_use_llm_narration=False`
+  into the ticker's `refresh_unseated_tables` call (`ticker_service.py`), dropping
+  per-tick LLM spend + latency off the worker. *Env — reversible.*
+- ✅ **Ticker pacing now env-tunable** — `WORLD_TICKER_INTERVAL_SECONDS` (BASE_TICK,
+  def 2.0) + `WORLD_TICKER_CYCLE_BUDGET_MS` (def 250) are env vars now (were hard
+  constants). Defaults unchanged; ease them only if a load test shows ticker contention
+  (not expected at 20 — only ~20 sandboxes vs the 50 cap).
+- ⏭️ **`SOCKETIO_ASYNC_MODE`** — **left as `threading` (deliberately).** The boot log
+  shows `threading … monkey-patch active=True`, i.e. Socket.IO's "threads" are already
+  gevent greenlets that yield cooperatively (it's the guarded PRH-40 choice). So flipping
+  to `gevent` is *not* a real lever here — skipped.
+- **`WORLD_TICKER_MAX_SANDBOXES`** (env, default 50 — `ticker_service.py`) → a fan-out cap for higher tiers; not binding at 20 (only ~20 sandboxes). *Env — reversible.*
+- Also already shipped: Stage 1A memoization + the `mem_limit` cap.
+- **Next: validate under representative load** (~20 simulated concurrent active sessions) before declaring the 20-user target met — the counts in this doc are estimates, not measured.
 
-### Stage 1A — memoize strategy tables (do now)
+### Stage 1A — memoize strategy tables ✅ done
 `flask_app/handlers/tiered_factory.py` calls `load_strategy_table()` /
 `load_hu_strategy_table()` / `load_depth_strategy_tables()` /
 `load_archetype_preflop_tables()` on **every** `build_tiered_controller()` (i.e.
