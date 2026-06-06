@@ -76,21 +76,30 @@ Severity: **S1** critical · **S2** major · **S3** moderate. Status: ✅ fixed 
 - **Regression:** `tests/test_bounded_options.py::TestRaiseSizingAnchor` (betting adds prior
   commitment; raising anchors on highest_bet + pot-after-call; shift equals the anchor exactly).
 
+### ✅ 3. Tournament stuck-payout reconcile mis-derived `(human_owner_id, real_persona_ids)` — S2 *(pays wrong accounts)*
+- **Was:** Crash-recovery `reconcile_stuck_payouts` re-derived the human/persona split with a
+  `personality_repo`-free heuristic that disagreed with the live payout. Human Main Event: it passed
+  `real_persona_ids=frozenset()`, sweeping the real-persona OPPONENTS' prize shares to the bank
+  instead of crediting their `ai:<pid>` bankrolls. Legacy `/register` path: the synthetic `P01`-as-human
+  field diverted the human winner's prize to a phantom `ai:P01`. Escrow nets to 0 → conservation
+  audits stay green (masked). Triggers only on a mid-distribute crash.
+- **Fix (two parts):**
+  1. **Removed the legacy `/register` route** entirely (`flask_app/routes/tournament_routes.py`) — it
+     was the *only* live source of synthetic `P01..` fields + human-as-`P01`, and the frontend never
+     called it (it uses `/invite` → `spawn_human_tournament`, a real-persona field). Killed the
+     orphaned `build_initial_state`/`_build_resolver`/`MAX_*` scaffolding and migrated
+     `test_tournament_routes.py` onto a direct registry insert (`_put_human`). The synthetic `P##` ids
+     remain only in the legitimate headless engine (`tournament/run.py`, `director.build_initial_state`).
+  2. **Reconcile now reuses the live derivation** — `is_autonomous(session, owner)` +
+     `real_persona_ids_for(session, personality_repo)` (injected), exactly matching the
+     `apply_payout_on_complete` call sites. `flask_app/services/tournament_ticker.py` + both callers
+     (`ticker_service.py` watchdog, `tournament_routes.py` admin route) pass `personality_repo`.
+- **Regression:** `tests/test_tournament/test_tournament_ticker.py::test_reconcile_human_tournament_credits_real_persona_opponents`
+  + `test_reconcile_autonomous_credits_every_entry`. Full tournament suite (340) green.
+
 ---
 
 ## Open — ranked
-
-### S2 (top tier)
-
-#### ⬜ 3. Tournament stuck-payout reconcile mis-derives `(human_owner_id, real_persona_ids)` → pays wrong accounts
-Crash-recovery `reconcile_stuck_payouts` re-derives the human/persona split with a
-`personality_repo`-free heuristic that disagrees with the live payout. ACCEPT path: unpaid AI
-personas swept to bank instead of credited. Legacy `/register` path: human winner's prize diverted
-to a phantom `ai:P01` bankroll + reserve overlay never returned. Escrow nets to 0 → conservation
-audits stay green (masked). Triggers only on a mid-distribute crash.
-- **Files:** `flask_app/services/tournament_ticker.py:289-318`, `tournament_economy_service.py:282,472`,
-  `flask_app/routes/tournament_routes.py:151`, `flask_app/handlers/tournament_game_builder.py:557`.
-- **Scope:** Reconcile must reuse the live derivation (`real_persona_ids_for` + `session.human_id`).
 
 ### S3 (mid tier — real but narrower)
 
