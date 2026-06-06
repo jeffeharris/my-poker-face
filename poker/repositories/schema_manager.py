@@ -339,7 +339,7 @@ _test_schema_template_path = None
 # v152: Drop the legacy `cash_idle_pool` cache — the Presence cutover is
 #       complete; `entity_presence` (state='idle') + `cash_idle_metadata` are
 #       the authoritative idle store.
-SCHEMA_VERSION = 152
+SCHEMA_VERSION = 154
 
 
 class SchemaManager:
@@ -773,6 +773,28 @@ class SchemaManager:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_cash_pair_stats_observer
                     ON cash_pair_stats(observer_id)
+            """)
+
+            # 10c-bis. AI table hand/net counts (v153/v154) — how many hands an
+            #      AI has played at each table, and its cumulative net there,
+            #      per sandbox. Incremented ONCE per AI per hand (NOT bilateral
+            #      like cash_pair_stats). `net_chips` feeds the success-weighted
+            #      table-affinity attractiveness lever: an AI drifts back to the
+            #      rooms it wins at, concentrating its play into a home room.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
+                    sandbox_id   TEXT NOT NULL,
+                    ai_id        TEXT NOT NULL,
+                    table_id     TEXT NOT NULL,
+                    hands        INTEGER NOT NULL DEFAULT 0,
+                    net_chips    INTEGER NOT NULL DEFAULT 0,
+                    last_hand_at TIMESTAMP,
+                    PRIMARY KEY (sandbox_id, ai_id, table_id)
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ai_table_hand_counts_ai
+                    ON ai_table_hand_counts(sandbox_id, ai_id)
             """)
 
             # 10d. AI bankroll state (v88) — per-personality persistent bankroll.
@@ -2304,6 +2326,14 @@ class SchemaManager:
             152: (
                 self._migrate_v152_drop_cash_idle_pool,
                 "Drop the legacy `cash_idle_pool` cache — the Presence cutover is complete. Idle AIs are now read from `entity_presence` (state='idle') joined with the `cash_idle_metadata` satellite (reason/target_stake/left_at); the pool was a redundant dual-written copy. `cash_idle_metadata` is retained (the satellite). `DROP TABLE IF EXISTS` — idempotent, a no-op on a DB that never had the table.",
+            ),
+            153: (
+                self._migrate_v153_create_ai_table_hand_counts,
+                "Create ai_table_hand_counts — per-(sandbox, ai, table) hand counter. Incremented once per AI per hand (not bilateral). Foundation for the table-affinity lever (net added in v154) and per-room activity reads. Additive/idempotent.",
+            ),
+            154: (
+                self._migrate_v154_add_ai_table_net_chips,
+                "Add net_chips to ai_table_hand_counts — cumulative per-(sandbox, ai, table) PnL feeding the success-weighted table-affinity attractiveness term (TABLE_AFFINITY_ENABLED): AIs drift back to rooms they win at, concentrating play into a home room. Guarded ALTER, additive.",
             ),
         }
 
@@ -6313,6 +6343,55 @@ class SchemaManager:
         """
         conn.execute("DROP TABLE IF EXISTS cash_idle_pool")
         logger.info("Migration v152 complete: dropped legacy cash_idle_pool cache")
+
+    def _migrate_v153_create_ai_table_hand_counts(self, conn: sqlite3.Connection) -> None:
+        """Migration v153: create `ai_table_hand_counts`.
+
+        One row per (sandbox_id, ai_id, table_id). `ai_id` is the raw
+        `personality_id` (no prefix), matching `cash_tables.seats` and the
+        relationship graph. `hands` is incremented ONCE per hand for each AI
+        seated at the table — NOT bilateral (cash_pair_stats writes N*(N-1)
+        pair rows per hand; this writes N rows, one per seated AI).
+
+        Foundation for the table-affinity lever (the `net_chips` column is added
+        in v154) and per-room activity reads. Non-destructive, idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
+                sandbox_id   TEXT NOT NULL,
+                ai_id        TEXT NOT NULL,
+                table_id     TEXT NOT NULL,
+                hands        INTEGER NOT NULL DEFAULT 0,
+                last_hand_at TIMESTAMP,
+                PRIMARY KEY (sandbox_id, ai_id, table_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ai_table_hand_counts_ai
+                ON ai_table_hand_counts(sandbox_id, ai_id)
+        """)
+        logger.info("Migration v153 complete: ai_table_hand_counts table created")
+
+    def _migrate_v154_add_ai_table_net_chips(self, conn: sqlite3.Connection) -> None:
+        """Migration v154: add `net_chips` to `ai_table_hand_counts`.
+
+        Cumulative signed PnL per (sandbox_id, ai_id, table_id), accumulated
+        once per AI per hand alongside `hands` at the same sim + live hooks.
+        Feeds the success-weighted **table-affinity** attractiveness term
+        (`TABLE_AFFINITY_ENABLED`): an AI is drawn back to rooms it wins at and
+        away from rooms it loses at, concentrating its hands into a real home
+        room (counteracts the within-tier smear across the 2-3 tables per stake).
+
+        Guarded ALTER (PRAGMA check) so it's safe on a partially-applied DB.
+        Existing rows read net_chips = 0. Non-destructive, idempotent.
+        """
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_table_hand_counts)")}
+        if "net_chips" not in cols:
+            conn.execute(
+                "ALTER TABLE ai_table_hand_counts "
+                "ADD COLUMN net_chips INTEGER NOT NULL DEFAULT 0"
+            )
+        logger.info("Migration v154 complete: ai_table_hand_counts.net_chips added")
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.

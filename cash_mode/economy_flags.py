@@ -421,6 +421,16 @@ RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
 # docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage B / B4).
 PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 
+# Table affinity — success-weighted room stickiness. When on, an idle AI's
+# table-selection score gains `W_AFFINITY * stake_fit * tanh(net_chips / buyins)`
+# per candidate room (cash_mode.attractiveness): it drifts back to rooms it wins
+# at and away from rooms it loses at, concentrating its hands into a home room.
+# Buy-in-normalized (works at every stake) and tier-subordinate (differentiates
+# rooms WITHIN a tier the AI is suited to; never overrides a sensible climb).
+# Reads per-(sandbox, ai, table) net from ai_table_hand_counts. A real
+# chip-flow/movement change → sim-validate before enabling. Default OFF.
+TABLE_AFFINITY_ENABLED: bool = _env_flag("TABLE_AFFINITY_ENABLED", False)
+
 
 def compute_rake(
     pot: int,
