@@ -2,8 +2,6 @@
 game (step 3B). The session is a passive field/standings/completion observer fed
 by `fold_live_hand`; the live engine owns play + blinds."""
 
-import pytest
-
 from tournament.session import TournamentSession
 
 
@@ -54,11 +52,21 @@ def test_fold_live_hand_human_wins():
     assert s.human_rank() == 1
 
 
-def test_fold_live_hand_rejects_chip_leak():
+def test_fold_live_hand_reconciles_chip_leak_without_raising(caplog):
+    """The live engine is the chip authority for the human's single table, so a
+    chip-conservation mismatch must NOT raise — a raised guard 500s out of
+    `progress_game` and every retry re-enters the same boundary, permanently
+    bricking the end screen (observed on an all-in run-out bust). Instead it
+    reconciles the field to the live stacks and warns."""
     s = _session()
-    with pytest.raises(AssertionError):
-        # 10000 + 15000 + 0 = 25000 != 30000
-        s.fold_live_hand({'Jeff': 10000, 'Gordon': 15000, 'Bob': 0}, eliminator='Gordon')
+    # 10000 + 15000 + 0 = 25000 != 30000 — a 5000-chip leak.
+    with caplog.at_level('WARNING', logger='tournament.session'):
+        events = s.fold_live_hand({'Jeff': 10000, 'Gordon': 15000, 'Bob': 0}, eliminator='Gordon')
+    # Completion bookkeeping still works: Bob busts, the field reconciles to live.
+    assert [e.player_id for e in events] == ['Bob']
+    assert 'Bob' not in s.field.stacks
+    assert s.field.stacks == {'Jeff': 10000, 'Gordon': 15000}
+    assert any('conservation' in r.message for r in caplog.records)
 
 
 def test_build_session_for_new_game_uses_buyin_not_live_stacks():
