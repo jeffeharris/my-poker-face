@@ -6,6 +6,7 @@ import {
   type Effect,
 } from '../hooks/handSequencer';
 import type { GameState, WinnerInfo, RevealedCardsInfo } from '../types/game';
+import type { Player } from '../types/player';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -31,6 +32,17 @@ function gameState(over: Partial<GameState> = {}): GameState {
 }
 
 const cards = (n: number) => Array.from({ length: n }, (_, i) => `c${i}`);
+
+const player = (over: Partial<Player> = {}): Player =>
+  ({
+    name: 'X',
+    is_human: false,
+    is_folded: false,
+    stack: 100,
+    bet: 0,
+    hand: [],
+    ...over,
+  }) as Player;
 
 const revealed: RevealedCardsInfo = { players_cards: {}, community_cards: [] };
 const winner = (over: Partial<WinnerInfo> = {}): WinnerInfo => ({
@@ -66,6 +78,37 @@ describe('planEvent — action (no new cards)', () => {
 
     const plan = planEvent(base, ev, 'watchable');
     expect(plan.timeline).toEqual([{ at: 0, effect: { kind: 'applyState', state: ev.state } }]);
+  });
+});
+
+// --- watchable salience + commentary -------------------------------------
+
+describe('planEvent — watchable action salience', () => {
+  const base: EngineState = { ...initialEngineState, handNumber: 1, prevCurrentIdx: 0 };
+  const actionState = (last: string) =>
+    ({
+      kind: 'state',
+      state: gameState({ players: [player({ last_action: last as Player['last_action'] })] }),
+    }) as const;
+
+  it('speeds up folds/checks, holds calls/raises, lingers on all-ins', () => {
+    expect(planEvent(base, actionState('fold'), 'watchable').durationMs).toBe(450);
+    expect(planEvent(base, actionState('check'), 'watchable').durationMs).toBe(450);
+    expect(planEvent(base, actionState('raise'), 'watchable').durationMs).toBe(1000);
+    expect(planEvent(base, actionState('all_in'), 'watchable').durationMs).toBe(1400);
+  });
+
+  it('floors a sped-up beat when it carries commentary (reading time)', () => {
+    const fold = gameState({ players: [player({ last_action: 'fold' })] });
+    expect(
+      planEvent(base, { kind: 'state', state: fold, commentary: true }, 'watchable').durationMs
+    ).toBe(3200);
+  });
+
+  it('fast/fastest ignore salience — uniform flat beat', () => {
+    expect(planEvent(base, actionState('fold'), 'fast').durationMs).toBe(400); // 1000 × 0.4
+    expect(planEvent(base, actionState('all_in'), 'fast').durationMs).toBe(400);
+    expect(planEvent(base, actionState('fold'), 'fastest').durationMs).toBe(0);
   });
 });
 
