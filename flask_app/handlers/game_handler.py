@@ -3401,10 +3401,12 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
             return game_state, True
 
-    # Wait for commentary to complete before starting new hand
-    # Commentary runs in parallel across AI players, but we need all to finish
-    # Use a timeout to prevent indefinite blocking if something goes wrong
-    commentary_timeout = 10  # seconds
+    # Wait for commentary to complete before starting new hand. Commentary runs in
+    # the background across AI players (each line streams the moment it's ready);
+    # this only gates the NEXT hand. Cap it so a slow provider can't stall pacing —
+    # the same value bounds the commentary LLM calls themselves (config), so when
+    # the wait gives up the in-flight call is aborted, not left running to 600s.
+    commentary_timeout = config.COMMENTARY_LLM_TIMEOUT_SECONDS
     if not commentary_complete.wait(timeout=commentary_timeout):
         logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
 

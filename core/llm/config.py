@@ -28,6 +28,13 @@ TICKER_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TICKER_TIMEOUT", "10.0"))
 # ceiling. Override with LLM_FAST_TIMEOUT.
 FAST_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_FAST_TIMEOUT", "15.0"))
 
+# End-of-hand commentary. The hand boundary waits at most this long for commentary
+# before dealing the next hand (an Event cap), AND each commentary LLM call is
+# bounded by the same value — so when the wait gives up the in-flight call is
+# actually aborted rather than lingering on the 600s httpx default and leaking a
+# late line into the next hand. Override with LLM_COMMENTARY_TIMEOUT.
+COMMENTARY_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_COMMENTARY_TIMEOUT", "8.0"))
+
 # =============================================================================
 # OpenAI Configuration
 # =============================================================================
