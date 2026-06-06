@@ -141,6 +141,12 @@ export function CaptureDetailPanel({
     );
   }
 
+  // A decision that skipped the LLM (solver / TieredBot) is served as a stub
+  // capture with empty prompt/response fields. For those we hide the prompt,
+  // replay, and interrogate UI (none of it applies) and show a short note —
+  // the meaningful data is the decision-analysis / pipeline panels above.
+  const hasLlmCall = Boolean(capture.system_prompt || capture.user_message || capture.ai_response);
+
   return (
     <div className={wrapperClass}>
       {variant === 'desktop' && (
@@ -236,126 +242,140 @@ export function CaptureDetailPanel({
       {/* Prompt Config */}
       {renderPromptConfig(capture)}
 
-      <div className="detail-tabs">
-        <button className={mode === 'view' ? 'active' : ''} onClick={() => onModeChange('view')}>
-          View
-        </button>
-        <button
-          className={mode === 'replay' ? 'active' : ''}
-          onClick={() => onModeChange('replay')}
-        >
-          Edit & Replay
-        </button>
-        <button
-          className={mode === 'interrogate' ? 'active' : ''}
-          onClick={() => {
-            onModeChange('interrogate');
-            // Initialize interrogation with original response as context
-            if (interrogationMessages.length === 0) {
-              onInterrogationMessagesUpdate([
-                {
-                  id: 'original-decision',
-                  role: 'context',
-                  content: capture.ai_response,
-                  timestamp: capture.created_at,
-                },
-              ]);
-            }
-          }}
-        >
-          Interrogate
-        </button>
-      </div>
+      {!hasLlmCall && <div className="no-llm-call">No LLM call made for this decision.</div>}
 
-      {/* Token & Latency Info */}
-      {(capture.input_tokens || capture.latency_ms) && (
-        <div className="token-info">
-          <div className="token-info-row">
-            {(capture.provider || capture.model) && (
-              <span>
-                {capture.provider && <strong>{capture.provider}</strong>}
-                {capture.provider && capture.model && ' / '}
-                {capture.model}
-                {capture.reasoning_effort && ` (${capture.reasoning_effort})`}
-              </span>
-            )}
-            {capture.latency_ms && <span>Latency: {capture.latency_ms.toLocaleString()}ms</span>}
-            {capture.estimated_cost != null && (
-              <span className="cost">Cost: ${capture.estimated_cost.toFixed(4)}</span>
-            )}
+      {hasLlmCall && (
+        <>
+          <div className="detail-tabs">
+            <button
+              className={mode === 'view' ? 'active' : ''}
+              onClick={() => onModeChange('view')}
+            >
+              View
+            </button>
+            <button
+              className={mode === 'replay' ? 'active' : ''}
+              onClick={() => onModeChange('replay')}
+            >
+              Edit & Replay
+            </button>
+            <button
+              className={mode === 'interrogate' ? 'active' : ''}
+              onClick={() => {
+                onModeChange('interrogate');
+                // Initialize interrogation with original response as context
+                if (interrogationMessages.length === 0) {
+                  onInterrogationMessagesUpdate([
+                    {
+                      id: 'original-decision',
+                      role: 'context',
+                      content: capture.ai_response,
+                      timestamp: capture.created_at,
+                    },
+                  ]);
+                }
+              }}
+            >
+              Interrogate
+            </button>
           </div>
-          <div className="token-info-row">
-            <span className="token-count cached">
-              Cached: {(capture.cached_tokens ?? 0).toLocaleString()}
-            </span>
-            <span className="token-count input">
-              Input: {((capture.input_tokens ?? 0) - (capture.cached_tokens ?? 0)).toLocaleString()}
-            </span>
-            <span className="token-count total-in">
-              Total In: {(capture.input_tokens ?? 0).toLocaleString()}
-            </span>
-          </div>
-          <div className="token-info-row">
-            <span className="token-count reasoning">
-              Reasoning: {(capture.reasoning_tokens ?? 0).toLocaleString()}
-            </span>
-            <span className="token-count output">
-              Output: {(capture.output_tokens ?? 0).toLocaleString()}
-            </span>
-            <span className="token-count total-out">
-              Total Out:{' '}
-              {((capture.reasoning_tokens ?? 0) + (capture.output_tokens ?? 0)).toLocaleString()}
-            </span>
-          </div>
-        </div>
-      )}
 
-      {mode === 'view' && <CaptureView capture={capture} />}
+          {/* Token & Latency Info */}
+          {(capture.input_tokens || capture.latency_ms) && (
+            <div className="token-info">
+              <div className="token-info-row">
+                {(capture.provider || capture.model) && (
+                  <span>
+                    {capture.provider && <strong>{capture.provider}</strong>}
+                    {capture.provider && capture.model && ' / '}
+                    {capture.model}
+                    {capture.reasoning_effort && ` (${capture.reasoning_effort})`}
+                  </span>
+                )}
+                {capture.latency_ms && (
+                  <span>Latency: {capture.latency_ms.toLocaleString()}ms</span>
+                )}
+                {capture.estimated_cost != null && (
+                  <span className="cost">Cost: ${capture.estimated_cost.toFixed(4)}</span>
+                )}
+              </div>
+              <div className="token-info-row">
+                <span className="token-count cached">
+                  Cached: {(capture.cached_tokens ?? 0).toLocaleString()}
+                </span>
+                <span className="token-count input">
+                  Input:{' '}
+                  {((capture.input_tokens ?? 0) - (capture.cached_tokens ?? 0)).toLocaleString()}
+                </span>
+                <span className="token-count total-in">
+                  Total In: {(capture.input_tokens ?? 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="token-info-row">
+                <span className="token-count reasoning">
+                  Reasoning: {(capture.reasoning_tokens ?? 0).toLocaleString()}
+                </span>
+                <span className="token-count output">
+                  Output: {(capture.output_tokens ?? 0).toLocaleString()}
+                </span>
+                <span className="token-count total-out">
+                  Total Out:{' '}
+                  {(
+                    (capture.reasoning_tokens ?? 0) + (capture.output_tokens ?? 0)
+                  ).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
 
-      {mode === 'replay' && (
-        <ReplayEditor
-          modifiedSystemPrompt={modifiedSystemPrompt}
-          onSystemPromptChange={onSystemPromptChange}
-          modifiedUserMessage={modifiedUserMessage}
-          onUserMessageChange={onUserMessageChange}
-          modifiedConversationHistory={modifiedConversationHistory}
-          onUpdateHistoryMessage={onUpdateHistoryMessage}
-          onRemoveHistoryMessage={onRemoveHistoryMessage}
-          onAddHistoryMessage={onAddHistoryMessage}
-          useHistory={useHistory}
-          onUseHistoryChange={onUseHistoryChange}
-          replayProvider={replayProvider}
-          onReplayProviderChange={onReplayProviderChange}
-          replayModel={replayModel}
-          onReplayModelChange={onReplayModelChange}
-          replayReasoningEffort={replayReasoningEffort}
-          onReplayReasoningEffortChange={onReplayReasoningEffortChange}
-          providers={providers}
-          getModelsForProvider={getModelsForProvider}
-          reasoningLevels={reasoningLevels}
-          onReplay={onReplay}
-          replaying={replaying}
-          replayResult={replayResult}
-        />
-      )}
+          {mode === 'view' && <CaptureView capture={capture} />}
 
-      {mode === 'interrogate' && (
-        <InterrogationChat
-          capture={capture}
-          messages={interrogationMessages}
-          onMessagesUpdate={onInterrogationMessagesUpdate}
-          sessionId={interrogationSessionId}
-          onSessionIdUpdate={onInterrogationSessionIdUpdate}
-          provider={interrogateProvider}
-          onProviderChange={onInterrogateProviderChange}
-          model={interrogateModel}
-          onModelChange={onInterrogateModelChange}
-          reasoningEffort={interrogateReasoningEffort}
-          onReasoningEffortChange={onInterrogateReasoningEffortChange}
-          providers={providers}
-          getModelsForProvider={getModelsForProvider}
-          reasoningLevels={reasoningLevels}
-        />
+          {mode === 'replay' && (
+            <ReplayEditor
+              modifiedSystemPrompt={modifiedSystemPrompt}
+              onSystemPromptChange={onSystemPromptChange}
+              modifiedUserMessage={modifiedUserMessage}
+              onUserMessageChange={onUserMessageChange}
+              modifiedConversationHistory={modifiedConversationHistory}
+              onUpdateHistoryMessage={onUpdateHistoryMessage}
+              onRemoveHistoryMessage={onRemoveHistoryMessage}
+              onAddHistoryMessage={onAddHistoryMessage}
+              useHistory={useHistory}
+              onUseHistoryChange={onUseHistoryChange}
+              replayProvider={replayProvider}
+              onReplayProviderChange={onReplayProviderChange}
+              replayModel={replayModel}
+              onReplayModelChange={onReplayModelChange}
+              replayReasoningEffort={replayReasoningEffort}
+              onReplayReasoningEffortChange={onReplayReasoningEffortChange}
+              providers={providers}
+              getModelsForProvider={getModelsForProvider}
+              reasoningLevels={reasoningLevels}
+              onReplay={onReplay}
+              replaying={replaying}
+              replayResult={replayResult}
+            />
+          )}
+
+          {mode === 'interrogate' && (
+            <InterrogationChat
+              capture={capture}
+              messages={interrogationMessages}
+              onMessagesUpdate={onInterrogationMessagesUpdate}
+              sessionId={interrogationSessionId}
+              onSessionIdUpdate={onInterrogationSessionIdUpdate}
+              provider={interrogateProvider}
+              onProviderChange={onInterrogateProviderChange}
+              model={interrogateModel}
+              onModelChange={onInterrogateModelChange}
+              reasoningEffort={interrogateReasoningEffort}
+              onReasoningEffortChange={onInterrogateReasoningEffortChange}
+              providers={providers}
+              getModelsForProvider={getModelsForProvider}
+              reasoningLevels={reasoningLevels}
+            />
+          )}
+        </>
       )}
     </div>
   );

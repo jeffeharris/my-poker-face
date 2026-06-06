@@ -4,6 +4,7 @@ import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { useViewport } from '../../../hooks/useViewport';
+import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 import { logger } from '../../../utils/logger';
 import { MobileFilterBar } from '../shared/MobileFilterBar';
 import type {
@@ -77,6 +78,10 @@ export function DecisionAnalyzer({
     limit: 50,
     offset: 0,
   });
+
+  // Debounced filters drive the list fetch so typing in the numeric inputs
+  // (pot odds, tilt) doesn't fire a request per keystroke.
+  const debouncedFilters = useDebouncedValue(filters, 300);
 
   // Game context falls back capture-first → analysis-second.
   // Commentary captures (both LLM and TieredBot) don't carry pot/stack/hand
@@ -155,35 +160,27 @@ export function DecisionAnalyzer({
     setError(null);
 
     try {
+      const f = debouncedFilters;
       const params = new URLSearchParams();
-      if (filters.game_id) params.set('game_id', filters.game_id);
-      if (filters.player_name) params.set('player_name', filters.player_name);
-      if (filters.action) params.set('action', filters.action);
-      if (filters.phase) params.set('phase', filters.phase);
-      if (filters.min_pot_odds !== undefined)
-        params.set('min_pot_odds', filters.min_pot_odds.toString());
-      if (filters.min_pot_size !== undefined)
-        params.set('min_pot_size', filters.min_pot_size.toString());
-      if (filters.max_pot_size !== undefined)
-        params.set('max_pot_size', filters.max_pot_size.toString());
-      if (filters.min_big_blind !== undefined)
-        params.set('min_big_blind', filters.min_big_blind.toString());
-      if (filters.max_big_blind !== undefined)
-        params.set('max_big_blind', filters.max_big_blind.toString());
-      if (filters.labels && filters.labels.length > 0)
-        params.set('labels', filters.labels.join(','));
-      if (filters.labelMatchAll) params.set('label_match_all', 'true');
-      if (filters.error_type) params.set('error_type', filters.error_type);
-      if (filters.has_error !== undefined) params.set('has_error', filters.has_error.toString());
-      if (filters.is_correction !== undefined)
-        params.set('is_correction', filters.is_correction.toString());
-      if (filters.display_emotion) params.set('display_emotion', filters.display_emotion);
-      if (filters.min_tilt_level !== undefined)
-        params.set('min_tilt_level', filters.min_tilt_level.toString());
-      if (filters.max_tilt_level !== undefined)
-        params.set('max_tilt_level', filters.max_tilt_level.toString());
-      if (filters.limit) params.set('limit', filters.limit.toString());
-      if (filters.offset) params.set('offset', filters.offset.toString());
+      if (f.game_id) params.set('game_id', f.game_id);
+      if (f.player_name) params.set('player_name', f.player_name);
+      if (f.action) params.set('action', f.action);
+      if (f.phase) params.set('phase', f.phase);
+      if (f.min_pot_odds !== undefined) params.set('min_pot_odds', f.min_pot_odds.toString());
+      if (f.min_pot_size !== undefined) params.set('min_pot_size', f.min_pot_size.toString());
+      if (f.max_pot_size !== undefined) params.set('max_pot_size', f.max_pot_size.toString());
+      if (f.min_big_blind !== undefined) params.set('min_big_blind', f.min_big_blind.toString());
+      if (f.max_big_blind !== undefined) params.set('max_big_blind', f.max_big_blind.toString());
+      if (f.labels && f.labels.length > 0) params.set('labels', f.labels.join(','));
+      if (f.labelMatchAll) params.set('label_match_all', 'true');
+      if (f.error_type) params.set('error_type', f.error_type);
+      if (f.has_error !== undefined) params.set('has_error', f.has_error.toString());
+      if (f.is_correction !== undefined) params.set('is_correction', f.is_correction.toString());
+      if (f.display_emotion) params.set('display_emotion', f.display_emotion);
+      if (f.min_tilt_level !== undefined) params.set('min_tilt_level', f.min_tilt_level.toString());
+      if (f.max_tilt_level !== undefined) params.set('max_tilt_level', f.max_tilt_level.toString());
+      if (f.limit) params.set('limit', f.limit.toString());
+      if (f.offset) params.set('offset', f.offset.toString());
       // Skip the expensive bundled stats so the list paints fast (<1s).
       // Stats are loaded separately via fetchCaptureStats().
       params.set('include_stats', 'false');
@@ -204,7 +201,7 @@ export function DecisionAnalyzer({
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [debouncedFilters]);
 
   // Lazy-load the capture + label stats separately from the list so the list
   // can paint fast. These run the expensive full-table aggregations.
@@ -278,12 +275,18 @@ export function DecisionAnalyzer({
     })();
   }, []);
 
+  // The list refetches on every (debounced) filter change.
   useEffect(() => {
-    // List paints fast; the three stats blocks fill in independently after.
     fetchCaptures();
+  }, [fetchCaptures]);
+
+  // Stats are scoped only to game_id, so they're kept in a separate effect —
+  // changing action/phase/tilt/etc. no longer re-runs these expensive
+  // full-table aggregations (they only re-run when game_id changes).
+  useEffect(() => {
     fetchCaptureStats();
     fetchAnalysisStats();
-  }, [fetchCaptures, fetchCaptureStats, fetchAnalysisStats]);
+  }, [fetchCaptureStats, fetchAnalysisStats]);
 
   // Get models for a specific provider (with fallback)
   const getModelsForProviderWithFallback = useCallback(

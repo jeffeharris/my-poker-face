@@ -626,6 +626,19 @@
   font-style: italic;
 }
 
+/* Shown in place of the prompt/replay/interrogate UI for decisions that
+   skipped the LLM (solver / TieredBot stubs). */
+.no-llm-call {
+  margin-top: 0.5rem;
+  padding: 1.5rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
 .detail-header {
   display: flex;
   justify-content: space-between;
