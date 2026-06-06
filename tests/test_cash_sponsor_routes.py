@@ -29,6 +29,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from cash_mode.tables import CashTableState, ai_slot, human_slot, open_slot, reserved_slot
 from flask_app import create_app
+from poker.memory.opponent_model import REGARD_NEUTRAL
 from poker.repositories import create_repos
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
@@ -440,8 +441,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             opponent_id=PLAYER_OWNER_ID,
         )
         self.assertIsNotNone(state_lender_pov)
-        self.assertGreater(state_lender_pov.respect, 0.5)
-        self.assertGreater(state_lender_pov.likability, 0.5)
+        self.assertGreater(state_lender_pov.respect, REGARD_NEUTRAL)
+        self.assertGreater(state_lender_pov.likability, REGARD_NEUTRAL)
 
         # Player's view of the lender: mirror shifts also positive.
         state_player_pov = self.relationship_repo.load_relationship_state(
@@ -449,8 +450,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             opponent_id=self.napoleon_id,
         )
         self.assertIsNotNone(state_player_pov)
-        self.assertGreater(state_player_pov.respect, 0.5)
-        self.assertGreater(state_player_pov.likability, 0.5)
+        self.assertGreater(state_player_pov.respect, REGARD_NEUTRAL)
+        self.assertGreater(state_player_pov.likability, REGARD_NEUTRAL)
 
     def test_house_path_does_not_emit_event(self):
         # House-archetype stakes have no actor to fire STAKE_OFFERED.

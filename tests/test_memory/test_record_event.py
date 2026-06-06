@@ -25,6 +25,7 @@ from poker.memory.opponent_model import (
     HEAT_DECAY_HALF_LIFE_DAYS,
     HEAT_DECAY_PLATEAU_DAYS,
     MEMORABLE_HAND_THRESHOLD,
+    REGARD_NEUTRAL,
     OpponentModelManager,
     RelationshipState,
 )
@@ -111,11 +112,11 @@ class TestBilateralUpdate:
             now=now,
         )
         # alice (actor) sees: heat +0.20, respect -0.05, likability -0.02
-        # starting from defaults (0.0, 0.5, 0.5)
+        # starting from defaults (0.0, REGARD_NEUTRAL, REGARD_NEUTRAL)
         alice = repo.load_raw_relationship_state("alice", "bob")
         assert alice.heat == pytest.approx(0.0 + expected.heat)
-        assert alice.respect == pytest.approx(0.5 + expected.respect)
-        assert alice.likability == pytest.approx(0.5 + expected.likability)
+        assert alice.respect == pytest.approx(REGARD_NEUTRAL + expected.respect)
+        assert alice.likability == pytest.approx(REGARD_NEUTRAL + expected.likability)
 
     def test_target_side_uses_mirror_table(self, manager, repo):
         # BAD_BEAT mirror is the canonical design example:
@@ -130,8 +131,8 @@ class TestBilateralUpdate:
         )
         bob = repo.load_raw_relationship_state("bob", "alice")
         assert bob.heat == pytest.approx(0.0 + expected.heat)
-        assert bob.respect == pytest.approx(0.5 + expected.respect)
-        assert bob.likability == pytest.approx(0.5 + expected.likability)
+        assert bob.respect == pytest.approx(REGARD_NEUTRAL + expected.respect)
+        assert bob.likability == pytest.approx(REGARD_NEUTRAL + expected.likability)
 
 
 # --- Project-first-then-apply ordering ---
@@ -149,8 +150,8 @@ class TestProjectFirstThenApply:
 
         seed = RelationshipState(
             heat=0.8,
-            respect=0.5,
-            likability=0.5,
+            respect=REGARD_NEUTRAL,
+            likability=REGARD_NEUTRAL,
             last_seen=thirty_days_ago,
             last_decay_tick=thirty_days_ago,
         )
@@ -217,8 +218,8 @@ class TestClamping:
 
     def test_respect_clamps_to_zero(self, manager, repo):
         now = datetime(2026, 5, 17, 12, 0)
-        # respect starts at 0.5 default. Apply BAD_BEAT (respect -0.15)
-        # six times — would go negative, but should clamp to 0.0.
+        # respect starts at REGARD_NEUTRAL (0.35) default. Apply BAD_BEAT
+        # (respect -0.15) six times — would go negative, clamp to 0.0.
         for _ in range(6):
             manager.record_event(
                 "alice",
@@ -231,7 +232,7 @@ class TestClamping:
 
     def test_likability_clamps_to_one(self, manager, repo):
         now = datetime(2026, 5, 17, 12, 0)
-        # likability starts at 0.5. COMPLIMENT (+0.05) twenty times.
+        # likability starts at REGARD_NEUTRAL (0.35). COMPLIMENT (+0.05) ×20.
         for _ in range(20):
             manager.record_event(
                 "alice",
@@ -393,5 +394,5 @@ class TestStateAccumulation:
         )
         result = repo.load_raw_relationship_state("alice", "bob")
         assert result.heat == 0.0  # unchanged
-        assert result.respect == pytest.approx(0.5 - 0.15)
-        assert result.likability == 0.5  # unchanged
+        assert result.respect == pytest.approx(REGARD_NEUTRAL - 0.15)
+        assert result.likability == REGARD_NEUTRAL  # unchanged

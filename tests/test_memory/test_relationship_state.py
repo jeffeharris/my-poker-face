@@ -17,6 +17,7 @@ from poker.memory.opponent_model import (
     HEAT_DECAY_HALF_LIFE_DAYS,
     HEAT_DECAY_PLATEAU_DAYS,
     HEAT_DECAY_SNAP_THRESHOLD,
+    REGARD_NEUTRAL,
     RelationshipState,
     project_heat,
 )
@@ -25,11 +26,12 @@ from poker.memory.opponent_model import (
 class TestRelationshipStateDefaults:
     def test_defaults_match_design(self):
         s = RelationshipState()
-        # From CASH_MODE_AND_RELATIONSHIPS.md Part 1 §"Data model":
-        # respect 0.5 neutral, heat 0.0 (one-sided axis), likability 0.5.
-        assert s.respect == 0.5
+        # From CASH_MODE_AND_RELATIONSHIPS.md Part 1 §"Data model", as
+        # re-baselined: respect/likability neutral = REGARD_NEUTRAL (earned,
+        # asymmetric), heat 0.0 (one-sided axis).
+        assert s.respect == REGARD_NEUTRAL
         assert s.heat == 0.0
-        assert s.likability == 0.5
+        assert s.likability == REGARD_NEUTRAL
         assert s.last_seen is None
         assert s.last_decay_tick is None
 

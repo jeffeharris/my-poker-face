@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from flask_app.services.dossier_scouting import SCOUTING_SCHEDULE, compute_scouting
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 _READS_TOTAL = len(SCOUTING_SCHEDULE)
 
@@ -70,8 +71,8 @@ def build_file_cabinet(
                 'net_pnl': pnl.cumulative_pnl if pnl else 0,
                 'hands_played_cash': pnl.hands_played_cash if pnl else 0,
                 'heat': rel.heat if rel else 0.0,
-                'respect': rel.respect if rel else 0.5,
-                'likability': rel.likability if rel else 0.5,
+                'respect': rel.respect if rel else REGARD_NEUTRAL,
+                'likability': rel.likability if rel else REGARD_NEUTRAL,
                 'last_seen': (rel.last_seen.isoformat() if rel and rel.last_seen else None),
                 'reads_unlocked': reads_unlocked,
                 'reads_total': _READS_TOTAL,

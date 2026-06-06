@@ -48,6 +48,7 @@ from cash_mode.stakes import (
     STAKER_KIND_HUMAN,
     Stake,
 )
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -1038,8 +1039,8 @@ def try_ai_forgiveness_ask(
             opponent_id=personality_id,
             now=now,
         )
-        likability = rel.likability if rel is not None else 0.5
-        respect = rel.respect if rel is not None else 0.5
+        likability = rel.likability if rel is not None else REGARD_NEUTRAL
+        respect = rel.respect if rel is not None else REGARD_NEUTRAL
         heat = rel.heat if rel is not None else 0.0
         eligible.append((c, likability, respect, heat))
 
@@ -1186,7 +1187,7 @@ def try_ai_explicit_default(
             opponent_id=personality_id,
             now=now,
         )
-        respect = rel.respect if rel is not None else 0.5
+        respect = rel.respect if rel is not None else REGARD_NEUTRAL
         heat = rel.heat if rel is not None else 0.0
         pressure = _default_pressure(
             bankroll_factor=factor,

@@ -19,7 +19,7 @@ import pytest
 pytestmark = pytest.mark.integration
 
 from flask_app.handlers.chat_relationship import dispatch_chat_relationship_event
-from poker.memory.opponent_model import OpponentModelManager
+from poker.memory.opponent_model import REGARD_NEUTRAL, OpponentModelManager
 from poker.memory.relationship_events import (
     ACTOR_AXIS_SHIFTS,
     RelationshipEvent,
@@ -150,11 +150,11 @@ class TestDispatchFiresEvent:
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         assert actor_state is not None
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.TRASH_TALK]
-        # Default RelationshipState starts at heat=0, respect=0.5,
-        # likability=0.5; the shift is applied on top.
+        # Default RelationshipState starts at heat=0, respect=REGARD_NEUTRAL,
+        # likability=REGARD_NEUTRAL; the shift is applied on top.
         assert actor_state.heat == pytest.approx(expected.heat)
-        assert actor_state.respect == pytest.approx(0.5 + expected.respect)
-        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
+        assert actor_state.respect == pytest.approx(REGARD_NEUTRAL + expected.respect)
+        assert actor_state.likability == pytest.approx(REGARD_NEUTRAL + expected.likability)
 
     def test_chill_needle_compounds_to_quarter_shift(
         self,
@@ -174,8 +174,8 @@ class TestDispatchFiresEvent:
         assert actor_state is not None
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.TRASH_TALK]
         assert actor_state.heat == pytest.approx(expected.heat * 0.25)
-        assert actor_state.respect == pytest.approx(0.5 + expected.respect * 0.25)
-        assert actor_state.likability == pytest.approx(0.5 + expected.likability * 0.25)
+        assert actor_state.respect == pytest.approx(REGARD_NEUTRAL + expected.respect * 0.25)
+        assert actor_state.likability == pytest.approx(REGARD_NEUTRAL + expected.likability * 0.25)
 
     def test_props_applies_respect_weighted_shift(self, game_data, repo):
         # props → PROPS: the one chat tone that meaningfully raises respect.
@@ -184,8 +184,8 @@ class TestDispatchFiresEvent:
         assert actor_state is not None
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.PROPS]
         assert expected.respect > 0
-        assert actor_state.respect == pytest.approx(0.5 + expected.respect)
-        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
+        assert actor_state.respect == pytest.approx(REGARD_NEUTRAL + expected.respect)
+        assert actor_state.likability == pytest.approx(REGARD_NEUTRAL + expected.likability)
 
     def test_gloat_applies_taunt_post_win(self, game_data, repo):
         # Post-round tone; intensity is ignored.
@@ -200,8 +200,8 @@ class TestDispatchFiresEvent:
         assert actor_state is not None
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.TAUNT_POST_WIN]
         assert actor_state.heat == pytest.approx(expected.heat)
-        assert actor_state.respect == pytest.approx(0.5 + expected.respect)
-        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
+        assert actor_state.respect == pytest.approx(REGARD_NEUTRAL + expected.respect)
+        assert actor_state.likability == pytest.approx(REGARD_NEUTRAL + expected.likability)
 
     def test_memorable_hand_attached_when_hand_count_present(
         self,
@@ -353,7 +353,7 @@ class TestDispatchAppliesEmotionalReaction:
         assert psych.confidence > before  # vain → flattered
         # FLATTERY_LANDED: target warms to the flatterer (mirror likability up).
         mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
-        assert mirror is not None and mirror.likability > 0.5
+        assert mirror is not None and mirror.likability > REGARD_NEUTRAL
 
     def test_flatter_backfires_on_a_perceptive_target(self, opp_manager, repo):
         game_data, psych = self._ai_game_data(opp_manager, "bob", self.PERCEPTIVE)
@@ -364,7 +364,7 @@ class TestDispatchAppliesEmotionalReaction:
         assert psych.composure < before  # sees through → bristles
         # FLATTERY_BACKFIRED: target respects the manipulator less (mirror respect down).
         mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
-        assert mirror is not None and mirror.respect < 0.5
+        assert mirror is not None and mirror.respect < REGARD_NEUTRAL
 
     def test_flatter_washes_over_the_unmoved(self, opp_manager, repo):
         game_data, psych = self._ai_game_data(opp_manager, "bob", self.OBLIVIOUS)
@@ -489,8 +489,8 @@ class TestTemperamentDivergence:
         assert mirror is not None
         expected = temperament_adjusted_mirror_shift(RelationshipEvent.TRASH_TALK, 'energized')
         assert mirror.heat == pytest.approx(0.0)
-        assert mirror.likability == pytest.approx(0.5 + expected.likability)
-        assert mirror.likability > 0.5  # the needle BUILT warmth
+        assert mirror.likability == pytest.approx(REGARD_NEUTRAL + expected.likability)
+        assert mirror.likability > REGARD_NEUTRAL  # the needle BUILT warmth
 
     def test_stung_recipient_takes_trash_talk_harder(self, opp_manager, repo):
         from poker.memory.relationship_events import (
@@ -509,8 +509,8 @@ class TestTemperamentDivergence:
         stung = temperament_adjusted_mirror_shift(RelationshipEvent.TRASH_TALK, 'stung')
         assert mirror.heat == pytest.approx(stung.heat)
         assert mirror.heat > neutral.heat  # bites harder than neutral
-        assert mirror.likability == pytest.approx(0.5 + stung.likability)
-        assert mirror.likability < 0.5 + neutral.likability
+        assert mirror.likability == pytest.approx(REGARD_NEUTRAL + stung.likability)
+        assert mirror.likability < REGARD_NEUTRAL + neutral.likability
 
     def test_same_needle_diverges_by_recipient_temperament(self, opp_manager, repo):
         # Energized bob and stung bob hear the identical jab; their views of
@@ -538,7 +538,7 @@ class TestTemperamentDivergence:
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.TRASH_TALK]
         assert actor_state.heat == pytest.approx(expected.heat)
-        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
+        assert actor_state.likability == pytest.approx(REGARD_NEUTRAL + expected.likability)
 
 
 # Emotional-layer asymmetry anchor sets. Intimidate keys on poise (composure
@@ -655,7 +655,7 @@ class TestSarcasmReception:
         )
         backhand = repo.load_raw_relationship_state("carol_pid", "alice_pid")
 
-        assert sincere.respect > 0.5  # sincere props built respect
+        assert sincere.respect > REGARD_NEUTRAL  # sincere props built respect
         assert backhand.respect < sincere.respect  # the backhand cut it
         assert backhand.likability < sincere.likability
 
@@ -666,7 +666,7 @@ class TestSarcasmReception:
         dispatch_chat_relationship_event(gd, "alice", ["bob"], tone="props", intensity="sarcastic")
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.PROPS]
-        assert actor_state.respect == pytest.approx(0.5 + expected.respect)
+        assert actor_state.respect == pytest.approx(REGARD_NEUTRAL + expected.respect)
 
 
 # adaptation_bias gates sarcasm detection (floor 0.45). These two sets differ
@@ -713,8 +713,8 @@ class TestSarcasmDetectionGate:
         # Missed it → literal PROPS reception → respect rises exactly as a
         # sincere compliment would; the perceptive reader's respect is lower.
         sincere = mirror_shift(RelationshipEvent.PROPS)
-        assert oblivious.respect == pytest.approx(0.5 + sincere.respect)
-        assert oblivious.respect > 0.5
+        assert oblivious.respect == pytest.approx(REGARD_NEUTRAL + sincere.respect)
+        assert oblivious.respect > REGARD_NEUTRAL
         assert perceptive.respect < oblivious.respect
 
     def test_oblivious_takes_banter_as_a_real_jab(self, opp_manager, repo):
@@ -765,4 +765,4 @@ class TestSarcasmDetectionGate:
         mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
 
         sincere = mirror_shift(RelationshipEvent.PROPS)
-        assert mirror.respect < 0.5 + sincere.respect  # sarcasm applied, not literal
+        assert mirror.respect < REGARD_NEUTRAL + sincere.respect  # sarcasm applied, not literal

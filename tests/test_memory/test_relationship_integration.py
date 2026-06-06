@@ -28,6 +28,7 @@ from poker.memory.hand_history import (
     WinnerInfo,
 )
 from poker.memory.memory_manager import AIMemoryManager
+from poker.memory.opponent_model import REGARD_NEUTRAL
 from poker.repositories.relationship_repository import RelationshipRepository
 from poker.repositories.schema_manager import SchemaManager
 
@@ -286,9 +287,9 @@ class TestStackDominanceWiring:
         # zero-pot synthetic hand).
         bob_view = repo.load_raw_relationship_state("bob", "alice")
         if bob_view is not None:
-            # Default likability is 0.5; any drop below that means
-            # STACK_DOMINANCE leaked through.
-            assert bob_view.likability == pytest.approx(0.5)
+            # Default likability is REGARD_NEUTRAL; any drop below that
+            # means STACK_DOMINANCE leaked through.
+            assert bob_view.likability == pytest.approx(REGARD_NEUTRAL)
 
     def test_missing_sandbox_skips_dominance(self, repo):
         # cash_mode=True + cap set, but no sandbox_id. The PnL gate
@@ -310,7 +311,7 @@ class TestStackDominanceWiring:
 
         bob_view = repo.load_raw_relationship_state("bob", "alice")
         if bob_view is not None:
-            assert bob_view.likability == pytest.approx(0.5)
+            assert bob_view.likability == pytest.approx(REGARD_NEUTRAL)
 
     def test_tournament_mode_skips_dominance(self, repo):
         # cash_mode=False → no PnL gating possible, detector silent.
@@ -323,7 +324,7 @@ class TestStackDominanceWiring:
 
         bob_view = repo.load_raw_relationship_state("bob", "alice")
         if bob_view is not None:
-            assert bob_view.likability == pytest.approx(0.5)
+            assert bob_view.likability == pytest.approx(REGARD_NEUTRAL)
 
     def test_fires_when_observer_is_net_down_and_cap_wired(self, repo):
         # Full happy path: cash_mode, sandbox, cap, AND observer has
@@ -354,8 +355,8 @@ class TestStackDominanceWiring:
         # bob's likability toward alice dropped below default — the
         # only path that moves it on a zero-pot synthetic hand is
         # STACK_DOMINANCE.
-        assert bob_view.likability < 0.5
-        assert bob_view.respect < 0.5
+        assert bob_view.likability < REGARD_NEUTRAL
+        assert bob_view.respect < REGARD_NEUTRAL
         # Heat untouched: envy is not hostility.
         assert bob_view.heat == 0.0
 
@@ -399,11 +400,11 @@ class TestStackDominanceWiring:
         assert bob_view is not None
         # At 3× cap, excess = 1.5; per-hand likability shift =
         # −0.003 × 1.5 = −0.0045. Over 5 firing hands that's −0.0225.
-        # Default likability is 0.5, so expect ~0.4775.
-        expected = 0.5 - (0.003 * 1.5 * 5)
+        # Default likability is REGARD_NEUTRAL, so expect that minus 0.0225.
+        expected = REGARD_NEUTRAL - (0.003 * 1.5 * 5)
         assert bob_view.likability == pytest.approx(expected, abs=1e-6)
         # Respect shifts similarly at −0.002 × 1.5 per hand.
-        expected_respect = 0.5 - (0.002 * 1.5 * 5)
+        expected_respect = REGARD_NEUTRAL - (0.002 * 1.5 * 5)
         assert bob_view.respect == pytest.approx(expected_respect, abs=1e-6)
 
     def test_stack_dominance_throttled_to_cooldown(self, repo):
@@ -428,8 +429,8 @@ class TestStackDominanceWiring:
         bob_view = repo.load_raw_relationship_state("bob", "alice")
         assert bob_view is not None
         # Exactly one drip despite COOLDOWN consecutive hands.
-        assert bob_view.likability == pytest.approx(0.5 - 0.003 * 1.5, abs=1e-6)
-        assert bob_view.respect == pytest.approx(0.5 - 0.002 * 1.5, abs=1e-6)
+        assert bob_view.likability == pytest.approx(REGARD_NEUTRAL - 0.003 * 1.5, abs=1e-6)
+        assert bob_view.respect == pytest.approx(REGARD_NEUTRAL - 0.002 * 1.5, abs=1e-6)
 
     def test_set_table_max_buy_in_setter_enables_detection(self, repo):
         # Cold-load production path: set_relationship_repo runs BEFORE
@@ -456,8 +457,8 @@ class TestStackDominanceWiring:
         # Sanity: without the cap, no STACK_DOMINANCE fires.
         mgr._process_relationship_events(self._hand_with_deep_stack(hand_number=1))
         baseline = repo.load_raw_relationship_state("bob", "alice")
-        baseline_lik = baseline.likability if baseline is not None else 0.5
-        assert baseline_lik == pytest.approx(0.5)
+        baseline_lik = baseline.likability if baseline is not None else REGARD_NEUTRAL
+        assert baseline_lik == pytest.approx(REGARD_NEUTRAL)
 
         # Now fill in the cap via the separate setter — same flow
         # as the cold-load path after stake_label resolves.
@@ -467,7 +468,7 @@ class TestStackDominanceWiring:
         bob_view = repo.load_raw_relationship_state("bob", "alice")
         assert bob_view is not None
         # likability dropped — proves the setter armed the detector.
-        assert bob_view.likability < 0.5
+        assert bob_view.likability < REGARD_NEUTRAL
 
     def test_no_fire_when_observer_is_net_up(self, repo):
         # Same setup but bob is the one who took chips from alice.
@@ -494,7 +495,7 @@ class TestStackDominanceWiring:
 
         bob_view = repo.load_raw_relationship_state("bob", "alice")
         if bob_view is not None:
-            assert bob_view.likability == pytest.approx(0.5)
+            assert bob_view.likability == pytest.approx(REGARD_NEUTRAL)
 
 
 class TestRegistryUpdatePropagates:
