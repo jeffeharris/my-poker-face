@@ -29,7 +29,6 @@ import { selectInterhandTicker } from '../../cash/interhandTicker';
 import { feedEventKey, renderEventIcon } from '../../cash/tickerEvents';
 import { useUsageStats } from '../../../hooks/useUsageStats';
 import { useInterhandDirector } from '../../../hooks/useInterhandDirector';
-import { useRunoutDirector } from '../../../hooks/useRunoutDirector';
 import { useGameStore } from '../../../stores/gameStore';
 import { pickQuote } from '../WinnerAnnouncement/quote-flavor';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
@@ -118,6 +117,8 @@ export function PokerTable({
     aiThinking,
     winnerInfo,
     revealedCards,
+    heroCommitted,
+    heroRetreating,
     tournamentResult,
     socketRef,
     isConnected,
@@ -145,7 +146,6 @@ export function PokerTable({
 
   // Community-card deal-in animation timing (flop cascade, turn/river single).
   const communityCardAnimations = useCommunityCardAnimation(
-    gameState?.newly_dealt_count,
     gameState?.community_cards?.length ?? 0
   );
 
@@ -277,49 +277,9 @@ export function PokerTable({
     clearWinnerInfo();
   }, [winnerInfo, beginShuffle, clearWinnerInfo]);
 
-  // Runout director: stable store selectors for the director inputs.
-  // `heroFolded` is read from the store directly so it's available before the
-  // post-gameState `humanPlayer` derivation below (hooks must be called
-  // unconditionally, before any conditional return).
-  const runoutSchedule = useGameStore((s) => s.runoutSchedule);
-  const runItOut = useGameStore((s) => s.runItOut);
-  const setRunoutDirectorActive = useGameStore((s) => s.setRunoutDirectorActive);
-  const updatePlayers = useGameStore((s) => s.updatePlayers);
-  const storeHeroFolded = useGameStore(
-    (s) => s.players?.find((p) => p.is_human)?.is_folded ?? false
-  );
-
-  // Stable callback that patches avatar_emotion + avatar_url on a single player
-  // in the Zustand store — driven by the runout director's per-card reaction beat.
-  const applyRunoutReaction = useCallback(
-    (playerName: string, emotion: string) => {
-      updatePlayers((prev) => {
-        if (!prev) return prev;
-        return prev.map((p) =>
-          p.name === playerName
-            ? {
-                ...p,
-                avatar_emotion: emotion,
-                avatar_url: avatarUrlForEmotion(p.avatar_url, emotion),
-              }
-            : p
-        );
-      });
-    },
-    [updatePlayers]
-  );
-
-  const { heroCommitted, heroRetreating } = useRunoutDirector({
-    schedule: runoutSchedule,
-    runItOut,
-    revealed: !!revealedCards,
-    heroFolded: storeHeroFolded,
-    communityCardCount: gameState?.community_cards?.length ?? 0,
-    handNumber,
-    fastForward: gameState?.fast_forward ?? false,
-    applyReaction: applyRunoutReaction,
-    setActive: setRunoutDirectorActive,
-  });
+  // The run-out reactions + hero card-commit gesture (heroCommitted /
+  // heroRetreating, above) are now owned by the hand sequencer in usePokerGame,
+  // shared by both tables — no separate desktop run-out director.
 
   // Cash/career mode: the interhand pause becomes a "meanwhile, elsewhere"
   // world ticker (top rare beats around the room since this hand started).

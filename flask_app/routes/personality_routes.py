@@ -811,13 +811,35 @@ def generate_personality():
 
         force_generate = data.get('force', False)
 
-        # Check for name collision (skip if force-regenerating existing personality)
+        # Check for name collision. A plain generate refuses to clobber any
+        # existing name (409). A force-regenerate is allowed to overwrite, but
+        # only a name the caller already owns — otherwise a signed-in user could
+        # force-regenerate a system/launch-cast persona (owner_id IS NULL) or
+        # another user's private persona by name, reassigning it to themselves
+        # and removing it from the shared catalog (T3-53). Admins may regenerate
+        # system personas; mirrors the update_personality ownership guard.
         if not force_generate:
             existing = extensions.personality_repo.load_personality(name)
             if existing:
                 return jsonify(
                     {'success': False, 'error': 'A personality with this name already exists'}
                 ), 409
+        else:
+            existing_owner = extensions.personality_repo.get_personality_owner(name)
+            existing = extensions.personality_repo.load_personality(name)
+            if existing:
+                auth_service = get_authorization_service()
+                is_admin = auth_service and auth_service.has_permission(
+                    current_user['id'], 'can_access_admin_tools'
+                )
+                if existing_owner != current_user['id'] and not is_admin:
+                    return jsonify(
+                        {
+                            'success': False,
+                            'error': 'Permission denied',
+                            'code': 'NOT_OWNER',
+                        }
+                    ), 403
 
         generator = PersonalityGenerator()
 

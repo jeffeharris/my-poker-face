@@ -338,6 +338,21 @@ class AIPokerPlayer(PokerPlayer):
             # Use a default example
             example = json.dumps(PERSONA_EXAMPLES['Eeyore']['sample_response'], indent=2)
 
+        # Optional fuzzy backstory: a one-line "why you're on the Circuit"
+        # hook. Rendered as private flavor (don't recite it). Graceful when
+        # the persona has no circuit_hook — emit nothing rather than a
+        # dangling "Your story:" line.
+        raw_hook = (self.personality_config or {}).get('circuit_hook', '')
+        hook = raw_hook.strip() if isinstance(raw_hook, str) else ''
+        circuit_hook = (
+            (
+                f"Your story: {hook}\n"
+                "(This is private backstory — let it color your mood and reads; don't recite it.)"
+            )
+            if hook
+            else ""
+        )
+
         base_prompt = self.prompt_manager.render_prompt(
             'poker_player',
             name=self.name,
@@ -345,6 +360,7 @@ class AIPokerPlayer(PokerPlayer):
             confidence=self.confidence,
             money=self.money,
             json_template=json.dumps(RESPONSE_FORMAT, indent=2),
+            circuit_hook=circuit_hook,
         )
 
         # Add example response

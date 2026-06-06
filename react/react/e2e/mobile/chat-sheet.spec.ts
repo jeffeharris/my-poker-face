@@ -64,13 +64,17 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('keyboard tab shows text input and send button', async ({ page }) => {
-    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
-    await navigateToGamePage(page, { mockContext: ctx });
+    // Free-text (keyboard) chat is a registered-user feature; guests are locked
+    // to Quick Chat. Use a registered user and switch to the keyboard tab.
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: false });
+    await navigateToGamePage(page, { isGuest: false, mockContext: ctx });
 
     await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
+
+    await sheet.locator('.mcs-tab').nth(1).click();
 
     const textInput = sheet.locator('.mcs-text-input');
     await expect(textInput).toBeVisible();
@@ -80,13 +84,15 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('typing a message activates the send button', async ({ page }) => {
-    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
-    await navigateToGamePage(page, { mockContext: ctx });
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: false });
+    await navigateToGamePage(page, { isGuest: false, mockContext: ctx });
 
     await page.getByTestId('action-btn-chat').click();
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
+
+    await sheet.locator('.mcs-tab').nth(1).click();
 
     const textInput = sheet.locator('.mcs-text-input');
     await textInput.fill('Hello from mobile!');
@@ -96,8 +102,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
   });
 
   test('tapping send submits the message', async ({ page }) => {
-    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: true });
-    await navigateToGamePage(page, { mockContext: ctx });
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: false });
+    await navigateToGamePage(page, { isGuest: false, mockContext: ctx });
 
     const chatRequests: string[] = [];
     await page.route('**/api/game/*/chat', route => {
@@ -109,6 +115,8 @@ test.describe('PW-09: Mobile chat sheet — open, tab switch, send message, dism
 
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
+
+    await sheet.locator('.mcs-tab').nth(1).click();
 
     const textInput = sheet.locator('.mcs-text-input');
     await textInput.fill('Hello from mobile!');

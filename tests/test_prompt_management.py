@@ -171,6 +171,7 @@ class TestPromptManager(unittest.TestCase):
             confidence='high',
             money=10000,
             json_template='{"test": "format"}',
+            circuit_hook='',  # poker_player.yaml v1.2.0 added this placeholder
         )
 
         # Check key components are present

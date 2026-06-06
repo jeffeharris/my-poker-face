@@ -164,19 +164,42 @@ test.describe('End-of-hand UI flow', () => {
   });
 
   test.describe('ShuffleLoading visibility', () => {
+    // The interhand ShuffleLoading is now owned by the client-side interhand
+    // director, not the backend phase: it begins when a hand completes (a
+    // winner announcement triggers `beginShuffle`) and holds until the next
+    // hand deals. A fold-out (walk) win is the cleanest trigger.
+    const foldWinnerInfo = {
+      winners: ['TestPlayer'],
+      showdown: false,
+      pot_breakdown: [
+        {
+          pot_name: 'Main Pot',
+          total_amount: 150,
+          winners: [{ name: 'TestPlayer', amount: 150 }],
+          hand_name: '',
+        },
+      ],
+      is_final_hand: false,
+    };
 
-    test('ShuffleLoading visible during HAND_OVER phase', async ({ page }) => {
+    test('ShuffleLoading visible after a hand completes (HAND_OVER)', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'HAND_OVER',
         player_options: [],
         hand_number: 5,
       });
-      const ctx = await mockGamePageRoutes(page, { gameState });
+      const ctx = await mockGamePageRoutes(page, {
+        gameState,
+        socketEvents: [
+          ['update_game_state', { game_state: gameState }],
+          ['winner_announcement', foldWinnerInfo],
+        ],
+      });
       await navigateToGamePage(page, { mockContext: ctx });
 
-      // ShuffleLoading should be visible during HAND_OVER
+      // ShuffleLoading should be visible once the interhand beat starts
       const transition = page.getByTestId('shuffle-loading-interhand');
-      await expect(transition).toBeVisible();
+      await expect(transition).toBeVisible({ timeout: 10000 });
     });
 
     test('ShuffleLoading NOT visible during betting phases', async ({ page }) => {
@@ -192,30 +215,42 @@ test.describe('End-of-hand UI flow', () => {
       await expect(transition).not.toBeVisible();
     });
 
-    test('ShuffleLoading visible during EVALUATING_HAND phase', async ({ page }) => {
+    test('ShuffleLoading visible during the interhand beat (EVALUATING_HAND)', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'EVALUATING_HAND',
         player_options: [],
+        hand_number: 5,
       });
-      const ctx = await mockGamePageRoutes(page, { gameState });
+      const ctx = await mockGamePageRoutes(page, {
+        gameState,
+        socketEvents: [
+          ['update_game_state', { game_state: gameState }],
+          ['winner_announcement', foldWinnerInfo],
+        ],
+      });
       await navigateToGamePage(page, { mockContext: ctx });
 
-      // ShuffleLoading is visible during both EVALUATING_HAND and HAND_OVER
       const transition = page.getByTestId('shuffle-loading-interhand');
-      await expect(transition).toBeVisible();
+      await expect(transition).toBeVisible({ timeout: 10000 });
     });
 
-    test('ShuffleLoading shows hand number during HAND_OVER', async ({ page }) => {
+    test('ShuffleLoading shows hand number during the interhand beat', async ({ page }) => {
       const gameState = buildGameState([], {
         phase: 'HAND_OVER',
         player_options: [],
         hand_number: 5,
       });
-      const ctx = await mockGamePageRoutes(page, { gameState });
+      const ctx = await mockGamePageRoutes(page, {
+        gameState,
+        socketEvents: [
+          ['update_game_state', { game_state: gameState }],
+          ['winner_announcement', foldWinnerInfo],
+        ],
+      });
       await navigateToGamePage(page, { mockContext: ctx });
 
       // Should show "Next Hand" label and hand number #6 (5 + 1)
-      await expect(page.getByText('Next Hand')).toBeVisible();
+      await expect(page.getByText('Next Hand')).toBeVisible({ timeout: 10000 });
       await expect(page.getByText('#6')).toBeVisible();
     });
 

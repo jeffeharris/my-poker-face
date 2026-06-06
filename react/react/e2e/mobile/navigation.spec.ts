@@ -3,7 +3,7 @@ import { mockGamePageRoutes, buildGameState, setAuthLocalStorage } from '../help
 
 test.describe('PW-17: Mobile navigation — back button returns to menu', () => {
 
-  test('from game page, back button in MenuBar navigates to /menu', async ({ page }) => {
+  test('from game page, back button in MenuBar navigates to /menu/tournament', async ({ page }) => {
     await mockGamePageRoutes(page, { isGuest: false, gameState: buildGameState() });
 
     await page.goto('/game/test-game-123', { waitUntil: 'commit' });
@@ -17,11 +17,11 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await expect(backButton).toBeVisible({ timeout: 5000 });
     await backButton.click();
 
-    await page.waitForURL('**/menu', { timeout: 5000 });
-    await expect(page).toHaveURL(/\/menu/);
+    await page.waitForURL('**/menu/tournament', { timeout: 5000 });
+    await expect(page).toHaveURL(/\/menu\/tournament/);
   });
 
-  test('from career stats, back button navigates to /menu', async ({ page }) => {
+  test('from career stats, back button navigates to /menu/tournament', async ({ page }) => {
     await mockGamePageRoutes(page, { isGuest: false, gameState: buildGameState() });
 
     await page.goto('/stats', { waitUntil: 'commit' });
@@ -35,11 +35,11 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await expect(backButton).toBeVisible({ timeout: 5000 });
     await backButton.click();
 
-    await page.waitForURL('**/menu', { timeout: 5000 });
-    await expect(page).toHaveURL(/\/menu/);
+    await page.waitForURL('**/menu/tournament', { timeout: 5000 });
+    await expect(page).toHaveURL(/\/menu\/tournament/);
   });
 
-  test('from custom game config, back button navigates to /menu', async ({ page }) => {
+  test('from custom game config, back button navigates to /menu/tournament', async ({ page }) => {
     await mockGamePageRoutes(page, { isGuest: false, gameState: buildGameState() });
 
     await page.goto('/game/new/custom', { waitUntil: 'commit' });
@@ -53,8 +53,8 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await expect(backButton).toBeVisible({ timeout: 5000 });
     await backButton.click();
 
-    await page.waitForURL('**/menu', { timeout: 5000 });
-    await expect(page).toHaveURL(/\/menu/);
+    await page.waitForURL('**/menu/tournament', { timeout: 5000 });
+    await expect(page).toHaveURL(/\/menu\/tournament/);
   });
 
   test('browser back button works from stats to menu', async ({ page }) => {
@@ -64,7 +64,7 @@ test.describe('PW-17: Mobile navigation — back button returns to menu', () => 
     await setAuthLocalStorage(page, { isGuest: false });
     await page.goto('/menu');
 
-    await expect(page.locator('.quick-play-section')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.home-menu__modes')).toBeVisible({ timeout: 10000 });
 
     await page.goto('/stats');
 

@@ -148,32 +148,56 @@ def load_personality_from_json(name):
 
 
 # ---------------------------------------------------------------------------
-# Cutover-flag isolation (suite-wide)
+# Economy-flag isolation (suite-wide)
 # ---------------------------------------------------------------------------
+
+# Every `_env_flag(...)` toggle in `cash_mode.economy_flags`. These read the
+# environment ONCE at import, and `flask_app.config` calls
+# `load_dotenv(override=True)`, so a developer's local `.env` (which typically
+# ARMS flags to run the app — DIRECTOR_INEQUALITY_RAKE, CASINO_RESEED_ON_SPENT,
+# GENESIS_RESERVE_ENABLED, TOURNAMENT_*, etc.) leaks into the pytest process and
+# silently flips behaviour under tests that assert the OFF baseline. That broke
+# 6 casino_provisioning + 3 economy_flags tests locally while CI stayed green
+# (CI sets only SECRET_KEY/OPENAI_API_KEY → all flags defaulted). Forcing them
+# all OFF reproduces CI's effective baseline (every flag's code default is False
+# except PRESENCE_AUTHORITY_ENABLED, which this suite has always pinned OFF too).
+#
+# DEPRECATION CONTROL POINT: keep this list complete. `test_economy_flag_defaults.py`
+# fails if it drifts from the module — a NEW flag missing here would re-open the
+# .env-pollution hole; a retired flag should be dropped. A test that needs a
+# flag ON opts in explicitly (runs after this fixture → wins).
+RESET_ECONOMY_FLAGS = (
+    "VICE_RESERVE_GATED",
+    "GENESIS_RESERVE_ENABLED",
+    "RAKE_RESERVE_GATED",
+    "DIRECTOR_INEQUALITY_RAKE",
+    "DIRECTOR_POLICY_HOLD",
+    "CASINO_RELATIVE_THRESHOLDS",
+    "CASINO_RESEED_ON_SPENT",
+    "PRESENCE_SHADOW_WRITE_ENABLED",
+    "PRESENCE_AUTHORITY_ENABLED",
+    "CHIP_CUSTODY_ENABLED",
+    "CHIP_CUSTODY_DERIVE_READS",
+    "TOURNAMENT_CIRCUIT_ENABLED",
+    "TOURNAMENT_DRAW_ENABLED",
+    "RENOWN_V2_ENABLED",
+    "RENOWN_V2_PERSIST_AI",
+    "PRESTIGE_SEEKING_ENABLED",
+)
 
 
 @pytest.fixture(autouse=True)
 def _reset_cutover_flags():
-    """Force the cash-mode cutover flags OFF for EVERY test.
+    """Force all cash-mode economy flags OFF for EVERY test (see RESET_ECONOMY_FLAGS).
 
-    These flags (`PRESENCE_*`, `CHIP_CUSTODY_*`) read the environment at import
-    so a dev/prod container can opt in. The suite runs INSIDE that container, so
-    when dev has e.g. `CHIP_CUSTODY_ENABLED=1` / `PRESENCE_AUTHORITY_ENABLED=1`
-    set, the env leaks into pytest and silently flips behaviour under tests that
-    assert the OFF baseline (top-level ledger / repository tests have no local
-    reset). Force all OFF before each test; a test that exercises a mode sets the
-    flag explicitly (runs after this fixture, wins). `test_cash_mode/conftest.py`
-    has its own copy for that package — harmless redundancy."""
+    Makes the suite deterministic regardless of the ambient env / dev `.env`. A
+    test that exercises a mode sets the flag explicitly (runs after this fixture,
+    so it wins). `test_cash_mode/conftest.py` has its own narrower copy for that
+    package — harmless redundancy."""
     import cash_mode.economy_flags as ef
 
-    names = (
-        "PRESENCE_SHADOW_WRITE_ENABLED",
-        "PRESENCE_AUTHORITY_ENABLED",
-        "CHIP_CUSTODY_ENABLED",
-        "CHIP_CUSTODY_DERIVE_READS",
-    )
-    prior = {n: getattr(ef, n) for n in names}
-    for n in names:
+    prior = {n: getattr(ef, n) for n in RESET_ECONOMY_FLAGS}
+    for n in RESET_ECONOMY_FLAGS:
         setattr(ef, n, False)
     try:
         yield

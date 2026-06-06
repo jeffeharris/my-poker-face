@@ -38,8 +38,6 @@ import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
-import { useRunoutDirector } from '../../hooks/useRunoutDirector';
-import { useWinnerRevealGate } from '../../hooks/useWinnerRevealGate';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { heroCardAnimation } from './heroCardAnimation';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
@@ -172,13 +170,8 @@ export function MobilePokerTable({
   const smallBlind = useGameStore((state) => state.smallBlind);
   const handNumber = useGameStore((state) => state.handNumber);
   const bettingContext = useGameStore((state) => state.bettingContext);
-  const newlyDealtCount = useGameStore((state) => state.newlyDealtCount);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
-  const runoutSchedule = useGameStore((state) => state.runoutSchedule);
-  const runoutDirectorActive = useGameStore((state) => state.runoutDirectorActive);
-  const setRunoutDirectorActive = useGameStore((state) => state.setRunoutDirectorActive);
-  const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
@@ -193,6 +186,8 @@ export function MobilePokerTable({
     aiThinking,
     winnerInfo,
     revealedCards,
+    heroCommitted,
+    heroRetreating,
     tournamentResult,
     socketRef,
     isConnected,
@@ -277,58 +272,13 @@ export function MobilePokerTable({
   // beat (and calls handleResultComplete when its hold elapses or the player
   // taps Continue); the director owns the "shuffle" beat that follows. The two
   // are never on screen at once — shuffle starts only once the winner is
-  // cleared — which kills the old overlap/flash where both ran on independent
-  // clocks driven by the backend phase string.
+  // cleared. The run-out reactions, the hero card-commit gesture, and the
+  // ordered verdict are all owned by the hand sequencer in usePokerGame now
+  // (heroCommitted / heroRetreating come from there), so there's no separate
+  // run-out director or winner-reveal gate to coordinate here.
   const { isShuffling, beginShuffle } = useInterhandDirector({
     hasWinner: !!winnerInfo,
     handNumber,
-  });
-
-  // Run-out reaction director (mobile, all-in run-outs). Plays the backend's
-  // per-card reaction schedule on a client-owned beat so faces change card-by-
-  // card during the board run-out, instead of one lumped street reaction. The
-  // board itself stays backend-paced (option B); this only re-times reactions.
-  const applyRunoutReaction = useCallback(
-    (playerName: string, emotion: string) => {
-      updateStorePlayers((prev) => {
-        if (!prev) return prev;
-        return prev.map((p) =>
-          p.name === playerName
-            ? {
-                ...p,
-                avatar_emotion: emotion,
-                avatar_url: avatarUrlForEmotion(p.avatar_url, emotion),
-              }
-            : p
-        );
-      });
-    },
-    [updateStorePlayers]
-  );
-
-  const { heroCommitted, heroRetreating } = useRunoutDirector({
-    schedule: runoutSchedule,
-    runItOut,
-    revealed: !!revealedCards,
-    heroFolded: !!humanPlayer?.is_folded,
-    communityCardCount: communityCards?.length ?? 0,
-    handNumber,
-    fastForward,
-    applyReaction: applyRunoutReaction,
-    setActive: setRunoutDirectorActive,
-  });
-
-  // Hold the verdict overlay until the run-out / fold play-out has visually
-  // finished, so the winner doesn't spoil the board + reactions still landing.
-  // Fast-forward (manual FF / always / instant AI) drops the gate — that's Skip.
-  const { holdWinner } = useWinnerRevealGate({
-    hasWinner: !!winnerInfo,
-    isShowdown: !!winnerInfo?.showdown,
-    handNumber,
-    runItOut,
-    heroFolded: !!humanPlayer?.is_folded,
-    runoutDirectorActive,
-    rushing: fastForward || alwaysFastForward || aiInstant,
   });
 
   const handleResultComplete = useCallback(() => {
@@ -383,10 +333,7 @@ export function MobilePokerTable({
   });
 
   // Community card animation hook - handles slide-in with cascade delays
-  const communityCardAnimations = useCommunityCardAnimation(
-    newlyDealtCount,
-    communityCards?.length ?? 0
-  );
+  const communityCardAnimations = useCommunityCardAnimation(communityCards?.length ?? 0);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -1183,12 +1130,14 @@ export function MobilePokerTable({
 
           {/* Winner Announcement — the "result" beat for showdown wins only.
           Fold-out walks stay uneventful (their winner line shows in the shuffle
-          screen below). When the overlay's hold elapses or the player taps
-          Continue, handleResultComplete hands off to the shuffle beat and clears
-          the winner, so the overlay and shuffle never overlap. */}
+          screen below). The sequencer only sets winnerInfo once the actions /
+          board / run-out reactions have drained, so mounting on it directly is
+          already correctly ordered — no separate reveal gate needed. When the
+          overlay's hold elapses or the player taps Continue, handleResultComplete
+          hands off to the shuffle beat and clears the winner. */}
           {/* The human is identified from the players list's is_human seat
               inside MobileWinnerAnnouncement; playerName is only a fallback. */}
-          {winnerInfo && winnerInfo.showdown && !holdWinner && (
+          {winnerInfo && winnerInfo.showdown && (
             <MobileWinnerAnnouncement
               winnerInfo={winnerInfo}
               onComplete={handleResultComplete}

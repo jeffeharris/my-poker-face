@@ -4106,6 +4106,7 @@ def offer_stake_to_ai():
 
     from cash_mode.lobby import ensure_lobby_seeded
     from cash_mode.tables import ai_slot, open_slot
+    from flask_app.extensions import side_hustle_state_repo, vice_state_repo
 
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
@@ -4114,6 +4115,8 @@ def offer_stake_to_ai():
         user_id=owner_id,
         sandbox_id=sandbox_id,
         chip_ledger_repo=chip_ledger_repo,
+        vice_repo=vice_state_repo,
+        side_hustle_repo=side_hustle_state_repo,
     )
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
@@ -5625,7 +5628,11 @@ def get_lobby():
     # writing real rows up-front keeps the live-fill path's
     # `load_ai_bankroll_current` from returning None for personalities
     # who have never sat.
-    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+    from flask_app.extensions import (
+        chip_ledger_repo as _chip_ledger_repo,
+        side_hustle_state_repo as _side_hustle_state_repo,
+        vice_state_repo as _vice_state_repo,
+    )
 
     _seed_actions = ensure_ai_bankrolls_seeded(
         personality_repo=personality_repo,
@@ -5683,6 +5690,8 @@ def get_lobby():
         user_id=owner_id,
         sandbox_id=sandbox_id,
         chip_ledger_repo=_chip_ledger_repo,
+        vice_repo=_vice_state_repo,
+        side_hustle_repo=_side_hustle_state_repo,
     )
 
     if seed_scene0 and career_progress_repo is not None:

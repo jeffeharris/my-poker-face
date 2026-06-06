@@ -1,5 +1,6 @@
 import type { Player } from './player';
 import type { ChatMessage } from './chat';
+import type { BackendCard } from './tournament';
 
 /**
  * Betting context from the backend.
@@ -136,6 +137,12 @@ export interface WinnerInfo {
     human_won: boolean;
     human_position: number;
   };
+}
+
+/** Hole cards revealed at an all-in run-out showdown (`reveal_hole_cards`). */
+export interface RevealedCardsInfo {
+  players_cards: Record<string, BackendCard[]>;
+  community_cards: BackendCard[];
 }
 
 // Alternative format used in some places

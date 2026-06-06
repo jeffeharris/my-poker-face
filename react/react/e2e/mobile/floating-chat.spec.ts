@@ -85,15 +85,22 @@ test.describe('PW-10: Floating chat bubbles appear and auto-dismiss', () => {
     await expect(messageContent).toContainText('night', { timeout: 10000 });
   });
 
-  test('dismiss button removes bubble immediately', async ({ page }) => {
+  test('swiping the bubble horizontally dismisses it', async ({ page }) => {
     await setupFloatingChat(page);
 
     const bubble = page.getByTestId('floating-chat').first();
     await expect(bubble).toBeVisible({ timeout: 10000 });
 
-    const dismissBtn = bubble.getByTestId('floating-chat-dismiss');
-    await expect(dismissBtn).toBeVisible();
-    await dismissBtn.click({ force: true });
+    // There is no X button — bubbles dismiss via a horizontal swipe (or the
+    // auto-dismiss timer). Drag the bubble left past the dismiss threshold.
+    const box = await bubble.boundingBox();
+    if (!box) throw new Error('bubble has no bounding box');
+    const startX = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(startX, y);
+    await page.mouse.down();
+    await page.mouse.move(startX - 250, y, { steps: 12 });
+    await page.mouse.up();
 
     await expect(page.getByTestId('floating-chat')).not.toBeVisible({ timeout: 5000 });
   });

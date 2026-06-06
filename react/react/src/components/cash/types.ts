@@ -453,8 +453,17 @@ export interface MentorStake {
 export type WorldPace = 'subtle' | 'lively' | 'bustling';
 
 /** Where an AI is right now, from the whereabouts view.
- *  `unknown` is a degenerate state (referenced but untrackable). */
-export type WhereaboutsStatus = 'seated' | 'idle' | 'side_hustle' | 'vice' | 'unknown';
+ *  `tournament` = playing a running tournament; `tournament_bound` = drawn/
+ *  reserved for one, en route off the cash felt. `unknown` is a degenerate
+ *  state (referenced but untrackable). Mirrors `cash_mode/whereabouts.py`. */
+export type WhereaboutsStatus =
+  | 'seated'
+  | 'idle'
+  | 'side_hustle'
+  | 'vice'
+  | 'tournament'
+  | 'tournament_bound'
+  | 'unknown';
 
 /** Idle-pool reason — why an AI stepped away from the tables.
  *  Mirrors `cash_mode/tables.py::IDLE_REASONS`. */

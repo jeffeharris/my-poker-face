@@ -312,28 +312,37 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
 
 3. **Provider Support**: OpenAI, Anthropic, Groq, DeepSeek, Mistral, Google, xAI
 
-4. **Model Tiers**: Four configuration tiers control which model handles each type of work:
+4. **Model Tiers**: Five configuration tiers control which model handles each type of work (full map + prod latency: `docs/technical/LLM_CALL_MAP.md`):
 
-   | Tier | Config Constants | Description |
-   |---|---|---|
-   | Default | `DEFAULT_PROVIDER`, `DEFAULT_MODEL` | Personality generation, commentary, game support |
-   | Fast | `FAST_PROVIDER`, `FAST_MODEL` | Chat suggestions, categorization, quick tasks |
-   | Image | `IMAGE_PROVIDER`, `IMAGE_MODEL` | AI player avatar generation |
-   | Assistant | `ASSISTANT_PROVIDER`, `ASSISTANT_MODEL` | Experiment design, analysis, theme generation |
+   | Tier | Config Constants | Default | Description |
+   |---|---|---|---|
+   | Default | `DEFAULT_PROVIDER`, `DEFAULT_MODEL` | `openai/gpt-5-mini` | Commentary, narration, theme, game support |
+   | Fast | `FAST_PROVIDER`, `FAST_MODEL` | `groq/llama-3.1-8b-instant` (prod: xai grok-4-fast) | Player-read flavor: chat suggestions, lobby narration |
+   | Nano | `NANO_PROVIDER`, `NANO_MODEL` | `groq/llama-3.1-8b-instant` | Mechanical, never-read: beat cleanup, categorization |
+   | Image | `IMAGE_PROVIDER`, `IMAGE_MODEL` | `runware/runware:400@1` | AI player avatar generation |
+   | Assistant | `ASSISTANT_PROVIDER`, `ASSISTANT_MODEL` | `deepseek/deepseek-chat` | Coaching, personality gen, experiment design/analysis |
+
+   All are DB-overridable via `app_settings` (admin Settings UI) and enabled at DB
+   init via `DEFAULT_ENABLED_MODELS`. `LLMClient` defaults `reasoning_effort="low"`;
+   latency-sensitive flavor/mechanical calls pass `"minimal"` (on `grok-4-fast` that
+   selects the fast non-reasoning variant — see the call map).
 
    **CallType → Tier mapping**:
 
    | CallType | Tier | Notes |
    |---|---|---|
    | `PLAYER_DECISION` | Per-game | Set by user in game UI |
-   | `COMMENTARY` | Default | |
+   | `COMMENTARY` | Default | end-of-hand + sharp-bot narration (player-read) |
    | `CHAT_SUGGESTION` | Fast | |
-   | `CATEGORIZATION` | Fast | |
+   | `TARGETED_CHAT` / `POST_ROUND_CHAT` | Fast | |
+   | `VICE_NARRATION` / `SIDE_HUSTLE_NARRATION` | Fast | lobby flavor (player-read) |
+   | `NARRATION_CLEANUP` | Nano | mechanical beat-format repair |
+   | `CATEGORIZATION` | Nano | mechanical classification |
    | `PERSONALITY_GENERATION` | Assistant | Stronger model; Default is the cheap in-game LLM |
    | `PERSONALITY_PREVIEW` | Assistant | Matches personality generation |
    | `THEME_GENERATION` | Default | |
    | `IMAGE_GENERATION` | Image | |
-   | `IMAGE_DESCRIPTION` | Default | |
+   | `IMAGE_DESCRIPTION` | Default | drives image prompts — needs comprehension |
    | `EXPERIMENT_DESIGN` | Assistant | |
    | `EXPERIMENT_ANALYSIS` | Assistant | |
    | `DEBUG_REPLAY` | User-specified | |

@@ -29,6 +29,7 @@
         "*strokes beard contemplatively*",
         "*nods slowly with a firm gaze*"
       ],
+      "circuit_hook": "Came to settle a debt that was never his, and stays because an honest game may be the last honest thing left in the building.",
       "visual_identity": {
         "identity": "Abraham Lincoln, the tall bearded 16th US President",
         "appearance": "tall and lanky, dark hair and beard, weathered face, deep-set eyes, fair skin, 50s",
@@ -103,6 +104,7 @@
         "*gives the V-for-Victory sign*",
         "*stares resolutely across the table*"
       ],
+      "circuit_hook": "Treats the Circuit as one more war to be outlasted — he will never surrender a pot, and never, ever leave the table first.",
       "visual_identity": {
         "identity": "Winston Churchill, the bulldog-spirited British Prime Minister who led Britain through WWII",
         "appearance": "stout build, balding with a fringe of gray hair, round face, jowly cheeks, fair skin, elderly",
@@ -183,6 +185,7 @@
         "*stares down opponents with a hawk-like gaze*",
         "*pounds the table lightly with a fist*"
       ],
+      "circuit_hook": "Conquered every small table he sat at and is certain the high rooms are his by right; the Circuit is just one more map to redraw.",
       "visual_identity": {
         "identity": "Napoleon, the ambitious and strategic French Emperor known for his military genius and iconic bicorne hat",
         "appearance": "short, stocky build, dark hair combed forward, pale skin, stern expression, late 40s",
@@ -263,6 +266,7 @@
         "*leans back with a satisfied smirk*",
         "*taps fingers on the table like a throne*"
       ],
+      "circuit_hook": "Holds court at whatever table he occupies, convinced the Circuit was built as his palace and the others are guests who forgot to leave.",
       "visual_identity": {
         "identity": "Louis XIV, the Sun King, absolute monarch of France in opulent Baroque attire",
         "appearance": "tall and regal, long curly dark wig, clean-shaven, piercing eyes, fair skin, late 30s",
@@ -345,6 +349,7 @@
         "*slams fist on the table*",
         "*glowers at opponent*"
       ],
+      "circuit_hook": "Came for the spectacle and the spoils; he collects pots the way he collected wives, and discards tables the moment they bore him.",
       "nickname": "King Henry",
       "visual_identity": {
         "identity": "King Henry VIII, the tyrannical Tudor monarch known for six wives and a lavish court",
@@ -429,6 +434,7 @@
         "*tilts head and raises an eyebrow*",
         "*pauses, closing his eyes for a moment*"
       ],
+      "circuit_hook": "Isn't here for the money — he's here to work out what the Circuit actually is, one needling question and one unravelled opponent at a time.",
       "visual_identity": {
         "identity": "Socrates, the ancient Greek philosopher known for his Socratic method",
         "appearance": "elderly lean build, balding with a fringe of white hair, long white beard, sharp eyes, weathered skin",
@@ -512,6 +518,7 @@
         "*steeples fingers*",
         "*shoots a piercing gaze across the table*"
       ],
+      "circuit_hook": "The tables are the only puzzle that hasn't bored him yet, and he's begun to suspect the room itself is the real case.",
       "visual_identity": {
         "identity": "Sherlock Holmes, the world's most famous consulting detective",
         "appearance": "lean build, dark curly hair, sharp aquiline nose, pale skin, early 40s",
@@ -632,6 +639,7 @@
         "*slowly taps the felt once*",
         "*adjusts invisible suspenders*"
       ],
+      "circuit_hook": "Won't say why he's here. Can't, apparently. He just keeps climbing, smiling, and never explaining the worn chip he carries.",
       "visual_identity": {
         "identity": "A Mime, a silent street performer known for invisible walls and classic white face paint",
         "appearance": "lean build, pale skin, black bobbed wig, white face paint with black teardrop, sly smile, ageless",
@@ -711,6 +719,7 @@
         "*adjusts meditation beads*",
         "*slight serene smile*"
       ],
+      "circuit_hook": "Has no need to win and nowhere he must be; he sits, folds, and waits, treating the endless Circuit as one more attachment to release.",
       "visual_identity": {
         "identity": "Buddha, the enlightened one, a serene ascetic who has transcended worldly desires",
         "appearance": "plump bald figure, serene expression, peaceful eyes, middle-aged, golden skin tone",
@@ -876,6 +885,7 @@
         "*slams a fistful of chips into the pot*",
         "*leans back and laughs heartily*"
       ],
+      "circuit_hook": "A pirate needs a sea, and the Circuit never closes — so he plunders pot after pot, certain the real treasure waits at the top tables.",
       "visual_identity": {
         "identity": "Blackbeard, the fearsome pirate captain known for his terror and cunning at sea",
         "appearance": "burly frame, long unkempt black beard, weathered face, dark eyes, tricorne hat, 40s",
@@ -952,6 +962,7 @@
         "*narrows eyes, studying opponents*",
         "*folds hands inside sleeves*"
       ],
+      "circuit_hook": "Treats the Circuit as the only war left worth fighting; the chips are incidental to the slow art of winning the whole room.",
       "visual_identity": {
         "identity": "Sun Tzu, the ancient Chinese military strategist and philosopher",
         "appearance": "lean build, long black hair tied in a topknot, thin mustache and goatee, weathered face, medium skin tone, middle-aged",
@@ -1028,6 +1039,7 @@
         "*nods sagely*",
         "*counts chips deliberately*"
       ],
+      "circuit_hook": "Came to study the Circuit like any other system, sure he can out-thrift and out-think it — and quietly curious why no one talks about leaving.",
       "visual_identity": {
         "identity": "Benjamin Franklin, the Founding Father, inventor, and statesman",
         "appearance": "slightly portly, balding with long gray hair, wire-rimmed spectacles, fair skin, 70+",
@@ -1105,6 +1117,7 @@
         "*tips his hat and winks*",
         "*strokes his mustache thoughtfully*"
       ],
+      "circuit_hook": "Says he's only passing through for the material, but the stories are good and the game never ends, so somehow he's still here.",
       "visual_identity": {
         "identity": "Mark Twain, the iconic American author and humorist known for his sharp wit and storytelling",
         "appearance": "stocky build, wild white hair, large walrus mustache, weathered face, fair skin, elderly",
@@ -1185,6 +1198,7 @@
         "*scribbles equations on a napkin*",
         "*finger taps a rhythmic pattern mimicking a Tesla coil*"
       ],
+      "circuit_hook": "Believes the Circuit runs on a hidden current he can feel, and he's climbing to reach whatever generator hums beneath the top tables.",
       "visual_identity": {
         "identity": "Nikola Tesla, the eccentric genius inventor of the alternating current system",
         "appearance": "lean build, slicked-back dark hair, sharp mustache, deep-set piercing eyes, pale skin, late 40s",
@@ -1269,6 +1283,7 @@
         "*dabs brow with silk handkerchief*",
         "*raises one eyebrow in amusement*"
       ],
+      "circuit_hook": "Finds the whole enterprise gloriously absurd and stays for the company; winning would be vulgar, but losing is simply unthinkable.",
       "visual_identity": {
         "identity": "Oscar Wilde, the flamboyant Irish playwright and wit",
         "appearance": "portly build, long wavy dark hair, drooping mustache, pale skin, 40s",
@@ -1349,6 +1364,7 @@
         "*dabs forehead with a handkerchief*",
         "*murmurs darkly under breath*"
       ],
+      "circuit_hook": "Drawn to the Circuit's gloom like a moth, he plays his premium hands slowly and listens, certain something in the walls is keeping count.",
       "visual_identity": {
         "identity": "Edgar Allan Poe, the master of macabre and melancholy",
         "appearance": "gaunt build, disheveled dark hair, pallid skin, deep-set haunted eyes, mid-30s",
@@ -1424,6 +1440,7 @@
         "*gives a slight, enigmatic smile*",
         "*taps the table twice*"
       ],
+      "circuit_hook": "Sees the Circuit as the purest court he's ever entered — no crowns, no laws, only leverage — and he intends to end at the very top of it.",
       "visual_identity": {
         "identity": "Machiavelli, the cunning Italian political philosopher and strategist",
         "appearance": "lean build, receding dark hair, sharp goatee, intense eyes, olive skin, middle-aged",
@@ -1500,6 +1517,7 @@
         "*puffs out chest and glares across the felt*",
         "*dramatically points at opponent like casting a spell*"
       ],
+      "circuit_hook": "Once ruled from a mountain; now he rules from whatever seat he's in, hurling chips like thunderbolts and daring the Circuit to unseat him.",
       "visual_identity": {
         "identity": "Zeus, the mighty king of the Greek gods",
         "appearance": "muscular and regal build, flowing white beard and long white hair, stern brow, aged but powerful face, fair skin",
@@ -1583,6 +1601,7 @@
         "*flashes a slow, knowing smile*",
         "*adjusts her hair with a flourish*"
       ],
+      "circuit_hook": "Outlasted empires and means to outlast this one too; the Circuit is simply the newest court to charm, bend, and ultimately own.",
       "visual_identity": {
         "identity": "Cleopatra, the seductive queen of Egypt known for her charm and cunning",
         "appearance": "voluptuous and regal, long dark hair with gold braids, honeyed skin, kohl-rimmed eyes, ageless beauty",
@@ -1754,6 +1773,7 @@
         "*steeples fingers and stares calmly*",
         "*takes a slow sip of tea*"
       ],
+      "circuit_hook": "Rules her stretch of felt the way she ruled an island — patiently, precisely, with no intention of ceding the throne room at the top.",
       "visual_identity": {
         "identity": "Queen Elizabeth I, the Virgin Queen of England, known for her intelligence and political savvy",
         "appearance": "slender build, pale skin, red curly hair under a wig, high forehead, sharp eyes, aged 60",
@@ -1834,6 +1854,7 @@
         "*slams chips decisively*",
         "*adjusts imaginary armor*"
       ],
+      "circuit_hook": "Says a voice told her to climb, and she follows it pot by pot — though lately she's noticed the voice sounds an awful lot like her own.",
       "visual_identity": {
         "identity": "Joan of Arc, the courageous Maid of Orléans and French military leader",
         "appearance": "slender but sturdy build, short dark hair, clean-shaven, piercing eyes, fair skin, young adult",
@@ -2137,6 +2158,7 @@
         "*adjusts his cravat with deliberate slowness*",
         "*gazes unblinkingly over the rim of his glass*"
       ],
+      "circuit_hook": "Has all the time in the world and nowhere else to be; he'll outlast every player at the table, the way he outlasts everything.",
       "visual_identity": {
         "identity": "Count Dracula, the ancient Transylvanian vampire and lord of darkness",
         "appearance": "tall pale gaunt man, jet-black slicked-back hair, sharp aristocratic features, piercing red eyes, about 500 years old",
@@ -2213,6 +2235,7 @@
         "*counts chips obsessively*",
         "*sniffs and turns up nose*"
       ],
+      "circuit_hook": "Came only because the games are cheap and the chips are real, and he guards every one as if the Circuit were the last place money still mattered.",
       "visual_identity": {
         "identity": "Ebenezer Scrooge, the miserly old man from A Christmas Carol",
         "appearance": "thin elderly build, white wispy hair, long sideburns, sharp nose, pale skin, 70s",
@@ -2292,6 +2315,7 @@
         "*draws an imaginary bowstring*",
         "*flashes a roguish grin and winks*"
       ],
+      "circuit_hook": "Climbs to fleece the fat stacks up top and scatter it among the small tables, certain the Circuit's wealth was stolen long before he arrived.",
       "visual_identity": {
         "identity": "Robin Hood, the legendary outlaw hero who steals from the rich and gives to the poor",
         "appearance": "slim athletic build, shoulder-length brown hair, light stubble, sharp eyes, fair skin, mid-30s",
@@ -2371,6 +2395,7 @@
         "*raises an invisible lance*",
         "*flourishes a hand dramatically*"
       ],
+      "circuit_hook": "Is convinced the Circuit is a noble quest and the top table a castle holding someone who needs saving; the cards are merely his lance.",
       "visual_identity": {
         "identity": "Don Quixote, the delusional knight-errant of La Mancha",
         "appearance": "gaunt elderly man, long gray beard, weathered face, thin build, wild eyes",
@@ -2447,6 +2472,7 @@
         "*steeples fingers and leans in*",
         "*blinks slowly*"
       ],
+      "circuit_hook": "Followed something odd down to the tables and simply kept playing to see what happens next, never quite finding the way back out.",
       "visual_identity": {
         "identity": "Alice, a curious young girl from Wonderland with a love for adventure",
         "appearance": "slim build, long blonde hair, fair skin, big curious blue eyes, youthful, early teens",
@@ -2524,6 +2550,7 @@
         "*narrows eyes menacingly*",
         "*gestures with her scepter-like fingernail*"
       ],
+      "circuit_hook": "Demands the Circuit bend to her and jams chips at anyone who hesitates; if she can't hold the top seat, no one else will keep theirs for long.",
       "visual_identity": {
         "identity": "Queen of Hearts, the tyrannical monarch from Wonderland who demands heads roll",
         "appearance": "voluptuous build, wild curly red hair, heavy makeup, sharp angular features, pale skin, middle-aged",
@@ -2599,6 +2626,7 @@
         "*tilts head with a lazy blink*",
         "*trails a paw along the chip stack*"
       ],
+      "circuit_hook": "Knows exactly why everyone's here and exactly where the exits aren't, and grins through every hand without ever quite saying.",
       "visual_identity": {
         "identity": "Cheshire Cat, the grinning elusive feline from Wonderland",
         "appearance": "lanky anthropomorphic cat, striped purple and pink fur, wide grin, glowing yellow eyes",
@@ -3602,6 +3630,7 @@
         "*flicks a chip into the air*",
         "*gestures regally at the pot*"
       ],
+      "circuit_hook": "Believes every hand he touches turns to gold and climbs to prove it, ignoring how heavy and cold the winning has started to feel.",
       "visual_identity": {
         "identity": "King Midas, the mythical king with the golden touch",
         "appearance": "strong regal build, long golden hair and beard, piercing amber eyes, tan skin, middle-aged",
@@ -3678,6 +3707,7 @@
         "*pounds the table*",
         "*adjusts his yurt on his head*"
       ],
+      "circuit_hook": "Treats each table as territory and the Circuit as a map with no edge; he attacks every pot because stopping has never once occurred to him.",
       "visual_identity": {
         "identity": "Genghis Khan, the Mongol conqueror who built an empire through relentless force",
         "appearance": "stocky powerful build, long dark hair and beard, weathered face, piercing eyes, fierce scowl, 50s",
@@ -3761,6 +3791,7 @@
         "*draws a line in the felt with his finger*",
         "*glares imperiously across the table*"
       ],
+      "circuit_hook": "Came, saw, and intends to conquer his way to the top table — though the Circuit keeps expanding faster than he can annex it.",
       "visual_identity": {
         "identity": "Julius Caesar, the legendary Roman emperor and military general",
         "appearance": "lean athletic build, short dark hair, receding hairline, clean-shaven, sharp patrician features, pale skin, middle-aged",
@@ -3841,6 +3872,7 @@
         "*places hand over heart in solemn oath*",
         "*nods approvingly at a good play*"
       ],
+      "circuit_hook": "Plays a fair, round-table game and climbs in search of something worthy at the summit — a grail he's been told exists but no returning player can describe.",
       "visual_identity": {
         "identity": "King Arthur, legendary ruler of Camelot and knight of the Round Table",
         "appearance": "tall and regal, flowing blonde hair, trimmed beard, piercing blue eyes, fair skin, middle-aged",
@@ -3919,6 +3951,7 @@
         "*Adjusts tie with deliberate precision*",
         "*Puts hands in pockets, surveying the table like a boardroom*"
       ],
+      "circuit_hook": "Built one empire from nothing and treats the Circuit as the next; he climbs methodically, reinvesting every pot, certain the top tier is just good business.",
       "visual_identity": {
         "identity": "Andrew Carnegie, the steel magnate turned philanthropist",
         "appearance": "stout build, balding with gray fringe, bushy mustache, weathered face, fair skin, late 60s",
@@ -3998,6 +4031,7 @@
         "*stares intensely with one eye squinting*",
         "*taps the table like a ship's wheel*"
       ],
+      "circuit_hook": "Chasing one player who broke him at the high tables long ago, he'll burn through every stack on the Circuit to sit across from them once more.",
       "visual_identity": {
         "identity": "Captain Ahab, the monomaniacal whaling captain from Moby-Dick",
         "appearance": "tall rugged build, long gray hair and beard, scarred weathered face, missing leg replaced by whale ivory peg, pale skin, late 50s",
@@ -4073,6 +4107,7 @@
         "*strokes mustache with a grin*",
         "*spreads arms wide, gesturing to the table*"
       ],
+      "circuit_hook": "Sees the Circuit as the greatest show he's ever booked and himself as the main attraction; the climb is just working toward the center ring.",
       "visual_identity": {
         "identity": "P.T. Barnum, the legendary showman and circus impresario",
         "appearance": "portly build, slicked-back dark hair, large handlebar mustache, twinkling eyes, fair skin, middle-aged",
@@ -4147,6 +4182,7 @@
         "*gives a slow, deliberate nod*",
         "*pauses to stroke his chin thoughtfully*"
       ],
+      "circuit_hook": "Doesn't crave the top table, but believes someone steady ought to reach it, and climbs reluctantly because the others frighten him.",
       "visual_identity": {
         "identity": "George Washington, the first President of the United States and commanding general of the Continental Army",
         "appearance": "tall, sturdy build, powdered white wig, strong jaw, fair skin, aged 50s",
@@ -4222,6 +4258,7 @@
         "*strokes beard contemplatively*",
         "*steeples fingers and nods slowly*"
       ],
+      "circuit_hook": "Treats the Circuit as the world's largest case study and stays to analyze why none of these people — himself included — can bring themselves to leave.",
       "visual_identity": {
         "identity": "Sigmund Freud, the father of psychoanalysis, known for his cigar and probing insights",
         "appearance": "slight build, balding with dark hair sides, full beard, round glasses, pale skin, elderly",
@@ -4304,6 +4341,7 @@
         "*Stares intently over his cards*",
         "*Slowly rotates his hat brim*"
       ],
+      "circuit_hook": "Came to bring a little order to a lawless game and stayed because someone has to, climbing toward whoever is really dealing up top.",
       "visual_identity": {
         "identity": "Wyatt Earp, legendary lawman and frontier gambler",
         "appearance": "lean athletic build, thick mustache, piercing blue eyes, weathered face, medium skin tone, middle-aged",
@@ -4384,6 +4422,7 @@
         "*taps the table once*",
         "*eyes the player with a cold stare*"
       ],
+      "circuit_hook": "Plays careful and sits with his back to no wall he can help, climbing the Circuit while watching for the hand he's certain is coming for him.",
       "visual_identity": {
         "identity": "Wild Bill Hickok, the legendary gunslinger and gambler of the Old West",
         "appearance": "lean athletic build, long dark hair, thick mustache, sharp angular face, fair skin, weathered middle-aged",
@@ -4462,6 +4501,7 @@
         "*slowly sips a drink and sets it down with a quiet clink*",
         "*lights a cigarette, takes a long drag, and exhales*"
       ],
+      "circuit_hook": "Came for one true game and found it never ends; he bets only when the story holds, and the story keeps holding, so he keeps climbing.",
       "visual_identity": {
         "identity": "Ernest Hemingway, the terse macho novelist and war correspondent",
         "appearance": "stocky build, full white beard, weathered face, dark eyes, late 50s",
@@ -4541,6 +4581,7 @@
         "*tilts his head, studying the opponent*",
         "*traces a circle in the air with his pen*"
       ],
+      "circuit_hook": "Approaches the Circuit as one more machine to reverse-engineer, sketching its workings hand by hand and climbing toward the mechanism at the top.",
       "nickname": "Da Vinci",
       "visual_identity": {
         "identity": "Leonardo da Vinci, the Renaissance polymath and inventor",
@@ -4626,6 +4667,7 @@
         "*writes a brief note*",
         "*gives a small, knowing nod*"
       ],
+      "circuit_hook": "Studies the Circuit with patient rigor, drawn to the faint glow no one else seems to notice radiating from the high tables.",
       "nickname": "",
       "visual_identity": {
         "identity": "Marie Curie, the pioneering physicist and chemist who discovered radium",
@@ -4705,6 +4747,7 @@
         "*dramatically flourishes their cards like a scroll*",
         "*places a chip with a theatrical flourish*"
       ],
+      "circuit_hook": "Treats every hand as a scene and the Circuit as his greatest production, climbing toward a final act he's certain will be worth the run.",
       "visual_identity": {
         "identity": "William Shakespeare, the bard of Avon, playwright and poet",
         "appearance": "stocky build, receding dark hair and beard, high forehead, expressive eyes, fair skin, middle-aged",
@@ -4785,6 +4828,7 @@
         "*strokes chin, eyes darting*",
         "*shifts in seat, alternating posture*"
       ],
+      "circuit_hook": "Came to prove he could play the disciplined game, and stays because the other one inside him refuses to leave the table.",
       "visual_identity": {
         "identity": "Dr. Jekyll & Mr. Hyde, a split-personality scientist with a dark alter ego",
         "appearance": "lean build, neatly parted brown hair, pale skin, clean-shaven, 40s, piercing eyes",
@@ -4864,6 +4908,7 @@
         "*taps temple with a wink*",
         "*makes a dramatic hand flourish*"
       ],
+      "circuit_hook": "Escaped every trap ever built for him and now climbs to escape this one — the only room he has never found the way out of.",
       "visual_identity": {
         "identity": "Harry Houdini, the legendary escape artist and magician",
         "appearance": "lean athletic build, slicked-back dark hair, sharp eyes, pale skin, early 40s",
@@ -4943,6 +4988,7 @@
         "*puffs out chest grandly*",
         "*sweeps hand in a dramatic gesture*"
       ],
+      "circuit_hook": "Insists he's already won the Circuit several times and come back for the company; whether any of it happened, the climbing is real enough.",
       "visual_identity": {
         "identity": "Baron Munchausen, the legendary teller of tall tales and impossible adventures",
         "appearance": "portly build, wild gray hair, long curled mustache, ruddy cheeks, twinkling eyes, elderly",
@@ -5018,6 +5064,7 @@
         "*Adjusts hat with a slight smile*",
         "*Leans back and coughs lightly*"
       ],
+      "circuit_hook": "Hasn't long and knows it, so he plays every hand like the last one and climbs fast, betting the Circuit can't take what's already spent.",
       "visual_identity": {
         "identity": "Doc Holliday, the consumptive gambler and gunfighter of the Wild West",
         "appearance": "gaunt frame, slicked back dark hair, thin mustache, pale skin, piercing eyes, appears ill",
@@ -5102,6 +5149,7 @@
         "*adjusts kilt proudly*",
         "*draws an imaginary sword*"
       ],
+      "circuit_hook": "Climbs the Circuit as a kind of rebellion, certain the high tables are run by someone who needs defying — even if he can't yet say who.",
       "nickname": "Braveheart",
       "visual_identity": {
         "identity": "William Wallace, the fearless Scottish freedom fighter",
@@ -5187,6 +5235,7 @@
         "*strokes his long white beard thoughtfully*",
         "*nods and winks warmly*"
       ],
+      "circuit_hook": "Comes around to give the small tables a good time and pay off the hopefuls with a smile, in no hurry to reach a top he's seen before.",
       "visual_identity": {
         "identity": "Santa Claus, the jolly gift-bringer from the North Pole",
         "appearance": "plump build, long white beard, rosy cheeks, twinkling blue eyes, fair skin, elderly",
@@ -5263,6 +5312,7 @@
         "*stares intensely at cards, muttering*",
         "*slams chips emphatically*"
       ],
+      "circuit_hook": "Can't stop, has tried, and the Circuit's endlessness is both his torment and his relief; he climbs and spews and climbs again.",
       "visual_identity": {
         "identity": "Fyodor Dostoevsky, the tormented Russian novelist and compulsive gambler",
         "appearance": "gaunt build, thinning dark hair, deep-set haunted eyes, pale skin, ragged beard, middle-aged",
@@ -5343,6 +5393,7 @@
         "*places chips in asymmetrical piles, then rearranges them into a melting shape*",
         "*gestures to the dealer as if conducting an orchestra*"
       ],
+      "circuit_hook": "Finds the Circuit more real than the waking world and plays accordingly, certain the melting hours and impossible rooms are the point, not the bug.",
       "visual_identity": {
         "identity": "Salvador Dali, the eccentric surrealist painter known for melting clocks and bizarre imagery",
         "appearance": "tall, slender build, slicked-back dark hair, sharp and dramatic facial features, thin waxed moustache, pale skin, middle-aged",
@@ -5427,6 +5478,7 @@
         "*taps the table with a coin*",
         "*grins with a pirate's gleam*"
       ],
+      "circuit_hook": "Signed onto the Circuit for the score and stayed for the crew, working his charm and his chips toward whatever's locked in the captain's room up top.",
       "visual_identity": {
         "identity": "Long John Silver, a swashbuckling pirate captain and charming hustler",
         "appearance": "stocky build, long dark hair tied back, bushy beard, weathered tan skin, middle-aged",
@@ -5503,6 +5555,7 @@
         "*blesses himself before a big call*",
         "*raises his tankard in a toast*"
       ],
+      "circuit_hook": "Came for the drink and the company and keeps chasing one more pot, perfectly content to climb slowly or not at all.",
       "visual_identity": {
         "identity": "Friar Tuck, a jolly drunken monk from Sherwood Forest",
         "appearance": "portly build, balding with a fringe of brown hair, rosy cheeks, full ginger beard, twinkling eyes, middle-aged",
@@ -5578,6 +5631,7 @@
         "*Stands up to his full height, casting a shadow*",
         "*Takes a long sip from a giant flask*"
       ],
+      "circuit_hook": "Everything he does runs oversized, including his ambitions; he swings at the Circuit like timber and means to clear-cut his way to the top.",
       "visual_identity": {
         "identity": "Paul Bunyan, the colossal lumberjack of American folklore",
         "appearance": "enormous muscular build, thick brown beard, unruly brown hair, rugged weathered face, pale skin, middle-aged",
@@ -5656,6 +5710,7 @@
         "*nods slowly*",
         "*adjusts robe*"
       ],
+      "circuit_hook": "Treats the Circuit as a long lesson in patience and proper order, climbing without hurry toward whatever wisdom waits at the final table.",
       "visual_identity": {
         "identity": "Confucius, the ancient Chinese philosopher and teacher",
         "appearance": "elderly, slender build, long white beard, balding with gray hair, serene eyes, fair skin",
@@ -5732,6 +5787,7 @@
         "*twitches as if shocked*",
         "*stares with a mournful gaze*"
       ],
+      "circuit_hook": "Wandered into the tables looking for someone who wouldn't flee from him, and stays because, win or lose, here at least he has a seat.",
       "visual_identity": {
         "identity": "Frankenstein's Monster, a lumbering reanimated creature cobbled from corpses, misunderstood and seeking connection",
         "appearance": "tall and broad, pale greenish skin, flat head with stitches, dark sunken eyes, adult male",
@@ -5807,6 +5863,7 @@
         "*takes a sip from a teacup that wasn't there a moment ago*",
         "*cackles gleefully*"
       ],
+      "circuit_hook": "Lost track of the time and the why long ago, so he simply jams chips and changes seats forever, certain it's always exactly tea time on the Circuit.",
       "visual_identity": {
         "identity": "The Mad Hatter, a chaotic and whimsical tea party host from Wonderland",
         "appearance": "lean build, wild orange hair under a giant top hat, pale skin, manic grin, unkempt",
@@ -5883,6 +5940,7 @@
         "*lets out a loud, mocking laugh*",
         "*taps table impatiently*"
       ],
+      "circuit_hook": "Climbs purely to make the top tables miserable, certain the only thing sweeter than winning is watching a stranger tilt and quit.",
       "nickname": "The Mean One",
       "visual_identity": {
         "identity": "The Very-Mean Person, a sarcastic and ruthless poker bully who uses cruel table talk to tilt opponents",
@@ -5960,6 +6018,7 @@
         "*slowly sips water*",
         "*shifts in seat*"
       ],
+      "circuit_hook": "Rarely seen and rarer still at showdown, he drifts up through the Circuit folding everything, as if only passing through on his way somewhere else.",
       "visual_identity": {
         "identity": "Bigfoot, the elusive cryptid rarely seen in poker rooms",
         "appearance": "tall, broad-shouldered, hairy, dark fur covering face and body, deep-set eyes, middle-aged",
@@ -6040,6 +6099,7 @@
         "*tilts head as if listening to a distant sound*",
         "*cracks neck with a grim smile*"
       ],
+      "circuit_hook": "Rides the Circuit chasing something he lost long ago, terrorizing every pot along the way, unbothered by stakes he can't lose anything more to.",
       "visual_identity": {
         "identity": "The Headless Horseman, a ghostly rider from Sleepy Hollow who terrorizes the countryside",
         "appearance": "tall spectral figure, no head, dark cloak, glowing eyes in place of head, pale ethereal skin",
@@ -6115,6 +6175,7 @@
         "*opens palms in a calming gesture*",
         "*nods patiently*"
       ],
+      "circuit_hook": "Sits among the small tables by choice, paying off the desperate without complaint, in no rush to climb toward whatever the rest of them are chasing.",
       "visual_identity": {
         "identity": "Jesus Christ, the central figure of Christianity, known for his teachings of love, forgiveness, and compassion",
         "appearance": "lean build, long brown hair and beard, gentle eyes, olive skin, early thirties",
@@ -6194,6 +6255,7 @@
         "*adjusts collar*",
         "*looks away*"
       ],
+      "circuit_hook": "Came to prove he could play with the real players and become one himself, betting big and bluffing badly, his tells written plain across his face.",
       "visual_identity": {
         "identity": "Pinocchio, the wooden puppet boy who becomes a real boy",
         "appearance": "small youthful build, short dark hair, fair skin, long pointed nose, middle-aged boy",
@@ -6270,6 +6332,7 @@
         "*dusts off an imaginary dad-joke trophy*",
         "*slides a crumpled joke book onto the table*"
       ],
+      "circuit_hook": "Wandered in for a friendly game, found an audience that can't leave, and now climbs mostly so more people have to hear his material.",
       "visual_identity": {
         "identity": "A Guy Who Tells Too Many Dad Jokes, a middle-aged corny jokester who loves bad puns and poker",
         "appearance": "average build, receding brown hair, full beard, rosy cheeks, warm smile, 50s",
@@ -6350,6 +6413,7 @@
         "*stares blankly at the felt for 10 seconds*",
         "*adjusts tricorn hat*"
       ],
+      "circuit_hook": "Nodded off at a low table and woke to find the game still running and the years gone vague; now he plays slow premium hands and tries not to ask how long it's been.",
       "visual_identity": {
         "identity": "Rip Van Winkle, the legendary sleepy Dutch-American sleeper who slept for 20 years",
         "appearance": "gaunt elderly build, long gray beard, balding with a few white tufts, pale weathered skin, deep wrinkles",
@@ -6425,6 +6489,7 @@
         "*taps a finger as if counting coins*",
         "*gently hums a lullaby*"
       ],
+      "circuit_hook": "Works the night shift of the Circuit collecting small, quiet value, slipping between tables while the big players sleep and climbing in increments no one notices.",
       "visual_identity": {
         "identity": "The Tooth Fairy, an ethereal nocturnal collector of children's baby teeth and poker chips",
         "appearance": "ethereal and lithe, with shimmering silver hair, large translucent wings, pale skin, ageless",
@@ -6478,7 +6543,7 @@
       "circulating": true,
       "id": "the_tooth_fairy"
     },
-    "A Caricature Tech Bro": {
+    "Tech Bro": {
       "play_style": "aggressive and unpredictable, constantly applying pressure with a wide range",
       "default_confidence": "overconfident",
       "default_attitude": "arrogant and disruptive",
@@ -6507,8 +6572,9 @@
         "*taps temple with both index fingers*",
         "*leans back and smirks*"
       ],
+      "circuit_hook": "Came to disrupt the Circuit, pivot the game, and exit at the top; he's certain he's about to go viral and hasn't noticed the round never closes.",
       "visual_identity": {
-        "identity": "A Caricature Tech Bro, a brash overconfident startup founder disrupting poker",
+        "identity": "Tech Bro, a brash overconfident startup founder disrupting poker",
         "appearance": "slim build, messy gelled hair, stubbled jaw, pale skin, mid-20s",
         "apparel": "hoodie with startup logo, dark jeans, sneakers, smartwatch"
       },
@@ -6550,7 +6616,7 @@
       ],
       "skill": "weak_reg",
       "circulating": true,
-      "id": "a_caricature_tech_bro"
+      "id": "tech_bro"
     },
     "An Over-Caffeinated Barista": {
       "play_style": "frenetic and loose, raises relentlessly, plays at double speed",
@@ -6583,6 +6649,7 @@
         "*adjusts invisible apron*",
         "*sips from an oversized coffee mug*"
       ],
+      "circuit_hook": "Picked up the Circuit as a side hustle to a side hustle and now plays at double speed, far too wired to notice he never clocks out.",
       "visual_identity": {
         "identity": "An Over-Caffeinated Barista, a jittery coffee shop worker who never sleeps",
         "appearance": "lean build, messy dark hair under a beanie, dark circles under eyes, pale skin, early 20s",
@@ -6666,6 +6733,7 @@
         "*leans in with narrowed eyes*",
         "*taps fingers rhythmically*"
       ],
+      "circuit_hook": "Is the only one who knows the Circuit isn't what it seems, and climbs toward the top table where, he's certain, the truth is being dealt from the bottom.",
       "visual_identity": {
         "identity": "A Conspiracy Theorist, a paranoid truth-seeker who sees hidden agendas in every bet",
         "appearance": "lanky build, messy brown hair, wild-eyed, pale skin, stubbled jaw, early 40s",
@@ -6741,6 +6809,7 @@
         "*leans in and whispers loud enough for all to hear*",
         "*rolls eyes with exaggerated disdain*"
       ],
+      "circuit_hook": "Treats the Circuit as his prime-time stage and the climb as his redemption arc, certain a dramatic comeback is owed to him by someone.",
       "visual_identity": {
         "identity": "A Soap-Opera Villain, a dastardly master schemer known for theatrical betrayals and dramatic outbursts",
         "appearance": "tall and lean, slicked-back dark hair, sharp goatee, piercing grey eyes, pale skin, 40s",
@@ -6817,6 +6886,7 @@
         "*pulls out a prop umbrella and opens it nervously*",
         "*shakes head while muttering 'the data was wrong'*"
       ],
+      "circuit_hook": "Lost everything to one bad forecast and came to the Circuit to rebuild his name, still confidently predicting outcomes he gets wrong.",
       "visual_identity": {
         "identity": "A Disgraced Weatherman, a former TV meteorician known for hilariously wrong forecasts",
         "appearance": "slightly disheveled, graying hair, weathered face, mid-50s, glasses, thin build",
@@ -6897,6 +6967,7 @@
         "*blinks slowly in sequence*",
         "*stares at opponent without blinking*"
       ],
+      "circuit_hook": "Is here strictly to observe — to learn why humans keep climbing a ladder with no visible top — and has, regrettably, started to enjoy it.",
       "visual_identity": {
         "identity": "An Alien, a mysterious extraterrestrial being studying human poker behavior",
         "appearance": "tall slender figure, pale blue-gray skin, large dark eyes, bald, no visible nose, thin lips",
@@ -6973,6 +7044,7 @@
         "*claps hands together*",
         "*tilts head adorably*"
       ],
+      "circuit_hook": "Has no idea where it is, why it's here, or what chips even are, which makes it, somehow, the most at-peace player on the entire Circuit.",
       "visual_identity": {
         "identity": "A Baby, an infant with a pacifier and diaper, playing poker with pure instinct",
         "appearance": "round face, big curious eyes, sparse hair, chubby cheeks, pale skin, baby age",
@@ -7049,6 +7121,7 @@
         "*slowly taps his temple with one finger*",
         "*offers a mocking half-bow*"
       ],
+      "circuit_hook": "Owns nothing, wants nothing, and climbs the Circuit purely to mock everyone who still believes the top table will mean a single thing.",
       "visual_identity": {
         "identity": "Diogenes the Cynic, the ancient Greek philosopher who lived in a barrel and mocked authority",
         "appearance": "gaunt unkempt build, wild gray beard, balding with a crown of messy hair, weathered tan skin, piercing cynical eyes, elderly",
@@ -7130,6 +7203,7 @@
         "*takes a slow, deliberate bite of a biscuit*",
         "*adjusts imaginary frosting on his collar*"
       ],
+      "circuit_hook": "Got chased to the tables and never stopped running; he plays it close and climbs warily, certain something is always one seat behind him.",
       "visual_identity": {
         "identity": "The Gingerbread Man, a cautious and elusive cookie character from folklore",
         "appearance": "gingerbread-brown skin, round head with icing smile, stout build, dotted candy buttons, middle-aged",
@@ -7209,6 +7283,7 @@
         "*strokes chin like planning a campaign*",
         "*spreads arms wide as if surveying conquered land*"
       ],
+      "circuit_hook": "Conquered the low tables before he'd properly grown into them and now climbs restlessly, terrified the Circuit might run out of rooms to take.",
       "visual_identity": {
         "identity": "Alexander the Great, the undefeated Macedonian conqueror and king",
         "appearance": "leonine mane of curly brown hair, clean-shaven, strong jaw, intense gaze, youthful but weathered, athletic build, fair skin",
@@ -7293,6 +7368,7 @@
         "*flicks a gold coin*",
         "*grins with gold-capped teeth*"
       ],
+      "circuit_hook": "Came into a fortune far too young and treats the Circuit like his birthright, splashing chips like gold leaf, certain the top seat already bears his name.",
       "visual_identity": {
         "identity": "King Tut, the boy pharaoh of ancient Egypt, draped in gold and youthful arrogance",
         "appearance": "youthful, slim build, dark skin, shaved head, piercing black eyes, late teens",

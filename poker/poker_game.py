@@ -232,6 +232,12 @@ class PokerGameState:
         Returns:
         bool: True if the big blind player can raise or check, False otherwise.
         """
+        # Defensive: reached from are_pot_contributions_valid on the read-only
+        # to_dict() path. With a shrunk players tuple the current index can point
+        # past the end — there's no current player who could act, so return False
+        # rather than IndexError-storming the poll loop.
+        if not 0 <= self.current_player_idx < len(self.players):
+            return False
         # Check if no community cards are dealt, which would indicate that we are in the pre-flop round of betting
         no_community_cards_dealt = len(self.community_cards) == 0
         big_blind_player = self.players[self.big_blind_idx]
@@ -250,6 +256,13 @@ class PokerGameState:
         Used when the player's turn comes up to display the available actions.
         Build the list functionally without mutations.
         """
+        # Defensive: this property is computed unconditionally by to_dict() on the
+        # read-only API/emit path. If the players tuple has shrunk (e.g. busted
+        # seats pruned at a HAND_OVER pause) the index can transiently point past
+        # the end — return no options rather than IndexError-storming every poll.
+        # The next deal re-derives a valid index.
+        if not 0 <= self.current_player_idx < len(self.players):
+            return []
         player = self.current_player
         # How much is it to call the bet for the player?
         player_cost_to_call = self.highest_bet - player.bet
@@ -819,10 +832,23 @@ def reset_game_state_for_new_hand(
         game_state: Current game state
         deck_seed: Optional seed for deterministic deck shuffling (for A/B experiments)
     """
-    # Create new players with reset flags to prepare for the next round
+    # Create new players with reset flags to prepare for the next round. Carry
+    # the stable seat identity (typed `seat_id`, the legacy `personality_id`, and
+    # the display `nickname`) across the deal — these never change hand to hand.
+    # Dropping them silently broke the multi-table tournament bridge: the live
+    # table's `seat_key(player)` fell back to the display `name`, which never
+    # matches the field's slug pids, freezing the hand-boundary guard on the very
+    # first deal (`tournament/session.py:_guard_table_result`).
     new_players = []
     for player in game_state.players:
-        new_player = Player(name=player.name, stack=player.stack, is_human=player.is_human)
+        new_player = Player(
+            name=player.name,
+            stack=player.stack,
+            is_human=player.is_human,
+            nickname=player.nickname,
+            personality_id=player.personality_id,
+            seat_id=player.seat_id,
+        )
         new_players.append(new_player)
 
     # Rotate the dealer position to the next active player in the game. This needs to come after the players are

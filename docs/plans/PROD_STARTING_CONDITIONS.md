@@ -2,7 +2,7 @@
 purpose: Defines the starting conditions for a fresh production sandbox — the economy seed/thermostat (the "Director") and the 76-persona launch cast.
 type: design
 created: 2026-06-04
-last_updated: 2026-06-04
+last_updated: 2026-06-05
 ---
 
 # Production Starting Conditions
@@ -376,7 +376,7 @@ Bankrolls assigned within tier bands; `comfort` = `stake_comfort_zone`.
 | Persona | Bankroll | Source | Archetype |
 |---|---|---|---|
 | The Tooth Fairy | 8000 | folklore | Small, steady collector |
-| A Caricature Tech Bro | 7000 | original | Overconfident, disrupts |
+| Tech Bro | 7000 | original | Overconfident, disrupts |
 | An Over-Caffeinated Barista | 7000 | original | Jittery, fast, loose |
 | A Conspiracy Theorist | 6000 | original | Sees patterns, over-reads |
 | A Soap-Opera Villain | 6000 | original | Dramatic, telegraphs |
