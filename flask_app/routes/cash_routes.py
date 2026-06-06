@@ -1406,17 +1406,11 @@ def sit_at_table():
                         ), 409
                     seat_index = alt
         claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
+        # save_table drives the human SIT into entity_presence authoritatively
+        # inside its own transaction (the chokepoint), clearing any stale seat
+        # occupant so the SIT can't collide in the partial-unique index. Inside
+        # the sandbox lock per the §6.1 atomicity contract.
         cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
-        # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
-        # human SIT into entity_presence. The human path was NOT shadow-wired
-        # in Phase 1 (only AI writers were) — without this a human seat is
-        # invisible to the Presence machine. Reusing the lobby reconcile-diff
-        # also clears any stale occupant of this seat so the human's SIT can't
-        # collide in the partial-unique index. Inside the sandbox lock per the
-        # §6.1 atomicity contract.
-        from cash_mode.lobby import _shadow_reconcile_table
-
-        _shadow_reconcile_table(claimed_table, sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
     # counts, sourced via the shared preselected-builder.
@@ -2170,12 +2164,10 @@ def sponsor_and_sit():
                 seat_index,
                 human_slot(owner_id, offer_amount),
             )
+            # save_table drives the sponsored human SIT into entity_presence
+            # authoritatively at the chokepoint (same rationale as the
+            # self-funded sit path).
             cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
-            # Presence dual-write SHADOW (flag-gated no-op when off): mirror the
-            # sponsored human SIT, same rationale as the self-funded sit path.
-            from cash_mode.lobby import _shadow_reconcile_table
-
-            _shadow_reconcile_table(claimed_table, sandbox_id)
         preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
             claimed_table=claimed_table,
             seat_index=seat_index,
@@ -2638,14 +2630,14 @@ def reseat():
         return jsonify({"error": "No players available to join right now"}), 409
 
     if table_id:
-        # save_table enforces the seated⇒not-idle invariant in the same
-        # transaction (clears any cash_idle_pool row for the seated pids),
-        # so this is the single guard against the seated_and_idle
-        # split-brain for the real path.
+        # save_table drives the seated⇒not-idle invariant at the presence
+        # chokepoint in the same transaction (a SIT clears the actor's IDLE
+        # entity_presence row + metadata), so this is the single guard against
+        # the seated_and_idle split-brain for the real path.
         cash_table_repo.save_table(table, sandbox_id=sandbox_id)
     else:
         # Legacy table-less session: there's no row to save through, so
-        # clear the idle rows directly to preserve the same invariant.
+        # clear each AI's IDLE presence directly to preserve the same invariant.
         for pid in seated_pids:
             try:
                 cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)

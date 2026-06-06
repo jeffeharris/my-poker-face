@@ -112,14 +112,11 @@ def _seated_presence_map(conn, sandbox_id: Optional[str]):
     """`{(table_id, seat_index): entity_id}` for SEATED `entity_presence` rows in
     the sandbox — the occupancy authority used to project the cached seat map.
 
-    Returns None (→ no projection) when authority is off, no sandbox is given
-    (cross-sandbox admin reads stay raw), or the table is absent (legacy schema).
+    `entity_presence` is the permanent occupancy authority (the Presence cutover
+    is complete). Returns None (→ no projection) only when no sandbox is given
+    (cross-sandbox admin reads stay raw) or the table is absent (legacy schema).
     """
     if not sandbox_id:
-        return None
-    from cash_mode import economy_flags
-
-    if not getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
         return None
     try:
         rows = conn.execute(
@@ -380,50 +377,15 @@ class CashTableRepository(BaseRepository):
                             ),
                         )
 
-            # Enforce the seated⇒not-idle invariant in the SAME transaction
-            # as the seat write. An AI present in this table's seats cannot
-            # also be resting in `cash_idle_pool` — that's the recurring
-            # `seated_and_idle` split-brain. Every seating path funnels
-            # through save_table (it's the sole writer of `seats_json`), so
-            # clearing here is the single chokepoint that keeps the two
-            # tables consistent without each caller having to remember. AIs
-            # that just LEFT are already gone from `state.seats`, so their
-            # freshly-added idle rows are untouched. No-op when the idle
-            # table is absent (pre-v92 fixtures) or no AI is seated.
-            if _has_column(conn, "cash_idle_pool", "personality_id"):
-                seated_pids = [
-                    slot["personality_id"]
-                    for slot in state.seats
-                    if slot.get("kind") == "ai" and slot.get("personality_id")
-                ]
-                if seated_pids:
-                    placeholders = ", ".join("?" * len(seated_pids))
-                    if _has_column(conn, "cash_idle_pool", "sandbox_id"):
-                        conn.execute(
-                            f"""
-                            DELETE FROM cash_idle_pool
-                            WHERE sandbox_id = ?
-                              AND personality_id IN ({placeholders})
-                            """,
-                            (sandbox_id, *seated_pids),
-                        )
-                    else:
-                        conn.execute(
-                            f"""
-                            DELETE FROM cash_idle_pool
-                            WHERE personality_id IN ({placeholders})
-                            """,
-                            tuple(seated_pids),
-                        )
-
-            # Presence cutover (Phase 3): drive `entity_presence` from this seat
-            # write, INSIDE this same transaction so presence + the cash_tables
-            # seat map commit together (no cross-connection desync). No-op unless
-            # a cutover flag is set — best-effort in shadow mode; authoritative
-            # (a double-seat IntegrityError propagates and rolls back this whole
-            # save_table, rejecting the bad write) when authority is on. This is
-            # the single chokepoint that replaces the per-call-site shadow
-            # reconciles. See cash_mode/presence_transitions.py.
+            # Presence is the authoritative record of actor location: drive
+            # `entity_presence` from this seat write, INSIDE this same
+            # transaction so presence + the cash_tables seat map commit together
+            # (no cross-connection desync). A double-seat IntegrityError
+            # propagates and rolls back this whole save_table, rejecting the bad
+            # write. This chokepoint also enforces the seated⇒not-idle invariant
+            # structurally (a SIT clears the actor's IDLE presence + metadata),
+            # which used to require a separate `cash_idle_pool` clear here. See
+            # cash_mode/presence_transitions.py.
             from cash_mode.presence_transitions import emit_presence_transitions_for_save
 
             emit_presence_transitions_for_save(
@@ -624,136 +586,36 @@ class CashTableRepository(BaseRepository):
 
     # --- Idle pool ---
 
-    def save_idle(
-        self,
-        entry: IdlePoolEntry,
-        *,
-        sandbox_id: Optional[str] = None,
-    ) -> None:
-        """Upsert one personality's idle-pool row.
-
-        Writes `left_at`, `reason`, `target_stake` verbatim. Callers
-        moving an AI from a table → idle should call `save_idle`
-        (after the table is updated to mark the seat `"open"`); callers
-        moving an AI from idle → table should call `delete_idle`.
-        """
-        with self._get_connection() as conn:
-            if _has_column(conn, "cash_idle_pool", "sandbox_id"):
-                if not sandbox_id:
-                    raise ValueError("sandbox_id is required for cash_idle_pool writes")
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO cash_idle_pool
-                        (personality_id, sandbox_id, left_at, reason, target_stake)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        entry.personality_id,
-                        sandbox_id,
-                        entry.left_at.isoformat(),
-                        entry.reason,
-                        entry.target_stake,
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO cash_idle_pool
-                        (personality_id, left_at, reason, target_stake)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        entry.personality_id,
-                        entry.left_at.isoformat(),
-                        entry.reason,
-                        entry.target_stake,
-                    ),
-                )
-
-    def load_idle(
-        self,
-        personality_id: str,
-        *,
-        sandbox_id: Optional[str] = None,
-    ) -> Optional[IdlePoolEntry]:
-        """Load one personality's idle-pool row, or None if not idle."""
-        with self._get_connection() as conn:
-            if _has_column(conn, "cash_idle_pool", "sandbox_id"):
-                if not sandbox_id:
-                    raise ValueError("sandbox_id is required for cash_idle_pool reads")
-                row = conn.execute(
-                    """
-                    SELECT personality_id, left_at, reason, target_stake
-                    FROM cash_idle_pool
-                    WHERE personality_id = ? AND sandbox_id = ?
-                    """,
-                    (personality_id, sandbox_id),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    """
-                    SELECT personality_id, left_at, reason, target_stake
-                    FROM cash_idle_pool
-                    WHERE personality_id = ?
-                    """,
-                    (personality_id,),
-                ).fetchone()
-            if not row:
-                return None
-            return _row_to_idle(row)
-
     def list_idle(
         self,
         *,
         sandbox_id: Optional[str] = None,
     ) -> List[IdlePoolEntry]:
-        """Return every idle-pool row, ordered by `left_at` ASC.
+        """Return the genuinely-idle AIs, ordered by `left_at` ASC (oldest first,
+        so the re-entry tick naturally walks the longest-waiting AI back up).
 
-        Oldest-first makes the re-entry tick natural: the AI who's been
-        idle longest is the most likely to walk back up.
-
-        Read-side idle PROJECTION: when the Presence authority flip is on (and a
-        specific sandbox is asked), the available-to-seat set is derived from
-        `entity_presence` (state='idle') — NOT the legacy `cash_idle_pool` cache.
-        This is the point of the cutover for idle: an AI off-grid on a hustle is
-        SIDE_HUSTLE in presence (correctly NOT available to re-seat), even though
-        the legacy pool still lists it; deriving from presence yields exactly the
-        genuinely-idle set. The reason/target_stake routing payload comes from the
-        `cash_idle_metadata` satellite. Authority-off (or cross-sandbox admin
-        sandbox_id=None) keeps reading the physical table unchanged.
+        The idle set is derived from `entity_presence` (state='idle') — the
+        permanent occupancy authority — joined with the `cash_idle_metadata`
+        satellite for the reason/target_stake routing payload. Deriving from
+        presence yields exactly the available-to-seat set: an AI off-grid on a
+        hustle is SIDE_HUSTLE in presence (correctly excluded), not idle.
+        `sandbox_id=None` is the cross-sandbox admin read (every sandbox).
         """
-        from cash_mode import economy_flags
+        return self._list_idle_from_presence(sandbox_id)
 
-        if sandbox_id is not None and getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
-            return self._list_idle_from_presence(sandbox_id)
-        with self._get_connection() as conn:
-            if sandbox_id is None:
-                rows = conn.execute(
-                    """
-                    SELECT personality_id, left_at, reason, target_stake
-                    FROM cash_idle_pool
-                    ORDER BY left_at ASC
-                    """,
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT personality_id, left_at, reason, target_stake
-                    FROM cash_idle_pool
-                    WHERE sandbox_id = ?
-                    ORDER BY left_at ASC
-                    """,
-                    (sandbox_id,),
-                ).fetchall()
-            return [_row_to_idle(r) for r in rows]
-
-    def _list_idle_from_presence(self, sandbox_id: str) -> List[IdlePoolEntry]:
+    def _list_idle_from_presence(self, sandbox_id: Optional[str]) -> List[IdlePoolEntry]:
         """Derive the idle pool from `entity_presence` (the authority) joined
         with the `cash_idle_metadata` satellite for reason/target_stake/left_at.
-        Only `ai:` entities; ordered oldest-idle-first like the physical read."""
+        Only `ai:` entities; ordered oldest-idle-first. `sandbox_id=None` spans
+        every sandbox (admin)."""
+        where = "p.state = 'idle' AND p.entity_id LIKE 'ai:%'"
+        params: tuple = ()
+        if sandbox_id is not None:
+            where = "p.sandbox_id = ? AND " + where
+            params = (sandbox_id,)
         with self._get_connection() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT REPLACE(p.entity_id, 'ai:', '') AS personality_id,
                        COALESCE(m.left_at, p.updated_at) AS left_at,
                        COALESCE(m.reason, 'forced_leave') AS reason,
@@ -762,10 +624,10 @@ class CashTableRepository(BaseRepository):
                 LEFT JOIN cash_idle_metadata m
                     ON m.personality_id = REPLACE(p.entity_id, 'ai:', '')
                     AND m.sandbox_id = p.sandbox_id
-                WHERE p.sandbox_id = ? AND p.state = 'idle' AND p.entity_id LIKE 'ai:%'
+                WHERE {where}
                 ORDER BY left_at ASC
                 """,
-                (sandbox_id,),
+                params,
             ).fetchall()
         out: List[IdlePoolEntry] = []
         for r in rows:
@@ -790,54 +652,34 @@ class CashTableRepository(BaseRepository):
         *,
         sandbox_id: Optional[str] = None,
     ) -> bool:
-        """Remove one personality's idle-pool row.
+        """Mark an AI as no longer idle: clear its IDLE `entity_presence` row and
+        its `cash_idle_metadata` satellite. Returns True if an IDLE row was cleared.
 
-        Returns True if a row was deleted, False if no such row existed.
-
-        Read-side idle projection: under the Presence authority flip, also clear
-        a STALE presence IDLE row + its metadata when this delete is NOT a
-        re-seat (a re-seat already moved the AI to SEATED via save_table, so we
-        only touch rows presence still shows as IDLE). Without this, an AI reaped
-        from the pool would linger as a ghost in the presence-derived list_idle.
+        Called when an AI leaves the idle pool WITHOUT a re-seat (a re-seat
+        already moved it to SEATED via the save_table chokepoint, which clears the
+        IDLE row + metadata there). Only touches a row presence still shows as
+        IDLE, so it can't stomp an AI a concurrent save just seated.
         """
-        from cash_mode import economy_flags
-
-        if sandbox_id and getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
-            try:
-                with self._get_connection() as conn:
-                    row = conn.execute(
-                        "SELECT state FROM entity_presence WHERE entity_id = ? AND sandbox_id = ?",
-                        (f"ai:{personality_id}", sandbox_id),
-                    ).fetchone()
-                    if row is not None and row["state"] == "idle":
-                        # left the pool without a re-seat → OFFLINE (row delete).
-                        conn.execute(
-                            "DELETE FROM entity_presence WHERE entity_id = ? AND sandbox_id = ?",
-                            (f"ai:{personality_id}", sandbox_id),
-                        )
-                    conn.execute(
-                        "DELETE FROM cash_idle_metadata WHERE personality_id = ? AND sandbox_id = ?",
-                        (personality_id, sandbox_id),
-                    )
-            except Exception:  # noqa: BLE001 — presence cleanup must not block the real delete
-                pass
+        if not sandbox_id:
+            raise ValueError("sandbox_id is required for idle deletes")
+        cleared = False
         with self._get_connection() as conn:
-            if _has_column(conn, "cash_idle_pool", "sandbox_id"):
-                if not sandbox_id:
-                    raise ValueError("sandbox_id is required for cash_idle_pool writes")
-                cursor = conn.execute(
-                    """
-                    DELETE FROM cash_idle_pool
-                    WHERE personality_id = ? AND sandbox_id = ?
-                    """,
-                    (personality_id, sandbox_id),
+            row = conn.execute(
+                "SELECT state FROM entity_presence WHERE entity_id = ? AND sandbox_id = ?",
+                (f"ai:{personality_id}", sandbox_id),
+            ).fetchone()
+            if row is not None and row["state"] == "idle":
+                # Left the pool without a re-seat → OFFLINE (row delete).
+                conn.execute(
+                    "DELETE FROM entity_presence WHERE entity_id = ? AND sandbox_id = ?",
+                    (f"ai:{personality_id}", sandbox_id),
                 )
-            else:
-                cursor = conn.execute(
-                    "DELETE FROM cash_idle_pool WHERE personality_id = ?",
-                    (personality_id,),
-                )
-            return cursor.rowcount > 0
+                cleared = True
+            conn.execute(
+                "DELETE FROM cash_idle_metadata WHERE personality_id = ? AND sandbox_id = ?",
+                (personality_id, sandbox_id),
+            )
+        return cleared
 
 
 def _row_to_state(row) -> CashTableState:
@@ -876,19 +718,4 @@ def _row_to_state(row) -> CashTableState:
         name=name,
         table_type=table_type,
         closing_hand_countdown=closing_hand_countdown,
-    )
-
-
-def _row_to_idle(row) -> IdlePoolEntry:
-    """Build an `IdlePoolEntry` from a `cash_idle_pool` row."""
-    left_at = _parse_timestamp(row["left_at"])
-    # `left_at` is NOT NULL in the schema, so a None here would mean
-    # a malformed row — surface it loudly rather than silently lying.
-    if left_at is None:
-        raise ValueError(f"cash_idle_pool row {row['personality_id']!r} has unparseable left_at")
-    return IdlePoolEntry(
-        personality_id=row["personality_id"],
-        left_at=left_at,
-        reason=row["reason"],
-        target_stake=row["target_stake"],
     )

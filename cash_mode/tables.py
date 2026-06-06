@@ -318,7 +318,7 @@ def seats_from_json(seats_json: str) -> List[Dict[str, Any]]:
 # --- Idle pool ---
 
 
-# Movement decision reasons — also used as `cash_idle_pool.reason` values.
+# Movement decision reasons — stored as `cash_idle_metadata.reason` values.
 # Keep the set explicit so the lobby UI / admin views can interpret the
 # state.
 IDLE_REASONS: Tuple[str, ...] = (
@@ -331,12 +331,13 @@ IDLE_REASONS: Tuple[str, ...] = (
 
 @dataclass
 class IdlePoolEntry:
-    """One row from `cash_idle_pool` — an AI between cash sessions.
+    """An AI between cash sessions (idle), derived from `entity_presence`
+    (state='idle') joined with the `cash_idle_metadata` satellite.
 
-    `personality_id` is the primary key — an AI is either at a table
-    or in the idle pool, never both. `target_stake` is non-None only
-    when `reason == 'stake_up_queued'`; it preserves the AI's intent
-    to walk up a tier on re-entry.
+    `personality_id` is the key — an AI is either at a table or idle,
+    never both (the `entity_presence` partial-unique seat index enforces
+    it). `target_stake` is non-None only when `reason == 'stake_up_queued'`;
+    it preserves the AI's intent to walk up a tier on re-entry.
     """
 
     personality_id: str

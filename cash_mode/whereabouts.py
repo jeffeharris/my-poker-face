@@ -2,10 +2,11 @@
 
 The cash world keeps each AI in exactly one place at a time: seated at a
 table, resting in the idle pool, off-grid on a side hustle (broke, earning
-back a buy-in), or off-grid on a vice (flush, blowing chips). Those four
-states live in four different tables (`cash_tables`, `cash_idle_pool`,
-`ai_side_hustle_state`, `vice_state`) and until now there was no single
-place to ask "where is persona X, and is anyone stuck?".
+back a buy-in), or off-grid on a vice (flush, blowing chips). `entity_presence`
+is the authoritative location store (the idle pool derives from it joined with
+the `cash_idle_metadata` satellite; off-grid from `ai_side_hustle_state` /
+`ai_vice_state`); `build_whereabouts` unions these into one debug-friendly
+record so you can ask "where is persona X, and is anyone stuck?".
 
 `build_whereabouts` unions all four into one record per personality, with:
 

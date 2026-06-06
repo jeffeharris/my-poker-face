@@ -1729,7 +1729,10 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     # Persist table + idle changes. Thread the real leave reason/target into
     # save_table so the presence-machine idle satellite (cash_idle_metadata)
     # records the actual reason instead of defaulting every row to
-    # 'forced_leave' (the metadata write has no other source for it).
+    # 'forced_leave' (the metadata write has no other source for it). The
+    # save_table chokepoint writes each departed AI's IDLE presence + metadata,
+    # so 'add' changes need no separate persistence here; only re-seats/reaps
+    # ('remove') must clear a now-stale IDLE row.
     idle_metadata = {
         change.entry.personality_id: change.entry
         for change in result.idle_changes
@@ -1739,9 +1742,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
     )
     for change in result.idle_changes:
-        if change.kind == "add" and change.entry is not None:
-            cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
-        elif change.kind == "remove":
+        if change.kind == "remove":
             cash_table_repo.delete_idle(change.personality_id, sandbox_id=sandbox_id)
 
     # Surface movement to the seated player's in-game chat. The lobby

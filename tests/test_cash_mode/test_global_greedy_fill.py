@@ -55,7 +55,7 @@ def _open_indices(seats):
     return frozenset(i for i, s in enumerate(seats) if s["kind"] == "open")
 
 
-def test_global_fill_seats_idle_grinder_at_the_fishier_table(db_path):
+def test_global_fill_seats_idle_grinder_at_the_fishier_table(db_path, seed_idle):
     cash_table_repo = CashTableRepository(db_path)
     bankroll_repo = BankrollRepository(db_path)
     personality_repo = PersonalityRepository(db_path)
@@ -106,7 +106,13 @@ def test_global_fill_seats_idle_grinder_at_the_fishier_table(db_path):
         reason="bored_move",
         target_stake=None,
     )
-    cash_table_repo.save_idle(idle_entry, sandbox_id=SB)
+    seed_idle(
+        cash_table_repo,
+        idle_entry.personality_id,
+        sandbox_id=SB,
+        reason=idle_entry.reason,
+        left_at=idle_entry.left_at,
+    )
 
     fill_ctx = {
         "cash-fishy": (RosterRefreshResult(new_table=fishy), _open_indices(fishy.seats)),
@@ -211,7 +217,7 @@ def test_global_fill_refuses_to_seat_unfundable_ai(db_path):
     assert all(s["kind"] == "open" for s in after.seats)  # never seated
 
 
-def test_human_headroom_leaves_a_seat_open(db_path):
+def test_human_headroom_leaves_a_seat_open(db_path, seed_idle):
     """With `human_headroom=1`, the fill reserves one open seat per table
     for a human even when more affordable seekers are queued than seats —
     the fix for the world ticker crowding humans out of the lobby."""
@@ -268,7 +274,13 @@ def test_human_headroom_leaves_a_seat_open(db_path):
         for pid in seekers
     ]
     for e in idle_entries:
-        cash_table_repo.save_idle(e, sandbox_id=SB)
+        seed_idle(
+            cash_table_repo,
+            e.personality_id,
+            sandbox_id=SB,
+            reason=e.reason,
+            left_at=e.left_at,
+        )
 
     _process_global_greedy_fills(
         fill_ctx={"cash-hr": (RosterRefreshResult(new_table=table), _open_indices(table.seats))},
@@ -299,7 +311,7 @@ def test_human_headroom_leaves_a_seat_open(db_path):
     assert len(seated_seekers) == 1
 
 
-def test_stake_up_unaffordable_target_relaxes_to_lower_table(db_path):
+def test_stake_up_unaffordable_target_relaxes_to_lower_table(db_path, seed_idle):
     """A stake-up AI whose bankroll lands in the dead band [target_min,
     target_min × buy_in_multiplier] must RELAX down to a tier it can actually
     afford, instead of stranding forever as "stale idle".
@@ -351,7 +363,14 @@ def test_stake_up_unaffordable_target_relaxes_to_lower_table(db_path):
         reason="stake_up_queued",
         target_stake="$50",
     )
-    cash_table_repo.save_idle(entry, sandbox_id=SB)
+    seed_idle(
+        cash_table_repo,
+        entry.personality_id,
+        sandbox_id=SB,
+        reason=entry.reason,
+        left_at=entry.left_at,
+        target_stake=entry.target_stake,
+    )
 
     _process_global_greedy_fills(
         fill_ctx={"cash-low": (RosterRefreshResult(new_table=low), _open_indices(low.seats))},
@@ -377,7 +396,7 @@ def test_stake_up_unaffordable_target_relaxes_to_lower_table(db_path):
     assert "stuck_s" not in remaining_idle
 
 
-def test_stake_up_affordable_target_still_holds_out(db_path):
+def test_stake_up_affordable_target_still_holds_out(db_path, seed_idle):
     """The stickiness gate still works when the target IS affordable at the
     multiplier: the AI refuses a lower table and keeps waiting for its tier.
     """
@@ -421,7 +440,14 @@ def test_stake_up_affordable_target_still_holds_out(db_path):
         reason="stake_up_queued",
         target_stake="$50",
     )
-    cash_table_repo.save_idle(entry, sandbox_id=SB)
+    seed_idle(
+        cash_table_repo,
+        entry.personality_id,
+        sandbox_id=SB,
+        reason=entry.reason,
+        left_at=entry.left_at,
+        target_stake=entry.target_stake,
+    )
 
     _process_global_greedy_fills(
         fill_ctx={"cash-low": (RosterRefreshResult(new_table=low), _open_indices(low.seats))},
@@ -487,7 +513,7 @@ def _two_lobby_tables(cash_table_repo, *, marquee_occupant, plain_occupant):
     return fill_ctx
 
 
-def _seek(db_path, cash_table_repo, bankroll_repo, now):
+def _seek(db_path, cash_table_repo, bankroll_repo, now, seed_idle):
     """A rolled-up status-seeker (high glory anchors) sitting idle."""
     _insert_persona_with_anchors(
         db_path,
@@ -510,7 +536,13 @@ def _seek(db_path, cash_table_repo, bankroll_repo, now):
         reason="bored_move",
         target_stake=None,
     )
-    cash_table_repo.save_idle(idle, sandbox_id=SB)
+    seed_idle(
+        cash_table_repo,
+        idle.personality_id,
+        sandbox_id=SB,
+        reason=idle.reason,
+        left_at=idle.left_at,
+    )
     return idle
 
 
@@ -543,7 +575,7 @@ def _seeker_table(db_path):
     return None
 
 
-def test_marquee_routes_status_seeker_to_famous_table(db_path):
+def test_marquee_routes_status_seeker_to_famous_table(db_path, seed_idle):
     # Famous AI (renown percentile 0.90) at 'marquee', a nobody (0.15) at
     # 'plain'. With renown supplied + the seeker a glory-hunter, the marquee
     # term must override the id-tiebreak and seat the seeker at the famous table.
@@ -553,7 +585,7 @@ def test_marquee_routes_status_seeker_to_famous_table(db_path):
     fill_ctx = _two_lobby_tables(
         cash_table_repo, marquee_occupant="legend_l", plain_occupant="nobody_n"
     )
-    idle = _seek(db_path, cash_table_repo, bankroll_repo, now)
+    idle = _seek(db_path, cash_table_repo, bankroll_repo, now, seed_idle)
     seated = {"legend_l", "nobody_n"}
     _run_fill(
         db_path,
@@ -569,7 +601,7 @@ def test_marquee_routes_status_seeker_to_famous_table(db_path):
     assert bankroll_repo.load_ai_bankroll_current("seeker_s", sandbox_id=SB, now=now) == 5_000 - 80
 
 
-def test_marquee_inert_without_renown_seeks_by_tiebreak(db_path):
+def test_marquee_inert_without_renown_seeks_by_tiebreak(db_path, seed_idle):
     # Same scenario, renown_percentiles=None (flag-off path): the marquee term
     # is inert, the two tables tie on base attractiveness, and the greedy
     # id-tiebreak seats the seeker at 'cash-aaa-plain' — proving the routing in
@@ -580,7 +612,7 @@ def test_marquee_inert_without_renown_seeks_by_tiebreak(db_path):
     fill_ctx = _two_lobby_tables(
         cash_table_repo, marquee_occupant="legend_l", plain_occupant="nobody_n"
     )
-    idle = _seek(db_path, cash_table_repo, bankroll_repo, now)
+    idle = _seek(db_path, cash_table_repo, bankroll_repo, now, seed_idle)
     _run_fill(
         db_path, fill_ctx, idle, renown_percentiles=None, seated={"legend_l", "nobody_n"}, now=now
     )

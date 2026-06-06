@@ -154,15 +154,6 @@ def shadow_on(monkeypatch, presence_repo):
     return presence_repo
 
 
-@pytest.fixture()
-def shadow_off(monkeypatch, presence_repo):
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False)
-    import flask_app.extensions as ext
-
-    monkeypatch.setattr(ext, "entity_presence_repo", presence_repo, raising=False)
-    return presence_repo
-
-
 def _state(repo):
     return repo.load(ENTITY, SANDBOX).state
 
@@ -298,34 +289,3 @@ def test_start_vice_from_non_idle_is_swallowed(shadow_on):
     assert committed is not None  # authoritative write still happened
     assert PID in vice_repo.rows
     assert _state(shadow_on) is Presence.OFFLINE  # shadow did NOT advance
-
-
-# --------------------------------------------------------------------------- #
-# Flag OFF: authoritative write happens, shadow state untouched.
-# --------------------------------------------------------------------------- #
-
-
-def test_no_shadow_rows_when_flag_off(shadow_off):
-    _seed_idle(shadow_off)  # establish IDLE so a shadow write WOULD move it
-    assert _state(shadow_off) is Presence.IDLE
-
-    sh_repo = _FakeStateRepo()
-    vice_repo = _FakeStateRepo()
-    bankroll_broke = _FakeBankrollRepo(chips=100, starting=10_000)
-    bankroll_rich = _FakeBankrollRepo(chips=1_000_000, starting=10_000)
-
-    ai_side_hustle.resolve_ai_side_hustle(
-        candidates={PID},
-        side_hustle_repo=sh_repo,
-        bankroll_repo=bankroll_broke,
-        sandbox_id=SANDBOX,
-        rng=random.Random(1),
-        now=NOW,
-    )
-    _commit_vice(vice_repo, bankroll_rich)
-
-    # Authoritative inserts still happened...
-    assert PID in sh_repo.rows
-    assert PID in vice_repo.rows
-    # ...but the shadow state never advanced past IDLE.
-    assert _state(shadow_off) is Presence.IDLE

@@ -2,7 +2,7 @@
 purpose: Design for unifying cash-mode presence and chip ownership behind two enforced state machines, eliminating the ghost-seat / orphan / silent-forfeiture bug classes
 type: design
 created: 2026-05-30
-last_updated: 2026-06-01
+last_updated: 2026-06-06
 reviewed: 2026-05-30 (codex-assist + code-architect + code-explorer fact-check)
 ---
 
@@ -19,13 +19,15 @@ draft — significant pieces have shipped. Current state:
 - **Cut 2 — human chip statement: SHIPPED** (`record_transfer` /
   `record_player_buy_in` / `record_player_cash_out` in `core/economy/ledger.py`;
   human buy-in/cash-out is now auditable). A statement, not the custody machine.
-- **Presence machine (§5.1): BUILT + FLIPPED ON DEV.** The full cutover landed —
-  shadow (Phase 1) → §C dedup (Phase 2) → authority flip behind
-  `PRESENCE_AUTHORITY_ENABLED` (Phase 3), validated in sims + a multi-hour live
-  dev soak; authoritative for seats AND idle (reads). See
-  `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md` (blueprint + soak findings) and
-  `docs/plans/CASH_PRESENCE_CUTOVER_HANDOFF.md`. Still **dev-only** (committed
-  default OFF); prod deploy is the remaining irreversible step.
+- **Presence machine (§5.1): COMPLETE (2026-06-06).** The full cutover landed —
+  shadow (Phase 1) → §C dedup (Phase 2) → authority flip (Phase 3) → **legacy
+  `cash_idle_pool` cache retired (schema v152)**. `PRESENCE_AUTHORITY_ENABLED` is
+  now hardwired `True` (no env override; the rollback escape hatch is gone).
+  `entity_presence` is the permanent authority for seats AND idle; idle is read
+  from it joined with the `cash_idle_metadata` satellite. Validated in the
+  authority-mode divergence sim (0 unexpected). See
+  `docs/plans/CASH_MODE_PRESENCE_PHASE3_FLIP.md` and
+  `docs/plans/CASH_PRESENCE_CUTOVER_HANDOFF.md`.
 - **Chip-custody machine (§5.2): MOSTLY BUILT + FLIPPED ON DEV (2026-06-01).**
   The second machine. **Done + cut over on dev** (`CHIP_CUSTODY_ENABLED=1` in dev
   `.env`, committed default OFF): AI ledger parity (`ai↔seat` transfers at the two
@@ -42,9 +44,11 @@ draft — significant pieces have shipped. Current state:
   as projection") and actual reconciler deletion are evidence-gathered but held
   (see the Phase-3 doc's "Reconciler retirement" section).
 
-The pivotal table-as-projection decision (§6, D1) is ACCEPTED but its full
-demotion is deliberately deferred (the cutover kept `cash_tables`/`cash_idle_pool`
-as written caches; presence is authoritative on the read paths that matter).
+The pivotal table-as-projection decision (§6, D1) is ACCEPTED. `cash_idle_pool`
+is fully retired (its demotion went all the way to a DROP — presence + the
+`cash_idle_metadata` satellite are the idle authority). `cash_tables` is still a
+written cache for seat *payload* (chips/seated_at), but occupancy is projected
+from presence on the read paths; its full storage demotion remains deferred.
 
 ## 1. Why this exists
 
