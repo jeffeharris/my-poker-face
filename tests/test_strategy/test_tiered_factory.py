@@ -46,7 +46,10 @@ def test_factory_attaches_expression_when_enabled(
     # LLMClient built from the player's llm_config, with the PRH-18 in-game
     # timeout so a stalled provider can't hang the hand on narration.
     mock_llm_cls.assert_called_once_with(
-        provider='openai', model='gpt-5-nano', default_timeout=INGAME_LLM_TIMEOUT_SECONDS
+        provider='openai',
+        model='gpt-5-nano',
+        reasoning_effort='minimal',
+        default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
     )
     # ExpressionGenerator gets the controller's prompt_manager
     mock_expr_cls.assert_called_once_with(llm_client=fake_client, prompt_manager=fake_pm)
@@ -113,5 +116,8 @@ def test_factory_handles_missing_llm_config(
     )
 
     mock_llm_cls.assert_called_once_with(
-        provider='groq', model='llama-3.1-8b-instant', default_timeout=INGAME_LLM_TIMEOUT_SECONDS
+        provider='groq',
+        model='llama-3.1-8b-instant',
+        reasoning_effort='minimal',
+        default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
     )
