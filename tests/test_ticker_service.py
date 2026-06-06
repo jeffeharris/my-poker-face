@@ -222,12 +222,21 @@ def test_subtle_pace_skips_off_cycles(monkeypatch):
 
 
 def _vouch_stubs(
-    monkeypatch, *, career_active=True, tutorial_complete=True, inbound=None, seated=None
+    monkeypatch,
+    *,
+    career_active=True,
+    tutorial_complete=True,
+    inbound=None,
+    seated=None,
+    hands=0,
+    last_vouch_at_hands=0,
 ):
     """Wire stub repos onto extensions for the vouch-evaluation tests.
 
     `inbound`: {ai_id: (respect, likability)}; `seated`: {ai_id: table_id} (which
-    cardroom each AI sits at). Returns the dict of saved CareerProgress by key."""
+    cardroom each AI sits at). `hands` = the player's cumulative cash hands (the
+    trickle clock); `last_vouch_at_hands` seeds the cooldown mark. Returns the
+    dict of saved CareerProgress by key."""
     from cash_mode.tables import CashTableState, ai_slot
     from flask_app import extensions
     from poker.memory.opponent_model import RelationshipState
@@ -242,10 +251,15 @@ def _vouch_stubs(
                 owner_id=owner,
                 career_active=career_active,
                 tutorial_complete=tutorial_complete,
+                last_vouch_at_hands=last_vouch_at_hands,
             )
 
         def save(self, prog, now=None):
             saved[(prog.sandbox_id, prog.owner_id)] = prog
+
+    class SessionRepo:
+        def sum_hands_for_owner(self, owner_id, *, sandbox_id=None):
+            return hands
 
     class RelRepo:
         def load_inbound_relationships(self, opp, now=None):
@@ -276,6 +290,7 @@ def _vouch_stubs(
     monkeypatch.setattr(extensions, "career_progress_repo", Repo(), raising=False)
     monkeypatch.setattr(extensions, "relationship_repo", RelRepo(), raising=False)
     monkeypatch.setattr(extensions, "cash_table_repo", TableRepo(), raising=False)
+    monkeypatch.setattr(extensions, "cash_session_repo", SessionRepo(), raising=False)
     return saved
 
 
@@ -338,6 +353,58 @@ def test_vouch_skips_unseated_voucher(monkeypatch):
     ticker_service._maybe_fire_vouches("owner1", "sb1")
     # Ready but between rooms → no reveal this tick (retry next tick).
     assert saved == {} or "cleopatra" not in saved[("sb1", "owner1")].vouched_by
+
+
+def test_vouch_cooldown_blocks_within_hand_window(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    # A vouch fired at 50 hands; only 120 now → 70 < 100 cooldown → no fire.
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+        hands=120,
+        last_vouch_at_hands=50,
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    assert saved == {} or "cleopatra" not in saved[("sb1", "owner1")].vouched_by
+
+
+def test_vouch_cooldown_allows_after_hand_window(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    # Last vouch at 50, now 200 → 150 ≥ 100 → fires + re-stamps the mark.
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+        hands=200,
+        last_vouch_at_hands=50,
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    prog = saved[("sb1", "owner1")]
+    assert "cleopatra" in prog.vouched_by
+    assert prog.last_vouch_at_hands == 200  # mark advanced to the current count
+
+
+def test_first_vouch_is_uncapped_by_cooldown(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    # No prior vouch (mark 0) → fires even with few hands, then stamps the mark.
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+        hands=12,
+        last_vouch_at_hands=0,
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    prog = saved[("sb1", "owner1")]
+    assert "cleopatra" in prog.vouched_by
+    assert prog.last_vouch_at_hands == 12
 
 
 # --- tournament world-tick hook (P3.7) ---------------------------------

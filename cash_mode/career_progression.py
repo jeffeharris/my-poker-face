@@ -77,6 +77,14 @@ LIKE_THRESHOLD = 0.70
 # their home game → get friendlier → they vouch you in). Tunable.
 HOME_TABLE_REVEAL_LIKABILITY = 0.60
 
+# Vouch trickle (M2): minimum cash hands the player must play between emergent
+# vouches. The ticker fires at most one vouch, then won't fire another until the
+# player has logged this many more hands — so when several AIs are vouch-ready at
+# once, the doors open one at a time over real play rather than in a burst. The
+# first vouch is uncapped (last_vouch_at_hands defaults 0). Play-based, not
+# wall-clock, so it tracks engagement. Tunable.
+VOUCH_COOLDOWN_HANDS = 100
+
 # --- Scripted graduation gate (M1: crude; tuned in playtest from M1 logging) --
 # Min hands at the Scene-0 table before the vouch can fire — you can't graduate
 # on hand one. Counted from the live session hand count.
@@ -573,6 +581,7 @@ def fire_vouch(
     table_id: str,
     stake_label: str,
     table_name: str,
+    at_hands: Optional[int] = None,
     now: Optional[datetime] = None,
 ):
     """An emergent vouch: `voucher_id` reveals THEIR room (`table_id`) to the human.
@@ -601,6 +610,10 @@ def fire_vouch(
     progress.revealed_table_ids.append(table_id)
     if voucher_id not in progress.vouched_by:
         progress.vouched_by.append(voucher_id)
+    # Stamp the trickle mark so the next vouch waits VOUCH_COOLDOWN_HANDS more
+    # hands. Recorded on the same save the reveal rides.
+    if at_hands is not None:
+        progress.last_vouch_at_hands = at_hands
     career_progress_repo.save(progress, now=now)
 
     event = LobbyEvent(

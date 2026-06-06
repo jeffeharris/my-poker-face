@@ -103,6 +103,12 @@ class CareerProgress:
     # gated on this flag (career_active + tutorial_complete + home_court set +
     # NOT used). True once the mentor stake has been taken, so it never re-offers.
     mentor_stake_used: bool = False
+    # Career-M2 vouch trickle: the player's cumulative cash-hand count at the
+    # last emergent vouch. The ticker fires a vouch only once the player has
+    # played `VOUCH_COOLDOWN_HANDS` more hands since this mark, so vouches drip
+    # in one at a time (play-based cadence) instead of bursting when several AIs
+    # cross the thresholds at once. 0 = no vouch yet (first one is uncapped).
+    last_vouch_at_hands: int = 0
 
     def has_vouched(self, personality_id: str) -> bool:
         """True if `personality_id` has already spent its one vouch (v1 rule)."""
@@ -133,6 +139,7 @@ class CareerProgress:
                 "mentor_intro_table_id": self.mentor_intro_table_id,
                 "comp_returned": self.comp_returned,
                 "mentor_stake_used": self.mentor_stake_used,
+                "last_vouch_at_hands": self.last_vouch_at_hands,
             }
         )
 
@@ -173,6 +180,7 @@ class CareerProgress:
             mentor_intro_table_id=blob.get("mentor_intro_table_id"),
             comp_returned=bool(blob.get("comp_returned", False)),
             mentor_stake_used=bool(blob.get("mentor_stake_used", False)),
+            last_vouch_at_hands=int(blob.get("last_vouch_at_hands") or 0),
         )
 
 

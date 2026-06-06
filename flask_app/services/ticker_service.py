@@ -574,8 +574,10 @@ def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
     reveals the warmest one's HOME table — the lobby room where that AI has played
     the most hands (`resolve_home_table`), not wherever it happens to sit this
     tick. Flag-gated (`CAREER_VOUCH_ENABLED`), career-only (`career_active +
-    tutorial_complete`), one per sandbox per tick (slow growth). Best-effort — a
-    failure here never breaks the world tick.
+    tutorial_complete`), one per sandbox per tick AND trickled to one per
+    `VOUCH_COOLDOWN_HANDS` of player cash play (so a backlog of ready AIs opens
+    one door at a time, not in a burst). Best-effort — a failure here never
+    breaks the world tick.
     """
     from cash_mode import career_progression as cp, economy_flags
     from flask_app import extensions
@@ -586,6 +588,7 @@ def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
     rel_repo = getattr(extensions, "relationship_repo", None)
     table_repo = getattr(extensions, "cash_table_repo", None)
     personality_repo = getattr(extensions, "personality_repo", None)
+    session_repo = getattr(extensions, "cash_session_repo", None)
     if repo is None or rel_repo is None or table_repo is None:
         return
 
@@ -625,6 +628,22 @@ def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
         if not ready:
             return
 
+        # Trickle: hold off until the player has logged VOUCH_COOLDOWN_HANDS more
+        # cash hands since the last vouch, so a backlog of ready AIs opens one
+        # door at a time. The first emergent vouch (last_vouch_at_hands == 0) is
+        # uncapped; each fire stamps the current hand count as the new mark.
+        hands_now = 0
+        if session_repo is not None:
+            try:
+                hands_now = session_repo.sum_hands_for_owner(owner_id, sandbox_id=sandbox_id)
+            except Exception:
+                hands_now = 0
+        if (
+            progress.last_vouch_at_hands
+            and hands_now - progress.last_vouch_at_hands < cp.VOUCH_COOLDOWN_HANDS
+        ):
+            return
+
         # Warmest first; fire exactly one (the world blooms a room at a time).
         ready.sort(key=lambda t: t[0], reverse=True)
         _eager, voucher_id = ready[0]
@@ -643,6 +662,7 @@ def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
             table_id=table_id,
             stake_label=stake_label,
             table_name=table_name,
+            at_hands=hands_now,
         )
     except Exception:
         logger.exception("[TICKER] vouch evaluation failed for owner=%s", owner_id)
