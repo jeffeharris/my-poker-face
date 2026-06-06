@@ -198,6 +198,14 @@ REDIS_URL = os.environ.get('REDIS_URL')
 
 # AI model configuration - import from centralized config
 
+# Per-call LLM timeout constants — canonical source is core.llm.config.
+# Re-exported here so flask_app.routes can reference config.FAST_LLM_TIMEOUT_SECONDS.
+from core.llm.config import (  # noqa: F401
+    FAST_LLM_TIMEOUT_SECONDS,
+    INGAME_LLM_TIMEOUT_SECONDS,
+    TICKER_LLM_TIMEOUT_SECONDS,
+)
+
 # DB-backed LLM settings — canonical source is core.llm.settings.
 # Re-exported here for backwards compatibility with flask_app.routes etc.
 from core.llm.settings import (  # noqa: F401

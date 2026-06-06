@@ -91,6 +91,10 @@ class ExpressionGenerator:
             self._cleanup_client = LLMClient(
                 provider=get_fast_provider(),
                 model=get_fast_model(),
+                # Cosmetic beat-repair: minimal reasoning selects the non-reasoning
+                # variant on toggleable FAST models (xAI grok-4-fast) instead of the
+                # slow default-"low" reasoning variant.
+                reasoning_effort="minimal",
                 # PRH-18: in-game (sharp-bot Layer-3) narration — bound it so a
                 # stalled provider can't hang the hand under the per-game lock.
                 default_timeout=INGAME_LLM_TIMEOUT_SECONDS,

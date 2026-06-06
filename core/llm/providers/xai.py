@@ -96,6 +96,10 @@ class XAIProvider(LLMProvider):
             api_key=resolved_key,
             base_url="https://api.x.ai/v1",
             http_client=shared_http_client,
+            # Retries are owned by the app-level loop (LLMClient.complete). The SDK
+            # default of 2 would stack on top, multiplying the per-attempt timeout
+            # into a multi-minute stall. Disable so the timeout is a real ceiling.
+            max_retries=0,
         )
 
     @property

@@ -823,11 +823,17 @@ class AIPlayerController:
             return client
         try:
             from core.llm import LLMClient
+            from core.llm.config import FAST_LLM_TIMEOUT_SECONDS
             from core.llm.settings import get_fast_model, get_fast_provider
 
             client = LLMClient(
                 provider=get_fast_provider(),
                 model=get_fast_model(),
+                # Cosmetic beat-repair: minimal reasoning (non-reasoning variant on
+                # toggleable FAST models) + a bounded timeout so this never hangs
+                # the AI turn it runs inside.
+                reasoning_effort="minimal",
+                default_timeout=FAST_LLM_TIMEOUT_SECONDS,
             )
         except Exception as e:
             logger.warning(f"[CLEANUP_CLIENT] Falling back to decision client: {e}")
