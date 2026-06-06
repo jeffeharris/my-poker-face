@@ -170,14 +170,16 @@ test.describe('PW-11: Winner announcement shows after hand and auto-dismisses', 
     const shuffle = page.locator('.shuffle-loading-dim');
     await expect(shuffle).toBeVisible({ timeout: 15000 });
 
-    // Scope to the interhand ShuffleLoading's sibling content layer
+    // Scope to the interhand ShuffleLoading's sibling content layer.
+    // The winner's name is the primary status line; "WON $X" drops to the
+    // submessage below it.
     const contentLayer = page.locator('.shuffle-loading-content-layer');
     const messageText = contentLayer.locator('.shuffle-loading-text');
     await expect(messageText).toContainText('TestPlayer', { timeout: 10000 });
-    await expect(messageText).toContainText('won');
 
     const submessage = contentLayer.locator('.shuffle-loading-submessage');
-    await expect(submessage).toContainText('$150', { timeout: 10000 });
+    await expect(submessage).toContainText('WON', { timeout: 10000 });
+    await expect(submessage).toContainText('$150');
   });
 
   test('fold winner has no Continue button (auto-transitions)', async ({ page }) => {

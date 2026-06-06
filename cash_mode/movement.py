@@ -164,6 +164,25 @@ IDLE_ENERGY_RECOVERY_PER_HOUR = 0.5  # +energy/hour idle, toward baseline
 # An idle AI must recharge to this fraction of its baseline before returning.
 RESEAT_RECOVERY_FLOOR = 0.85
 
+# Seated fatigue — the drain half of the energy loop. Idle recovery (above)
+# only closed half the loop: energy sprang back toward baseline while resting,
+# but nothing wore it DOWN while seated, so AIs sat at full energy forever and
+# the `tenure` leave term (energy < 0.5) never fired. Each seated hand now
+# costs this much energy via `PlayerPsychology.apply_seated_fatigue`, applied
+# once per hand boundary to every seated AI in BOTH the live game-handler path
+# and the off-screen full_sim path (parity).
+#
+# Deliberately SLOW — fatigue is a BACKSTOP, not the primary mover. Normal
+# sessions still end on stack pressure (short / stake_up / forced_leave);
+# fatigue only becomes decisive for a long-tenured camper that no stack signal
+# would rotate (the winning-grinder-pinned-at-a-fish-table case predator
+# retention was built around). At 0.005/hand a baseline-0.5 persona crosses the
+# 0.5 tenure threshold immediately and reaches the predator fatigue floor (0.2)
+# in ~60 hands; a high-energy persona (baseline 0.7) must first drain 0.2 just
+# to reach 0.5, so it grinds ~90+ hands before tiring. Win events (+energy)
+# partially offset it, so winners ride longer — by design. Tunable.
+SEATED_ENERGY_DRAIN_PER_HAND = 0.005
+
 # Phase 4.5 Commit 1 — per-staker garnishment on AI take_stake.
 # Mirrors `cash_mode.sponsor_offers.GARNISHMENT_RATE_CAP` so AI-side
 # and human-side garnishment surfaces stay calibrated together. The

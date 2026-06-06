@@ -82,14 +82,12 @@ test.describe('PW-19: Custom game wizard step 1 — game settings on mobile', ()
     await expect(tournamentCard).not.toHaveClass(/selectable-card--selected/);
   });
 
-  test('game mode cards are visible: Casual, Standard, Competitive, Pro', async ({ page }) => {
+  test('game mode cards are visible: Funner and Faster (AI chat toggle)', async ({ page }) => {
     const gameModeCards = page.locator('.game-mode-card');
-    await expect(gameModeCards).toHaveCount(4);
+    await expect(gameModeCards).toHaveCount(2);
 
-    await expect(gameModeCards.nth(0)).toContainText('Casual');
-    await expect(gameModeCards.nth(1)).toContainText('Standard');
-    await expect(gameModeCards.nth(2)).toContainText('Competitive');
-    await expect(gameModeCards.nth(3)).toContainText('Pro');
+    await expect(gameModeCards.nth(0)).toContainText('Funner');
+    await expect(gameModeCards.nth(1)).toContainText('Faster');
   });
 
   test('clicking a game mode card selects it', async ({ page }) => {

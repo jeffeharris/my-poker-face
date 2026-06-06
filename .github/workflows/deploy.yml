@@ -191,10 +191,15 @@ jobs:
 
       - name: Sync to production directory
         run: |
+          # Exclude the ENTIRE data/ dir: with --delete, a narrower 'data/*.db'
+          # exclude would delete prod's data/backups/ (every snapshot, incl. the
+          # rollback) and the live -wal/-shm sidecars out from under the running
+          # DB. prod's data is prod's own; a deploy must never touch it.
           rsync -av --delete \
             --exclude '.git' --exclude 'node_modules' --exclude '__pycache__' \
             --exclude '.venv' --exclude 'my_poker_face_venv' --exclude '.dev' \
-            --exclude 'data/*.db' --exclude '*.pyc' \
+            --exclude 'data/' --exclude '*.pyc' \
+            --exclude '.ruff_cache' --exclude '.pytest_cache' --exclude '.mypy_cache' \
             --exclude 'generated_images/' --exclude '.env' \
             ./ /opt/poker/
 

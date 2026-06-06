@@ -117,7 +117,7 @@ class TestGoldenPath(unittest.TestCase):
 
                 # Verify prompt structure
                 self.assertIn(f'Persona: {test_case["name"]}', prompt)
-                self.assertIn('tournament', prompt)  # Context
+                self.assertIn('Circuit', prompt)  # Context (the "Circuit" framing)
                 self.assertIn('JSON', prompt)  # Format requirement
                 self.assertIn('Example response:', prompt)  # Example included
 

@@ -23,6 +23,7 @@ design — moving the human is the same atomic operation as moving any AI, which
 what keeps the ghost-seat bug class out of reach.
 """
 
+import logging
 import random
 from typing import Callable
 
@@ -31,6 +32,8 @@ from .config import TournamentConfig
 from .director import FakeHandResolver, RoundReport, build_initial_state
 from .field import TournamentField, attribute_eliminators
 from .seating import Seating, SeatingManager
+
+logger = logging.getLogger(__name__)
 
 # A jittered hand count per AI table per human hand. Weighted so the mean is
 # exactly 1.0 (0+1+1+2)/4 — the field tracks the human without drifting.
@@ -405,7 +408,26 @@ class TournamentSession:
         + a cold-load reconcile (see the live-table hardening follow-up)."""
         seat_order = table.players
         stacks = {pid: self.field.stacks.get(pid, 0) for pid in seat_order}
-        self._guard_table_result(stacks, result)
+        # The live engine is the chip authority for the human's table, so RECONCILE
+        # to its result — warn on divergence, never raise. A raised guard here
+        # permanently freezes the human's game at the boundary (the live game has
+        # already moved on and re-running reproduces the same divergence). The
+        # AI-resolver path (`_play_hands`) keeps the hard guard: a deterministic
+        # resolver that changes the seat set or breaks conservation is a real bug,
+        # not a recoverable live/session desync.
+        if set(stacks) != set(result):
+            logger.warning(
+                "live table result changed the player set (reconciling to live): "
+                "session=%s live=%s",
+                sorted(stacks),
+                sorted(result),
+            )
+        elif sum(stacks.values()) != sum(result.values()):
+            logger.warning(
+                "live table result broke chip conservation (reconciling to live): " "in=%d out=%d",
+                sum(stacks.values()),
+                sum(result.values()),
+            )
         for pid, new_stack in result.items():
             self.field.stacks[pid] = new_stack
         table.advance_button()

@@ -1463,7 +1463,7 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
 
     from cash_mode.bankroll import AIBankrollState
     from cash_mode.lobby import _global_seated_set
-    from cash_mode.movement import refresh_table_roster
+    from cash_mode.movement import SEATED_ENERGY_DRAIN_PER_HAND, refresh_table_roster
     from cash_mode.seat_registry import SeatOccupancyRegistry
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
     from cash_mode.tables import ai_slot, ai_slot_fish, human_slot, open_slot
@@ -1648,6 +1648,14 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
             zone = 'neutral'
         prior = getattr(ctrl, '_detached_hands', 0)
         ctrl._detached_hands = (prior + 1) if zone == 'detached' else 0
+        # Seated fatigue: one hand of seated play wears energy down (the drain
+        # half of the energy loop — idle rest springs it back). Applied here so
+        # the lowered value feeds `_psych_lookup` → refresh_table_roster's
+        # `tenure` leave term THIS hand. Best-effort; never block the refresh.
+        try:
+            psych.apply_seated_fatigue(SEATED_ENERGY_DRAIN_PER_HAND)
+        except Exception:  # noqa: BLE001 — fatigue is non-critical bookkeeping
+            pass
 
     def _psych_lookup(pid: str) -> Dict[str, Any]:
         ctrl = pid_to_controller.get(pid)
@@ -1740,8 +1748,18 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         except Exception as e:
             logger.error("[CASH][LOBBY] rebuy application failed: %s", e, exc_info=True)
 
-    # Persist table + idle changes.
-    cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
+    # Persist table + idle changes. Thread the real leave reason/target into
+    # save_table so the presence-machine idle satellite (cash_idle_metadata)
+    # records the actual reason instead of defaulting every row to
+    # 'forced_leave' (the metadata write has no other source for it).
+    idle_metadata = {
+        change.entry.personality_id: change.entry
+        for change in result.idle_changes
+        if change.kind == "add" and change.entry is not None
+    }
+    cash_table_repo.save_table(
+        result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
+    )
     for change in result.idle_changes:
         if change.kind == "add" and change.entry is not None:
             cash_table_repo.save_idle(change.entry, sandbox_id=sandbox_id)
@@ -2310,7 +2328,11 @@ def _remove_departed_ais_from_game(
     if len(remaining_players) == len(game_state.players):
         return
 
-    state_machine.game_state = game_state.update(players=remaining_players)
+    # Reset current_player_idx: dropping seats shrinks the tuple, so a stale index
+    # can point past the end and IndexError on the next read (current_player /
+    # to_dict), 500-storming the poll loop while the game sits paused. The index is
+    # meaningless between hands; the next deal re-derives it.
+    state_machine.game_state = game_state.update(players=remaining_players, current_player_idx=0)
 
     # T3-77 — an AI leaving the human's table heads back to the cash world
     # (idle pool → re-seat / off-screen sim), so hand its evolved mood off NOW by
@@ -3556,10 +3578,12 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Multi-table tournament: the human plays one table; at each hand boundary
     # fold the result into the field, pace the AI tables, settle, and either
     # reconcile this table's roster/blinds for the next hand (continue/relocated)
-    # or pause the game (human out / tournament complete). Gated on a key only
-    # multi-table tournament games carry, so cash + single-table games are
-    # untouched.
-    if game_data.get('tournament_session') is not None:
+    # or pause the game (human out / tournament complete). Gated on
+    # `tournament_multi_table` (not merely `tournament_session`, which EVERY
+    # non-cash game now carries) — single-table tournaments run their own boundary
+    # at handle_evaluating_hand_phase above and must NOT also run this one, or
+    # they double-advance the session and reset blinds/dealer every hand.
+    if game_data.get('tournament_multi_table'):
         try:
             from flask_app.handlers.tournament_game_builder import tournament_hand_boundary
 
@@ -3567,6 +3591,20 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         except Exception as e:
             logger.error(f"[TOURNEY] hand-boundary failed for {game_id}: {e}", exc_info=True)
             tournament_stop = True  # pause rather than risk a runaway loop
+            # Recovery: if the field is actually terminal (the boundary may have
+            # advanced it before raising, or a re-entry raised on an already-
+            # finished event), finalize so the human lands on the standings/win
+            # screen instead of a permanently frozen table. finalize_tournament is
+            # idempotent and self-guards on terminal state, so this is a no-op
+            # otherwise.
+            try:
+                from flask_app.handlers.tournament_completion import finalize_tournament
+
+                _sess = game_data.get('tournament_session')
+                if _sess is not None and (_sess.is_complete() or _sess.human_out):
+                    finalize_tournament(game_id, game_data, emit=_sess.is_complete())
+            except Exception:
+                logger.exception("[TOURNEY] post-failure finalize also failed for %s", game_id)
         if tournament_stop:
             game_data['state_machine'] = state_machine
             game_state_service.set_game(game_id, game_data)

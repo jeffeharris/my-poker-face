@@ -124,3 +124,65 @@ class TestPersonalityIdorAdmin(_PersonalityRouteBase):
         resp = self.client.delete('/api/personality/Batman')
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.get_json().get('success'))
+
+
+class TestGeneratePersonalityForceOwnership(_PersonalityRouteBase):
+    """Regression (T3-53): `POST /api/generate_personality {force: true}` skips
+    the name-collision 409, so without an ownership guard a signed-in user could
+    force-regenerate a system/launch-cast persona (owner_id IS NULL) or another
+    user's private persona by name — INSERT OR REPLACE reassigns it to the caller
+    and flips it private, removing it from the shared catalog. The force branch
+    must reject overwriting a name the caller doesn't own (admins excepted).
+    """
+
+    has_admin_permission = False
+
+    def _login(self, user):
+        # generate_personality blocks guests outright (is_guest defaults True),
+        # so swap the auth_manager for an explicit non-guest account.
+        self._auth_patcher.stop()
+        auth_mock = MagicMock()
+        auth_mock.get_current_user.return_value = user
+        self._auth_patcher = patch('flask_app.extensions.auth_manager', auth_mock)
+        self._auth_patcher.start()
+
+    def setUp(self):
+        super().setUp()
+        # Screen as unflagged so the test never reaches the moderation network path.
+        self._mod_patcher = patch(
+            'flask_app.routes.personality_routes.moderate_text',
+            return_value=MagicMock(flagged=False),
+        )
+        self._mod_patcher.start()
+
+    def tearDown(self):
+        self._mod_patcher.stop()
+        super().tearDown()
+
+    def test_force_cannot_overwrite_system_personality(self):
+        self._login({'id': 'real-user-2', 'name': 'Mallory', 'is_guest': False})
+        resp = self.client.post('/api/generate_personality', json={'name': 'Batman', 'force': True})
+        self.assertEqual(resp.status_code, 403)
+        # Shared-catalog row untouched and still ownerless.
+        self.assertEqual(
+            self.personality_repo.load_personality('Batman').get('play_style'), 'tight'
+        )
+        self.assertIsNone(self.personality_repo.get_personality_owner('Batman'))
+
+    def test_force_cannot_overwrite_another_users_personality(self):
+        self._login({'id': 'real-user-2', 'name': 'Mallory', 'is_guest': False})
+        resp = self.client.post('/api/generate_personality', json={'name': 'Mine', 'force': True})
+        self.assertEqual(resp.status_code, 403)
+        # Ownership unchanged.
+        self.assertEqual(self.personality_repo.get_personality_owner('Mine'), 'guest-1')
+
+    def test_owner_can_force_regenerate_own(self):
+        # The guard must not over-restrict: the owner can still force-regenerate.
+        self._login({'id': 'guest-1', 'name': 'Guest', 'is_guest': False})
+        with patch('poker.personality_generator.PersonalityGenerator') as gen_cls:
+            gen_cls.return_value.get_personality.return_value = {'play_style': 'regenerated'}
+            resp = self.client.post(
+                '/api/generate_personality', json={'name': 'Mine', 'force': True}
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json().get('success'))

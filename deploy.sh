@@ -20,8 +20,9 @@ fi
 echo "==> Syncing files to server..."
 rsync -avz --exclude '.git' --exclude 'node_modules' --exclude '__pycache__' \
   --exclude '.venv' --exclude 'my_poker_face_venv' --exclude '.dev' \
-  --exclude 'data/*.db' --exclude '*.pyc' \
-  --exclude 'generated_images/' --exclude '.env.prod' \
+  --exclude 'data/' --exclude '*.pyc' \
+  --exclude '.ruff_cache' --exclude '.pytest_cache' --exclude '.mypy_cache' \
+  --exclude 'generated_images/' --exclude '.env.prod' --exclude '.env' \
   -e ssh ./ ${SERVER}:${APP_DIR}/
 
 echo "==> Decrypting secrets on server..."
