@@ -1,8 +1,11 @@
 """REST routes for multi-table tournaments (Phase 2a — API against the
 TournamentSession contract).
 
-These expose the tournament meta-layer: register a tournament, read field-wide
-standings, and advance/fast-forward the world. The actual single-table poker
+These expose the tournament meta-layer: accept/decline invites, read field-wide
+standings, and advance/fast-forward the world. (Human tournaments are created via
+the invite → `spawn_human_tournament` path, which builds a real-persona field;
+the old `/register` route that minted a synthetic `P01..` field with the human as
+`P01` has been removed.) The actual single-table poker
 game is reused from the existing machinery; this layer only manages seating,
 chip movement between tables, standings, and the blind clock (via
 `tournament.TournamentSession`).
@@ -17,9 +20,8 @@ standings UI has real, evolving data to render.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 
 from flask_app import config
 from flask_app.extensions import limiter
@@ -27,17 +29,11 @@ from flask_app.services import tournament_registry as registry
 from flask_app.services.tournament_naming import named_standings
 from poker.authorization import require_permission
 from tournament.beats import build_beats, level_up_beat
-from tournament.config import DEFAULT_FIELD_ARCHETYPES, TournamentConfig
-from tournament.director import FakeHandResolver, build_initial_state
 from tournament.session import TournamentSession, paid_places_for
 
 logger = logging.getLogger(__name__)
 
 tournament_bp = Blueprint('tournament', __name__)
-
-MAX_FIELD_SIZE = 200
-MAX_TABLE_SIZE = 10
-MAX_BUY_IN = 1_000_000  # sanity ceiling on a per-seat buy-in
 
 
 def _resolve_sandbox_id(owner_id: str) -> str:
@@ -66,14 +62,6 @@ def _resolve_player_name() -> str:
     if user and user.get('name'):
         return user['name']
     return 'You'
-
-
-def _build_resolver(kind: str, entries: dict[str, str]):
-    if kind == 'engine':
-        from tournament.engine_resolver import EngineHandResolver
-
-        return EngineHandResolver(entries)
-    return FakeHandResolver()
 
 
 def _emit_update(
@@ -210,146 +198,6 @@ def get_lobby():
             'defaults': {'field_size': 18, 'table_size': 6, 'starting_stack': 10_000},
         }
     )
-
-
-@tournament_bp.route('/api/tournament/register', methods=['POST'])
-def register_tournament():
-    try:
-        owner_id = _resolve_owner_id()
-    except ValueError:
-        return jsonify({'error': 'unauthorized'}), 401
-
-    existing = registry.find_active_for_owner(owner_id)
-    if existing:
-        return jsonify({'error': 'already_registered', 'tournament_id': existing}), 409
-
-    body = request.get_json(silent=True) or {}
-    try:
-        field_size = int(body.get('field_size', 18))
-        table_size = int(body.get('table_size', 6))
-        starting_stack = int(body.get('starting_stack', 10_000))
-        seed = int(body.get('seed', 0))
-        buy_in = int(body.get('buy_in', 0))
-    except (TypeError, ValueError):
-        return jsonify(
-            {'error': 'field_size/table_size/starting_stack/seed/buy_in must be integers'}
-        ), 400
-
-    if not 2 <= field_size <= MAX_FIELD_SIZE:
-        return jsonify({'error': f'field_size must be between 2 and {MAX_FIELD_SIZE}'}), 400
-    if not 2 <= table_size <= MAX_TABLE_SIZE:
-        return jsonify({'error': f'table_size must be between 2 and {MAX_TABLE_SIZE}'}), 400
-    if starting_stack < 1:
-        return jsonify({'error': 'starting_stack must be >= 1'}), 400
-    if not 0 <= buy_in <= MAX_BUY_IN:
-        return jsonify({'error': f'buy_in must be between 0 and {MAX_BUY_IN}'}), 400
-
-    resolver_kind = body.get('resolver', 'fake')
-    if resolver_kind not in ('fake', 'engine'):
-        return jsonify({'error': "resolver must be 'fake' or 'engine'"}), 400
-
-    archetypes = body.get('archetypes') or list(DEFAULT_FIELD_ARCHETYPES)
-    try:
-        config = TournamentConfig(
-            field_size=field_size,
-            table_size=table_size,
-            starting_stack=starting_stack,
-            seed=seed,
-            field_archetypes=tuple(archetypes),
-        )
-        player_ids, entries, _field, _seating = build_initial_state(config)
-        resolver = _build_resolver(resolver_kind, entries)
-        session = TournamentSession(config, ai_resolver=resolver, human_id=player_ids[0])
-    except (ValueError, KeyError) as exc:
-        return jsonify({'error': str(exc)}), 400
-
-    # --- Real-chip economy (escrow-in) ---------------------------------------
-    # Read the economy signal, decide the funding plan, gate affordability, then
-    # debit + earmark at the escrow — all under the sandbox lock so the snapshot
-    # the plan was computed from is still current when the transfers apply.
-    from flask_app.extensions import bankroll_repo, chip_ledger_repo, tournament_session_repo
-    from flask_app.services import game_state_service, tournament_economy_service as econ
-
-    sandbox_id = _resolve_sandbox_id(owner_id)
-    with game_state_service.get_sandbox_lock(sandbox_id):
-        # Re-check under the lock: the pre-lock guard (above) is a fast path, but
-        # two concurrent registers can both pass it before either registers. The
-        # authoritative check must be inside the lock or both debit the buy-in.
-        existing = registry.find_active_for_owner(owner_id)
-        if existing:
-            return jsonify({'error': 'already_registered', 'tournament_id': existing}), 409
-        plan = econ.plan_funding(
-            ledger_repo=chip_ledger_repo,
-            sandbox_id=sandbox_id,
-            field_size=field_size,
-            buy_in=buy_in,
-            human_in=True,  # registering through this route IS opting in
-        )
-        # Affordability gate BEFORE creating the tournament (no rollback needed).
-        if plan.human_buy_in > 0:
-            from flask_app.routes.cash_routes import _load_or_seed_player_bankroll
-
-            bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
-            if bankroll.chips < plan.human_buy_in:
-                return jsonify(
-                    {
-                        'error': 'insufficient_funds',
-                        'required': plan.human_buy_in,
-                        'available': bankroll.chips,
-                    }
-                ), 402
-
-        tournament_id = registry.new_tournament_id()
-        registry.put(
-            tournament_id,
-            {
-                'session': session,
-                'owner_id': owner_id,
-                'created_at': datetime.utcnow().isoformat(),
-                'resolver': resolver,
-                'resolver_kind': resolver_kind,
-                'game_id': None,
-            },
-        )
-        registry.persist(tournament_id)  # durable from the moment it's registered
-
-        try:
-            econ.apply_buy_in(
-                tournament_id=tournament_id,
-                owner_id=owner_id,
-                sandbox_id=sandbox_id,
-                plan=plan,
-                bankroll_repo=bankroll_repo,
-                ledger_repo=chip_ledger_repo,
-                session_repo=tournament_session_repo,
-            )
-        except econ.InsufficientFundsError as exc:
-            registry.delete(tournament_id)
-            return jsonify(
-                {
-                    'error': 'insufficient_funds',
-                    'required': exc.required,
-                    'available': exc.available,
-                }
-            ), 402
-        except Exception:  # noqa: BLE001 — undo registration on a hard chip failure
-            logger.exception("tournament buy-in failed for %s; rolling back", tournament_id)
-            registry.delete(tournament_id)
-            return jsonify({'error': 'buy_in_failed'}), 500
-
-    return jsonify(
-        {
-            'tournament_id': tournament_id,
-            'standings': named_standings(session),
-            'economy': {
-                'buy_in': plan.human_buy_in,
-                'bank_overlay': plan.bank_overlay,
-                'rake': plan.rake,
-                'prize_pool': plan.prize_pool,
-                'regime': plan.regime,
-            },
-        }
-    ), 201
 
 
 @tournament_bp.route('/api/tournament/<tournament_id>/standings', methods=['GET'])
@@ -723,6 +571,7 @@ def reconcile_payouts():
     session_repo = getattr(extensions, 'tournament_session_repo', None)
     ledger_repo = getattr(extensions, 'chip_ledger_repo', None)
     bankroll_repo = getattr(extensions, 'bankroll_repo', None)
+    personality_repo = getattr(extensions, 'personality_repo', None)
     sandbox_repo = getattr(extensions, 'sandbox_repo', None)
     if session_repo is None or ledger_repo is None or bankroll_repo is None:
         return jsonify({'error': 'economy not wired'}), 503
@@ -731,6 +580,7 @@ def reconcile_payouts():
         session_repo=session_repo,
         ledger_repo=ledger_repo,
         bankroll_repo=bankroll_repo,
+        personality_repo=personality_repo,
         registry=tournament_registry,
         resolve_sandbox=lambda owner: resolve_default_sandbox_for(owner, sandbox_repo=sandbox_repo),
         get_lock=game_state_service.get_sandbox_lock,

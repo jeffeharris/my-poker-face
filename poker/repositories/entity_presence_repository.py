@@ -6,10 +6,11 @@ single `state` value is what makes `seated_and_idle` unrepresentable, and the DB
 constraints (compound PK + partial unique seat index) make `double_seat`
 unrepresentable.
 
-ADDITIVE AND DORMANT: nothing in the live cash-mode codepaths calls this yet.
-It exists so a later, human-reviewed phase can reroute the seat / idle-pool /
-hustle / vice writers through the machine (see
-`docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`).
+LIVE (cutover complete): `PRESENCE_AUTHORITY_ENABLED` defaults True (and is set in
+every compose file), so the seat / idle-pool / hustle / vice writers route through
+the machine and this table is the authoritative seat source in prod — not dormant.
+Treat it as load-bearing (truncating it makes seated players vanish). History:
+`docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`.
 
 Concurrency contract (design §6.1): the pure machine and this repository do NOT
 acquire locks. A transition that spans presence + chip-custody + session must run

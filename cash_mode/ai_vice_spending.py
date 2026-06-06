@@ -965,6 +965,27 @@ def commit_leave_vice(
     if excess <= 0:
         return None
 
+    # Reserve-aware intensity (flag-gated; prod compose defaults it ON). Vice is
+    # a refill faucet — the idle path scales by the bank-pool deficit so a flush
+    # bank stops taxing the field. The leave path must do the SAME, else a busy
+    # leave cadence over-refills reserves past the brake ceiling. When the gate
+    # is off, vice_mult stays 1.0 (current behaviour).
+    from cash_mode import economy_flags as _eflags
+
+    vice_mult = 1.0
+    if _eflags.VICE_RESERVE_GATED and chip_ledger_repo is not None:
+        try:
+            from core.economy.economy_signal import signal
+
+            state = signal(chip_ledger_repo, sandbox_id=sandbox_id)
+            vice_mult = reserve_vice_multiplier(state.ratio)
+        except Exception as exc:
+            logger.warning("[VICE] leave-vice reserve gate failed: %s; running ungated", exc)
+            vice_mult = 1.0
+        if vice_mult <= 0.0:
+            # Reserves healthy — nothing to refill, so skip the leave vice.
+            return None
+
     psych = _load_psych_snapshot(
         bankroll_repo=bankroll_repo,
         personality_id=personality_id,
@@ -980,6 +1001,9 @@ def commit_leave_vice(
         )
 
     amount = compute_vice_amount(current, knobs.starting_bankroll, excess, rng)
+    # Apply the reserve gate so leave-path vice tapers with bank depth, matching
+    # the idle path.
+    amount = int(amount * vice_mult)
     if amount <= 0:
         return None
 

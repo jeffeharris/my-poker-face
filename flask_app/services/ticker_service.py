@@ -270,6 +270,7 @@ def _maybe_run_payout_reconcile_watchdog(now_monotonic: Optional[float] = None) 
     session_repo = getattr(extensions, "tournament_session_repo", None)
     ledger_repo = getattr(extensions, "chip_ledger_repo", None)
     bankroll_repo = getattr(extensions, "bankroll_repo", None)
+    personality_repo = getattr(extensions, "personality_repo", None)
     sandbox_repo = getattr(extensions, "sandbox_repo", None)
     if session_repo is None or ledger_repo is None or bankroll_repo is None:
         return 0
@@ -279,6 +280,7 @@ def _maybe_run_payout_reconcile_watchdog(now_monotonic: Optional[float] = None) 
         session_repo=session_repo,
         ledger_repo=ledger_repo,
         bankroll_repo=bankroll_repo,
+        personality_repo=personality_repo,
         registry=tournament_registry,
         resolve_sandbox=lambda owner: resolve_default_sandbox_for(owner, sandbox_repo=sandbox_repo),
         get_lock=game_state_service.get_sandbox_lock,

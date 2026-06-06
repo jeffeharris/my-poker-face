@@ -17,7 +17,6 @@ from poker.authorization import get_authorization_service, require_permission
 from poker.betting_context import BettingContext
 
 # TiltState removed - now using ComposureState from player_psychology
-from poker.emotional_state import EmotionalState
 from poker.guest_limits import (
     GUEST_FREE_CHAT_ENABLED,
     GUEST_LIMITS_ENABLED,
@@ -1306,11 +1305,10 @@ def api_game_state(game_id):
         avatar_emotion = None
         if not player.is_human and player.name in ai_controllers:
             controller = ai_controllers[player.name]
-            emotional_state = getattr(controller, 'emotional_state', None)
-            if emotional_state:
-                avatar_emotion = emotional_state.get_display_emotion()
-            else:
-                avatar_emotion = 'confident'
+            # Live emotion lives on controller.psychology (the standalone
+            # `emotional_state` attr was retired); fall back to 'confident'.
+            psych = getattr(controller, 'psychology', None)
+            avatar_emotion = psych.get_display_emotion() if psych is not None else 'confident'
             avatar_url = get_avatar_url_with_fallback(game_id, player.name, avatar_emotion)
 
         players.append(

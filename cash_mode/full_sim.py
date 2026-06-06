@@ -1177,10 +1177,25 @@ def _run_hand(
     `on_hand_complete` for relationship detection. Returns None when
     the hand ended without reaching EVALUATING_HAND.
     """
+    from poker.memory.memory_manager import normalize_action_amount
+
     actions = 0
+    blinds_recorded = False
     while actions < _MAX_ACTIONS_PER_HAND:
         sm.run_until([PokerPhase.EVALUATING_HAND])
         gs = sm.game_state
+
+        # Record blinds once, after the first advance posts them (table_positions
+        # is now populated). Mirrors the experiment runner; without it,
+        # blinds-only / call-down pots have zero recorded loser contribution and
+        # allocate_chip_flow emits no ChipFlow → the off-screen relationship +
+        # cash_pair_stats graph silently stops evolving.
+        if memory_manager is not None and not blinds_recorded:
+            try:
+                memory_manager.record_blinds(gs)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[FULL_SIM] record_blinds failed: %s", exc)
+            blinds_recorded = True
 
         if sm.current_phase == PokerPhase.EVALUATING_HAND:
             break
@@ -1200,6 +1215,11 @@ def _run_hand(
 
         cp = gs.current_player
         actor_name = cp.name if cp is not None else None
+        # Snapshot pre-action values for amount normalization (cp is a frozen
+        # pre-action player; gs is reassigned by play_turn below).
+        pre_highest_bet = getattr(gs, "highest_bet", 0)
+        pre_player_bet = cp.bet if cp is not None else 0
+        pre_player_stack = cp.stack if cp is not None else 0
         ctrl = controllers.get(actor_name) if actor_name else None
         if ctrl is None:
             gs = play_turn(gs, "fold", 0)
@@ -1235,10 +1255,19 @@ def _run_hand(
                     # total. Passing the raw dict silently poisoned pot_after.
                     _pot = getattr(gs, "pot", 0)
                     pot_total = _pot.get("total", 0) if isinstance(_pot, dict) else (_pot or 0)
+                    # Normalize call/all_in (raise_to=0) to the real chip
+                    # increment so contributions + chip flow are non-zero.
+                    record_amount = normalize_action_amount(
+                        action,
+                        amount,
+                        highest_bet=pre_highest_bet,
+                        player_bet=pre_player_bet,
+                        player_stack=pre_player_stack,
+                    )
                     memory_manager.on_action(
                         player_name=actor_name,
                         action=action,
-                        amount=amount,
+                        amount=record_amount,
                         phase=phase_name,
                         pot_total=pot_total,
                         active_players=active,

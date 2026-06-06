@@ -1147,6 +1147,22 @@ def start_cash_session():
         )
     )
 
+    # Record the self-funded buy-in as a player -> seat ledger transfer, paired
+    # with the leave-time `record_player_cash_out` (which fires unconditionally).
+    # Without this the bankroll debit here is unledgered while the leave credits
+    # it back, leaving an unpaired cash-out -> phantom chips in the derived
+    # balance under chip custody. Mirrors the modern `/api/cash/sit` path.
+    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+
+    chip_ledger.record_player_buy_in(
+        _chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=buy_in,
+        context={'site': 'cash_start', 'stake_label': stake_label},
+        sandbox_id=sandbox_id,
+    )
+
     _record_cash_session_start(
         game_id=game_id,
         owner_id=owner_id,
@@ -4747,22 +4763,59 @@ def _leave_table_locked(owner_id: str, game_id: str):
         )
         flows = build_stake_settlement_flows(stake_settlement)
         borrower_credit = 0
+        from cash_mode import economy_flags as _economy_flags_leave
+
         for flow in flows:
             if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
-                # Personality (or Phase-5 human) staker — credit their bankroll.
-                credit_ai_cash_out(
-                    bankroll_repo,
-                    flow.staker_id,
-                    flow.amount,
-                    sandbox_id=sandbox_id,
-                    now=now,
-                    chip_ledger_repo=chip_ledger_repo,
-                    ledger_context={
-                        'game_id': game_id,
-                        'stake_id': active_stake.stake_id,
-                        'site': 'stake_settle',
-                    },
-                )
+                # Borrower (this leaving human) seat → staker bankroll. This is a
+                # stake PAYOFF, not the staker cashing out their own seat — so the
+                # credit must NOT record a seat:ai(staker)→ai(staker) transfer
+                # (that drains the staker's own seat account instead of the
+                # borrower's). Mirror the voluntary-payoff sibling: credit with
+                # `from_seat=False`, then record ONE `stake_payoff` transfer from
+                # the borrower's seat. Branch on staker_kind so a human staker is
+                # credited to their player bankroll, not an `ai:` bankroll.
+                if active_stake.staker_kind == STAKER_KIND_HUMAN:
+                    staker_bankroll = _load_or_seed_player_bankroll(
+                        flow.staker_id, sandbox_id=sandbox_id
+                    )
+                    bankroll_repo.save_player_bankroll(
+                        PlayerBankrollState(
+                            player_id=staker_bankroll.player_id,
+                            chips=staker_bankroll.chips + flow.amount,
+                            starting_bankroll=staker_bankroll.starting_bankroll,
+                        )
+                    )
+                    stake_sink = chip_ledger.player(flow.staker_id)
+                else:
+                    credit_ai_cash_out(
+                        bankroll_repo,
+                        flow.staker_id,
+                        flow.amount,
+                        sandbox_id=sandbox_id,
+                        now=now,
+                        chip_ledger_repo=chip_ledger_repo,
+                        ledger_context={
+                            'game_id': game_id,
+                            'stake_id': active_stake.stake_id,
+                            'site': 'stake_settle',
+                        },
+                        from_seat=False,
+                    )
+                    stake_sink = chip_ledger.ai(flow.staker_id)
+                if chip_ledger_repo is not None and _economy_flags_leave.CHIP_CUSTODY_ENABLED:
+                    chip_ledger.record_stake_payoff(
+                        chip_ledger_repo,
+                        source=chip_ledger.seat(game_id),
+                        sink=stake_sink,
+                        amount=flow.amount,
+                        context={
+                            'game_id': game_id,
+                            'stake_id': active_stake.stake_id,
+                            'site': 'leave_table',
+                        },
+                        sandbox_id=sandbox_id,
+                    )
             elif flow.direction == DIRECTION_BORROWER_SEAT_TO_HOUSE:
                 # House staker — chips return to the bank. Ledger entry
                 # closes the loop for the audit's house-stake reconciliation

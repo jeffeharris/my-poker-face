@@ -195,6 +195,63 @@ class TestGetRaiseOptions:
         assert len(options) == 0
 
 
+class TestRaiseSizingAnchor:
+    """Regression: raise-TO targets must be anchored on the chips already in
+    front of the actor. This engine keeps player.bet / pot['total'] cumulative
+    across streets and raise_to is an absolute bet level, so a `sizing * pot`
+    bet must be ADDED on top of the anchor — omitting it under-bets by the prior
+    commitment. Mirrors strategy.action_mapper.resolve_postflop_sizing.
+
+    With no prior commitment and no bet faced (already_bet=0, cost_to_call=0)
+    the anchor is 0, so behavior is unchanged — see the other tests, which omit
+    those keys and still pass.
+    """
+
+    _BASE = {
+        'min_raise': 1,  # tiny, so it never clamps the small option
+        'max_raise': 100000,  # huge, so nothing clamps high
+        'stack_bb': 200,  # >20, so no short-stack all-in is appended
+        'big_blind': 20,
+        'phase': 'FLOP',  # avoid the HU-preflop early return
+        'equity': 0.5,
+    }
+
+    def _raise_tos(self, ctx):
+        return [r for r, _, _ in _get_raise_options(ctx)]
+
+    def test_betting_adds_prior_commitment(self):
+        """Betting (cost_to_call=0) anchors on already_bet. Default sizings
+        0.33/0.67/1.0 of a 300 pot, on top of a 200 prior commitment."""
+        ctx = {**self._BASE, 'pot_total': 300, 'cost_to_call': 0, 'already_bet': 200}
+        # 200 + int(300*0.33)=299, 200+int(300*0.67)=401, 200+300=500
+        assert self._raise_tos(ctx) == [299, 401, 500]
+
+    def test_betting_with_no_prior_is_unchanged(self):
+        """already_bet=0 → anchor 0 → raw pot-fraction sizing (old behavior)."""
+        ctx = {**self._BASE, 'pot_total': 300, 'cost_to_call': 0, 'already_bet': 0}
+        assert self._raise_tos(ctx) == [99, 201, 300]
+
+    def test_betting_shift_equals_prior_commitment(self):
+        """The whole bug: with vs without prior commitment differ by exactly
+        the anchor — never silently under-sized."""
+        common = {**self._BASE, 'pot_total': 300, 'cost_to_call': 0}
+        no_prior = self._raise_tos({**common, 'already_bet': 0})
+        with_prior = self._raise_tos({**common, 'already_bet': 200})
+        assert [r + 200 for r in no_prior] == with_prior
+
+    def test_raising_anchors_on_highest_bet_and_pot_after_call(self):
+        """Facing a 200 bet: anchor=highest_bet=200, pot used is pot+cost=500."""
+        ctx = {
+            **self._BASE,
+            'pot_total': 300,
+            'cost_to_call': 200,
+            'highest_bet': 200,
+            'already_bet': 0,
+        }
+        # 200 + int(500*0.33)=365, 200+int(500*0.67)=535, 200+500=700
+        assert self._raise_tos(ctx) == [365, 535, 700]
+
+
 class TestGenerateBoundedOptions:
     """Integration tests for full option generation."""
 

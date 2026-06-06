@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Sequence
 
 # Fraction of the field that finishes in the money for *payouts*. The P2 economy
-# design front-loads the top ~30% (distinct from the session's display-only 15%
-# ITM cutoff in `session.IN_THE_MONEY_FRACTION`, which predates real payouts).
+# design front-loads the top ~30%. This is the single source of truth — the
+# standings ITM/OTM + bubble cutoff (`session.paid_places_for`) delegates here.
 PAYOUT_FRACTION: float = 0.30
 
 # Front-loaded default curve: winner 38% / 2nd 24% / 3rd 15%; the remaining 23%

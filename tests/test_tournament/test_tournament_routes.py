@@ -53,46 +53,48 @@ def client(app):
             yield test_client
 
 
-def _register(client, **body):
-    payload = {'field_size': 9, 'table_size': 3, 'resolver': 'fake', 'seed': 1, **body}
-    return client.post('/api/tournament/register', json=payload)
+def _put_human(owner_id, tid='tourney_human', field_size=9):
+    """Put a HUMAN tournament into the registry directly — a real-persona field
+    with a `human:<owner>` seat, the shape `spawn_human_tournament` produces (the
+    `/register` route that minted a synthetic `P01..` field with the human as P01
+    has been removed). Persona ids that aren't real DB rows fall back to no-LLM
+    `sharp` seats in the builder, which is fine for route-level tests."""
+    from flask_app.services.tournament_spawn import human_seat_id
+    from tournament.config import DEFAULT_FIELD_ARCHETYPES, TournamentConfig
+    from tournament.director import FakeHandResolver
+    from tournament.session import TournamentSession
 
-
-def test_register_creates_tournament_and_returns_standings(client):
-    resp = _register(client)
-    assert resp.status_code == 201
-    data = resp.get_json()
-    assert data['tournament_id'].startswith('tourney_')
-    standings = data['standings']
-    assert standings['field_size'] == 9
-    assert standings['players_remaining'] == 9
-    assert standings['human']['player_id'] == 'P01'
-    assert standings['human']['out'] is False
-
-
-def test_register_rejects_second_active_tournament(client):
-    first = _register(client).get_json()['tournament_id']
-    resp = _register(client)
-    assert resp.status_code == 409
-    assert resp.get_json()['tournament_id'] == first
-
-
-def test_register_validates_params(client):
-    assert _register(client, field_size=1).status_code == 400
-    assert _register(client, table_size=99).status_code == 400
-    assert _register(client, resolver='magic').status_code == 400
+    human = human_seat_id(owner_id)
+    seat_ids = [human] + [f'persona_{i}' for i in range(field_size - 1)]
+    archs = DEFAULT_FIELD_ARCHETYPES
+    entries = {sid: archs[i % len(archs)] for i, sid in enumerate(seat_ids)}
+    config = TournamentConfig(field_size=field_size, table_size=3, starting_stack=10_000, seed=1)
+    resolver = FakeHandResolver()
+    session = TournamentSession(config, ai_resolver=resolver, human_id=human, entries=entries)
+    registry.put(
+        tid,
+        {
+            'session': session,
+            'owner_id': owner_id,
+            'created_at': 'now',
+            'resolver': resolver,
+            'resolver_kind': 'fake',
+            'game_id': None,
+        },
+    )
+    return tid
 
 
 def test_lobby_reflects_active_tournament(client):
     assert client.get('/api/tournament/lobby').get_json()['has_active'] is False
-    tid = _register(client).get_json()['tournament_id']
+    tid = _put_human(OWNER['id'])
     lobby = client.get('/api/tournament/lobby').get_json()
     assert lobby['has_active'] is True
     assert lobby['active']['tournament_id'] == tid
 
 
 def test_standings_requires_ownership(client):
-    tid = _register(client).get_json()['tournament_id']
+    tid = _put_human(OWNER['id'])
     assert client.get(f'/api/tournament/{tid}/standings').status_code == 200
     # a different user must not see it
     other = MagicMock()
@@ -102,7 +104,7 @@ def test_standings_requires_ownership(client):
 
 
 def test_advance_progresses_the_world(client):
-    tid = _register(client).get_json()['tournament_id']
+    tid = _put_human(OWNER['id'])
     before = client.get(f'/api/tournament/{tid}/standings').get_json()
     after = client.post(f'/api/tournament/{tid}/advance').get_json()
     assert after['rounds'] == before['rounds'] + 1
@@ -114,7 +116,7 @@ def test_advance_progresses_the_world(client):
 
 
 def test_play_out_completes_and_declares_a_winner(client):
-    tid = _register(client).get_json()['tournament_id']
+    tid = _put_human(OWNER['id'])
     final = client.post(f'/api/tournament/{tid}/play-out').get_json()
     assert final['complete'] is True
     assert final['winner'] is not None
@@ -124,18 +126,18 @@ def test_play_out_completes_and_declares_a_winner(client):
 
 
 def test_leave_removes_tournament(client):
-    tid = _register(client).get_json()['tournament_id']
+    tid = _put_human(OWNER['id'])
     assert client.delete(f'/api/tournament/{tid}').status_code == 200
     assert client.get(f'/api/tournament/{tid}/standings').status_code == 404
 
 
 def test_sit_builds_a_live_game(client):
-    """The live path: register, then sit builds a real single-table game tagged
-    with the tournament session. Exercises the builder + tiered controllers +
-    memory wiring end to end."""
+    """The live path: a human tournament in the registry, then sit builds a real
+    single-table game tagged with the tournament session. Exercises the builder +
+    tiered controllers + memory wiring end to end."""
     from flask_app.services import game_state_service
 
-    tid = _register(client).get_json()['tournament_id']
+    tid = _put_human(OWNER['id'])
     resp = client.post(f'/api/tournament/{tid}/sit')
     assert resp.status_code in (200, 201)
     game_id = resp.get_json()['game_id']
@@ -158,34 +160,13 @@ def test_sit_builds_a_live_game(client):
 
 @pytest.fixture
 def fixed_sandbox(monkeypatch):
-    """Pin the sandbox so register() never creates a sandbox row in the live DB.
-    The economy signal then reads an empty (cold) sandbox → NEUTRAL → no chip
-    writes for a freeroll, so these route tests stay non-polluting."""
+    """Pin the sandbox so the invite routes never create a sandbox row in the live
+    DB. The economy signal then reads an empty (cold) sandbox → NEUTRAL → the
+    chairman offers nothing, so these route tests stay non-polluting."""
     monkeypatch.setattr(
         'flask_app.routes.tournament_routes._resolve_sandbox_id',
         lambda owner_id: 'test-sandbox-routes',
     )
-
-
-def test_register_rejects_out_of_range_buy_in(client, fixed_sandbox):
-    assert _register(client, buy_in=-1).status_code == 400
-    assert _register(client, buy_in=10_000_000).status_code == 400
-
-
-def test_register_non_integer_buy_in_is_400(client, fixed_sandbox):
-    resp = _register(client, buy_in='lots')
-    assert resp.status_code == 400
-
-
-def test_freeroll_register_returns_skipped_economy(client, fixed_sandbox):
-    """buy_in=0 in a cold sandbox → NEUTRAL, no overlay/rake, economy block present."""
-    resp = _register(client, buy_in=0)
-    assert resp.status_code == 201
-    econ = resp.get_json()['economy']
-    assert econ['buy_in'] == 0
-    assert econ['bank_overlay'] == 0
-    assert econ['rake'] == 0
-    assert econ['prize_pool'] == 0
 
 
 def test_get_invite_returns_null_when_none(client, fixed_sandbox):
@@ -260,7 +241,6 @@ def test_unauthenticated_is_rejected(app):
     mock_auth.get_current_user.return_value = None
     with patch('flask_app.extensions.auth_manager', mock_auth):
         with app.test_client() as c:
-            assert c.post('/api/tournament/register', json={}).status_code == 401
             assert c.get('/api/tournament/lobby').status_code == 401
 
 

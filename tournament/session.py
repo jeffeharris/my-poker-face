@@ -39,16 +39,16 @@ logger = logging.getLogger(__name__)
 # exactly 1.0 (0+1+1+2)/4 — the field tracks the human without drifting.
 PACING_CHOICES = (0, 1, 1, 2)
 
-# Fraction of the field that finishes "in the money" — a DISPLAY-ONLY cutoff
-# (no payouts exist yet) so the standings can show ITM/OTM + the bubble. Real
-# MTTs pay ~10–15%; the P2 economy design front-loads the top ~30%. Replaced by
-# the actual payout structure when the economy ships. Tune freely.
-IN_THE_MONEY_FRACTION = 0.15
-
 
 def paid_places_for(field_size: int) -> int:
-    """How many places are 'in the money' for a given field size (min 2)."""
-    return max(2, round(field_size * IN_THE_MONEY_FRACTION))
+    """How many places finish 'in the money' — the standings ITM/OTM + bubble
+    cutoff. Delegates to the ACTUAL payout structure (`tournament.economy`, top
+    ~30%) so the bubble fires where players really get paid. Previously this used
+    a separate display-only 0.15 fraction, so the 15–30% band was shown OTM yet
+    actually cashed. Local import keeps the module dependency one-directional."""
+    from tournament.economy import paid_places_for as _economy_paid_places
+
+    return _economy_paid_places(field_size)
 
 
 # Signature shared by the AI resolver's `.resolve` and the human-table callback.

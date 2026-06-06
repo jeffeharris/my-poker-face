@@ -269,6 +269,7 @@ def reconcile_stuck_payouts(
     session_repo,
     ledger_repo,
     bankroll_repo,
+    personality_repo,
     registry,
     resolve_sandbox,
     get_lock,
@@ -287,14 +288,16 @@ def reconcile_stuck_payouts(
     `{tournament_id, owner_id, reconciled, escrow_balance}` for logging/admin.
 
     The `(human_owner_id, real_persona_ids)` pair is re-derived to MATCH what the
-    original payout used: a human-entered Main Event (its field carries the
-    `human:<owner>` seat) credits only the human for real and sweeps AI shares to
-    the bank (mirroring the live route's `_maybe_payout`); an autonomous one
-    credits every real persona. `older_than_iso` is a grace window so a payout
-    in-flight on a request thread isn't reconciled out from under it."""
+    live payout used — via the SAME `real_persona_ids_for` helper the
+    `apply_payout_on_complete` call sites use, NOT a repo-free heuristic that
+    disagreed with it. A human-entered Main Event (`human:<owner>` seat) credits
+    the human plus every real-persona opponent (its field's AIs are real
+    personalities, so they earn into their `ai:<pid>` bankrolls — they must not be
+    swept to the bank); an autonomous one credits every real-persona entry.
+    `older_than_iso` is a grace window so a payout in-flight on a request thread
+    isn't reconciled out from under it."""
     from core.economy.ledger import tournament as tournament_account
     from flask_app.services import tournament_economy_service as econ
-    from flask_app.services.tournament_spawn import human_seat_id
 
     results: list = []
     try:
@@ -313,9 +316,17 @@ def reconcile_stuck_payouts(
                 logger.warning("reconcile sweep: could not rehydrate %s; skipping", tid)
                 continue
             session = rec['session']
-            is_human = human_seat_id(owner) in session.entries
-            human_owner_id = owner if is_human else None
-            real_persona_ids = frozenset() if is_human else frozenset(session.entries.keys())
+            # Mirror the live payout's derivation exactly (see docstring):
+            #   - autonomous (AI-only) → no human credit; every entry is a real
+            #     persona, matching spawn_autonomous's payout.
+            #   - human Main Event → credit the human AND the real-persona
+            #     opponents (real_persona_ids_for), matching spawn_human's payout.
+            if is_autonomous(session, owner):
+                human_owner_id = None
+                real_persona_ids = frozenset(session.entries.keys())
+            else:
+                human_owner_id = owner
+                real_persona_ids = econ.real_persona_ids_for(session, personality_repo)
             with get_lock(sandbox_id):
                 ok = econ.reconcile_stuck_payout(
                     tournament_id=tid,

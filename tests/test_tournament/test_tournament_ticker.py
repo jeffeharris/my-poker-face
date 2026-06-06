@@ -106,6 +106,74 @@ def test_is_autonomous_false_with_human_seat():
     assert tournament_ticker.is_autonomous(session, OWNER) is False
 
 
+# --- reconcile_stuck_payouts derivation (#3) ---------------------------------
+
+
+def _run_reconcile(session, monkeypatch, *, personality_ids):
+    """Drive reconcile_stuck_payouts with one stuck row + stubs, capturing the
+    (human_owner_id, real_persona_ids) it hands to the economy-service reconcile."""
+    import contextlib
+
+    from flask_app.services import tournament_economy_service as econ
+
+    captured = {}
+
+    def _fake_reconcile(**kw):
+        captured.update(kw)
+        return True
+
+    monkeypatch.setattr(econ, 'reconcile_stuck_payout', _fake_reconcile)
+
+    class _Reg:
+        def get(self, tid):
+            return {'session': session}
+
+    class _SessionRepo:
+        def list_stuck_payouts(self, older_than_iso=None):
+            return [{'tournament_id': 't1', 'owner_id': OWNER}]
+
+    class _Ledger:
+        def balance_of(self, *a, **k):
+            return 0
+
+    @contextlib.contextmanager
+    def _lock(sandbox_id):
+        yield
+
+    results = tournament_ticker.reconcile_stuck_payouts(
+        session_repo=_SessionRepo(),
+        ledger_repo=_Ledger(),
+        bankroll_repo=object(),
+        personality_repo=FakePersonalityRepo(personality_ids),
+        registry=_Reg(),
+        resolve_sandbox=lambda owner: SB,
+        get_lock=_lock,
+    )
+    assert results and results[0]['reconciled'] is True
+    return captured
+
+
+def test_reconcile_human_tournament_credits_real_persona_opponents(monkeypatch):
+    """Regression (#3): the stuck-payout sweep must credit the human's
+    real-persona OPPONENTS (via real_persona_ids_for), not sweep their prize
+    shares to the bank. The old repo-free heuristic passed real_persona_ids=
+    frozenset() for human tournaments, silently diverting every AI prize."""
+    human = human_seat_id(OWNER)
+    session = _StubSession({human: 'You', 'persona_a': 'A', 'persona_b': 'B'}, human_id=human)
+    captured = _run_reconcile(session, monkeypatch, personality_ids={'persona_a', 'persona_b'})
+    assert captured['human_owner_id'] == OWNER
+    assert captured['real_persona_ids'] == frozenset({'persona_a', 'persona_b'})
+
+
+def test_reconcile_autonomous_credits_every_entry(monkeypatch):
+    """Autonomous (AI-only) sweep: no human credit; every entry is a real
+    persona (matches spawn_autonomous's payout)."""
+    session = _StubSession({'persona_a': 'A', 'persona_b': 'B'}, human_id=None)
+    captured = _run_reconcile(session, monkeypatch, personality_ids={'persona_a', 'persona_b'})
+    assert captured['human_owner_id'] is None
+    assert captured['real_persona_ids'] == frozenset({'persona_a', 'persona_b'})
+
+
 # --- beats_to_world_events ---------------------------------------------------
 
 

@@ -204,9 +204,13 @@ class AnthropicProvider(LLMProvider):
         if hasattr(usage, 'thinking_tokens'):
             thinking_tokens = usage.thinking_tokens or 0
 
+        # Anthropic's `output_tokens` INCLUDES the thinking tokens. Tracking bills
+        # output_tokens AND reasoning_tokens separately, so report output NET of
+        # thinking to avoid double-counting the thinking portion (mirrors the
+        # OpenAI provider, which subtracts reasoning from completion_tokens).
         return {
             "input_tokens": usage.input_tokens,
-            "output_tokens": usage.output_tokens,
+            "output_tokens": max(0, usage.output_tokens - thinking_tokens),
             "cached_tokens": getattr(usage, 'cache_read_input_tokens', 0) or 0,
             "reasoning_tokens": thinking_tokens,
         }

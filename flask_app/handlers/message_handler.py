@@ -162,10 +162,11 @@ def send_message(
             from .avatar_handler import get_avatar_url_with_fallback
 
             controller = (game_data.get("ai_controllers") or {}).get(sender)
-            emotion = "confident"
-            emotional_state = getattr(controller, "emotional_state", None)
-            if emotional_state is not None:
-                emotion = emotional_state.get_display_emotion()
+            # Live emotion lives on controller.psychology (the standalone
+            # `emotional_state` attr was retired) — read it so the farewell
+            # bubble shows the right face instead of always "confident".
+            psych = getattr(controller, "psychology", None)
+            emotion = psych.get_display_emotion() if psych is not None else "confident"
             avatar_url = get_avatar_url_with_fallback(game_id, sender, emotion)
             if avatar_url:
                 new_message["avatar_url"] = avatar_url

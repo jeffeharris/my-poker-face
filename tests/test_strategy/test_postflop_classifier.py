@@ -136,6 +136,29 @@ class TestPositionDetection:
         # CO vs BTN (and others) — BTN is more IP
         assert _determine_position(gs, 5) == 'OOP'
 
+    def test_bvb_6max_bb_is_ip_sb_is_oop(self):
+        # 6-max folded to the blinds: postflop the SB acts FIRST (OOP) and the
+        # BB acts after (IP). Regression for the inverted SB/BB ordering.
+        players = [
+            _player('Alice', is_folded=True),  # BTN
+            _player('Bob'),  # SB (idx 1)
+            _player('Carol'),  # BB (idx 2)
+            _player('Dave', is_folded=True),
+            _player('Eve', is_folded=True),
+            _player('Frank', is_folded=True),
+        ]
+        gs = _game_state(players=players, dealer_idx=0)
+        assert _determine_position(gs, 1) == 'OOP'  # SB acts first
+        assert _determine_position(gs, 2) == 'IP'  # BB acts last
+
+    def test_heads_up_button_sb_is_ip(self):
+        # True heads-up: the button IS the SB and acts LAST postflop (IP) — the
+        # opposite of 6-max. Must not regress when fixing the BvB ordering.
+        players = [_player('Alice'), _player('Bob')]
+        gs = _game_state(players=players, dealer_idx=0)
+        assert _determine_position(gs, 0) == 'IP'  # button/SB
+        assert _determine_position(gs, 1) == 'OOP'  # BB
+
 
 # ---------------------------------------------------------------------------
 # Facing action
@@ -186,6 +209,15 @@ class TestSPRBucket:
             pot_total=100,
         )
         assert _determine_spr_bucket(gs, 0) == 'low'  # 150/100 = 1.5
+
+    def test_spr_uses_effective_stack(self):
+        # Hero covers a shorter opponent: SPR must use the EFFECTIVE (min) stack,
+        # not hero's own. hero=1000, opp=150, pot=100 → effective 150 → SPR 1.5
+        # (low). Using hero's own stack would read 10 (high) and wrongly suppress
+        # the low-SPR postflop_commit chart.
+        players = [_player('Hero', stack=1000), _player('Shorty', stack=150)]
+        gs = _game_state(players=players, pot_total=100)
+        assert _determine_spr_bucket(gs, 0) == 'low'
 
     def test_zero_pot_returns_high(self):
         gs = _game_state(
