@@ -39,6 +39,9 @@ export interface AuditResponse {
   by_reason_window_24h: Record<string, number>;
   errors?: Record<string, string>;
   as_of: string;
+  /** World ticks for the selected sandbox (summed across all when unscoped).
+   *  A maturity gauge — concentration reads differently at 50 vs 5,000 ticks. */
+  world_ticks?: number | null;
 }
 
 export interface LedgerEntry {

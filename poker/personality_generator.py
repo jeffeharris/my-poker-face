@@ -165,6 +165,19 @@ SECTION 1 — BEHAVIORAL TRAITS:
 7. physical_tics: List of 2-4 physical actions/gestures they might do (in *asterisks*)
 8. nickname: (OPTIONAL) A short display name (1-2 words max) for compact UI display. Only include this if the full name is long or would look bad truncated. For example: "The Hulk" -> "Hulk", "Dr. Seuss" -> "Dr. Seuss", "Ruth Bader Ginsburg" -> "RBG". Omit this field for names that already work well as-is (e.g., "Batman", "Socrates").
 
+SECTION 1B — CIRCUIT BACKSTORY:
+8b. circuit_hook: A single fuzzy sentence answering "why is {name} on the Circuit, and what
+    do they want from it?" The Circuit is a poker world that never quite closes, where players
+    grind up from the small tables toward the high-stakes rooms at the top — and most regulars
+    long ago stopped asking how long they've been at it. Fuse the character's known essence with
+    a poker-life motivation: a debt, boredom, revenge, a comeback, sheer ego, the thrill, a quest,
+    or something stranger. Keep it to ONE in-character sentence, evocative and a little
+    open-ended. It colors their mood and table reads but is never recited aloud.
+    Examples:
+      Dracula -> "Has all the time in the world and nowhere else to be — he'll outlast every player at the table, the way he outlasts everything."
+      Captain Ahab -> "Chasing one player who broke him at the high tables long ago, he'll burn through every stack to sit across from them once more."
+      An Alien -> "Is here strictly to observe why humans keep climbing a ladder with no visible top — and has, regrettably, started to enjoy it."
+
 SECTION 2 — VISUAL IDENTITY (for avatar image generation):
 9. visual_identity: An object with three fields:
    - identity: Their name PLUS a brief description of who they are / what they're known for.
@@ -367,6 +380,7 @@ Respond with ONLY a JSON object in this exact format:
     }},
     "verbal_tics": ["phrase 1", "phrase 2", "phrase 3"],
     "physical_tics": ["*action 1*", "*action 2*"],
+    "circuit_hook": "one fuzzy in-character sentence — why they're on the Circuit",
     "visual_identity": {{
         "identity": "Name, brief description of who they are",
         "appearance": "physical features in 10-15 words",
@@ -780,6 +794,7 @@ Respond with ONLY a JSON object in this exact format:
                 "Let's make this interesting",
             ],
             "physical_tics": ["*taps table thoughtfully*", "*adjusts position*"],
+            "circuit_hook": "Drifted onto the Circuit one day and never quite found a reason to leave.",
             "bankroll_knobs": {
                 "starting_bankroll": 10000,
                 "bankroll_rate": 500,

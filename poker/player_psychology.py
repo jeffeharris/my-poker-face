@@ -428,6 +428,23 @@ class PlayerPsychology:
             f"Energy={self.energy:.2f}, Quadrant={self.quadrant.value}"
         )
 
+    def apply_seated_fatigue(self, amount: float) -> None:
+        """Wear down energy by `amount` for one hand of seated play.
+
+        The drain half of the energy loop: idle rest springs energy back
+        toward baseline (`cash_mode.movement.project_idle_energy`); seated
+        play is what it recovers *from*. Without this, energy only ever rose,
+        so the `tenure` leave-pressure term (energy < 0.5) never engaged and
+        seated AIs sat at full energy indefinitely. Routes through the same
+        `axes.update` path as energy pressure events, so the [0, 1] clamp and
+        `_mark_updated` stay consistent. Tuning lives next to the leave-pressure
+        weights it feeds: `cash_mode.movement.SEATED_ENERGY_DRAIN_PER_HAND`.
+        """
+        if amount <= 0:
+            return
+        self.axes = self.axes.update(energy=self.axes.energy - amount)
+        self._mark_updated()
+
     # === SOCIAL STIMULUS REACTION ===
 
     # Disposition thresholds over existing anchors (ego/poise/expressiveness/

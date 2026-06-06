@@ -31,6 +31,7 @@ export function ModelsSection({ showAlert }: ModelsSectionProps) {
   const [systemLoading, setSystemLoading] = useState(true);
   const [editedGeneralModel, setEditedGeneralModel] = useState('');
   const [editedFastModel, setEditedFastModel] = useState('');
+  const [editedNanoModel, setEditedNanoModel] = useState(''); // "groq:llama-3.1-8b-instant"
   const [editedImageModel, setEditedImageModel] = useState('');
   const [editedAssistantModel, setEditedAssistantModel] = useState('');
   const [systemSaving, setSystemSaving] = useState(false);
@@ -157,6 +158,7 @@ export function ModelsSection({ showAlert }: ModelsSectionProps) {
         // Initialize edited values as "provider:model" combined strings
         setEditedGeneralModel(`${settings.DEFAULT_PROVIDER.value}:${settings.DEFAULT_MODEL.value}`);
         setEditedFastModel(`${settings.FAST_PROVIDER.value}:${settings.FAST_MODEL.value}`);
+        setEditedNanoModel(`${settings.NANO_PROVIDER.value}:${settings.NANO_MODEL.value}`);
         setEditedImageModel(`${settings.IMAGE_PROVIDER.value}:${settings.IMAGE_MODEL.value}`);
         setEditedAssistantModel(
           `${settings.ASSISTANT_PROVIDER.value}:${settings.ASSISTANT_MODEL.value}`
@@ -226,6 +228,27 @@ export function ModelsSection({ showAlert }: ModelsSectionProps) {
         );
       }
 
+      // Parse nano model
+      const [nanoProvider, ...nanoModelParts] = editedNanoModel.split(':');
+      const nanoModel = nanoModelParts.join(':');
+      const originalNano = `${systemSettings.NANO_PROVIDER.value}:${systemSettings.NANO_MODEL.value}`;
+      if (editedNanoModel !== originalNano) {
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'NANO_PROVIDER', value: nanoProvider }),
+          })
+        );
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'NANO_MODEL', value: nanoModel }),
+          })
+        );
+      }
+
       // Parse image model
       const [imageProvider, ...imageModelParts] = editedImageModel.split(':');
       const imageModel = imageModelParts.join(':');
@@ -287,6 +310,8 @@ export function ModelsSection({ showAlert }: ModelsSectionProps) {
         'DEFAULT_MODEL',
         'FAST_PROVIDER',
         'FAST_MODEL',
+        'NANO_PROVIDER',
+        'NANO_MODEL',
         'IMAGE_PROVIDER',
         'IMAGE_MODEL',
         'ASSISTANT_PROVIDER',
@@ -316,6 +341,8 @@ export function ModelsSection({ showAlert }: ModelsSectionProps) {
       `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}` ||
       editedFastModel !==
         `${systemSettings.FAST_PROVIDER.value}:${systemSettings.FAST_MODEL.value}` ||
+      editedNanoModel !==
+        `${systemSettings.NANO_PROVIDER.value}:${systemSettings.NANO_MODEL.value}` ||
       editedImageModel !==
         `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}` ||
       editedAssistantModel !==
@@ -418,12 +445,21 @@ export function ModelsSection({ showAlert }: ModelsSectionProps) {
             )}
             {renderModelSelectorCard(
               'Fast',
-              'Chat suggestions, categorization, quick tasks',
+              'Player-read flavor: chat suggestions, lobby narration',
               editedFastModel,
               setEditedFastModel,
               fastModels,
               systemSettings.FAST_PROVIDER,
               systemSettings.FAST_MODEL
+            )}
+            {renderModelSelectorCard(
+              'Nano',
+              'Mechanical, never-read tasks: beat cleanup, categorization',
+              editedNanoModel,
+              setEditedNanoModel,
+              fastModels,
+              systemSettings.NANO_PROVIDER,
+              systemSettings.NANO_MODEL
             )}
             {renderModelSelectorCard(
               'Image',

@@ -20,6 +20,8 @@ from .config import (
     FAST_PROVIDER,
     IMAGE_MODEL,
     IMAGE_PROVIDER,
+    NANO_MODEL,
+    NANO_PROVIDER,
 )
 
 
@@ -77,6 +79,14 @@ def get_fast_provider() -> str:
 
 def get_fast_model() -> str:
     return _get_setting('FAST_MODEL', FAST_MODEL)
+
+
+def get_nano_provider() -> str:
+    return _get_setting('NANO_PROVIDER', NANO_PROVIDER)
+
+
+def get_nano_model() -> str:
+    return _get_setting('NANO_MODEL', NANO_MODEL)
 
 
 def get_assistant_provider() -> str:

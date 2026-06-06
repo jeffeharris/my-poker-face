@@ -65,6 +65,8 @@ export interface SystemSettingsData {
   DEFAULT_MODEL: SettingConfig;
   FAST_PROVIDER: SettingConfig;
   FAST_MODEL: SettingConfig;
+  NANO_PROVIDER: SettingConfig;
+  NANO_MODEL: SettingConfig;
   IMAGE_PROVIDER: SettingConfig;
   IMAGE_MODEL: SettingConfig;
   ASSISTANT_PROVIDER: SettingConfig;

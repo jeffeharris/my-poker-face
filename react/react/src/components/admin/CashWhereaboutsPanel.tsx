@@ -40,6 +40,8 @@ const STATUS_LABEL: Record<string, string> = {
   idle: 'Idle',
   side_hustle: 'Side hustle',
   vice: 'Vice',
+  tournament: 'Tournament',
+  tournament_bound: 'Tournament-bound',
   unknown: 'Unknown',
 };
 
@@ -48,6 +50,7 @@ const FLAG_LABEL: Record<string, string> = {
   double_seat: 'double seat',
   seated_and_idle: 'seated + idle',
   seated_and_offgrid: 'seated + off-grid',
+  seated_and_tournament: 'seated + tournament',
   unknown_personality: 'orphan pid',
   no_bankroll: 'no bankroll',
   // soft (watch)
@@ -55,6 +58,7 @@ const FLAG_LABEL: Record<string, string> = {
   overdue_vice: 'overdue vice',
   stale_idle: 'stale idle',
   seated_too_long: 'parked too long',
+  tournament_bound_and_seated: 'tournament-bound + seated',
 };
 
 function fmtDuration(seconds: number | null): string {
@@ -88,6 +92,10 @@ function whereCell(p: WhereaboutsPerson): string {
     case 'side_hustle':
     case 'vice':
       return p.narration || p.status;
+    case 'tournament':
+      return 'in tournament';
+    case 'tournament_bound':
+      return p.target_stake ? `tournament-bound → ${p.target_stake}` : 'tournament-bound';
     default:
       return '—';
   }
@@ -104,6 +112,9 @@ function timeCell(p: WhereaboutsPerson): { text: string; overdue: boolean } {
   }
   if (p.status === 'idle') {
     return { text: `idle ${fmtDuration(p.seconds_in_state)}`, overdue: false };
+  }
+  if (p.status === 'tournament' || p.status === 'tournament_bound') {
+    return { text: fmtDuration(p.seconds_in_state), overdue: false };
   }
   if (p.status === 'seated') {
     // seconds_in_state = time parked at the current table; null on legacy

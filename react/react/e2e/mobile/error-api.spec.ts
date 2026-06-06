@@ -70,7 +70,7 @@ test.describe('Error scenarios: API error responses', () => {
       route.fulfill({ status: 503, json: { error: 'Service unavailable' } })
     );
 
-    await navigateToMenuPage(page);
+    await navigateToMenuPage(page, { path: '/menu/tournament' });
 
     // Click Lightning quick play
     const lightning = page.locator('.quick-play-btn--lightning');
@@ -85,8 +85,9 @@ test.describe('Error scenarios: API error responses', () => {
   });
 
   test('chat API 500 degrades gracefully', async ({ page }) => {
-    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToGamePage(page, { mockContext: ctx });
+    // Free-text chat requires a registered user; guests are locked to Quick Chat.
+    const ctx = await mockGamePageRoutes(page, { gameState: buildGameState(), isGuest: false });
+    await navigateToGamePage(page, { isGuest: false, mockContext: ctx });
 
     // Override chat route to return 500
     await page.route('**/api/game/*/chat', route =>
@@ -101,7 +102,8 @@ test.describe('Error scenarios: API error responses', () => {
     const sheet = page.locator('.mcs-sheet');
     await expect(sheet).toBeVisible({ timeout: 5000 });
 
-    // Type and send a message
+    // Switch to keyboard tab, type and send a message
+    await sheet.locator('.mcs-tab').nth(1).click();
     const textInput = sheet.locator('.mcs-text-input');
     await textInput.fill('Hello!');
     const sendBtn = sheet.locator('.mcs-send-btn');

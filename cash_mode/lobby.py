@@ -25,6 +25,7 @@ from __future__ import annotations
 import itertools
 import logging
 import random
+import sqlite3
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -425,6 +426,8 @@ def ensure_lobby_seeded(
     user_id: Optional[str] = None,
     sandbox_id: Optional[str] = None,
     chip_ledger_repo=None,
+    vice_repo=None,
+    side_hustle_repo=None,
 ) -> List[CashTableState]:
     """Idempotent boot-time lobby seed.
 
@@ -481,6 +484,21 @@ def ensure_lobby_seeded(
                 seated_globally.add(slot["personality_id"])
 
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
+
+    # Off-grid guard: never seed a fresh table seat with an AI that's currently
+    # on a vice or side-hustle (an active ai_vice_state / ai_side_hustle_state
+    # row). Seeding only fills MISSING tables, but on a sandbox with pre-existing
+    # off-grid rows (boot, or a newly-added stake tier) an unguarded seed would
+    # place an off-grid AI into a seat → the seated_and_offgrid split-brain. The
+    # repos are optional kwargs (older callers pass neither), so this is inert
+    # unless wired; best-effort — a read failure must never block boot seeding.
+    off_grid: Set[str] = set()
+    for _offgrid_repo in (vice_repo, side_hustle_repo):
+        if _offgrid_repo is not None:
+            try:
+                off_grid |= set(_offgrid_repo.active_pids(sandbox_id=sandbox_id, now=now))
+            except Exception:  # noqa: BLE001 — best-effort; seeding must not break
+                logger.exception("[CASH][LOBBY] seed: off-grid scan failed")
 
     out_tables: List[CashTableState] = []
 
@@ -544,7 +562,7 @@ def ensure_lobby_seeded(
                 if filled >= BASELINE_AI_SEATS:
                     break
                 pid = cand.get("personality_id")
-                if not pid or pid in seated_globally:
+                if not pid or pid in seated_globally or pid in off_grid:
                     continue
 
                 knobs = bankroll_repo.load_personality_knobs(pid)
@@ -648,7 +666,27 @@ def ensure_lobby_seeded(
                 last_activity_at=now,
                 name=display_name,
             )
-            cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
+            try:
+                cash_table_repo.save_table(new_state, sandbox_id=sandbox_id, now=now)
+            except sqlite3.IntegrityError:
+                # Concurrent first-load seed race: two lobby polls both pass the
+                # `by_id` existence check on a fresh sandbox before either
+                # inserts, so the loser hits UNIQUE(table_id, sandbox_id). Benign
+                # — a sibling request already seeded this table. Adopt the
+                # winner's persisted row instead of 500ing the user. (It would
+                # self-heal on the next poll anyway, but swallowing it here spares
+                # the very first user on a fresh sandbox a hard error.)
+                winner = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+                if winner is None:
+                    raise
+                out_tables.append(winner)
+                logger.info(
+                    "[CASH][LOBBY] seed %s: table %r already created by a "
+                    "concurrent request — adopting the existing row",
+                    stake_label,
+                    table_id,
+                )
+                continue
             # SHADOW (Presence cutover Phase 1): mirror the freshly-seeded
             # AI seats into `entity_presence` (SEED→SIT, derived as SIT from
             # OFFLINE by the reconcile). Additive, flag-gated, best-effort.
@@ -2097,7 +2135,17 @@ def refresh_unseated_tables(
         # order inside the burst loop above (one rotation per sim hand,
         # synchronized with `play_one_hand`'s starting dealer), so we
         # don't need a separate `advance_dealer` step here.
-        cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
+        # Thread the real leave reason/target into save_table so the presence
+        # idle satellite (cash_idle_metadata) records the actual reason rather
+        # than defaulting every row to 'forced_leave'.
+        idle_metadata = {
+            change.entry.personality_id: change.entry
+            for change in result.idle_changes
+            if change.kind == "add" and change.entry is not None
+        }
+        cash_table_repo.save_table(
+            result.new_table, sandbox_id=sandbox_id, now=now, idle_metadata=idle_metadata
+        )
         # SHADOW (Presence cutover Phase 1): mirror the post-burst seat map
         # into `entity_presence`. The reconcile records anyone now seated who
         # wasn't already (e.g. a take_stake reseat) and is a no-op for the
@@ -2229,6 +2277,21 @@ def refresh_unseated_tables(
         except Exception:
             logger.warning("[LOBBY] renown percentile load failed; marquee inert")
             _renown_percentiles = None
+
+    # Guard the greedy fill against re-seating an AI that went on-vice THIS
+    # refresh. `go_vice` leavers vacated their seats in the table loop above,
+    # but their ai_vice_state row isn't written until commit_leave_vice runs
+    # (below, AFTER this fill). In that window they have no seat, no idle row
+    # (go_vice skips the idle pool), and are still in `eligible` — so without
+    # this they read as fresh candidates and get re-seated, producing the
+    # seated_and_offgrid split-brain. The presence authority can't stop it
+    # because the off-grid leg is still shadow-only (START_VICE from the
+    # re-seated SEATED state is illegal and silently swallowed). Mirrors the
+    # prior-tick off_grid filter applied before the table loop.
+    if all_vice_bound:
+        _vice_now = set(all_vice_bound)
+        eligible = [c for c in eligible if c.get("personality_id") not in _vice_now]
+        idle_pool = [e for e in idle_pool if e.personality_id not in _vice_now]
 
     _process_global_greedy_fills(
         fill_ctx=fill_ctx,

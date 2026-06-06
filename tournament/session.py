@@ -23,6 +23,7 @@ design — moving the human is the same atomic operation as moving any AI, which
 what keeps the ghost-seat bug class out of reach.
 """
 
+import logging
 import random
 from typing import Callable
 
@@ -31,6 +32,8 @@ from .config import TournamentConfig
 from .director import FakeHandResolver, RoundReport, build_initial_state
 from .field import TournamentField, attribute_eliminators
 from .seating import Seating, SeatingManager
+
+logger = logging.getLogger(__name__)
 
 # A jittered hand count per AI table per human hand. Weighted so the mean is
 # exactly 1.0 (0+1+1+2)/4 — the field tracks the human without drifting.
@@ -132,7 +135,23 @@ class TournamentSession:
         events = self.field.record_eliminations(busted, self.rounds, attribution)
         self._hand_counter += 1
         self.rounds += 1
-        self.field.assert_conservation()
+        # The live poker engine is the chip authority for the human's (single)
+        # table, so RECONCILE to its stacks — warn on a conservation mismatch,
+        # never raise. A raised guard here permanently freezes the human's game
+        # at the boundary: the exception 500s out of `progress_game`, and every
+        # subsequent poll/fast-forward re-enters this same boundary and re-raises,
+        # bricking the end screen (observed on an all-in run-out bust, off by 50).
+        # This mirrors the multi-table `_apply_result` reconcile-and-warn; the
+        # AI-resolver / director paths keep the hard `assert_conservation`, where
+        # a desync is a real engine bug rather than a recoverable live snapshot.
+        actual = self.field.chip_sum()
+        if actual != self.field.total_chips:
+            logger.warning(
+                "single-table live result broke chip conservation "
+                "(reconciling to live, not raising): sum(stacks)=%d != total=%d",
+                actual,
+                self.field.total_chips,
+            )
         return events
 
     # ── status / views ─────────────────────────────────────────────────────────
@@ -405,8 +424,43 @@ class TournamentSession:
         + a cold-load reconcile (see the live-table hardening follow-up)."""
         seat_order = table.players
         stacks = {pid: self.field.stacks.get(pid, 0) for pid in seat_order}
-        self._guard_table_result(stacks, result)
+        # The live engine is the chip authority for the human's table, so RECONCILE
+        # to its result — warn on divergence, never raise. A raised guard here
+        # permanently freezes the human's game at the boundary (the live game has
+        # already moved on and re-running reproduces the same divergence). The
+        # AI-resolver path (`_play_hands`) keeps the hard guard: a deterministic
+        # resolver that changes the seat set or breaks conservation is a real bug,
+        # not a recoverable live/session desync.
+        if set(stacks) != set(result):
+            logger.warning(
+                "live table result changed the player set (reconciling to live): "
+                "session=%s live=%s",
+                sorted(stacks),
+                sorted(result),
+            )
+        elif sum(stacks.values()) != sum(result.values()):
+            logger.warning(
+                "live table result broke chip conservation (reconciling to live): " "in=%d out=%d",
+                sum(stacks.values()),
+                sum(result.values()),
+            )
         for pid, new_stack in result.items():
+            if pid not in self.field.stacks:
+                # The live result still lists a seat the field has already removed
+                # (a busted player the live game keeps reporting — the ghost-seat
+                # class — or a cold-load divergence). Writing it RESURRECTS the
+                # player into the field; next round their <=0 stack is detected as
+                # a bust and they are recorded a SECOND time, producing a duplicate
+                # standings row (hidden by tournament_standings' UNIQUE constraint
+                # but shipped in the tournament_complete socket payload → a React
+                # duplicate-key crash). The field already finalized this seat, so
+                # ignore the stale entry. Conservation-safe: the field's own total
+                # is unchanged. Mirrors the single-table `fold_live_hand` guard.
+                logger.warning(
+                    "ignoring live result for non-field seat %s (already eliminated / unknown)",
+                    pid,
+                )
+                continue
             self.field.stacks[pid] = new_stack
         table.advance_button()
 

@@ -5,7 +5,7 @@ created: 2026-06-06
 last_updated: 2026-06-06
 ---
 
-# Admin Style Consistency Sweep (T3-90 / T3-52 follow-on)
+# Admin Style Consistency Sweep (T3-91 / T3-52 follow-on)
 
 ## Goal
 

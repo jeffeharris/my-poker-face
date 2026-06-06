@@ -179,6 +179,16 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
             ))}
           </select>
         </label>
+        <span
+          className="chip-ledger-ticks"
+          title={
+            sandboxId === ALL_SANDBOXES
+              ? 'World ticks summed across all sandboxes — a maturity gauge for the economy.'
+              : 'World ticks run for this sandbox. Wealth concentration reads differently early (a few hundred ticks) vs. a mature economy (thousands).'
+          }
+        >
+          world ticks: {audit.world_ticks == null ? '—' : audit.world_ticks.toLocaleString()}
+        </span>
         <span className="chip-ledger-asof">as of {new Date(audit.as_of).toLocaleString()}</span>
         <button className="chip-ledger-refresh" onClick={fetchAll}>
           Refresh

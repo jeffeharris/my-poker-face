@@ -252,7 +252,15 @@ Return as JSON with this format:
         logger.info(f"[ChatSuggestion]\n{prompt}")
         logger.info("[ChatSuggestion] --- END PROMPT ---")
 
-        client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider())
+        client = LLMClient(
+            model=config.get_fast_model(),
+            provider=config.get_fast_provider(),
+            # Quick suggestions the user is waiting on: minimal reasoning (the
+            # non-reasoning variant on toggleable FAST models) + a bounded timeout
+            # so a provider stall can't hang the request on the 600s httpx default.
+            reasoning_effort="minimal",
+            default_timeout=config.FAST_LLM_TIMEOUT_SECONDS,
+        )
         messages = [
             {
                 "role": "system",
@@ -459,6 +467,9 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
             model=config.get_fast_model(),
             provider=config.get_fast_provider(),
             reasoning_effort="minimal",
+            # Bounded so a provider stall can't hang the user's request on the
+            # 600s shared-httpx default.
+            default_timeout=config.FAST_LLM_TIMEOUT_SECONDS,
         )
         messages = [
             {
@@ -650,6 +661,9 @@ def get_post_round_chat_suggestions(game_id):
             model=config.get_fast_model(),
             provider=config.get_fast_provider(),
             reasoning_effort="minimal",
+            # Bounded so a provider stall can't hang the user's request on the
+            # 600s shared-httpx default.
+            default_timeout=config.FAST_LLM_TIMEOUT_SECONDS,
         )
         messages = [
             {

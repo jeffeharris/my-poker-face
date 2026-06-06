@@ -1,18 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { Bot } from 'lucide-react';
-import { Card, CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { CharacterDetailCard } from '../../character';
 import { dossierFromPlayer } from '../../character/dossierFromPlayer';
 import { LLMDebugModal } from '../../mobile/LLMDebugModal';
 import { CoachButton } from '../../mobile/CoachButton';
 import { CoachBubble } from '../../mobile/CoachBubble';
-import { SeatSpeechBubble } from '../SeatSpeechBubble/SeatSpeechBubble';
 import { CoachDock } from '../CoachDock';
 import { HeadsUpOpponentPanel } from '../../mobile/HeadsUpOpponentPanel';
-import { PlayerThinking } from '../PlayerThinking';
+import { PlayerSeat } from './PlayerSeat';
+import { CommunityBoard } from './CommunityBoard';
+import { ShowdownGhostRail } from './ShowdownGhostRail';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
 import { TournamentComplete } from '../TournamentComplete';
 import { StadiumLayout } from '../StadiumLayout';
@@ -23,20 +21,18 @@ import { CashControls } from '../../cash/CashControls';
 import { BustModal } from '../../cash/BustModal';
 import { SoloTableModal } from '../../cash/SoloTableModal';
 import { ActivityFeed } from '../ActivityFeed';
-import { ActionBadge, GuestLimitModal, FloatingUserMenu } from '../../shared';
+import { GuestLimitModal, FloatingUserMenu } from '../../shared';
 import { ShuffleLoading, type TickerLine } from '../../shared/ShuffleLoading';
 import { selectInterhandTicker } from '../../cash/interhandTicker';
 import { feedEventKey, renderEventIcon } from '../../cash/tickerEvents';
 import { useUsageStats } from '../../../hooks/useUsageStats';
 import { useInterhandDirector } from '../../../hooks/useInterhandDirector';
-import { useRunoutDirector } from '../../../hooks/useRunoutDirector';
 import { useGameStore } from '../../../stores/gameStore';
 import { pickQuote } from '../WinnerAnnouncement/quote-flavor';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { useCoach } from '../../../hooks/useCoach';
 import { logger } from '../../../utils/logger';
 import { gameAPI } from '../../../utils/api';
-import { avatarUrlForEmotion } from '../../../utils/avatarUrl';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import { useTournamentEvents } from '../../../hooks/useTournamentEvents';
@@ -74,6 +70,9 @@ export function PokerTable({
   const lastKnownActions = useRef<Map<string, string>>(new Map());
   // Incrementing this state forces a re-render after the ref is mutated on fade completion
   const [, setFadeKey] = useState(0);
+  // Stable so the memoized PlayerSeat (and its ActionBadge) don't re-render every
+  // tick — an inline arrow here would defeat their memoization for every seat.
+  const handleFadeComplete = useCallback(() => setFadeKey((k) => k + 1), []);
 
   // Opponent/human display names respect user-set nickname overrides.
   const displayNickname = useDisplayNickname();
@@ -118,6 +117,8 @@ export function PokerTable({
     aiThinking,
     winnerInfo,
     revealedCards,
+    heroCommitted,
+    heroRetreating,
     tournamentResult,
     socketRef,
     isConnected,
@@ -145,7 +146,6 @@ export function PokerTable({
 
   // Community-card deal-in animation timing (flop cascade, turn/river single).
   const communityCardAnimations = useCommunityCardAnimation(
-    gameState?.newly_dealt_count,
     gameState?.community_cards?.length ?? 0
   );
 
@@ -277,49 +277,9 @@ export function PokerTable({
     clearWinnerInfo();
   }, [winnerInfo, beginShuffle, clearWinnerInfo]);
 
-  // Runout director: stable store selectors for the director inputs.
-  // `heroFolded` is read from the store directly so it's available before the
-  // post-gameState `humanPlayer` derivation below (hooks must be called
-  // unconditionally, before any conditional return).
-  const runoutSchedule = useGameStore((s) => s.runoutSchedule);
-  const runItOut = useGameStore((s) => s.runItOut);
-  const setRunoutDirectorActive = useGameStore((s) => s.setRunoutDirectorActive);
-  const updatePlayers = useGameStore((s) => s.updatePlayers);
-  const storeHeroFolded = useGameStore(
-    (s) => s.players?.find((p) => p.is_human)?.is_folded ?? false
-  );
-
-  // Stable callback that patches avatar_emotion + avatar_url on a single player
-  // in the Zustand store — driven by the runout director's per-card reaction beat.
-  const applyRunoutReaction = useCallback(
-    (playerName: string, emotion: string) => {
-      updatePlayers((prev) => {
-        if (!prev) return prev;
-        return prev.map((p) =>
-          p.name === playerName
-            ? {
-                ...p,
-                avatar_emotion: emotion,
-                avatar_url: avatarUrlForEmotion(p.avatar_url, emotion),
-              }
-            : p
-        );
-      });
-    },
-    [updatePlayers]
-  );
-
-  const { heroCommitted, heroRetreating } = useRunoutDirector({
-    schedule: runoutSchedule,
-    runItOut,
-    revealed: !!revealedCards,
-    heroFolded: storeHeroFolded,
-    communityCardCount: gameState?.community_cards?.length ?? 0,
-    handNumber,
-    fastForward: gameState?.fast_forward ?? false,
-    applyReaction: applyRunoutReaction,
-    setActive: setRunoutDirectorActive,
-  });
+  // The run-out reactions + hero card-commit gesture (heroCommitted /
+  // heroRetreating, above) are now owned by the hand sequencer in usePokerGame,
+  // shared by both tables — no separate desktop run-out director.
 
   // Cash/career mode: the interhand pause becomes a "meanwhile, elsewhere"
   // world ticker (top rare beats around the room since this hand started).
@@ -350,64 +310,6 @@ export function PokerTable({
     // Navigate back to menu by reloading
     window.location.href = '/';
   }, [gameId, clearTournamentResult]);
-
-  // Calculate seat position based on offset from human player
-  // Players are anchored to fixed positions - only dealer/blind buttons rotate
-  // Seat offset 1 (acts after human) = left side, higher offsets move right
-  const getStadiumSeatStyle = (
-    seatOffset: number,
-    totalPlayers: number,
-    headsUpShowdownSlot?: number
-  ) => {
-    if (headsUpShowdownSlot !== undefined) {
-      const left = headsUpShowdownSlot === 0 ? 25 : 75;
-      return {
-        position: 'absolute' as const,
-        left: `${left}%`,
-        top: '24%',
-        transform: 'translate(-50%, -50%) scale(1)',
-      };
-    }
-
-    // Total opponents is totalPlayers - 1 (excluding human)
-    const totalOpponents = totalPlayers - 1;
-
-    // Map seat offset (1 to totalOpponents) to position index (0 to totalOpponents-1)
-    // seatOffset 1 = leftmost (index 0), seatOffset N-1 = rightmost (index N-2)
-    const positionIndex = seatOffset - 1;
-
-    // Dynamic arc spread - tighter when fewer opponents to keep them closer together
-    // Full arc (120°) for 5+ opponents, narrower for fewer
-    const maxArcSpread = 120;
-    const minArcSpread = 60; // For 2 opponents
-    const arcSpread = totalOpponents <= 2 ? minArcSpread : totalOpponents <= 4 ? 80 : maxArcSpread;
-
-    // Center the arc around 90° (top center)
-    const centerAngle = 90;
-    const startAngle = centerAngle + arcSpread / 2; // left side
-    const endAngle = centerAngle - arcSpread / 2; // right side
-    const angleRange = startAngle - endAngle;
-    const angleStep = totalOpponents > 1 ? angleRange / (totalOpponents - 1) : 0;
-    const angle = (startAngle - positionIndex * angleStep) * (Math.PI / 180);
-
-    // Wider ellipse for stadium view - reduced radiusY to bring avatars down
-    const radiusX = 42; // Horizontal radius as percentage
-    const radiusY = 28; // Vertical radius as percentage (reduced to bring avatars down)
-
-    // Calculate position on ellipse, with offset to clear the header
-    const left = 50 + radiusX * Math.cos(angle);
-    const top = 52 - radiusY * Math.sin(angle); // Start from 52% to position avatars
-
-    // Dynamic scaling - larger cards when fewer opponents
-    const scale = totalOpponents <= 2 ? 1.6 : totalOpponents <= 4 ? 1.3 : 1.0;
-
-    return {
-      position: 'absolute' as const,
-      left: `${left}%`,
-      top: `${top}%`,
-      transform: `translate(-50%, -50%) scale(${scale})`,
-    };
-  };
 
   // Stadium view helpers
   const humanPlayer = gameState?.players.find((p: Player) => p.is_human);
@@ -504,41 +406,11 @@ export function PokerTable({
   // Shared table content - community cards, pot, and overlays
   const renderTableCore = () => (
     <>
-      {/* Community Cards Area */}
-      <div className="community-area">
-        <div className="pot-area">
-          <div className="pot">
-            <div className="pot-label">POT</div>
-            <div className="pot-amount">${gameState.pot.total}</div>
-          </div>
-        </div>
-
-        <div className="community-cards">
-          {Array.from({ length: 5 }).map((_, i) => {
-            const card = gameState.community_cards[i];
-            const anim = communityCardAnimations[i];
-            const isAnimating = !!card && anim?.shouldAnimate;
-            if (!card) {
-              return <CommunityCard key={`placeholder-${i}`} revealed={false} />;
-            }
-            return (
-              <div
-                key={i}
-                className="community-card-anim"
-                style={
-                  isAnimating
-                    ? {
-                        animation: `communityCardDealIn ${anim.duration}s cubic-bezier(0.16, 1, 0.3, 1) ${anim.delay}s both`,
-                      }
-                    : undefined
-                }
-              >
-                <CommunityCard card={card} revealed={true} />
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <CommunityBoard
+        potTotal={gameState.pot.total}
+        communityCards={gameState.community_cards}
+        animations={communityCardAnimations}
+      />
 
       {/* Winner Announcement */}
       {/* The human is identified from the players list's is_human seat inside
@@ -725,164 +597,41 @@ export function PokerTable({
                 // Calculate seat offset from human (1 = immediately after human clockwise)
                 // This keeps players in fixed positions - only D/SB/BB buttons rotate
                 const seatOffset = (playerIndex - humanPlayerIndex + totalPlayers) % totalPlayers;
-
-                const isDealer = playerIndex === gameState.current_dealer_idx;
-                const isSmallBlind = playerIndex === gameState.small_blind_idx;
-                const isBigBlind = playerIndex === gameState.big_blind_idx;
                 const isCurrentPlayer =
                   shouldHighlightActivePlayer && playerIndex === gameState.current_player_idx;
-
-                // Compute avatar state: swap to "thinking" when AI is processing
-                const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;
-                const avatarUrl = isAiThinking
-                  ? avatarUrlForEmotion(player.avatar_url, 'thinking')
-                  : player.avatar_url;
-                const avatarEmotion = isAiThinking ? 'thinking' : player.avatar_emotion || 'avatar';
                 const headsUpShowdownSlot = isHeadsUpShowdownLayout
                   ? showdownOpponents.findIndex((p: Player) => p.name === player.name)
                   : -1;
 
-                // This opponent is the most recent speaker — their chat bubble
-                // pops up beneath this seat (lifted above neighbours via z-index).
-                const isSpeaking = recentAiMessage?.sender === player.name;
-
                 return (
-                  <div
+                  <PlayerSeat
                     key={player.name}
-                    className={`player-seat ${
-                      isCurrentPlayer ? 'current-player' : ''
-                    } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
-                      isCurrentPlayer && aiThinking ? 'thinking' : ''
-                    }${isSpeaking ? ' is-speaking' : ''}`}
-                    style={getStadiumSeatStyle(
-                      seatOffset,
-                      totalPlayers,
-                      headsUpShowdownSlot >= 0 ? headsUpShowdownSlot : undefined
-                    )}
-                  >
-                    <div className="position-indicators">
-                      {isDealer && (
-                        <div className="position-chip dealer-button" title="Dealer">
-                          D
-                        </div>
-                      )}
-                      {isSmallBlind && (
-                        <div className="position-chip small-blind" title="Small Blind">
-                          SB
-                        </div>
-                      )}
-                      {isBigBlind && (
-                        <div className="position-chip big-blind" title="Big Blind">
-                          BB
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="player-info">
-                      <button
-                        type="button"
-                        className="player-avatar player-avatar--clickable"
-                        onClick={(e) =>
-                          openDossierForPlayer(player, e.currentTarget as HTMLElement)
-                        }
-                        aria-label={`Open dossier for ${player.name}`}
-                      >
-                        {avatarUrl ? (
-                          <img
-                            src={`${config.API_URL}${avatarUrl}`}
-                            alt={`${player.name} - ${avatarEmotion}`}
-                            className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
-                          />
-                        ) : (
-                          <span className="avatar-initial">
-                            {player.name.charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                        {player.is_rule_bot && (
-                          <span className="bot-badge" title="Rule-based training bot">
-                            <Bot size={14} aria-hidden />
-                          </span>
-                        )}
-                      </button>
-                      <div className="player-details">
-                        <div className="player-name">{displayNickname(player)}</div>
-                        <div className="player-stack">${player.stack}</div>
-                        {player.bet > 0 && <div className="player-bet">Bet: ${player.bet}</div>}
-                        <ActionBadge
-                          player={player}
-                          lastKnownActions={lastKnownActions}
-                          onFadeComplete={() => setFadeKey((k) => k + 1)}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Hole cards: revealed face-up during showdown, hidden otherwise */}
-                    {revealedCards?.players_cards[player.name] ? (
-                      <div
-                        className="player-revealed-cards"
-                        style={
-                          {
-                            '--reveal-index': revealOrder.get(player.name) ?? 0,
-                          } as CSSProperties
-                        }
-                      >
-                        {revealedCards.players_cards[player.name].map((card, i) => (
-                          <Card key={i} card={card} faceDown={false} size="small" />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="player-cards">
-                        {config.ENABLE_AI_DEBUG ? (
-                          <>
-                            <DebugHoleCard debugInfo={player.llm_debug} />
-                            <DebugHoleCard debugInfo={player.llm_debug} />
-                          </>
-                        ) : (
-                          <>
-                            <HoleCard visible={false} size="xsmall" />
-                            <HoleCard visible={false} size="xsmall" />
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {isCurrentPlayer && aiThinking && (
-                      <PlayerThinking playerName={player.name} position={seatOffset} />
-                    )}
-
-                    {/* Chat bubble pops up beneath the seat of the speaker. */}
-                    <AnimatePresence>
-                      {isSpeaking && recentAiMessage && (
-                        <SeatSpeechBubble
-                          message={recentAiMessage}
-                          onDismiss={dismissRecentAiMessage}
-                        />
-                      )}
-                    </AnimatePresence>
-                  </div>
+                    player={player}
+                    displayName={displayNickname(player)}
+                    seatOffset={seatOffset}
+                    totalPlayers={totalPlayers}
+                    headsUpShowdownSlot={headsUpShowdownSlot >= 0 ? headsUpShowdownSlot : undefined}
+                    isDealer={playerIndex === gameState.current_dealer_idx}
+                    isSmallBlind={playerIndex === gameState.small_blind_idx}
+                    isBigBlind={playerIndex === gameState.big_blind_idx}
+                    isCurrentPlayer={isCurrentPlayer}
+                    aiThinking={aiThinking}
+                    isSpeaking={recentAiMessage?.sender === player.name}
+                    speechMessage={recentAiMessage}
+                    revealedCards={revealedCards?.players_cards[player.name]}
+                    revealIndex={revealOrder.get(player.name) ?? 0}
+                    lastKnownActions={lastKnownActions}
+                    onOpenDossier={openDossierForPlayer}
+                    onFadeComplete={handleFadeComplete}
+                    onDismissSpeech={dismissRecentAiMessage}
+                  />
                 );
               })}
             </div>
 
-            {/* Ghost rail — folded opponents shrink to small circles in the
-                top-left of the felt during showdown so active opponents get
-                visual prominence. The arc seats of folded players are dimmed
-                (via the `.folded` CSS) but kept in position so layout doesn't
-                jump; the ghost rail is additive, not a replacement. */}
-            {isInShowdown && foldedOpponents.length > 0 && (
-              <div className="showdown-ghost-rail" data-testid="showdown-ghost-rail">
-                {foldedOpponents.map((p) => (
-                  <div key={p.name} className="showdown-ghost-avatar" title={displayNickname(p)}>
-                    {p.avatar_url ? (
-                      <img src={`${config.API_URL}${p.avatar_url}`} alt={displayNickname(p)} />
-                    ) : (
-                      <span className="showdown-ghost-initial">
-                        {p.name.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
+            {/* Folded opponents shrink to a top-left ghost rail during showdown. */}
+            {isInShowdown && (
+              <ShowdownGhostRail foldedOpponents={foldedOpponents} displayName={displayNickname} />
             )}
 
             {/* Bet chips hidden - bets shown in player seats */}

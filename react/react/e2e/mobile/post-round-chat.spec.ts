@@ -120,27 +120,29 @@ async function setupWithWinner(
 
 test.describe('PW-12: Post-round chat — tone selection and suggestion sending', () => {
 
-  test('loser sees Salty and Gracious tone buttons after winner announcement', async ({ page }) => {
+  test('loser at showdown sees Salty and Props tone buttons after winner announcement', async ({ page }) => {
     await setupWithWinner(page, { winnerPayload: showdownWinnerInfo });
 
     const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const postRoundChat = overlay.locator('.post-round-chat');
+    const postRoundChat = overlay.locator('.mobile-winner-chat-bar');
     await expect(postRoundChat).toBeVisible({ timeout: 5000 });
 
+    // A showdown loss (heads-up, human was at showdown) offers
+    // Salty / Props / Cry Luck / Vow.
     const toneButtons = overlay.locator('.post-round-tone');
-    await expect(toneButtons).toHaveCount(2);
+    await expect(toneButtons).toHaveCount(4);
 
     const saltyBtn = overlay.locator('.tone-salty');
     await expect(saltyBtn).toBeVisible();
     const saltyText = await saltyBtn.textContent();
     expect(saltyText).toContain('Salty');
 
-    const graciousBtn = overlay.locator('.tone-gracious');
-    await expect(graciousBtn).toBeVisible();
-    const graciousText = await graciousBtn.textContent();
-    expect(graciousText).toContain('Gracious');
+    const propsBtn = overlay.locator('.tone-props');
+    await expect(propsBtn).toBeVisible();
+    const propsText = await propsBtn.textContent();
+    expect(propsText).toContain('Props');
   });
 
   test('winner sees Gloat and Humble tone buttons', async ({ page }) => {
@@ -149,7 +151,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const postRoundChat = overlay.locator('.post-round-chat');
+    const postRoundChat = overlay.locator('.mobile-winner-chat-bar');
     await expect(postRoundChat).toBeVisible({ timeout: 5000 });
 
     const gloatBtn = overlay.locator('.tone-gloat');
@@ -175,9 +177,9 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const graciousBtn = overlay.locator('.tone-gracious');
-    await expect(graciousBtn).toBeVisible({ timeout: 5000 });
-    await graciousBtn.click({ force: true });
+    const saltyBtn = overlay.locator('.tone-salty');
+    await expect(saltyBtn).toBeVisible({ timeout: 5000 });
+    await saltyBtn.click({ force: true });
 
     const suggestions = overlay.locator('.post-round-suggestion');
     await expect(suggestions.first()).toBeVisible({ timeout: 10000 });
@@ -203,9 +205,9 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const graciousBtn = overlay.locator('.tone-gracious');
-    await expect(graciousBtn).toBeVisible({ timeout: 5000 });
-    await graciousBtn.click({ force: true });
+    const saltyBtn = overlay.locator('.tone-salty');
+    await expect(saltyBtn).toBeVisible({ timeout: 5000 });
+    await saltyBtn.click({ force: true });
 
     const suggestions = overlay.locator('.post-round-suggestion');
     await expect(suggestions.first()).toBeVisible({ timeout: 10000 });
@@ -230,9 +232,9 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     const overlay = page.getByTestId('winner-overlay');
     await expect(overlay).toBeVisible({ timeout: 15000 });
 
-    const graciousBtn = overlay.locator('.tone-gracious');
-    await expect(graciousBtn).toBeVisible({ timeout: 5000 });
-    await graciousBtn.click({ force: true });
+    const saltyBtn = overlay.locator('.tone-salty');
+    await expect(saltyBtn).toBeVisible({ timeout: 5000 });
+    await saltyBtn.click({ force: true });
 
     const suggestions = overlay.locator('.post-round-suggestion');
     await expect(suggestions.first()).toBeVisible({ timeout: 10000 });
@@ -245,7 +247,7 @@ test.describe('PW-12: Post-round chat — tone selection and suggestion sending'
     await expect(toneButtons).toBeVisible({ timeout: 5000 });
 
     await expect(overlay.locator('.tone-salty')).toBeVisible();
-    await expect(overlay.locator('.tone-gracious')).toBeVisible();
+    await expect(overlay.locator('.tone-props')).toBeVisible();
   });
 
 });

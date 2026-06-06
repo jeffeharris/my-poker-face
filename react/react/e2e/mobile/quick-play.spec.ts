@@ -5,7 +5,7 @@ test.describe('PW-04: Quick Play Lightning creates game and mobile table loads',
 
   test.beforeEach(async ({ page }) => {
     await mockGamePageRoutes(page, { gameState: buildGameState() });
-    await navigateToMenuPage(page);
+    await navigateToMenuPage(page, { path: '/menu/tournament' });
 
     // Click Lightning to create game and navigate to game page
     const lightning = page.locator('.quick-play-btn--lightning');

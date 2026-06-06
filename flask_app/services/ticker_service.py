@@ -373,6 +373,41 @@ def _record_vacated(invite_repo, invite: dict, results: dict) -> None:
         logger.exception("gather: recording vacated_pids failed for %s", invite.get('invite_id'))
 
 
+# Per-sandbox world-tick counter, persisted in app_settings (KV, no schema
+# migration). Counts every world-advancing tick (past the quiet-pace skip) so
+# the admin chip-economy page can show how "mature" a sandbox's economy is —
+# concentration that looks alarming at 50 ticks reads differently at 5,000.
+WORLD_TICK_COUNTER_PREFIX = "cash_world_ticks:"
+
+
+def _bump_world_tick(sandbox_id: str) -> None:
+    """Increment this sandbox's world-tick counter. Best-effort telemetry."""
+    from flask_app import extensions
+
+    repo = getattr(extensions, "settings_repo", None)
+    if repo is None:
+        return
+    try:
+        repo.increment_counter(
+            WORLD_TICK_COUNTER_PREFIX + sandbox_id,
+            description="cash world ticks (economy maturity)",
+        )
+    except Exception:  # noqa: BLE001 — never let telemetry break a tick
+        pass
+
+
+def world_tick_count(sandbox_id: Optional[str]) -> int:
+    """Total world ticks for `sandbox_id`, or summed across all when None."""
+    from flask_app import extensions
+
+    repo = getattr(extensions, "settings_repo", None)
+    if repo is None:
+        return 0
+    if sandbox_id:
+        return repo.get_counter(WORLD_TICK_COUNTER_PREFIX + sandbox_id)
+    return repo.sum_counters_with_prefix(WORLD_TICK_COUNTER_PREFIX)
+
+
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
     from cash_mode import economy_flags
@@ -433,6 +468,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         if gather_invite and called_up:
             _record_vacated(invite_repo, gather_invite, results)
 
+    _bump_world_tick(sandbox_id)
     _maybe_record_holdings_snapshot(sandbox_id)
     # Recompute the human's reputation scoreboard. Placed before the
     # event-emit block below so a quadrant-shift beat it records into the

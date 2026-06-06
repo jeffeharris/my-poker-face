@@ -112,6 +112,10 @@ def _narrate_inner(
     client = LLMClient(
         provider=settings.get_fast_provider(),
         model=settings.get_fast_model(),
+        # minimal reasoning: throwaway flavor. On a toggleable FAST model (xAI
+        # grok-4-fast) the LLMClient default "low" resolves to the slow REASONING
+        # variant; "minimal" selects the non-reasoning variant. See vice_narration.
+        reasoning_effort="minimal",
         # PRH-21: ticker narration runs synchronously in the single shared
         # ticker greenlet (advances every sandbox) — a stall pauses the lobby
         # for ALL users. Pure flavor, so bound it tighter than an in-game call.

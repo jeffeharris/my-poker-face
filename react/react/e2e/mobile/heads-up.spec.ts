@@ -67,7 +67,7 @@ test.describe('PW-05: Quick Play 1v1 creates heads-up game with opponent panel',
       })
     );
 
-    await navigateToMenuPage(page);
+    await navigateToMenuPage(page, { path: '/menu/tournament' });
 
     // Click 1v1 to create heads-up game
     const oneVone = page.locator('.quick-play-btn--1v1');
