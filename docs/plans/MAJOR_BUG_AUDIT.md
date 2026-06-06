@@ -99,37 +99,39 @@ Severity: **S1** critical · **S2** major · **S3** moderate. Status: ✅ fixed 
 
 ---
 
+### ✅ 6. Human-leave stake settlement credited the wrong seat — S3
+- **Was:** the leave-time stake settle called `credit_ai_cash_out` with the default `from_seat=True`,
+  recording a `seat:ai(staker)→ai(staker)` transfer (draining the staker's own seat) instead of the
+  borrower's seat, and never branched on a human staker.
+- **Fix:** `from_seat=False` + an explicit `record_stake_payoff(source=seat(game_id), sink=…)` from
+  the borrower's seat, plus a `STAKER_KIND_HUMAN` branch crediting the human player bankroll.
+  `flask_app/routes/cash_routes.py` (mirrors the voluntary-payoff sibling). 303 staking tests green.
+
+### ✅ 7. Per-hand player-table rake used the GROSS pot — S3
+- **Was:** `_apply_player_table_rake` raked `game_state.pot['total']` (gross) while the sim rakes the
+  NET transfer (`sum of positive stack deltas`), over-raking contested pots up to ~2× and drifting
+  from the bank thermostat the sim tuned.
+- **Fix:** rake base is now the net transfer — `pot − Σ(winner contributions)`, captured from
+  `player.bet` BEFORE the award. `flask_app/handlers/game_handler.py`. 40 rake tests green.
+
+### ✅ 8. Legacy `/api/cash/start` emitted no `player_buy_in` ledger row — S3
+- **Was:** the legacy route debited the bankroll but never recorded the paired buy-in, while leave
+  unconditionally records a cash-out → unpaired ledger → phantom chips under chip custody.
+- **Fix:** added the paired `record_player_buy_in` (mirrors `/api/cash/sit`). `cash_routes.py`. Kept
+  the route (3 tests use it) rather than deleting.
+
+### ✅ 9. Live-filled FISH rebuilt as `sharp` on cold-load — S3
+- **Was:** `_seat_freshly_filled_ais` built the fish controller in memory but never re-persisted
+  `bot_types`/`llm_configs`; the periodic saves omit `llm_configs` and `game_repository` COALESCEs the
+  column, so a cold-load restored the fish as `sharp` (solver + per-decision LLM narration).
+- **Fix:** stamp `bot_types`/`player_llm_configs` for each freshly-filled seat and persist them with an
+  explicit `save_game(llm_configs=…)`. `flask_app/handlers/game_handler.py`. Cash-mode suite (1284) green.
+
+---
+
 ## Open — ranked
 
-### S3 (mid tier — real but narrower)
-
-#### ⬜ 6. Human-leave stake settlement uses `credit_ai_cash_out(from_seat=True)` with no staker_kind branch
-The one stake-settle site not hardened like its 3 siblings — drains the staker's OWN seat instead of
-the human borrower's seat. Seat-account ledger drift; human-staker branch is dormant.
-- **Files:** `flask_app/routes/cash_routes.py:4759-4773` vs `cash_mode/lobby.py:2780-2868`, `cash_routes.py:2831-2917`.
-- **Scope:** Add `STAKER_KIND_HUMAN` branch + `from_seat=False` + `record_stake_payoff` from borrower seat.
-
-#### ⬜ 7. Per-hand rake: player tables rake GROSS pot, sim rakes NET transfer
-`_apply_player_table_rake` uses `game_state.pot['total']` (gross) while `full_sim` uses NET stack-delta
-sum; docstring claims they mirror. Human cash tables rake up to ~2× the sim-tuned model on contested
-pots → bank thermostat assumptions off. Bounded to human tables.
-- **Files:** `flask_app/handlers/game_handler.py:2976-2986,3097` vs `cash_mode/full_sim.py:560-569,953`.
-- **Scope:** Align rake base (and clamp) to the sim helper.
-
-#### ⬜ 8. Legacy `/api/cash/start` debits bankroll but emits no `player_buy_in` ledger row *(dormant)*
-Legacy route debits int bankroll without `record_player_buy_in`, but leave unconditionally emits
-`record_player_cash_out` → unpaired ledger → phantom chips in derived balance. Only caller is dead
-frontend code; reachable via direct HTTP/stale bundle; partly backstopped by `ledger_reconcile` cron.
-- **Files:** `cash_routes.py:1140-1148` vs `sit_at_table:1459`, `_leave_table_locked:4844`.
-- **Scope:** Add paired `record_player_buy_in`, or delete the orphaned route.
-
-#### ⬜ 9. Live-filled FISH rebuilds as `sharp` solver on cold-load (`bot_types` never re-persisted)
-`_seat_freshly_filled_ais` mutates only in-memory controllers; no save passes `llm_configs=`, so
-persisted `bot_types` stays frozen and the fish falls to the `sharp` else-branch on restore →
-becomes a solver + makes per-decision LLM narration calls. Narrow: only live-filled fish surviving a
-cold-load.
-- **Files:** `game_handler.py:2454,2467,431,3905`, `cash_routes.py:1022`, `game_repository.py:109`.
-- **Scope:** Re-stamp `bot_types`/`llm_configs` on live-fill, or have restore read the persona's `rule_strategy`.
+### S3 (strategy / rules)
 
 #### ⬜ 10. ALL-IN option labeled `+EV` purely on bet-size ratio, ignoring equity
 `all_in_ev = "+EV" if equity>=0.65 or cost_to_call > stack*0.5` — second disjunct ignores equity.

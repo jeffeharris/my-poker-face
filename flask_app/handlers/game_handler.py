@@ -2389,6 +2389,13 @@ def _seat_freshly_filled_ais(
     cash_pids = game_data.get('cash_personality_ids', {})
     memory_manager = game_data.get('memory_manager')
     owner_id = game_data.get('owner_id')
+    # bot_types / llm_configs must be stamped for each new seat AND re-persisted
+    # (see the save at the end): the periodic save_game calls omit llm_configs, so
+    # a cold-load otherwise rebuilds a freshly-filled fish as `sharp`.
+    bot_types = game_data.setdefault('bot_types', {})
+    player_llm_configs = game_data.setdefault('player_llm_configs', {})
+    default_llm_config = game_data.get('llm_config', {})
+    seated_any = False
 
     # Find the AI chips + seat on the new table for these personalities.
     # Tourists carry their personality inline on the seat; regular AIs
@@ -2455,6 +2462,15 @@ def _seat_freshly_filled_ais(
                 expression_enabled=True,
             )
         ai_controllers[name] = controller
+        # Stamp the seat's bot_type/llm_config so the persisted snapshot (saved
+        # below) survives a cold-load with the right controller — fish stays fish.
+        if rule_strategy_override == "fish":
+            bot_types[name] = "fish"
+            player_llm_configs[name] = {}
+        else:
+            bot_types[name] = "sharp"
+            player_llm_configs[name] = game_data.get('llm_config', {})
+        seated_any = True
 
         if memory_manager is not None:
             try:
@@ -2480,6 +2496,32 @@ def _seat_freshly_filled_ais(
     game_data['cash_personality_ids'] = cash_pids
     game_data['state_machine'] = state_machine
     game_state_service.set_game(game_id, game_data)
+
+    # Persist the updated bot_types/llm_configs so a cold-load rebuilds these
+    # freshly-filled seats as their real bot_type. The periodic save_game calls
+    # omit llm_configs and game_repository COALESCEs the column (preserving the
+    # stale sit-time blob), so without this explicit save a live-filled fish is
+    # restored as `sharp` (solver + per-decision LLM narration — exactly what
+    # fish exist to avoid).
+    if seated_any:
+        try:
+            game_repo.save_game(
+                game_id,
+                state_machine._state_machine,
+                owner_id,
+                game_data.get('owner_name'),
+                llm_configs={
+                    "player_llm_configs": player_llm_configs,
+                    "default_llm_config": default_llm_config,
+                    "bot_types": bot_types,
+                },
+            )
+        except Exception as e:
+            logger.warning(
+                "[CASH][LOBBY] persisting bot_types after live-fill failed for %r: %s",
+                game_id,
+                e,
+            )
 
 
 def _detect_human_cash_bust(game_id: str, game_data: dict, state_machine) -> None:
@@ -2912,6 +2954,7 @@ def _apply_player_table_rake(
     game_state,
     winner_info: dict,
     pot_size: int,
+    winner_contribs: Optional[Dict[str, int]] = None,
 ):
     """Skim per-hand rake from the headline winner at a player cash table.
 
@@ -2919,6 +2962,14 @@ def _apply_player_table_rake(
     helper (`cash_mode.full_sim._apply_rake_to_winner`) but operates
     on the live `game_state` and resolves winner identity via the
     cash-mode `cash_personality_ids` map (AI) or `owner_id` (human).
+
+    The rake BASE is the NET transfer (the pot minus the winners' own
+    contributions, i.e. what actually changed hands), matching the sim's
+    `sum(positive stack deltas)`. Raking the GROSS `pot['total']` instead
+    over-rakes contested pots by up to ~2× (a HU all-in: gross is double the
+    net) and diverges from the sim-tuned bank thermostat. `winner_contribs`
+    is `{name: cumulative_bet}` for the winners, captured BEFORE the award.
+    Falls back to the gross pot only if not supplied.
 
     No-op unless: cash mode active AND `RAKE_ENABLED` AND
     `RAKE_PLAYER_TABLES`. The first gate is the caller's; the latter
@@ -2937,8 +2988,15 @@ def _apply_player_table_rake(
     # Director rake (reserve-gated, flag-off by default): may expand the raked
     # stakes / rate when the bank is empty; otherwise the static $1000 skim.
     rake_stakes, rake_rate = economy_flags.resolve_rake_params(_ledger_repo, sandbox_id)
+    # Net transfer = pot minus the winners' own contributions (mirrors the sim's
+    # sum-of-positive-deltas). Fall back to gross only if contributions weren't
+    # supplied.
+    if winner_contribs:
+        rake_base = max(0, pot_size - sum(winner_contribs.values()))
+    else:
+        rake_base = pot_size
     rake = economy_flags.compute_rake(
-        pot_size, big_blind, stake_big_blinds=rake_stakes, rate=rake_rate
+        rake_base, big_blind, stake_big_blinds=rake_stakes, rate=rake_rate
     )
     if rake <= 0:
         return game_state
@@ -3118,6 +3176,13 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     pot_size_before_award = (
         game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
     )
+    # Capture each winner's cumulative contribution BEFORE the award (player.bet
+    # is the per-hand cumulative bet; pot['total'] == sum(p.bet)). The rake base
+    # is the NET transfer (pot minus winners' own contributions), so this must be
+    # read before award_pot_winnings credits stacks.
+    winner_contribs_before_award = {
+        p.name: p.bet for p in game_state.players if p.name in all_winners
+    }
 
     # Award winnings FIRST so chip counts are updated
     game_state = award_pot_winnings(game_state, winner_info)
@@ -3133,6 +3198,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             game_state=game_state,
             winner_info=winner_info,
             pot_size=pot_size_before_award,
+            winner_contribs=winner_contribs_before_award,
         )
 
     if not winning_player_names:
