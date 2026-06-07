@@ -21,3 +21,4 @@ Pillow>=10.0.0
 eval7>=0.1.9
 PyYAML>=6.0
 watchdog>=3.0.0
+sentry-sdk[flask]~=2.20

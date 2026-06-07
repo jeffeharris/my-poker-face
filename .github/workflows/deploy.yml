@@ -228,6 +228,12 @@ jobs:
           file: ./react/react/Dockerfile
           push: true
           provenance: false
+          # VITE_SENTRY_DSN is a public client key (send-only) — safe to bake in.
+          # Set it as a repo secret to enable session replay + the bug widget in
+          # prod; absent, the app's Sentry init is a no-op.
+          build-args: |
+            VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}
+            VITE_SENTRY_RELEASE=${{ github.sha }}
           tags: |
             ghcr.io/jeffeharris/my-poker-face-frontend:${{ github.sha }}
             ghcr.io/jeffeharris/my-poker-face-frontend:latest

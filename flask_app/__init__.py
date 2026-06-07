@@ -92,8 +92,38 @@ def recover_interrupted_experiments():
         logger.error(f"Error recovering interrupted experiments on startup: {e}")
 
 
+def _init_sentry():
+    """Initialize backend error monitoring (no-op unless SENTRY_DSN is set).
+
+    Ties server-side exceptions to the same Sentry project the frontend reports
+    to, so a UX session replay can be cross-referenced with the server error
+    behind it. The FlaskIntegration is auto-enabled by sentry-sdk when Flask is
+    importable. Kept cheap: low trace sampling, send_default_pii off (we attach
+    identity explicitly elsewhere if needed).
+    """
+    dsn = os.environ.get("SENTRY_DSN")
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.environ.get("FLASK_ENV", "development"),
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+        )
+        logger.info("[SENTRY] backend error monitoring enabled")
+    except Exception as e:  # never let monitoring setup break app boot
+        logger.error("[SENTRY] init failed: %s", e, exc_info=True)
+
+
 def create_app():
     """Create and configure the Flask application."""
+    # Initialize Sentry before the app + extensions so its integrations can
+    # instrument them. No-op without SENTRY_DSN.
+    _init_sentry()
+
     app = Flask(__name__)
     app.json_provider_class = SafeJSONProvider
     app.json = SafeJSONProvider(app)

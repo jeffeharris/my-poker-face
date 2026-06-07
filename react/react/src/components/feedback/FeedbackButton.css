@@ -1,0 +1,55 @@
+/* Floating bug-report launcher. Bottom-left so it clears the bottom-center
+   action bar and the bottom-right in-game chat bubbles. Sits below modals/
+   sheets (those portal to <body> with higher z) but above page chrome. */
+.feedback-button {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 900;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+
+  color: #cdd3dc;
+  background: rgba(24, 28, 35, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+
+  opacity: 0.55;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.feedback-button:hover,
+.feedback-button:focus-visible {
+  opacity: 1;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.feedback-button:active {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback-button {
+    transition: opacity 0.18s ease;
+  }
+  .feedback-button:hover,
+  .feedback-button:focus-visible,
+  .feedback-button:active {
+    transform: none;
+  }
+}
