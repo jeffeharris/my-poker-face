@@ -1,0 +1,496 @@
+"""Feature-flag registry — the single source of truth for boolean toggles.
+
+Why this exists
+---------------
+Flags used to be scattered `os.environ.get(...)` / `_env_flag(...)` reads with
+inline defaults across `cash_mode/`, `flask_app/`, `poker/` and `core/`. That
+made three things hard:
+
+  1. **Lifecycle.** A feature would ship behind a flag, bake on a branch, and
+     then the flag would be carried forever — re-enabled by hand on every new
+     branch, its dead `if flag:` branches never cleaned up.
+  2. **Env drift.** Spinning up a fresh dev environment meant remembering which
+     flags to set in `.env`; nobody could say with confidence what was on.
+  3. **Prod visibility.** There was no one place to look and confirm "every
+     launched feature is actually enabled on prod."
+
+This module fixes all three by making each flag a declared `FeatureFlag` with:
+
+  - a **lifecycle `Stage`** (experimental → beta → stable → graduated/retired),
+  - an explicit **per-environment default** (`dev` / `prod`), so a fresh env
+    resolves correctly with zero `.env` fiddling, and
+  - a resolver that reports **where each value came from** so the CLI board
+    (`scripts/flags.py status`) can show the whole picture at a glance.
+
+Resolution order (see `resolve`)
+--------------------------------
+  1. `GRADUATED` → always **True** (locked; the feature is permanent).
+  2. `RETIRED`   → always **False** (locked; the feature is gone).
+  3. An environment variable of the same name, if set (the per-deploy override
+     and the kill switch for `STABLE` flags). Truthy: 1/true/yes/on.
+  4. A DB `app_settings` row, if the flag opts into `db_overridable` (reuses the
+     same table the LLM model tiers use, so admin-UI runtime toggling is free).
+  5. The flag's per-environment default for the current env.
+
+Adding a flag
+-------------
+Declare it here with `register(FeatureFlag(...))`. Read it with
+`is_enabled("MY_FLAG")` (or, in `economy_flags`, the module global stays bound at
+import for back-compat). Do **not** add a new `os.environ.get(...ENABLED...)`
+elsewhere — `tests/test_feature_flags.py` enforces that flags go through here.
+
+Graduating a flag
+-----------------
+When a feature is locked in, flip its stage to `GRADUATED`. It is then forced on
+everywhere and can no longer be disabled. `scripts/flags.py check` lists
+graduated/retired flags whose code branches still reference the name, so the
+dead toggle code can be deleted on your own schedule.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+from enum import Enum
+from functools import lru_cache
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+class Stage(str, Enum):
+    """Where a flag sits in its lifecycle.
+
+    The stage drives both the locking behaviour and the integrity rules in
+    `tests/test_feature_flags.py`.
+    """
+
+    #: Off by default everywhere; opt-in per deploy via env var. Not yet
+    #: validated — the resting state of a freshly-introduced toggle.
+    EXPERIMENTAL = "experimental"
+    #: On in dev, off in prod — the "baking on a branch" state. A fresh dev env
+    #: gets the feature automatically; prod stays untouched until promotion.
+    BETA = "beta"
+    #: On everywhere by default, but the kill switch is retained (env/DB can
+    #: still disable it). The resting state of a live, shipped feature.
+    STABLE = "stable"
+    #: Locked **on** everywhere — the feature is permanent and the flag is no
+    #: longer a toggle. Pending deletion of the flag and its dead branches.
+    GRADUATED = "graduated"
+    #: Locked **off** everywhere — the feature was removed. Pending deletion of
+    #: the flag and its dead branches.
+    RETIRED = "retired"
+
+
+_TRUTHY = ("1", "true", "yes", "on")
+_FALSEY = ("0", "false", "no", "off")
+
+
+def _parse_bool(raw: str) -> Optional[bool]:
+    """Parse a string toggle; return None if it isn't a recognised bool."""
+    val = raw.strip().lower()
+    if val in _TRUTHY:
+        return True
+    if val in _FALSEY:
+        return False
+    return None
+
+
+def current_env() -> str:
+    """The environment key used to pick per-env defaults: 'dev' or 'prod'.
+
+    Mirrors `poker.config.is_development_mode` so flag defaults agree with the
+    rest of the app's dev/prod sense (FLASK_ENV=development or FLASK_DEBUG=1).
+    """
+    flask_env = os.environ.get("FLASK_ENV", "production")
+    flask_debug = os.environ.get("FLASK_DEBUG", "0")
+    return "dev" if (flask_env == "development" or flask_debug == "1") else "prod"
+
+
+@dataclass(frozen=True)
+class FeatureFlag:
+    """A single declared boolean toggle.
+
+    `dev` / `prod` are the per-environment defaults used when no override is
+    present. For `GRADUATED` / `RETIRED` flags they are ignored (the value is
+    locked), but they are still validated for consistency so a flag's intent
+    stays readable.
+    """
+
+    name: str
+    stage: Stage
+    description: str  # one line — full rationale lives next to the call site
+    owner: str = ""  # e.g. "cash_mode.economy" — groups the status report
+    dev: bool = False  # default when current_env() == 'dev'
+    prod: bool = False  # default when current_env() == 'prod'
+    db_overridable: bool = False  # may an app_settings row override it at runtime?
+    since: str = ""  # ISO date the flag was introduced (lifecycle tracking)
+
+    def default_for(self, env: str) -> bool:
+        if self.stage is Stage.GRADUATED:
+            return True
+        if self.stage is Stage.RETIRED:
+            return False
+        return self.dev if env == "dev" else self.prod
+
+
+REGISTRY: dict[str, FeatureFlag] = {}
+
+
+def register(flag: FeatureFlag) -> FeatureFlag:
+    """Add a flag to the registry. Raises on a duplicate name."""
+    if flag.name in REGISTRY:
+        raise ValueError(f"Duplicate feature flag: {flag.name!r}")
+    REGISTRY[flag.name] = flag
+    return flag
+
+
+@lru_cache(maxsize=1)
+def _settings_repo():
+    """Cached SettingsRepository for DB overrides (same table as LLM tiers).
+
+    Lazily imported so `core/` keeps no import-time dependency on `poker/`, and
+    only touched for flags that opt into `db_overridable` — so the common case
+    (env/default-only flags) never pays a DB or schema cost.
+    """
+    from poker.db_utils import get_default_db_path
+    from poker.repositories import SchemaManager, SettingsRepository
+
+    db_path = get_default_db_path()
+    SchemaManager(db_path).ensure_schema()
+    return SettingsRepository(db_path)
+
+
+def _db_get(name: str) -> Optional[bool]:
+    """Best-effort DB override lookup; None when unset or DB unavailable."""
+    try:
+        raw = _settings_repo().get_setting(name, "")
+    except Exception:
+        logger.debug("FLAG %s: DB unavailable for override; using env/default", name)
+        return None
+    if not raw:
+        return None
+    return _parse_bool(raw)
+
+
+def resolve(flag: FeatureFlag, *, env: Optional[str] = None) -> tuple[bool, str]:
+    """Resolve a flag to `(value, source)`.
+
+    `source` is one of: ``locked:graduated``, ``locked:retired``, ``env``,
+    ``db``, or ``default:<env>`` — surfaced by the status report so it's obvious
+    why a flag holds the value it does.
+    """
+    if flag.stage is Stage.GRADUATED:
+        return True, "locked:graduated"
+    if flag.stage is Stage.RETIRED:
+        return False, "locked:retired"
+
+    raw = os.environ.get(flag.name)
+    if raw is not None:
+        parsed = _parse_bool(raw)
+        if parsed is not None:
+            return parsed, "env"
+        logger.warning("FLAG %s: unparseable env value %r; ignoring", flag.name, raw)
+
+    if flag.db_overridable:
+        db_value = _db_get(flag.name)
+        if db_value is not None:
+            return db_value, "db"
+
+    env = env or current_env()
+    return flag.default_for(env), f"default:{env}"
+
+
+def is_enabled(name: str, *, env: Optional[str] = None) -> bool:
+    """The effective boolean value of a registered flag."""
+    try:
+        flag = REGISTRY[name]
+    except KeyError:
+        raise KeyError(
+            f"Unknown feature flag {name!r}. Declare it in core/feature_flags.py."
+        ) from None
+    return resolve(flag, env=env)[0]
+
+
+def snapshot(env: Optional[str] = None) -> list[dict]:
+    """Resolved view of every flag for the given env — powers the CLI report."""
+    env = env or current_env()
+    rows = []
+    for flag in REGISTRY.values():
+        value, source = resolve(flag, env=env)
+        rows.append(
+            {
+                "name": flag.name,
+                "stage": flag.stage.value,
+                "value": value,
+                "source": source,
+                "owner": flag.owner,
+                "dev": flag.dev,
+                "prod": flag.prod,
+                "db_overridable": flag.db_overridable,
+                "since": flag.since,
+                "description": flag.description,
+            }
+        )
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Flag declarations — THE source of truth. Grouped by owner.
+#
+# Stages preserve current behaviour exactly:
+#   - flags that read `_env_flag(X, False)` today → EXPERIMENTAL (off, env opt-in)
+#   - hardcoded `True` live kill switches → STABLE (on everywhere, disable-able)
+#   - the permanent `True` constant → GRADUATED (locked on)
+#   - the vestigial `False` flag → RETIRED (locked off)
+# Promotion candidates (e.g. flags you set in every dev .env → BETA) are noted
+# in docs/guides/FEATURE_FLAGS.md; promote them deliberately, not here silently.
+# ---------------------------------------------------------------------------
+
+_ECON = "cash_mode.economy"
+
+# --- Faucet ---
+register(
+    FeatureFlag(
+        "REGEN_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Passive idle-chip faucet (retired in favour of the side hustle); A/B knob.",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "SIDE_HUSTLE_ENABLED",
+        Stage.STABLE,
+        "Active faucet: broke AIs earn a pool-funded lump off-grid.",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Vice / lever reserve-gating ---
+# The Director thermostat (these + RAKE_RESERVE_GATED, DIRECTOR_POLICY_HOLD,
+# CASINO_RESEED_ON_SPENT) is LIVE in prod but off in dev — dev=False/prod=True
+# makes that drift explicit. Flip dev=True to run the prod economy locally.
+register(
+    FeatureFlag(
+        "VICE_RESERVE_GATED",
+        Stage.STABLE,
+        "Scale vice intensity with the bank-pool deficit instead of always-on.",
+        owner=_ECON,
+        dev=False,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "GENESIS_RESERVE_ENABLED",
+        Stage.STABLE,
+        "Seed the bank pool to a fraction of holdings once at sandbox birth.",
+        owner=_ECON,
+        dev=False,
+        prod=True,
+    )
+)
+
+# --- Sink (table rake) ---
+register(
+    FeatureFlag(
+        "RAKE_ENABLED",
+        Stage.GRADUATED,
+        "Structural table rake that recycles to the bank pool (permanent).",
+        owner=_ECON,
+    )
+)
+register(
+    FeatureFlag(
+        "RAKE_PLAYER_TABLES",
+        Stage.STABLE,
+        "Apply rake at tables with a human seated (not just AI-only tables).",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "RAKE_RESERVE_GATED",
+        Stage.STABLE,
+        "Director two-layer rake: add lower stake tiers as the bank empties.",
+        owner=_ECON,
+        dev=False,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "DIRECTOR_INEQUALITY_RAKE",
+        Stage.EXPERIMENTAL,
+        "On a flat field, lead the refill with rake (implies RAKE_RESERVE_GATED).",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "DIRECTOR_POLICY_HOLD",
+        Stage.STABLE,
+        "Hold the rake schedule for a window instead of recomputing per hand.",
+        owner=_ECON,
+        dev=False,
+        prod=True,
+    )
+)
+
+# --- Casino provisioning ---
+register(
+    FeatureFlag(
+        "CASINO_RELATIVE_THRESHOLDS",
+        Stage.EXPERIMENTAL,
+        "Treat casino spawn/close/whale gates as fractions of holdings.",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "CASINO_RESEED_ON_SPENT",
+        Stage.STABLE,
+        "Lean casino fish lifecycle: one fish, reseed on bust (steady trickle).",
+        owner=_ECON,
+        dev=False,
+        prod=True,
+    )
+)
+
+# --- Player-prestige hooks ---
+register(
+    FeatureFlag(
+        "REPUTATION_DEMEANOR_ENABLED",
+        Stage.STABLE,
+        "Reputation-driven AI demeanor nudge when seated with a high-renown human.",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "DOSSIER_SCOUTING_GATE_ENABLED",
+        Stage.STABLE,
+        "Gate earnable opponent-dossier reads behind hands observed (Circuit only).",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Presence machine ---
+register(
+    FeatureFlag(
+        "PRESENCE_AUTHORITY_ENABLED",
+        Stage.GRADUATED,
+        "entity_presence is the authoritative actor-location store (permanent).",
+        owner=_ECON,
+    )
+)
+register(
+    FeatureFlag(
+        "PRESENCE_SHADOW_WRITE_ENABLED",
+        Stage.RETIRED,
+        "Vestigial pre-flip presence shadow dual-write (superseded by authority).",
+        owner=_ECON,
+    )
+)
+
+# --- Chip-custody machine ---
+register(
+    FeatureFlag(
+        "CHIP_CUSTODY_ENABLED",
+        Stage.STABLE,
+        "Record AI at-table chips as ledger transfers (derivable bankroll).",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "CHIP_CUSTODY_DERIVE_READS",
+        Stage.STABLE,
+        "Make ledger-derived chip counts authoritative for bankroll reads.",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Tournament circuit ---
+register(
+    FeatureFlag(
+        "TOURNAMENT_CIRCUIT_ENABLED",
+        Stage.STABLE,
+        "World-tick hook: offer/expire Main Event invites and advance AI tournaments.",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TOURNAMENT_DRAW_ENABLED",
+        Stage.STABLE,
+        "AIs leave cash tables for tournaments, pulled by a draw score.",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Renown v2 ---
+register(
+    FeatureFlag(
+        "RENOWN_V2_ENABLED",
+        Stage.STABLE,
+        "Field-relative renown scoreboard (read-side).",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "RENOWN_V2_PERSIST_AI",
+        Stage.STABLE,
+        "Persist a per-AI renown row each ticker recompute (implies RENOWN_V2_ENABLED).",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "PRESTIGE_SEEKING_ENABLED",
+        Stage.STABLE,
+        "Status-seeking AIs pulled toward tables with high-renown players.",
+        owner=_ECON,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TABLE_AFFINITY_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Success-weighted room stickiness in idle table selection.",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
