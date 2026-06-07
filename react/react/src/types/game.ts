@@ -100,6 +100,11 @@ export interface GameState {
   /** True when the owner's game speed is 'always' (fast-forward every AI
    *  turn). Like ai_instant, the FF button is hidden since it's always on. */
   always_fast_forward?: boolean;
+  /** Server-stamped monotonic frame version. The store drops a socket frame
+   *  whose version is older than the last applied one, so a stale frame from a
+   *  leaked socket or a late sequencer beat can't regress the table to an
+   *  earlier hand. Absent on older servers (then the guard is a no-op). */
+  state_version?: number;
 }
 
 /** Player's showdown hand information */

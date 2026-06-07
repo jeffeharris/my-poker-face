@@ -62,6 +62,7 @@ from ..handlers.message_handler import (
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..socket_rate_limit import socket_rate_limit
+from ..state_version import next_state_version
 from ..validation import validate_player_action
 
 logger = logging.getLogger(__name__)
@@ -1361,6 +1362,11 @@ def api_game_state(game_id):
         'messages': messages,
         'game_id': game_id,
         'betting_context': betting_context,
+        # Authoritative cold-load snapshot: the client treats this as a baseline
+        # RESET for its monotonic frame guard (it accepts this version even after
+        # a server restart reset the counter), so stale socket frames older than
+        # it are dropped. See flask_app.state_version.
+        'state_version': next_state_version(),
     }
 
     # Cash-mode metadata. Included on the cold-load path too so the
@@ -2455,6 +2461,43 @@ def api_game_llm_configs(game_id):
 # SocketIO event handlers
 def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
+
+    @sio.on_error_default
+    def on_socket_error(e):
+        """Catch-all for unhandled exceptions in any socket event handler.
+
+        Without this, an exception inside a handler is logged by Flask-SocketIO
+        but the *client* gets no signal — the action silently stalls until the
+        30s `aiThinking` safety-net refresh fires. Here we log it (with the sid
+        + the event that raised, for correlation) and emit a recoverable
+        `game_error` to the offending client so it re-syncs immediately. The
+        client's `game_error` handler (recoverable=true) does a throttled
+        `refreshGameState`, which cold-loads authoritative state.
+
+        Best-effort: the emit itself is guarded so a failure here can't mask the
+        original error or raise out of the error handler.
+        """
+        event = None
+        sid = None
+        try:
+            event = (getattr(request, 'event', None) or {}).get('message')
+            sid = getattr(request, 'sid', None)
+        except Exception:
+            pass
+        logger.error(
+            "[SOCKET] unhandled error in event=%s sid=%s: %s",
+            event,
+            sid,
+            e,
+            exc_info=True,
+        )
+        try:
+            emit(
+                'game_error',
+                {'error': 'Something went wrong processing that request.', 'recoverable': True},
+            )
+        except Exception:
+            logger.debug("[SOCKET] failed to emit game_error from default handler", exc_info=True)
 
     @sio.on('connect')
     def on_connect():

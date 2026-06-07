@@ -45,6 +45,37 @@ class SafeJSONProvider(DefaultJSONProvider):
         return super().dumps(_sanitize_for_json(obj), **kwargs)
 
 
+def _detect_gunicorn_runtime():
+    """Best-effort parse of the gunicorn worker class + worker count from argv.
+
+    gunicorn doesn't rewrite a worker's ``sys.argv`` (it sets the proctitle
+    separately), so the master command line — including ``-k <worker-class>``
+    and ``-w <n>`` — is still visible from inside ``create_app()``. Returns
+    ``(worker_class, workers)``; either may be ``None`` when not launched via
+    gunicorn (dev server, tests) or the flag wasn't passed.
+    """
+    import sys
+
+    argv = sys.argv or []
+    worker_class = None
+    workers = None
+    for i, arg in enumerate(argv):
+        nxt = argv[i + 1] if i + 1 < len(argv) else None
+        if arg in ("-k", "--worker-class") and nxt:
+            worker_class = nxt
+        elif arg.startswith("--worker-class="):
+            worker_class = arg.split("=", 1)[1]
+        elif arg in ("-w", "--workers") and nxt:
+            workers = nxt
+        elif arg.startswith("--workers="):
+            workers = arg.split("=", 1)[1]
+    try:
+        workers = int(workers) if workers is not None else None
+    except (TypeError, ValueError):
+        workers = None
+    return worker_class, workers
+
+
 def _log_async_runtime():
     """PRH-24: log (and check) the Socket.IO async model at startup.
 
@@ -64,10 +95,16 @@ def _log_async_runtime():
     except Exception:
         patched = False
 
+    worker_class, workers = _detect_gunicorn_runtime()
+    is_gevent_ws_worker = bool(worker_class and "geventwebsocket" in worker_class.lower())
+
     logger.info(
-        "[ASYNC] socketio async_mode=%s; gevent socket monkey-patch active=%s",
+        "[ASYNC] socketio async_mode=%s; gevent socket monkey-patch active=%s; "
+        "worker_class=%s workers=%s",
         SOCKETIO_ASYNC_MODE,
         patched,
+        worker_class,
+        workers,
     )
     if SOCKETIO_ASYNC_MODE == "threading" and not patched and not is_development:
         logger.error(
@@ -75,6 +112,35 @@ def _log_async_runtime():
             "monkey-patching — blocking I/O will NOT yield cooperatively and can "
             "stall the single worker. Run under the gevent-websocket gunicorn "
             "worker (docker-compose.prod.yml) or set SOCKETIO_ASYNC_MODE=gevent."
+        )
+
+    # PRH-24 follow-up (two-hand-flicker): the existing monkey-patch check above
+    # reports active=True under the gevent-websocket worker and stays silent —
+    # its blind spot. Even with patching ON, `async_mode='threading'` serves the
+    # WS transport via simple_websocket, while the worker exposes geventwebsocket:
+    # a transport mismatch whose WS reads break at the protocol level on
+    # close/upgrade → repeated 1002 closes + Infinity reconnect (the storm that
+    # amplified the leaked-socket flicker). The standards-aligned pairing under
+    # this worker is `gevent`. Escalate the mismatch so the deploy is fixed.
+    if is_gevent_ws_worker and SOCKETIO_ASYNC_MODE == "threading" and not is_development:
+        logger.error(
+            "[ASYNC] running under the gevent-websocket gunicorn worker with "
+            "async_mode=threading — this transport mismatch causes repeated WS "
+            "1002 closes + reconnect storms. Set SOCKETIO_ASYNC_MODE=gevent."
+        )
+
+    # Single-process socket-state assumption: the Socket.IO rate limiter
+    # (socket_rate_limit), the cash presence registry (services/presence), and
+    # the world ticker (services/ticker_service) are all in-process. With >1
+    # gunicorn worker, room emits from background tasks won't fan out across
+    # workers (no Socket.IO message_queue is configured) and per-caller caps
+    # multiply per worker. Refuse to run silently mis-scaled in production.
+    if workers is not None and workers > 1 and not is_development:
+        logger.error(
+            "[ASYNC] gunicorn started with %d workers, but Socket.IO presence, "
+            "rate limiting, and the world ticker are single-process. Run with "
+            "-w 1, or add a Socket.IO message_queue + shared stores before scaling.",
+            workers,
         )
 
 
