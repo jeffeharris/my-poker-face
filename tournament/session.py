@@ -65,8 +65,21 @@ class TournamentSession:
         human_id: str | None = None,
         *,
         entries: dict[str, str] | None = None,
+        single_table: bool = False,
     ):
         self.config = config
+        # Whether this is the unified single-table game (one table, no field
+        # balancing / table breaks) vs a true multi-table tournament. The live
+        # hand-boundary dispatch keys on `is_multi_table` to pick the right
+        # boundary: the multi-table one is the ONLY path that escalates the live
+        # table's blinds (single-table self-escalates from its own blind_config).
+        # Defaults to multi-table (the normal constructor / spawn); the
+        # `for_single_table` classmethod flips it. Stored on the session — not in
+        # the volatile game_data dict — so it survives cold-load and the dispatch
+        # can't desync from a dropped flag. NOTE: this CANNOT be derived from
+        # field_size vs table_size — a small MTT (MIN_FIELD=2) can have a field
+        # no larger than one table yet still needs the multi-table boundary.
+        self.single_table = single_table
         self._ai_resolve: HandFn = ai_resolver.resolve
         self.schedule = config.blind_schedule()
         self.seating_manager = SeatingManager()
@@ -113,7 +126,9 @@ class TournamentSession:
             starting_stack=starting_stack,
             seed=seed,
         )
-        return cls(config, FakeHandResolver(), human_id=human_id, entries=entries)
+        return cls(
+            config, FakeHandResolver(), human_id=human_id, entries=entries, single_table=True
+        )
 
     def fold_live_hand(self, stacks_after: dict[str, int], eliminator: str | None = None) -> list:
         """Fold a completed live hand at the (single) table into the field and
@@ -169,6 +184,13 @@ class TournamentSession:
         if self.human_id is None:
             return None
         return self.seating.table_for(self.human_id)
+
+    @property
+    def is_multi_table(self) -> bool:
+        """True for a real multi-table tournament; False for the unified
+        single-table game. The live hand-boundary dispatch keys on this to pick
+        the boundary that escalates the table's blinds."""
+        return not self.single_table
 
     def is_complete(self) -> bool:
         return self.field.is_complete()
@@ -511,6 +533,7 @@ class TournamentSession:
         return {
             'config': self.config.to_dict(),
             'human_id': self.human_id,
+            'single_table': self.single_table,
             'rounds': self.rounds,
             'hand_counter': self._hand_counter,
             'field': self.field.to_dict(),
@@ -531,7 +554,17 @@ class TournamentSession:
         # or a real persona id) fails to rehydrate on cold load with
         # "human_id ... is not in the field". We then overwrite the mutable world
         # with the fully-restored field/seating/counters.
-        session = cls(config, ai_resolver, human_id=d['human_id'], entries=d['field']['entries'])
+        session = cls(
+            config,
+            ai_resolver,
+            human_id=d['human_id'],
+            entries=d['field']['entries'],
+            # Legacy blobs predate this key; default multi-table (the dominant
+            # MTT case). The cold-load route authoritatively overrides from the
+            # persisted `resolver_kind` for single-table games, so a legacy
+            # single blob isn't misrouted.
+            single_table=d.get('single_table', False),
+        )
         session.field = TournamentField.from_dict(d['field'])
         session.seating = Seating.from_dict(d['seating'])
         session.entries = dict(session.field.entries)

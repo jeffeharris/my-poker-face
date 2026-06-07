@@ -181,17 +181,12 @@ def _reattach_mtt_session(current_game_data: dict, mtt_session_row, game_id: str
         if _sess is None:
             return
         _ht = _sess.human_table
+        # The rehydrated session carries `is_multi_table=True`, which is what the
+        # hand-boundary dispatch keys on — so simply restoring the session here is
+        # enough to route this cold-loaded game back through the multi-table
+        # boundary (the only path that escalates the live table's blinds). No
+        # separate game_data flag to re-stamp (and thus none to drop).
         current_game_data['tournament_session'] = _sess
-        # Re-stamp the MTT boundary flag. It's set only at fresh-build time
-        # (tournament_game_builder) and lives in in-memory game_data, so a cold
-        # load drops it. Without it the inter-hand step runs the SINGLE-table
-        # boundary instead of the multi-table one: that path advances
-        # session.rounds (so the displayed blind clock climbs) but never calls
-        # reconcile_live_table, which is the only thing that pushes the new blind
-        # level onto this table — and the engine's own blind_config has
-        # growth=1.0, so it can't self-escalate either. The table's blinds then
-        # freeze at the cold-load level while the tournament clock keeps rising.
-        current_game_data['tournament_multi_table'] = True
         current_game_data['tournament_id'] = mtt_session_row['tournament_id']
         current_game_data['tournament_human_id'] = _sess.human_id
         current_game_data['tournament_table_id'] = _ht.table_id if _ht is not None else None
@@ -1043,6 +1038,14 @@ def api_game_state(game_id):
                                         single_session = TournamentSession.from_dict(
                                             _sj, FakeHandResolver()
                                         )
+                                        # `resolver_kind == 'single'` is the
+                                        # authoritative persisted signal — force
+                                        # it on the rehydrated session so a legacy
+                                        # blob (predating the serialized
+                                        # `single_table` key, which defaults to
+                                        # multi) isn't misrouted to the MTT
+                                        # boundary.
+                                        single_session.single_table = True
                                 except Exception:
                                     logger.error(
                                         "[LOAD] single session rehydrate failed for %s; "
