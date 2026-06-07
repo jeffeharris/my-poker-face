@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Feature-flag status board and lifecycle checker.
+
+Usage
+-----
+  python3 scripts/flags.py status                 # board for the current env
+  python3 scripts/flags.py status --env prod      # preview prod resolution
+  python3 scripts/flags.py status --env dev       # preview dev resolution
+  python3 scripts/flags.py check                  # lifecycle / cleanup report
+
+`status` answers "what is the effective value of every flag here, and why?".
+Run it over SSH to confirm prod state:
+
+  ssh root@<prod> "cd /opt/poker && \\
+    docker compose -f docker-compose.prod.yml exec -T backend \\
+    python3 scripts/flags.py status --env prod"
+
+`check` lists graduated/retired flags whose code still references the name (dead
+toggle branches to delete) — the nudge that keeps flags from accumulating.
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+# Make the repo root importable when run as a script.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.feature_flags import REGISTRY, Stage, current_env, snapshot  # noqa: E402
+
+# These two files legitimately mention every flag name (the registry itself and
+# the back-compat module that binds the globals); they are not "dead branches".
+_DECLARATION_FILES = {"core/feature_flags.py", "cash_mode/economy_flags.py"}
+
+_GREEN = "\033[32m"
+_RED = "\033[31m"
+_DIM = "\033[2m"
+_BOLD = "\033[1m"
+_YELLOW = "\033[33m"
+_RESET = "\033[0m"
+
+
+def _c(text: str, color: str, *, on: bool) -> str:
+    return f"{color}{text}{_RESET}" if on else text
+
+
+def cmd_status(env: str | None, color: bool) -> int:
+    env = env or current_env()
+    rows = snapshot(env)
+    rows.sort(key=lambda r: (r["owner"], r["name"]))
+
+    print(_c(f"\nFeature flags — resolved for env={env!r}", _BOLD, on=color))
+    print(
+        _c("  (value reflects env vars / DB / per-env defaults of THIS process)\n", _DIM, on=color)
+    )
+
+    name_w = max((len(r["name"]) for r in rows), default=4)
+    header = f"  {'FLAG':<{name_w}}  {'VALUE':<5}  {'STAGE':<12}  {'SOURCE':<18}  DESCRIPTION"
+    print(_c(header, _DIM, on=color))
+
+    current_owner = None
+    on_count = 0
+    for r in rows:
+        if r["owner"] != current_owner:
+            current_owner = r["owner"]
+            print(_c(f"\n  [{current_owner or 'ungrouped'}]", _BOLD, on=color))
+        value_str = "ON" if r["value"] else "off"
+        value_col = _c(f"{value_str:<5}", _GREEN if r["value"] else _RED, on=color)
+        on_count += int(r["value"])
+        print(
+            f"  {r['name']:<{name_w}}  {value_col}  "
+            f"{r['stage']:<12}  {r['source']:<18}  {_c(r['description'], _DIM, on=color)}"
+        )
+
+    print(_c(f"\n  {on_count}/{len(rows)} flags ON in env={env!r}\n", _BOLD, on=color))
+    return 0
+
+
+def _grep_references(name: str) -> list[str]:
+    """Files (repo-relative) that reference a flag name, excluding declarations."""
+    try:
+        out = subprocess.run(
+            ["git", "grep", "-l", name],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return []
+    files = [f for f in out.stdout.splitlines() if f]
+    return [f for f in files if f not in _DECLARATION_FILES and not f.startswith("docs/")]
+
+
+def cmd_check(color: bool) -> int:
+    print(_c("\nLifecycle check\n", _BOLD, on=color))
+    locked = [f for f in REGISTRY.values() if f.stage in (Stage.GRADUATED, Stage.RETIRED)]
+
+    if not locked:
+        print("  No graduated/retired flags yet.\n")
+    else:
+        print(
+            _c("  Locked flags with code still referencing them (delete the dead", _DIM, on=color)
+        )
+        print(_c("  branches, then remove the flag declaration):\n", _DIM, on=color))
+        any_dirty = False
+        for f in locked:
+            refs = _grep_references(f.name)
+            if refs:
+                any_dirty = True
+                print(f"  {_c('⚠', _YELLOW, on=color)} {f.name} ({f.stage.value})")
+                for ref in refs:
+                    print(_c(f"      {ref}", _DIM, on=color))
+        if not any_dirty:
+            print(_c("  ✓ All locked flags are fully cleaned up.\n", _GREEN, on=color))
+        else:
+            print()
+
+    betas = [f.name for f in REGISTRY.values() if f.stage is Stage.BETA]
+    if betas:
+        print(
+            _c(
+                "  Beta flags (on in dev, off in prod) — promote or retire before they linger:",
+                _DIM,
+                on=color,
+            )
+        )
+        for n in betas:
+            print(f"      {n}")
+        print()
+    return 0
+
+
+def cmd_env() -> int:
+    """Emit .env.example-style lines for every overridable flag (locked flags
+    have no env knob, so they're listed as comments only)."""
+    rows = sorted(REGISTRY.values(), key=lambda f: (f.owner, f.name))
+    print("# Feature flags — generated by `scripts/flags.py env`. Do not hand-edit;")
+    print("# the source of truth is core/feature_flags.py.\n")
+    current_owner = None
+    for f in rows:
+        if f.owner != current_owner:
+            current_owner = f.owner
+            print(f"\n# [{current_owner or 'ungrouped'}]")
+        if f.stage in (Stage.GRADUATED, Stage.RETIRED):
+            locked = "on" if f.stage is Stage.GRADUATED else "off"
+            print(
+                f"# {f.name} — locked {locked} ({f.stage.value}); no env override. {f.description}"
+            )
+            continue
+        print(f"# {f.description} (stage={f.stage.value}, dev default={1 if f.dev else 0})")
+        print(f"# {f.name}={1 if f.prod else 0}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Feature-flag status board.")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_status = sub.add_parser("status", help="show the resolved flag board")
+    p_status.add_argument("--env", choices=["dev", "prod"], default=None)
+    p_status.add_argument("--no-color", action="store_true")
+
+    p_check = sub.add_parser("check", help="lifecycle / cleanup report")
+    p_check.add_argument("--no-color", action="store_true")
+
+    sub.add_parser("env", help="emit .env.example-style lines from the registry")
+
+    args = parser.parse_args(argv)
+    color = sys.stdout.isatty() and not getattr(args, "no_color", False)
+
+    if args.cmd == "check":
+        return cmd_check(color)
+    if args.cmd == "env":
+        return cmd_env()
+    # default to status
+    return cmd_status(getattr(args, "env", None), color)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
