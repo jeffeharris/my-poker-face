@@ -339,7 +339,7 @@ _test_schema_template_path = None
 # v152: Drop the legacy `cash_idle_pool` cache — the Presence cutover is
 #       complete; `entity_presence` (state='idle') + `cash_idle_metadata` are
 #       the authoritative idle store.
-SCHEMA_VERSION = 154
+SCHEMA_VERSION = 155
 
 
 class SchemaManager:
@@ -2337,6 +2337,10 @@ class SchemaManager:
             154: (
                 self._migrate_v154_add_ai_table_net_chips,
                 "Add net_chips to ai_table_hand_counts — cumulative per-(sandbox, ai, table) PnL feeding the success-weighted table-affinity attractiveness term (TABLE_AFFINITY_ENABLED): AIs drift back to rooms they win at, concentrating play into a home room. Guarded ALTER, additive.",
+            ),
+            155: (
+                self._migrate_v155_rebaseline_regard_neutral,
+                "Re-baseline existing relationship_states regard from the old neutral 0.5 to REGARD_NEUTRAL (0.35): subtract 0.15 from every respect/likability (clamped to [0,1]); heat untouched. Preserves each edge's offset-from-neutral so renown contributions / hints / offers are unchanged — the data-side mirror of the code rebaseline. ONE-TIME data transform (NOT idempotent if re-run); the version gate guarantees once-only. Fresh DBs are built at SCHEMA_VERSION and skip it (rows already at 0.35).",
             ),
         }
 
@@ -6397,6 +6401,46 @@ class SchemaManager:
                 "ADD COLUMN net_chips INTEGER NOT NULL DEFAULT 0"
             )
         logger.info("Migration v154 complete: ai_table_hand_counts.net_chips added")
+
+    def _migrate_v155_rebaseline_regard_neutral(self, conn: sqlite3.Connection) -> None:
+        """Migration v155: re-baseline existing regard from 0.5 → 0.35.
+
+        The rebaseline drops the earned-regard neutral from the old hardcoded
+        0.5 to REGARD_NEUTRAL (0.35). Every `relationship_states` row that
+        predates this change was created against the 0.5 baseline, so we shift
+        respect/likability DOWN by the same delta the neutral moved
+        (`0.5 − 0.35 = 0.15`), clamped to the [0, 1] axis. This preserves each
+        edge's *offset from neutral*: a row at exactly-neutral 0.5 becomes
+        exactly-neutral 0.35, a "+0.2 above neutral" 0.7 becomes 0.55 (still
+        +0.2), a "−0.3 below" 0.2 becomes 0.05. Renown contributions
+        (`value − neutral`), relationship hints, and sponsor/staking offers
+        therefore read identically before and after — the data-side mirror of
+        the code rebaseline, so no live relationship suddenly warms or cools.
+
+        Heat is NOT touched — it's one-sided and 0-based (0 = neutral), not a
+        regard axis.
+
+        IMPORTANT: this is a ONE-TIME data transform and is NOT idempotent if
+        re-run (it would shift a second time). Correctness rests on the version
+        gate in `_apply_migrations` running each migration exactly once. Fresh
+        DBs are built directly at SCHEMA_VERSION and never enter the 154→155
+        step, so their rows (already created at 0.35 by the new code) are left
+        alone.
+        """
+        # 0.15 == old neutral (0.5) − REGARD_NEUTRAL (0.35). Kept as a literal
+        # because SQL can't reference the Python constant; the migration is a
+        # frozen historical record of THIS specific baseline move.
+        conn.execute(
+            """
+            UPDATE relationship_states
+            SET respect    = MAX(0.0, MIN(1.0, respect    - 0.15)),
+                likability = MAX(0.0, MIN(1.0, likability - 0.15))
+            """
+        )
+        logger.info(
+            "Migration v155 complete: relationship_states regard re-baselined "
+            "0.5 → 0.35 (respect/likability −0.15, clamped; heat untouched)"
+        )
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.
