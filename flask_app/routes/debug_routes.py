@@ -4,6 +4,8 @@ import logging
 
 from flask import Blueprint, Response, jsonify, redirect, request
 
+from poker.memory.opponent_model import REGARD_NEUTRAL
+
 from .. import config, extensions
 from ..route_utils import register_admin_guard
 from ..services import game_state_service
@@ -555,8 +557,8 @@ def _neutral_pair_payload(observer_name, opponent_name, observer_id, opponent_id
         'observer_id': observer_id,
         'opponent_id': opponent_id,
         'heat': 0.0,
-        'respect': 0.5,
-        'likability': 0.5,
+        'respect': REGARD_NEUTRAL,
+        'likability': REGARD_NEUTRAL,
         'label': None,
         'last_seen': None,
         'memorable_hands': [],

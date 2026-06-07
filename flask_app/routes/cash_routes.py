@@ -77,6 +77,7 @@ from flask_app import config
 # be imported lazily).
 from flask_app.extensions import limiter
 from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+from poker.memory.opponent_model import REGARD_NEUTRAL
 from poker.memory.relationship_events import RelationshipEvent
 
 logger = logging.getLogger(__name__)
@@ -1164,6 +1165,22 @@ def start_cash_session():
             chips=player_bankroll.chips - buy_in,
             starting_bankroll=player_bankroll.starting_bankroll,
         )
+    )
+
+    # Record the self-funded buy-in as a player -> seat ledger transfer, paired
+    # with the leave-time `record_player_cash_out` (which fires unconditionally).
+    # Without this the bankroll debit here is unledgered while the leave credits
+    # it back, leaving an unpaired cash-out -> phantom chips in the derived
+    # balance under chip custody. Mirrors the modern `/api/cash/sit` path.
+    from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+
+    chip_ledger.record_player_buy_in(
+        _chip_ledger_repo,
+        owner_id=owner_id,
+        game_id=game_id,
+        amount=buy_in,
+        context={'site': 'cash_start', 'stake_label': stake_label},
+        sandbox_id=sandbox_id,
     )
 
     _record_cash_session_start(
@@ -3332,14 +3349,15 @@ def request_forgiveness(stake_id: str):
 
     # Read staker's view of borrower. `load_relationship_state` returns
     # None for never-interacted pairs — treat as the neutral default
-    # (0.5/0.5/0.0). Heat is already projected through decay on read.
+    # (REGARD_NEUTRAL/REGARD_NEUTRAL/0.0). Heat is already projected
+    # through decay on read.
     rel = relationship_repo.load_relationship_state(
         observer_id=stake.staker_id,
         opponent_id=owner_id,
         now=now,
     )
-    likability = rel.likability if rel is not None else 0.5
-    respect = rel.respect if rel is not None else 0.5
+    likability = rel.likability if rel is not None else REGARD_NEUTRAL
+    respect = rel.respect if rel is not None else REGARD_NEUTRAL
     heat = rel.heat if rel is not None else 0.0
 
     score = _forgiveness_score(
@@ -4995,22 +5013,59 @@ def _leave_table_locked(owner_id: str, game_id: str):
         )
         flows = build_stake_settlement_flows(stake_settlement)
         borrower_credit = 0
+        from cash_mode import economy_flags as _economy_flags_leave
+
         for flow in flows:
             if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
-                # Personality (or Phase-5 human) staker — credit their bankroll.
-                credit_ai_cash_out(
-                    bankroll_repo,
-                    flow.staker_id,
-                    flow.amount,
-                    sandbox_id=sandbox_id,
-                    now=now,
-                    chip_ledger_repo=chip_ledger_repo,
-                    ledger_context={
-                        'game_id': game_id,
-                        'stake_id': active_stake.stake_id,
-                        'site': 'stake_settle',
-                    },
-                )
+                # Borrower (this leaving human) seat → staker bankroll. This is a
+                # stake PAYOFF, not the staker cashing out their own seat — so the
+                # credit must NOT record a seat:ai(staker)→ai(staker) transfer
+                # (that drains the staker's own seat account instead of the
+                # borrower's). Mirror the voluntary-payoff sibling: credit with
+                # `from_seat=False`, then record ONE `stake_payoff` transfer from
+                # the borrower's seat. Branch on staker_kind so a human staker is
+                # credited to their player bankroll, not an `ai:` bankroll.
+                if active_stake.staker_kind == STAKER_KIND_HUMAN:
+                    staker_bankroll = _load_or_seed_player_bankroll(
+                        flow.staker_id, sandbox_id=sandbox_id
+                    )
+                    bankroll_repo.save_player_bankroll(
+                        PlayerBankrollState(
+                            player_id=staker_bankroll.player_id,
+                            chips=staker_bankroll.chips + flow.amount,
+                            starting_bankroll=staker_bankroll.starting_bankroll,
+                        )
+                    )
+                    stake_sink = chip_ledger.player(flow.staker_id)
+                else:
+                    credit_ai_cash_out(
+                        bankroll_repo,
+                        flow.staker_id,
+                        flow.amount,
+                        sandbox_id=sandbox_id,
+                        now=now,
+                        chip_ledger_repo=chip_ledger_repo,
+                        ledger_context={
+                            'game_id': game_id,
+                            'stake_id': active_stake.stake_id,
+                            'site': 'stake_settle',
+                        },
+                        from_seat=False,
+                    )
+                    stake_sink = chip_ledger.ai(flow.staker_id)
+                if chip_ledger_repo is not None and _economy_flags_leave.CHIP_CUSTODY_ENABLED:
+                    chip_ledger.record_stake_payoff(
+                        chip_ledger_repo,
+                        source=chip_ledger.seat(game_id),
+                        sink=stake_sink,
+                        amount=flow.amount,
+                        context={
+                            'game_id': game_id,
+                            'stake_id': active_stake.stake_id,
+                            'site': 'leave_table',
+                        },
+                        sandbox_id=sandbox_id,
+                    )
             elif flow.direction == DIRECTION_BORROWER_SEAT_TO_HOUSE:
                 # House staker — chips return to the bank. Ledger entry
                 # closes the loop for the audit's house-stake reconciliation
@@ -5652,7 +5707,7 @@ def get_lobby():
     # grandfathered to the full lobby (keyring stays off; `career_active` False).
     # The safe default of a missing/legacy row is "show everything", so this can
     # never blank an existing playtester's lobby. See `cash_mode/career_progression.py`.
-    from cash_mode import career_progression
+    from cash_mode import career_progression, economy_flags
     from flask_app.extensions import career_progress_repo
 
     career_progress = None
@@ -5664,11 +5719,15 @@ def get_lobby():
             # sandbox; classify only does work when the sandbox is undecided.
             pre_seed_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
             decision = career_progression.classify_new_player(career_progress, pre_seed_tables)
-            if decision == "seed":
+            # The Act-1 narrative + intake is behind a master flag. While it's OFF,
+            # a brand-new sandbox is treated exactly like a grandfathered one (full
+            # lobby, no Scene-0 seed, keyring off) so the whole intro ships dark.
+            if decision == "seed" and economy_flags.CAREER_PROGRESSION_ENABLED:
                 seed_scene0 = True  # brand-new sandbox → run the tutorial below
-            elif decision == "grandfather":
-                # Existing playtester: keep the full lobby (keyring stays off) and
-                # mark so we don't re-check every load.
+            elif decision in ("grandfather", "seed"):
+                # Existing playtester (or a brand-new sandbox while the narrative
+                # is flag-OFF): keep the full lobby (keyring stays off) and mark so
+                # we don't re-check every load.
                 career_progress.tutorial_complete = True
                 career_progress_repo.save(career_progress)
         except Exception as exc:

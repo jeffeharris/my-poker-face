@@ -421,21 +421,34 @@ RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
 # docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage B / B4).
 PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 
+# Career progression — the Act-1 narrative walkthrough + intake (MASTER flag).
+# When on, a brand-new sandbox enters the Circuit intro: the Lucky Stack intake
+# (name + backstory), the pinned Scene-0 tutorial table (Sal + the fish), and the
+# keyring lobby (you only SEE cardrooms you've been vouched into). When OFF, a new
+# player gets today's full lobby instead — `career_active` never flips on, so the
+# keyring filter, intake prompt, and Scene-0 seed all stay inert (one gate, at the
+# lobby's seed decision, covers all three). Default OFF so the whole narrative
+# ships dark to prod and flips on when ready. The emergent-vouch sub-feature has
+# its own flag below (CAREER_VOUCH_ENABLED) and only matters once a sandbox is in
+# career mode. See docs/plans/CASH_MODE_CAREER_PROGRESSION.md.
+CAREER_PROGRESSION_ENABLED: bool = _env_flag("CAREER_PROGRESSION_ENABLED", False)
+
 # Career M2 — emergent vouches. When on, the world ticker evaluates the player's
 # inbound regard edges and fires at most one `vouch_ready` AI per sandbox per tick
 # to reveal that AI's room (slow growth). Default OFF so it ships dark and flips on
 # after a live playtest; only engages for a career sandbox (career_active +
-# tutorial_complete). See docs/plans/CASH_MODE_CAREER_M2_PLAN.md.
+# tutorial_complete) — so CAREER_PROGRESSION_ENABLED is the master gate for it.
+# See docs/plans/CASH_MODE_CAREER_M2_PLAN.md.
 CAREER_VOUCH_ENABLED: bool = _env_flag("CAREER_VOUCH_ENABLED", False)
 
 # Table affinity — success-weighted room stickiness. When on, an idle AI's
-# table-selection score gains `W_AFFINITY · tanh(net_chips / SCALE)` per
-# candidate room (cash_mode.attractiveness): it drifts back to rooms it wins at
-# and away from rooms it loses at, concentrating its hands into a real home room.
-# This counteracts the within-tier smear (2-3 tables per stake) that otherwise
-# stops low-stakes regulars from ever clearing the Career-M2 home-table floor —
-# i.e. it's what makes vouching work at the $2/$10 stakes where the career arc
-# begins. A chip-flow/movement change → sim-validate before enabling. Default OFF.
+# table-selection score gains `W_AFFINITY * stake_fit * tanh(net_chips / buyins)`
+# per candidate room (cash_mode.attractiveness): it drifts back to rooms it wins
+# at and away from rooms it loses at, concentrating its hands into a home room.
+# Buy-in-normalized (works at every stake) and tier-subordinate (differentiates
+# rooms WITHIN a tier the AI is suited to; never overrides a sensible climb).
+# Reads per-(sandbox, ai, table) net from ai_table_hand_counts. A real
+# chip-flow/movement change → sim-validate before enabling. Default OFF.
 TABLE_AFFINITY_ENABLED: bool = _env_flag("TABLE_AFFINITY_ENABLED", False)
 
 

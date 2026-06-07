@@ -12,10 +12,12 @@ Cross-session/cross-game tables owned by this repository:
   Distinct from relationship_states because PnL is meaningless in
   tournaments.
 
-- `ai_table_hand_counts` (v153): per-(sandbox, ai, table) hand counter
-  for the Career-M2 home-table resolver — an AI vouches the player into
-  the lobby room where it has played the most hands. Incremented once
-  per AI per hand (not bilateral, unlike cash_pair_stats).
+- `ai_table_hand_counts` (v153/v154): per-(sandbox, ai, table) hand +
+  cumulative-net counter. Incremented once per AI per hand (not bilateral,
+  unlike cash_pair_stats). `net_chips` feeds the success-weighted
+  table-affinity attractiveness lever (an AI drifts back to rooms it wins
+  at); `hands` is a per-room activity tally that also backs the Career-M2
+  home-table resolver (an AI vouches the player into its most-played room).
 
 All persistence APIs use **stable personality_ids** for keys, not
 display names. The relationship layer's read paths consume
@@ -32,6 +34,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from poker.memory.opponent_model import (
+    REGARD_NEUTRAL,
     CashPairStats,
     RelationshipState,
     project_heat,
@@ -103,14 +106,28 @@ class RelationshipRepository(BaseRepository):
         is responsible for projecting heat through decay *before*
         applying event shifts, so the snapshot in the DB always
         represents "heat after most recent event."
+
+        Uses `ON CONFLICT DO UPDATE` (not `INSERT OR REPLACE`) so the
+        affinity write only touches the columns it owns. `notes` (v95)
+        and `nickname_override` (v101) are written by separate paths
+        (`save_note`, `save_nickname_override`) against the same
+        `(observer_id, opponent_id)` key; a DELETE+INSERT replace would
+        NULL them on every social event. See those siblings, which
+        upsert the same way.
         """
         with self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO relationship_states
+                INSERT INTO relationship_states
                     (observer_id, opponent_id, heat, respect, likability,
                      last_seen, last_decay_tick)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(observer_id, opponent_id) DO UPDATE SET
+                    heat = excluded.heat,
+                    respect = excluded.respect,
+                    likability = excluded.likability,
+                    last_seen = excluded.last_seen,
+                    last_decay_tick = excluded.last_decay_tick
                 """,
                 (
                     observer_id,
@@ -518,7 +535,8 @@ class RelationshipRepository(BaseRepository):
                 for row in rows
             ]
 
-    # --- ai table hand counts (v153) — Career-M2 home-table resolver ---
+    # --- ai table hand counts (v153/v154) — per-room hand+net; feeds table
+    #     affinity (net) + the Career-M2 home-table resolver (hands) ---
 
     def increment_ai_table_hands(
         self,
@@ -589,8 +607,9 @@ class RelationshipRepository(BaseRepository):
     ) -> dict[str, int]:
         """Return `{table_id: hands}` for one AI in one sandbox.
 
-        The raw read behind `resolve_home_table` — exposed for tests and
-        admin/debug surfaces. Empty dict when the AI has no recorded hands.
+        Per-room activity tally and the raw read behind `resolve_home_table`
+        — exposed for tests and admin/debug surfaces. Empty dict when the AI
+        has no recorded hands.
         """
         with self._get_connection() as conn:
             rows = conn.execute(
@@ -680,20 +699,25 @@ class RelationshipRepository(BaseRepository):
         Empty / whitespace-only notes are stored as NULL so the
         "has a note" predicate stays meaningful. Uses an UPSERT so
         we don't have to touch the affinity axes — a freshly-noted
-        pair gets a row with default heat/respect/likability and the
+        pair gets a row with neutral heat/respect/likability and the
         note attached.
+
+        The neutral axes are written EXPLICITLY (rather than relying on
+        the column defaults) so a note-only row reads as a true neutral
+        stranger (REGARD_NEUTRAL) under the 0.5->0.35 rebaseline — never
+        as above-neutral regard that would leak into offers/hints/renown.
         """
         clean = (note or '').strip() or None
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO relationship_states
-                    (observer_id, opponent_id, notes)
-                VALUES (?, ?, ?)
+                    (observer_id, opponent_id, respect, likability, notes)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(observer_id, opponent_id)
                 DO UPDATE SET notes = excluded.notes
                 """,
-                (observer_id, opponent_id, clean),
+                (observer_id, opponent_id, REGARD_NEUTRAL, REGARD_NEUTRAL, clean),
             )
 
     # --- nickname_override (v101) ---
@@ -758,18 +782,20 @@ class RelationshipRepository(BaseRepository):
         Empty / whitespace-only input is stored as NULL so "has an
         override" stays a meaningful predicate — clearing the field
         in the UI should fully revert to the canonical nickname.
-        Mirrors `save_note`: UPSERT keeps the affinity axes at their
-        defaults if no row exists yet.
+        Mirrors `save_note`: UPSERT seeds the affinity axes at neutral
+        (REGARD_NEUTRAL, written explicitly rather than via the column
+        defaults) when no row exists yet, so a nickname-only row reads
+        as a true neutral stranger under the rebaseline.
         """
         clean = (nickname or '').strip() or None
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO relationship_states
-                    (observer_id, opponent_id, nickname_override)
-                VALUES (?, ?, ?)
+                    (observer_id, opponent_id, respect, likability, nickname_override)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(observer_id, opponent_id)
                 DO UPDATE SET nickname_override = excluded.nickname_override
                 """,
-                (observer_id, opponent_id, clean),
+                (observer_id, opponent_id, REGARD_NEUTRAL, REGARD_NEUTRAL, clean),
             )

@@ -42,6 +42,8 @@ from typing import Optional
 
 from flask import Blueprint, jsonify, request
 
+from poker.memory.opponent_model import REGARD_NEUTRAL
+
 logger = logging.getLogger(__name__)
 
 character_bp = Blueprint('character', __name__)
@@ -114,11 +116,11 @@ def _relationship_hint(
         return "wants their money back"
     if heat > 0.2:
         return "watching you"
-    if respect > 0.6 and likability > 0.5:
+    if respect > REGARD_NEUTRAL + 0.10 and likability > REGARD_NEUTRAL:
         return "trusts you"
-    if respect > 0.5:
+    if respect > REGARD_NEUTRAL:
         return "respects your game"
-    if likability > 0.5:
+    if likability > REGARD_NEUTRAL:
         return "friendly"
     return ""
 

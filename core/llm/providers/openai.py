@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import openai
 from openai import OpenAI
 
-from ..config import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, IMAGE_MODEL
+from ..config import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
 from .base import LLMProvider
 from .http_client import shared_http_client
 
@@ -70,8 +70,15 @@ class OpenAIProvider(LLMProvider):
 
     @property
     def image_model(self) -> str:
-        """Return the image generation model name."""
-        return self._model if self._model != DEFAULT_MODEL else IMAGE_MODEL
+        """Return the image generation model name.
+
+        When the configured model is the text DEFAULT_MODEL (no image model was
+        specified), fall back to OpenAI's own image model — NOT the global
+        `IMAGE_MODEL`, which is a Runware SKU and would make `images.generate`
+        reject it (provider=openai, model=runware:...). `generate_image` drives
+        DALL·E via the OpenAI client.
+        """
+        return self._model if self._model != DEFAULT_MODEL else "dall-e-3"
 
     def complete(
         self,

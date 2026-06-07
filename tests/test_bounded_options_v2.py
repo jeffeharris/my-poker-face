@@ -6,6 +6,7 @@ math blocking overrides, and style profile differentiation.
 """
 
 import random
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -969,6 +970,33 @@ class TestRegressionCompatibility:
 # ═══════════════════════════════════════════════════════════════════════════
 # EMOTIONAL SHIFT INTERNAL COMPONENT TESTS
 # ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestGetEmotionalShiftCornerPrecedence:
+    """get_emotional_shift must prefer corner zones (both axes extreme) over
+    single-axis edge zones. Regression: `shaken`'s intensity is a PRODUCT of two
+    depths, always smaller than `tilted`'s single depth, so a scared player
+    (low confidence AND low composure) used to get the AGGRESSIVE tilted shift."""
+
+    @staticmethod
+    def _psych(penalties):
+        return SimpleNamespace(zone_effects=SimpleNamespace(penalties=penalties))
+
+    def test_shaken_beats_tilted_when_both_present(self):
+        # Scared corner: tilted (composure) fires strong, shaken (both axes)
+        # fires weaker — shaken must still win (the protective read).
+        shift = get_emotional_shift(self._psych({'tilted': 0.8, 'shaken': 0.2}))
+        assert shift.state == 'shaken'
+
+    def test_tilted_alone_still_tilts(self):
+        # Composure-only collapse (no shaken corner) stays tilted.
+        shift = get_emotional_shift(self._psych({'tilted': 0.6}))
+        assert shift.state == 'tilted'
+
+    def test_overheated_corner_maps_to_tilted(self):
+        # Corner precedence is general; overheated still maps to the tilted state.
+        shift = get_emotional_shift(self._psych({'tilted': 0.7, 'overheated': 0.3}))
+        assert shift.state == 'tilted'
 
 
 class TestEmotionalShiftDataclass:

@@ -104,6 +104,16 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
+def _is_below_average_stack(game_state, player) -> bool:
+    """Stateless 'losing at the table' proxy: is this player's stack below the
+    average of the active (non-folded) players? Used by the experiment context
+    builder, which has no per-hand stack history to compare against."""
+    active = [p.stack for p in game_state.players if not getattr(p, 'is_folded', False)]
+    if len(active) < 2:
+        return False
+    return player.stack < (sum(active) / len(active))
+
+
 class RuleBasedController:
     """
     Deterministic rule-based controller for exploitation testing.
@@ -333,11 +343,10 @@ class RuleBasedController:
         # Hand-shape derivations for the fish strategy + its leaks. Mirrors
         # RuleBotController so `_strategy_fish` runs faithfully in sims /
         # experiments (this pure controller is the one experiments use).
-        # NOTE: committed_fraction_of_stack / is_losing_at_table are not
-        # tracked here (no per-hand stack history), so they default neutral
-        # — the POT_COMMITTED_EARLY and SPITE_RAISES_WHEN_LOSING leaks won't
-        # fire in this path. Every other fish behavior (honest value
-        # betting, draws, and the made-tier aggression leaks) is faithful.
+        # committed_fraction_of_stack / is_losing_at_table are STATELESS
+        # approximations here (no per-hand stack history) — see the context dict
+        # below — so the POT_COMMITTED_EARLY / SPITE_RAISES_WHEN_LOSING leaks
+        # fire approximately rather than being hardcoded off.
         canonical_hand = _get_canonical_hand(hole_cards) if hole_cards else ''
         is_pair = (
             bool(canonical_hand)
@@ -405,10 +414,18 @@ class RuleBasedController:
             'has_oesd': has_oesd,
             'has_top_pair_or_better': has_top_pair_or_better,
             'made_tier': made_tier,
-            # Fish-leak fields (committed/losing not tracked here → neutral)
+            # Fish-leak fields. This pure controller has no per-hand stack
+            # history (unlike RuleBotController), so these are STATELESS
+            # approximations rather than the hand-start-relative live values —
+            # enough to let POT_COMMITTED_EARLY / SPITE_RAISES_WHEN_LOSING fire
+            # in sims instead of being hardcoded off. committed_fraction is the
+            # share of the player's current total already in the pot; losing is
+            # measured against the average active stack at the table.
             'fish_leak': self.config.fish_leak,
-            'committed_fraction_of_stack': 0.0,
-            'is_losing_at_table': False,
+            'committed_fraction_of_stack': (
+                player.bet / (player.stack + player.bet) if (player.stack + player.bet) > 0 else 0.0
+            ),
+            'is_losing_at_table': _is_below_average_stack(game_state, player),
             # Opponent modeling stats (for adaptive strategies)
             'opp_vpip': opp_stats.get('vpip', 0.5),
             'opp_aggression': opp_stats.get('aggression', 1.0),

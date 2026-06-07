@@ -47,6 +47,41 @@ def enable_async_equity_telemetry() -> None:
     ASYNC_EQUITY_TELEMETRY = True
 
 
+def normalize_action_amount(
+    action: str,
+    raw_amount: int,
+    *,
+    highest_bet: int,
+    player_bet: int,
+    player_stack: int,
+) -> int:
+    """Convert a `BoundedOption` action amount into the chip INCREMENT to record.
+
+    `BoundedOption` sets `raise_to=0` for `call` and `all_in` (the action
+    dispatcher reads the cost-to-call / remaining stack directly), but the
+    contribution + chip-flow accounting (`RecordedHand.get_player_contributions`
+    → `allocate_chip_flow`) needs the actual chips the player put in. Recording
+    the raw `0` makes a caller/shover contribute nothing, so `allocate_chip_flow`
+    drops them as a loser and silently kills BIG_WIN/BIG_LOSS/KNOCKOUT events and
+    `cash_pair_stats` PnL — invisible, because real chip settlement is separate.
+
+    - `call`  → the call cost, clamped to the player's stack.
+    - `all_in`→ the player's entire remaining stack (the shove increment), which
+      matches `poker_game.player_all_in` and the `all_in` branch of
+      `get_player_contributions`.
+    - `raise`/`bet` → pass through unchanged (raise-TO snapshots; the
+      contribution helper deltas them against prior in-phase commitment).
+
+    All three recording paths (live web, lobby sim, experiment runner) MUST go
+    through this one helper so the normalization can't drift between them.
+    """
+    if action == 'call':
+        return max(0, min(highest_bet - player_bet, player_stack))
+    if action == 'all_in':
+        return max(0, player_stack)
+    return raw_amount
+
+
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
 

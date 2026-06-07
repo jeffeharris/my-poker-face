@@ -1099,6 +1099,16 @@ HEAT_DECAY_PLATEAU_DAYS = 7
 HEAT_DECAY_HALF_LIFE_DAYS = 14
 HEAT_DECAY_SNAP_THRESHOLD = 0.05
 
+# Neutral baseline for the EARNED regard axes — respect and likability. A fresh
+# edge starts here, and the renown/regard math centers on it (regard measures
+# deviation from this point: `value - REGARD_NEUTRAL`). Set below the midpoint so
+# the axes are asymmetric: a small amount can be lost (down to 0), but most of
+# the range is upward to be EARNED — "I don't know you" sits low, respect/
+# likability are climbed. Heat is NOT a regard axis (it's one-sided, 0-based) and
+# does not use this. No data migration on change — start fresh sandboxes at the
+# new value (we're in a tuning phase). Tunable.
+REGARD_NEUTRAL = 0.35
+
 
 @dataclass
 class RelationshipState:
@@ -1124,9 +1134,9 @@ class RelationshipState:
     dataclass and the projection helper. No repository wiring yet.
     """
 
-    respect: float = 0.5
+    respect: float = REGARD_NEUTRAL
     heat: float = 0.0  # one-sided: 0 = neutral, 1 = nemesis
-    likability: float = 0.5
+    likability: float = REGARD_NEUTRAL
 
     # Cross-session presence
     last_seen: Optional[datetime] = None

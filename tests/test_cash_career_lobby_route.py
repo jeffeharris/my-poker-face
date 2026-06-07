@@ -83,6 +83,12 @@ class TestCareerKeyringLobby(unittest.TestCase):
             pass
 
     def setUp(self):
+        # The Act-1 narrative/intake is behind a master flag (default OFF). These
+        # tests exercise the keyring/Scene-0/intake flow, so turn it ON; the
+        # autouse `_reset_cutover_flags` fixture (runs before setUp) restores it.
+        import cash_mode.economy_flags as _ef
+
+        _ef.CAREER_PROGRESSION_ENABLED = True
         user = {'id': PLAYER_OWNER_ID, 'name': 'Career Tester'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',
@@ -133,7 +139,14 @@ class TestCareerKeyringLobby(unittest.TestCase):
     def test_graduation_returns_the_comp_to_the_pool(self):
         # You were comped as a fish; on graduation the house takes it back, so you
         # land in the lobby at 0 and the comp moves to the bank pool (conserved).
-        from cash_mode.closed_economy import compute_bank_pool_reserves
+        #
+        # NB: assert the PLAYER's comp deposit specifically (source
+        # `player:<owner>` → `central_bank`), NOT the total bank-pool reserve.
+        # The closed economy can independently drain a rich AI to the pool on any
+        # lobby load (an `ai:...` → `central_bank` vice / bankroll-cap-overflow
+        # move) — conserved, and unrelated to the comp — so a total-pool delta is
+        # brittle (it nondeterministically reads 150 or 160). Player-scoped sums
+        # isolate the comp from that background.
         from poker.repositories.bankroll_repository import PlayerBankrollState
 
         repo = self.repos['career_progress_repo']
@@ -147,21 +160,39 @@ class TestCareerKeyringLobby(unittest.TestCase):
         self.repos['bankroll_repo'].save_player_bankroll(
             PlayerBankrollState(player_id=PLAYER_OWNER_ID, chips=150, starting_bankroll=200)
         )
-        pool_before = compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb)
+
+        import sqlite3 as _sq
+
+        _conn = _sq.connect(self.repos['db_path'])
+
+        def _player_comp_to_pool() -> tuple:
+            """(count, total) of player→bank-pool deposits — just the comp(s)."""
+            row = _conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM chip_ledger_entries "
+                "WHERE source = ? AND sink = 'central_bank'",
+                (f"player:{PLAYER_OWNER_ID}",),
+            ).fetchone()
+            return (row[0], row[1])
+
+        count_before, total_before = _player_comp_to_pool()
 
         data = self.client.get("/api/cash/lobby").get_json()
 
         assert data["bankroll"] == 0  # walked in with nothing
         after = repo.load(sb, PLAYER_OWNER_ID)
         assert after.comp_returned is True
-        pool_after = compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb)
-        assert pool_after - pool_before == 150  # conserved: the comp moved to the pool
+        count_after, total_after = _player_comp_to_pool()
+        # Conserved: exactly one new player→pool deposit, for the full comp.
+        assert count_after - count_before == 1
+        assert total_after - total_before == 150
 
-        # One-shot: a second load doesn't strip again (bankroll stays 0, no re-deposit).
+        # One-shot: a second load doesn't strip the comp AGAIN (bankroll stays 0,
+        # `comp_returned` stays True, no SECOND player→pool comp deposit).
         self.client.get("/api/cash/lobby")
-        assert (
-            compute_bank_pool_reserves(self.repos['chip_ledger_repo'], sandbox_id=sb) == pool_after
-        )
+        after2 = repo.load(sb, PLAYER_OWNER_ID)
+        assert after2.comp_returned is True
+        assert self.repos['bankroll_repo'].load_player_bankroll(PLAYER_OWNER_ID).chips == 0
+        assert _player_comp_to_pool() == (count_after, total_after)  # no re-deposit
 
     def test_scene_top_up_rebuys_the_short_fish_from_its_bankroll(self):
         """If the hero short-stacks Larry, the cast top-up rebuys him from his own
@@ -307,6 +338,9 @@ class TestCareerMentorStake(unittest.TestCase):
             pass
 
     def setUp(self):
+        import cash_mode.economy_flags as _ef
+
+        _ef.CAREER_PROGRESSION_ENABLED = True  # master flag (see TestCareerKeyringLobby.setUp)
         user = {'id': MENTOR_OWNER_ID, 'name': 'Mentor Tester'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',

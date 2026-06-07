@@ -160,6 +160,32 @@ class SideHustleStateRepository(BaseRepository):
             return None
         return _row_to_side_hustle_state(row)
 
+    def update_narration(
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
+        narration: str,
+    ) -> bool:
+        """Replace the narration on an existing hustle row. Returns True iff
+        a row was updated.
+
+        The mirror of `ViceStateRepository.update_narration` — used by the
+        async ticker narration path so the whereabouts surface shows the
+        LLM flavor line, not the in-tick placeholder. See
+        `docs/plans/ASYNC_TICKER_NARRATION.md`.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE ai_side_hustle_state
+                SET narration = ?
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (narration, personality_id, sandbox_id),
+            )
+            return cursor.rowcount > 0
+
     def delete(self, personality_id: str, *, sandbox_id: str) -> bool:
         """Delete the side-hustle row. Returns True iff a row was removed."""
         with self._get_connection() as conn:

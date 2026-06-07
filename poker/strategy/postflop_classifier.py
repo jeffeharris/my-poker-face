@@ -13,16 +13,22 @@ from poker.strategy.hand_classification import classify_hand_full
 from poker.strategy.nodes import PostflopNode
 from poker.strategy.preflop_classifier import get_6max_position
 
-# Position ordering: closer to index 0 = more in-position (closer to BTN).
-_POSITION_ORDER = ['BTN', 'CO', 'HJ', 'UTG', 'SB', 'BB']
+# Postflop position ordering: lower index = more in-position (acts later).
+# SB vs BB flips with table size: in 6-max the SB acts FIRST postflop (most
+# OOP, after BB), but heads-up the button IS the SB and acts LAST (in position).
+# get_6max_position labels the HU button 'SB', so we must rank SB ahead of BB
+# only when heads-up — otherwise a BvB pot mis-selects the solver chart.
+_POSITION_ORDER_6MAX = ['BTN', 'CO', 'HJ', 'UTG', 'BB', 'SB']
+_POSITION_ORDER_HU = ['BTN', 'CO', 'HJ', 'UTG', 'SB', 'BB']
 
 
-def _position_rank(pos: str) -> int:
-    """Lower rank = more in-position."""
+def _position_rank(pos: str, heads_up: bool = False) -> int:
+    """Lower rank = more in-position. `heads_up` flips SB/BB (see above)."""
+    order = _POSITION_ORDER_HU if heads_up else _POSITION_ORDER_6MAX
     try:
-        return _POSITION_ORDER.index(pos)
+        return order.index(pos)
     except ValueError:
-        return len(_POSITION_ORDER)
+        return len(order)
 
 
 def _find_preflop_raiser_idx(game_state) -> int:
@@ -64,10 +70,17 @@ def _determine_position(game_state, player_idx: int) -> str:
     if not active_positions:
         return 'IP'
 
-    player_rank = _position_rank(player_pos)
+    # Heads-up if the button is also the small blind (get_6max_position labels
+    # that player 'SB'). Flips the SB/BB postflop ordering.
+    positions = getattr(game_state, 'table_positions', {}) or {}
+    heads_up = positions.get('button') is not None and positions.get('button') == positions.get(
+        'small_blind_player'
+    )
+
+    player_rank = _position_rank(player_pos, heads_up)
 
     # IP if this player has a lower rank (closer to BTN) than all opponents
-    if all(player_rank < _position_rank(opp) for opp in active_positions):
+    if all(player_rank < _position_rank(opp, heads_up) for opp in active_positions):
         return 'IP'
     return 'OOP'
 
@@ -92,8 +105,13 @@ def _determine_pot_type(game_state) -> str:
 
 def _determine_spr_bucket(game_state, player_idx: int) -> str:
     """Classify the stack-to-pot ratio into a bucket."""
+    from poker.stack_utils import effective_stack_chips
+
     player = game_state.players[player_idx]
-    effective_stack = player.stack  # remaining chips (already excludes current bet)
+    # SPR must use the EFFECTIVE stack (min of hero / largest active opp) — the
+    # most that can go in. Using hero's own stack overstates SPR when hero covers
+    # a shorter opp and wrongly suppresses the low-SPR postflop_commit chart.
+    effective_stack = effective_stack_chips(game_state, player)
     pot_total = game_state.pot.get('total', 0)
 
     if pot_total <= 0:

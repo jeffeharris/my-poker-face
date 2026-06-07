@@ -40,6 +40,7 @@ from cash_mode.prestige import (
     renown_scalp_points,
     score_renown_field,
 )
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 # --- load the offline oracle as a module (scripts/ is gitignored but present)
 
@@ -408,9 +409,9 @@ def test_builder_maps_all_sources():
     # breadth: only opponents with hands_played_cash > 0
     assert inp.breadth_opponents == {"a": 30, "b": 10}
     assert inp.roster_net == pytest.approx(400.0)
-    # regard from the single inbound edge
-    assert inp.regard_likability == pytest.approx(0.3)
-    assert inp.regard_respect == pytest.approx(0.2)
+    # regard from the single inbound edge (measured as value − neutral baseline)
+    assert inp.regard_likability == pytest.approx(0.8 - REGARD_NEUTRAL)
+    assert inp.regard_respect == pytest.approx(0.7 - REGARD_NEUTRAL)
     assert inp.regard_heat == pytest.approx(0.2)
     # stakes / tenure aggregated
     assert inp.stakes_hands == {"$2": 150, "$200": 20}

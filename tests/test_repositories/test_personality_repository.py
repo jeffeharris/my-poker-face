@@ -54,6 +54,51 @@ def test_load_personality_increments_usage(repo):
     assert usage_bot["times_used"] >= 2
 
 
+def test_resave_preserves_times_used(repo):
+    """Regression: re-saving an existing persona (avatar regen, edit,
+    re-seed) must NOT reset times_used. The old INSERT OR REPLACE did a
+    DELETE+INSERT that zeroed it; the fix upserts via ON CONFLICT DO
+    UPDATE leaving usage/birth-time/id untouched."""
+    repo.save_personality("EditBot", {"play_style": "tight"})
+    repo.load_personality("EditBot")
+    repo.load_personality("EditBot")
+    repo.load_personality("EditBot")  # times_used -> 3
+
+    before = next(p for p in repo.list_personalities() if p["name"] == "EditBot")
+    assert before["times_used"] >= 3
+
+    # An edit re-save (no usage bump) must keep the count.
+    repo.save_personality("EditBot", {"play_style": "loose", "confidence": 0.9})
+
+    after = next(p for p in repo.list_personalities() if p["name"] == "EditBot")
+    assert after["times_used"] == before["times_used"]  # NOT reset to 0
+    # ...and the edit still landed.
+    assert repo.load_personality("EditBot")["play_style"] == "loose"
+
+
+def test_resave_preserves_id_and_created_at(repo):
+    """Re-save must keep the AUTOINCREMENT id and original created_at
+    (DELETE+INSERT reallocated id and reset created_at to now)."""
+    import sqlite3
+
+    repo.save_personality("StableBot", {"play_style": "tight"})
+    with sqlite3.connect(repo.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row1 = conn.execute(
+            "SELECT id, created_at FROM personalities WHERE name = ?", ("StableBot",)
+        ).fetchone()
+
+    repo.save_personality("StableBot", {"play_style": "loose"})
+    with sqlite3.connect(repo.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row2 = conn.execute(
+            "SELECT id, created_at FROM personalities WHERE name = ?", ("StableBot",)
+        ).fetchone()
+
+    assert row2["id"] == row1["id"]
+    assert row2["created_at"] == row1["created_at"]
+
+
 def test_list_personalities(repo):
     repo.save_personality("Bot1", {"style": "a"})
     repo.save_personality("Bot2", {"style": "b"})
@@ -360,29 +405,24 @@ class TestPersonalityIdSaveLoad:
         second = repo.save_personality("Bob Ross", {"play_style": "different"})
         assert second == first == "bob_ross"
 
-    def test_collision_resolves_with_versioned_suffix(self, repo):
-        # First personality claims the bare slug
-        repo.save_personality("Bob", {"play_style": "calm"}, personality_id="bob")
-        # Second tries to claim the same slug via name; should get _v2
-        # (saved as a different name to avoid the UNIQUE(name) collision)
-        returned = repo.save_personality(
-            "Bob the Builder", {"play_style": "calm"}, personality_id="bob"
-        )
-        # The explicit id="bob" is taken, so save_personality would have
-        # to either raise or pick a different id. Current implementation:
-        # the explicit arg wins, which means it would fail the UNIQUE
-        # constraint on personality_id. Test the documented behavior —
-        # the explicit id is used verbatim, and the caller is
-        # responsible for avoiding collisions when passing explicit ids.
-        # The collision-resolution path (assign_unique_personality_id)
-        # only fires when no explicit id is provided.
-        # Document this by asserting the IntegrityError surface.
+    def test_explicit_id_collision_raises(self, repo):
+        # The explicit id="bob" is taken by a DIFFERENT name. The upsert
+        # keys on name (no name conflict here), so the personality_id
+        # UNIQUE constraint fires and the save raises. This is the
+        # intended surface: an explicit-id collision fails loudly. (The
+        # old INSERT OR REPLACE silently DELETED the original "Bob" row to
+        # resolve the personality_id conflict — clobbering a different
+        # persona. The ON CONFLICT(name) upsert no longer does that.)
+        # Auto-collision resolution (assign_unique_personality_id) only
+        # runs when NO explicit id is passed; callers passing explicit ids
+        # own collision avoidance.
         import sqlite3
-        # The above save will raise on insert due to UNIQUE on personality_id.
-        # If the implementation changes to auto-resolve explicit collisions,
-        # this test should change with it.
-        # For now, we covered the auto-collision path elsewhere; this is
-        # a doc-test of explicit-id-collision behavior.
+
+        repo.save_personality("Bob", {"play_style": "calm"}, personality_id="bob")
+        with pytest.raises(sqlite3.IntegrityError):
+            repo.save_personality("Bob the Builder", {"play_style": "calm"}, personality_id="bob")
+        # The original persona is untouched (not silently clobbered).
+        assert repo.load_personality_by_id("bob")["name"] == "Bob"
 
 
 class TestLoadPersonalityById:

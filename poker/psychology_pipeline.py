@@ -398,10 +398,14 @@ class PsychologyPipeline:
             else:
                 amount = -player_contribution
 
-            # Determine outcome details
-            was_bad_beat = (
-                not player_won and not player.is_folded and ctx.winner_info.get('hand_rank', 0) >= 2
-            )
+            # Determine outcome details. NOTE: do NOT infer a bad beat from the
+            # WINNER's hand_rank — `>= 2` (any pair) is true for ~every showdown,
+            # so the old heuristic labelled essentially every loss a 'bad_beat'
+            # (pressure_source), making AIs whine about bad beats on routine
+            # losses. Real bad-beat detection (loser was ahead) is owned by the
+            # strict equity detector (pressure_detector); leave it off here so a
+            # plain loss falls through to 'big_loss'/default.
+            was_bad_beat = False
             outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
             nemesis = winner_names[0] if not player_won and winner_names else None
             key_moment = 'bad_beat' if was_bad_beat else None

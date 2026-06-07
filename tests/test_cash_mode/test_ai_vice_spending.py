@@ -33,6 +33,7 @@ from cash_mode.ai_vice_spending import (
     MIN_CAST_MEDIAN_FOR_VICE,
     MIN_VICE_AMOUNT,
     PRESSURE_BOOST,
+    VICE_BUCKET_WEIGHTS,
     VICE_STARTS_PER_REFRESH,
     ViceEndResult,
     ViceStartResult,
@@ -44,6 +45,7 @@ from cash_mode.ai_vice_spending import (
     compute_vice_amount,
     compute_vice_probability,
     duration_for_bucket,
+    pick_duration_bucket,
     reserve_vice_multiplier,
     resolve_ai_vice_spending,
     tick_vice_expirations,
@@ -266,6 +268,60 @@ class TestDurationForBucket(unittest.TestCase):
         low, high = DURATION_RANGES['medium']
         self.assertGreaterEqual(d, low)
         self.assertLessEqual(d, high)
+
+
+class TestPickDurationBucket(unittest.TestCase):
+    """The system-side duration picker — duration is no longer the LLM's call.
+
+    It must be deterministic (seeded rng → reproducible), only ever return a
+    valid bucket, follow the base weight distribution at zero pressure, and
+    skew toward `long` as pressure rises.
+    """
+
+    def test_only_valid_buckets(self):
+        rng = random.Random(123)
+        for _ in range(500):
+            self.assertIn(pick_duration_bucket(0.5, rng), DURATION_RANGES)
+
+    def test_deterministic_for_seed(self):
+        seq_a = [pick_duration_bucket(0.5, random.Random(7)) for _ in range(1)]
+        seq_b = [pick_duration_bucket(0.5, random.Random(7)) for _ in range(1)]
+        self.assertEqual(seq_a, seq_b)
+        # A shared rng instance produces a reproducible stream too.
+        rng1, rng2 = random.Random(99), random.Random(99)
+        stream_a = [pick_duration_bucket(0.3, rng1) for _ in range(50)]
+        stream_b = [pick_duration_bucket(0.3, rng2) for _ in range(50)]
+        self.assertEqual(stream_a, stream_b)
+
+    def test_zero_pressure_follows_base_weights(self):
+        rng = random.Random(2026)
+        n = 20_000
+        counts = {'short': 0, 'medium': 0, 'long': 0}
+        for _ in range(n):
+            counts[pick_duration_bucket(0.0, rng)] += 1
+        for bucket, weight in VICE_BUCKET_WEIGHTS.items():
+            self.assertAlmostEqual(counts[bucket] / n, weight, delta=0.03)
+
+    def test_pressure_skews_toward_long(self):
+        n = 20_000
+        rng_low = random.Random(2026)
+        rng_high = random.Random(2026)
+        long_at_zero = sum(pick_duration_bucket(0.0, rng_low) == 'long' for _ in range(n))
+        long_at_full = sum(pick_duration_bucket(1.0, rng_high) == 'long' for _ in range(n))
+        # Full pressure moves VICE_PRESSURE_SKEW of short's mass onto long.
+        self.assertGreater(long_at_full, long_at_zero)
+
+    def test_pressure_clamped(self):
+        # Out-of-range pressure must not blow up the distribution.
+        rng = random.Random(1)
+        for _ in range(200):
+            self.assertIn(pick_duration_bucket(5.0, rng), DURATION_RANGES)
+            self.assertIn(pick_duration_bucket(-3.0, rng), DURATION_RANGES)
+
+    def test_degenerate_weights_fall_back_to_default(self):
+        rng = random.Random(1)
+        out = pick_duration_bucket(0.5, rng, weights={'short': 0.0, 'medium': 0.0, 'long': 0.0})
+        self.assertIn(out, DURATION_RANGES)
 
 
 # --- Integration tests against tempdb ---------------------------------------

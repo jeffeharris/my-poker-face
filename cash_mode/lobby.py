@@ -1011,6 +1011,15 @@ def refresh_unseated_tables(
     # Same switch for side-hustle narration. False → the deterministic
     # templated narrator (no LLM call per hustle), used by the headless sim.
     hustle_use_llm_narration: bool = True,
+    # Async ticker narration (ASYNC_TICKER_NARRATION.md Step 2). When provided
+    # (ticker path only), vice/hustle START narration moves OFF this call: the
+    # economics commit in-tick with a templated placeholder (duration is already
+    # system-chosen), ENDS still emit inline, and STARTS are handed to this
+    # callback — `narration_scheduler(kind, starts, sandbox_id)` — which spawns
+    # a background greenlet to run the flavor LLM and emit the feed event when it
+    # returns. None (default) → current behavior: narrate inline, synchronously
+    # (web routes / tests / sim, which already pass *_use_llm_narration=False).
+    narration_scheduler: Optional[Callable[[str, list, Optional[str]], None]] = None,
     # Personas the human is actively playing in a live in-memory hand
     # (from `game_handler.live_cash_seated_pids`). The world sim's
     # `seated_globally` is derived only from the persisted `cash_tables`
@@ -2248,6 +2257,11 @@ def refresh_unseated_tables(
         if slot.get("kind") == "ai" and slot.get("personality_id")
     }
 
+    # Async ticker narration (Step 2): when a scheduler is supplied, vice/hustle
+    # START narration is deferred off this call — resolve with no in-tick LLM,
+    # emit ENDS inline, hand STARTS to the scheduler. None → narrate inline.
+    _defer_narration = narration_scheduler is not None
+
     vice_starts: list = []
     if (
         vice_mode == 'real'
@@ -2279,21 +2293,29 @@ def refresh_unseated_tables(
                 and not is_in_vice_cooldown(e.personality_id, now)
             }
 
-            def _vice_narrate(pid, amount, snapshot):
+            def _vice_narrate(pid, amount, snapshot, duration_bucket):
                 # Bind the personality_repo so the LLM prompt can
-                # include style + anchors + verbal tics. Fail-soft
-                # internal to narrate_vice — never raises.
+                # include style + anchors + verbal tics. The duration
+                # bucket is chosen system-side and passed in so the
+                # flavor line fits it. Fail-soft internal to
+                # narrate_vice — never raises; returns just the line.
                 return narrate_vice(
                     pid,
                     amount,
                     snapshot,
+                    duration_bucket,
                     personality_repo=personality_repo,
                 )
 
             # narrate_fn=None → resolve_ai_vice_spending uses its
             # deterministic templated narrator (no LLM). The headless sim
             # passes vice_use_llm_narration=False so it can run the real
-            # vice economics without an LLM call per fire.
+            # vice economics without an LLM call per fire. The async ticker
+            # path (narration_scheduler set) ALSO resolves with no in-tick
+            # LLM — the flavor line is produced off the tick (see below).
+            _vice_narrate_fn = (
+                None if _defer_narration or not vice_use_llm_narration else _vice_narrate
+            )
             vice_starts = resolve_ai_vice_spending(
                 candidates=candidates,
                 vice_repo=vice_repo,
@@ -2302,7 +2324,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
-                narrate_fn=_vice_narrate if vice_use_llm_narration else None,
+                narrate_fn=_vice_narrate_fn,
                 field_snapshot=_field_snapshot,
             )
 
@@ -2326,7 +2348,7 @@ def refresh_unseated_tables(
                         sandbox_id=sandbox_id,
                         rng=rng,
                         now=now,
-                        narrate_fn=_vice_narrate if vice_use_llm_narration else None,
+                        narrate_fn=_vice_narrate_fn,
                     )
                     if committed is not None:
                         vice_starts.append(committed)
@@ -2336,10 +2358,29 @@ def refresh_unseated_tables(
                 exc,
             )
 
-    # Emit vice ticker events for both starts (this refresh) and ends
-    # (from the expiry pass at the top). Best-effort — already wrapped
-    # in try/except inside the helper.
-    if vice_starts or vice_ends:
+    # Emit vice ticker events. ENDS are cheap (no LLM — the end message is a
+    # generic return phrase) and always emit inline. STARTS: inline by default,
+    # but when deferring (async ticker) the START events are handed to the
+    # scheduler, which narrates off the tick and emits the feed event when the
+    # LLM returns. Best-effort — already wrapped in try/except inside the helper.
+    if _defer_narration:
+        if vice_ends:
+            try:
+                _emit_vice_spending_events(
+                    starts=[],
+                    ends=vice_ends,
+                    personality_repo=personality_repo,
+                    now=now,
+                    sandbox_id=sandbox_id,
+                )
+            except Exception as exc:
+                logger.warning("[CASH][LOBBY] vice end emission failed: %s", exc)
+        if vice_starts:
+            try:
+                narration_scheduler('vice', vice_starts, sandbox_id)
+            except Exception as exc:
+                logger.warning("[CASH][LOBBY] vice narration scheduling failed: %s", exc)
+    elif vice_starts or vice_ends:
         try:
             _emit_vice_spending_events(
                 starts=vice_starts,
@@ -2407,15 +2448,23 @@ def refresh_unseated_tables(
                 if projected < threshold or eligible_field:
                     candidates.add(pid)
 
-            def _hustle_narrate(pid, amount):
+            def _hustle_narrate(pid, amount, duration_bucket):
                 # Bind personality_repo so the LLM prompt can include
-                # style + anchors + verbal tics. Fail-soft internally.
+                # style + anchors + verbal tics. The duration bucket is
+                # chosen system-side and passed in so the flavor line
+                # fits it. Fail-soft internally; returns just the line.
                 return narrate_side_hustle(
                     pid,
                     amount,
+                    duration_bucket,
                     personality_repo=personality_repo,
                 )
 
+            # Defer narration (async ticker) or skip the LLM (sim) → narrate_fn
+            # None; the resolver commits with the templated placeholder.
+            _hustle_narrate_fn = (
+                None if _defer_narration or not hustle_use_llm_narration else _hustle_narrate
+            )
             if candidates:
                 hustle_starts = resolve_ai_side_hustle(
                     candidates=candidates,
@@ -2424,7 +2473,7 @@ def refresh_unseated_tables(
                     sandbox_id=sandbox_id,
                     rng=rng,
                     now=now,
-                    narrate_fn=_hustle_narrate if hustle_use_llm_narration else None,
+                    narrate_fn=_hustle_narrate_fn,
                     field_snapshot=_field_snapshot,
                     chip_ledger_repo=chip_ledger_repo,
                 )
@@ -2434,9 +2483,27 @@ def refresh_unseated_tables(
                 exc,
             )
 
-    # Emit side-hustle ticker events for both starts (this refresh) and
-    # ends (from the expiry pass at the top). Best-effort.
-    if hustle_starts or hustle_ends:
+    # Emit side-hustle ticker events. Mirrors the vice path: ENDS inline
+    # (cheap), STARTS inline by default or deferred to the scheduler when the
+    # async ticker path is active. Best-effort.
+    if _defer_narration:
+        if hustle_ends:
+            try:
+                _emit_side_hustle_events(
+                    starts=[],
+                    ends=hustle_ends,
+                    personality_repo=personality_repo,
+                    now=now,
+                    sandbox_id=sandbox_id,
+                )
+            except Exception as exc:
+                logger.warning("[CASH][LOBBY] hustle end emission failed: %s", exc)
+        if hustle_starts:
+            try:
+                narration_scheduler('hustle', hustle_starts, sandbox_id)
+            except Exception as exc:
+                logger.warning("[CASH][LOBBY] hustle narration scheduling failed: %s", exc)
+    elif hustle_starts or hustle_ends:
         try:
             _emit_side_hustle_events(
                 starts=hustle_starts,

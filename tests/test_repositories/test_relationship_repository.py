@@ -23,6 +23,7 @@ pytestmark = pytest.mark.integration
 from poker.memory.opponent_model import (
     HEAT_DECAY_HALF_LIFE_DAYS,
     HEAT_DECAY_PLATEAU_DAYS,
+    REGARD_NEUTRAL,
     CashPairStats,
     RelationshipState,
 )
@@ -439,6 +440,30 @@ class TestNicknameOverrideRoundTrip:
         repo.save_nickname_override("alice", "bob", None)
         assert repo.load_nickname_override("alice", "bob") is None
 
+    def test_nickname_only_row_seeds_neutral_regard(self, repo):
+        # A nickname-only row for a never-played opponent must NOT read as
+        # above-neutral regard: the axes are seeded explicitly at
+        # REGARD_NEUTRAL, not the legacy 0.5 column default (which the
+        # rebaselined scoring would treat as positive regard).
+        repo.save_nickname_override("alice", "stranger", "the new guy")
+        state = repo.load_raw_relationship_state("alice", "stranger")
+        assert state is not None
+        assert state.respect == REGARD_NEUTRAL
+        assert state.likability == REGARD_NEUTRAL
+        assert state.heat == 0.0
+
+
+class TestNoteNeutralSeed:
+    def test_note_only_row_seeds_neutral_regard(self, repo):
+        # Same invariant as nickname: a note on a never-played opponent
+        # seeds neutral regard, not the legacy 0.5.
+        repo.save_note("alice", "stranger", "limps everything")
+        state = repo.load_raw_relationship_state("alice", "stranger")
+        assert state is not None
+        assert state.respect == REGARD_NEUTRAL
+        assert state.likability == REGARD_NEUTRAL
+        assert state.heat == 0.0
+
     def test_override_is_per_observer(self, repo):
         # alice and zeke both file overrides on bob; reads must
         # never cross-contaminate.
@@ -475,6 +500,50 @@ class TestNicknameOverrideRoundTrip:
         assert loaded is not None
         assert loaded.respect == 0.7
         assert loaded.likability == 0.4
+
+
+class TestAffinityWritePreservesPlayerData:
+    """Regression: save_relationship_state (the terminal step of every
+    record_event) must NOT wipe player-authored notes / nickname_override.
+
+    These columns (notes v95, nickname_override v101) are written by
+    separate paths (save_note / save_nickname_override) against the same
+    (observer_id, opponent_id) key. The old INSERT OR REPLACE did a
+    DELETE+INSERT that NULLed them on every showdown/social event. The
+    fix upserts via ON CONFLICT DO UPDATE of only the affinity columns.
+    """
+
+    def test_affinity_write_keeps_note(self, repo):
+        repo.save_note("alice", "bob", "calls light on the turn")
+        repo.save_relationship_state("alice", "bob", RelationshipState(heat=0.7))
+        assert repo.load_note("alice", "bob") == "calls light on the turn"
+
+    def test_affinity_write_keeps_nickname_override(self, repo):
+        repo.save_nickname_override("alice", "bob", "tight guy in red")
+        repo.save_relationship_state("alice", "bob", RelationshipState(heat=0.7))
+        assert repo.load_nickname_override("alice", "bob") == "tight guy in red"
+
+    def test_repeated_affinity_writes_keep_both(self, repo):
+        # The damaging case: a note/rename, then a stream of social
+        # events each re-firing the affinity upsert on the same key.
+        repo.save_note("alice", "bob", "bluffs the river")
+        repo.save_nickname_override("alice", "bob", "river bluffer")
+        for h in (0.2, 0.5, 0.8, 0.3):
+            repo.save_relationship_state("alice", "bob", RelationshipState(heat=h))
+        assert repo.load_note("alice", "bob") == "bluffs the river"
+        assert repo.load_nickname_override("alice", "bob") == "river bluffer"
+        # And the affinity axis still reflects the latest write.
+        assert repo.load_raw_relationship_state("alice", "bob").heat == 0.3
+
+    def test_affinity_write_still_updates_axes_when_note_present(self, repo):
+        repo.save_note("alice", "bob", "note")
+        repo.save_relationship_state(
+            "alice", "bob", RelationshipState(heat=0.6, respect=0.9, likability=0.2)
+        )
+        loaded = repo.load_raw_relationship_state("alice", "bob")
+        assert loaded.respect == 0.9
+        assert loaded.likability == 0.2
+        assert repo.load_note("alice", "bob") == "note"
 
 
 class TestLoadAllNicknameOverrides:

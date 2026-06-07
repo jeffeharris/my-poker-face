@@ -52,6 +52,17 @@ os.environ.setdefault('CASH_LEAVE_NARRATIVE_DISABLED', '1')
 # (`test_ticker_service.py`) override this var explicitly per-test.
 os.environ['WORLD_TICKER_ENABLED'] = 'false'
 
+# Disable AI avatar (character image) generation across the WHOLE suite.
+# Integration tests that build/play a real game hit the on-demand avatar path
+# (game-state serialization -> avatar_handler.start_single_emotion_generation
+# -> poker.character_images.generate_character_images), which makes a real
+# image-provider HTTP call. Without a key that 401s (noise); WITH a key on a
+# dev box it would actually generate images and burn credits. Set before
+# flask_app.config is imported (config reads this at import). Plain assignment
+# so a compose-injected value can't flip it back on; an avatar-gen test can
+# monkeypatch flask_app.config.ENABLE_AVATAR_GENERATION explicitly.
+os.environ['ENABLE_AVATAR_GENERATION'] = 'false'
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -184,11 +195,12 @@ RESET_ECONOMY_FLAGS = (
     "CHIP_CUSTODY_DERIVE_READS",
     "TOURNAMENT_CIRCUIT_ENABLED",
     "TOURNAMENT_DRAW_ENABLED",
+    "TABLE_AFFINITY_ENABLED",
     "RENOWN_V2_ENABLED",
     "RENOWN_V2_PERSIST_AI",
     "PRESTIGE_SEEKING_ENABLED",
+    "CAREER_PROGRESSION_ENABLED",
     "CAREER_VOUCH_ENABLED",
-    "TABLE_AFFINITY_ENABLED",
 )
 
 

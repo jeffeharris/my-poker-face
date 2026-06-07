@@ -343,15 +343,17 @@ _test_schema_template_path = None
 #       (net added v154); foundation for the table-affinity lever + per-room reads.
 # v154: Add `net_chips` to ai_table_hand_counts — cumulative per-room PnL feeding
 #       the success-weighted table-affinity term (`TABLE_AFFINITY_ENABLED`).
-# v155: Create `career_progress` — per-(sandbox, owner) narrative state for the
+# v155: Rebaseline the respect/likability neutral baseline 0.5 → 0.35 in
+#       `relationship_states` (earned/asymmetric regard; see `REGARD_NEUTRAL`).
+# v156: Create `career_progress` — per-(sandbox, owner) narrative state for the
 #       Act-1 career-progression spine (`CASH_MODE_CAREER_PROGRESSION.md`). A
 #       small JSON blob holds the keyring (`revealed_table_ids`), the Scene-0
 #       tutorial flags (seeded / fish id / graduated), the chosen home court,
 #       and the per-AI one-vouch ledger (`vouched_by`). The lobby renders only
 #       revealed cardrooms; the world doesn't grow, the player's view does.
-#       Renumbered (v124 → v132 → v141 → v152 → v155) to land after main's
-#       v152 (drop_cash_idle_pool) on the main→circuit-progression sync.
-SCHEMA_VERSION = 155
+#       Renumbered (v124 → v132 → v141 → v152 → v155 → v156) to land after
+#       main's v155 (regard rebaseline) on the main→circuit-progression sync.
+SCHEMA_VERSION = 156
 
 
 class SchemaManager:
@@ -755,8 +757,11 @@ class SchemaManager:
                     observer_id TEXT NOT NULL,
                     opponent_id TEXT NOT NULL,
                     heat REAL NOT NULL DEFAULT 0.0,
-                    respect REAL NOT NULL DEFAULT 0.5,
-                    likability REAL NOT NULL DEFAULT 0.5,
+                    -- 0.35 == REGARD_NEUTRAL (opponent_model.py): the earned
+                    -- regard neutral baseline. Keep in sync with that constant
+                    -- so a default-axes row reads as a true neutral stranger.
+                    respect REAL NOT NULL DEFAULT 0.35,
+                    likability REAL NOT NULL DEFAULT 0.35,
                     last_seen TIMESTAMP,
                     last_decay_tick TIMESTAMP,
                     notes TEXT,
@@ -787,13 +792,13 @@ class SchemaManager:
                     ON cash_pair_stats(observer_id)
             """)
 
-            # 10c-bis. AI table hand counts (v153) — how many hands an AI has
-            #      played at each table, per sandbox. Incremented ONCE per AI
-            #      per hand (NOT bilateral like cash_pair_stats). Feeds the
-            #      Career-M2 "home table" resolver: an AI vouches the player
-            #      into the lobby table where it has played the most hands
-            #      (>= a floor), so the vouch reveals the AI's real home court
-            #      rather than wherever it happens to be sitting this tick.
+            # 10c-bis. AI table hand/net counts (v153/v154) — how many hands an
+            #      AI has played at each table, and its cumulative net there,
+            #      per sandbox. Incremented ONCE per AI per hand (NOT bilateral
+            #      like cash_pair_stats). `net_chips` feeds the success-weighted
+            #      table-affinity attractiveness lever (an AI drifts back to the
+            #      rooms it wins at); `hands` also backs the Career-M2 home-table
+            #      resolver — an AI vouches the player into its most-played room.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
                     sandbox_id   TEXT NOT NULL,
@@ -2346,11 +2351,15 @@ class SchemaManager:
             ),
             154: (
                 self._migrate_v154_add_ai_table_net_chips,
-                "Add net_chips to ai_table_hand_counts — cumulative per-(sandbox, ai, table) PnL feeding the success-weighted table-affinity attractiveness term (TABLE_AFFINITY_ENABLED): AIs drift back to rooms they win at. Guarded ALTER, additive.",
+                "Add net_chips to ai_table_hand_counts — cumulative per-(sandbox, ai, table) PnL feeding the success-weighted table-affinity attractiveness term (TABLE_AFFINITY_ENABLED): AIs drift back to rooms they win at, concentrating play into a home room. Guarded ALTER, additive.",
             ),
             155: (
-                self._migrate_v155_create_career_progress,
-                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger. Renumbered 141→152→155 to land after main's v152 (drop_cash_idle_pool) on the main sync.",
+                self._migrate_v155_rebaseline_regard_neutral,
+                "Re-baseline existing relationship_states regard from the old neutral 0.5 to REGARD_NEUTRAL (0.35): subtract 0.15 from every respect/likability (clamped to [0,1]); heat untouched. Preserves each edge's offset-from-neutral so renown contributions / hints / offers are unchanged — the data-side mirror of the code rebaseline. ONE-TIME data transform (NOT idempotent if re-run); the version gate guarantees once-only. Fresh DBs are built at SCHEMA_VERSION and skip it (rows already at 0.35).",
+            ),
+            156: (
+                self._migrate_v156_create_career_progress,
+                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger. Renumbered 141→152→155→156 to land after main's v155 (regard rebaseline) on the main sync.",
             ),
         }
 
@@ -5314,8 +5323,10 @@ class SchemaManager:
                 observer_id TEXT NOT NULL,
                 opponent_id TEXT NOT NULL,
                 heat REAL NOT NULL DEFAULT 0.0,
-                respect REAL NOT NULL DEFAULT 0.5,
-                likability REAL NOT NULL DEFAULT 0.5,
+                -- 0.35 == REGARD_NEUTRAL (opponent_model.py); see the canonical
+                -- relationship_states CREATE for the rationale.
+                respect REAL NOT NULL DEFAULT 0.35,
+                likability REAL NOT NULL DEFAULT 0.35,
                 last_seen TIMESTAMP,
                 last_decay_tick TIMESTAMP,
                 PRIMARY KEY (observer_id, opponent_id)
@@ -6361,6 +6372,95 @@ class SchemaManager:
         conn.execute("DROP TABLE IF EXISTS cash_idle_pool")
         logger.info("Migration v152 complete: dropped legacy cash_idle_pool cache")
 
+    def _migrate_v153_create_ai_table_hand_counts(self, conn: sqlite3.Connection) -> None:
+        """Migration v153: create `ai_table_hand_counts`.
+
+        One row per (sandbox_id, ai_id, table_id). `ai_id` is the raw
+        `personality_id` (no prefix), matching `cash_tables.seats` and the
+        relationship graph. `hands` is incremented ONCE per hand for each AI
+        seated at the table — NOT bilateral (cash_pair_stats writes N*(N-1)
+        pair rows per hand; this writes N rows, one per seated AI).
+
+        Foundation for the table-affinity lever (the `net_chips` column is added
+        in v154) and per-room activity reads. Non-destructive, idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
+                sandbox_id   TEXT NOT NULL,
+                ai_id        TEXT NOT NULL,
+                table_id     TEXT NOT NULL,
+                hands        INTEGER NOT NULL DEFAULT 0,
+                last_hand_at TIMESTAMP,
+                PRIMARY KEY (sandbox_id, ai_id, table_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ai_table_hand_counts_ai
+                ON ai_table_hand_counts(sandbox_id, ai_id)
+        """)
+        logger.info("Migration v153 complete: ai_table_hand_counts table created")
+
+    def _migrate_v154_add_ai_table_net_chips(self, conn: sqlite3.Connection) -> None:
+        """Migration v154: add `net_chips` to `ai_table_hand_counts`.
+
+        Cumulative signed PnL per (sandbox_id, ai_id, table_id), accumulated
+        once per AI per hand alongside `hands` at the same sim + live hooks.
+        Feeds the success-weighted **table-affinity** attractiveness term
+        (`TABLE_AFFINITY_ENABLED`): an AI is drawn back to rooms it wins at and
+        away from rooms it loses at, concentrating its hands into a real home
+        room (counteracts the within-tier smear across the 2-3 tables per stake).
+
+        Guarded ALTER (PRAGMA check) so it's safe on a partially-applied DB.
+        Existing rows read net_chips = 0. Non-destructive, idempotent.
+        """
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_table_hand_counts)")}
+        if "net_chips" not in cols:
+            conn.execute(
+                "ALTER TABLE ai_table_hand_counts "
+                "ADD COLUMN net_chips INTEGER NOT NULL DEFAULT 0"
+            )
+        logger.info("Migration v154 complete: ai_table_hand_counts.net_chips added")
+
+    def _migrate_v155_rebaseline_regard_neutral(self, conn: sqlite3.Connection) -> None:
+        """Migration v155: re-baseline existing regard from 0.5 → 0.35.
+
+        The rebaseline drops the earned-regard neutral from the old hardcoded
+        0.5 to REGARD_NEUTRAL (0.35). Every `relationship_states` row that
+        predates this change was created against the 0.5 baseline, so we shift
+        respect/likability DOWN by the same delta the neutral moved
+        (`0.5 − 0.35 = 0.15`), clamped to the [0, 1] axis. This preserves each
+        edge's *offset from neutral*: a row at exactly-neutral 0.5 becomes
+        exactly-neutral 0.35, a "+0.2 above neutral" 0.7 becomes 0.55 (still
+        +0.2), a "−0.3 below" 0.2 becomes 0.05. Renown contributions
+        (`value − neutral`), relationship hints, and sponsor/staking offers
+        therefore read identically before and after — the data-side mirror of
+        the code rebaseline, so no live relationship suddenly warms or cools.
+
+        Heat is NOT touched — it's one-sided and 0-based (0 = neutral), not a
+        regard axis.
+
+        IMPORTANT: this is a ONE-TIME data transform and is NOT idempotent if
+        re-run (it would shift a second time). Correctness rests on the version
+        gate in `_apply_migrations` running each migration exactly once. Fresh
+        DBs are built directly at SCHEMA_VERSION and never enter the 154→155
+        step, so their rows (already created at 0.35 by the new code) are left
+        alone.
+        """
+        # 0.15 == old neutral (0.5) − REGARD_NEUTRAL (0.35). Kept as a literal
+        # because SQL can't reference the Python constant; the migration is a
+        # frozen historical record of THIS specific baseline move.
+        conn.execute(
+            """
+            UPDATE relationship_states
+            SET respect    = MAX(0.0, MIN(1.0, respect    - 0.15)),
+                likability = MAX(0.0, MIN(1.0, likability - 0.15))
+            """
+        )
+        logger.info(
+            "Migration v155 complete: relationship_states regard re-baselined "
+            "0.5 → 0.35 (respect/likability −0.15, clamped; heat untouched)"
+        )
+
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.
 
@@ -7008,8 +7108,8 @@ class SchemaManager:
             f"marked {updated} public personas circulating"
         )
 
-    def _migrate_v155_create_career_progress(self, conn: sqlite3.Connection) -> None:
-        """Migration v155: create `career_progress` for the Act-1 spine.
+    def _migrate_v156_create_career_progress(self, conn: sqlite3.Connection) -> None:
+        """Migration v156: create `career_progress` for the Act-1 spine.
 
         One row per (sandbox, owner). Holds the narrative keyring and tutorial
         state for `CASH_MODE_CAREER_PROGRESSION.md` as a single JSON blob so the
@@ -7040,64 +7140,7 @@ class SchemaManager:
                 PRIMARY KEY (sandbox_id, owner_id)
             )
         """)
-        logger.info("Migration v155 complete: career_progress table created")
-
-    def _migrate_v153_create_ai_table_hand_counts(self, conn: sqlite3.Connection) -> None:
-        """Migration v153: create `ai_table_hand_counts` for the home-table resolver.
-
-        One row per (sandbox_id, ai_id, table_id). `ai_id` is the raw
-        `personality_id` (no prefix), matching `cash_tables.seats` and the
-        relationship graph. `hands` is incremented ONCE per hand for each AI
-        seated at the table — NOT bilateral (cash_pair_stats writes N*(N-1)
-        pair rows per hand; this writes N rows, one per seated AI).
-
-        The Career-M2 vouch evaluator reads these rows at fire time: an AI's
-        "home table" is the lobby table where it has played the most hands
-        (subject to a floor), and the vouch reveals THAT room — so a vouch
-        opens the AI's real home court, not wherever it happens to sit this
-        tick. Casino/scripted tables are filtered out by the resolver (it
-        intersects against the sandbox's live lobby tables), so their counts
-        are harmless if recorded.
-
-        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS).
-        """
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
-                sandbox_id   TEXT NOT NULL,
-                ai_id        TEXT NOT NULL,
-                table_id     TEXT NOT NULL,
-                hands        INTEGER NOT NULL DEFAULT 0,
-                last_hand_at TIMESTAMP,
-                PRIMARY KEY (sandbox_id, ai_id, table_id)
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_ai_table_hand_counts_ai
-                ON ai_table_hand_counts(sandbox_id, ai_id)
-        """)
-        logger.info("Migration v153 complete: ai_table_hand_counts table created")
-
-    def _migrate_v154_add_ai_table_net_chips(self, conn: sqlite3.Connection) -> None:
-        """Migration v154: add `net_chips` to `ai_table_hand_counts`.
-
-        Cumulative signed PnL per (sandbox_id, ai_id, table_id), accumulated
-        once per AI per hand alongside `hands` at the same sim + live hooks.
-        Feeds the success-weighted **table-affinity** attractiveness term
-        (`TABLE_AFFINITY_ENABLED`): an AI is drawn back to rooms it wins at and
-        away from rooms it loses at, concentrating its hands into a real home
-        room (counteracts the within-tier smear that otherwise keeps low-stakes
-        regulars from ever clearing the home-table floor).
-
-        Guarded ALTER (PRAGMA check) so it's safe on a partially-applied DB.
-        Existing rows read net_chips = 0. Non-destructive, idempotent.
-        """
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_table_hand_counts)")}
-        if "net_chips" not in cols:
-            conn.execute(
-                "ALTER TABLE ai_table_hand_counts "
-                "ADD COLUMN net_chips INTEGER NOT NULL DEFAULT 0"
-            )
-        logger.info("Migration v154 complete: ai_table_hand_counts.net_chips added")
+        logger.info("Migration v156 complete: career_progress table created")
 
     def _migrate_v124_create_opponent_observation_lifetime(self, conn: sqlite3.Connection) -> None:
         """Migration v124: create `opponent_observation_lifetime` + add the
@@ -7318,12 +7361,12 @@ class SchemaManager:
         'seated'` (enforced in the application layer by the pure machine and
         structurally by the CHECK constraint below).
 
-        ADDITIVE AND DORMANT: nothing reads or writes this table yet. A later,
-        human-reviewed phase reroutes the seat / idle-pool / hustle / vice writers
-        through the machine (see `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`).
-        Until then `cash_idle_pool`, `ai_side_hustle_state`, `ai_vice_state`, and
-        the occupancy half of `cash_tables` remain the authorities — this table
-        changes no behaviour.
+        NOTE (cutover complete): the presence machine is now LIVE
+        (`PRESENCE_AUTHORITY_ENABLED` defaults True), so this table is the
+        authoritative seat source and the seat / idle-pool / hustle / vice writers
+        route through it (see `docs/plans/CASH_MODE_PRESENCE_MIGRATION.md`). It was
+        additive-and-dormant when first created at this migration; that is history,
+        not current behaviour.
 
         Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). See
         `docs/plans/CASH_MODE_STATE_MODEL.md` (§5.1, §6).

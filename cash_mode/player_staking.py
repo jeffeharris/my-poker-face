@@ -25,7 +25,8 @@ Gates (in order, cheap-to-expensive):
   8. Met-before: a `relationship_states` row exists for (AI → player)
      — staking requires shared history.
   9. Relationship status floor: AI's heat toward player < 0.5,
-     likability >= 0.2. Excludes AIs the player has wronged.
+     likability >= RELATIONSHIP_LIKABILITY_FLOOR (neutral−0.30).
+     Excludes AIs the player has wronged.
   10. AI's tier (resolve_tier) is not house_only.
   11. No defaulted stake from AI to this player within 7-day cooldown.
 
@@ -65,6 +66,7 @@ from cash_mode.stakes import (
 )
 from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
 from cash_mode.staking_tier import TIER_HOUSE_ONLY, resolve_tier
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +85,12 @@ PLAYER_STAKE_DEFAULT_COOLDOWN_SECONDS = 7 * 24 * 60 * 60
 # the offer. Likability below this means active dislike. Both are
 # generous — the willingness math layers a sharper score check on top
 # at offer time.
+# Heat is one-sided/0-based, so its ceiling stays absolute. The likability
+# floor tracks REGARD_NEUTRAL (re-anchored from the old hardcoded 0.2, which
+# sat 0.30 below the old neutral of 0.5) so the same amount of "wronging" is
+# required to exclude an AI after the 0.5->0.35 rebaseline.
 RELATIONSHIP_HEAT_CEILING = 0.5
-RELATIONSHIP_LIKABILITY_FLOOR = 0.2
+RELATIONSHIP_LIKABILITY_FLOOR = REGARD_NEUTRAL - 0.30
 
 # Willingness math constants (per-offer evaluation).
 FAIR_CUT_REFERENCE = 0.30
@@ -298,7 +304,7 @@ def _relationship_axes(
     except Exception:
         rel = None
     if rel is None:
-        return 0.5, 0.5, 0.0
+        return REGARD_NEUTRAL, REGARD_NEUTRAL, 0.0
     return rel.likability, rel.respect, rel.heat
 
 
@@ -314,11 +320,11 @@ def _relationship_hint(
         return "still upset with you"
     if heat > 0.2:
         return "wary of you"
-    if respect > 0.6 and likability > 0.5:
+    if respect > REGARD_NEUTRAL + 0.10 and likability > REGARD_NEUTRAL:
         return "trusts you"
-    if respect > 0.5:
+    if respect > REGARD_NEUTRAL:
         return "respects your game"
-    if likability > 0.5:
+    if likability > REGARD_NEUTRAL:
         return "friendly"
     return ""
 

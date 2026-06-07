@@ -40,7 +40,7 @@ from cash_mode.stakes import (
     Stake,
 )
 from flask_app import create_app
-from poker.memory.opponent_model import RelationshipState
+from poker.memory.opponent_model import REGARD_NEUTRAL, RelationshipState
 from poker.repositories import create_repos
 from tests._sandbox_test_helper import pin_sandbox_for
 
@@ -253,7 +253,7 @@ class TestGranted(_ForgivenessRouteBase):
         )
         self.assertIsNotNone(state)
         # Borrower side mirrors STAKE_FORGIVEN → likability +0.15.
-        self.assertGreater(state.likability, 0.5)
+        self.assertGreater(state.likability, REGARD_NEUTRAL)
 
     def test_granted_doesnt_move_bankroll(self):
         # Forgiveness doesn't move chips — it writes off the IOU.
@@ -399,7 +399,8 @@ class TestRejections(_ForgivenessRouteBase):
 class TestNoPriorRelationship(_ForgivenessRouteBase):
     def test_no_prior_relationship_falls_below_threshold(self):
         # No save_relationship_state — load returns None → neutral
-        # defaults (0.5/0.5/0.0) → score 0.45 → below 0.55.
+        # defaults (REGARD_NEUTRAL/REGARD_NEUTRAL/0.0) → score
+        # REGARD_NEUTRAL*(0.5+0.4) → below 0.55.
         self._seed_carry(carry_amount=250)
 
         response = self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
@@ -407,7 +408,7 @@ class TestNoPriorRelationship(_ForgivenessRouteBase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertFalse(payload['granted'])
-        self.assertAlmostEqual(payload['score'], 0.45)
+        self.assertAlmostEqual(payload['score'], REGARD_NEUTRAL * (0.5 + 0.4))
 
 
 if __name__ == '__main__':

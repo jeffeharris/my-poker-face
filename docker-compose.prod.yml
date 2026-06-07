@@ -1,6 +1,12 @@
 services:
   backend:
     hostname: poker-backend
+    # Prod pulls this pre-built image from GHCR (built off-box by the
+    # build-images CI job) so the small prod disk never carries build cache or
+    # transient layers. TAG is the deploying commit's SHA (set by the deploy
+    # job); falls back to :latest for manual `docker compose pull`. The build:
+    # block is kept as a fallback so deploy.sh / `up -d --build` still work.
+    image: ghcr.io/jeffeharris/my-poker-face-backend:${TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -50,7 +56,9 @@ services:
       # PRH-30: per-decision equity Monte Carlo iterations (analytics only, not
       # the bot's actual decision). Lower than the 2000 default to raise the
       # single-worker concurrent-hands ceiling; override via host env.
-      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-500}
+      # Scaling Stage 0: 500 -> 250 to halve the per-decision CPU burst (still
+      # analytics-only; no gameplay impact).
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com
@@ -108,6 +116,8 @@ services:
 
   frontend:
     hostname: poker-frontend
+    # See backend note: pulled pre-built from GHCR; build: kept as fallback.
+    image: ghcr.io/jeffeharris/my-poker-face-frontend:${TAG:-latest}
     build:
       context: ./react/react
       dockerfile: Dockerfile

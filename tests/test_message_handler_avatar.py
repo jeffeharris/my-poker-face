@@ -21,7 +21,10 @@ def _reset_state():
     game_state_service.game_last_access.clear()
 
 
-class _FakeEmotionalState:
+class _FakePsychology:
+    """Stands in for `controller.psychology` — the live emotion source the
+    message handler reads via `get_display_emotion()`."""
+
     def __init__(self, emotion):
         self._emotion = emotion
 
@@ -43,7 +46,7 @@ class TestAiMessageAvatar:
         self, mock_avatar, mock_game_repo, mock_socketio
     ):
         mock_avatar.return_value = "/api/avatar/Batman/angry"
-        controller = SimpleNamespace(emotional_state=_FakeEmotionalState("angry"))
+        controller = SimpleNamespace(psychology=_FakePsychology("angry"))
         game_state_service.set_game(
             "g1", {"messages": [], "ai_controllers": {"Batman": controller}}
         )
