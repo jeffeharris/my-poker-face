@@ -2,10 +2,30 @@
 purpose: Strategy for consolidating the 7,840-line schema_manager.py by squashing the v1..v148 migration chain at the prod cutover
 type: design
 created: 2026-06-03
-last_updated: 2026-06-03
+last_updated: 2026-06-07
 ---
 
 # Schema Baseline / Migration Squash Plan
+
+> **Status (2026-06-07).** Reality has moved since this was first written:
+> - **Phase 2 (prod cutover) is DONE** — prod cut over to a fresh baseline-built DB
+>   on 2026-06-05 and `main` now contains `development`, so the squash precondition
+>   "no sub-baseline DB in prod" is satisfied. The chain has also grown:
+>   **`SCHEMA_VERSION` is now 154**, not the v148 this doc originally assumed.
+> - **Going-forward collision fix SHIPPED** (the part that actually hurt with
+>   parallel worktrees): post-v154 migrations are now authored as **per-file modules
+>   under `poker/repositories/migrations/`**, discovered and applied by
+>   `migration_loader.FileMigrationLoader` using an **applied-set** model (tracked in
+>   the `applied_migrations` table) rather than the legacy
+>   `range(current+1, SCHEMA_VERSION+1)` high-water-mark. `SCHEMA_VERSION` is frozen
+>   at 154; `_run_file_migrations()` runs after the legacy chain in `ensure_schema()`.
+>   This removes the two root causes of merge pain: the shared `SCHEMA_VERSION` /
+>   `migrations`-dict edit sites (now one file per migration) and the high-water-mark
+>   skip-bug that made renumbering mandatory on merge. Regression guard:
+>   `tests/test_repositories/test_file_migration_loader.py`.
+> - **Still pending:** Phase 1 (reconcile `_init_db`, the `xfail` gate) and Phase 3
+>   (extract `v1..v154` into `legacy_migrations.py` to shrink the file). The legacy
+>   integer chain is untouched and still load-bearing until those land.
 
 Connects: TRIAGE **T3-17** (no migration framework) and **T3-44** (`schema_manager.py`
 monolith); the prod migration in [`PROD_MERGE_PLAN.md`](PROD_MERGE_PLAN.md); the gate
