@@ -33,9 +33,15 @@ export function GamePage({ playerName }: GamePageProps) {
     navigate(isCashGameId(gameId) ? '/cash' : '/menu/tournament');
   };
 
-  const handleGameCreated = (newGameId: string) => {
-    navigate(`/game/${newGameId}`, { replace: true });
-  };
+  // Memoized so the identity is stable across re-renders — an unstable
+  // onGameCreated used to re-run usePokerGame's socket-init effect and leak a
+  // second socket for the same game_id (the "two hands flickering" bug).
+  const handleGameCreated = useCallback(
+    (newGameId: string) => {
+      navigate(`/game/${newGameId}`, { replace: true });
+    },
+    [navigate]
+  );
 
   // The backend has no record of this game (HTTP 404). Cash sessions
   // are in-memory-only, so they vanish on backend restart — kick the
