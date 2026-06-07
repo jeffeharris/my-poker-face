@@ -1,8 +1,6 @@
 /* Prompt Playground Styles */
 /* Terminal/Developer Console Aesthetic */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 /* Root variables */
 :root {
   --pg-bg-deep: #06060c;
@@ -30,7 +28,7 @@
   --pg-error: #f87171;
   --pg-error-bg: #1a0f0f;
 
-  --pg-font: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --pg-font: 'JetBrains Mono Variable', 'SF Mono', 'Fira Code', monospace;
   --pg-radius: 6px;
   --pg-radius-sm: 4px;
 }

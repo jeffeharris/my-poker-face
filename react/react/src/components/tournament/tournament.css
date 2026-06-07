@@ -5,8 +5,6 @@
    while this screen is up, so the chrome reads like a frozen broadcast lower-third.
    ============================================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
-
 .tourney {
   --felt: #0a1410;
   --felt-2: #0f1e17;
@@ -22,9 +20,9 @@
   --muted-2: #5d6a60;
   --button: #f4efe6;
 
-  --display: 'Bebas Neue', 'Hanken Grotesk', sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
-  --body: 'Hanken Grotesk', system-ui, sans-serif;
+  --display: 'Bebas Neue', 'Hanken Grotesk Variable', sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --body: 'Hanken Grotesk Variable', system-ui, sans-serif;
 
   position: relative;
   /* Fill the viewport and own our scrolling. The global app shell

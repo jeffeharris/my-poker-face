@@ -5,6 +5,7 @@ import { AuthProvider } from './hooks/useAuth';
 import { DeckPackProvider } from './hooks/useDeckPack';
 import { UsageStatsProvider } from './hooks/UsageStatsProvider';
 import { installCsrfFetch } from './utils/csrf';
+import './styles/fonts.css';
 import './index.css';
 import App from './App.tsx';
 

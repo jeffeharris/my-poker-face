@@ -1,0 +1,47 @@
+/* Self-hosted fonts (Fontsource) — replaces the Google Fonts <link>/@import calls
+ * that previously loaded from fonts.googleapis.com / fonts.gstatic.com.
+ *
+ * Self-hosting removes the external dependency entirely: no CSP exceptions for
+ * Google origins, no service-worker cross-origin caching (which the workbox SW
+ * could not fetch under connect-src and turned into a page-crashing preload
+ * failure), faster first paint, and no third-party privacy surface.
+ *
+ * Every per-weight / per-axis file below is unicode-range gated, so the browser
+ * only downloads the subsets it actually renders — same runtime cost profile as
+ * the Google CSS it replaces.
+ *
+ * NOTE: Fontsource VARIABLE packages register the family with a ` Variable`
+ * suffix (e.g. 'Fraunces Variable'). App stylesheets reference those families
+ * by the suffixed name. Static packages keep the plain name.
+ */
+
+/* --- Static faces (plain family names) --------------------------------- */
+/* Noto Sans Symbols 2 — card suit glyphs */
+@import '@fontsource/noto-sans-symbols-2/400.css';
+
+/* IBM Plex Mono — 400/500/600 */
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+
+/* Bebas Neue — display, single weight */
+@import '@fontsource/bebas-neue/400.css';
+
+/* --- Variable faces (` Variable` family names) ------------------------- */
+/* DM Sans Variable — body/display (upright + italic) */
+@import '@fontsource-variable/dm-sans/index.css';
+@import '@fontsource-variable/dm-sans/wght-italic.css';
+
+/* JetBrains Mono Variable — monospace */
+@import '@fontsource-variable/jetbrains-mono/index.css';
+
+/* Hanken Grotesk Variable — tournament UI */
+@import '@fontsource-variable/hanken-grotesk/index.css';
+
+/* Bodoni Moda Variable — character/file-cabinet display (upright + italic) */
+@import '@fontsource-variable/bodoni-moda/index.css';
+@import '@fontsource-variable/bodoni-moda/wght-italic.css';
+
+/* Fraunces Variable — display serif (upright + italic) */
+@import '@fontsource-variable/fraunces/index.css';
+@import '@fontsource-variable/fraunces/wght-italic.css';
