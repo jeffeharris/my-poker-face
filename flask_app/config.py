@@ -48,6 +48,26 @@ else:
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
+
+# Native (mobile) Google sign-in client IDs. Each platform registers its own
+# OAuth client in the Google Cloud Console, so the ID token's `aud` claim differs
+# per platform. The native sign-in endpoint accepts a token whose audience
+# matches ANY of these, which is what lets one backend serve web + iOS + Android.
+# Extra/future platforms can be added via comma-separated GOOGLE_NATIVE_CLIENT_IDS.
+GOOGLE_IOS_CLIENT_ID = os.environ.get('GOOGLE_IOS_CLIENT_ID')
+GOOGLE_ANDROID_CLIENT_ID = os.environ.get('GOOGLE_ANDROID_CLIENT_ID')
+_EXTRA_NATIVE_CLIENT_IDS = os.environ.get('GOOGLE_NATIVE_CLIENT_IDS', '')
+GOOGLE_ALLOWED_AUDIENCES = [
+    cid.strip()
+    for cid in (
+        GOOGLE_CLIENT_ID,
+        GOOGLE_IOS_CLIENT_ID,
+        GOOGLE_ANDROID_CLIENT_ID,
+        *_EXTRA_NATIVE_CLIENT_IDS.split(','),
+    )
+    if cid and cid.strip()
+]
+
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 
 # CORS configuration
