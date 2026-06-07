@@ -743,8 +743,11 @@ class SchemaManager:
                     observer_id TEXT NOT NULL,
                     opponent_id TEXT NOT NULL,
                     heat REAL NOT NULL DEFAULT 0.0,
-                    respect REAL NOT NULL DEFAULT 0.5,
-                    likability REAL NOT NULL DEFAULT 0.5,
+                    -- 0.35 == REGARD_NEUTRAL (opponent_model.py): the earned
+                    -- regard neutral baseline. Keep in sync with that constant
+                    -- so a default-axes row reads as a true neutral stranger.
+                    respect REAL NOT NULL DEFAULT 0.35,
+                    likability REAL NOT NULL DEFAULT 0.35,
                     last_seen TIMESTAMP,
                     last_decay_tick TIMESTAMP,
                     notes TEXT,
@@ -5297,8 +5300,10 @@ class SchemaManager:
                 observer_id TEXT NOT NULL,
                 opponent_id TEXT NOT NULL,
                 heat REAL NOT NULL DEFAULT 0.0,
-                respect REAL NOT NULL DEFAULT 0.5,
-                likability REAL NOT NULL DEFAULT 0.5,
+                -- 0.35 == REGARD_NEUTRAL (opponent_model.py); see the canonical
+                -- relationship_states CREATE for the rationale.
+                respect REAL NOT NULL DEFAULT 0.35,
+                likability REAL NOT NULL DEFAULT 0.35,
                 last_seen TIMESTAMP,
                 last_decay_tick TIMESTAMP,
                 PRIMARY KEY (observer_id, opponent_id)
