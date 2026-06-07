@@ -7,8 +7,6 @@
  * pure CSS, no SVG assets.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,700;0,6..96,900;1,6..96,400&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500;700&display=swap');
-
 .dossier-overlay {
   /* Scope local variables so the dossier is self-contained — drop
      it anywhere in the app and it brings its own palette. */
@@ -38,7 +36,7 @@
   background:
     radial-gradient(ellipse at center, rgba(20, 16, 12, 0.6) 0%, rgba(6, 4, 2, 0.94) 70%),
     linear-gradient(135deg, #0c0805 0%, #1a120a 100%);
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   cursor: pointer;
   isolation: isolate;
 }
@@ -190,7 +188,7 @@
   padding: 8px 22px 6px;
   border: 3px double var(--crimson);
   color: var(--crimson);
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-family: 'JetBrains Mono Variable', 'Courier New', monospace;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-align: center;
@@ -232,7 +230,7 @@
   background: var(--ink);
   color: var(--paper-hi);
   cursor: pointer;
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-size: 26px;
   line-height: 1;
   font-weight: 700;
@@ -269,7 +267,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-family: 'JetBrains Mono Variable', 'Courier New', monospace;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.28em;
@@ -296,7 +294,7 @@
 
 .dossier__class-meta {
   margin-top: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 9px;
   letter-spacing: 0.4em;
   color: var(--ink-faint);
@@ -337,7 +335,7 @@
     0 0 0 4px var(--gold-leaf),
     0 6px 14px rgba(0, 0, 0, 0.35);
   overflow: hidden;
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-weight: 900;
   font-size: clamp(34px, 8vw, 48px);
   color: var(--ink);
@@ -387,7 +385,7 @@
   border-radius: 50%;
 }
 .dossier__wax-text {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -405,7 +403,7 @@
 }
 
 .dossier__eyebrow {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.42em;
@@ -414,7 +412,7 @@
 }
 
 .dossier__name {
-  font-family: 'Bodoni Moda', 'Didot', serif;
+  font-family: 'Bodoni Moda Variable', 'Didot', serif;
   font-weight: 900;
   font-size: clamp(30px, 6vw, 44px);
   line-height: 0.95;
@@ -425,7 +423,7 @@
 }
 
 .dossier__nickname {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: clamp(15px, 3vw, 18px);
   color: var(--ink-soft);
@@ -475,7 +473,7 @@
    nickname (italic Fraunces) so the row doesn't visually jump
    when you click the pencil. */
 .dossier__nickname-input {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: inherit;
   color: var(--ink);
@@ -500,7 +498,7 @@
 }
 
 .dossier__nickname-status {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   letter-spacing: 0.18em;
   font-style: normal;
@@ -530,7 +528,7 @@
   border: 1px dashed rgba(60, 45, 25, 0.35);
   border-radius: 2px;
   padding: 3px 8px;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: 13px;
   color: var(--ink-faint);
@@ -556,7 +554,7 @@
 .dossier__archetype {
   display: inline-block;
   padding: 3px 10px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.22em;
@@ -577,7 +575,7 @@
   gap: 6px;
   margin-top: 8px;
   padding: 4px 10px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   border-left: 3px solid var(--ink-soft);
   background: var(--paper-lo);
 }
@@ -663,7 +661,7 @@
 }
 
 .dossier__rule-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.4em;
@@ -680,14 +678,14 @@
   align-items: baseline;
   gap: 8px;
   padding: 4px 0;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-size: 15px;
   position: relative;
   z-index: 2;
 }
 
 .dossier__data-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.24em;
@@ -713,7 +711,7 @@
 }
 
 .dossier__data-value {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-weight: 500;
   font-style: italic;
   color: var(--ink);
@@ -722,7 +720,7 @@
 }
 
 .dossier__money {
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-style: normal;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -749,7 +747,7 @@
 }
 
 .dossier__tally-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.24em;
@@ -806,7 +804,7 @@
 }
 
 .dossier__tally-readout {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -835,7 +833,7 @@
 .dossier__rel-tag {
   position: relative;
   padding: 5px 14px 5px 22px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.28em;
@@ -874,7 +872,7 @@
 }
 
 .dossier__rel-note {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: 14px;
   color: var(--ink-soft);
@@ -891,7 +889,7 @@
   padding: 14px 16px 14px 28px;
   background: rgba(255, 248, 225, 0.45);
   border-left: 3px double var(--gold-leaf);
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: 17px;
   line-height: 1.45;
@@ -902,7 +900,7 @@
   position: absolute;
   left: 8px;
   top: 12px;
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-size: 22px;
   color: var(--gold-leaf);
   font-style: normal;
@@ -915,7 +913,7 @@
 
 .dossier__remark-attrib {
   margin-top: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-style: normal;
   font-size: 10px;
   font-weight: 500;
@@ -938,7 +936,7 @@
   align-items: center;
   justify-content: center;
   gap: 14px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.4em;
@@ -1023,7 +1021,7 @@
   padding: 8px 12px;
   background: rgba(176, 132, 51, 0.08);
   border-left: 2px solid var(--gold-leaf);
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-size: 14px;
   color: var(--ink-soft);
   display: flex;
@@ -1034,7 +1032,7 @@
 .dossier__standing-mark {
   color: var(--gold-leaf);
   font-weight: 700;
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-size: 16px;
   line-height: 1;
 }
@@ -1063,7 +1061,7 @@
   list-style: none;
   background: rgba(255, 248, 225, 0.45);
   border: 1px dashed rgba(80, 60, 30, 0.3);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--ink-soft);
@@ -1113,7 +1111,7 @@
   padding: 2px 8px;
   background: var(--emerald-deep);
   color: var(--paper-hi);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.22em;
@@ -1121,7 +1119,7 @@
 }
 
 .dossier__memorable-impact {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -1134,7 +1132,7 @@
 
 .dossier__memorable-narrative {
   margin: 0 0 4px;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-size: 14px;
   line-height: 1.4;
   color: var(--ink);
@@ -1142,7 +1140,7 @@
 
 .dossier__memorable-summary {
   margin: 0;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   letter-spacing: 0.05em;
   color: var(--ink-faint);
@@ -1165,7 +1163,7 @@
   width: 100%;
   min-height: 88px;
   padding: 10px 12px;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-size: 15px;
   line-height: 1.5;
   color: var(--ink);
@@ -1205,7 +1203,7 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 9px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
@@ -1354,7 +1352,7 @@
 }
 .dossier__informant-stack {
   flex: 0 0 auto;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1414,7 +1412,7 @@
     transform 0.05s ease;
 }
 .dossier__informant-buy-price {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
@@ -1532,7 +1530,7 @@
 }
 
 .dossier__history-defining-tag {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -1541,7 +1539,7 @@
 }
 
 .dossier__history-defining-impact {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 11px;
   font-weight: 700;
   color: var(--ink-faint);
@@ -1563,7 +1561,7 @@
 
 .dossier__history-chip {
   padding: 2px 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
