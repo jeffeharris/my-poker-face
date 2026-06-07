@@ -340,11 +340,13 @@ _test_schema_template_path = None
 #       complete; `entity_presence` (state='idle') + `cash_idle_metadata` are
 #       the authoritative idle store.
 SCHEMA_VERSION = 156
-# FROZEN at the v154 baseline. Do NOT bump this or add a new `_migrate_vN`.
-# Post-v154 migrations are authored as files under `migrations/` and applied by
-# `migration_loader.FileMigrationLoader` (applied-set model) — this removes the
-# shared-line merge conflicts that made parallel-worktree migrations painful.
-# See docs/plans/SCHEMA_BASELINE_PLAN.md.
+# This is the head of the LEGACY integer chain, retained until the deploy-time
+# squash (docs/plans/SCHEMA_BASELINE_PLAN.md). Prefer authoring NEW migrations as
+# files under `migrations/` (migration_loader.FileMigrationLoader, applied-set
+# model) — that path has no shared-line merge conflicts and is the going-forward
+# system. A legacy `_migrate_vN` may still land from an in-flight branch before
+# the squash; if so, bump this and the chain will be baselined at whatever
+# SCHEMA_VERSION is current at squash time (the generator reads it dynamically).
 
 
 class SchemaManager:
