@@ -160,6 +160,47 @@ def _emit_reload_if_persisted(game_id: str) -> None:
         logger.debug("[SOCKET] reload signal skipped for %s: %s", game_id, e)
 
 
+def _reattach_mtt_session(current_game_data: dict, mtt_session_row, game_id: str) -> None:
+    """Re-attach the multi-table tournament session on cold load. The games row
+    only persists the single table's state machine; the field / seating / blinds
+    live in the TournamentSession (tournaments table). Without this, an evicted or
+    restarted MTT table loses game_data['tournament_session'], the hand-boundary
+    hook stops advancing the field, and the event silently decays into a lone
+    single table. Rehydrate via the registry and re-point it at this game.
+
+    `mtt_session_row` is None for cash / single-table games (the caller only sets
+    it for a row whose `resolver_kind != 'single'`), so this is a no-op there.
+    """
+    if mtt_session_row is None:
+        return
+    try:
+        from flask_app.services import tournament_registry
+
+        _rec = tournament_registry.get(mtt_session_row['tournament_id'])
+        _sess = _rec.get('session') if _rec else None
+        if _sess is None:
+            return
+        _ht = _sess.human_table
+        # The rehydrated session carries `is_multi_table=True`, which is what the
+        # hand-boundary dispatch keys on — so simply restoring the session here is
+        # enough to route this cold-loaded game back through the multi-table
+        # boundary (the only path that escalates the live table's blinds). No
+        # separate game_data flag to re-stamp (and thus none to drop).
+        current_game_data['tournament_session'] = _sess
+        current_game_data['tournament_id'] = mtt_session_row['tournament_id']
+        current_game_data['tournament_human_id'] = _sess.human_id
+        current_game_data['tournament_table_id'] = _ht.table_id if _ht is not None else None
+        current_game_data['tournament_resolver_kind'] = _rec.get('resolver_kind', 'fake')
+        if _rec.get('game_id') != game_id:
+            _rec['game_id'] = game_id
+    except Exception:
+        logger.error(
+            "[LOAD] failed to re-attach tournament session for %s",
+            game_id,
+            exc_info=True,
+        )
+
+
 def load_game_mode_preset(game_mode: str) -> PromptConfig:
     """Load a game mode as a preset from the database.
 
@@ -997,6 +1038,14 @@ def api_game_state(game_id):
                                         single_session = TournamentSession.from_dict(
                                             _sj, FakeHandResolver()
                                         )
+                                        # `resolver_kind == 'single'` is the
+                                        # authoritative persisted signal — force
+                                        # it on the rehydrated session so a legacy
+                                        # blob (predating the serialized
+                                        # `single_table` key, which defaults to
+                                        # multi) isn't misrouted to the MTT
+                                        # boundary.
+                                        single_session.single_table = True
                                 except Exception:
                                     logger.error(
                                         "[LOAD] single session rehydrate failed for %s; "
@@ -1200,41 +1249,8 @@ def api_game_state(game_id):
                             )
 
                         # Re-attach the multi-table tournament session on cold
-                        # load. The games row only persists the single table's
-                        # state machine; the field / seating / blinds live in the
-                        # TournamentSession (tournaments table). Without this, an
-                        # evicted or restarted MTT table loses
-                        # game_data['tournament_session'], the hand-boundary hook
-                        # stops advancing the field, and the event silently
-                        # decays into a lone single table. Rehydrate via the
-                        # registry and re-point it at this game.
-                        if mtt_session_row is not None:
-                            try:
-                                from flask_app.services import tournament_registry
-
-                                _rec = tournament_registry.get(mtt_session_row['tournament_id'])
-                                _sess = _rec.get('session') if _rec else None
-                                if _sess is not None:
-                                    _ht = _sess.human_table
-                                    current_game_data['tournament_session'] = _sess
-                                    current_game_data['tournament_id'] = mtt_session_row[
-                                        'tournament_id'
-                                    ]
-                                    current_game_data['tournament_human_id'] = _sess.human_id
-                                    current_game_data['tournament_table_id'] = (
-                                        _ht.table_id if _ht is not None else None
-                                    )
-                                    current_game_data['tournament_resolver_kind'] = _rec.get(
-                                        'resolver_kind', 'fake'
-                                    )
-                                    if _rec.get('game_id') != game_id:
-                                        _rec['game_id'] = game_id
-                            except Exception:
-                                logger.error(
-                                    "[LOAD] failed to re-attach tournament session for %s",
-                                    game_id,
-                                    exc_info=True,
-                                )
+                        # load (no-op for cash / single-table games).
+                        _reattach_mtt_session(current_game_data, mtt_session_row, game_id)
 
                         game_state_service.set_game(game_id, current_game_data)
 
