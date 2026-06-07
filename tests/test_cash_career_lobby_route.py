@@ -222,30 +222,32 @@ class TestCareerKeyringLobby(unittest.TestCase):
         assert repo.load(sb, PLAYER_OWNER_ID).mentor_intro_table_id is None
 
     def test_intake_christens_fish_name_and_clears_the_gate(self):
-        # Brand-new career player → the lobby asks for the intake first.
+        # Brand-new career player → the lobby asks for the intake first, and
+        # serves the three authored backgrounds for Q2 (the single source of truth).
         first = self.client.get("/api/cash/lobby").get_json()
         assert first["intake_needed"] is True
-        # Submit the cold-open: name + the reply they picked → christened a handle
-        # + bio. The reply is plain flavor (no setting mapping); it's remembered as
-        # a callback hook.
+        backstories = first["intake_backstories"]
+        assert len(backstories) == 3 and {"id", "title", "text"} <= set(backstories[0])
+        # Submit the cold-open: name + the backstory they picked (by id). The bio
+        # is resolved SERVER-SIDE from the id; it's remembered as a callback hook.
+        from cash_mode.career_progression import get_backstory
+
+        chosen = get_backstory("quiet")
         res = self.client.post(
             "/api/cash/intake",
-            json={
-                "name": "Jeff",
-                "reply": "Folks say I'm hard to read. Never did know what they meant by it.",
-                "reply_id": "hard_to_read",
-            },
+            json={"name": "Jeff", "reply_id": "quiet"},
         )
         body = res.get_json()
         assert body["player_name"] == "Jeff"
-        assert body["fish_name"]  # LLM- or fallback-generated handle
+        assert body["fish_name"]  # rule-based handle (deterministic)
+        assert body["bio"] == chosen["text"]  # bio IS the chosen backstory
         assert "intensity" not in body  # decoupled from quick-chat
         assert "avatar_prompt" in body  # the avatar seam is present
-        # The reply is persisted verbatim (+ its id) for later narrative callbacks.
+        # The backstory is persisted (text + id) for later narrative callbacks.
         sb = self.repos['sandbox_repo'].list_for_owner(PLAYER_OWNER_ID)[0].sandbox_id
         prog = self.repos['career_progress_repo'].load(sb, PLAYER_OWNER_ID)
-        assert prog.intake_reply_id == "hard_to_read"
-        assert "hard to read" in (prog.intake_reply or "")
+        assert prog.intake_reply_id == "quiet"
+        assert prog.intake_reply == chosen["text"]
         # Intake is now done → the gate clears and the handle is surfaced.
         after = self.client.get("/api/cash/lobby").get_json()
         assert after["intake_needed"] is False

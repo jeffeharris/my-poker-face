@@ -3,15 +3,16 @@
  *
  * You stopped at a 50s diner, The Lucky Stack ("good hands served daily"), for
  * coffee; the waitress waves you toward "the back," assumes you're here for the
- * game, and comps you a stack. One snappy screen: give a name, then answer her
- * "tell me something about yourself" by picking one of a few replies. The room
- * LLM-christens you a tourist fish-name + a one-liner built off your reply, and
- * the reply is remembered (`intake_reply`) as a hook for later callbacks. Shown
- * only to a brand-new career player (`intake_needed`).
+ * game, and comps you a stack. One snappy screen: give the name you want to go
+ * by, then answer her "what's your story?" by picking one of three backgrounds.
+ * The room christens you a tourist fish-name (rule-based) and the picked
+ * background becomes your bio (`intake_reply`) + a hook for later callbacks.
+ * Shown only to a brand-new career player (`intake_needed`).
  *
- * The replies are plain character flavor — they don't map to any setting. The
- * newcomer doesn't (yet) know they've wandered into a poker room, so the lines
- * stay innocent: who you are, not how you'll play.
+ * The three backgrounds are authored ONCE and arrive from the server (the
+ * single source of truth), so there's no client copy to drift. They're plain
+ * character flavor — innocent of poker (the newcomer doesn't yet know what
+ * game's in back): who you are, not how you'll play.
  *
  * Portaled to body (overlay must escape the page header's stacking context).
  */
@@ -22,9 +23,12 @@ import { logger } from '../../utils/logger';
 import { useAuth } from '../../hooks/useAuth';
 import { DramaticReserve } from '../shared/DramaticText';
 import { submitIntake, type IntakeResult } from './api';
+import type { IntakeBackstory } from './types';
 import './LuckyStackIntake.css';
 
 interface LuckyStackIntakeProps {
+  /** The three authored backgrounds for Q2, from the lobby payload. */
+  backstories: IntakeBackstory[];
   onDone: () => void;
 }
 
@@ -43,42 +47,23 @@ const WAITRESS_WELCOME = [
   'Go on, hon. They don’t bite. Much.',
 ].join('\n');
 
-// A few replies to the waitress's "tell me something about yourself." Plain
-// character flavor — no setting maps to them; they're just a line the player
-// picks that the room remembers and can call back to later. The `reply` is the
-// verbatim line they "say" (it feeds the bio); the `id` is a stable callback key.
-// Deliberately INNOCENT of poker: the newcomer doesn't know what game's in back.
-const REPLIES: { id: string; reply: string }[] = [
-  {
-    id: 'coffee',
-    reply: "Honestly? Just followed my nose in for a decent cup of coffee.",
-  },
-  {
-    id: 'game',
-    reply: "Ah, I'm game for about anything once. Why not, right?",
-  },
-  {
-    id: 'hard_to_read',
-    reply: "Folks say I'm hard to read. Never did know what they meant by it.",
-  },
-];
-
-export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
+export function LuckyStackIntake({ backstories, onDone }: LuckyStackIntakeProps) {
   const { user } = useAuth();
   // Pre-fill with the player's account name so they can just hit the button —
   // the box defaults to a real value, not a greyed-out placeholder. Editable.
   const [name, setName] = useState(() => user?.name ?? '');
-  const [replyId, setReplyId] = useState<string | null>(null);
+  const [backstoryId, setBackstoryId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<IntakeResult | null>(null);
 
   const tellHer = async () => {
-    const choice = REPLIES.find((r) => r.id === replyId);
+    const choice = backstories.find((b) => b.id === backstoryId);
     if (busy || !choice) return;
     setBusy(true);
     try {
       // Empty name → the server falls back to the account name (never "Stranger").
-      const res = await submitIntake(name.trim(), choice.reply, choice.id);
+      // The bio is resolved server-side by id; we send the text only for parity.
+      const res = await submitIntake(name.trim(), choice.text, choice.id);
       setResult(res);
     } catch (e) {
       logger.error('intake failed:', e instanceof Error ? e.message : e);
@@ -100,32 +85,35 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
               <DramaticReserve key="intro" text={WAITRESS_INTRO} />
             </div>
 
-            <label className="lucky__label" htmlFor="lucky-name">Name for the book</label>
+            <label className="lucky__label" htmlFor="lucky-name">
+              What should we call you?
+            </label>
             <input
               id="lucky-name"
               className="lucky__input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="What should I call ya?"
+              placeholder="The name you want to go by"
               maxLength={40}
               autoFocus
             />
 
-            <p className="lucky__prompt">“So — tell me somethin' about yourself, hon.”</p>
+            <p className="lucky__prompt">“So — what's your story, hon?”</p>
             <div className="lucky__deals">
-              {REPLIES.map((opt) => (
+              {backstories.map((opt) => (
                 <button
                   key={opt.id}
                   type="button"
-                  className={`lucky__deal${replyId === opt.id ? ' is-selected' : ''}`}
-                  onClick={() => setReplyId(opt.id)}
+                  className={`lucky__deal${backstoryId === opt.id ? ' is-selected' : ''}`}
+                  onClick={() => setBackstoryId(opt.id)}
                 >
-                  <span className="lucky__deal-reply">“{opt.reply}”</span>
+                  <span className="lucky__deal-title">{opt.title}</span>
+                  <span className="lucky__deal-reply">{opt.text}</span>
                 </button>
               ))}
             </div>
 
-            <button className="lucky__btn" onClick={tellHer} disabled={busy || !replyId}>
+            <button className="lucky__btn" onClick={tellHer} disabled={busy || !backstoryId}>
               {busy ? 'She writes it down…' : 'Tell her'}
             </button>
           </>
@@ -135,7 +123,9 @@ export function LuckyStackIntake({ onDone }: LuckyStackIntakeProps) {
               <DramaticReserve key="scribble" text={WAITRESS_SCRIBBLE} />
             </div>
             <p className="lucky__fishname">“Fresh fish — {result.fish_name}!”</p>
-            <div className="lucky__avatar" aria-hidden="true">🐟</div>
+            <div className="lucky__avatar" aria-hidden="true">
+              🐟
+            </div>
             {result.bio && <p className="lucky__bio">“{result.bio}”</p>}
             <div className="lucky__speech lucky__speech--welcome">
               <DramaticReserve key="welcome" text={WAITRESS_WELCOME} />

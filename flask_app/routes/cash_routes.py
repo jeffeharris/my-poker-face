@@ -6434,6 +6434,14 @@ def get_lobby():
             "stake_label": HOME_COURT_STAKE,
         }
 
+    # Brand-new career player who hasn't been christened yet → the frontend shows
+    # the Lucky Stack intake (cold open) before the lobby.
+    _intake_needed = bool(
+        career_progress is not None
+        and career_progress.career_active
+        and not career_progress.intake_complete
+    )
+
     return jsonify(
         {
             "bankroll": bankroll.chips,
@@ -6455,11 +6463,12 @@ def get_lobby():
             # player who hasn't been christened yet → the frontend shows the
             # intake beat before the lobby. `fish_name` is their tourist handle
             # once set (shown until they're vouched out of Scene 0).
-            "intake_needed": bool(
-                career_progress is not None
-                and career_progress.career_active
-                and not career_progress.intake_complete
-            ),
+            "intake_needed": _intake_needed,
+            # The three authored backgrounds the newcomer picks from (Q2). Sent
+            # only when intake is pending so the frontend renders the server's
+            # single source of truth (no client-side copy to drift). Empty
+            # otherwise to keep the polled lobby payload lean.
+            "intake_backstories": (career_progression.INTAKE_BACKSTORIES if _intake_needed else []),
             "fish_name": (career_progress.fish_name if career_progress is not None else None),
             # Sal's one-shot post-graduation handoff (portrait + bubble + which
             # table to spotlight), or null when there's nothing to show.
@@ -6488,7 +6497,7 @@ def cash_intake_route():
         return jsonify({"error": str(e)}), 400
     sandbox_id = _resolve_sandbox_id(owner_id)
 
-    from cash_mode.career_progression import generate_intake_persona, intake_avatar_prompt
+    from cash_mode.career_progression import intake_avatar_prompt, intake_persona
     from flask_app.extensions import career_progress_repo, user_prefs_repo
 
     if career_progress_repo is None:
@@ -6498,21 +6507,20 @@ def cash_intake_route():
     # Empty name → fall back to the player's account name (what the box pre-fills
     # with) rather than a jarring "Stranger", so a one-tap submit still works.
     name = (body.get("name") or "").strip()[:40] or _resolve_player_name() or "Stranger"
-    # The verbatim line the player picked when the waitress asked them to say
-    # something about themselves (+ a stable id for later callbacks). Plain
-    # character flavor — no quick-chat / setting mapping.
-    reply = (body.get("reply") or "").strip()[:200]
+    # The backstory the player picked (`reply_id`). The text is resolved
+    # SERVER-SIDE by id from the authored set (the client can't spoof the bio);
+    # `reply_id` is also the stable key for later narrative callbacks.
     reply_id = (body.get("reply_id") or "").strip()[:40]
 
     progress = career_progress_repo.load(sandbox_id, owner_id)
     if not progress.intake_complete:
-        # LLM-christen a fish-name + a short funny bio riffing on the name + what
-        # they actually said. Robust fallback inside — never blocks on the model.
-        persona = generate_intake_persona(name, answer=reply, owner_id=owner_id)
+        # Deterministic christening: a rule-based fish-name + the chosen
+        # pre-authored backstory as the bio (no per-user LLM call).
+        persona = intake_persona(name, reply_id)
         progress.player_name = name
         progress.fish_name = persona["fish_name"]
-        progress.intake_reply = reply
-        progress.intake_reply_id = reply_id
+        progress.intake_reply = persona["backstory_text"]
+        progress.intake_reply_id = persona["backstory_id"]
         progress.intake_complete = True
         career_progress_repo.save(progress)
         # The generated one-liner becomes the AI-visible bio (Sal/Larry rib it).

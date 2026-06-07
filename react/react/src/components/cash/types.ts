@@ -364,6 +364,15 @@ export interface ReputationData {
   renown_v2_components?: ReputationV2Components;
 }
 
+/** One of the three authored intake backgrounds (Q2). `id` is the stable
+ *  callback key; `title` labels the card; `text` is the chosen background, also
+ *  stored verbatim as the player's bio. */
+export interface IntakeBackstory {
+  id: string;
+  title: string;
+  text: string;
+}
+
 export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
@@ -421,6 +430,9 @@ export interface LobbyResponse {
    *  Lucky Stack intake (cold open) yet; the frontend shows the intake beat
    *  before the lobby. `fish_name` is the tourist handle once christened. */
   intake_needed?: boolean;
+  /** The three authored backgrounds the newcomer picks from (intake Q2).
+   *  Server-sent single source of truth; present only while `intake_needed`. */
+  intake_backstories?: IntakeBackstory[];
   fish_name?: string | null;
   /** One-shot, right after Scene-0 graduation: Sal escorts the player to the
    *  revealed home court. The lobby shows his portrait + bubble (`line`) and

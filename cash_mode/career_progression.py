@@ -144,75 +144,73 @@ def make_fish_name(name: str, rng: Optional[random.Random] = None) -> str:
     return f"{rng.choice(bank)} {first}"
 
 
-# Canned bio if the model is unavailable — warm, never "sucker/mark" (intake must
-# never block on the model). The player's reply now comes straight from the
-# client, so this is a single neutral line rather than a vibe-keyed table.
-_FALLBACK_BIO = "Wandered in off the street and pulled up a chair like they owned it."
+# The three backgrounds the waitress can jot in "the book" — authored ONCE and
+# shown to EVERY newcomer (not generated per-user). The one they pick becomes
+# their background AND their AI-visible bio (Sal & co. rib it), so each line is
+# written as a third-person note in the book that reads well as a bio.
+#   - `id`    : stable key for later narrative callbacks (don't reuse/rename).
+#   - `title` : the card label in the picker.
+#   - `text`  : the backstory, stored verbatim as the bio.
+# Resolved by id server-side, so the stored bio can never be spoofed by a client.
+INTAKE_BACKSTORIES = [
+    {
+        "id": "drifter",
+        "title": "Just Passing Through",
+        "text": (
+            "Rolled into town with no particular plans and a powerful thirst for "
+            "coffee. Says they're just passing through — but that was three cups "
+            "ago, and they're still here."
+        ),
+    },
+    {
+        "id": "quiet",
+        "title": "Hard to Read",
+        "text": (
+            "Doesn't say much; watches everything. Nobody can quite get a read on "
+            "'em — and, between us, neither can they."
+        ),
+    },
+    {
+        "id": "game_for_anything",
+        "title": "Game for Anything",
+        "text": (
+            "Never met a long shot they didn't like. Wandered in grinning, ready "
+            "to try just about anything once — twice if it's any fun."
+        ),
+    },
+]
+
+_DEFAULT_BACKSTORY = INTAKE_BACKSTORIES[0]
 
 
-def generate_intake_persona(
-    name: str,
-    *,
-    answer: str = "",
-    owner_id: Optional[str] = None,
-    rng: Optional[random.Random] = None,
-) -> dict:
-    """Build the intake persona: a deterministic alliterative fish-name + a bio.
+def get_backstory(backstory_id: str) -> dict:
+    """Resolve a backstory by id; falls back to the first so intake never breaks."""
+    for b in INTAKE_BACKSTORIES:
+        if b["id"] == backstory_id:
+            return b
+    return _DEFAULT_BACKSTORY
 
-    The **fish-name is always rule-based** (`make_fish_name`) so it reliably keeps
-    the player's own first name and alliterates — the LLM kept dropping the name
-    entirely ("Jeff" → "Lost Little Larry"). The LLM is used ONLY for the funny
-    one-line bio, riffing on the name + what the player ACTUALLY said (`answer`),
-    with a canned fallback so intake never blocks on the model.
+
+def intake_persona(name: str, backstory_id: str, rng: Optional[random.Random] = None) -> dict:
+    """Build the intake persona deterministically: a rule-based alliterative
+    fish-name + the chosen (pre-authored) backstory as the bio.
+
+    No LLM. The **fish-name is always rule-based** (`make_fish_name`) so it
+    reliably keeps the player's own first name and alliterates. The **bio is the
+    chosen backstory**, resolved by id from `INTAKE_BACKSTORIES` (authored once,
+    not generated per-user) — so intake is instant, free, consistent, and the
+    stored bio can't be spoofed by the client. Returns the resolved backstory id
+    + text alongside the persona so the caller can persist the callback key.
     """
     name = (name or "").strip() or "Stranger"
     fish_name = make_fish_name(name, rng)  # deterministic, always alliterative
-    answer = (answer or "").strip()  # what they told the waitress, verbatim
-    bio = _FALLBACK_BIO
-    try:
-        import json as _json
-
-        from core.llm import CallType, LLMClient
-        from flask_app import config as flask_config
-
-        # Assistant tier (the stronger model) — this one-liner is the player's
-        # first impression on the room and shows up forever as their bio, so it's
-        # worth the better model over the cheap fast tier.
-        client = LLMClient(
-            model=flask_config.get_assistant_model(),
-            provider=flask_config.get_assistant_provider(),
-        )
-        system = (
-            "You're the wry house narrator of an underground poker room, The Lucky "
-            "Stack. A newcomer just wandered in off the street — NOT a sucker or a "
-            "mark, just a curious wrong-turn — and the waitress asked them to say "
-            "something about themselves. Write ONE short, warm, funny third-person "
-            "line introducing them to the table. Lean on their NICKNAME and what "
-            "they actually said. PG-13, affectionate, playful — never mean, and "
-            "never call them a fish/mark/sucker. Output strict JSON only."
-        )
-        user = (
-            f'The room is calling the newcomer "{fish_name}" (real name "{name}"). '
-            f'When the waitress asked them to tell her something about themselves, '
-            f'they said: "{answer}". Return JSON with one field, "bio": ONE '
-            f"third-person sentence (max 90 characters) that plays on the nickname "
-            f'"{fish_name}" AND what they said — something the regulars will fondly '
-            f"rib them about."
-        )
-        resp = client.complete(
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            json_format=True,
-            call_type=CallType.PERSONALITY_GENERATION,
-            owner_id=owner_id,
-            prompt_template="career_intake_persona",
-        )
-        data = _json.loads(resp.content)
-        llm_bio = str(data.get("bio") or "").strip()[:140]
-        if llm_bio:
-            bio = llm_bio
-    except Exception:
-        logger.warning("[CAREER] intake bio LLM failed; using canned line", exc_info=True)
-    return {"fish_name": fish_name, "bio": bio}
+    backstory = get_backstory(backstory_id)
+    return {
+        "fish_name": fish_name,
+        "bio": backstory["text"],
+        "backstory_id": backstory["id"],
+        "backstory_text": backstory["text"],
+    }
 
 
 def intake_avatar_prompt(fish_name: str, bio: str) -> str:

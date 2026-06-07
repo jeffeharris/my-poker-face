@@ -59,6 +59,7 @@ import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
   BankrollPoint,
+  IntakeBackstory,
   LobbyEvent,
   LobbyTable,
   MentorIntro,
@@ -244,6 +245,9 @@ export function Lobby() {
   // that lands right after `submitIntake` flips it false and unmounts the
   // reveal mid-beat (the "flash").
   const [showIntake, setShowIntake] = useState(false);
+  // The three authored backgrounds for intake Q2, from the lobby payload (the
+  // server is the single source of truth so there's no client copy to drift).
+  const [intakeBackstories, setIntakeBackstories] = useState<IntakeBackstory[]>([]);
   // Sal's one-shot post-graduation handoff: his portrait + bubble, spotlighting
   // the revealed home court. Sticky once captured; cleared when the bubble plays
   // out (the server already cleared its copy, so it won't replay on next load).
@@ -441,6 +445,7 @@ export function Lobby() {
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setReputation(lobby.reputation ?? null);
         if (lobby.intake_needed) setShowIntake(true); // sticky — never auto-cleared here
+        if (lobby.intake_backstories?.length) setIntakeBackstories(lobby.intake_backstories);
         // One-shot Sal handoff: capture the first time it arrives (the server
         // clears its copy on serve), then let the floater play it out.
         if (lobby.mentor_intro) setMentorIntro(lobby.mentor_intro);
@@ -1171,7 +1176,9 @@ export function Lobby() {
             });
           }}
         />
-        {showIntake && <LuckyStackIntake onDone={handleIntakeDone} />}
+        {showIntake && (
+          <LuckyStackIntake backstories={intakeBackstories} onDone={handleIntakeDone} />
+        )}
         {/* Sal's post-graduation handoff: his portrait + bubble walk the player
             to the spotlighted home court. Same floater used at the table. */}
         <SalFloater queue={floaterQueue} onShown={dismissFloaterMessage} />

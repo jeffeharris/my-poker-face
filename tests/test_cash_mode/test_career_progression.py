@@ -67,21 +67,22 @@ def test_make_fish_name_alliterates_when_it_can():
     assert cp.make_fish_name("", random.Random(3)).endswith("Stranger")
 
 
-def test_generate_intake_persona_falls_back_when_llm_off(monkeypatch):
-    # Force the LLM path to fail so we exercise the robust fallback (intake must
-    # never block on the model). Patch the fast-model accessor the gen uses.
-    import flask_app.config as fc
+def test_intake_persona_is_deterministic_from_backstory():
+    # No LLM: a rule-based fish-name + the chosen pre-authored backstory as bio.
+    quiet = cp.get_backstory("quiet")
+    persona = cp.intake_persona("Jeff", "quiet", rng=random.Random(1))
+    assert persona["fish_name"].endswith("Jeff")  # rule-based, keeps the name
+    assert persona["bio"] == quiet["text"]  # bio IS the chosen backstory
+    assert persona["backstory_id"] == "quiet"
+    assert persona["backstory_text"] == quiet["text"]
 
-    def _boom(*a, **k):
-        raise RuntimeError("llm off")
 
-    monkeypatch.setattr(fc, "get_fast_model", _boom)
-    persona = cp.generate_intake_persona(
-        "Jeff", answer="Folks say I'm hard to read.", rng=random.Random(1)
-    )
-    assert persona["fish_name"].endswith("Jeff")  # rule-based fallback name
-    assert persona["bio"]  # a canned line
-    assert "Jeff" in cp.intake_avatar_prompt(persona["fish_name"], persona["bio"]) or True
+def test_intake_persona_unknown_backstory_falls_back():
+    # An unknown id resolves to the first authored backstory (intake never breaks).
+    default = cp.INTAKE_BACKSTORIES[0]
+    persona = cp.intake_persona("Sam", "no_such_id", rng=random.Random(2))
+    assert persona["backstory_id"] == default["id"]
+    assert persona["bio"] == default["text"]
 
 
 def test_progress_roundtrip(repos):
