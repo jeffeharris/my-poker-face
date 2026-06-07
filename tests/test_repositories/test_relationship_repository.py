@@ -23,6 +23,7 @@ pytestmark = pytest.mark.integration
 from poker.memory.opponent_model import (
     HEAT_DECAY_HALF_LIFE_DAYS,
     HEAT_DECAY_PLATEAU_DAYS,
+    REGARD_NEUTRAL,
     CashPairStats,
     RelationshipState,
 )
@@ -438,6 +439,30 @@ class TestNicknameOverrideRoundTrip:
         repo.save_nickname_override("alice", "bob", "label")
         repo.save_nickname_override("alice", "bob", None)
         assert repo.load_nickname_override("alice", "bob") is None
+
+    def test_nickname_only_row_seeds_neutral_regard(self, repo):
+        # A nickname-only row for a never-played opponent must NOT read as
+        # above-neutral regard: the axes are seeded explicitly at
+        # REGARD_NEUTRAL, not the legacy 0.5 column default (which the
+        # rebaselined scoring would treat as positive regard).
+        repo.save_nickname_override("alice", "stranger", "the new guy")
+        state = repo.load_raw_relationship_state("alice", "stranger")
+        assert state is not None
+        assert state.respect == REGARD_NEUTRAL
+        assert state.likability == REGARD_NEUTRAL
+        assert state.heat == 0.0
+
+
+class TestNoteNeutralSeed:
+    def test_note_only_row_seeds_neutral_regard(self, repo):
+        # Same invariant as nickname: a note on a never-played opponent
+        # seeds neutral regard, not the legacy 0.5.
+        repo.save_note("alice", "stranger", "limps everything")
+        state = repo.load_raw_relationship_state("alice", "stranger")
+        assert state is not None
+        assert state.respect == REGARD_NEUTRAL
+        assert state.likability == REGARD_NEUTRAL
+        assert state.heat == 0.0
 
     def test_override_is_per_observer(self, repo):
         # alice and zeke both file overrides on bob; reads must

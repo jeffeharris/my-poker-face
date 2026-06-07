@@ -45,6 +45,7 @@ from cash_mode.staking_tier import (
 )
 from cash_mode.tables import CashTableState, ai_slot, open_slot
 from flask_app import create_app
+from poker.memory.opponent_model import REGARD_NEUTRAL
 from poker.repositories import create_repos
 from tests._sandbox_test_helper import TEST_SANDBOX_ID, pin_sandbox_for
 
@@ -393,8 +394,8 @@ class TestPayoffSuccess(_NetWorthRouteBase):
             opponent_id=PLAYER_OWNER_ID,
         )
         self.assertIsNotNone(state)
-        self.assertGreater(state.respect, 0.5)
-        self.assertGreater(state.likability, 0.5)
+        self.assertGreater(state.respect, REGARD_NEUTRAL)
+        self.assertGreater(state.likability, REGARD_NEUTRAL)
 
 
 class TestPayoffRejections(_NetWorthRouteBase):

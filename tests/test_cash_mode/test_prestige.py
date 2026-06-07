@@ -23,6 +23,7 @@ from cash_mode.prestige import (
     refill_affinity,
     reputation_chat_tone,
 )
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 NOW = datetime(2026, 5, 29, 12, 0, 0)
 OWNER = "guest_jeff"
@@ -234,9 +235,12 @@ def test_beat_respected_credits_respect_of_beaten_opponents():
     pairs = [_Pair("whale", cumulative_pnl=5000), _Pair("fish", cumulative_pnl=-200)]
     score = _compute(_RelRepo(inbound=inbound, pairs=pairs), _SessionRepo())
     assert score.renown_beat_respected > 0
-    # Beating only a low-respect opponent → little/no credit.
+    # Beating only a NEUTRAL-respect opponent → no credit (neutral = 0 credit).
     low = _compute(
-        _RelRepo(inbound={"fish": _Edge(respect=0.5)}, pairs=[_Pair("fish", cumulative_pnl=300)]),
+        _RelRepo(
+            inbound={"fish": _Edge(respect=REGARD_NEUTRAL)},
+            pairs=[_Pair("fish", cumulative_pnl=300)],
+        ),
         _SessionRepo(),
     )
     assert low.renown_beat_respected == 0.0
@@ -264,11 +268,14 @@ def test_regard_averages_to_near_zero_for_balanced_room():
     # to ~neutral. (Heat is deliberately excluded here: it's one-sided
     # notoriety, so any heat pulls regard negative even in an otherwise
     # balanced room — see test_regard_hostile_*.)
+    # Symmetric warm/cold deviations around the neutral baseline cancel.
+    hi = REGARD_NEUTRAL + 0.3
+    lo = REGARD_NEUTRAL - 0.3
     inbound = {
-        "warm1": _Edge(likability=1.0, respect=0.9, heat=0.0),
-        "warm2": _Edge(likability=1.0, respect=0.9, heat=0.0),
-        "cold1": _Edge(likability=0.0, respect=0.1, heat=0.0),
-        "cold2": _Edge(likability=0.0, respect=0.1, heat=0.0),
+        "warm1": _Edge(likability=hi, respect=hi, heat=0.0),
+        "warm2": _Edge(likability=hi, respect=hi, heat=0.0),
+        "cold1": _Edge(likability=lo, respect=lo, heat=0.0),
+        "cold2": _Edge(likability=lo, respect=lo, heat=0.0),
     }
     score = _compute(_RelRepo(inbound=inbound), _SessionRepo())
     assert abs(score.regard) < 0.01

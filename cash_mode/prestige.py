@@ -39,6 +39,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from cash_mode.stakes_ladder import STAKES_ORDER
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -210,11 +211,11 @@ def refill_affinity(quadrant: str, state: Any) -> float:
     (likability/respect/heat); None → neutral defaults (no edge yet).
     """
     if state is None:
-        likability, respect, heat = 0.5, 0.5, 0.0
+        likability, respect, heat = REGARD_NEUTRAL, REGARD_NEUTRAL, 0.0
     else:
         likability, respect, heat = state.likability, state.respect, state.heat
     if quadrant == QUADRANT_BELOVED_LEGEND:
-        return (likability - 0.5) + (respect - 0.5)
+        return (likability - REGARD_NEUTRAL) + (respect - REGARD_NEUTRAL)
     if quadrant == QUADRANT_INFAMOUS_VILLAIN:
         return heat
     return 0.0
@@ -336,8 +337,11 @@ def compute_prestige(
         for pid in beaten:
             state = inbound.get(pid)
             if state is not None:
-                # respect 0.5 → 0.0 credit, respect 1.0 → 1.0 credit.
-                quality_sum += _clamp((state.respect - 0.5) * 2.0, 0.0, 1.0)
+                # respect REGARD_NEUTRAL → 0.0 credit, respect 1.0 → 1.0 credit
+                # (normalize the earned-respect band [neutral, 1] onto [0, 1]).
+                quality_sum += _clamp(
+                    (state.respect - REGARD_NEUTRAL) / (1.0 - REGARD_NEUTRAL), 0.0, 1.0
+                )
         c_beat_respected = W_BEAT_RESPECTED * (quality_sum / len(beaten))
 
     # ---- Renown: high-stakes win ----
@@ -364,8 +368,8 @@ def compute_prestige(
     if opponent_count:
         lik_sum = resp_sum = heat_sum = 0.0
         for st in inbound.values():
-            lik_sum += st.likability - 0.5
-            resp_sum += st.respect - 0.5
+            lik_sum += st.likability - REGARD_NEUTRAL
+            resp_sum += st.respect - REGARD_NEUTRAL
             heat_sum += st.heat
         regard_lik = lik_sum / opponent_count * REGARD_W_LIKABILITY
         regard_resp = resp_sum / opponent_count * REGARD_W_RESPECT
@@ -867,8 +871,8 @@ def build_renown_inputs_from_repos(
         inbound = relationship_repo.load_inbound_relationships(entity_id, now=now)
         n = len(inbound) if inbound else 0
         if n:
-            lik = sum((st.likability - 0.5) for st in inbound.values()) / n
-            resp = sum((st.respect - 0.5) for st in inbound.values()) / n
+            lik = sum((st.likability - REGARD_NEUTRAL) for st in inbound.values()) / n
+            resp = sum((st.respect - REGARD_NEUTRAL) for st in inbound.values()) / n
             heat = sum(st.heat for st in inbound.values()) / n
             out.regard_likability = lik
             out.regard_respect = resp

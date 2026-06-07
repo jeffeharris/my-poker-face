@@ -25,6 +25,7 @@ from cash_mode.sponsor_offers import (
     compute_personality_offers,
 )
 from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS, StakerProfile
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 
 @dataclass
@@ -137,9 +138,9 @@ class TestAdjustedTerms:
     def test_neutral_relationship_returns_anchors(self):
         floor, rate = _adjusted_terms(
             self._profile(),
-            likability=0.5,
+            likability=REGARD_NEUTRAL,
             heat=0.0,
-            respect=0.5,
+            respect=REGARD_NEUTRAL,
         )
         assert floor == 1.20
         assert rate == 0.30
@@ -149,7 +150,7 @@ class TestAdjustedTerms:
             self._profile(),
             likability=0.8,
             heat=0.0,
-            respect=0.5,
+            respect=REGARD_NEUTRAL,
         )
         # 1.20 - 0.05 = 1.15; 0.30 - 0.05 = 0.25
         assert floor == pytest.approx(1.15)
@@ -158,9 +159,9 @@ class TestAdjustedTerms:
     def test_high_heat_raises_terms(self):
         floor, rate = _adjusted_terms(
             self._profile(),
-            likability=0.5,
+            likability=REGARD_NEUTRAL,
             heat=0.6,
-            respect=0.5,
+            respect=REGARD_NEUTRAL,
         )
         # 1.20 + 0.10 = 1.30; 0.30 + 0.10 = 0.40
         assert floor == pytest.approx(1.30)
@@ -169,7 +170,7 @@ class TestAdjustedTerms:
     def test_high_respect_softens_terms(self):
         floor, rate = _adjusted_terms(
             self._profile(),
-            likability=0.5,
+            likability=REGARD_NEUTRAL,
             heat=0.0,
             respect=0.7,
         )
@@ -225,9 +226,9 @@ class TestAdjustedTerms:
         )
         floor, rate = _adjusted_terms(
             profile,
-            likability=0.5,
+            likability=REGARD_NEUTRAL,
             heat=0.8,
-            respect=0.5,
+            respect=REGARD_NEUTRAL,
         )
         # 1.45 + 0.10 = 1.55 → clamp to 1.50.
         assert floor == 1.50
@@ -243,9 +244,9 @@ class TestAdjustedTerms:
         )
         floor, rate = _adjusted_terms(
             profile,
-            likability=0.5,
+            likability=REGARD_NEUTRAL,
             heat=0.8,
-            respect=0.5,
+            respect=REGARD_NEUTRAL,
         )
         # 0.50 + 0.10 = 0.60 → clamp to 0.55.
         assert rate == 0.55
@@ -268,15 +269,18 @@ class TestRelationshipHint:
         assert hint == "trusts you"
 
     def test_high_respect_only(self):
-        hint = _relationship_hint(likability=0.4, heat=0.0, respect=0.7)
+        # Respect above neutral, likability below it → "respects your game"
+        # (not the trusts-you branch, which needs likability above neutral).
+        hint = _relationship_hint(likability=REGARD_NEUTRAL - 0.05, heat=0.0, respect=0.7)
         assert hint == "respects your game"
 
     def test_high_likability_only(self):
-        hint = _relationship_hint(likability=0.7, heat=0.0, respect=0.5)
+        # Likability above neutral, respect at neutral → "friendly".
+        hint = _relationship_hint(likability=0.7, heat=0.0, respect=REGARD_NEUTRAL)
         assert hint == "friendly"
 
     def test_neutral_returns_empty(self):
-        hint = _relationship_hint(likability=0.5, heat=0.0, respect=0.5)
+        hint = _relationship_hint(likability=REGARD_NEUTRAL, heat=0.0, respect=REGARD_NEUTRAL)
         assert hint == ""
 
 
@@ -663,7 +667,10 @@ class TestOutputShape:
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"napoleon": 20_000})
         rel = _FakeRelationshipRepo(
             states={
-                ("napoleon", "player"): _RelState(respect=0.5, heat=0.5, likability=0.5),
+                # Neutral regard, hot heat: isolates the heat-only term bump.
+                ("napoleon", "player"): _RelState(
+                    respect=REGARD_NEUTRAL, heat=0.5, likability=REGARD_NEUTRAL
+                ),
             }
         )
         offers = compute_personality_offers(

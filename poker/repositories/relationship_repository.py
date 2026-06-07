@@ -33,6 +33,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from poker.memory.opponent_model import (
+    REGARD_NEUTRAL,
     CashPairStats,
     RelationshipState,
     project_heat,
@@ -650,20 +651,25 @@ class RelationshipRepository(BaseRepository):
         Empty / whitespace-only notes are stored as NULL so the
         "has a note" predicate stays meaningful. Uses an UPSERT so
         we don't have to touch the affinity axes — a freshly-noted
-        pair gets a row with default heat/respect/likability and the
+        pair gets a row with neutral heat/respect/likability and the
         note attached.
+
+        The neutral axes are written EXPLICITLY (rather than relying on
+        the column defaults) so a note-only row reads as a true neutral
+        stranger (REGARD_NEUTRAL) under the 0.5->0.35 rebaseline — never
+        as above-neutral regard that would leak into offers/hints/renown.
         """
         clean = (note or '').strip() or None
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO relationship_states
-                    (observer_id, opponent_id, notes)
-                VALUES (?, ?, ?)
+                    (observer_id, opponent_id, respect, likability, notes)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(observer_id, opponent_id)
                 DO UPDATE SET notes = excluded.notes
                 """,
-                (observer_id, opponent_id, clean),
+                (observer_id, opponent_id, REGARD_NEUTRAL, REGARD_NEUTRAL, clean),
             )
 
     # --- nickname_override (v101) ---
@@ -728,18 +734,20 @@ class RelationshipRepository(BaseRepository):
         Empty / whitespace-only input is stored as NULL so "has an
         override" stays a meaningful predicate — clearing the field
         in the UI should fully revert to the canonical nickname.
-        Mirrors `save_note`: UPSERT keeps the affinity axes at their
-        defaults if no row exists yet.
+        Mirrors `save_note`: UPSERT seeds the affinity axes at neutral
+        (REGARD_NEUTRAL, written explicitly rather than via the column
+        defaults) when no row exists yet, so a nickname-only row reads
+        as a true neutral stranger under the rebaseline.
         """
         clean = (nickname or '').strip() or None
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO relationship_states
-                    (observer_id, opponent_id, nickname_override)
-                VALUES (?, ?, ?)
+                    (observer_id, opponent_id, respect, likability, nickname_override)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(observer_id, opponent_id)
                 DO UPDATE SET nickname_override = excluded.nickname_override
                 """,
-                (observer_id, opponent_id, clean),
+                (observer_id, opponent_id, REGARD_NEUTRAL, REGARD_NEUTRAL, clean),
             )

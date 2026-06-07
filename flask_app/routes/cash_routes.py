@@ -77,6 +77,7 @@ from flask_app import config
 # be imported lazily).
 from flask_app.extensions import limiter
 from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+from poker.memory.opponent_model import REGARD_NEUTRAL
 from poker.memory.relationship_events import RelationshipEvent
 
 logger = logging.getLogger(__name__)
@@ -3100,14 +3101,15 @@ def request_forgiveness(stake_id: str):
 
     # Read staker's view of borrower. `load_relationship_state` returns
     # None for never-interacted pairs — treat as the neutral default
-    # (0.5/0.5/0.0). Heat is already projected through decay on read.
+    # (REGARD_NEUTRAL/REGARD_NEUTRAL/0.0). Heat is already projected
+    # through decay on read.
     rel = relationship_repo.load_relationship_state(
         observer_id=stake.staker_id,
         opponent_id=owner_id,
         now=now,
     )
-    likability = rel.likability if rel is not None else 0.5
-    respect = rel.respect if rel is not None else 0.5
+    likability = rel.likability if rel is not None else REGARD_NEUTRAL
+    respect = rel.respect if rel is not None else REGARD_NEUTRAL
     heat = rel.heat if rel is not None else 0.0
 
     score = _forgiveness_score(

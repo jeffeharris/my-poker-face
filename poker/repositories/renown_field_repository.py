@@ -38,6 +38,7 @@ from collections import defaultdict
 from typing import Dict
 
 from cash_mode.prestige import RenownInputsV2
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 from .base_repository import BaseRepository
 
@@ -182,8 +183,8 @@ class RenownFieldRepository(BaseRepository):
             total_hands = sum(opps.values())
             edges = inbound.get(eid, [])
             if edges:
-                rl = sum(lk - 0.5 for lk, _, _ in edges) / len(edges)
-                rr = sum(rp - 0.5 for _, rp, _ in edges) / len(edges)
+                rl = sum(lk - REGARD_NEUTRAL for lk, _, _ in edges) / len(edges)
+                rr = sum(rp - REGARD_NEUTRAL for _, rp, _ in edges) / len(edges)
                 rh = sum(ht for _, _, ht in edges) / len(edges)
             else:
                 rl = rr = rh = 0.0

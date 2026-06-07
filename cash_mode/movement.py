@@ -45,6 +45,7 @@ from cash_mode.tables import (
     ai_slot_fish,
     open_slot,
 )
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -956,7 +957,7 @@ def find_ai_staker_for(
         # Relationship gates. None → neutral defaults (0.5/0.5/0.0).
         rel = relationship_lookup(cand_id, borrower_id)
         if rel is None:
-            likability, respect, heat = 0.5, 0.5, 0.0
+            likability, respect, heat = REGARD_NEUTRAL, REGARD_NEUTRAL, 0.0
         else:
             likability, respect, heat = rel
         if respect < profile.respect_floor:

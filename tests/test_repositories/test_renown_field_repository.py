@@ -14,6 +14,7 @@ import os
 import tempfile
 import unittest
 
+from poker.memory.opponent_model import REGARD_NEUTRAL
 from poker.repositories import create_repos
 
 SB = "sb-1"
@@ -139,7 +140,8 @@ class TestRenownFieldRepository(unittest.TestCase):
                 "(observer_id, opponent_id, likability, respect, heat) VALUES (?,?,?,?,?)",
                 [
                     ("a", HUMAN, 0.7, 0.6, 0.2),
-                    ("b", HUMAN, 0.5, 0.5, 0.0),
+                    # A neutral, no-opinion edge (sits at the regard baseline).
+                    ("b", HUMAN, REGARD_NEUTRAL, REGARD_NEUTRAL, 0.0),
                 ],
             )
             # scalps: guest busted fish ×3, villain ×1.
@@ -169,9 +171,9 @@ class TestRenownFieldRepository(unittest.TestCase):
         self.assertEqual(h.backing_profit, 2000.0)  # 12000 − 10000
         self.assertEqual(h.stakes_hands, {"$2": 100, "$10": 50})
         self.assertEqual(h.scalps, {"fish": 3, "villain": 1})
-        # inbound regard averages of (val − 0.5); heat is the raw mean.
-        self.assertAlmostEqual(h.regard_likability, ((0.7 - 0.5) + 0.0) / 2)
-        self.assertAlmostEqual(h.regard_respect, ((0.6 - 0.5) + 0.0) / 2)
+        # inbound regard averages of (val − REGARD_NEUTRAL); heat is the raw mean.
+        self.assertAlmostEqual(h.regard_likability, ((0.7 - REGARD_NEUTRAL) + 0.0) / 2)
+        self.assertAlmostEqual(h.regard_respect, ((0.6 - REGARD_NEUTRAL) + 0.0) / 2)
         self.assertAlmostEqual(h.regard_heat, (0.2 + 0.0) / 2)
 
     def test_villain_standing_and_unsettled_backing(self):

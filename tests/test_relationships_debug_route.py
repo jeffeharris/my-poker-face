@@ -21,7 +21,11 @@ pytestmark = pytest.mark.integration
 
 from flask_app import create_app
 from flask_app.services import game_state_service
-from poker.memory.opponent_model import OpponentModelManager, RelationshipState
+from poker.memory.opponent_model import (
+    REGARD_NEUTRAL,
+    OpponentModelManager,
+    RelationshipState,
+)
 from poker.memory.relationship_events import RelationshipEvent
 from poker.repositories import create_repos
 from poker.repositories.relationship_repository import RelationshipRepository
@@ -157,8 +161,8 @@ class TestRelationshipsRoute(unittest.TestCase):
         for pair in data['pairs']:
             self.assertIsNone(pair['label'])
             self.assertEqual(pair['heat'], 0.0)
-            self.assertEqual(pair['respect'], 0.5)
-            self.assertEqual(pair['likability'], 0.5)
+            self.assertEqual(pair['respect'], REGARD_NEUTRAL)
+            self.assertEqual(pair['likability'], REGARD_NEUTRAL)
             self.assertEqual(pair['memorable_hands'], [])
 
     def test_memorable_hands_surfaced(self):
