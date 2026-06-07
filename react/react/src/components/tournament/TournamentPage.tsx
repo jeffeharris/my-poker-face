@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { config } from '../../config';
 import { tournamentApi } from './api';
+import { getTournamentOrigin } from '../../utils/tournamentOrigin';
 import { TournamentLobby } from './TournamentLobby';
 import { TournamentStandings } from './TournamentStandings';
 import type {
@@ -164,7 +165,7 @@ export function TournamentPage() {
         onReturnToTable={() => tournamentId && goToTable(tournamentId)}
         onWatch={handleWatch}
         onLeave={handleLeave}
-        onBack={() => navigate('/menu')}
+        onBack={() => navigate(getTournamentOrigin())}
       />
     );
   }
@@ -174,9 +175,9 @@ export function TournamentPage() {
       <button
         className="tourney__back"
         style={{ position: 'fixed', top: 16, left: 16, zIndex: 5 }}
-        onClick={() => navigate('/menu')}
+        onClick={() => navigate(getTournamentOrigin())}
       >
-        ‹ Menu
+        ‹ Back
       </button>
       <TournamentLobby
         active={active}
