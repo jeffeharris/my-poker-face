@@ -199,3 +199,23 @@ def apply_obligation_flows(
             )
             continue
         writer(flow)
+
+
+def obligation_balance(repo, stake_id: str, *, sandbox_id: Optional[str]) -> Optional[int]:
+    """The ledger-derived `oblig:<stake_id>` balance (outstanding principal owed).
+
+    Returns `None` when the stake was never ORIGINATED in the obligation
+    dimension — i.e. a legacy stake created before the obligation ledger shipped
+    (no `stake_originate` row). Callers MUST treat `None` as "can't check, skip"
+    rather than 0: a legacy stake that later extinguishes would otherwise read a
+    spurious negative balance. A stake that was originated returns its real
+    balance (0 when fully closed, the carry residual when carried).
+    """
+    if repo is None:
+        return None
+    rows = repo.entries_for_stake(stake_id, sandbox_id=sandbox_id)
+    if not any(r.get("reason") == "stake_originate" for r in rows):
+        return None
+    from core.economy.ledger import oblig
+
+    return repo.balance_of(oblig(stake_id), sandbox_id=sandbox_id)

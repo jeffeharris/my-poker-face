@@ -2692,6 +2692,7 @@ def settle_departed_ai_stake(
         and sandbox_id is not None
         and economy_flags.CHIP_CUSTODY_ENABLED
     ):
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
         from cash_mode.stake_obligations import apply_obligation_flows, flows_on_settle
 
         apply_obligation_flows(
@@ -2704,6 +2705,14 @@ def settle_departed_ai_stake(
             chip_ledger_repo,
             sandbox_id=sandbox_id,
             context={"site": "ai_session_end", "sandbox_id": sandbox_id},
+        )
+        # P2: the debt must now equal its residual (0 on a clean/forgiven settle,
+        # carry_amount on a carry). Enforced in dev/sim; alarm-only in prod.
+        assert_stake_obligation_closed(
+            stake_id=active_stake.stake_id,
+            expected_residual=int(settlement.carry_amount),
+            sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
         )
 
     # Apply the settlement flows. For AI-staker / AI-borrower

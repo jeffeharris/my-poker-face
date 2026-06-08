@@ -413,3 +413,83 @@ def test_loss_settle_carries_unrecovered_principal(settle_repos):
     assert settlement is not None and settlement.carry_amount == 5000
     # The debt account holds exactly the carried (unrecovered) principal.
     assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 5000
+
+
+# --- P2: the obligation-closure invariant ---------------------------------
+
+
+def test_obligation_balance_is_none_for_legacy_stake(lr):
+    from cash_mode.stake_obligations import obligation_balance
+
+    # Never originated → None (can't be checked), not 0.
+    assert obligation_balance(lr, "legacy_stake", sandbox_id=SB) is None
+    record_stake_originate(lr, stake_id=SID, principal=PRINCIPAL, sandbox_id=SB)
+    assert obligation_balance(lr, SID, sandbox_id=SB) == PRINCIPAL
+
+
+def test_closure_check_passes_raises_alarms_and_skips_legacy(lr):
+    from cash_mode.stake_lifecycle import (
+        StakeConservationError,
+        assert_stake_obligation_closed,
+    )
+
+    record_stake_originate(lr, stake_id=SID, principal=PRINCIPAL, sandbox_id=SB)
+    record_stake_extinguish(lr, stake_id=SID, amount=PRINCIPAL, sandbox_id=SB)  # fully closed
+
+    # Closed to 0, expecting 0 → passes (enforce on).
+    with patch("cash_mode.economy_flags.STAKE_SETTLE_GUARD_ENFORCE", True):
+        assert assert_stake_obligation_closed(
+            stake_id=SID, expected_residual=0, sandbox_id=SB, chip_ledger_repo=lr
+        )
+        # Mismatch (expected a 1000 carry but it's 0) → raises under enforce.
+        with pytest.raises(StakeConservationError):
+            assert_stake_obligation_closed(
+                stake_id=SID, expected_residual=1000, sandbox_id=SB, chip_ledger_repo=lr
+            )
+    # Same mismatch, enforce off → alarm + returns False (no raise).
+    with patch("cash_mode.economy_flags.STAKE_SETTLE_GUARD_ENFORCE", False):
+        assert (
+            assert_stake_obligation_closed(
+                stake_id=SID, expected_residual=1000, sandbox_id=SB, chip_ledger_repo=lr
+            )
+            is False
+        )
+    # Legacy stake (never originated) is skipped → True even under enforce.
+    with patch("cash_mode.economy_flags.STAKE_SETTLE_GUARD_ENFORCE", True):
+        assert assert_stake_obligation_closed(
+            stake_id="legacy", expected_residual=0, sandbox_id=SB, chip_ledger_repo=lr
+        )
+
+
+def _fund_and_originate(br, lr, sr, stake_id):
+    # Realistic setup: fund the borrower's SEAT + originate the obligation
+    # atomically (so the PR #235 funding guard is satisfied too), then create
+    # the stake row. Staker funds; the_borrower is the climber/borrower.
+    _make_active_stake(sr, stake_id, principal=8000, cut=0.3)
+    with patch("cash_mode.economy_flags.CHIP_CUSTODY_ENABLED", True):
+        fund_climb_stake(
+            staker_id="the_staker",
+            climber_id="the_borrower",
+            principal=8000,
+            stake_id=stake_id,
+            bankroll_repo=br,
+            chip_ledger_repo=lr,
+            sandbox_id=SB,
+            now=NOW,
+        )
+
+
+def test_ai_settle_passes_closure_check_under_enforcement(settle_repos):
+    # The whole AI settle path must satisfy the P2 invariant with enforcement ON:
+    # a clean settle closes the debt to 0; a carry leaves exactly the residual.
+    # Both the PR #235 funding guard and the P2 closure guard run here.
+    br, lr, sr = settle_repos
+    with patch("cash_mode.economy_flags.STAKE_SETTLE_GUARD_ENFORCE", True):
+        _fund_and_originate(br, lr, sr, SID)
+        _settle(br, lr, sr, "the_borrower", chips_at_leave=20000)  # clean win
+        assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 0
+
+        sid2 = "ai_stake_test02"
+        _fund_and_originate(br, lr, sr, sid2)
+        _settle(br, lr, sr, "the_borrower", chips_at_leave=3000)  # carry 5000
+        assert lr.balance_of(L.oblig(sid2), sandbox_id=SB) == 5000

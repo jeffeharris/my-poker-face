@@ -148,6 +148,63 @@ def assert_stake_funding_reached_borrower_seat(
     return False
 
 
+def assert_stake_obligation_closed(
+    *,
+    stake_id: str,
+    expected_residual: int,
+    sandbox_id: Optional[str],
+    chip_ledger_repo,
+    enforce: Optional[bool] = None,
+) -> bool:
+    """P2 invariant: after a stake reaches a terminal, its `oblig:<id>` balance
+    must equal `expected_residual` — the per-contract conservation check the
+    chip layer can't express (CASH_MODE_STAKING_OBLIGATION_LEDGER.md).
+
+    `expected_residual` is 0 for a clean settle / forgiveness / default (the debt
+    fully closed) and the `carry_amount` for a carry (the unrecovered principal
+    that rolls forward). A mismatch means a flow was dropped, double-applied, or
+    the settle math diverged from the obligation — exactly the silent class the
+    obligation ledger exists to catch.
+
+    Legacy stakes that predate the obligation ledger (no `stake_originate` row)
+    return `None` from `obligation_balance` and are SKIPPED — they have no
+    obligation history to check, and forcing one would false-alarm on every
+    pre-existing carry. Enforce (dev/sim/tests) raises `StakeConservationError`;
+    prod alarms (`logger.error`) and proceeds. No-op without a ledger / sandbox.
+    """
+    if chip_ledger_repo is None or sandbox_id is None:
+        return True
+    if enforce is None:
+        from cash_mode import economy_flags
+
+        enforce = economy_flags.STAKE_SETTLE_GUARD_ENFORCE
+
+    from cash_mode.stake_obligations import obligation_balance
+
+    try:
+        balance = obligation_balance(chip_ledger_repo, stake_id, sandbox_id=sandbox_id)
+    except Exception as exc:
+        logger.warning(
+            "[STAKE GUARD] obligation_balance(%r) failed — skipping check: %s",
+            stake_id,
+            exc,
+        )
+        return True
+    if balance is None:  # legacy stake — never originated, nothing to assert
+        return True
+    if balance == int(expected_residual):
+        return True
+
+    msg = (
+        f"[STAKE GUARD] obligation not closed: stake={stake_id} sandbox={sandbox_id} "
+        f"oblig_balance={balance} expected_residual={expected_residual}"
+    )
+    if enforce:
+        raise StakeConservationError(msg)
+    logger.error(msg)
+    return False
+
+
 def fund_climb_stake(
     *,
     staker_id: str,
