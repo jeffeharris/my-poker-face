@@ -1,11 +1,13 @@
-/* Floating bug-report launcher. Bottom-left so it clears the bottom-center
-   action bar and the bottom-right in-game chat bubbles. Sits below modals/
-   sheets (those portal to <body> with higher z) but above page chrome. */
+/* Floating bug-report launcher. Sits bottom-left, raised to mirror the coach
+   puck's default position (right:16/bottom:120) on the opposite side — just
+   above the in-game action bar so it never overlaps the Fold/Call/Raise row.
+   z-index clears the action panel (z-index 1000) so it stays visible/clickable;
+   modals/sheets portal to <body> with higher z and still cover it. */
 .feedback-button {
   position: fixed;
-  left: max(16px, env(safe-area-inset-left));
-  bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 900;
+  left: 16px;
+  bottom: 120px;
+  z-index: 1001;
 
   display: flex;
   align-items: center;
