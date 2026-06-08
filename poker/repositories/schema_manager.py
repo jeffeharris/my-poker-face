@@ -353,8 +353,17 @@ _test_schema_template_path = None
 #       and the per-AI one-vouch ledger (`vouched_by`). The lobby renders only
 #       revealed cardrooms; the world doesn't grow, the player's view does.
 #       Renumbered (v124 → v132 → v141 → v152 → v155 → v156 → v157) to land
-#       after main's v156 (label-store repoint) on the main→circuit sync.
+#       after main's v156 (label-store repoint) on the main→circuit sync. This
+#       is the in-flight legacy `_migrate_vN` the comment below anticipates —
+#       SCHEMA_VERSION bumped to 157 accordingly.
 SCHEMA_VERSION = 157
+# This is the head of the LEGACY integer chain, retained until the deploy-time
+# squash (docs/plans/SCHEMA_BASELINE_PLAN.md). Prefer authoring NEW migrations as
+# files under `migrations/` (migration_loader.FileMigrationLoader, applied-set
+# model) — that path has no shared-line merge conflicts and is the going-forward
+# system. A legacy `_migrate_vN` may still land from an in-flight branch before
+# the squash; if so, bump this and the chain will be baselined at whatever
+# SCHEMA_VERSION is current at squash time (the generator reads it dynamically).
 
 
 class SchemaManager:
@@ -398,7 +407,8 @@ class SchemaManager:
         started_empty = (not seeded) and self._db_is_empty()
         self._enable_wal_mode()
         self._init_db()  # CREATE TABLE IF NOT EXISTS: no-ops on a seeded DB
-        self._run_migrations()  # early-returns when already at SCHEMA_VERSION
+        self._run_migrations()  # legacy integer chain; early-returns when at SCHEMA_VERSION
+        self._run_file_migrations()  # post-v154 per-file migrations (applied-set model)
         if started_empty:
             self._maybe_save_as_template()
 
@@ -473,6 +483,20 @@ class SchemaManager:
             _test_schema_template_path = tpl
         except Exception as e:
             logger.warning(f"schema template save skipped: {e}")
+
+    def _run_file_migrations(self) -> None:
+        """Apply post-v154 per-file migrations (applied-set model).
+
+        Runs after the legacy integer chain has brought the DB to the v154
+        baseline. New migrations are authored as files under ``migrations/``
+        rather than ``_migrate_vN`` methods, so parallel branches no longer
+        collide on ``SCHEMA_VERSION`` / the ``migrations`` dict. See
+        ``poker/repositories/migration_loader.py``.
+        """
+        from poker.repositories.migration_loader import FileMigrationLoader
+
+        migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
+        FileMigrationLoader(migrations_dir).run(self._get_connection)
 
     def _init_db(self):
         """Initialize the database schema.

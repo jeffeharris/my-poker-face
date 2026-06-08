@@ -2,10 +2,30 @@
 purpose: Strategy for consolidating the 7,840-line schema_manager.py by squashing the v1..v148 migration chain at the prod cutover
 type: design
 created: 2026-06-03
-last_updated: 2026-06-03
+last_updated: 2026-06-07
 ---
 
 # Schema Baseline / Migration Squash Plan
+
+> **Status (2026-06-07).** Reality has moved since this was first written:
+> - **Phase 2 (prod cutover) is DONE** — prod cut over to a fresh baseline-built DB
+>   on 2026-06-05 and `main` now contains `development`, so the squash precondition
+>   "no sub-baseline DB in prod" is satisfied. The chain has also grown:
+>   **`SCHEMA_VERSION` is now 154**, not the v148 this doc originally assumed.
+> - **Going-forward collision fix SHIPPED** (the part that actually hurt with
+>   parallel worktrees): post-v154 migrations are now authored as **per-file modules
+>   under `poker/repositories/migrations/`**, discovered and applied by
+>   `migration_loader.FileMigrationLoader` using an **applied-set** model (tracked in
+>   the `applied_migrations` table) rather than the legacy
+>   `range(current+1, SCHEMA_VERSION+1)` high-water-mark. `SCHEMA_VERSION` is frozen
+>   at 154; `_run_file_migrations()` runs after the legacy chain in `ensure_schema()`.
+>   This removes the two root causes of merge pain: the shared `SCHEMA_VERSION` /
+>   `migrations`-dict edit sites (now one file per migration) and the high-water-mark
+>   skip-bug that made renumbering mandatory on merge. Regression guard:
+>   `tests/test_repositories/test_file_migration_loader.py`.
+> - **Still pending:** Phase 1 (reconcile `_init_db`, the `xfail` gate) and Phase 3
+>   (extract `v1..v154` into `legacy_migrations.py` to shrink the file). The legacy
+>   integer chain is untouched and still load-bearing until those land.
 
 Connects: TRIAGE **T3-17** (no migration framework) and **T3-44** (`schema_manager.py`
 monolith); the prod migration in [`PROD_MERGE_PLAN.md`](PROD_MERGE_PLAN.md); the gate
@@ -118,3 +138,75 @@ Alembic "compact to base".
 
 `_init_db`'s docstring still says "Tables (25 total)" — it's ~130 now. Fix when
 reconciling.
+
+---
+
+## Squash execution runbook (verified 2026-06-07)
+
+**Decision: the squash is DEFERRED to deploy-readiness, not done now.** More
+migrations (file migrations, and possibly legacy `_migrate_vN` from in-flight
+branches) will land before this ships. Generating and committing a baseline now
+would go stale the moment the chain advances. Instead the procedure below is
+**proven push-button** and run once, at the deploy window, against whatever
+`SCHEMA_VERSION` is current then. The collision-fix half (file loader) is already
+live and is fully compatible with the chain continuing to grow.
+
+### Proven via a dry run (2026-06-07, against v154)
+
+Three force-added scripts under `scripts/` (run in a backend container with the
+worktree mounted at `/app`):
+
+- `_gen_schema_baseline.py` — builds a fresh DB via `_init_db` + the full chain,
+  dumps every `sqlite_master` object in creation order, and writes
+  `poker/repositories/schema_baseline.py` as `BASELINE_STATEMENTS` (a static list)
+  + `BASELINE_VERSION = SCHEMA_VERSION` (read dynamically). Each statement is made
+  idempotent (`IF NOT EXISTS`) so replay on an existing DB is a no-op.
+- `_verify_schema_baseline.py` — proves `chain == base+chain` and that replaying
+  the baseline twice is a no-op.
+- `_schema_diff_tmp.py` — prints the raw `_init_db`-vs-chain object diff (the
+  reconcile worklist: at v154 that was 60 missing objects + 12 shape-differs).
+
+**Dry-run results (v154):**
+- ✅ `base+chain == chain` — replaying the baseline then running the whole chain
+  reproduces today's exact head. **No migration guard re-fires destructively.**
+  This is the load-bearing safety property and it holds.
+- ✅ baseline replay is idempotent (safe on existing DBs).
+- ⚠️ `base != chain` on exactly **two tables** (`opponent_models`,
+  `personality_snapshots`) — and *only* in identifier quoting. Those two were
+  table-rebuilt by a historical migration, so the chain stored
+  `CREATE TABLE "opponent_models"` (quoted); the generator emits it unquoted.
+  Columns are byte-identical. **Fix is in the gate test's normalization, not the
+  schema** (see below).
+
+### Steps to run at squash time
+
+1. **Freeze the chain.** Confirm no more legacy `_migrate_vN` will land. Note the
+   current `SCHEMA_VERSION` — that is `BASELINE_VERSION`.
+2. **Generate:** run `_gen_schema_baseline.py` → commit
+   `poker/repositories/schema_baseline.py`.
+3. **Rewire `_init_db`** to replay `BASELINE_STATEMENTS` and stamp
+   `schema_version = BASELINE_VERSION` (so fresh installs do NOT replay the chain).
+   Keep `IF NOT EXISTS` on every statement for safety on existing DBs.
+4. **Upgrade the gate test normalization** in
+   `tests/test_schema_consistency.py::_schema_objects`: additionally strip
+   `IF NOT EXISTS ` and surrounding identifier quotes/backticks so logically-equal
+   schemas compare equal. This resolves the two rebuilt-table cosmetic diffs. Then
+   the test compares "fresh install via baseline" vs "old DB upgraded via chain"
+   and they match. Remove the `xfail(strict=True)` marker — it becomes a permanent
+   drift guard.
+5. **Extract the chain (Phase 3):** move `_migrate_v1..vN` + the `migrations` dict
+   into `poker/repositories/legacy_migrations.py`, invoked ONLY when a sub-baseline
+   DB is detected. Add the loud guard: non-empty DB with `version < BASELINE` and
+   no `applied_migrations` → run legacy chain to baseline, then the file loader;
+   empty DB → baseline + stamp; at-baseline → file loader only.
+6. **Verify** with `_verify_schema_baseline.py` + the full
+   `tests/test_schema_consistency.py` + `tests/test_repositories/` bucket, in
+   Docker. `schema_manager.py` drops ~6k lines.
+
+### Why this is low-risk
+
+The dry run already proved the only behavioural property that could bite
+(`base+chain == chain`, i.e. no guard misbehaves on the head schema). Everything
+remaining is mechanical (generate + rewire + a test-normalization tweak) and fully
+gated by the equivalence test. The legacy chain is archived, never hard-deleted,
+until backups age past retention (Phase 4).
