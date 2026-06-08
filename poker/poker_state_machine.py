@@ -145,7 +145,9 @@ class ImmutableStateMachine:
         """Return new state with updated hand seed."""
         return replace(self, current_hand_seed=seed, hand_seed_provided=provided)
 
-    def with_hand_deck(self, deck: Optional[Tuple], provided: bool = True) -> 'ImmutableStateMachine':
+    def with_hand_deck(
+        self, deck: Optional[Tuple], provided: bool = True
+    ) -> 'ImmutableStateMachine':
         """Return new state with a one-shot pre-stacked deck for the next hand."""
         return replace(self, current_hand_deck=deck, hand_deck_provided=provided)
 
@@ -245,6 +247,7 @@ def _deck_from_scripted_holes(
     ``reset_game_state_for_new_hand`` applies each hand (the old seat-indexed
     approach went stale the instant the button moved).
     """
+
     def _key(c):
         return (c.rank, c.suit)
 
@@ -663,9 +666,7 @@ class PokerStateMachine:
         """
         self._state = self._state.with_hand_deck(deck, provided=deck is not None)
 
-    def provide_hand_holes(
-        self, holes: Optional[Dict[str, Tuple]], board: Optional[Tuple]
-    ) -> None:
+    def provide_hand_holes(self, holes: Optional[Dict[str, Tuple]], board: Optional[Tuple]) -> None:
         """Provide one-shot scripted holes (keyed by player NAME) + board for the
         NEXT hand (mutable-style).
 

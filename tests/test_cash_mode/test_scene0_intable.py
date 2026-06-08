@@ -12,10 +12,9 @@ import pytest
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
+from cash_mode import career_scene as cs, table_scenes
+from cash_mode.career_progression import SAL_ID, SCENE0_FISH_ID, SCENE0_TABLE_ID
 from core.card import Card
-from cash_mode import career_scene as cs
-from cash_mode import table_scenes
-from cash_mode.career_progression import SCENE0_FISH_ID, SCENE0_TABLE_ID, SAL_ID
 from flask_app.handlers import game_handler as gh
 from poker.poker_game import deal_hole_cards, initialize_game_state
 from poker.poker_state_machine import PokerStateMachine, _deck_from_scripted_holes
@@ -148,9 +147,7 @@ def test_fish_tell_fires_on_the_flop_of_the_discipline_hand(monkeypatch):
     monkeypatch.setattr(gh, "send_message", lambda *a, **k: None)
 
     flop = tuple(Card.from_short(s) for s in disc.board[:3])
-    sm = sm.with_game_state(sm.game_state.update(community_cards=flop)).with_phase(
-        PokerPhase.FLOP
-    )
+    sm = sm.with_game_state(sm.game_state.update(community_cards=flop)).with_phase(PokerPhase.FLOP)
     game_data["state_machine"] = sm
 
     gh.handle_phase_cards_dealt("g1", sm, sm.game_state, game_data)
@@ -208,7 +205,7 @@ def test_scripted_holes_follow_player_name_through_button_rotation():
     """
     gs = initialize_game_state(player_names=["Sal Moretti", "Loose Larry"], human_name="You")
     holes = {
-        "You": (Card.from_short("7s"), Card.from_short("7h")),          # hero's set
+        "You": (Card.from_short("7s"), Card.from_short("7h")),  # hero's set
         "Loose Larry": (Card.from_short("Kh"), Card.from_short("Qd")),  # fish's top pair
     }
     board = tuple(Card.from_short(s) for s in ["Ks", "7d", "2c", "9h", "4s"])

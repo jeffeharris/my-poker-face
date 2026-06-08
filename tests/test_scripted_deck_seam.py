@@ -29,7 +29,9 @@ def _stacked_deck(hole_pairs, board, filler_seed=7):
     placed = [Card.from_short(s) for pair in hole_pairs for s in pair]
     placed += [Card.from_short(s) for s in board]
     placed_keys = {_k(c) for c in placed}
-    filler = [c for c in create_deck(shuffled=True, random_seed=filler_seed) if _k(c) not in placed_keys]
+    filler = [
+        c for c in create_deck(shuffled=True, random_seed=filler_seed) if _k(c) not in placed_keys
+    ]
     # Order: all hole pairs (seat 0,1,2...), then board, then filler.
     ordered = []
     for pair in hole_pairs:
