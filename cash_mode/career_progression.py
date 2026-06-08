@@ -157,38 +157,47 @@ def make_fish_name(name: str, rng: Optional[random.Random] = None) -> str:
     return f"{rng.choice(bank)} {first}"
 
 
-# The three backgrounds the waitress can jot in "the book" — authored ONCE and
-# shown to EVERY newcomer (not generated per-user). The one they pick becomes
-# their background AND their AI-visible bio (Sal & co. rib it), so each line is
-# written as a third-person note in the book that reads well as a bio.
+# What the newcomer SAYS when the waitress asks "what's your story, hon?" —
+# authored ONCE, shown to EVERY newcomer (not generated per-user). The one they
+# pick is jotted in "the book" verbatim: stored as their AI-visible bio (Sal &
+# co. rib it) and remembered as a callback hook.
 #   - `id`    : stable key for later narrative callbacks (don't reuse/rename).
-#   - `title` : the card label in the picker.
-#   - `text`  : the backstory, stored verbatim as the bio.
+#   - `title` : the short card label in the picker.
+#   - `text`  : the FIRST-PERSON line the player says (also becomes the bio).
 # Resolved by id server-side, so the stored bio can never be spoofed by a client.
+#
+# TWO HARD RULES (the whole cold-open conceit depends on them):
+#   1. FIRST PERSON — it's the player's own spoken answer, not a description OF
+#      them. (The reveal + dossier already quote it.)
+#   2. INNOCENT OF POKER — the newcomer thinks this is a diner; they wandered in
+#      out of the rain for coffee/food and have NO idea there's a card room in
+#      back. So NO cards / gambling / "long shot" / "hard to read" / "game for
+#      anything" tells. The COMEDY is that the room mishears an ordinary person
+#      as a gambler (and christens them a fish-name) — the poker lens is entirely
+#      the room's; the player's words stay guileless.
 INTAKE_BACKSTORIES = [
     {
         "id": "drifter",
-        "title": "Just Passing Through",
+        "title": "Just passing through",
         "text": (
-            "Rolled into town with no particular plans and a powerful thirst for "
-            "coffee. Says they're just passing through — but that was three cups "
-            "ago, and they're still here."
+            "Honestly? I’ve been driving all day with no place to be. Saw your "
+            "lights, smelled the coffee, and figured I’d earned a stop."
         ),
     },
     {
         "id": "quiet",
-        "title": "Hard to Read",
+        "title": "Keep to myself",
         "text": (
-            "Doesn't say much; watches everything. Nobody can quite get a read on "
-            "'em — and, between us, neither can they."
+            "Not much of a talker, me. Just wanted somewhere warm to sit a spell "
+            "and watch the rain come down. This’ll do fine."
         ),
     },
     {
-        "id": "game_for_anything",
-        "title": "Game for Anything",
+        "id": "easygoing",
+        "title": "Up for anything",
         "text": (
-            "Never met a long shot they didn't like. Wandered in grinning, ready "
-            "to try just about anything once — twice if it's any fun."
+            "Me? I’ll talk to just about anybody, and I’m always good for a laugh. "
+            "Came in for a bite — but I’m in no hurry to head back out there."
         ),
     },
 ]
@@ -204,7 +213,12 @@ def get_backstory(backstory_id: str) -> dict:
     return _DEFAULT_BACKSTORY
 
 
-def intake_persona(name: str, backstory_id: str, rng: Optional[random.Random] = None) -> dict:
+def intake_persona(
+    name: str,
+    backstory_id: str,
+    fallback_text: Optional[str] = None,
+    rng: Optional[random.Random] = None,
+) -> dict:
     """Build the intake persona deterministically: a rule-based alliterative
     fish-name + the chosen (pre-authored) backstory as the bio.
 
@@ -212,11 +226,25 @@ def intake_persona(name: str, backstory_id: str, rng: Optional[random.Random] = 
     reliably keeps the player's own first name and alliterates. The **bio is the
     chosen backstory**, resolved by id from `INTAKE_BACKSTORIES` (authored once,
     not generated per-user) — so intake is instant, free, consistent, and the
-    stored bio can't be spoofed by the client. Returns the resolved backstory id
-    + text alongside the persona so the caller can persist the callback key.
+    stored bio can't be spoofed by the client.
+
+    Robustness: if `backstory_id` isn't a known id (e.g. the authored set changed
+    while a client held a stale lobby payload), prefer the client-supplied
+    `fallback_text` — the text of the card they actually clicked — over the
+    arbitrary default, so the reveal always matches what the player picked. Only
+    when neither matches does it fall back to the default backstory.
     """
     name = (name or "").strip() or "Stranger"
     fish_name = make_fish_name(name, rng)  # deterministic, always alliterative
+    matched = any(b["id"] == backstory_id for b in INTAKE_BACKSTORIES)
+    text = (fallback_text or "").strip()
+    if not matched and text:
+        return {
+            "fish_name": fish_name,
+            "bio": text,
+            "backstory_id": backstory_id,
+            "backstory_text": text,
+        }
     backstory = get_backstory(backstory_id)
     return {
         "fish_name": fish_name,

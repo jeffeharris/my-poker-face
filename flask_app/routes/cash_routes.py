@@ -6735,14 +6735,17 @@ def cash_intake_route():
     name = (body.get("name") or "").strip()[:40] or _resolve_player_name() or "Stranger"
     # The backstory the player picked (`reply_id`). The text is resolved
     # SERVER-SIDE by id from the authored set (the client can't spoof the bio);
-    # `reply_id` is also the stable key for later narrative callbacks.
+    # `reply_id` is also the stable key for later narrative callbacks. The client
+    # also sends the card's text (`reply`) — used ONLY as a fallback if the id is
+    # unknown (a stale-payload id drift) so the reveal still matches the pick.
     reply_id = (body.get("reply_id") or "").strip()[:40]
+    reply_text = (body.get("reply") or "").strip()[:300]
 
     progress = career_progress_repo.load(sandbox_id, owner_id)
     if not progress.intake_complete:
         # Deterministic christening: a rule-based fish-name + the chosen
         # pre-authored backstory as the bio (no per-user LLM call).
-        persona = intake_persona(name, reply_id)
+        persona = intake_persona(name, reply_id, fallback_text=reply_text)
         progress.player_name = name
         progress.fish_name = persona["fish_name"]
         progress.intake_reply = persona["backstory_text"]
