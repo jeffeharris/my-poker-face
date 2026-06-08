@@ -406,17 +406,21 @@ class SchemaManager:
         started_empty = (not seeded) and self._db_is_empty()
         self._enable_wal_mode()
         current = self._get_current_schema_version()
-        if current and current < SCHEMA_VERSION:
-            # Existing PRE-baseline DB with a positive version stamp (e.g. a restored
-            # old backup): bring it up via the archived legacy chain, which expects the
-            # base tables such a DB already has. A version-0 DB (fresh or unversioned)
-            # gets the head baseline directly instead.
-            self._run_migrations()
-        else:
-            # Empty/fresh, unversioned, seeded template, or already at/above baseline:
-            # lay the head schema directly. CREATE ... IF NOT EXISTS no-ops on a built
-            # DB; a fresh DB is stamped at the baseline so the chain never runs.
+        if started_empty or seeded or current >= SCHEMA_VERSION:
+            # Empty/fresh, seeded template, or already at/above baseline: the head
+            # schema is canonical. _init_db lays it (CREATE ... IF NOT EXISTS no-ops on
+            # a built DB) and stamps the baseline on a fresh DB.
             self._init_db()
+        else:
+            # Existing PRE-baseline DB → migrate up via the archived legacy chain.
+            # A non-empty but UNVERSIONED legacy DB (version 0, tables present) needs
+            # its base tables ensured first — the old `_init_db` skeleton created them
+            # before the chain's ALTERs ran — but NOT the baseline seed or stamp (old
+            # seed-table shapes can reject head-column inserts, and stamping would make
+            # the chain skip). The chain then migrates old shapes and seeds itself.
+            if current == 0:
+                self._init_db(stamp=False, seed=False)
+            self._run_migrations()
         self._run_file_migrations()  # per-file migrations (applied-set model)
         if started_empty:
             self._maybe_save_as_template()
@@ -507,15 +511,21 @@ class SchemaManager:
         migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
         FileMigrationLoader(migrations_dir).run(self._get_connection)
 
-    def _init_db(self):
+    def _init_db(self, stamp: bool = True, seed: bool = True):
         """Build the head schema directly from the generated baseline.
 
         Replays ``schema_baseline.BASELINE_STATEMENTS`` (every statement is
-        ``CREATE ... IF NOT EXISTS``) and ``BASELINE_SEED`` (the rows the legacy
-        chain inserts — default groups/permissions/enabled models/presets — via
-        ``INSERT OR IGNORE``), then stamps ``schema_version`` at the baseline on a
-        fresh DB so the legacy v1..v157 chain in ``legacy_migrations.py`` is skipped
-        on fresh installs. Every step is idempotent → a no-op on a DB already at head.
+        ``CREATE ... IF NOT EXISTS``) and, when ``seed``, ``BASELINE_SEED`` (the rows
+        the legacy chain inserts — default groups/permissions/enabled models/presets —
+        via ``INSERT OR IGNORE``), then, when ``stamp``, stamps ``schema_version`` at
+        the baseline on a fresh DB so the legacy v1..v157 chain in
+        ``legacy_migrations.py`` is skipped on fresh installs. Every step is idempotent
+        → a no-op on a DB already at head.
+
+        ``stamp=False, seed=False`` is used for a non-empty UNVERSIONED legacy DB: lay
+        only the missing base tables, then let the legacy chain migrate old shapes,
+        seed, and stamp (the baseline seed would otherwise fail against old seed-table
+        shapes, and a premature stamp would make the chain skip).
 
         The baseline is GENERATED from that chain (scripts/_gen_schema_baseline.py)
         and proven equivalent to it by tests/test_schema_consistency.py.
@@ -525,15 +535,16 @@ class SchemaManager:
         with self._get_connection() as conn:
             for statement in schema_baseline.BASELINE_STATEMENTS:
                 conn.execute(statement)
-            for entry in getattr(schema_baseline, "BASELINE_SEED", []):
-                cols = ", ".join(entry["columns"])
-                placeholders = ", ".join("?" for _ in entry["columns"])
-                conn.executemany(
-                    f'INSERT OR IGNORE INTO "{entry["table"]}" ({cols}) VALUES ({placeholders})',
-                    entry["rows"],
-                )
+            if seed:
+                for entry in getattr(schema_baseline, "BASELINE_SEED", []):
+                    cols = ", ".join(entry["columns"])
+                    placeholders = ", ".join("?" for _ in entry["columns"])
+                    conn.executemany(
+                        f'INSERT OR IGNORE INTO "{entry["table"]}" ({cols}) VALUES ({placeholders})',
+                        entry["rows"],
+                    )
             already_versioned = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
-            if not already_versioned:
+            if stamp and not already_versioned:
                 conn.execute(
                     "INSERT INTO schema_version (version, description) VALUES (?, ?)",
                     (

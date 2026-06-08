@@ -98,3 +98,25 @@ def test_baseline_equals_legacy_chain_head(tmp_path):
         "the legacy chain and the generated baseline have diverged — regenerate "
         "schema_baseline.py via scripts/_gen_schema_baseline.py:\n  " + "\n  ".join(problems)
     )
+
+
+def test_unversioned_nonempty_db_migrates_via_chain(tmp_path):
+    """A populated DB whose version stamp is gone (an ancient pre-versioning DB, or a
+    wiped schema_version) must be brought up via the legacy chain — NOT silently
+    stamped at the baseline and frozen, which would leave old table shapes unmigrated.
+
+    Regression guard for the post-cutover routing: version-0 + non-empty -> chain.
+    """
+    db = str(tmp_path / "t.db")
+    sm = SchemaManager(db)
+    sm.ensure_schema()  # build to head
+    with sqlite3.connect(db) as conn:
+        conn.execute("DELETE FROM schema_version")  # drop the stamp; tables remain
+
+    sm.ensure_schema()  # must route through _init_db(no stamp/seed) + the chain
+
+    with sqlite3.connect(db) as conn:
+        (version,) = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert version == SCHEMA_VERSION, "an unversioned populated DB must reach head via the chain"
+    assert {"games", "groups"} <= tables
