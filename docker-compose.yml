@@ -119,9 +119,12 @@ volumes:
 networks:
   poker-network:
     driver: bridge
-    # Pin a dedicated subnet so this worktree's network doesn't collide with the
-    # other my-poker-face worktrees (desktop .45 / main .46 / circuit .47) when
-    # Docker's default address pool is exhausted. See the desktop-parity fix.
+    # Pin a dedicated subnet so this checkout's network doesn't collide with the
+    # other my-poker-face worktrees when Docker's default address pool is
+    # exhausted. This committed value is the MAIN checkout's slot (.46); every
+    # other worktree pins its own distinct /24 via a gitignored
+    # docker-compose.override.yml (in use: circuit .47 / narrative-beats .48 /
+    # user-feedback .49). Keep each worktree's override unique.
     ipam:
       config:
-        - subnet: 10.123.48.0/24
+        - subnet: 10.123.46.0/24
