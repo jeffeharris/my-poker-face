@@ -37,6 +37,65 @@ from poker.repositories.schema_manager import SchemaManager
 
 pytestmark = pytest.mark.integration
 
+
+# --- pure flow emitters (functional core — no DB) --------------------------
+
+
+def test_flows_on_originate_is_principal_only():
+    from cash_mode.stake_obligations import OP_ORIGINATE, flows_on_originate
+
+    flows = flows_on_originate("s", 8000)
+    assert flows == [type(flows[0])(OP_ORIGINATE, "s", 8000)]
+    assert flows_on_originate("s", 0) == []  # nothing owed
+
+
+def test_flows_on_settle_clean_win_extinguishes_full_principal():
+    from cash_mode.stake_obligations import OP_EXTINGUISH, flows_on_settle, net_principal_delta
+
+    # Win: staker_total 11600 > principal 8000 → recover full principal, the
+    # profit is NOT in the obligation. Originate(+8000) then this nets to 0.
+    flows = flows_on_settle("s", principal=8000, staker_total=11600, is_carry=False)
+    assert [(f.op, f.amount) for f in flows] == [(OP_EXTINGUISH, 8000)]
+    assert net_principal_delta(flows_on_originate_list() + flows) == 0
+
+
+def flows_on_originate_list():
+    from cash_mode.stake_obligations import flows_on_originate
+
+    return flows_on_originate("s", 8000)
+
+
+def test_flows_on_settle_carry_leaves_residual():
+    from cash_mode.stake_obligations import OP_EXTINGUISH, flows_on_settle, net_principal_delta
+
+    # Loss to 3000: recover 3000, 5000 carries (NOT forgiven). Originate then
+    # these net to the +5000 residual that rolls forward.
+    flows = flows_on_settle("s", principal=8000, staker_total=3000, is_carry=True)
+    assert [(f.op, f.amount) for f in flows] == [(OP_EXTINGUISH, 3000)]
+    assert net_principal_delta(flows_on_originate_list() + flows) == 5000
+
+
+def test_flows_on_settle_default_forgives_residual():
+    from cash_mode.stake_obligations import (
+        OP_EXTINGUISH,
+        OP_FORGIVE,
+        flows_on_settle,
+        net_principal_delta,
+    )
+
+    # Default (not carry) with partial recovery: extinguish 2000 + forgive 6000.
+    # Originate then these net to 0 — the debt fully closes.
+    flows = flows_on_settle("s", principal=8000, staker_total=2000, is_carry=False)
+    assert [(f.op, f.amount) for f in flows] == [(OP_EXTINGUISH, 2000), (OP_FORGIVE, 6000)]
+    assert net_principal_delta(flows_on_originate_list() + flows) == 0
+
+
+def test_flows_on_cancel_reverses_origination():
+    from cash_mode.stake_obligations import flows_on_cancel, flows_on_originate, net_principal_delta
+
+    assert net_principal_delta(flows_on_originate("s", 8000) + flows_on_cancel("s", 8000)) == 0
+
+
 SB = "sbx_oblig"
 NOW = datetime(2026, 6, 8, 12, 0, 0)
 SID = "ai_stake_test01"

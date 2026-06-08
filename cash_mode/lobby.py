@@ -2692,27 +2692,19 @@ def settle_departed_ai_stake(
         and sandbox_id is not None
         and economy_flags.CHIP_CUSTODY_ENABLED
     ):
-        from core.economy.ledger import record_stake_extinguish, record_stake_forgive
+        from cash_mode.stake_obligations import apply_obligation_flows, flows_on_settle
 
-        _principal = int(active_stake.principal)
-        _recovered = min(int(settlement.staker_total), _principal)
-        record_stake_extinguish(
+        apply_obligation_flows(
+            flows_on_settle(
+                active_stake.stake_id,
+                principal=int(active_stake.principal),
+                staker_total=int(settlement.staker_total),
+                is_carry=settlement.new_status == STAKE_STATUS_CARRY,
+            ),
             chip_ledger_repo,
-            stake_id=active_stake.stake_id,
-            amount=_recovered,
-            context={"site": "ai_session_end", "sandbox_id": sandbox_id},
             sandbox_id=sandbox_id,
+            context={"site": "ai_session_end", "sandbox_id": sandbox_id},
         )
-        if settlement.new_status != STAKE_STATUS_CARRY:
-            _residual = _principal - _recovered
-            if _residual > 0:
-                record_stake_forgive(
-                    chip_ledger_repo,
-                    stake_id=active_stake.stake_id,
-                    amount=_residual,
-                    context={"site": "ai_session_end", "sandbox_id": sandbox_id},
-                    sandbox_id=sandbox_id,
-                )
 
     # Apply the settlement flows. For AI-staker / AI-borrower
     # personality stakes the flows are pure bankroll→bankroll

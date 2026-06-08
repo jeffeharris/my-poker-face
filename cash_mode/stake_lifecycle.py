@@ -187,12 +187,12 @@ def fund_climb_stake(
         chip_unit_of_work,
         project_bankroll,
     )
+    from cash_mode.stake_obligations import apply_obligation_flows, flows_on_originate
     from core.economy.ledger import (
         ai,
         ai_seat,
         record_ai_regen,
         record_stake_fund,
-        record_stake_originate,
     )
 
     try:
@@ -296,17 +296,16 @@ def fund_climb_stake(
                 sandbox_id=sandbox_id,
                 conn=conn,
             )
-            # Obligation dimension (P1 shadow): the principal debt is born on
-            # the borrower (climber) — `oblig_genesis → oblig:<stake_id>`. Same
-            # `conn` as the chip-side stake_fund so the two axes commit atomically
-            # (a partial write would desync debt from chips). Bank-neutral →
-            # invisible to chip drift. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
-            record_stake_originate(
+            # Obligation dimension: the principal debt is born on the borrower
+            # (climber). Emit the flow purely, apply via the one interpreter in
+            # the SAME `conn` as the chip-side stake_fund so debt and chips commit
+            # atomically (a partial write would desync the two axes). Bank-neutral
+            # → invisible to chip drift. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            apply_obligation_flows(
+                flows_on_originate(stake_id, principal),
                 chip_ledger_repo,
-                stake_id=stake_id,
-                principal=principal,
-                context={'site': 'ai_aspire_grubstake', 'sandbox_id': sandbox_id},
                 sandbox_id=sandbox_id,
+                context={'site': 'ai_aspire_grubstake', 'sandbox_id': sandbox_id},
                 conn=conn,
             )
         return new_state
@@ -374,12 +373,8 @@ def unwind_climb_funding(
         and sandbox_id is not None
         and economy_flags.CHIP_CUSTODY_ENABLED
     ):
-        from core.economy.ledger import (
-            ai,
-            ai_seat,
-            record_stake_cancel,
-            record_stake_payoff,
-        )
+        from cash_mode.stake_obligations import apply_obligation_flows, flows_on_cancel
+        from core.economy.ledger import ai, ai_seat, record_stake_payoff
 
         try:
             record_stake_payoff(
@@ -398,12 +393,11 @@ def unwind_climb_funding(
             # exist, so cancel (not forgive) the originated debt back to genesis,
             # else `oblig:<stake_id>` orphans at the full principal for a stake
             # that was rolled back. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
-            record_stake_cancel(
+            apply_obligation_flows(
+                flows_on_cancel(stake_id, principal),
                 chip_ledger_repo,
-                stake_id=stake_id,
-                principal=principal,
-                context={'site': 'ai_aspire_grubstake_unwind', 'sandbox_id': sandbox_id},
                 sandbox_id=sandbox_id,
+                context={'site': 'ai_aspire_grubstake_unwind', 'sandbox_id': sandbox_id},
             )
         except Exception as exc:
             logger.warning(
