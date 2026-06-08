@@ -2696,8 +2696,10 @@ def settle_departed_ai_stake(
         from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
 
         # Gated on origination: a legacy stake (no originate row) is skipped so
-        # the close doesn't drive oblig:<id> negative.
-        apply_close_flows(
+        # the close doesn't drive oblig:<id> negative. The bool return says
+        # whether it was originated — reused to skip the assert's redundant
+        # origination re-scan (and skip the assert entirely for legacy).
+        if apply_close_flows(
             flows_on_settle(
                 active_stake.stake_id,
                 principal=int(active_stake.principal),
@@ -2708,15 +2710,16 @@ def settle_departed_ai_stake(
             active_stake.stake_id,
             sandbox_id=sandbox_id,
             context={"site": "ai_session_end", "sandbox_id": sandbox_id},
-        )
-        # P2: the debt must now equal its residual (0 on a clean/forgiven settle,
-        # carry_amount on a carry). Enforced in dev/sim; alarm-only in prod.
-        assert_stake_obligation_closed(
-            stake_id=active_stake.stake_id,
-            expected_residual=int(settlement.carry_amount),
-            sandbox_id=sandbox_id,
-            chip_ledger_repo=chip_ledger_repo,
-        )
+        ):
+            # P2: the debt must now equal its residual (0 on a clean/forgiven
+            # settle, carry_amount on a carry). Enforced in dev/sim; alarm in prod.
+            assert_stake_obligation_closed(
+                stake_id=active_stake.stake_id,
+                expected_residual=int(settlement.carry_amount),
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                already_originated=True,
+            )
 
     # Apply the settlement flows. For AI-staker / AI-borrower
     # personality stakes the flows are pure bankroll→bankroll

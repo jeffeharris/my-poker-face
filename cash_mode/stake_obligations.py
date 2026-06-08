@@ -237,7 +237,13 @@ def apply_close_flows(
     return True
 
 
-def obligation_balance(repo, stake_id: str, *, sandbox_id: Optional[str]) -> Optional[int]:
+def obligation_balance(
+    repo,
+    stake_id: str,
+    *,
+    sandbox_id: Optional[str],
+    assume_originated: bool = False,
+) -> Optional[int]:
     """The ledger-derived `oblig:<stake_id>` balance (outstanding principal owed).
 
     Returns `None` when the stake was never ORIGINATED in the obligation
@@ -246,12 +252,18 @@ def obligation_balance(repo, stake_id: str, *, sandbox_id: Optional[str]) -> Opt
     rather than 0: a legacy stake that later extinguishes would otherwise read a
     spurious negative balance. A stake that was originated returns its real
     balance (0 when fully closed, the carry residual when carried).
+
+    `assume_originated=True` skips the `entries_for_stake` origination check (a
+    `context_json LIKE` table scan) when the caller already knows the stake was
+    originated — e.g. `apply_close_flows` having just returned True for it. Saves
+    the second identical scan in the close → assert sequence.
     """
     if repo is None:
         return None
-    rows = repo.entries_for_stake(stake_id, sandbox_id=sandbox_id)
-    if not any(r.get("reason") == "stake_originate" for r in rows):
-        return None
+    if not assume_originated:
+        rows = repo.entries_for_stake(stake_id, sandbox_id=sandbox_id)
+        if not any(r.get("reason") == "stake_originate" for r in rows):
+            return None
     from core.economy.ledger import oblig
 
     return repo.balance_of(oblig(stake_id), sandbox_id=sandbox_id)

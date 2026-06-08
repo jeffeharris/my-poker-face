@@ -2790,19 +2790,20 @@ def default_stake(stake_id: str):
         from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
 
         _default_sandbox = _resolve_sandbox_id(owner_id)
-        apply_close_flows(
+        if apply_close_flows(
             flows_on_forgive(stake_id, int(former_carry)),
             _clr_default,
             stake_id,
             sandbox_id=_default_sandbox,
             context={'stake_id': stake_id, 'site': 'human_default'},
-        )
-        assert_stake_obligation_closed(
-            stake_id=stake_id,
-            expected_residual=0,
-            sandbox_id=_default_sandbox,
-            chip_ledger_repo=_clr_default,
-        )
+        ):
+            assert_stake_obligation_closed(
+                stake_id=stake_id,
+                expected_residual=0,
+                sandbox_id=_default_sandbox,
+                chip_ledger_repo=_clr_default,
+                already_originated=True,
+            )
 
     # Fire the reputation hit. The dispatch table's STAKE_DEFAULTED
     # entry is the sharpest negative axis shift in the calibration —
@@ -2992,19 +2993,20 @@ def payoff_stake(stake_id: str):
         from cash_mode.stake_lifecycle import assert_stake_obligation_closed
         from cash_mode.stake_obligations import apply_close_flows, flows_on_carry_payment
 
-        apply_close_flows(
+        if apply_close_flows(
             flows_on_carry_payment(stake_id, carry_amount),
             chip_ledger_repo,
             stake_id,
             sandbox_id=sandbox_id,
             context={'stake_id': stake_id, 'site': 'voluntary_payoff'},
-        )
-        assert_stake_obligation_closed(
-            stake_id=stake_id,
-            expected_residual=0,
-            sandbox_id=sandbox_id,
-            chip_ledger_repo=chip_ledger_repo,
-        )
+        ):
+            assert_stake_obligation_closed(
+                stake_id=stake_id,
+                expected_residual=0,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                already_originated=True,
+            )
 
     # v106 payout accounting on voluntary payoff:
     #   staker_payout  += carry_amount  (staker received the deferred chips)
@@ -3374,19 +3376,20 @@ def staker_forgive(stake_id: str):
             from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
 
             _forgive_sandbox = _resolve_sandbox_id(owner_id)
-            apply_close_flows(
+            if apply_close_flows(
                 flows_on_forgive(stake_id, int(stake.carry_amount or 0)),
                 _clr_forgive,
                 stake_id,
                 sandbox_id=_forgive_sandbox,
                 context={'stake_id': stake_id, 'site': 'staker_forgive'},
-            )
-            assert_stake_obligation_closed(
-                stake_id=stake_id,
-                expected_residual=0,
-                sandbox_id=_forgive_sandbox,
-                chip_ledger_repo=_clr_forgive,
-            )
+            ):
+                assert_stake_obligation_closed(
+                    stake_id=stake_id,
+                    expected_residual=0,
+                    sandbox_id=_forgive_sandbox,
+                    chip_ledger_repo=_clr_forgive,
+                    already_originated=True,
+                )
         _record_relationship_event(
             actor_id=owner_id,
             target_id=stake.borrower_id,
@@ -4902,9 +4905,10 @@ def _leave_table_locked(owner_id: str, game_id: str):
         # (incl. house forgive, which never carries) write off the residual so
         # the debt fully closes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
         if chip_ledger_repo is not None and _economy_flags_leave.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
             from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
 
-            apply_close_flows(
+            if apply_close_flows(
                 flows_on_settle(
                     active_stake.stake_id,
                     principal=int(active_stake.principal),
@@ -4915,17 +4919,16 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 active_stake.stake_id,
                 sandbox_id=sandbox_id,
                 context={'game_id': game_id, 'site': 'leave_table'},
-            )
-            # P2: the debt must now equal its residual (0 clean/forgiven,
-            # carry_amount on a carry). Enforced in dev/sim; alarm-only in prod.
-            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
-
-            assert_stake_obligation_closed(
-                stake_id=active_stake.stake_id,
-                expected_residual=int(stake_settlement.carry_amount),
-                sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo,
-            )
+            ):
+                # P2: the debt must now equal its residual (0 clean/forgiven,
+                # carry_amount on a carry). Enforced in dev/sim; alarm in prod.
+                assert_stake_obligation_closed(
+                    stake_id=active_stake.stake_id,
+                    expected_residual=int(stake_settlement.carry_amount),
+                    sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    already_originated=True,
+                )
 
         for flow in flows:
             if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:

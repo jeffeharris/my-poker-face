@@ -426,6 +426,22 @@ def test_obligation_balance_is_none_for_legacy_stake(lr):
     assert obligation_balance(lr, SID, sandbox_id=SB) == PRINCIPAL
 
 
+def test_obligation_balance_assume_originated_skips_the_origination_scan(lr):
+    # Perf path: when the caller already knows the stake is originated (e.g.
+    # apply_close_flows just returned True), assume_originated=True returns
+    # balance_of directly WITHOUT the entries_for_stake LIKE scan. Proven by it
+    # returning a number even with no originate row present (the default path
+    # would return None there).
+    from cash_mode.stake_obligations import obligation_balance
+
+    assert obligation_balance(lr, "no_origin", sandbox_id=SB) is None  # default: scans, legacy
+    assert obligation_balance(lr, "no_origin", sandbox_id=SB, assume_originated=True) == 0
+    # And on a real originated stake the two agree.
+    record_stake_originate(lr, stake_id=SID, principal=PRINCIPAL, sandbox_id=SB)
+    assert obligation_balance(lr, SID, sandbox_id=SB) == PRINCIPAL
+    assert obligation_balance(lr, SID, sandbox_id=SB, assume_originated=True) == PRINCIPAL
+
+
 def test_closure_check_passes_raises_alarms_and_skips_legacy(lr):
     from cash_mode.stake_lifecycle import (
         StakeConservationError,
