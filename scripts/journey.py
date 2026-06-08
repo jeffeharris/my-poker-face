@@ -25,6 +25,7 @@ from poker.memory.journey import (
     own_buy_in,
     session_facts,
     session_facts_text,
+    session_result,
     summarize_session,
     voice_over,
 )
@@ -117,13 +118,20 @@ def main() -> int:
         hands = [_row_to_recorded_hand(r) for r in rows]
         # Money from the cash-session ledger (truth), not summed from hands.
         cs = c.execute(
-            "SELECT total_buy_in, sponsor_principal, player_take_home, ended_at, stake_label "
-            "FROM cash_sessions WHERE session_id=?",
+            "SELECT total_buy_in, sponsor_principal, player_take_home, ended_at, stake_label, "
+            "is_staked, final_chips_at_table FROM cash_sessions WHERE session_id=?",
             (gid,),
         ).fetchone()
-        net = buy_in = take_home = stake = None
+        net = buy_in = take_home = stake = pocket = None
+        staked = False
         if cs:
-            net = cash_pnl(
+            net = session_result(
+                final_chips_at_table=cs["final_chips_at_table"],
+                total_buy_in=cs["total_buy_in"],
+                sponsor_principal=cs["sponsor_principal"],
+                ended_at=cs["ended_at"],
+            )
+            pocket = cash_pnl(
                 total_buy_in=cs["total_buy_in"],
                 sponsor_principal=cs["sponsor_principal"],
                 player_take_home=cs["player_take_home"],
@@ -132,6 +140,7 @@ def main() -> int:
             buy_in = own_buy_in(cs["total_buy_in"], cs["sponsor_principal"])
             take_home = cs["player_take_home"]
             stake = cs["stake_label"]
+            staked = bool(cs["is_staked"])
         # Drama ranking: pot-size signal wants the big blind (from the stake),
         # swing/lead-change signals want the stored equity history.
         bb = (STAKES_LADDER.get(stake or "") or {}).get("big_blind")
@@ -148,6 +157,8 @@ def main() -> int:
             buy_in=buy_in if net is not None else None,
             take_home=take_home if net is not None else None,
             stake_label=stake,
+            staked=staked,
+            pocket=pocket,
         )
         session_stats.append(
             {

@@ -21,8 +21,99 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ..hand_narrator import narrate_key_moments
+from ..hand_ranges import hand_to_canonical
+from ..hand_tiers import (
+    PREMIUM_HANDS,
+    TOP_10_HANDS,
+    TOP_20_HANDS,
+    TOP_35_HANDS,
+    TOP_55_HANDS,
+    TOP_75_HANDS,
+    TOP_95_HANDS,
+)
 from .hand_history import RecordedHand
 from .hand_score import top_hands
+
+# Starting-hand percentile buckets, tightest first: a hand's "quality" is the
+# tightest top-N% range it falls in (lower = stronger). Trash falls through to 100.
+_TIER_BUCKETS = [
+    (PREMIUM_HANDS, 3),
+    (TOP_10_HANDS, 10),
+    (TOP_20_HANDS, 20),
+    (TOP_35_HANDS, 35),
+    (TOP_55_HANDS, 55),
+    (TOP_75_HANDS, 75),
+    (TOP_95_HANDS, 95),
+]
+
+
+def _hand_percentile(canonical: str) -> int:
+    for hand_set, pct in _TIER_BUCKETS:
+        if canonical in hand_set:
+            return pct
+    return 100
+
+
+def preflop_counts(hands: List[RecordedHand], player_name: str) -> Dict[str, int]:
+    """Raw preflop tallies for one player over a set of hands — kept as counts
+    (not rates) so they sum cleanly into an overall career total. Excludes forced
+    blind posts; a voluntary call/bet/raise/all-in is VPIP, a bet/raise is PFR.
+    `pct_sum`/`pct_n` carry the starting-hand-quality average (see preflop_rates)."""
+    n = vpip = pfr = premium = pct_sum = pct_n = 0
+    for h in hands:
+        if not _player_in(h, player_name):
+            continue
+        n += 1
+        pre = [
+            a
+            for a in h.actions
+            if a.player_name == player_name and a.phase == "PRE_FLOP" and a.action != "post_blind"
+        ]
+        if any(a.action in ("call", "bet", "raise", "all_in") for a in pre):
+            vpip += 1
+        # A preflop all-in is aggression — the codebase treats shoves as raises,
+        # so count them toward PFR (a call-all-in for less is the rare exception).
+        if any(a.action in ("bet", "raise", "all_in") for a in pre):
+            pfr += 1
+        cards = h.hole_cards.get(player_name)
+        if cards and len(cards) >= 2:
+            canonical = hand_to_canonical(cards[0], cards[1])
+            pct_sum += _hand_percentile(canonical)
+            pct_n += 1
+            if canonical in PREMIUM_HANDS:
+                premium += 1
+    return {
+        "hands": n,
+        "vpip": vpip,
+        "pfr": pfr,
+        "premium": premium,
+        "pct_sum": pct_sum,
+        "pct_n": pct_n,
+    }
+
+
+def preflop_rates(counts: Dict[str, int]) -> Optional[Dict[str, Any]]:
+    """Turn raw preflop counts into display rates: VPIP%, PFR%, premium count,
+    and avg starting-hand quality (as a top-X% — lower is stronger). None if no
+    hands."""
+    n = counts.get("hands", 0)
+    if not n:
+        return None
+    pct_n = counts.get("pct_n", 0)
+    return {
+        "hands": n,
+        "vpip_pct": round(100 * counts.get("vpip", 0) / n),
+        "pfr_pct": round(100 * counts.get("pfr", 0) / n),
+        "premium": counts.get("premium", 0),
+        "avg_hand_pct": round(counts["pct_sum"] / pct_n) if pct_n else None,
+    }
+
+
+def merge_counts(parts: List[Dict[str, int]]) -> Dict[str, int]:
+    """Sum a list of preflop_counts into one career-wide total."""
+    keys = ("hands", "vpip", "pfr", "premium", "pct_sum", "pct_n")
+    return {k: sum(p.get(k, 0) for p in parts) for k in keys}
+
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +188,7 @@ def session_facts(
         big_blind=big_blind,
         equity_by_hand=equity_by_hand,
         limit=top_n,
-        min_score=1,
+        min_score=12,
     )
     beats: List[Dict[str, Any]] = []
     for h, sc in ranked:
@@ -148,6 +239,31 @@ def own_buy_in(total_buy_in: Optional[int], sponsor_principal: Optional[int]) ->
     return max(0, (total_buy_in or 0) - (sponsor_principal or 0))
 
 
+def session_result(
+    *,
+    final_chips_at_table: Optional[int],
+    total_buy_in: Optional[int],
+    sponsor_principal: Optional[int],
+    ended_at: Any,
+) -> Optional[int]:
+    """The session's TABLE result — how the stack actually ran, regardless of
+    who funded it: final chips minus the full starting stack (own buy-in PLUS
+    any sponsor principal). For a non-staked session this equals the player's
+    own-pocket net; for a STAKED session it's the real poker result the BACKER
+    absorbed/shared — which `cash_pnl` (own-pocket) hides as 0 on a loss.
+    None while in progress."""
+    if ended_at is None or final_chips_at_table is None:
+        return None
+    # NOTE: total_buy_in and sponsor_principal are SEPARATE, additive components,
+    # not nested — per the CashSession docstring, total_buy_in is the player's
+    # self-funded portion (initial_buy_in is "always 0 for staked sessions") and
+    # sponsor_principal is "surfaced separately from buy-in". So the full seat =
+    # total_buy_in + sponsor_principal (e.g. staked: 0 own + 5000 backer = 5000).
+    # Do NOT "simplify" to total_buy_in alone — that breaks every staked session.
+    start_stack = (total_buy_in or 0) + (sponsor_principal or 0)
+    return int(final_chips_at_table) - start_stack
+
+
 def summarize_session(
     player_name: str,
     *,
@@ -158,18 +274,34 @@ def summarize_session(
     buy_in: Optional[int] = None,
     take_home: Optional[int] = None,
     stake_label: Optional[str] = None,
+    staked: bool = False,
+    pocket: Optional[int] = None,
 ) -> str:
-    """Plain-prose session recap. Uses the LEDGER net when available; an
-    in-progress / ledger-less session just states the action (no up/down claim
-    it can't back up)."""
+    """Plain-prose session recap. `net` is the TABLE result (how the stack
+    actually ran); an in-progress session just states the action.
+
+    For a `staked` session the table result is the BACKER's money — so we report
+    the real table result AND the player's own take (`pocket`), instead of the
+    old "walked away with 0" which read as "started with nothing"."""
     hp = f"{hands_played} hand{'s' if hands_played != 1 else ''}"
     at = f" at {stake_label}" if stake_label else ""
     biggest = f" Biggest pot: {biggest_pot_won:,}." if biggest_pot_won else ""
 
     if net is None:
-        return f"{player_name} played {hp}{at}, won {hands_won}.{biggest}".rstrip()
+        on_stake = " on a stake" if staked else ""
+        return f"{player_name} played {hp}{at}{on_stake}, won {hands_won}.{biggest}".rstrip()
 
     arc = "up" if net > 0 else "down" if net < 0 else "even"
+    if staked:
+        stake_part = f" on a {stake_label} stake" if stake_label else " on a stake"
+        own = "you broke even" if (pocket or 0) == 0 else f"your share: {pocket:+,}"
+        if net < 0:
+            tail = f"the table ran down {-net:,}, but the backer carried it; {own}"
+        elif net > 0:
+            tail = f"up {net:+,} at the table; {own}"
+        else:
+            tail = f"even at the table; {own}"
+        return f"{player_name} played {hp}{stake_part} (won {hands_won}) — {tail}.{biggest}"
     if buy_in is not None and take_home is not None:
         return (
             f"{player_name} bought in for {buy_in:,}{at}, played {hp} "
@@ -219,14 +351,39 @@ _VOICE_SYSTEM = (
     "readable story beat. Plain prose, no headers or lists."
 )
 
+# Extra framing for the ARC narration (the whole-journey roll-up). The sessions
+# are fed oldest→newest with date anchors, so the model must read it as a
+# trajectory over time, not start the story from the latest session.
+ARC_CONTEXT = (
+    "The FACTS are this player's cash-circuit sessions in CHRONOLOGICAL order — "
+    "oldest first, most recent last (each line is prefixed with its date). "
+    "Narrate the ARC of their journey over that span: where they started, the "
+    "swings and turning points along the way, and where they stand now. The "
+    "first line is just the earliest session shown — NOT a career debut, so "
+    "don't frame it as their first time playing. Track the trajectory."
+)
 
-def voice_over(facts: str, *, hero: str = "the player", length: str = "2-4 sentences") -> str:
+
+def voice_over(
+    facts: str,
+    *,
+    hero: str = "the player",
+    length: str = "2-4 sentences",
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    context: Optional[str] = None,
+) -> str:
     """Wrap deterministic facts in narrative prose via the stronger Assistant tier.
 
     The story is a deliberate, on-demand read (a button press, not an in-game
     latency path), and the cheap Fast tier was caught embellishing dollar
     amounts that weren't in the facts. The Assistant tier (a reasoning model)
     stays faithful to the numbers, which matters here.
+
+    `provider`/`model` override the tier lookup. Pass them when calling from a
+    worker thread — the DB-backed settings accessors aren't safe off the request
+    thread, so the caller resolves the tier once and threads it in. `context`
+    appends extra framing to the system prompt (e.g. ARC_CONTEXT for the arc).
 
     Fail-soft: returns ``facts`` unchanged on any error or empty input. The
     facts are the source of truth; this only changes the telling.
@@ -238,18 +395,21 @@ def voice_over(facts: str, *, hero: str = "the player", length: str = "2-4 sente
         from core.llm import CallType, LLMClient, settings as llm_settings
 
         client = LLMClient(
-            provider=llm_settings.get_assistant_provider(),
-            model=llm_settings.get_assistant_model(),
+            provider=provider or llm_settings.get_assistant_provider(),
+            model=model or llm_settings.get_assistant_model(),
             default_timeout=30.0,
         )
+        system = _VOICE_SYSTEM.format(hero=hero, length=length)
+        if context:
+            system = f"{system}\n\n{context}"
         resp = client.complete(
             messages=[
-                {"role": "system", "content": _VOICE_SYSTEM.format(hero=hero, length=length)},
+                {"role": "system", "content": system},
                 {"role": "user", "content": f"FACTS:\n{facts}\n\nTell the story."},
             ],
             json_format=False,
             max_tokens=400,
-            call_type=CallType.HAND_NARRATIVE,
+            call_type=CallType.JOURNEY_NARRATION,
             prompt_template="journey_voice",
         )
         text = (resp.content or "").strip()

@@ -199,20 +199,25 @@ def score_hand(
     comp["magnitude"] = mag
     comp["commitment"] = _commitment(hand)
 
-    # Equity swing + suckout / bad-beat framing (needs equity history).
+    # Equity swing + suckout / bad-beat framing — HERO-CENTRIC and only when the
+    # hero actually stayed in the hand. A pot the hero folded isn't their swing
+    # (and can't be their suckout/bad beat) — those belong to whoever fought it
+    # out, not to the spectator.
+    hero_folded = any(a.player_name == player_name and a.action == "fold" for a in hand.actions)
     swing = 0.0
-    if equity is not None:
+    flips = 0
+    if equity is not None and not hero_folded:
         try:
-            for name in equity.get_player_names():
-                s = equity.get_max_equity_swing(name)
-                if s:
-                    swing = max(swing, abs(s[2]))
+            s = equity.get_max_equity_swing(player_name)
+            if s:
+                swing = abs(s[2])
             if equity.was_behind_then_won(player_name):
                 tags.append("suckout")
             if equity.was_ahead_then_lost(player_name):
                 tags.append("bad beat")
+            flips = _lead_changes(equity)
         except Exception:
-            swing = 0.0
+            swing, flips = 0.0, 0
     comp["equity_swing"] = swing
 
     # Closeness / cooler: how strong the LOSING showdown hand was.
@@ -235,7 +240,6 @@ def score_hand(
     n_all_in = _all_in_count(hand)
     comp["all_in"] = _all_in_component(n_all_in)
 
-    flips = _lead_changes(equity)
     comp["lead_changes"] = {0: 0.0, 1: 0.5}.get(flips, 1.0)
 
     hero_risk = _hero_risk(hand, player_name)
