@@ -479,6 +479,29 @@ def _fund_and_originate(br, lr, sr, stake_id):
         )
 
 
+def test_legacy_stake_settle_does_not_emit_close_flows(settle_repos):
+    # A stake that predates the obligation ledger has a funded seat but NO
+    # originate row. Settling it must NOT emit extinguish/forgive (which would
+    # drive oblig:<id> negative and pollute the contras) — apply_close_flows
+    # gates on origination.
+    br, lr, sr = settle_repos
+    _make_active_stake(sr, SID, principal=8000, cut=0.3)
+    # Chip-side seat funding (so the PR #235 funding guard is satisfied), but
+    # deliberately NO record_stake_originate — this is a legacy stake.
+    L.record_stake_fund(
+        lr,
+        source=L.ai("the_staker"),
+        sink=L.ai_seat(SB, "the_borrower"),
+        amount=8000,
+        context={"stake_id": SID, "site": "legacy_seed"},
+        sandbox_id=SB,
+    )
+    _settle(br, lr, sr, "the_borrower", chips_at_leave=20000)
+    # No originate → no close flows → balance untouched (0), never negative.
+    assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 0
+    assert lr.balance_of(L.oblig_settled(), sandbox_id=SB) == 0
+
+
 def test_ai_settle_passes_closure_check_under_enforcement(settle_repos):
     # The whole AI settle path must satisfy the P2 invariant with enforcement ON:
     # a clean settle closes the debt to 0; a carry leaves exactly the residual.

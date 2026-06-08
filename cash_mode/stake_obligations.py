@@ -201,6 +201,42 @@ def apply_obligation_flows(
         writer(flow)
 
 
+def is_originated(repo, stake_id: str, *, sandbox_id: Optional[str]) -> bool:
+    """True iff a `stake_originate` row exists for this stake — i.e. it entered
+    the obligation dimension. Legacy stakes created before the ledger shipped
+    return False; their CLOSE flows must be skipped (see `apply_close_flows`)."""
+    if repo is None:
+        return False
+    rows = repo.entries_for_stake(stake_id, sandbox_id=sandbox_id)
+    return any(r.get("reason") == "stake_originate" for r in rows)
+
+
+def apply_close_flows(
+    flows: List[ObligationFlow],
+    repo,
+    stake_id: str,
+    *,
+    sandbox_id: Optional[str],
+    context: Optional[dict] = None,
+    conn=None,
+) -> bool:
+    """Apply CLOSE flows (extinguish / forgive) ONLY if the stake was originated.
+
+    A legacy stake (active before the obligation ledger shipped) has no
+    `stake_originate` row; emitting an extinguish/forgive against it would drive
+    `oblig:<id>` negative and pollute the contra totals with debt that never
+    existed. So gate every close on `is_originated`: originated → apply and
+    return True; legacy → skip and return False. Originations and cancels do NOT
+    use this — they go straight through `apply_obligation_flows` (an originate is
+    itself the entry into the dimension; a cancel always pairs a same-run
+    originate). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    """
+    if not is_originated(repo, stake_id, sandbox_id=sandbox_id):
+        return False
+    apply_obligation_flows(flows, repo, sandbox_id=sandbox_id, context=context, conn=conn)
+    return True
+
+
 def obligation_balance(repo, stake_id: str, *, sandbox_id: Optional[str]) -> Optional[int]:
     """The ledger-derived `oblig:<stake_id>` balance (outstanding principal owed).
 

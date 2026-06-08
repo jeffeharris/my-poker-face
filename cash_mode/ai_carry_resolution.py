@@ -868,13 +868,14 @@ def try_ai_voluntary_payoff(
         # CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
         if _custody:
             from cash_mode.stake_obligations import (
-                apply_obligation_flows,
+                apply_close_flows,
                 flows_on_carry_payment,
             )
 
-            apply_obligation_flows(
+            apply_close_flows(
                 flows_on_carry_payment(target.stake_id, payment),
                 chip_ledger_repo,
+                target.stake_id,
                 sandbox_id=sandbox_id,
                 context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
                 conn=conn,
@@ -1096,11 +1097,12 @@ def try_ai_forgiveness_ask(
         from cash_mode import economy_flags as _eflags_oblig
 
         if chip_ledger_repo is not None and _eflags_oblig.CHIP_CUSTODY_ENABLED:
-            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_forgive
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
 
-            apply_obligation_flows(
+            apply_close_flows(
                 flows_on_forgive(target.stake_id, carry_amount),
                 chip_ledger_repo,
+                target.stake_id,
                 sandbox_id=sandbox_id,
                 context={'stake_id': target.stake_id, 'site': 'ai_forgiveness_granted'},
             )
@@ -1267,11 +1269,12 @@ def try_ai_explicit_default(
         from cash_mode import economy_flags as _eflags_oblig
 
         if chip_ledger_repo is not None and _eflags_oblig.CHIP_CUSTODY_ENABLED:
-            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_forgive
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
 
-            apply_obligation_flows(
+            apply_close_flows(
                 flows_on_forgive(target.stake_id, former_carry),
                 chip_ledger_repo,
+                target.stake_id,
                 sandbox_id=sandbox_id,
                 context={'stake_id': target.stake_id, 'site': 'ai_explicit_default'},
             )
@@ -1545,16 +1548,17 @@ def try_ai_bankruptcy(
         # close oblig:<id>. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
         if _custody:
             from cash_mode.stake_obligations import (
-                apply_obligation_flows,
+                apply_close_flows,
                 flows_on_carry_payment,
                 flows_on_forgive,
             )
 
             _carry = int(c.carry_amount)
-            apply_obligation_flows(
+            apply_close_flows(
                 flows_on_carry_payment(c.stake_id, share)
                 + flows_on_forgive(c.stake_id, _carry - share),
                 chip_ledger_repo,
+                c.stake_id,
                 sandbox_id=sandbox_id,
                 context={'stake_id': c.stake_id, 'site': 'ai_bankruptcy'},
             )

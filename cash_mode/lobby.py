@@ -2693,9 +2693,11 @@ def settle_departed_ai_stake(
         and economy_flags.CHIP_CUSTODY_ENABLED
     ):
         from cash_mode.stake_lifecycle import assert_stake_obligation_closed
-        from cash_mode.stake_obligations import apply_obligation_flows, flows_on_settle
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
 
-        apply_obligation_flows(
+        # Gated on origination: a legacy stake (no originate row) is skipped so
+        # the close doesn't drive oblig:<id> negative.
+        apply_close_flows(
             flows_on_settle(
                 active_stake.stake_id,
                 principal=int(active_stake.principal),
@@ -2703,6 +2705,7 @@ def settle_departed_ai_stake(
                 is_carry=settlement.new_status == STAKE_STATUS_CARRY,
             ),
             chip_ledger_repo,
+            active_stake.stake_id,
             sandbox_id=sandbox_id,
             context={"site": "ai_session_end", "sandbox_id": sandbox_id},
         )

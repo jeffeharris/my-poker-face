@@ -3324,11 +3324,12 @@ def staker_forgive(stake_id: str):
         from flask_app.extensions import chip_ledger_repo as _clr_forgive
 
         if _clr_forgive is not None and _eflags_forgive.CHIP_CUSTODY_ENABLED:
-            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_forgive
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
 
-            apply_obligation_flows(
+            apply_close_flows(
                 flows_on_forgive(stake_id, int(stake.carry_amount or 0)),
                 _clr_forgive,
+                stake_id,
                 sandbox_id=_resolve_sandbox_id(owner_id),
                 context={'stake_id': stake_id, 'site': 'staker_forgive'},
             )
@@ -4847,9 +4848,9 @@ def _leave_table_locked(owner_id: str, game_id: str):
         # (incl. house forgive, which never carries) write off the residual so
         # the debt fully closes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
         if chip_ledger_repo is not None and _economy_flags_leave.CHIP_CUSTODY_ENABLED:
-            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_settle
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
 
-            apply_obligation_flows(
+            apply_close_flows(
                 flows_on_settle(
                     active_stake.stake_id,
                     principal=int(active_stake.principal),
@@ -4857,6 +4858,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     is_carry=stake_settlement.new_status == STAKE_STATUS_CARRY,
                 ),
                 chip_ledger_repo,
+                active_stake.stake_id,
                 sandbox_id=sandbox_id,
                 context={'game_id': game_id, 'site': 'leave_table'},
             )
