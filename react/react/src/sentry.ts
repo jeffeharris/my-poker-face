@@ -116,3 +116,22 @@ export function setSentryGame(gameId: string | null): void {
   if (!sentryEnabled) return;
   Sentry.setTag('game_id', gameId ?? undefined);
 }
+
+/**
+ * Stop session-replay recording for admins (i.e. us, dogfooding), so our own
+ * testing sessions don't burn the limited free-tier replay quota or add noise.
+ * Errors/feedback are still captured — only the replay recording is dropped.
+ *
+ * One-way + best-effort: once stopped it stays stopped for this page load. We
+ * deliberately don't auto-restart on a later identity swap, because start()
+ * would begin recording a *full* session (overriding our on-error-only
+ * sampling); a page reload re-evaluates cleanly for whoever is signed in.
+ */
+export function suppressReplayForAdmin(isAdmin: boolean): void {
+  if (!sentryEnabled || !isAdmin) return;
+  try {
+    void Sentry.getReplay()?.stop();
+  } catch {
+    // best-effort — never let replay control throw into the app
+  }
+}

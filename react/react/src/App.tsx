@@ -7,7 +7,7 @@ import { LoginForm } from './components/auth/LoginForm';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
 import { rememberAdminOrigin } from './components/admin/adminOrigin';
-import { useAuth } from './hooks/useAuth';
+import { useAuth, hasPermission } from './hooks/useAuth';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useUsageStats } from './hooks/useUsageStats';
 import { useNicknameOverridesStore } from './stores/nicknameOverridesStore';
@@ -16,7 +16,7 @@ import { ShuffleLoading, GuestLimitModal } from './components/shared';
 import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor';
 import { logger } from './utils/logger';
 import { FeedbackButton } from './components/feedback/FeedbackButton';
-import { setSentryUser, setSentryGame } from './sentry';
+import { setSentryUser, setSentryGame, suppressReplayForAdmin } from './sentry';
 import { config } from './config';
 import { type Theme } from './types/theme';
 import toast, { Toaster } from 'react-hot-toast';
@@ -205,11 +205,14 @@ function App() {
   const userName = user?.name;
   const userEmail = user?.email;
   const userIsGuest = user?.is_guest;
+  const userIsAdmin = hasPermission(user, 'can_access_admin_tools');
   useEffect(() => {
     setSentryUser(
       userId ? { id: userId, name: userName ?? '', email: userEmail, isGuest: userIsGuest } : null
     );
-  }, [userId, userName, userEmail, userIsGuest]);
+    // Don't record OUR (admin) replays — saves the limited free-tier quota.
+    suppressReplayForAdmin(userIsAdmin);
+  }, [userId, userName, userEmail, userIsGuest, userIsAdmin]);
 
   // Tag the active game id (from /game/:id) so a feedback report links straight
   // to that game's admin debug views. Cleared on any non-game route.
