@@ -16,7 +16,15 @@ import sqlite3
 import sys
 
 from poker.memory.hand_history import RecordedHand
-from poker.memory.journey import journey_arc_facts, session_story, voice_over
+from poker.memory.journey import (
+    cash_pnl,
+    journey_arc_facts,
+    own_buy_in,
+    session_facts,
+    session_facts_text,
+    summarize_session,
+    voice_over,
+)
 
 DEFAULT_DB = "/app/data/poker_games.db"
 
@@ -45,17 +53,22 @@ def main() -> int:
     ap.add_argument("player", nargs="?", default="Jeff")
     ap.add_argument("--db", default=DEFAULT_DB)
     ap.add_argument("--voiced", action="store_true", help="LLM prose over the facts")
+    ap.add_argument("--cash", action="store_true", help="circuit/cash games only (cash-*)")
     ap.add_argument("--limit-games", type=int, default=10)
     args = ap.parse_args()
 
-    c = sqlite3.connect(args.db)
+    # Read-only + immutable so we can safely read a live (WAL) DB on a read-only
+    # mount without needing -wal/-shm or taking locks.
+    c = sqlite3.connect(f"file:{args.db}?mode=ro&immutable=1", uri=True)
     c.row_factory = sqlite3.Row
     # Games this player appears in, most-recently-played first.
+    cash_clause = "AND game_id LIKE 'cash-%'" if args.cash else ""
     games = [
         r["game_id"]
         for r in c.execute(
-            """SELECT game_id, MAX(hand_number) hn FROM hand_history
-               WHERE players_json LIKE ? GROUP BY game_id ORDER BY MAX(id) DESC LIMIT ?""",
+            f"""SELECT game_id, MAX(hand_number) hn FROM hand_history
+               WHERE players_json LIKE ? {cash_clause}
+               GROUP BY game_id ORDER BY MAX(id) DESC LIMIT ?""",
             (f'%"{args.player}"%', args.limit_games),
         )
     ]
@@ -67,35 +80,70 @@ def main() -> int:
     print(f"  THE JOURNEY OF {args.player.upper()}")
     print("=" * 72)
 
-    stories = []
+    session_stats = []
     for gid in games:
         rows = c.execute(
             "SELECT * FROM hand_history WHERE game_id=? ORDER BY hand_number", (gid,)
         ).fetchall()
         hands = [_row_to_recorded_hand(r) for r in rows]
-        story = session_story(hands, args.player)
-        if story["stats"]["hands_played"] == 0:
+        facts = session_facts(hands, args.player)
+        if facts["hands_played"] == 0:
             continue
-        stories.append(story)
-        kind = "MAIN EVENT" if gid.startswith("tourney-") else "Table"
-        print(f"\n── {kind}  ({gid[:20]}…) ──")
-        print(f"   {story['summary']}")
-        for b in story["beats"]:
+        # Money from the cash-session ledger (truth), not summed from hands.
+        cs = c.execute(
+            "SELECT total_buy_in, sponsor_principal, player_take_home, ended_at, stake_label "
+            "FROM cash_sessions WHERE session_id=?",
+            (gid,),
+        ).fetchone()
+        net = buy_in = take_home = stake = None
+        if cs:
+            net = cash_pnl(
+                total_buy_in=cs["total_buy_in"],
+                sponsor_principal=cs["sponsor_principal"],
+                player_take_home=cs["player_take_home"],
+                ended_at=cs["ended_at"],
+            )
+            buy_in = own_buy_in(cs["total_buy_in"], cs["sponsor_principal"])
+            take_home = cs["player_take_home"]
+            stake = cs["stake_label"]
+        summary = summarize_session(
+            args.player,
+            hands_played=facts["hands_played"],
+            hands_won=facts["hands_won"],
+            biggest_pot_won=facts["biggest_pot_won"],
+            net=net,
+            buy_in=buy_in if net is not None else None,
+            take_home=take_home if net is not None else None,
+            stake_label=stake,
+        )
+        session_stats.append(
+            {
+                "hands_played": facts["hands_played"],
+                "hands_won": facts["hands_won"],
+                "biggest_pot_won": facts["biggest_pot_won"],
+                "net_chips": net,
+            }
+        )
+        print(f"\n── {stake or 'Session'}  ({gid[:20]}…) ──")
+        print(f"   {summary}")
+        for b in facts["beats"]:
             print(f"     • hand {b['hand_number']}: {b['text']}")
         if args.voiced:
-            facts = story["summary"] + "\n" + "\n".join(b["text"] for b in story["beats"])
-            print("\n   STORY:", voice_over(facts, hero=args.player))
+            print(
+                "\n   STORY:",
+                voice_over(session_facts_text(summary, facts["beats"]), hero=args.player),
+            )
 
-    if stories:
-        arc = journey_arc_facts(stories, args.player)
+    if session_stats:
+        arc = journey_arc_facts(session_stats)
         print("\n" + "=" * 72)
         print("  THE ARC SO FAR")
         print("=" * 72)
         line = (
-            f"  {arc['sessions']} sessions, {arc['winning_sessions']} winning. "
-            f"{arc['total_hands']} hands, {arc['total_hands_won']} won. "
-            f"Net {'+' if arc['total_net_chips'] >= 0 else ''}{arc['total_net_chips']:,} chips. "
-            f"Peak stack {arc['peak_stack']:,}."
+            f"  {arc['sessions']} sessions ({arc['ended_sessions']} finished, "
+            f"{arc['winning_sessions']} winning). {arc['total_hands']} hands, "
+            f"{arc['total_hands_won']} won. Net {arc['total_net_chips']:+,} chips. "
+            f"Biggest pot {arc['biggest_pot']:,}."
         )
         print(line)
         if args.voiced:

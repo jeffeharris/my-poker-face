@@ -141,6 +141,101 @@ def get_career_stats():
     )
 
 
+@stats_bp.route('/api/journey', methods=['GET'])
+def get_journey():
+    """The player's CIRCUIT (cash-mode) career story: one narrative beat per
+    session, combined into an arc. Scoped to the owner's cash sessions — the
+    actual career — not tournaments or quick-play. Facts are deterministic
+    (hand_history). Pass ?voiced=1 to also get the LLM-narrated session beats +
+    arc (grounded in those facts, fail-soft)."""
+    current_user = extensions.auth_manager.get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    owner_id = current_user.get('id')
+    if not owner_id:
+        return jsonify({'error': 'No user ID found'}), 400
+
+    voiced = request.args.get('voiced') in ('1', 'true', 'yes')
+
+    from poker.memory.hand_history import RecordedHand
+    from poker.memory.journey import (
+        cash_pnl,
+        journey_arc_facts,
+        own_buy_in,
+        session_facts,
+        session_facts_text,
+        summarize_session,
+        voice_over,
+    )
+
+    # Circuit = cash mode. The owner's cash sessions are the career; session_id
+    # IS the game_id ('cash-*'). Tournaments/quick-play are excluded by design.
+    cash_sessions = extensions.cash_session_repo.list_for_owner(owner_id, limit=12)
+    sessions = []
+    player = None
+    for cs in cash_sessions:
+        try:
+            rows = extensions.hand_history_repo.load_hand_history(cs.session_id)
+            if not rows:
+                continue
+            hands = [RecordedHand.from_dict(r) for r in rows]
+            human = next((p.name for h in hands for p in h.players if p.is_human), None)
+            if not human:
+                continue
+            facts = session_facts(hands, human)
+            if facts['hands_played'] == 0:
+                continue
+            player = player or human
+            # Money from the ledger (authoritative), NOT summed from hands.
+            net = cash_pnl(
+                total_buy_in=cs.total_buy_in,
+                sponsor_principal=cs.sponsor_principal,
+                player_take_home=cs.player_take_home,
+                ended_at=cs.ended_at,
+            )
+            buy_in = own_buy_in(cs.total_buy_in, cs.sponsor_principal)
+            summary = summarize_session(
+                human,
+                hands_played=facts['hands_played'],
+                hands_won=facts['hands_won'],
+                biggest_pot_won=facts['biggest_pot_won'],
+                net=net,
+                buy_in=buy_in if net is not None else None,
+                take_home=cs.player_take_home if net is not None else None,
+                stake_label=cs.stake_label,
+            )
+            stats = {
+                'hands_played': facts['hands_played'],
+                'hands_won': facts['hands_won'],
+                'biggest_pot_won': facts['biggest_pot_won'],
+                'net_chips': net,
+                'buy_in': buy_in,
+                'take_home': cs.player_take_home,
+                'in_progress': net is None,
+            }
+            entry = {
+                'game_id': cs.session_id,
+                'summary': summary,
+                'stats': stats,
+                'beats': facts['beats'],
+            }
+            if voiced:
+                # One narrative beat per session, grounded in that session's facts.
+                entry['beat'] = voice_over(session_facts_text(summary, facts['beats']), hero=human)
+            sessions.append(entry)
+        except Exception:  # noqa: BLE001 — one bad session never sinks the whole story
+            logger.warning("journey: skipped session %s", cs.session_id, exc_info=True)
+
+    arc_facts = journey_arc_facts([s['stats'] for s in sessions]) if sessions else None
+    arc_beat = None
+    if voiced and sessions:
+        # The arc = the session beats combined.
+        joined = "\n\n".join(s.get('beat') or s['summary'] for s in sessions)
+        arc_beat = voice_over(joined, hero=player or 'the player', length="3-5 sentences")
+
+    return jsonify({'player': player, 'sessions': sessions, 'arc': arc_facts, 'arc_beat': arc_beat})
+
+
 @stats_bp.route('/api/models', methods=['GET'])
 @limiter.limit("30/minute")
 def get_available_models():

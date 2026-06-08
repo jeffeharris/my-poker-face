@@ -4,17 +4,15 @@ Hierarchical, the way the user framed it: per-hand beats roll up into a session
 recap, sessions roll up into the circuit/journey arc — "the story of the
 player's ups and downs through the circuit," player as the central character.
 
-Design principle (hard-won this session, see docs/experiments/EXP_008):
-**deterministic spine, LLM only for voice.** Every FACT in the story comes from
-the deterministic hand narrators (`narrate_key_moments`) and from real
-`hand_history` numbers — so the story can never hallucinate who won, what they
-held, or the amounts (the failure mode that sank the beat-as-LLM-input idea).
-The LLM is an optional prose layer ON TOP of already-true facts, and it's
-fail-soft: if it errors, you still get the factual deterministic story.
+Design principle (hard-won, see docs/experiments/EXP_008):
+**deterministic spine, LLM only for voice.** Facts come from the deterministic
+hand narrators (`narrate_key_moments`) for the per-hand beats, and from the
+**cash-session ledger** for the money (buy-in vs. take-home). The per-hand chip
+flow is NOT summed for session P&L — that double-counts blinds/uncalled bets and
+can even flip the sign; the authoritative result lives in `cash_sessions`. The
+LLM is an optional prose layer ON TOP of those true facts, and it's fail-soft.
 
-This module is pure logic over `RecordedHand` objects — no DB, no Flask. The
-caller loads hands (e.g. via `hand_history_repository.load_hand_history` +
-`RecordedHand.from_dict`) and hands them in.
+Pure logic over `RecordedHand` objects + ledger values — no DB, no Flask.
 """
 
 from __future__ import annotations
@@ -29,117 +27,119 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Deterministic facts (zero hallucination)
+# Deterministic hand-derived facts (counts + beats — all reliable from hands)
 # ---------------------------------------------------------------------------
 def _player_in(hand: RecordedHand, player_name: str) -> bool:
     return any(p.name == player_name for p in hand.players)
 
 
-def _player_info(hand: RecordedHand, player_name: str):
-    """The player's PlayerHandInfo for this hand, or None."""
-    return next((p for p in hand.players if p.name == player_name), None)
-
-
-def _player_net(hand: RecordedHand, player_name: str) -> int:
-    """Chips the player won minus chips they put in this hand."""
-    won = sum(w.amount_won for w in hand.winners if w.name == player_name)
-    contributed = hand.get_player_contributions().get(player_name, 0)
-    return won - contributed
-
-
 def hand_beat(
     hand: RecordedHand, player_name: str, big_blind: Optional[int] = None
 ) -> Optional[str]:
-    """A factual one-line beat for a single hand, or None for a routine hand
-    (preflop fold / tiny pot) that doesn't belong in the story."""
+    """A factual one-line beat for a single hand, or None for a routine hand."""
     return narrate_key_moments(hand, player_name, big_blind)
 
 
-def session_story(
-    hands: List[RecordedHand],
-    player_name: str,
-    *,
-    big_blind: Optional[int] = None,
+def session_facts(
+    hands: List[RecordedHand], player_name: str, *, big_blind: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Roll a session's hands up into a factual recap for one player.
+    """Hand-derived facts for one player's session: counts + notable beats.
 
-    Returns a dict with deterministic ``stats``, the notable per-hand ``beats``
-    (hand_number + text), and a plain-prose ``summary`` line. All facts; no LLM.
+    NOTE: deliberately does NOT compute session net — per-hand chip flow isn't a
+    reliable session P&L (blinds, uncalled returns, rebuys). The caller supplies
+    the authoritative net from the cash-session ledger (see `cash_pnl`).
     """
-    mine = [h for h in hands if _player_in(hand=h, player_name=player_name)]
+    mine = [h for h in hands if _player_in(h, player_name)]
+    won = [h for h in mine if any(w.name == player_name for w in h.winners)]
+    biggest = max((h.pot_size for h in won), default=0)
     beats: List[Dict[str, Any]] = []
-    net = 0
-    won = 0
-    biggest_pot_won = 0
     for h in mine:
-        net += _player_net(h, player_name)
-        if any(w.name == player_name for w in h.winners):
-            won += 1
-            biggest_pot_won = max(biggest_pot_won, h.pot_size)
         b = hand_beat(h, player_name, big_blind)
         if b:
             beats.append({"hand_number": h.hand_number, "text": b})
-
-    first_info = _player_info(mine[0], player_name) if mine else None
-    start_stack = first_info.starting_stack if first_info else None
-    end_stack = None
-    for h in reversed(mine):
-        info = _player_info(h, player_name)
-        if info is not None and info.final_stack is not None:
-            end_stack = info.final_stack
-            break
-
-    stats = {
-        "hands_played": len(mine),
-        "hands_won": won,
-        "net_chips": net,
-        "biggest_pot_won": biggest_pot_won,
-        "start_stack": start_stack,
-        "end_stack": end_stack,
-    }
-    summary = _deterministic_session_summary(player_name, stats)
-    return {"player": player_name, "stats": stats, "beats": beats, "summary": summary}
-
-
-def _fmt_chips(n: Optional[int]) -> str:
-    if n is None:
-        return "?"
-    sign = "+" if n > 0 else ""
-    return f"{sign}{n:,}"
-
-
-def _deterministic_session_summary(player_name: str, stats: Dict[str, Any]) -> str:
-    played = stats["hands_played"]
-    if played == 0:
-        return f"{player_name} sat out this session."
-    arc = "up" if stats["net_chips"] > 0 else "down" if stats["net_chips"] < 0 else "even"
-    parts = [
-        f"{player_name} played {played} hand{'s' if played != 1 else ''}, "
-        f"won {stats['hands_won']}, and finished {arc} "
-        f"{_fmt_chips(stats['net_chips'])} chips for the session."
-    ]
-    if stats["start_stack"] is not None and stats["end_stack"] is not None:
-        parts.append(f"Stack: {stats['start_stack']:,} → {stats['end_stack']:,}.")
-    if stats["biggest_pot_won"]:
-        parts.append(f"Biggest pot taken down: {stats['biggest_pot_won']:,}.")
-    return " ".join(parts)
-
-
-def journey_arc_facts(session_stories: List[Dict[str, Any]], player_name: str) -> Dict[str, Any]:
-    """Roll sessions up into the overall journey — deterministic stats only."""
-    total_net = sum(s["stats"]["net_chips"] for s in session_stories)
-    total_hands = sum(s["stats"]["hands_played"] for s in session_stories)
-    total_won = sum(s["stats"]["hands_won"] for s in session_stories)
-    winning_sessions = sum(1 for s in session_stories if s["stats"]["net_chips"] > 0)
-    peak = max((s["stats"]["end_stack"] or 0) for s in session_stories) if session_stories else 0
     return {
-        "sessions": len(session_stories),
-        "winning_sessions": winning_sessions,
-        "total_hands": total_hands,
-        "total_hands_won": total_won,
-        "total_net_chips": total_net,
-        "peak_stack": peak,
+        "hands_played": len(mine),
+        "hands_won": len(won),
+        "biggest_pot_won": biggest,
+        "beats": beats,
     }
+
+
+# ---------------------------------------------------------------------------
+# Authoritative money — from the cash-session ledger, not the hands
+# ---------------------------------------------------------------------------
+def cash_pnl(
+    *,
+    total_buy_in: Optional[int],
+    sponsor_principal: Optional[int],
+    player_take_home: Optional[int],
+    ended_at: Any,
+) -> Optional[int]:
+    """The player's session net from the ledger: take-home minus their OWN
+    buy-in (total buy-in less any sponsor principal). None while the session is
+    still in progress (no take-home yet)."""
+    if ended_at is None or player_take_home is None:
+        return None
+    return int(player_take_home) - own_buy_in(total_buy_in, sponsor_principal)
+
+
+def own_buy_in(total_buy_in: Optional[int], sponsor_principal: Optional[int]) -> int:
+    # Floor at 0: in a STAKED session the sponsor funds the seat, so
+    # `total_buy_in - sponsor_principal` can go negative. The player risked none
+    # of their own chips, so their own buy-in is 0 — never negative. (Staked P&L
+    # is thus the player's own-pocket net; it doesn't model the staker's split.)
+    return max(0, (total_buy_in or 0) - (sponsor_principal or 0))
+
+
+def summarize_session(
+    player_name: str,
+    *,
+    hands_played: int,
+    hands_won: int,
+    biggest_pot_won: int = 0,
+    net: Optional[int] = None,
+    buy_in: Optional[int] = None,
+    take_home: Optional[int] = None,
+    stake_label: Optional[str] = None,
+) -> str:
+    """Plain-prose session recap. Uses the LEDGER net when available; an
+    in-progress / ledger-less session just states the action (no up/down claim
+    it can't back up)."""
+    hp = f"{hands_played} hand{'s' if hands_played != 1 else ''}"
+    at = f" at {stake_label}" if stake_label else ""
+    biggest = f" Biggest pot: {biggest_pot_won:,}." if biggest_pot_won else ""
+
+    if net is None:
+        return f"{player_name} played {hp}{at}, won {hands_won}.{biggest}".rstrip()
+
+    arc = "up" if net > 0 else "down" if net < 0 else "even"
+    if buy_in is not None and take_home is not None:
+        return (
+            f"{player_name} bought in for {buy_in:,}{at}, played {hp} "
+            f"(won {hands_won}), and walked away with {take_home:,} — "
+            f"{arc} {net:+,} for the session.{biggest}"
+        )
+    return f"{player_name} played {hp}{at}, won {hands_won} — {arc} {net:+,}.{biggest}"
+
+
+def journey_arc_facts(session_stats: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Roll session stat dicts up into the overall arc. Net is summed only over
+    ENDED sessions (those with a ledger net); in-progress ones don't count."""
+    nets: List[int] = [int(s["net_chips"]) for s in session_stats if s.get("net_chips") is not None]
+    return {
+        "sessions": len(session_stats),
+        "ended_sessions": len(nets),
+        "winning_sessions": sum(1 for n in nets if n > 0),
+        "total_hands": sum(s.get("hands_played") or 0 for s in session_stats),
+        "total_hands_won": sum(s.get("hands_won") or 0 for s in session_stats),
+        "total_net_chips": sum(nets),
+        "biggest_pot": max((s.get("biggest_pot_won") or 0 for s in session_stats), default=0),
+    }
+
+
+def session_facts_text(summary: str, beats: List[Dict[str, Any]]) -> str:
+    """Flatten a session's recap + beats into the grounded input for voice_over."""
+    return "\n".join([summary] + [b["text"] for b in beats])
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +149,11 @@ _VOICE_SYSTEM = (
     "You are a sports-style narrator telling the story of a poker player's "
     "journey, with {hero} as the central character. You are given FACTS (a "
     "factual recap). Write {length} of grounded narrative — the arc of their "
-    "ups and downs. Use ONLY the facts given: never invent hands, amounts, or "
-    "outcomes. No clichés, no cheese, no hype — just an honest, readable story "
-    "beat. Plain prose, no headers or lists."
+    "ups and downs. Use ONLY the facts given: never invent hands, amounts, "
+    "outcomes, OR context — no places, no extra events, no backstory, nothing "
+    "like 'away from the table'. Do not reinterpret a pot as anything other "
+    "than what the facts say. No clichés, no cheese, no hype — an honest, "
+    "readable story beat. Plain prose, no headers or lists."
 )
 
 
