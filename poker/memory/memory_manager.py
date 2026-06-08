@@ -546,8 +546,10 @@ class AIMemoryManager:
 
         pot_running = 0
 
-        # Record SB post
-        sb_player = table_positions.get('SB')
+        # Record SB post. Keys come from PokerGameState.table_positions, which
+        # uses 'small_blind_player'/'big_blind_player' (NOT 'SB'/'BB') — the old
+        # short keys silently no-op'd, so blinds were never recorded.
+        sb_player = table_positions.get('small_blind_player')
         if sb_player:
             pot_running += sb_amount
             self.hand_recorder.record_action(
@@ -559,7 +561,7 @@ class AIMemoryManager:
             )
 
         # Record BB post
-        bb_player = table_positions.get('BB')
+        bb_player = table_positions.get('big_blind_player')
         if bb_player:
             pot_running += bb_amount
             self.hand_recorder.record_action(
