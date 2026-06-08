@@ -1502,12 +1502,20 @@ class AIPlayerController:
             # Analyze decision quality (only for the final decision)
             # Pass player bet info for max_winnable calculation in analyzer
             player = game_state.current_player
+            # Pass drama context through to the auto-labeler (only this LLM path
+            # has it); _analyze_decision computes the fold/pot labels itself.
+            drama_extra = (
+                {'drama_context': capture_enrichment[0].get('drama_context')}
+                if capture_enrichment[0]
+                else None
+            )
             self._analyze_decision(
                 response_dict,
                 context,
                 final_capture_id[0],
                 player_bet=player.bet,
                 all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+                auto_label_extra=drama_extra,
             )
 
             # Update capture with final action
@@ -1517,14 +1525,6 @@ class AIPlayerController:
                 update_prompt_capture(
                     final_capture_id[0], action_taken=action, raise_amount=raise_amount
                 )
-
-                # Compute and store auto-labels
-                if self._capture_label_repo and capture_enrichment[0]:
-                    label_data = capture_enrichment[0].copy()
-                    label_data['action_taken'] = action
-                    self._capture_label_repo.compute_and_store_auto_labels(
-                        final_capture_id[0], label_data
-                    )
 
             return response_dict
 
@@ -2041,10 +2041,14 @@ class AIPlayerController:
         player_bet: int = 0,
         all_players_bets: Optional[List[Tuple[int, bool]]] = None,
         bounded_options: Optional[List[Dict]] = None,
-    ) -> None:
+        auto_label_extra: Optional[Dict] = None,
+    ) -> Optional[int]:
         """Analyze decision quality and save to database.
 
-        This runs for EVERY AI decision to track quality metrics.
+        This runs for EVERY AI decision to track quality metrics. It is the
+        single self-save chokepoint shared by all self-saving controllers
+        (chaos/standard/lean/tiered), so auto-labeling lives here too — every
+        such decision is tagged uniformly, not just the chaos path.
 
         Args:
             response_dict: AI response with action and optional raise_to
@@ -2053,9 +2057,14 @@ class AIPlayerController:
             player_bet: Player's current round bet (for max_winnable calculation)
             all_players_bets: List of (bet, is_folded) tuples for ALL players
             bounded_options: Optional list of bounded option dicts for menu compliance
+            auto_label_extra: Optional dict merged into the auto-label inputs
+                (e.g. {'drama_context': ...}); only the chaos path supplies it.
+
+        Returns:
+            The saved decision row id, or None if not persisted.
         """
         if not self._decision_analysis_repo:
-            return
+            return None
 
         try:
             from poker.decision_analyzer import get_analyzer
@@ -2245,7 +2254,7 @@ class AIPlayerController:
                 player_name=self.player_name,
             )
 
-            self._decision_analysis_repo.save_decision_analysis(analysis)
+            decision_id = self._decision_analysis_repo.save_decision_analysis(analysis)
 
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
             menu_str = (
@@ -2257,8 +2266,29 @@ class AIPlayerController:
                 f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
                 f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f}{menu_str})"
             )
+
+            # Auto-label the decision (keyed on the decision spine). Fires for
+            # every self-saving controller, so standard/lean/tiered get the same
+            # fold/pot mistake tags the chaos path always had. drama_context, when
+            # supplied, adds the situational drama:/tone:/factor: tags.
+            if self._capture_label_repo and decision_id:
+                big_blind = game_state.current_ante or 100
+                label_data = {
+                    'action_taken': analysis.action_taken,
+                    'pot_odds': (analysis.pot_total / analysis.cost_to_call)
+                    if analysis.cost_to_call
+                    else None,
+                    'stack_bb': (analysis.player_stack / big_blind) if big_blind > 0 else None,
+                    'already_bet_bb': (player_bet / big_blind) if big_blind > 0 else None,
+                }
+                if auto_label_extra:
+                    label_data.update(auto_label_extra)
+                self._capture_label_repo.compute_and_store_auto_labels(decision_id, label_data)
+
+            return decision_id
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
+            return None
 
     def _extract_opponent_preflop_action(
         self, opponent_name: str, game_messages, game_state

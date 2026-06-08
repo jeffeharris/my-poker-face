@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 ALLOWED_SQL_TABLES = {
     'prompt_captures',
-    'capture_labels',
+    'decision_labels',
     'player_decision_analysis',
     'prompt_presets',
     'personalities',

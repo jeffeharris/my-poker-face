@@ -1843,6 +1843,73 @@
   text-transform: capitalize;
 }
 
+/* Decision labels editor (detail panel) — tag any decision */
+.decision-labels-editor {
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+.decision-labels-editor__header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+  margin-bottom: 0.4rem;
+}
+
+.decision-labels-editor__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.5rem;
+}
+
+.decision-labels-editor__empty {
+  font-size: 0.7rem;
+  opacity: 0.4;
+}
+
+.decision-labels-editor .capture-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.decision-labels-editor__remove {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.decision-labels-editor__remove:hover {
+  opacity: 1;
+}
+
+.decision-labels-editor__input {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: inherit;
+}
+
+/* auto-labels read slightly muted vs hand-curated user labels */
+.capture-label--auto {
+  font-style: italic;
+  opacity: 0.85;
+}
+
 .capture-label--high {
   background: rgba(255, 107, 107, 0.2);
   color: #ff6b6b;

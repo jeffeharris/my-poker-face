@@ -389,12 +389,28 @@ def analyze_player_decision(
             except Exception:
                 logger.debug("preflop node capture skipped", exc_info=True)
 
-        extensions.decision_analysis_repo.save_decision_analysis(analysis)
+        decision_id = extensions.decision_analysis_repo.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(
             f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
             f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
         )
+
+        # Auto-label the decision (humans + RuleBot reach here; self-saving bots
+        # auto-label from their own decision path). No drama context on this
+        # path — those labels are an LLM-prompt artifact — but the fold/pot-odds
+        # mistake labels apply to every player type.
+        if extensions.capture_label_repo and decision_id:
+            big_blind = game_state.current_ante or 100
+            label_data = {
+                'action_taken': action,
+                'pot_odds': (game_state.pot.get('total', 0) / cost_to_call)
+                if cost_to_call > 0
+                else None,
+                'stack_bb': (player.stack / big_blind) if big_blind > 0 else None,
+                'already_bet_bb': (player.bet / big_blind) if big_blind > 0 else None,
+            }
+            extensions.capture_label_repo.compute_and_store_auto_labels(decision_id, label_data)
     except Exception as e:
         logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
 

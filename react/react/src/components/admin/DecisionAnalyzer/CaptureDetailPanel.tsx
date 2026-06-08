@@ -15,6 +15,7 @@ import { CaptureView } from './CaptureView';
 import { ReplayEditor } from './ReplayEditor';
 import { InterrogationChat } from './InterrogationChat';
 import { PipelineTracePanel } from './PipelineTracePanel';
+import { DecisionLabelsEditor } from './DecisionLabelsEditor';
 
 interface CaptureDetailPanelProps {
   // 'desktop' renders the detail-header (player + phase); 'mobile' omits it
@@ -200,6 +201,9 @@ export function CaptureDetailPanel({
           <span>{ctx.player_stack != null ? `$${ctx.player_stack}` : '-'}</span>
         </div>
       </div>
+
+      {/* Labels — taggable for every player type (keyed on the decision row) */}
+      {analysis && <DecisionLabelsEditor decisionId={analysis.id} />}
 
       {/* Error/Correction Info */}
       {capture && (capture.error_type || capture.parent_id) && (

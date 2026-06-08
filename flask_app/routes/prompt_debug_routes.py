@@ -88,6 +88,16 @@ def list_captures():
         offset=int(request.args.get('offset', 0)),
     )
 
+    # Attach labels (keyed on the decision spine) so every decision — human,
+    # tiered, rule, or LLM — shows its tags, not just LLM captures. Batched to
+    # avoid N+1.
+    decisions = result['decisions']
+    labels_by_decision = extensions.capture_label_repo.get_labels_for_decisions(
+        [d['id'] for d in decisions]
+    )
+    for d in decisions:
+        d['labels'] = labels_by_decision.get(d['id'], [])
+
     # Stats are expensive (full-table aggregations). Callers that want the
     # list to paint fast pass include_stats=false and fetch /stats +
     # /analysis-stats separately. Defaults to true for backwards compat.
