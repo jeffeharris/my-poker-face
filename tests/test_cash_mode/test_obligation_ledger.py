@@ -96,6 +96,32 @@ def test_flows_on_cancel_reverses_origination():
     assert net_principal_delta(flows_on_originate("s", 8000) + flows_on_cancel("s", 8000)) == 0
 
 
+def test_carry_payment_then_forgive_close_the_carry():
+    # A stake that carried 5000, later 2000 repaid + 3000 forgiven → closes.
+    from cash_mode.stake_obligations import (
+        OP_EXTINGUISH,
+        OP_FORGIVE,
+        flows_on_carry_payment,
+        flows_on_forgive,
+        net_principal_delta,
+    )
+
+    pay = flows_on_carry_payment("s", 2000)
+    forgive = flows_on_forgive("s", 3000)
+    assert [(f.op, f.amount) for f in pay] == [(OP_EXTINGUISH, 2000)]
+    assert [(f.op, f.amount) for f in forgive] == [(OP_FORGIVE, 3000)]
+    # Originate 8000, settle recovers 3000 (carry 5000), then carry resolves.
+    from cash_mode.stake_obligations import flows_on_originate, flows_on_settle
+
+    lifecycle = (
+        flows_on_originate("s", 8000)
+        + flows_on_settle("s", principal=8000, staker_total=3000, is_carry=True)
+        + pay
+        + forgive
+    )
+    assert net_principal_delta(lifecycle) == 0  # fully closed
+
+
 SB = "sbx_oblig"
 NOW = datetime(2026, 6, 8, 12, 0, 0)
 SID = "ai_stake_test01"

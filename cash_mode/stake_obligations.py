@@ -96,6 +96,23 @@ def flows_on_cancel(stake_id: str, principal: int) -> List[ObligationFlow]:
     return [ObligationFlow(OP_CANCEL, stake_id, int(principal))]
 
 
+def flows_on_carry_payment(stake_id: str, payment: int) -> List[ObligationFlow]:
+    """A borrower repays `payment` toward a CARRIED debt after the stake already
+    settled — that much principal is recovered, drawing the carry balance down.
+    Empty for a non-positive payment."""
+    if payment <= 0:
+        return []
+    return [ObligationFlow(OP_EXTINGUISH, stake_id, int(payment))]
+
+
+def flows_on_forgive(stake_id: str, amount: int) -> List[ObligationFlow]:
+    """A staker forgives `amount` of a carried debt — write it off as bad debt.
+    Empty for a non-positive amount."""
+    if amount <= 0:
+        return []
+    return [ObligationFlow(OP_FORGIVE, stake_id, int(amount))]
+
+
 def net_principal_delta(flows: List[ObligationFlow]) -> int:
     """The net change to `oblig:<id>` the flows imply (+originate, −extinguish,
     −forgive, −cancel).

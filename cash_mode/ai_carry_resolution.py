@@ -861,6 +861,25 @@ def try_ai_voluntary_payoff(
                     conn=conn,
                 )
 
+        # Obligation dimension: a carry repayment recovers that much principal,
+        # drawing oblig:<id> down (to 0 on a full clear). Same `conn` as the chip
+        # payoff so debt and chips commit atomically. Staker-kind-agnostic — the
+        # borrower's debt decreases by `payment` either way. See
+        # CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        if _custody:
+            from cash_mode.stake_obligations import (
+                apply_obligation_flows,
+                flows_on_carry_payment,
+            )
+
+            apply_obligation_flows(
+                flows_on_carry_payment(target.stake_id, payment),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'stake_id': target.stake_id, 'site': 'ai_voluntary_payoff'},
+                conn=conn,
+            )
+
     # Settlement transitions on full clear; partial just decrements
     # carry_amount and leaves status='carry'. Status-flip side effects
     # (clearing pending_forgiveness_ask, firing STAKE_REPAID) only
@@ -946,6 +965,7 @@ def try_ai_forgiveness_ask(
     sandbox_id: Optional[str],
     rng: random.Random,
     now: datetime,
+    chip_ledger_repo=None,
 ) -> Optional[CarryResolutionResult]:
     """Roll for a forgiveness ask against the friendliest available staker.
 
@@ -1070,6 +1090,20 @@ def try_ai_forgiveness_ask(
         carry_amount = int(target.carry_amount)
         stake_repo.update_carry_amount(target.stake_id, 0)
         stake_repo.update_status(target.stake_id, STAKE_STATUS_SETTLED, settled_at=now)
+        # Obligation dimension: the forgiven carry is bad debt written off so
+        # oblig:<id> closes. No chips move (the carry was already lost at the
+        # table). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        from cash_mode import economy_flags as _eflags_oblig
+
+        if chip_ledger_repo is not None and _eflags_oblig.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_forgive
+
+            apply_obligation_flows(
+                flows_on_forgive(target.stake_id, carry_amount),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'stake_id': target.stake_id, 'site': 'ai_forgiveness_granted'},
+            )
         try:
             mgr.record_event(
                 actor_id=target.staker_id,
@@ -1141,6 +1175,7 @@ def try_ai_explicit_default(
     energy_lookup,
     rng: random.Random,
     now: datetime,
+    chip_ledger_repo=None,
 ) -> Optional[CarryResolutionResult]:
     """Roll an explicit default against this AI's worst-relationship carry.
 
@@ -1227,6 +1262,19 @@ def try_ai_explicit_default(
             STAKE_STATUS_DEFAULTED,
             settled_at=now,
         )
+        # Obligation dimension: a default writes off the unrecovered principal as
+        # bad debt so oblig:<id> closes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        from cash_mode import economy_flags as _eflags_oblig
+
+        if chip_ledger_repo is not None and _eflags_oblig.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_forgive
+
+            apply_obligation_flows(
+                flows_on_forgive(target.stake_id, former_carry),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'stake_id': target.stake_id, 'site': 'ai_explicit_default'},
+            )
         # Clear any pending player-forgiveness ask — the AI walked
         # away from the debt; the request is moot.
         if target.pending_forgiveness_ask is not None:
@@ -1492,6 +1540,24 @@ def try_ai_bankruptcy(
         stake_repo.update_carry_amount(c.stake_id, 0)
         stake_repo.update_status(c.stake_id, STAKE_STATUS_DEFAULTED, settled_at=now)
         stake_repo.set_resolution(c.stake_id, 'bankruptcy')
+        # Obligation dimension: the recovered `share` extinguishes that much
+        # principal; the unrecovered remainder is written off — together they
+        # close oblig:<id>. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        if _custody:
+            from cash_mode.stake_obligations import (
+                apply_obligation_flows,
+                flows_on_carry_payment,
+                flows_on_forgive,
+            )
+
+            _carry = int(c.carry_amount)
+            apply_obligation_flows(
+                flows_on_carry_payment(c.stake_id, share)
+                + flows_on_forgive(c.stake_id, _carry - share),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'stake_id': c.stake_id, 'site': 'ai_bankruptcy'},
+            )
         if c.pending_forgiveness_ask is not None:
             stake_repo.update_pending_forgiveness_ask(c.stake_id, None)
         stake_repo.update_payouts(
@@ -1689,6 +1755,7 @@ def resolve_ai_carries(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
+                chip_ledger_repo=chip_ledger_repo,
             )
         except Exception as exc:
             logger.warning(
@@ -1713,6 +1780,7 @@ def resolve_ai_carries(
                 energy_lookup=energy_lookup,
                 rng=rng,
                 now=now,
+                chip_ledger_repo=chip_ledger_repo,
             )
         except Exception as exc:
             logger.warning(

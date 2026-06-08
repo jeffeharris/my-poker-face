@@ -3318,6 +3318,21 @@ def staker_forgive(stake_id: str):
         stake_repo.update_carry_amount(stake_id, 0)
         stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
         stake_repo.update_pending_forgiveness_ask(stake_id, None)
+        # Obligation dimension: write off the forgiven carry as bad debt so
+        # oblig:<id> closes (the borrower no longer owes it). The forgiven amount
+        # is the carry being cleared. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        from cash_mode import economy_flags as _eflags_forgive
+        from flask_app.extensions import chip_ledger_repo as _clr_forgive
+
+        if _clr_forgive is not None and _eflags_forgive.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_forgive
+
+            apply_obligation_flows(
+                flows_on_forgive(stake_id, int(stake.carry_amount or 0)),
+                _clr_forgive,
+                sandbox_id=_resolve_sandbox_id(owner_id),
+                context={'stake_id': stake_id, 'site': 'staker_forgive'},
+            )
         _record_relationship_event(
             actor_id=owner_id,
             target_id=stake.borrower_id,
