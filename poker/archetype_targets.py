@@ -51,13 +51,21 @@ STAT_LABELS: Dict[str, str] = {
 }
 
 # (lo, hi) inclusive target band per archetype per stat. See module docstring.
-# VPIP/PFR/3bet/4bet/fold_to_3bet/all_in are percentages; af is a ratio.
+# DENOMINATORS (must match archetype_review_routes computation):
+#   vpip/pfr        = per preflop hand-instance (% of hands)
+#   threebet        = raise AT a vs_open node / decisions facing an open
+#                     ("3-bet when facing an open" — NOT % of all hands, which
+#                     runs ~half this. A solid reg is ~15% here, not ~7%.)
+#   fourbet         = raise at a vs_3bet node / decisions facing a 3-bet
+#   fold_to_3bet    = fold at a vs_3bet node / decisions facing a 3-bet
+#   af              = postflop (bet+raise)/call (a ratio, not a %)
+#   all_in          = hand-instances with any all-in / hands
 ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'nit': {
         'vpip': (10, 16),
         'pfr': (8, 13),
-        'threebet': (2, 5),
-        'fourbet': (0, 3),
+        'threebet': (2, 7),
+        'fourbet': (3, 10),
         'fold_to_3bet': (60, 80),
         'af': (1.5, 2.8),
         'all_in': (0, 3),
@@ -65,8 +73,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'rock': {
         'vpip': (15, 22),
         'pfr': (11, 17),
-        'threebet': (3, 6),
-        'fourbet': (1, 4),
+        'threebet': (4, 9),
+        'fourbet': (4, 12),
         'fold_to_3bet': (50, 70),
         'af': (1.5, 2.8),
         'all_in': (0, 4),
@@ -74,8 +82,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'tag': {
         'vpip': (20, 28),
         'pfr': (16, 23),
-        'threebet': (6, 10),
-        'fourbet': (2, 5),
+        'threebet': (10, 16),
+        'fourbet': (5, 13),
         'fold_to_3bet': (40, 58),
         'af': (2.5, 3.8),
         'all_in': (0, 5),
@@ -83,8 +91,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'lag': {
         'vpip': (28, 40),
         'pfr': (22, 32),
-        'threebet': (9, 14),
-        'fourbet': (3, 7),
+        'threebet': (16, 26),
+        'fourbet': (10, 20),
         'fold_to_3bet': (30, 48),
         'af': (3.3, 5.5),
         'all_in': (0, 7),
@@ -92,8 +100,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'maniac': {
         'vpip': (45, 70),
         'pfr': (35, 58),
-        'threebet': (14, 24),
-        'fourbet': (6, 14),
+        'threebet': (36, 52),
+        'fourbet': (24, 40),
         'fold_to_3bet': (15, 35),
         'af': (5, 9),
         'all_in': (3, 14),
@@ -101,8 +109,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'calling_station': {
         'vpip': (40, 58),
         'pfr': (4, 12),
-        'threebet': (1, 4),
-        'fourbet': (0, 2),
+        'threebet': (1, 5),
+        'fourbet': (0, 5),
         'fold_to_3bet': (20, 40),
         'af': (0.4, 1.2),
         'all_in': (0, 4),
@@ -110,8 +118,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'weak_fish': {
         'vpip': (33, 52),
         'pfr': (6, 15),
-        'threebet': (1, 5),
-        'fourbet': (0, 3),
+        'threebet': (2, 7),
+        'fourbet': (1, 7),
         'fold_to_3bet': (25, 45),
         'af': (0.7, 1.6),
         'all_in': (0, 5),

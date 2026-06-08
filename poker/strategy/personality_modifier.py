@@ -141,10 +141,16 @@ def compute_trait_offsets(
         elif cat == 'passive':
             offsets[i] -= agg_dev * profile.aggression_scale
 
-        # Looseness: penalize fold, boost non-fold
+        # Looseness: penalize fold (widen the range you ENTER), routing the
+        # freed entry to CALLING — not raising. Looseness widens *which hands you
+        # play*, not *how often you 3-bet*; boosting aggressive actions here made
+        # loose archetypes (lag/maniac/station/fish) double-count looseness as
+        # aggression, a primary driver of the preflop 3-bet inflation. Aggression
+        # frequency is governed solely by agg_dev × aggression_scale above.
+        # (Knob 1b — see docs/technical/ARCHETYPE_SHAPING_FINDINGS.md.)
         if cat == 'fold':
             offsets[i] -= loose_dev * profile.looseness_scale
-        else:
+        elif cat == 'passive':
             offsets[i] += loose_dev * profile.looseness_scale * 0.5
 
         # Risk identity: boost jam, penalize passive
