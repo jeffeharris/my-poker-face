@@ -22,15 +22,26 @@ import { createPortal } from 'react-dom';
 import { DramaticReserve } from '../shared/DramaticText';
 import './LuckyStackColdOpen.css';
 
-// Black-screen setup, typed as print-style beats (one sentence per line).
+// Black-screen setup, typed as print-style beats — one SHORT line each so they
+// land staccato with a pause between (DramaticReserve pauses per line). Sets the
+// arrival — lost, rainy, late — and hands the poker reveal to the waitress (her
+// first intake line is the payoff), so the cold open doesn't step on its own joke.
 const COLD_OPEN_BEATS = [
-  'Late. Raining. A road you don’t quite remember turning onto.',
-  'Then — light up ahead. Neon, humming through the wet.',
-  'You only wanted coffee. Maybe a slice of pie.',
+  'Late.',
+  'Raining.',
+  'You’re a long way from anywhere.',
+  'Then — a glow up ahead.',
+  'Warm neon, humming through the wet.',
 ].join('\n');
 
-// One wry line over the diner; the neon in the photo says the rest.
-const DINER_BEAT = 'Huh. “Poker Room.” …You’re pretty sure you came in for the biscuits and gravy.';
+// Under the diner, staccato: the irony (coffee vs. the POKER ROOM blazing in the
+// photo) sets up the waitress without naming the joke.
+const DINER_BEAT = [
+  'Coffee.',
+  'A booth.',
+  'A minute out of the rain.',
+  'That’s the whole plan.',
+].join('\n');
 
 interface LuckyStackColdOpenProps {
   onDone: () => void;
@@ -58,9 +69,11 @@ export function LuckyStackColdOpen({ onDone }: LuckyStackColdOpenProps) {
           alt="The Lucky Stack — a neon 50s diner and poker room at night"
         />
       )}
-      <div className="coldopen__scrim" aria-hidden="true" />
-      <div className="coldopen__text">
-        <DramaticReserve key={phase} text={phase === 'black' ? COLD_OPEN_BEATS : DINER_BEAT} />
+      {/* key on phase so the scrim + text remount and re-fade on the black→diner
+          change, softening the cut. */}
+      <div className="coldopen__scrim" aria-hidden="true" key={`scrim-${phase}`} />
+      <div className="coldopen__text" key={`text-${phase}`}>
+        <DramaticReserve text={phase === 'black' ? COLD_OPEN_BEATS : DINER_BEAT} />
       </div>
       <button
         className="coldopen__skip"

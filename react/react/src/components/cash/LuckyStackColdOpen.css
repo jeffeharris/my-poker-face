@@ -15,10 +15,11 @@
   animation: coldopen-fade 0.6s ease;
 }
 
-/* Diner phase anchors the text low so the neon sign up top stays clear. */
+/* Diner phase: the portrait establishing shot fills the screen full-bleed; the
+   text anchors low over the wet lot so the neon up top stays clear. */
 .coldopen--diner {
   justify-content: flex-end;
-  padding-bottom: 3.5rem;
+  padding-bottom: 3.25rem;
 }
 
 .coldopen__bg {
@@ -44,11 +45,37 @@
 .coldopen--diner .coldopen__scrim {
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.3) 0%,
-    rgba(0, 0, 0, 0.05) 38%,
-    rgba(0, 0, 0, 0.55) 72%,
-    rgba(0, 0, 0, 0.9) 100%
+    rgba(0, 0, 0, 0.25) 0%,
+    rgba(0, 0, 0, 0.05) 42%,
+    rgba(0, 0, 0, 0.55) 74%,
+    rgba(0, 0, 0, 0.92) 100%
   );
+  /* Keyed on phase → the gradient eases in over the diner reveal. */
+  animation: coldopen-fade 1.1s ease both;
+}
+
+/* Wide / landscape viewports (desktop): a portrait image full-bleed would crop
+   to a thin band, so show the whole poster CONTAINed on black, text below. */
+@media (min-aspect-ratio: 1/1) {
+  .coldopen--diner {
+    justify-content: center;
+    padding-bottom: 2rem;
+    gap: 1.3rem;
+  }
+  .coldopen__bg {
+    position: relative;
+    inset: auto;
+    width: auto;
+    height: auto;
+    max-height: 66vh;
+    max-width: 92vw;
+    object-fit: contain;
+    border-radius: 10px;
+    box-shadow: 0 14px 50px rgba(0, 0, 0, 0.7);
+  }
+  .coldopen--diner .coldopen__scrim {
+    background: transparent;
+  }
 }
 
 .coldopen__text {
@@ -61,6 +88,19 @@
   line-height: 1.6;
   color: #efe6da;
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.95);
+  /* Keyed on phase → this replays on the black→diner change, easing the cut. */
+  animation: coldopen-text-in 0.7s cubic-bezier(0.16, 0.84, 0.34, 1) both;
+}
+
+@keyframes coldopen-text-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* The print-style beats inherit the cold-open text color/glow. */
