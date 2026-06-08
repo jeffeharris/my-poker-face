@@ -58,7 +58,9 @@ def _maybe_sweep(now: float) -> None:
         return
     _last_sweep = now
     cutoff = now - _SWEEP_MAX_AGE_SECONDS
-    stale = [key for key, timestamps in _call_log.items() if not timestamps or timestamps[-1] < cutoff]
+    stale = [
+        key for key, timestamps in _call_log.items() if not timestamps or timestamps[-1] < cutoff
+    ]
     for key in stale:
         del _call_log[key]
 

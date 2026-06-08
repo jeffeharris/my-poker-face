@@ -208,8 +208,7 @@ export const useGameStore = create<GameStore>((set) => ({
       ) {
         return {};
       }
-      const nextVersion =
-        typeof incomingVersion === 'number' ? incomingVersion : prev.stateVersion;
+      const nextVersion = typeof incomingVersion === 'number' ? incomingVersion : prev.stateVersion;
 
       // Structural sharing: reuse Player references when data hasn't changed
       let players = state.players;
