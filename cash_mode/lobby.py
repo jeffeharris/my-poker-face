@@ -2881,6 +2881,21 @@ def _settle_table_stakes(
             last_from_seat_index[bc.personality_id] = i
 
     for pid, idx in last_from_seat_index.items():
+        # An aspiration climb vacates the OLD seat to move UP a tier — that
+        # `from_seat` is a tier MOVE, not a session end. The stake was just
+        # created this tick (FUNDED), and the climber is about to re-seat at
+        # the higher tier (ACTIVE) via the idle pool. Settling here would
+        # close the stake before the staked session is ever played — splitting
+        # the climber's old-table chips with the staker as fake "winnings"
+        # (created_at == settled_at). Skip: leave the stake ACTIVE so it
+        # settles on the real leave from the higher tier, and let the
+        # `from_seat` apply normally (the climber carries seat_chips +
+        # principal into their bankroll for the re-buy). The one-active-stake
+        # gate guarantees the only active stake for this pid IS the one just
+        # created, so nothing else is owed a settle here. See
+        # docs/plans/CASH_MODE_STAKE_STATE_MACHINE.md (bug #3).
+        if result.decisions.get(pid) == "aspiration_climb":
+            continue
         chips_at_leave = result.bankroll_changes[idx].amount
         settlement = settle_departed_ai_stake(
             pid,

@@ -286,3 +286,76 @@ def test_create_stake_failure_refunds_staker_and_keeps_seat():
     # No stake row persisted.
     assert stake_repo.created == []
     assert result.decisions.get(ASKER) != "aspiration_climb"
+
+
+def test_aspiration_climb_stake_not_settled_same_tick(monkeypatch):
+    """Bug #3: the climb-vacate `from_seat` is a tier MOVE, not a session end.
+
+    `_settle_table_stakes` must skip pids whose decision this tick is
+    `aspiration_climb` — otherwise the just-created stake settles before the
+    staked session is ever played (created_at == settled_at), splitting the
+    climber's old-table chips with the staker as fake winnings. The stake
+    stays ACTIVE and settles on the real leave from the higher tier.
+    """
+    from cash_mode.lobby import _settle_table_stakes
+    from cash_mode.movement import BankrollChange
+
+    result = RosterRefreshResult(new_table=_make_table())
+    result.bankroll_changes.append(
+        BankrollChange(direction="from_seat", personality_id=ASKER, amount=SEAT_CHIPS + PRINCIPAL)
+    )
+    result.decisions[ASKER] = "aspiration_climb"
+
+    calls = []
+    monkeypatch.setattr(
+        "cash_mode.lobby.settle_departed_ai_stake",
+        lambda pid, chips_at_leave, **kw: calls.append(pid),
+    )
+
+    settled = _settle_table_stakes(
+        result,
+        stake_repo=_FakeStakeRepo(),
+        bankroll_repo=_FakeBankrollRepo({ASKER: 1000}),
+        chip_ledger_repo=None,
+        relationship_repo=None,
+        personality_repo=None,
+        sandbox_id=None,
+        now=datetime(2026, 1, 1),
+    )
+
+    assert calls == [], "aspiration_climb pid must not be settled on the climb-vacate"
+    # from_seat not consumed by settlement → it applies normally (climber
+    # carries seat_chips + principal into bankroll for the re-buy).
+    assert settled == set()
+
+
+def test_non_climb_leave_still_settles(monkeypatch):
+    """Control for bug #3: a normal leave (no aspiration_climb decision) still
+    goes through `settle_departed_ai_stake`."""
+    from cash_mode.lobby import _settle_table_stakes
+    from cash_mode.movement import BankrollChange
+
+    result = RosterRefreshResult(new_table=_make_table())
+    result.bankroll_changes.append(
+        BankrollChange(direction="from_seat", personality_id=ASKER, amount=SEAT_CHIPS)
+    )
+    # no decision (a genuine session-end leave)
+
+    calls = []
+    monkeypatch.setattr(
+        "cash_mode.lobby.settle_departed_ai_stake",
+        lambda pid, chips_at_leave, **kw: calls.append(pid),
+    )
+
+    _settle_table_stakes(
+        result,
+        stake_repo=_FakeStakeRepo(),
+        bankroll_repo=_FakeBankrollRepo({ASKER: 1000}),
+        chip_ledger_repo=None,
+        relationship_repo=None,
+        personality_repo=None,
+        sandbox_id=None,
+        now=datetime(2026, 1, 1),
+    )
+
+    assert calls == [ASKER], "a normal leave must still attempt settlement"

@@ -24,6 +24,8 @@ from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.schema_manager import SchemaManager
 
+pytestmark = pytest.mark.integration
+
 SB = "sbx_stake_lifecycle"
 NOW = datetime(2026, 6, 8, 12, 0, 0)
 STAKER = "the_staker"
@@ -32,14 +34,10 @@ PRINCIPAL = 8000
 
 
 @pytest.fixture
-def db_path(tmp_path):
-    path = str(tmp_path / "stake_lifecycle.db")
-    SchemaManager(path).ensure_schema()
-    return path
-
-
-@pytest.fixture
 def repos(db_path):
+    # Unlinked repos (no derive-reads handle) so stored-int reads are
+    # deterministic regardless of the CHIP_CUSTODY_DERIVE_READS flag.
+    SchemaManager(db_path).ensure_schema()
     br = BankrollRepository(db_path)
     lr = ChipLedgerRepository(db_path)
     # last_regen_tick == NOW so projection is a no-op (no regen noise).

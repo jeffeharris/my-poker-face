@@ -27,11 +27,16 @@ last_updated: 2026-06-08
    seat and feeding an inflated `chips_at_leave` to settle. *(Subsumed: with
    funding now landing on the climber's seat, the `+principal` is exactly the
    chips the seat holds — conserved.)*
-3. **The stake settles in the SAME tick it's created** — `_settle_table_stakes`
-   reads the climb-vacate's `from_seat` as a session end, so the staked session
-   never happens and the climber's existing chips get split with the staker as
-   fake "winnings." This is *behavioral*, not a mint, once funding is correct.
-   **DEFERRED** — see [Deferred: lifecycle](#deferred-lifecycle-same-tick-settle).
+3. **The stake settled in the SAME tick it was created** — `_settle_table_stakes`
+   read the climb-vacate's `from_seat` as a session end, so the staked session
+   never happened and the climber's existing chips got split with the staker as
+   fake "winnings." *Behavioral*, not a mint once funding is correct. *(FIXED:
+   `_settle_table_stakes` now skips pids whose decision this tick is
+   `aspiration_climb` — a tier MOVE, not a session end. The stake stays ACTIVE
+   and settles on the real leave from the higher tier. The one-active-stake gate
+   guarantees the only active stake for that pid is the one just created, so
+   nothing else is owed a settle. Covered by
+   `test_aspiration_climb_stake_not_settled_same_tick` + control.)*
 
 **Key correction to the model below:** an aspiration stake is a **grubstake**
 (staker bankroll → climber, climber re-buys at the new tier), not a seat-funding
