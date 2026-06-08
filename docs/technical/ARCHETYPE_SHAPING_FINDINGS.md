@@ -181,6 +181,41 @@ Implemented (lightweight counters):
 
 Forward-only: counters fill as the sim runs (no backfill of the discarded past).
 
+## Implemented (this branch)
+
+Validated with a controlled 6-max sim (hero vs 5 BaselineSolverBots), measuring
+realized facing-open 3-bet, facing-3bet 4-bet, and postflop AF:
+
+| hero | 3-bet | 4-bet | AF | before |
+|---|---|---|---|---|
+| baseline (no distortion) | 14.9% | 6.8% | 2.19 | — |
+| tag | 17.8% | 7.5% | 3.28 | unchanged |
+| lag | **32.0%** | 15.2% | 3.61 | 3-bet 44 |
+| maniac | **47.1%** | 27.0% | **4.59** | 3-bet 64, AF restored |
+
+- **Knob 0 — target denominators.** `threebet`/`fourbet` bands rescaled to the
+  facing-open / facing-3bet denominator the review tool actually computes (a
+  solid reg is ~15% facing an open, not ~7% of all hands). Without this the tool
+  flagged correct frequencies as fails.
+- **Knob 1b — looseness↔raise decouple** (`personality_modifier.py`). Looseness
+  now widens *entry* (less fold → more call), not 3-bet frequency. Stops loose
+  archetypes double-counting looseness as aggression. Global, all streets.
+- **Pre/postflop aggression SPLIT** (the keystone). Global knobs couple the
+  streets — cutting maniac's preflop 3-bet via the cap dropped its postflop AF
+  *below tag's*, breaking the archetype. Added optional `reraise_aggression_scale`
+  / `reraise_max_per_action_shift` to `DeviationProfile`, applied **only at
+  preflop vs_open/vs_3bet/vs_4bet nodes** (controller swaps via
+  `dataclasses.replace`). lag/maniac keep full global aggression (postflop AF
+  preserved — maniac AF back to 4.59, field's wildest) while re-raise frequency
+  drops. Maniac now fully in band; lag at its chart floor (~32%, needs Knob 2).
+- **Labeling fix** — the snapshot `deviation_profile_name` used an `is` check
+  against the `deviation_profile` *property*, which returns a `replace()` copy
+  when a persona carries `spot_tendencies` → mislabeled as `unknown` (the prod
+  "weak_fish/rock/maniac missing, ~1050 unknowns" symptom). Now uses the robust
+  `_table_archetype_key()` (raw `_deviation_profile` reverse-lookup, lazy-resolved).
+- **chart_label in the snapshot** — `player_decision_analysis` now records which
+  base chart fed each decision (`6max:loose_mid`, `50bb`, `HU`, …).
+
 ## Prioritized plan
 
 1. **Build the review tool (measurement first)** — can't tune what we can't see; also gives a

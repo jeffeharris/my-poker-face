@@ -531,14 +531,11 @@ class TieredBotController(AIPlayerController):
                 'severity': getattr(emotional_state, 'severity', 'none'),
                 'intensity': float(getattr(emotional_state, 'intensity', 0.0) or 0.0),
             }
-        # Deviation profile name (reverse-lookup against DEVIATION_PROFILES).
+        # Deviation profile name — via the robust reverse-lookup (handles
+        # explicit loadouts like weak_fish AND the spot_tendencies `replace()`
+        # copy that an `is` check against the property would miss → 'unknown').
         try:
-            from .strategy.deviation_profiles import DEVIATION_PROFILES
-
-            for name, candidate in DEVIATION_PROFILES.items():
-                if candidate is self.deviation_profile:
-                    snap['deviation_profile_name'] = name
-                    break
+            snap['deviation_profile_name'] = self._table_archetype_key()
         except Exception:
             pass
 
@@ -780,6 +777,9 @@ class TieredBotController(AIPlayerController):
         # step below) because the base ranges themselves are depth-dependent.
         effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
         preflop_table, chart_label = self._select_preflop_table(num_seated, effective_stack_bb)
+        # Record WHICH base chart fed this decision (e.g. '6max:loose_mid', '50bb',
+        # 'HU') so decision analysis can show the chart the line started from.
+        self._last_pipeline_snapshot['chart_label'] = chart_label
 
         if self.debug_logging:
             logger.info(
@@ -830,12 +830,31 @@ class TieredBotController(AIPlayerController):
         self._snapshot_personality_inputs(anchors, emotional_state)
 
         if anchors and not self.skip_personality_distortion:
+            # Pre/postflop aggression split: at facing-a-raise preflop nodes
+            # (3-bet / 4-bet spots) swap in the archetype's reraise-scoped
+            # aggression knob when set, so we tame re-raise FREQUENCY without
+            # touching opening width or postflop aggression. RFI (opening) and
+            # postflop keep the full profile.
+            distortion_profile = self.deviation_profile
+            if (
+                getattr(node, 'scenario', '') in ('vs_open', 'vs_3bet', 'vs_4bet')
+                and distortion_profile.reraise_aggression_scale is not None
+            ):
+                distortion_profile = dataclasses.replace(
+                    distortion_profile,
+                    aggression_scale=distortion_profile.reraise_aggression_scale,
+                    max_per_action_shift=(
+                        distortion_profile.reraise_max_per_action_shift
+                        if distortion_profile.reraise_max_per_action_shift is not None
+                        else distortion_profile.max_per_action_shift
+                    ),
+                )
             modified_strategy, personality_trace = modify_strategy(
                 base=base_strategy,
                 legal_actions=valid_actions,
                 anchors=anchors,
                 emotional_state=emotional_state,
-                deviation_profile=self.deviation_profile,
+                deviation_profile=distortion_profile,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
         else:
@@ -2480,6 +2499,17 @@ class TieredBotController(AIPlayerController):
         bound yet (the 6 anchor-derived archetypes, where the two agree).
         """
         prof = getattr(self, '_deviation_profile', None)
+        if prof is None:
+            # Trigger lazy resolution — the `deviation_profile` property populates
+            # `_deviation_profile` with the BASE archetype object (the property
+            # itself may return a spot_tendencies `replace()` copy, which is why
+            # we reverse-look-up the raw base, not the property: an `is` check
+            # against a copy is the bug that mislabels personas as 'unknown').
+            try:
+                _ = self.deviation_profile
+                prof = getattr(self, '_deviation_profile', None)
+            except Exception:
+                prof = None
         if prof is not None:
             from .strategy.deviation_profiles import DEVIATION_PROFILES
 

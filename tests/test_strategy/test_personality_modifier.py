@@ -12,6 +12,7 @@ from poker.strategy.deviation_profiles import (
 from poker.strategy.personality_modifier import (
     _kl_divergence,
     categorize_action,
+    compute_trait_offsets,
     modify_strategy,
 )
 from poker.strategy.strategy_profile import StrategyProfile
@@ -83,6 +84,41 @@ def test_high_looseness_penalizes_fold():
     result, _trace = modify_strategy(BASE_STRATEGY, BASE_ACTIONS, anchors, COMPOSED, profile)
 
     assert result.action_probabilities['fold'] < BASE_PROBS['fold']
+
+
+def test_looseness_decoupled_from_raise():
+    """Knob 1b: pure looseness (no aggression) widens entry toward CALLING, not
+    raising — the raise offset stays ~0 so loose archetypes don't double-count
+    looseness as 3-bet aggression."""
+    anchors = _make_anchors(baseline_aggression=0.5, baseline_looseness=0.95)
+    offs = compute_trait_offsets(
+        ['fold', 'call', 'raise_3x'], anchors, None, DEVIATION_PROFILES['lag']
+    )
+    assert offs[0] < 0  # fold suppressed (wider entry)
+    assert offs[1] > 0  # call boosted
+    assert abs(offs[2]) < 1e-9  # raise NOT boosted by looseness
+
+
+def test_reraise_split_reduces_raise_offset():
+    """The pre/postflop split: lag/maniac carry a reraise_aggression_scale below
+    their global scale, so a facing-raise (3-bet) spot gets a smaller raise boost
+    than opening/postflop would."""
+    import dataclasses
+
+    for key in ('lag', 'maniac'):
+        prof = DEVIATION_PROFILES[key]
+        assert prof.reraise_aggression_scale is not None
+        assert prof.reraise_aggression_scale < prof.aggression_scale
+        anchors = _make_anchors(baseline_aggression=0.85, baseline_looseness=0.85)
+        actions = ['fold', 'call', 'raise_3x']
+        full = compute_trait_offsets(actions, anchors, None, prof)
+        scoped = compute_trait_offsets(
+            actions,
+            anchors,
+            None,
+            dataclasses.replace(prof, aggression_scale=prof.reraise_aggression_scale),
+        )
+        assert scoped[2] < full[2], f'{key}: reraise scale should lower the raise offset'
 
 
 # ── 4. Zero-support preserved ───────────────────────────────────────────
