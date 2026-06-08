@@ -2,7 +2,7 @@
 purpose: A progressive, scene-based career narrative where the player earns their way into a growing world of cardrooms through vouches (likability-driven, respect-gated) rather than being dropped into the full lobby
 type: design
 created: 2026-05-26
-last_updated: 2026-06-06
+last_updated: 2026-06-08
 ---
 
 > **M1 shipped (2026-05-30, branch `circuit-progression`).** The thinnest
@@ -262,7 +262,7 @@ vouch_ready(ai → human):
     has_played_with(ai, human)                  # PREREQ: you must have sat together
     not already_vouched(ai)                     # PREREQ: one vouch per AI (v1)
     respect(ai → human)    ≥ RESPECT_FLOOR      # GATE: can't be disrespected
-    likability(ai → human) ≥ LIKE_THRESHOLD     # DRIVER: liked enough (v1 ≈ 0.70)
+    likability(ai → human) ≥ LIKE_THRESHOLD     # DRIVER: liked enough (0.55 = neutral+0.20)
     # readiness/eagerness scales with likability above the threshold
 ```
 
@@ -276,11 +276,14 @@ vouch_ready(ai → human):
 - **Respect is a hard gate.** If they think you're a clown, no vouch at
   any likability — "I'm not embarrassing myself." Letting respect rot
   below the floor **stalls progression**.
-- **Likability is the driver, ≈ 0.70 to trip it.** Among people they
-  respect enough, they bring along the ones they *like*. Max likability
-  (0.80+) is too tough to demand for *every* door; ~0.70 is reachable
-  through a good session without being a gimme. The further likability
-  climbs above it, the sooner/more eagerly they vouch.
+- **Likability is the driver — a +0.20 climb above neutral to trip it**
+  (`LIKE_THRESHOLD = REGARD_NEUTRAL + 0.20` = 0.55 at today's 0.35 neutral).
+  Among people they respect enough, they bring along the ones they *like*.
+  Demanding the very top of the range for *every* door would be too tough;
+  a +0.20 climb is reachable through a good session of warm play without
+  being a gimme. The further likability climbs above it, the sooner/more
+  eagerly they vouch. (Anchored to the neutral baseline so the *climb* — not
+  a brittle absolute — is what's tuned; see `CASH_MODE_CAREER_M2_PLAN.md`.)
 - **Mentors start warm; everyone else earns it (v1, shipped).** Only the
   **mentor (Sal)** is seeded with a high baseline regard toward you
   (`cash_routes.py`, 0.85/0.85 on the graduation stake — load-bearing for

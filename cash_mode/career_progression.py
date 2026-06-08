@@ -35,6 +35,7 @@ from cash_mode.tables import (
     ai_slot_fish,
     open_slot,
 )
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -61,21 +62,33 @@ SCENE0_FISH_SEAT = 3
 HOME_COURT_STAKE = "$2"
 
 # --- M2: the emergent vouch model (see CASH_MODE_CAREER_M2_PLAN.md) -----------
-# A vouch is a reputational risk, so it's respect-GATED and likability-DRIVEN:
-#   - respect ≥ RESPECT_FLOOR: they won't put their name on someone they think is
-#     a clown, at any likability ("feared, not invited").
-#   - likability ≥ LIKE_THRESHOLD: among people they respect, they bring the ones
-#     they LIKE. ~0.70 is reachable in a good session without being a gimme.
-# Thresholds are the design's starting values; tune from ticker instrumentation.
-RESPECT_FLOOR = 0.50
-LIKE_THRESHOLD = 0.70
+# A vouch is a reputational risk, so it's respect-GATED and likability-DRIVEN.
+# The gates are expressed as an EARNED amount ABOVE the regard neutral baseline
+# (`REGARD_NEUTRAL` = 0.35, where a no-history edge starts). Anchoring to the
+# baseline — instead of hardcoding absolutes tuned against the old 0.5 neutral —
+# keeps the design intent explicit AND preserves reachability: what a player must
+# do is climb a fixed *amount* of regard via play/social events, regardless of
+# where neutral sits, so a future neutral change won't silently make vouches
+# unreachable. (The +deltas below ARE the same climbs the original 0.5-neutral
+# values asked for: respect was at-neutral, likability +0.20, reveal +0.10.)
+#   - respect ≥ RESPECT_FLOOR (neutral + 0.10): a little EARNED competence — they
+#     won't put their name on someone they think is a clown, at any likability
+#     ("feared, not invited"). Rises naturally from playing well (winning pots off
+#     the AI nudges its respect for you up), so ~a good pot or two clears it.
+#   - likability ≥ LIKE_THRESHOLD (neutral + 0.20): among people they respect,
+#     they bring the ones they LIKE. +0.20 ≈ a handful of warm social beats
+#     (compliments / banter / props) — reachable in a good session, not a gimme.
+# Tune the deltas from the live `[VOUCH] eval` instrumentation.
+RESPECT_FLOOR = REGARD_NEUTRAL + 0.10  # 0.45
+LIKE_THRESHOLD = REGARD_NEUTRAL + 0.20  # 0.55
 
 # Home-table intel reveal (dossier scouting↔vouch loop). The voucher's home
 # room is revealed on the player's dossier once the AI likes them enough —
-# inbound likability ≥ this, set BELOW LIKE_THRESHOLD so learning where an AI
-# plays is a visible milestone on the road to its vouch (get friendly → learn
-# their home game → get friendlier → they vouch you in). Tunable.
-HOME_TABLE_REVEAL_LIKABILITY = 0.60
+# inbound likability ≥ this, set BELOW LIKE_THRESHOLD (a smaller earned climb,
+# neutral + 0.10) so learning where an AI plays is a visible milestone on the
+# road to its vouch (get friendly → learn their home game → get friendlier →
+# they vouch you in). Tunable.
+HOME_TABLE_REVEAL_LIKABILITY = REGARD_NEUTRAL + 0.10  # 0.45
 
 # Vouch trickle (M2): minimum cash hands the player must play between emergent
 # vouches. The ticker fires at most one vouch, then won't fire another until the
