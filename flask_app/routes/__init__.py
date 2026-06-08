@@ -1,6 +1,7 @@
 """Route blueprints for the poker application."""
 
 from .admin_dashboard_routes import admin_dashboard_bp
+from .archetype_review_routes import archetype_review_bp
 from .capture_label_routes import capture_label_bp
 from .cash_routes import cash_bp
 from .character_routes import character_bp
@@ -34,6 +35,7 @@ __all__ = [
     'experiment_bp',
     'prompt_preset_bp',
     'range_explorer_bp',
+    'archetype_review_bp',
     'capture_label_bp',
     'replay_experiment_bp',
     'sentry_relay_bp',

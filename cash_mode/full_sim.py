@@ -859,7 +859,30 @@ def _play_one_hand_inner(
         except Exception as exc:
             logger.debug("[FULL_SIM] on_hand_start failed: %s", exc)
 
-    winner_info = _run_hand(sm, controllers, memory_manager=memory_manager)
+    # Per-archetype behavioral stat capture for the Archetype Review tool. Lean:
+    # in-memory tallies, flushed to archetype_stat_counts every N hands. None for
+    # callers without a sandbox (tests/eval). Best-effort — never break the hand.
+    archetype_recorder = None
+    if sandbox_id:
+        try:
+            from cash_mode.archetype_stats import get_recorder
+
+            archetype_recorder = get_recorder(sandbox_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[FULL_SIM] archetype recorder init failed: %s", exc)
+
+    winner_info = _run_hand(
+        sm,
+        controllers,
+        memory_manager=memory_manager,
+        archetype_recorder=archetype_recorder,
+    )
+
+    if archetype_recorder is not None:
+        try:
+            archetype_recorder.end_hand(db_path_for_memory)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[FULL_SIM] archetype end_hand failed: %s", exc)
 
     # Phase 3 relationships: run hand-outcome detection + dispatch so this
     # hand's AI<->AI axes (and cash_pair_stats PnL) evolve. No-op unless the
@@ -1159,6 +1182,7 @@ def _run_hand(
     controllers: Dict[str, object],
     *,
     memory_manager: Optional[Any] = None,
+    archetype_recorder: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """Drive the state machine from PRE_FLOP to pot award.
 
@@ -1181,6 +1205,10 @@ def _run_hand(
 
     actions = 0
     blinds_recorded = False
+    # Preflop raise depth so far this hand → node classification for the
+    # archetype recorder: 0 raises = rfi (open), 1 = vs_open (a raise here is a
+    # 3-bet), 2 = vs_3bet (a 4-bet), 3+ = vs_4bet. Controller-independent.
+    preflop_raises = 0
     while actions < _MAX_ACTIONS_PER_HAND:
         sm.run_until([PokerPhase.EVALUATING_HAND])
         gs = sm.game_state
@@ -1220,6 +1248,9 @@ def _run_hand(
         pre_highest_bet = getattr(gs, "highest_bet", 0)
         pre_player_bet = cp.bet if cp is not None else 0
         pre_player_stack = cp.stack if cp is not None else 0
+        # Capture the phase the decision is made IN (play_turn below can close
+        # the street and advance sm.current_phase) for the archetype recorder.
+        decision_phase = sm.current_phase.name if sm.current_phase is not None else "PRE_FLOP"
         ctrl = controllers.get(actor_name) if actor_name else None
         if ctrl is None:
             gs = play_turn(gs, "fold", 0)
@@ -1236,6 +1267,36 @@ def _run_hand(
                 )
                 action, amount = "fold", 0
             gs = play_turn(gs, action, amount)
+
+        # Archetype stat capture (lean: in-memory tally, no per-decision DB
+        # write). Classify the preflop node from the running raise depth, then
+        # bump it AFTER recording so the acting player is scored vs the spot
+        # they actually faced. Postflop passes an empty node.
+        if archetype_recorder is not None and actor_name is not None:
+            if decision_phase == "PRE_FLOP":
+                node = (
+                    "rfi"
+                    if preflop_raises == 0
+                    else "vs_open"
+                    if preflop_raises == 1
+                    else "vs_3bet"
+                    if preflop_raises == 2
+                    else "vs_4bet"
+                )
+            else:
+                node = ""
+            try:
+                archetype_recorder.record_decision(
+                    getattr(ctrl, "archetype_name", None),
+                    actor_name,
+                    decision_phase,
+                    node,
+                    action,
+                )
+            except Exception as exc:  # noqa: BLE001 — observability, never fatal
+                logger.debug("[FULL_SIM] archetype record failed: %s", exc)
+            if decision_phase == "PRE_FLOP" and action in ("raise", "all_in"):
+                preflop_raises += 1
 
         # Feed action into the memory manager so opponent_model
         # accumulates stats. The `phase` mapping mirrors what

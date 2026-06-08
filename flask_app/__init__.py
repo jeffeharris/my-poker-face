@@ -387,6 +387,7 @@ def register_blueprints(app: Flask) -> None:
     """Register all Flask blueprints."""
     from .routes import (
         admin_dashboard_bp,
+        archetype_review_bp,
         capture_label_bp,
         cash_bp,
         character_bp,
@@ -420,6 +421,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(experiment_bp)
     app.register_blueprint(prompt_preset_bp)
     app.register_blueprint(range_explorer_bp)
+    app.register_blueprint(archetype_review_bp)
     app.register_blueprint(capture_label_bp)
     app.register_blueprint(replay_experiment_bp)
     app.register_blueprint(sentry_relay_bp)

@@ -1,0 +1,164 @@
+.arp {
+  padding: 1.25rem;
+  color: #e8e8ea;
+}
+.arp--embedded {
+  padding: 0;
+}
+
+.arp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.arp-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.arp-title h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.arp-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.arp-modes {
+  display: inline-flex;
+  border: 1px solid #3a3a42;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.arp-mode {
+  background: transparent;
+  color: #b8b8c0;
+  border: none;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.arp-mode--active {
+  background: #4a5cff;
+  color: #fff;
+}
+.arp-refresh {
+  background: #2a2a32;
+  border: 1px solid #3a3a42;
+  border-radius: 6px;
+  color: #b8b8c0;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.arp-spin {
+  animation: arp-spin 0.8s linear infinite;
+}
+@keyframes arp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.arp-sub {
+  margin: 0 0 0.9rem;
+  font-size: 0.82rem;
+  color: #9a9aa4;
+  max-width: 70ch;
+}
+.arp-error {
+  color: #ff8a8a;
+  padding: 0.5rem 0;
+}
+.arp-loading {
+  color: #9a9aa4;
+  padding: 1rem 0;
+}
+
+.arp-table-wrap {
+  overflow-x: auto;
+}
+.arp-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.84rem;
+}
+.arp-table th,
+.arp-table td {
+  padding: 0.4rem 0.55rem;
+  text-align: center;
+  border-bottom: 1px solid #2a2a32;
+  white-space: nowrap;
+}
+.arp-table thead th {
+  position: sticky;
+  top: 0;
+  background: #1c1c22;
+  color: #c8c8d0;
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+.arp-arch-col {
+  text-align: left !important;
+  position: sticky;
+  left: 0;
+  background: #1c1c22;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.arp-hands-col {
+  color: #9a9aa4;
+}
+.arp-extra {
+  opacity: 0.6;
+}
+.arp-extra .arp-arch-col {
+  font-style: italic;
+}
+
+.arp-cell {
+  display: table-cell;
+}
+.arp-cell .arp-actual {
+  display: block;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.arp-cell .arp-target {
+  display: block;
+  font-size: 0.68rem;
+  color: #8a8a94;
+  font-variant-numeric: tabular-nums;
+}
+
+/* status coloring */
+.arp-pass {
+  background: rgba(46, 160, 90, 0.18);
+}
+.arp-pass .arp-actual {
+  color: #6fe09a;
+}
+.arp-warn {
+  background: rgba(214, 158, 46, 0.18);
+}
+.arp-warn .arp-actual {
+  color: #f0c46a;
+}
+.arp-fail {
+  background: rgba(214, 60, 60, 0.2);
+}
+.arp-fail .arp-actual {
+  color: #ff8a8a;
+}
+.arp-low_n .arp-actual {
+  color: #8a8a94;
+}
+.arp-no_data .arp-actual,
+.arp-no_target .arp-actual {
+  color: #5a5a64;
+}
