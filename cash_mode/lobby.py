@@ -2675,6 +2675,45 @@ def settle_departed_ai_stake(
     )
     if settlement is None:
         return None
+
+    # Obligation dimension (P1 shadow): mirror the chip settlement in the debt
+    # axis. Extinguish the principal RECOVERED (`min(staker_total, principal)`) —
+    # never `staker_total`, whose excess is the staker's profit share, a
+    # chip-only flow that is not debt repayment. A clean settle zeroes
+    # `oblig:<id>`; a CARRY leaves the unrecovered principal as the live balance;
+    # a forgive/default writes the residual off so the debt still closes. Rows
+    # are bank-neutral best-effort (the existing settle path is not a single
+    # transaction — full atomicity is a P2 concern when the invariant is
+    # enforced). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags
+
+    if (
+        chip_ledger_repo is not None
+        and sandbox_id is not None
+        and economy_flags.CHIP_CUSTODY_ENABLED
+    ):
+        from core.economy.ledger import record_stake_extinguish, record_stake_forgive
+
+        _principal = int(active_stake.principal)
+        _recovered = min(int(settlement.staker_total), _principal)
+        record_stake_extinguish(
+            chip_ledger_repo,
+            stake_id=active_stake.stake_id,
+            amount=_recovered,
+            context={"site": "ai_session_end", "sandbox_id": sandbox_id},
+            sandbox_id=sandbox_id,
+        )
+        if settlement.new_status != STAKE_STATUS_CARRY:
+            _residual = _principal - _recovered
+            if _residual > 0:
+                record_stake_forgive(
+                    chip_ledger_repo,
+                    stake_id=active_stake.stake_id,
+                    amount=_residual,
+                    context={"site": "ai_session_end", "sandbox_id": sandbox_id},
+                    sandbox_id=sandbox_id,
+                )
+
     # Apply the settlement flows. For AI-staker / AI-borrower
     # personality stakes the flows are pure bankroll→bankroll
     # transfers — no ledger entry, mirror the route's leave

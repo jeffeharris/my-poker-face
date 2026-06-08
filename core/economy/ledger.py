@@ -189,6 +189,12 @@ LEDGER_REASONS = frozenset(
         # debt repayment.
         'stake_forgive',  # oblig:<stake_id> → oblig_forgiven: unrecovered principal
         # written off (default / house forgiveness — bad debt).
+        'stake_cancel',  # oblig:<stake_id> → oblig_genesis: the EXACT inverse of
+        # originate — the debt is unwound because the stake never
+        # came to exist (funding rolled back when the stake-row
+        # write failed). Distinct from forgive (which is real bad
+        # debt on a stake that DID exist) so analytics don't read a
+        # rollback as a default.
     }
 )
 
@@ -211,6 +217,7 @@ TRANSFER_REASONS = frozenset(
         'stake_originate',
         'stake_extinguish',
         'stake_forgive',
+        'stake_cancel',
     }
 )
 
@@ -225,6 +232,7 @@ OBLIGATION_REASONS = frozenset(
         'stake_originate',
         'stake_extinguish',
         'stake_forgive',
+        'stake_cancel',
     }
 )
 
@@ -983,6 +991,35 @@ def record_stake_forgive(
         sink=oblig_forgiven(),
         amount=amount,
         reason='stake_forgive',
+        stake_id=stake_id,
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_stake_cancel(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    stake_id: str,
+    principal: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """`oblig:<stake_id> → oblig_genesis` for `principal` — the EXACT inverse of
+    `record_stake_originate`. Use when a funded stake is rolled back because its
+    stake-row write failed (the stake never existed), so `oblig:<stake_id>`
+    returns to 0 and the genesis contra is made whole. Distinct from forgive —
+    a cancel is not bad debt. No-op when `repo` is None or `principal <= 0`."""
+    if repo is None or principal <= 0:
+        return None
+    return _record_obligation(
+        repo,
+        source=oblig(stake_id),
+        sink=oblig_genesis(),
+        amount=principal,
+        reason='stake_cancel',
         stake_id=stake_id,
         context=context,
         sandbox_id=sandbox_id,

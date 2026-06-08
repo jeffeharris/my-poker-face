@@ -20,12 +20,13 @@ from unittest.mock import patch
 import pytest
 
 from cash_mode.bankroll import AIBankrollState
-from cash_mode.stake_lifecycle import fund_climb_stake
+from cash_mode.stake_lifecycle import fund_climb_stake, unwind_climb_funding
 from core.economy import ledger as L
 from core.economy.ledger import (
     OBLIGATION_REASONS,
     TRANSFER_REASONS,
     _record_obligation,
+    record_stake_cancel,
     record_stake_extinguish,
     record_stake_forgive,
     record_stake_originate,
@@ -81,6 +82,16 @@ def test_forgive_writes_off_residual(lr):
     assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 0
     # The write-off accumulates in the bad-debt contra.
     assert lr.balance_of(L.oblig_forgiven(), sandbox_id=SB) == 6000
+
+
+def test_cancel_reverses_originate_exactly(lr):
+    # A rolled-back stake: cancel is the exact inverse of originate (debt → 0,
+    # genesis made whole), distinct from forgive (no bad-debt contra touched).
+    record_stake_originate(lr, stake_id=SID, principal=PRINCIPAL, sandbox_id=SB)
+    record_stake_cancel(lr, stake_id=SID, principal=PRINCIPAL, sandbox_id=SB)
+    assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 0
+    assert lr.balance_of(L.oblig_genesis(), sandbox_id=SB) == 0
+    assert lr.balance_of(L.oblig_forgiven(), sandbox_id=SB) == 0
 
 
 def test_writers_noop_on_nonpositive_or_no_repo(lr):
@@ -193,3 +204,127 @@ def test_fund_climb_stake_writes_originate_and_keeps_drift_isolated(fund_repos):
     # entries_for_stake sees both the chip funding and the obligation rows.
     reasons = {r["reason"] for r in lr.entries_for_stake(SID, sandbox_id=SB)}
     assert "stake_fund" in reasons and "stake_originate" in reasons
+
+
+def test_unwind_cancels_the_originated_debt(fund_repos):
+    # If the stake-row write fails after funding, unwind_climb_funding must
+    # reverse the obligation too — else oblig:<id> orphans at the full principal
+    # for a stake that never existed (the codex-flagged rollback gap).
+    br, lr = fund_repos
+    with patch("cash_mode.economy_flags.CHIP_CUSTODY_ENABLED", True):
+        debited = fund_climb_stake(
+            staker_id="the_staker",
+            climber_id="the_climber",
+            principal=PRINCIPAL,
+            stake_id=SID,
+            bankroll_repo=br,
+            chip_ledger_repo=lr,
+            sandbox_id=SB,
+            now=NOW,
+        )
+        assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == PRINCIPAL
+        unwind_climb_funding(
+            staker_id="the_staker",
+            climber_id="the_climber",
+            principal=PRINCIPAL,
+            stake_id=SID,
+            debited=debited,
+            bankroll_repo=br,
+            chip_ledger_repo=lr,
+            sandbox_id=SB,
+        )
+    # Debt reversed to zero; staker made whole; climber seat back to zero.
+    assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 0
+    assert br.load_ai_bankroll("the_staker", sandbox_id=SB).chips == 100_000
+    assert lr.balance_of(L.ai_seat(SB, "the_climber"), sandbox_id=SB) == 0
+
+
+# --- settle-side wiring: full originate -> settle lifecycle ----------------
+
+
+@pytest.fixture
+def settle_repos(db_path):
+    from poker.repositories.stake_repository import StakeRepository
+
+    SchemaManager(db_path).ensure_schema()
+    br = BankrollRepository(db_path)
+    lr = ChipLedgerRepository(db_path)
+    sr = StakeRepository(db_path)
+    for pid in ("the_staker", "the_borrower"):
+        br.save_ai_bankroll(
+            AIBankrollState(personality_id=pid, chips=100_000, last_regen_tick=NOW),
+            sandbox_id=SB,
+        )
+    yield br, lr, sr
+    br.close()
+    lr.close()
+    sr.close()
+
+
+def _make_active_stake(sr, stake_id, *, principal, cut):
+    from cash_mode.stakes import (
+        BORROWER_KIND_PERSONALITY,
+        STAKE_FORMAT_PURE,
+        STAKE_STATUS_ACTIVE,
+        STAKER_KIND_PERSONALITY,
+        Stake,
+    )
+
+    sr.create_stake(
+        Stake(
+            stake_id=stake_id,
+            session_id=f"sess_{stake_id}",
+            staker_id="the_staker",
+            staker_kind=STAKER_KIND_PERSONALITY,
+            borrower_id="the_borrower",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=STAKE_FORMAT_PURE,
+            principal=principal,
+            match_amount=0,
+            origination_fee=0,
+            cut=cut,
+            status=STAKE_STATUS_ACTIVE,
+            carry_amount=0,
+            stake_tier="$2",
+            created_at=NOW,
+        )
+    )
+
+
+def _settle(br, lr, sr, pid, chips_at_leave):
+    from cash_mode.lobby import settle_departed_ai_stake
+
+    with patch("cash_mode.economy_flags.CHIP_CUSTODY_ENABLED", True):
+        return settle_departed_ai_stake(
+            pid,
+            chips_at_leave,
+            stake_repo=sr,
+            bankroll_repo=br,
+            chip_ledger_repo=lr,
+            relationship_repo=None,
+            personality_repo=None,
+            table_id="t1",
+            sandbox_id=SB,
+            now=NOW,
+        )
+
+
+def test_clean_settle_zeroes_the_debt(settle_repos):
+    br, lr, sr = settle_repos
+    _make_active_stake(sr, SID, principal=8000, cut=0.3)
+    record_stake_originate(lr, stake_id=SID, principal=8000, sandbox_id=SB)
+    assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 8000
+    # Borrower won: leaves with 20000. Staker recovers full principal → debt 0.
+    _settle(br, lr, sr, "the_borrower", chips_at_leave=20000)
+    assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 0
+
+
+def test_loss_settle_carries_unrecovered_principal(settle_repos):
+    br, lr, sr = settle_repos
+    _make_active_stake(sr, SID, principal=8000, cut=0.3)
+    record_stake_originate(lr, stake_id=SID, principal=8000, sandbox_id=SB)
+    # Borrower lost down to 3000: staker recovers 3000, 5000 unrecovered → carry.
+    settlement = _settle(br, lr, sr, "the_borrower", chips_at_leave=3000)
+    assert settlement is not None and settlement.carry_amount == 5000
+    # The debt account holds exactly the carried (unrecovered) principal.
+    assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 5000

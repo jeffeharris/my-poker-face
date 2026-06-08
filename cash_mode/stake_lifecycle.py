@@ -374,7 +374,12 @@ def unwind_climb_funding(
         and sandbox_id is not None
         and economy_flags.CHIP_CUSTODY_ENABLED
     ):
-        from core.economy.ledger import ai, ai_seat, record_stake_payoff
+        from core.economy.ledger import (
+            ai,
+            ai_seat,
+            record_stake_cancel,
+            record_stake_payoff,
+        )
 
         try:
             record_stake_payoff(
@@ -387,6 +392,17 @@ def unwind_climb_funding(
                     'stake_id': stake_id,
                     'sandbox_id': sandbox_id,
                 },
+                sandbox_id=sandbox_id,
+            )
+            # Reverse the obligation dimension too — the stake never came to
+            # exist, so cancel (not forgive) the originated debt back to genesis,
+            # else `oblig:<stake_id>` orphans at the full principal for a stake
+            # that was rolled back. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            record_stake_cancel(
+                chip_ledger_repo,
+                stake_id=stake_id,
+                principal=principal,
+                context={'site': 'ai_aspire_grubstake_unwind', 'sandbox_id': sandbox_id},
                 sandbox_id=sandbox_id,
             )
         except Exception as exc:
