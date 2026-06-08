@@ -4803,6 +4803,27 @@ def _leave_table_locked(owner_id: str, game_id: str):
         borrower_credit = 0
         from cash_mode import economy_flags as _economy_flags_leave
 
+        # Obligation dimension: close the HUMAN borrower's debt — the pair to the
+        # sponsor_sit_principal / player_stake_principal originate. Mirrors the
+        # AI-borrower settle (settle_departed_ai_stake): extinguish the principal
+        # RECOVERED (min(staker_total, principal)); on a non-carry terminal
+        # (incl. house forgive, which never carries) write off the residual so
+        # the debt fully closes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        if chip_ledger_repo is not None and _economy_flags_leave.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_obligations import apply_obligation_flows, flows_on_settle
+
+            apply_obligation_flows(
+                flows_on_settle(
+                    active_stake.stake_id,
+                    principal=int(active_stake.principal),
+                    staker_total=int(stake_settlement.staker_total),
+                    is_carry=stake_settlement.new_status == STAKE_STATUS_CARRY,
+                ),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'game_id': game_id, 'site': 'leave_table'},
+            )
+
         for flow in flows:
             if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
                 # Borrower (this leaving human) seat → staker bankroll. This is a
