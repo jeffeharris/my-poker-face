@@ -38,6 +38,7 @@ from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.cash_table_repository import CashTableRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.personality_repository import PersonalityRepository
+from poker.repositories.legacy_migrations import LegacyMigrations
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.stake_repository import StakeRepository
 
@@ -126,7 +127,7 @@ def test_lobby_seed_preserves_drift(repos):
     # new rows.
     with sqlite3.connect(db_path) as conn:
         conn.execute("DELETE FROM chip_ledger_entries")
-        sm = SchemaManager.__new__(SchemaManager)
+        sm = LegacyMigrations()
         sm._migrate_v94_seed_pre_ledger_universe(conn)
         conn.commit()
 
@@ -176,7 +177,7 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
         )
     with sqlite3.connect(db_path) as conn:
         conn.execute("DELETE FROM chip_ledger_entries")
-        sm = SchemaManager.__new__(SchemaManager)
+        sm = LegacyMigrations()
         sm._migrate_v94_seed_pre_ledger_universe(conn)
         conn.commit()
 

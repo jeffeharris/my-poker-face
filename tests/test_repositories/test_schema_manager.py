@@ -193,8 +193,10 @@ class TestMigrationRegistryContiguity(unittest.TestCase):
     CI time so a future renumber can't silently leave a hole."""
 
     def _migration_versions(self):
+        from poker.repositories.legacy_migrations import LegacyMigrations
+
         versions = []
-        for name in dir(SchemaManager):
+        for name in dir(LegacyMigrations):
             m = re.match(r"_migrate_v(\d+)_", name)
             if m:
                 versions.append(int(m.group(1)))

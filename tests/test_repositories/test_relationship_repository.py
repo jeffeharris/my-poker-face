@@ -28,6 +28,7 @@ from poker.memory.opponent_model import (
     RelationshipState,
 )
 from poker.repositories.relationship_repository import RelationshipRepository
+from poker.repositories.legacy_migrations import LegacyMigrations
 from poker.repositories.schema_manager import SchemaManager
 
 
@@ -90,7 +91,7 @@ class TestSchemaMigrationV87:
         # be a no-op (CREATE TABLE IF NOT EXISTS).
         from poker.repositories.schema_manager import SchemaManager
 
-        sm = SchemaManager.__new__(SchemaManager)
+        sm = LegacyMigrations()
         with sqlite3.connect(db_path) as conn:
             sm._migrate_v87_add_relationship_tables(conn)
             sm._migrate_v87_add_relationship_tables(conn)  # second time
@@ -111,7 +112,11 @@ class TestSchemaMigrationV87:
         with sqlite3.connect(path) as conn:
             conn.execute("DROP TABLE IF EXISTS relationship_states")
             conn.execute("DROP TABLE IF EXISTS cash_pair_stats")
-            conn.execute("DELETE FROM schema_version WHERE version >= 87")
+            # Post-squash a fresh DB is stamped only at the baseline, so set an
+            # explicit pre-v87 version: ensure_schema then routes through the legacy
+            # chain (which re-creates the v87 tables and stamps the v87 row).
+            conn.execute("DELETE FROM schema_version")
+            conn.execute("INSERT INTO schema_version (version, description) VALUES (86, 'pre-v87')")
             conn.commit()
         # Re-run ensure_schema → should re-apply v87 (and anything later) cleanly
         SchemaManager(path).ensure_schema()
