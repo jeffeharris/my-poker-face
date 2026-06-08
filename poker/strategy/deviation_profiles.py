@@ -37,6 +37,16 @@ class DeviationProfile:
     # Applied at the node-lookup level in TieredBotController (the chart cell it
     # reads), so distortion + floors still layer on top. See FISH_AS_CALLING_STATION.md.
     position_blind: float = 0.0
+    # Facing-a-raise (3-bet/4-bet) aggression split. The global aggression_scale /
+    # max_per_action_shift drive ALL streets, so taming preflop 3-bet wars with
+    # them also nerfs postflop aggression (the maniac's defining wildness). These
+    # OPTIONAL overrides are applied ONLY at preflop vs_open/vs_3bet/vs_4bet nodes
+    # (TieredBotController swaps them in via dataclasses.replace) — so opening
+    # width (VPIP/PFR) and postflop AF are untouched, only re-raise FREQUENCY is
+    # dampened. None = inherit the global value (no split, byte-identical). See
+    # docs/technical/ARCHETYPE_SHAPING_FINDINGS.md (the pre/postflop split).
+    reraise_aggression_scale: Optional[float] = None
+    reraise_max_per_action_shift: Optional[float] = None
 
 
 # Predefined profiles from architecture doc:
@@ -105,7 +115,14 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=0.4,
         ego_fold_penalty=0.55,
     ),
-    # LAG: loose-aggressive. Loose table + strong aggression.
+    # LAG: loose-aggressive. Loose table + strong aggression. Global aggression
+    # stays high (postflop AF is LAG's identity); the facing-raise SPLIT
+    # (reraise_*) tames 3-bet/4-bet frequency without touching postflop. At the
+    # old global 1.8 the realized facing-open 3-bet hit ~44% (target 16–26); the
+    # reraise scale pulls the distortion's contribution off. NOTE: LAG's base
+    # loose_mid chart already 3-bets ~30%, so the split lands it at the chart
+    # floor — getting fully into band also needs the chart trim (Knob 2). See
+    # docs/technical/ARCHETYPE_SHAPING_FINDINGS.md.
     'lag': DeviationProfile(
         max_kl=1.0,
         max_per_action_shift=0.50,
@@ -113,6 +130,8 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.0,
         risk_scale=1.2,
         ego_fold_penalty=0.40,
+        reraise_aggression_scale=0.6,
+        reraise_max_per_action_shift=0.20,
     ),
     # Weak fish: the weakest realistic player (the $2-tier trickle). Same passive
     # caller shape as calling_station but pushed to the believable floor — the
@@ -161,8 +180,12 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
     ),
     # Maniac: the wildest — loose table + the highest aggression so its AF tops
     # the field (its VPIP shares the loose envelope with LAG; the wildness shows
-    # in aggression). Cap held at 0.35 (the priced ceiling); aggression_scale
-    # does the work.
+    # in aggression). Global aggression stays at the priced ceiling (postflop AF
+    # is the maniac's whole identity — the field's wildest). The facing-raise
+    # SPLIT (reraise_*) pulls the preflop 3-bet/4-bet wars down off the chart
+    # floor (~30%) without touching that postflop wildness — at the old global
+    # 2.2 the realized facing-open 3-bet hit ~64% (target 36–52). Looseness no
+    # longer boosts raise (Knob 1b). See ARCHETYPE_SHAPING_FINDINGS.md.
     'maniac': DeviationProfile(
         max_kl=1.2,
         max_per_action_shift=0.35,
@@ -170,6 +193,8 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.2,
         risk_scale=1.6,
         ego_fold_penalty=0.60,
+        reraise_aggression_scale=0.9,
+        reraise_max_per_action_shift=0.18,
     ),
     # Balanced defender (measurement only): the apex anti-aggression reg, to test
     # whether a competent DEFENSE neutralizes the maniac's edge (the field-overfold
