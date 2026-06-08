@@ -56,6 +56,7 @@ const VALID_TABS: AdminTab[] = [
   'chip-ledger',
   'whereabouts',
   'range-explorer',
+  'archetype-review',
   'coach-metrics',
 ];
 

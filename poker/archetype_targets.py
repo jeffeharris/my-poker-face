@@ -1,0 +1,170 @@
+"""Per-archetype behavioral target ranges + scoring.
+
+The tiered-bot archetypes (``deviation_profile_name``) are meant to be
+*readable* opponents — a player should be able to get a reliable read on a
+``nit`` vs a ``maniac``. To shape them we need (a) an explicit target range
+for each behavioral stat per archetype and (b) a way to score the actual
+measured behavior against it.
+
+This module owns the targets. The review route (``archetype_review_routes``)
+measures actuals from ``player_decision_analysis`` and calls :func:`score_stat`.
+
+Targets are **cash-game** oriented (100bb 6-max). Tournament play distorts
+these (ICM, short stacks) and gets separate handling later.
+
+Numbers are starting points calibrated against standard poker stat ranges —
+they are meant to be *tuned*. They can be overridden at runtime via the
+``ARCHETYPE_TARGET_OVERRIDES`` app setting (JSON) without a code change; see
+:func:`get_targets`.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+# Canonical production archetypes (mirror DEVIATION_PROFILES keys that are
+# actually assigned in production — isolation/validation profiles excluded).
+PRODUCTION_ARCHETYPES = (
+    'nit',
+    'rock',
+    'tag',
+    'lag',
+    'maniac',
+    'calling_station',
+    'weak_fish',
+)
+
+# The stats we target, in display order, with human-facing labels and whether
+# a higher value is "more aggressive" (used only for UI hinting).
+STAT_LABELS: Dict[str, str] = {
+    'vpip': 'VPIP %',
+    'pfr': 'PFR %',
+    'threebet': '3-bet %',
+    'fourbet': '4-bet %',
+    'fold_to_3bet': 'Fold-to-3bet %',
+    'af': 'Aggression Factor',
+    'all_in': 'All-in %',
+}
+
+# (lo, hi) inclusive target band per archetype per stat. See module docstring.
+# VPIP/PFR/3bet/4bet/fold_to_3bet/all_in are percentages; af is a ratio.
+ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
+    'nit': {
+        'vpip': (10, 16),
+        'pfr': (8, 13),
+        'threebet': (2, 5),
+        'fourbet': (0, 3),
+        'fold_to_3bet': (60, 80),
+        'af': (1.5, 2.8),
+        'all_in': (0, 3),
+    },
+    'rock': {
+        'vpip': (15, 22),
+        'pfr': (11, 17),
+        'threebet': (3, 6),
+        'fourbet': (1, 4),
+        'fold_to_3bet': (50, 70),
+        'af': (1.5, 2.8),
+        'all_in': (0, 4),
+    },
+    'tag': {
+        'vpip': (20, 28),
+        'pfr': (16, 23),
+        'threebet': (6, 10),
+        'fourbet': (2, 5),
+        'fold_to_3bet': (40, 58),
+        'af': (2.5, 3.8),
+        'all_in': (0, 5),
+    },
+    'lag': {
+        'vpip': (28, 40),
+        'pfr': (22, 32),
+        'threebet': (9, 14),
+        'fourbet': (3, 7),
+        'fold_to_3bet': (30, 48),
+        'af': (3.3, 5.5),
+        'all_in': (0, 7),
+    },
+    'maniac': {
+        'vpip': (45, 70),
+        'pfr': (35, 58),
+        'threebet': (14, 24),
+        'fourbet': (6, 14),
+        'fold_to_3bet': (15, 35),
+        'af': (5, 9),
+        'all_in': (3, 14),
+    },
+    'calling_station': {
+        'vpip': (40, 58),
+        'pfr': (4, 12),
+        'threebet': (1, 4),
+        'fourbet': (0, 2),
+        'fold_to_3bet': (20, 40),
+        'af': (0.4, 1.2),
+        'all_in': (0, 4),
+    },
+    'weak_fish': {
+        'vpip': (33, 52),
+        'pfr': (6, 15),
+        'threebet': (1, 5),
+        'fourbet': (0, 3),
+        'fold_to_3bet': (25, 45),
+        'af': (0.7, 1.6),
+        'all_in': (0, 5),
+    },
+}
+
+# Below this many observations a stat is reported but flagged low-confidence.
+MIN_SAMPLE = 20
+
+# How far outside the band (as a fraction of the band width, min 1 unit) still
+# counts as a "warn" rather than a hard "fail".
+WARN_MARGIN_FRAC = 0.5
+
+
+def get_targets(override_json: Optional[str] = None) -> Dict[str, Dict[str, Tuple[float, float]]]:
+    """Return the target table, merged with an optional JSON override.
+
+    ``override_json`` is the raw value of the ``ARCHETYPE_TARGET_OVERRIDES``
+    app setting: ``{archetype: {stat: [lo, hi]}}``. Unknown archetypes/stats
+    are ignored; a malformed blob falls back to the built-in defaults.
+    """
+    targets = {a: dict(s) for a, s in ARCHETYPE_TARGETS.items()}
+    if not override_json:
+        return targets
+    try:
+        overrides = json.loads(override_json)
+    except (ValueError, TypeError):
+        logger.warning('ARCHETYPE_TARGET_OVERRIDES is not valid JSON; using defaults')
+        return targets
+    for arch, stats in (overrides or {}).items():
+        if arch not in targets or not isinstance(stats, dict):
+            continue
+        for stat, band in stats.items():
+            if stat in targets[arch] and isinstance(band, (list | tuple)) and len(band) == 2:
+                targets[arch][stat] = (float(band[0]), float(band[1]))
+    return targets
+
+
+def score_stat(actual: Optional[float], band: Tuple[float, float], sample: int) -> str:
+    """Classify an actual value against its target band.
+
+    Returns one of: ``no_data`` (no actual), ``low_n`` (below MIN_SAMPLE),
+    ``pass`` (inside the band), ``warn`` (just outside, within WARN_MARGIN_FRAC
+    of the band width), or ``fail`` (clearly outside).
+    """
+    if actual is None:
+        return 'no_data'
+    if sample < MIN_SAMPLE:
+        return 'low_n'
+    lo, hi = band
+    if lo <= actual <= hi:
+        return 'pass'
+    margin = max((hi - lo) * WARN_MARGIN_FRAC, 1.0)
+    if (lo - margin) <= actual <= (hi + margin):
+        return 'warn'
+    return 'fail'
