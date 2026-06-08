@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from poker.repositories.legacy_migrations import LegacyMigrations
 from poker.repositories.schema_manager import SCHEMA_VERSION, SchemaManager
 
 
@@ -123,7 +124,7 @@ class TestV98Migration:
 
         # Re-run the migration in isolation; UPDATE renames in place.
         with sqlite3.connect(tmp_db_path) as conn:
-            sm._migrate_v98_add_stakes_table(conn)
+            LegacyMigrations()._migrate_v98_add_stakes_table(conn)
             conn.commit()
 
         with sqlite3.connect(tmp_db_path) as conn:

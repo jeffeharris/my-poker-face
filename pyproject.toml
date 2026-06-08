@@ -13,6 +13,8 @@ extend-exclude = [
     "__pycache__",
     "data",
     "*.ipynb",
+    # GENERATED schema baseline (scripts/_gen_schema_baseline.py) — do not lint/format.
+    "poker/repositories/schema_baseline.py",
 ]
 
 [tool.ruff.lint]

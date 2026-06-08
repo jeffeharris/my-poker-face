@@ -53,9 +53,9 @@ def _apply_v85_via_schema_manager(conn: sqlite3.Connection) -> None:
     Uses a stub SchemaManager whose _get_connection returns the test
     connection rather than building one from a path.
     """
-    from poker.repositories.schema_manager import SchemaManager
+    from poker.repositories.legacy_migrations import LegacyMigrations
 
-    sm = SchemaManager.__new__(SchemaManager)  # bypass __init__
+    sm = LegacyMigrations()  # bypass __init__
     sm._migrate_v85_add_personality_id(conn)
 
 

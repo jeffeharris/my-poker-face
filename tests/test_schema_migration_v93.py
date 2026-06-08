@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from poker.repositories.legacy_migrations import LegacyMigrations
 from poker.repositories.schema_manager import SCHEMA_VERSION, SchemaManager
 
 
@@ -75,7 +76,7 @@ class TestV93Migration:
         SchemaManager(tmp_db_path).ensure_schema()
         with sqlite3.connect(tmp_db_path) as conn:
             # Re-run the v93 method directly.
-            sm = SchemaManager.__new__(SchemaManager)
+            sm = LegacyMigrations()
             sm._migrate_v93_add_chip_ledger(conn)
             # Still exactly one chip_ledger_entries table.
             count = conn.execute(
