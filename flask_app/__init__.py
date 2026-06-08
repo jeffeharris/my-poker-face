@@ -198,6 +198,7 @@ def _init_sentry():
 
     try:
         import sentry_sdk
+        from sentry_sdk.integrations.logging import LoggingIntegration
 
         sentry_sdk.init(
             dsn=dsn,
@@ -205,8 +206,18 @@ def _init_sentry():
             traces_sample_rate=0.1,
             send_default_pii=False,
             before_send=_attach_feature_flags,
+            integrations=[
+                # By default the SDK turns every `logger.error(...)` into its own
+                # Sentry issue + alert — which flooded us with routine operational
+                # logs (LLM 400s, "Invalid session", the [ASYNC] WS notice, etc.).
+                # Keep INFO+ logs as breadcrumbs (event_level=None disables
+                # event creation from logs) so only real unhandled exceptions and
+                # explicit capture_* calls create issues. The FlaskIntegration
+                # still reports actual crashes, so we don't lose true errors.
+                LoggingIntegration(level=logging.INFO, event_level=None),
+            ],
         )
-        logger.info("[SENTRY] backend error monitoring enabled")
+        logger.info("[SENTRY] backend error monitoring enabled (logs→breadcrumbs)")
     except Exception as e:  # never let monitoring setup break app boot
         logger.error("[SENTRY] init failed: %s", e, exc_info=True)
 
