@@ -128,7 +128,7 @@ jobs:
       - name: Check for relevant changes
         if: github.event_name == 'pull_request'
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             e2e_relevant:
