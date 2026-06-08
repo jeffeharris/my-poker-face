@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Plus, Tag } from 'lucide-react';
 import { config } from '../../../config';
 import { logger } from '../../../utils/logger';
@@ -36,7 +37,12 @@ export function DecisionLabelsEditor({
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Dropdown is portaled to <body> so the overflow-y:auto scroll container
+  // (.capture-detail) can't clip it; positioned off the input's rect.
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
 
   const applied = useMemo(() => new Set(labels.map((l) => l.label)), [labels]);
 
@@ -78,11 +84,35 @@ export function DecisionLabelsEditor({
     loadAvailable();
   }, [loadAvailable]);
 
-  // Close the dropdown on outside click/tap.
+  // Position the portaled dropdown off the input rect, and keep it pinned while
+  // the detail panel scrolls / the window resizes.
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = inputRef.current?.getBoundingClientRect();
+      if (r) setMenuPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open]);
+
+  // Close the dropdown on outside click/tap (the menu lives in a body portal,
+  // so check it separately from the container).
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const t = e.target as Node;
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(t) &&
+        menuRef.current &&
+        !menuRef.current.contains(t)
+      ) {
         setOpen(false);
       }
     };
@@ -198,6 +228,7 @@ export function DecisionLabelsEditor({
 
       <div className="dle__combo">
         <input
+          ref={inputRef}
           type="text"
           className="dle__input"
           placeholder="Type to flag… (e.g. mistake, cooler)"
@@ -214,37 +245,52 @@ export function DecisionLabelsEditor({
           onKeyDown={onKeyDown}
         />
 
-        {open && options.length > 0 && (
-          <ul className="dle__options" role="listbox">
-            {options.map((opt, i) => (
-              <li
-                key={`${opt.kind}:${opt.value}`}
-                role="option"
-                aria-selected={i === highlight}
-                className={`dle__option ${i === highlight ? 'dle__option--active' : ''} ${
-                  opt.kind === 'create' ? 'dle__option--create' : ''
-                }`}
-                // onMouseDown (not onClick) so it fires before the input blur.
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  choose(opt);
-                }}
-                onMouseEnter={() => setHighlight(i)}
-              >
-                {opt.kind === 'create' ? (
-                  <>
-                    <Plus size={13} />
-                    <span>
-                      Create “<strong>{opt.value}</strong>”
-                    </span>
-                  </>
-                ) : (
-                  <span>{formatLabelName(opt.value)}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        {open &&
+          options.length > 0 &&
+          menuPos &&
+          createPortal(
+            <ul
+              ref={menuRef}
+              className="dle__options"
+              role="listbox"
+              style={{
+                position: 'fixed',
+                top: menuPos.top,
+                left: menuPos.left,
+                width: menuPos.width,
+                right: 'auto',
+              }}
+            >
+              {options.map((opt, i) => (
+                <li
+                  key={`${opt.kind}:${opt.value}`}
+                  role="option"
+                  aria-selected={i === highlight}
+                  className={`dle__option ${i === highlight ? 'dle__option--active' : ''} ${
+                    opt.kind === 'create' ? 'dle__option--create' : ''
+                  }`}
+                  // onMouseDown (not onClick) so it fires before the input blur.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    choose(opt);
+                  }}
+                  onMouseEnter={() => setHighlight(i)}
+                >
+                  {opt.kind === 'create' ? (
+                    <>
+                      <Plus size={13} />
+                      <span>
+                        Create “<strong>{opt.value}</strong>”
+                      </span>
+                    </>
+                  ) : (
+                    <span>{formatLabelName(opt.value)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>,
+            document.body
+          )}
       </div>
     </div>
   );
