@@ -113,19 +113,33 @@ class TournamentSessionRepository(BaseRepository):
         """The owner's most-recently-updated active *multi-table* tournament, if
         any. Excludes `resolver_kind='single'` envelope rows — those wrap an
         ordinary single-table game (still tracker-driven) and must never be
-        rehydrated as an MTT session or shadow a real MTT in the lobby."""
+        rehydrated as an MTT session or shadow a real MTT in the lobby.
+
+        Also excludes DECOUPLED (exhibition) tournaments: they are exempt from the
+        one-active-per-owner guard, so they must never shadow the cash-circuit Main
+        Event invite or surface as the resumable active event. The flag lives in
+        session_json (no column), so the most-recent few rows are scanned and the
+        first non-decoupled one is returned."""
+        import json
+
         with self._get_connection() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 """
                 SELECT * FROM tournaments
                 WHERE owner_id = ? AND status = 'active'
                   AND resolver_kind != 'single'
                 ORDER BY updated_at DESC
-                LIMIT 1
                 """,
                 (owner_id,),
-            ).fetchone()
-            return self._row_to_dict(row) if row else None
+            ).fetchall()
+        for row in rows:
+            try:
+                decoupled = bool((json.loads(row['session_json']) or {}).get('decoupled', False))
+            except (TypeError, ValueError):
+                decoupled = False
+            if not decoupled:
+                return self._row_to_dict(row)
+        return None
 
     def active_participant_pids(
         self, owner_id: str, *, active_since_iso: Optional[str] = None
@@ -175,11 +189,16 @@ class TournamentSessionRepository(BaseRepository):
             ).fetchall()
         for row in rows:
             try:
-                entries = (
-                    (json.loads(row['session_json']) or {}).get('field', {}).get('entries', {})
-                )
+                blob = json.loads(row['session_json']) or {}
             except (TypeError, ValueError):
                 continue
+            # A DECOUPLED (exhibition) tournament is isolated from the persistent
+            # world: its real-persona field is for flavor only, so those personas
+            # must stay AVAILABLE to cash games and real Main Event drafts (they
+            # are not "in a tournament" in the double-presence sense). Skip the row.
+            if blob.get('decoupled', False):
+                continue
+            entries = blob.get('field', {}).get('entries', {})
             pids.update(pid for pid in entries.keys() if _is_real_persona(pid))
         return pids
 

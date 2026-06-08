@@ -70,6 +70,16 @@ def _rebuild_resolver(kind: str, entries: dict[str, str]):
     return FakeHandResolver()
 
 
+def _record_is_decoupled(rec: dict) -> bool:
+    """True if an in-memory registry record is a decoupled (exhibition)
+    tournament. Reads the propagated `decoupled` key, falling back to the
+    session's flag for records put before propagation (belt-and-suspenders)."""
+    if rec.get('decoupled'):
+        return True
+    session = rec.get('session')
+    return bool(getattr(session, 'decoupled', False))
+
+
 def _rehydrate(row: dict) -> dict:
     """Rebuild an in-memory record from a stored row (resolver rebuilt from
     resolver_kind; conservation asserted by `from_dict`)."""
@@ -86,6 +96,10 @@ def _rehydrate(row: dict) -> dict:
         'resolver': resolver,
         'resolver_kind': row['resolver_kind'],
         'game_id': row['game_id'],
+        # Propagate the decoupled flag from the stored session blob into the
+        # in-memory record so the active-guard exemption + cold-load see it
+        # without re-parsing the JSON (#7).
+        'decoupled': bool(d.get('decoupled', False)),
     }
 
 
@@ -117,6 +131,8 @@ def find_active_for_owner(owner_id: str) -> Optional[str]:
     for tid, rec in _tournaments.items():
         if rec.get('resolver_kind') == SINGLE_KIND:
             continue  # single-table envelopes are not resumable MTT events
+        if _record_is_decoupled(rec):
+            continue  # exhibition events are exempt from the one-active guard
         if rec.get('owner_id') == owner_id and not rec['session'].is_complete():
             return tid
     repo = _repo()

@@ -42,6 +42,7 @@ import {
 import { feedEventKey, renderEventIcon } from './tickerEvents';
 import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
+import { CareerHighlightsCard } from './CareerHighlightsCard';
 import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { IntelHub } from './IntelHub';
@@ -724,6 +725,8 @@ export function Lobby() {
               onOpenNetWorth={() => setNetWorthOpen(true)}
             />
           )}
+
+          {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
 
           {reputation && <ReputationPanel reputation={reputation} />}
 

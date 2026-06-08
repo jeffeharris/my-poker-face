@@ -338,6 +338,7 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    | `VICE_NARRATION` / `SIDE_HUSTLE_NARRATION` | Fast | lobby flavor (player-read) |
    | `NARRATION_CLEANUP` | Nano | mechanical beat-format repair |
    | `CATEGORIZATION` | Nano | mechanical classification |
+   | `JOURNEY_NARRATION` | Assistant | circuit-story session/arc narration; `voice_over` builds an Assistant-tier client directly (stays faithful to amounts — the cheap tier embellished). `call_type` is only a tracking tag. |
    | `PERSONALITY_GENERATION` | Assistant | Stronger model; Default is the cheap in-game LLM |
    | `PERSONALITY_PREVIEW` | Assistant | Matches personality generation |
    | `THEME_GENERATION` | Assistant | Stronger model; the `/generate-theme` route builds an Assistant-tier client (PRH-7). `call_type` is only a tracking tag — it does not drive tier selection. |

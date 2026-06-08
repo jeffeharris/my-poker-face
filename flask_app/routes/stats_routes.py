@@ -141,6 +141,244 @@ def get_career_stats():
     )
 
 
+@stats_bp.route('/api/journey', methods=['GET'])
+def get_journey():
+    """The player's CIRCUIT (cash-mode) career story: one narrative beat per
+    session, combined into an arc. Scoped to the owner's cash sessions — the
+    actual career — not tournaments or quick-play. Facts are deterministic
+    (hand_history). Pass ?voiced=1 to also get the LLM-narrated session beats +
+    arc (grounded in those facts, fail-soft)."""
+    current_user = extensions.auth_manager.get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    owner_id = current_user.get('id')
+    if not owner_id:
+        return jsonify({'error': 'No user ID found'}), 400
+
+    voiced = request.args.get('voiced') in ('1', 'true', 'yes')
+
+    from cash_mode.stakes_ladder import STAKES_LADDER
+    from poker.memory.hand_history import RecordedHand
+    from poker.memory.journey import (
+        ARC_CONTEXT,
+        cash_pnl,
+        journey_arc_facts,
+        merge_counts,
+        own_buy_in,
+        preflop_counts,
+        preflop_rates,
+        session_facts,
+        session_facts_text,
+        session_result,
+        stack_curve,
+        summarize_session,
+        voice_over,
+    )
+    from poker.repositories.hand_equity_repository import HandEquityRepository
+
+    equity_repo = HandEquityRepository(extensions.hand_history_repo.db_path)
+
+    # Circuit = cash mode. The owner's cash sessions are the career; session_id
+    # IS the game_id ('cash-*'). Tournaments/quick-play are excluded by design.
+    cash_sessions = extensions.cash_session_repo.list_for_owner(owner_id, limit=12)
+    sessions = []
+    preflop_parts = []  # raw preflop counts per session, summed into the overall
+    player = None
+    for cs in cash_sessions:
+        try:
+            rows = extensions.hand_history_repo.load_hand_history(cs.session_id)
+            if not rows:
+                continue
+            hands = [RecordedHand.from_dict(r) for r in rows]
+            human = next((p.name for h in hands for p in h.players if p.is_human), None)
+            if not human:
+                continue
+            # Drama ranking: big blind (from the stake) sharpens the pot-size
+            # signal; the stored equity history drives swing/lead-change/suckout.
+            big_blind = (STAKES_LADDER.get(cs.stake_label or '') or {}).get('big_blind')
+            equity_by_hand = equity_repo.get_equities_for_game(cs.session_id)
+            facts = session_facts(hands, human, big_blind=big_blind, equity_by_hand=equity_by_hand)
+            if facts['hands_played'] == 0:
+                continue
+            player = player or human
+            # `net` = the TABLE result (how the stack ran — the real poker P&L,
+            # negative on a staked loss the backer absorbed). `pocket` = what
+            # actually hit the player's own bankroll after the backer settled.
+            net = session_result(
+                final_chips_at_table=cs.final_chips_at_table,
+                total_buy_in=cs.total_buy_in,
+                sponsor_principal=cs.sponsor_principal,
+                ended_at=cs.ended_at,
+            )
+            pocket = cash_pnl(
+                total_buy_in=cs.total_buy_in,
+                sponsor_principal=cs.sponsor_principal,
+                player_take_home=cs.player_take_home,
+                ended_at=cs.ended_at,
+            )
+            buy_in = own_buy_in(cs.total_buy_in, cs.sponsor_principal)
+            # The named room this session was played in (e.g. "Hotel Mezzanine").
+            # Fail-soft: a missing table just drops the name, never the session.
+            table_name = None
+            if cs.cash_table_id:
+                try:
+                    table = extensions.cash_table_repo.load_table(
+                        cs.cash_table_id, sandbox_id=cs.sandbox_id
+                    )
+                    table_name = table.name if table else None
+                except Exception:
+                    logger.debug(
+                        "journey: could not load table name for %s",
+                        cs.cash_table_id,
+                        exc_info=True,
+                    )
+                    table_name = None
+            summary = summarize_session(
+                human,
+                hands_played=facts['hands_played'],
+                hands_won=facts['hands_won'],
+                biggest_pot_won=facts['biggest_pot_won'],
+                net=net,
+                buy_in=buy_in if net is not None else None,
+                take_home=cs.player_take_home if net is not None else None,
+                stake_label=cs.stake_label,
+                staked=bool(cs.is_staked),
+                pocket=pocket,
+            )
+            stats = {
+                'hands_played': facts['hands_played'],
+                'hands_won': facts['hands_won'],
+                'biggest_pot_won': facts['biggest_pot_won'],
+                'net_chips': net,  # table result (the session's poker P&L)
+                'pocket': pocket,  # what hit the player's own bankroll
+                'staked': bool(cs.is_staked),
+                'buy_in': buy_in,
+                'take_home': cs.player_take_home,
+                'in_progress': net is None,
+            }
+            counts = preflop_counts(hands, human)
+            preflop_parts.append(counts)
+            entry = {
+                'game_id': cs.session_id,
+                'summary': summary,
+                'stats': stats,
+                'beats': facts['beats'],
+                # Per-hand chip stack across the session, for the sparkline.
+                'stack_curve': stack_curve(hands, human),
+                # Session header: which room, what stakes, when.
+                'stake_label': cs.stake_label,
+                'table_name': table_name,
+                'started_at': cs.started_at.isoformat() if cs.started_at else None,
+                # VPIP / PFR / starting-hand quality for the session.
+                'preflop': preflop_rates(counts),
+            }
+            # Stash the grounded voice input ON the entry (stripped before the
+            # response) so it can never drift out of alignment with `sessions`.
+            entry['_voice'] = (session_facts_text(summary, facts['beats']), human)
+            sessions.append(entry)
+        except Exception:  # noqa: BLE001 — one bad session never sinks the whole story
+            logger.warning("journey: skipped session %s", cs.session_id, exc_info=True)
+
+    # Voicing: narrate every session CONCURRENTLY (each is an independent LLM
+    # call), then narrate the arc once over all of them. Resolve the tier on the
+    # request thread — the DB-backed settings accessors aren't safe in workers —
+    # and thread the provider/model into each call.
+    arc_beat = None
+    if voiced and sessions:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from core.llm import settings as llm_settings
+
+        prov = llm_settings.get_assistant_provider()
+        mdl = llm_settings.get_assistant_model()
+
+        def _voice_session(entry):
+            facts_text, hero = entry['_voice']
+            return voice_over(facts_text, hero=hero, provider=prov, model=mdl)
+
+        with ThreadPoolExecutor(max_workers=min(6, len(sessions))) as pool:
+            beats = list(pool.map(_voice_session, sessions))
+        for entry, beat in zip(sessions, beats, strict=False):
+            entry['beat'] = beat
+
+        # The arc = the session beats combined, in CHRONOLOGICAL order (sessions
+        # arrive newest-first), each anchored with its date, so the narration
+        # reads as a trajectory instead of starting from the latest session.
+        # Undated sessions sort LAST ('~' > any digit) so a missing date never
+        # masquerades as the earliest beat.
+        chrono = sorted(sessions, key=lambda s: s.get('started_at') or '~')
+        segments = [
+            f"{(s.get('started_at') or '')[:10]}: {s.get('beat') or s['summary']}" for s in chrono
+        ]
+        arc_beat = voice_over(
+            "\n\n".join(segments),
+            hero=player or 'the player',
+            length="3-5 sentences",
+            provider=prov,
+            model=mdl,
+            context=ARC_CONTEXT,
+        )
+
+    arc_facts = journey_arc_facts([s['stats'] for s in sessions]) if sessions else None
+    preflop_overall = preflop_rates(merge_counts(preflop_parts)) if preflop_parts else None
+    for entry in sessions:  # drop the transient voice input before serializing
+        entry.pop('_voice', None)
+    return jsonify(
+        {
+            'player': player,
+            'sessions': sessions,
+            'arc': arc_facts,
+            'arc_beat': arc_beat,
+            'preflop_overall': preflop_overall,
+        }
+    )
+
+
+@stats_bp.route('/api/journey/highlights', methods=['GET'])
+def get_journey_highlights():
+    """Lightweight career-highlights summary for the lobby card — aggregated
+    straight from the cash_sessions ledger rows (no hand_history / equity
+    loading, unlike /api/journey). Cheap enough to fetch on every lobby load."""
+    current_user = extensions.auth_manager.get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    owner_id = current_user.get('id')
+    if not owner_id:
+        return jsonify({'error': 'No user ID found'}), 400
+
+    from poker.memory.journey import session_result
+
+    rows = extensions.cash_session_repo.list_for_owner(owner_id, limit=500)
+    played = [cs for cs in rows if (cs.hands_played or 0) > 0]
+    # Use the TABLE result (session_result), matching /api/journey — so the lobby
+    # card's net agrees with the story it opens (cash_pnl/pocket would read a
+    # staked loss as flat and disagree with the per-session story).
+    nets = [
+        n
+        for cs in played
+        if (
+            n := session_result(
+                final_chips_at_table=cs.final_chips_at_table,
+                total_buy_in=cs.total_buy_in,
+                sponsor_principal=cs.sponsor_principal,
+                ended_at=cs.ended_at,
+            )
+        )
+        is not None
+    ]
+    return jsonify(
+        {
+            'has_story': bool(played),
+            'sessions': len(played),
+            'winning_sessions': sum(1 for n in nets if n > 0),
+            'total_hands': sum(cs.hands_played or 0 for cs in played),
+            'biggest_pot': max((cs.biggest_pot_won or 0 for cs in played), default=0),
+            'total_net_chips': sum(nets),
+            'best_session_net': max(nets, default=0),
+        }
+    )
+
+
 @stats_bp.route('/api/models', methods=['GET'])
 @limiter.limit("30/minute")
 def get_available_models():

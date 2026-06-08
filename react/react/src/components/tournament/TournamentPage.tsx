@@ -78,11 +78,13 @@ export function TournamentPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await tournamentApi.register(body);
+      const res = await tournamentApi.spawn(body);
       setTournamentId(res.tournament_id);
       await goToTable(res.tournament_id); // straight to the felt
     } catch {
-      setError('Could not register — you may already be in an event.');
+      setError(
+        'Could not start the Main Event — not enough players available, or you may already be in an event.'
+      );
       setBusy(false);
     }
   };

@@ -788,14 +788,45 @@ def api_game_state(game_id):
                         # drops the sandbox and stops folding observations.
                         is_tournament_game = game_id.startswith("tourney-")
 
+                        # CRITICAL cold-load re-coupling guard: a DECOUPLED
+                        # (exhibition) tournament must stay isolated across
+                        # reload/resume. Both the sandbox derivation just below and
+                        # the relationship-repo wiring further down would otherwise
+                        # silently RE-COUPLE it (re-deriving a sandbox restores the
+                        # dossier fold + relationship writes the fresh build
+                        # deliberately suppressed). Read the persisted `decoupled`
+                        # flag off the tournament session row (it lives in
+                        # session_json, survives cold-load) and skip both wirings.
+                        is_decoupled_tournament = False
+                        if is_tournament_game and extensions.tournament_session_repo is not None:
+                            try:
+                                _drow = extensions.tournament_session_repo.find_by_game_id(game_id)
+                                if _drow is not None and _drow.get('session_json'):
+                                    is_decoupled_tournament = bool(
+                                        (json.loads(_drow['session_json']) or {}).get(
+                                            'decoupled', False
+                                        )
+                                    )
+                            except Exception:
+                                logger.debug(
+                                    "[LOAD] decoupled-flag lookup failed for %s",
+                                    game_id,
+                                    exc_info=True,
+                                )
+
                         # v109: cash_pair_stats writes need a sandbox_id so the
                         # admin Chip Economy panel can scope Won/Lost/Net. For
                         # cold-loaded cash games the owner's default sandbox is
                         # the right answer — owners are single-sandbox in v1,
                         # and the same resolver feeds /api/cash/start. Tournament
                         # games resolve the same sandbox so the dossier fold lands.
+                        # A DECOUPLED tournament resolves NO sandbox (stays isolated).
                         cold_load_sandbox_id: Optional[str] = None
-                        if (is_cash_game or is_tournament_game) and owner_id is not None:
+                        if (
+                            (is_cash_game or is_tournament_game)
+                            and not is_decoupled_tournament
+                            and owner_id is not None
+                        ):
                             try:
                                 from flask_app.extensions import sandbox_repo as _sandbox_repo
                                 from flask_app.services.sandbox_resolver import (
@@ -937,7 +968,16 @@ def api_game_state(game_id):
                         # Training games never wire a relationship repo:
                         # relationship_states writes for ANY wired repo (not
                         # just cash_mode), so this is the only safe suppression.
-                        if not suppress_for_casino and not is_training_game:
+                        # A DECOUPLED (exhibition) tournament likewise stays
+                        # isolated — relationship_states is not sandbox-gated, so
+                        # the only way to keep its real personas from accumulating
+                        # dossier state across a resume is to NOT wire the repo at
+                        # all (mirrors the fresh-build sandbox-null lever).
+                        if (
+                            not suppress_for_casino
+                            and not is_training_game
+                            and not is_decoupled_tournament
+                        ):
                             memory_manager.set_relationship_repo(
                                 extensions.relationship_repo,
                                 cash_mode=is_cash_game,

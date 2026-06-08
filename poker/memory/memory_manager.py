@@ -546,8 +546,10 @@ class AIMemoryManager:
 
         pot_running = 0
 
-        # Record SB post
-        sb_player = table_positions.get('SB')
+        # Record SB post. Keys come from PokerGameState.table_positions, which
+        # uses 'small_blind_player'/'big_blind_player' (NOT 'SB'/'BB') — the old
+        # short keys silently no-op'd, so blinds were never recorded.
+        sb_player = table_positions.get('small_blind_player')
         if sb_player:
             pot_running += sb_amount
             self.hand_recorder.record_action(
@@ -559,7 +561,7 @@ class AIMemoryManager:
             )
 
         # Record BB post
-        bb_player = table_positions.get('BB')
+        bb_player = table_positions.get('big_blind_player')
         if bb_player:
             pot_running += bb_amount
             self.hand_recorder.record_action(
@@ -937,6 +939,16 @@ class AIMemoryManager:
         if not commentary_enabled:
             return commentaries
 
+        # A player who actually played THIS hand is never a "spectator" for it.
+        # Guard against a stale/mis-scoped is_eliminated flag — e.g. the
+        # tournament name-vs-id mismatch in generate_ai_commentary
+        # (game_handler `is_eliminated = name not in active_players`, comparing a
+        # display name to a set of tournament IDs) which told WINNERS they were
+        # "watching from the rail", contradicting the recap and confusing every
+        # model. recorded_hand.players is in the same name space, so this is a
+        # robust, id-agnostic backstop. See EXP_008 root-cause notes.
+        hand_participants = {p.name for p in recorded_hand.players}
+
         # Build list of players to generate commentary for
         # Apply filtering rules (preflop folds, eliminated players, etc.)
         players_to_process = []
@@ -947,7 +959,9 @@ class AIMemoryManager:
 
             # Extract context (support both old format and new dict format)
             if isinstance(context, dict):
-                is_eliminated = context.get('is_eliminated', False)
+                is_eliminated = context.get('is_eliminated', False) and (
+                    player_name not in hand_participants
+                )
             else:
                 is_eliminated = False
 
@@ -971,7 +985,9 @@ class AIMemoryManager:
             if isinstance(context, dict):
                 ai_player = context.get('ai_player')
                 controller = context.get('controller')
-                is_eliminated = context.get('is_eliminated', False)
+                is_eliminated = context.get('is_eliminated', False) and (
+                    player_name not in hand_participants
+                )
                 spectator_context = context.get('spectator_context')
             else:
                 ai_player = context

@@ -259,6 +259,7 @@ def create_human_tournament(
     register: bool = True,
     invite_repo=None,
     reserved_pids: Optional[list[str]] = None,
+    decoupled: bool = False,
 ) -> Optional[dict]:
     """Build a tournament the human plays IN — a real-persona field with the
     human in seat 0 — and charge their buy-in to the escrow.
@@ -266,6 +267,14 @@ def create_human_tournament(
     `reserved_pids` (the invite's draw-ranked field) seats the drawn personas
     first (the human always takes seat 0); `invite_repo` adds the open-invite
     reserve union to the exclusion scan. Both inert when None.
+
+    `decoupled` (default False — the byte-for-identical existing path) builds an
+    ISOLATED exhibition tournament: the session is flagged `decoupled` (persisted
+    into session_json), funding is skipped entirely (no buy-in/overlay/rake — the
+    economy row is stamped all-zero with `payout_status='skipped'`, so every
+    payout call-site early-returns and renown never fires), and the registry
+    record is tagged `decoupled` so the active-tournament guards exempt it. The
+    field is still real personas at baseline; results still count in career stats.
 
     Returns `{tournament_id, session, entries, plan, human_id}` or None if the
     sandbox can't field at least `MIN_FIELD` seats. Raises
@@ -320,7 +329,9 @@ def create_human_tournament(
         seed=seed,
     )
     resolver = FakeHandResolver()
-    session = TournamentSession(config, ai_resolver=resolver, human_id=human_id, entries=entries)
+    session = TournamentSession(
+        config, ai_resolver=resolver, human_id=human_id, entries=entries, decoupled=decoupled
+    )
 
     tournament_id = _new_id()
     created_at = datetime.utcnow().isoformat()
@@ -334,39 +345,58 @@ def create_human_tournament(
             created_at=created_at,
         )
 
-    # Fund: the human pays the buy-in; overlay added if the bank is flush.
-    # plan_funding + apply_buy_in share ONE economy snapshot under the lock.
-    plan = econ.plan_funding(
-        ledger_repo=ledger_repo,
-        sandbox_id=sandbox_id,
-        field_size=len(entries),
-        buy_in=buy_in,
-        human_in=True,
-    )
-    try:
-        econ.apply_buy_in(  # raises InsufficientFundsError if the human can't cover it
-            tournament_id=tournament_id,
-            owner_id=owner_id,
-            sandbox_id=sandbox_id,
-            plan=plan,
-            bankroll_repo=bankroll_repo,
-            ledger_repo=ledger_repo,
-            session_repo=session_repo,
-        )
-    except Exception:
-        # Affordability is checked before any chips move, so a raise here means
-        # nothing was debited — but the durable `tournaments` row was already
-        # written above. Delete it so a failed accept leaves NO orphan active
-        # tournament (which would otherwise block re-offer via offer()'s
-        # find_active guard and double up if the player retries). Then re-raise.
+    if decoupled:
+        # Exhibition: no funding at all. buy_in=0 ALONE is not enough — a flush
+        # bank would still draw a non-zero overlay through plan_funding — so we
+        # skip plan_funding/apply_buy_in entirely and stamp the economy row
+        # all-zero with payout_status='skipped'. Every payout call-site guards on
+        # status == 'pending' (and the renown grant lives in the payout block),
+        # so all of them become no-ops. `plan` is left None — no caller of the
+        # decoupled path reads it (the spawn route ignores it).
+        plan = None
         if session_repo is not None:
-            try:
-                session_repo.delete(tournament_id)
-            except Exception:  # noqa: BLE001 — cleanup is best-effort
-                logger.exception(
-                    "failed to clean up tournament row %s after buy-in failure", tournament_id
-                )
-        raise
+            session_repo.set_economy(
+                tournament_id,
+                buy_in=0,
+                rake=0,
+                bank_overlay=0,
+                prize_pool=0,
+                payout_status='skipped',
+            )
+    else:
+        # Fund: the human pays the buy-in; overlay added if the bank is flush.
+        # plan_funding + apply_buy_in share ONE economy snapshot under the lock.
+        plan = econ.plan_funding(
+            ledger_repo=ledger_repo,
+            sandbox_id=sandbox_id,
+            field_size=len(entries),
+            buy_in=buy_in,
+            human_in=True,
+        )
+        try:
+            econ.apply_buy_in(  # raises InsufficientFundsError if the human can't cover it
+                tournament_id=tournament_id,
+                owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                plan=plan,
+                bankroll_repo=bankroll_repo,
+                ledger_repo=ledger_repo,
+                session_repo=session_repo,
+            )
+        except Exception:
+            # Affordability is checked before any chips move, so a raise here means
+            # nothing was debited — but the durable `tournaments` row was already
+            # written above. Delete it so a failed accept leaves NO orphan active
+            # tournament (which would otherwise block re-offer via offer()'s
+            # find_active guard and double up if the player retries). Then re-raise.
+            if session_repo is not None:
+                try:
+                    session_repo.delete(tournament_id)
+                except Exception:  # noqa: BLE001 — cleanup is best-effort
+                    logger.exception(
+                        "failed to clean up tournament row %s after buy-in failure", tournament_id
+                    )
+            raise
 
     if register:
         try:
@@ -381,6 +411,7 @@ def create_human_tournament(
                     'resolver': resolver,
                     'resolver_kind': 'fake',
                     'game_id': None,
+                    'decoupled': decoupled,
                 },
             )
         except Exception:  # noqa: BLE001 — durable row already written; registry is the hot cache
