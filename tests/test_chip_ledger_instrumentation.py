@@ -297,7 +297,7 @@ class TestHouseStakeIssueLedger:
 
         chip_ledger.record_house_stake_issue(
             ledger_repo,
-            owner_id='alice',
+            game_id='cash-alice-1',
             amount=200,
             context={'archetype_id': 'shark_loan_500'},
         )
@@ -307,7 +307,10 @@ class TestHouseStakeIssueLedger:
         assert entries[0]['reason'] == 'house_stake_issue'
         assert entries[0]['amount'] == 200
         assert entries[0]['source'] == 'central_bank'
-        assert entries[0]['sink'] == 'player:alice'
+        # Principal lands on the borrower's SEAT, not their bankroll —
+        # sinking into player:<id> would inflate the ledger-derived
+        # bankroll (CHIP_CUSTODY_DERIVE_READS) by the stake amount.
+        assert entries[0]['sink'] == 'seat:cash-alice-1'
         assert entries[0]['context']['archetype_id'] == 'shark_loan_500'
 
     def test_personality_stakes_dont_route_through_helper(self, cash_routes_module):
