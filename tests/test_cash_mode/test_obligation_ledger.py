@@ -396,8 +396,8 @@ def _settle(br, lr, sr, pid, chips_at_leave):
 
 def test_clean_settle_zeroes_the_debt(settle_repos):
     br, lr, sr = settle_repos
-    _make_active_stake(sr, SID, principal=8000, cut=0.3)
-    record_stake_originate(lr, stake_id=SID, principal=8000, sandbox_id=SB)
+    # Fund the seat + originate (so this also holds under guard ENFORCEMENT).
+    _fund_and_originate(br, lr, sr, SID)
     assert lr.balance_of(L.oblig(SID), sandbox_id=SB) == 8000
     # Borrower won: leaves with 20000. Staker recovers full principal → debt 0.
     _settle(br, lr, sr, "the_borrower", chips_at_leave=20000)
@@ -406,8 +406,7 @@ def test_clean_settle_zeroes_the_debt(settle_repos):
 
 def test_loss_settle_carries_unrecovered_principal(settle_repos):
     br, lr, sr = settle_repos
-    _make_active_stake(sr, SID, principal=8000, cut=0.3)
-    record_stake_originate(lr, stake_id=SID, principal=8000, sandbox_id=SB)
+    _fund_and_originate(br, lr, sr, SID)
     # Borrower lost down to 3000: staker recovers 3000, 5000 unrecovered → carry.
     settlement = _settle(br, lr, sr, "the_borrower", chips_at_leave=3000)
     assert settlement is not None and settlement.carry_amount == 5000

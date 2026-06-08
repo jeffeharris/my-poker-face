@@ -3370,14 +3370,22 @@ def staker_forgive(stake_id: str):
         from flask_app.extensions import chip_ledger_repo as _clr_forgive
 
         if _clr_forgive is not None and _eflags_forgive.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
             from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
 
+            _forgive_sandbox = _resolve_sandbox_id(owner_id)
             apply_close_flows(
                 flows_on_forgive(stake_id, int(stake.carry_amount or 0)),
                 _clr_forgive,
                 stake_id,
-                sandbox_id=_resolve_sandbox_id(owner_id),
+                sandbox_id=_forgive_sandbox,
                 context={'stake_id': stake_id, 'site': 'staker_forgive'},
+            )
+            assert_stake_obligation_closed(
+                stake_id=stake_id,
+                expected_residual=0,
+                sandbox_id=_forgive_sandbox,
+                chip_ledger_repo=_clr_forgive,
             )
         _record_relationship_event(
             actor_id=owner_id,
@@ -4907,6 +4915,16 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 active_stake.stake_id,
                 sandbox_id=sandbox_id,
                 context={'game_id': game_id, 'site': 'leave_table'},
+            )
+            # P2: the debt must now equal its residual (0 clean/forgiven,
+            # carry_amount on a carry). Enforced in dev/sim; alarm-only in prod.
+            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+
+            assert_stake_obligation_closed(
+                stake_id=active_stake.stake_id,
+                expected_residual=int(stake_settlement.carry_amount),
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
             )
 
         for flow in flows:
