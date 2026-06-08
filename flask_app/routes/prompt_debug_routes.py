@@ -84,6 +84,8 @@ def list_captures():
         max_tilt_level=_float('max_tilt_level'),
         decision_quality=request.args.get('decision_quality'),
         min_ev_lost=_float('min_ev_lost'),
+        labels=[l for l in request.args.get('labels', '').split(',') if l.strip()],
+        label_match_all=request.args.get('label_match_all', 'false').lower() == 'true',
         limit=int(request.args.get('limit', 50)),
         offset=int(request.args.get('offset', 0)),
     )
