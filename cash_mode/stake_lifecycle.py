@@ -41,6 +41,113 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+class StakeConservationError(Exception):
+    """A stake's settle-time conservation invariant failed.
+
+    Raised by `assert_stake_funding_reached_borrower_seat` in enforce mode when
+    a stake is about to drain the borrower's seat to pay the staker but its
+    funding never credited that seat — so the drain would mint chips. The
+    wrong-seat funding bug (prod drift 2026-06-08) is exactly this shape.
+    """
+
+
+# Funding flows that legitimately credit the borrower's SEAT — the seat the
+# settlement later drains. `stake_fund` = staker → borrower seat (pure / aspire
+# / take_stake grubstake); `house_stake_issue` = central_bank → borrower seat;
+# `ai_buy_in` = a `match_share` borrower funding their own seat. Any OTHER seat
+# credited under a single stake_id is a misroute (the bug this guard catches).
+_FUNDING_SEAT_REASONS = frozenset({'stake_fund', 'house_stake_issue', 'ai_buy_in'})
+
+
+def assert_stake_funding_reached_borrower_seat(
+    *,
+    stake_id: str,
+    borrower_id: str,
+    principal: int,
+    sandbox_id: Optional[str],
+    chip_ledger_repo,
+    enforce: Optional[bool] = None,
+) -> bool:
+    """Settle-time conservation guard — the stake state machine's keystone
+    (invariant 3 of CASH_MODE_STAKE_STATE_MACHINE.md).
+
+    Before a stake drains the borrower's seat to pay the staker, prove the
+    stake's FUNDING actually credited that borrower seat. This is the single
+    check that catches the wrong-seat mint — where funding lands on the
+    staker's own seat (`seat:<staker>`) while settlement drains the borrower's
+    (`seat:<borrower>`) — and it is **path-agnostic**: it reads the ledger rows
+    tagged with this `stake_id`, so a misroute from ANY origination path
+    (aspiration, take_stake, human sponsor), present or future, is caught at
+    the one settlement chokepoint instead of silently minting.
+
+    Two checks, both derived from the stored `stake_id`-tagged ledger rows:
+      (a) every SEAT account this contract has touched is the borrower's seat —
+          a funding row crediting `seat:<staker>` trips this;
+      (b) the borrower's seat was funded for at least `principal` — a stake
+          about to drain a seat its funding never reached trips this.
+
+    Returns True when the invariant holds. On violation: raise
+    `StakeConservationError` when `enforce` (which defaults to
+    `economy_flags.STAKE_SETTLE_GUARD_ENFORCE`, read at call time), else
+    `logger.error` (Sentry) and return False so a prod caller can alarm and
+    proceed. A no-op returning True when custody is off / no ledger repo / no
+    sandbox — there are no tagged rows to assert against.
+    """
+    if chip_ledger_repo is None or sandbox_id is None:
+        return True
+    if enforce is None:
+        from cash_mode import economy_flags
+
+        enforce = economy_flags.STAKE_SETTLE_GUARD_ENFORCE
+
+    from core.economy.ledger import ai_seat
+
+    borrower_seat = ai_seat(sandbox_id, borrower_id)
+    try:
+        rows = chip_ledger_repo.entries_for_stake(stake_id, sandbox_id=sandbox_id)
+    except Exception as exc:
+        # A guard that can't read its own substrate must not block a settle —
+        # the funding fix is the primary protection; this is the backstop.
+        logger.warning(
+            "[STAKE GUARD] entries_for_stake(%r) failed — skipping check: %s",
+            stake_id,
+            exc,
+        )
+        return True
+
+    foreign_seats = set()
+    funded_to_borrower_seat = 0
+    for r in rows:
+        for acct in (r.get('source'), r.get('sink')):
+            if isinstance(acct, str) and acct.startswith('seat:') and acct != borrower_seat:
+                foreign_seats.add(acct)
+        if r.get('sink') == borrower_seat and r.get('reason') in _FUNDING_SEAT_REASONS:
+            funded_to_borrower_seat += int(r.get('amount') or 0)
+
+    problems = []
+    if foreign_seats:
+        problems.append(
+            f"flows touched non-borrower seat(s) {sorted(foreign_seats)} "
+            f"(borrower seat is {borrower_seat})"
+        )
+    if funded_to_borrower_seat < principal:
+        problems.append(
+            f"borrower seat funded {funded_to_borrower_seat} < principal {principal} "
+            "(the seat about to be drained was never funded by this stake)"
+        )
+    if not problems:
+        return True
+
+    msg = (
+        f"[STAKE GUARD] conservation violation: stake={stake_id} "
+        f"borrower={borrower_id} sandbox={sandbox_id}: " + "; ".join(problems)
+    )
+    if enforce:
+        raise StakeConservationError(msg)
+    logger.error(msg)
+    return False
+
+
 def fund_climb_stake(
     *,
     staker_id: str,

@@ -2642,6 +2642,25 @@ def settle_departed_ai_stake(
     )
     if active_stake is None:
         return None
+
+    # Conservation guard (stake state machine invariant 3): prove this stake's
+    # funding actually credited the BORROWER's seat before draining that seat to
+    # pay the staker. Path-agnostic — catches a wrong-seat misroute from ANY
+    # origination path (aspiration, take_stake, human sponsor). Enforce mode
+    # (dev/sim/tests) raises StakeConservationError; prod alarms + proceeds (the
+    # funding fix is the live protection, this is the structural backstop).
+    from cash_mode.stake_lifecycle import (
+        assert_stake_funding_reached_borrower_seat,
+    )
+
+    assert_stake_funding_reached_borrower_seat(
+        stake_id=active_stake.stake_id,
+        borrower_id=active_stake.borrower_id,
+        principal=active_stake.principal,
+        sandbox_id=sandbox_id,
+        chip_ledger_repo=chip_ledger_repo,
+    )
+
     settlement = settle_stake_on_leave(
         active_stake.stake_id,
         chips_at_leave,
@@ -2938,13 +2957,23 @@ def _apply_stake_creations(
     # (the borrower's chips moved from chips_at_bust → principal,
     # and the from_seat above credited the borrower's bankroll
     # with chips_at_bust). What remains:
-    #   - Debit the staker's bankroll by principal.
+    #   - Fund the stake: debit the staker's bankroll AND credit the
+    #     BORROWER's seat with the principal (the seat that settlement
+    #     drains). This MUST route through `fund_climb_stake` — the single
+    #     funding site the aspiration path uses — NOT
+    #     `debit_bankroll_for_seat(staker_id)`, which credits the STAKER's
+    #     OWN seat. Funding the wrong seat while settlement drains the
+    #     borrower's seat mints chips: PR #217 fixed this for the
+    #     aspiration path but left this take_stake path on the buggy call
+    #     (prod drift re-grew 2026-06-08 — see
+    #     docs/plans/CASH_MODE_STAKE_STATE_MACHINE.md).
     #   - Persist a Stake row (status=active, both kinds personality).
     #   - Fire STAKE_OFFERED so the staker's relationship axes
     #     toward the borrower reflect the new tie.
     #   - Emit EVENT_AI_STAKE on the lobby ticker (Commit 5).
     from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
-    from cash_mode.bankroll import debit_bankroll_for_seat
+    from cash_mode.stake_lifecycle import fund_climb_stake, unwind_climb_funding
+    from cash_mode.tables import open_slot
 
     if result.stake_creations:
         import uuid
@@ -2958,16 +2987,49 @@ def _apply_stake_creations(
         )
 
         for sc in result.stake_creations:
-            debit_bankroll_for_seat(
-                bankroll_repo,
-                sc.staker_id,
-                sc.principal,
-                sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo,
-                now=now,
-            )
+            # Fund the BORROWER's seat (climber_id=sc.borrower_id), never the
+            # staker's. `fund_climb_stake` debits the staker and records the
+            # principal landing on `seat:ai:<sb>:<borrower>` — the exact seat
+            # `_settle_table_stakes` later drains. It signals failure two ways
+            # (RAISES or returns None); BOTH must skip creation and revert the
+            # borrower's seat refill (movement baked it into new_table), or the
+            # unbacked chips mint. stake_id is generated up front so the funding
+            # ledger row can carry it.
+            stake_id = f"ai_stake_{uuid.uuid4().hex[:12]}"
+            try:
+                debited = fund_climb_stake(
+                    staker_id=sc.staker_id,
+                    climber_id=sc.borrower_id,
+                    principal=sc.principal,
+                    stake_id=stake_id,
+                    bankroll_repo=bankroll_repo,
+                    chip_ledger_repo=chip_ledger_repo,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] take_stake: staker funding raised "
+                    "staker=%r borrower=%r principal=%d: %s — reverting seat",
+                    sc.staker_id,
+                    sc.borrower_id,
+                    sc.principal,
+                    exc,
+                )
+                result.new_table.seats[sc.seat_index] = open_slot()
+                continue
+            if debited is None:
+                logger.warning(
+                    "[CASH][LOBBY] take_stake: staker funding refused "
+                    "staker=%r borrower=%r principal=%d — reverting seat",
+                    sc.staker_id,
+                    sc.borrower_id,
+                    sc.principal,
+                )
+                result.new_table.seats[sc.seat_index] = open_slot()
+                continue
             stake = Stake(
-                stake_id=f"ai_stake_{uuid.uuid4().hex[:12]}",
+                stake_id=stake_id,
                 session_id=f"ai_session_{sc.borrower_id}_{int(now.timestamp())}",
                 staker_id=sc.staker_id,
                 staker_kind=STAKER_KIND_PERSONALITY,
@@ -2984,7 +3046,31 @@ def _apply_stake_creations(
                 created_at=now,
             )
             if stake_repo is not None:
-                stake_repo.create_stake(stake)
+                try:
+                    stake_repo.create_stake(stake)
+                except Exception as exc:
+                    # Funded but the row write failed → unwind the funding
+                    # (refund staker + reverse the borrower-seat credit) and
+                    # revert the seat, else the borrower plays on minted chips.
+                    logger.warning(
+                        "[CASH][LOBBY] take_stake: create_stake failed "
+                        "staker=%r borrower=%r: %s — unwinding funding",
+                        sc.staker_id,
+                        sc.borrower_id,
+                        exc,
+                    )
+                    unwind_climb_funding(
+                        staker_id=sc.staker_id,
+                        climber_id=sc.borrower_id,
+                        principal=sc.principal,
+                        stake_id=stake_id,
+                        debited=debited,
+                        bankroll_repo=bankroll_repo,
+                        chip_ledger_repo=chip_ledger_repo,
+                        sandbox_id=sandbox_id,
+                    )
+                    result.new_table.seats[sc.seat_index] = open_slot()
+                    continue
             if relationship_repo is not None:
                 try:
                     from poker.memory import OpponentModelManager
