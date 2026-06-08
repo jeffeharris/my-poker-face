@@ -164,6 +164,21 @@ export function usePokerGame({
   // skip subsequent refreshes.
   const gameGoneRef = useRef(false);
 
+  // Stable refs for values the socket-lifecycle effect reads. The init effect
+  // (below) must re-run ONLY when the game_id changes — never on a parent
+  // re-render that hands down a fresh callback identity. Re-running it on an
+  // unstable dep used to open a SECOND socket without tearing down the first,
+  // leaving multiple live subscriptions to the same game_id all streaming into
+  // the one shared store (the "two hands flickering" bug). Reading these
+  // through refs keeps the effect's dep array down to [providedGameId].
+  const createSocketRef = useRef<((gId: string) => Socket) | null>(null);
+  const onGameCreatedRef = useRef<((gameId: string) => void) | undefined>(undefined);
+  const onGameLoadFailedRef = useRef<(() => void) | undefined>(undefined);
+  const playerNameRef = useRef<string | undefined>(playerName);
+  onGameCreatedRef.current = onGameCreated;
+  onGameLoadFailedRef.current = onGameLoadFailed;
+  playerNameRef.current = playerName;
+
   const clearWinnerInfo = useCallback(() => {
     setWinnerInfo(null);
     setRevealedCards(null);
@@ -627,7 +642,10 @@ export function usePokerGame({
 
         const currentPlayer = data.players[data.current_player_idx];
 
-        applyGameState(data);
+        // Authoritative cold-load snapshot: reset the store's frame-version
+        // baseline so post-restart/reconnect frames apply (and stale socket
+        // frames older than this snapshot are dropped). See gameStore.
+        applyGameState(data, true);
 
         if (!silent) {
           setLoading(false);
@@ -682,13 +700,22 @@ export function usePokerGame({
         const isReconnect = !isInitialConnectionRef.current;
         setIsConnected(true);
         socket.emit('join_game', gId);
-        // Use silent mode for reconnections to avoid loading flash
+        // Use silent mode for reconnections to avoid loading flash. This is the
+        // single canonical state fetch for both initial connect and reconnects —
+        // the init effect no longer double-fetches alongside it.
         const success = await refreshGameState(gId, isReconnect);
         if (success && isReconnect && socket.connected) {
           // After server restart, the first join_game may have been rejected
           // because the game wasn't in memory yet. The REST call above reloads
           // it from persistence, so re-join to ensure we're in the Socket.IO room.
           socket.emit('join_game', gId);
+        } else if (!success && !isReconnect && !gameGoneRef.current) {
+          // Initial load failed for a non-404 reason (a 404 already routed via
+          // handleGameGone → onGameLoadFailed). Hand control to the page-level
+          // callbacks, mirroring the previous explicit-fetch failure path.
+          logger.error('Failed to load game');
+          onGameCreatedRef.current?.('');
+          onGameLoadFailedRef.current?.();
         }
         isInitialConnectionRef.current = false;
       });
@@ -699,32 +726,30 @@ export function usePokerGame({
     },
     [refreshGameState, setupSocketListeners]
   );
+  // Keep ref in sync so the init effect can create the socket without taking
+  // createSocket as a dependency (which would re-run it and leak sockets).
+  createSocketRef.current = createSocket;
 
-  // Game initialization effect
+  // Game initialization effect.
+  //
+  // Keyed ONLY on providedGameId so it runs once per game: it opens exactly one
+  // socket and tears it down on cleanup (game_id change or unmount). All other
+  // values it touches are read through refs, so a parent re-render handing down
+  // a fresh callback identity no longer re-runs this effect and leaks a second
+  // socket. The socket's own `connect` handler owns the initial state fetch —
+  // there is no separate refreshGameState here (that used to double-fetch and
+  // race the connect-handler fetch into the shared store).
   useEffect(() => {
+    // Belt-and-suspenders: never leave a prior socket connected when (re)running.
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    isInitialConnectionRef.current = true;
+
     if (providedGameId) {
-      const loadGameId = providedGameId;
-      setGameId(loadGameId);
-
-      createSocket(loadGameId);
-
-      refreshGameState(loadGameId).then((success) => {
-        if (!success) {
-          logger.error('Failed to load game');
-          if (onGameCreated) {
-            onGameCreated('');
-          }
-          // 404s already fired onGameLoadFailed via handleGameGone.
-          // For other transient failures, hand control to the page-
-          // level callback; if none was provided, stay put — a
-          // location.reload() here used to create an infinite loop
-          // when the game was permanently gone (cash session after
-          // backend restart).
-          if (!gameGoneRef.current && onGameLoadFailed) {
-            onGameLoadFailed();
-          }
-        }
-      });
+      setGameId(providedGameId);
+      createSocketRef.current?.(providedGameId);
     } else {
       fetchWithCredentials(`${config.API_URL}/api/new-game`, {
         method: 'POST',
@@ -732,7 +757,7 @@ export function usePokerGame({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          playerName: playerName || 'Player',
+          playerName: playerNameRef.current || 'Player',
         }),
       })
         .then(async (res) => {
@@ -746,12 +771,10 @@ export function usePokerGame({
           const newGameId = data.game_id;
           setGameId(newGameId);
 
-          if (onGameCreated) {
-            onGameCreated(newGameId);
-          }
+          onGameCreatedRef.current?.(newGameId);
 
-          createSocket(newGameId);
-          return refreshGameState(newGameId);
+          // The connect handler does the initial fetch for this socket too.
+          createSocketRef.current?.(newGameId);
         })
         .catch((err) => {
           logger.error('Failed to create/fetch game:', err);
@@ -759,7 +782,15 @@ export function usePokerGame({
           setLoading(false);
         });
     }
-  }, [providedGameId, createSocket, refreshGameState, playerName, onGameCreated, onGameLoadFailed]);
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      resetSequencer();
+    };
+  }, [providedGameId, resetSequencer]);
 
   // Handle visibility changes (browser wake from sleep)
   useEffect(() => {

@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { config } from '../../config';
 import { tournamentApi } from './api';
+import { getTournamentOrigin } from '../../utils/tournamentOrigin';
 import { TournamentLobby } from './TournamentLobby';
 import { TournamentStandings } from './TournamentStandings';
 import type {
@@ -77,11 +78,13 @@ export function TournamentPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await tournamentApi.register(body);
+      const res = await tournamentApi.spawn(body);
       setTournamentId(res.tournament_id);
       await goToTable(res.tournament_id); // straight to the felt
     } catch {
-      setError('Could not register — you may already be in an event.');
+      setError(
+        'Could not start the Main Event — not enough players available, or you may already be in an event.'
+      );
       setBusy(false);
     }
   };
@@ -164,7 +167,7 @@ export function TournamentPage() {
         onReturnToTable={() => tournamentId && goToTable(tournamentId)}
         onWatch={handleWatch}
         onLeave={handleLeave}
-        onBack={() => navigate('/menu')}
+        onBack={() => navigate(getTournamentOrigin())}
       />
     );
   }
@@ -174,9 +177,9 @@ export function TournamentPage() {
       <button
         className="tourney__back"
         style={{ position: 'fixed', top: 16, left: 16, zIndex: 5 }}
-        onClick={() => navigate('/menu')}
+        onClick={() => navigate(getTournamentOrigin())}
       >
-        ‹ Menu
+        ‹ Back
       </button>
       <TournamentLobby
         active={active}

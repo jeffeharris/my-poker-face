@@ -2511,10 +2511,11 @@ def sponsor_and_sit():
 
         chip_ledger.record_house_stake_issue(
             chip_ledger_repo,
-            owner_id=owner_id,
+            game_id=game_id,
             amount=offer_amount,
             context={
                 'game_id': game_id,
+                'owner_id': owner_id,
                 'stake_label': stake_label,
                 'archetype_id': archetype_id,
                 'offer_floor': offer_floor,
@@ -5073,10 +5074,11 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 # inside settle_stake_on_leave above).
                 chip_ledger.record_house_stake_settle(
                     chip_ledger_repo,
-                    owner_id=stake_settlement.borrower_id,
+                    game_id=game_id,
                     amount=flow.amount,
                     context={
                         'game_id': game_id,
+                        'owner_id': stake_settlement.borrower_id,
                         'stake_id': active_stake.stake_id,
                         'site': 'leave_table',
                         'sandbox_id': sandbox_id,

@@ -16,6 +16,7 @@ from .prompt_debug_routes import prompt_debug_bp
 from .prompt_preset_routes import prompt_preset_bp
 from .range_explorer_routes import range_explorer_bp
 from .replay_experiment_routes import replay_experiment_bp
+from .sentry_relay_routes import sentry_relay_bp
 from .stats_routes import stats_bp
 from .tournament_routes import tournament_bp
 from .training_routes import training_bp
@@ -35,6 +36,7 @@ __all__ = [
     'range_explorer_bp',
     'capture_label_bp',
     'replay_experiment_bp',
+    'sentry_relay_bp',
     'user_bp',
     'coach_bp',
     'cash_bp',

@@ -53,12 +53,20 @@ services:
       # PRH-32: finite retention for api_usage cost rows (aggregates are kept
       # via the rollup; raw rows past this are purged on a schedule).
       - API_USAGE_RETENTION_DAYS=${API_USAGE_RETENTION_DAYS:-90}
+      # Sentry backend error monitoring. Empty => Sentry init is a no-op.
+      - SENTRY_DSN=${SENTRY_DSN:-}
       # PRH-30: per-decision equity Monte Carlo iterations (analytics only, not
       # the bot's actual decision). Lower than the 2000 default to raise the
       # single-worker concurrent-hands ceiling; override via host env.
       # Scaling Stage 0: 500 -> 250 to halve the per-decision CPU burst (still
       # analytics-only; no gameplay impact).
       - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
+      # WebSocket transport: gevent is the standards-aligned async_mode under the
+      # gevent-websocket gunicorn worker. Prod evidence (2026-06-08) showed
+      # threading produced a 1002 protocol error + clients stuck on long-polling
+      # (0 ws upgrades); under gevent a sid handshake completes 101 Switching
+      # Protocols cleanly. Overrides the threading default in flask_app/config.py.
+      - SOCKETIO_ASYNC_MODE=${SOCKETIO_ASYNC_MODE:-gevent}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com
@@ -76,31 +84,18 @@ services:
       # signals. Slack-compatible webhook (Discord works via the /slack suffix).
       # Unset = log-only (no-op handler).
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
-      # ─── Launch activation: cash-economy / circuit feature flags ───
-      # All default OFF in code; armed here for prod launch (dev parity).
-      # The circuit (cash lobby + Main Event) requires these. Genesis is lazy:
-      # the economy self-seeds on first cash-lobby access (GENESIS_RESERVE_ENABLED
-      # → ensure_genesis_reserve_seeded mints reserve to GENESIS_RESERVE_RATIO of
-      # holdings, once, at fresh-sandbox birth). See docs/plans/PROD_STARTING_CONDITIONS.md.
-      - TOURNAMENT_CIRCUIT_ENABLED=${TOURNAMENT_CIRCUIT_ENABLED:-1}
-      - TOURNAMENT_DRAW_ENABLED=${TOURNAMENT_DRAW_ENABLED:-1}
-      - CHIP_CUSTODY_ENABLED=${CHIP_CUSTODY_ENABLED:-1}
-      - CHIP_CUSTODY_DERIVE_READS=${CHIP_CUSTODY_DERIVE_READS:-1}
-      # PRESENCE_AUTHORITY_ENABLED retired (schema v152): entity_presence is the
-      # permanent authority, hardwired in cash_mode/economy_flags.py.
-      # Renown-v2 field-relative scoreboard. RENOWN_V2_PERSIST_AI implies
-      # RENOWN_V2_ENABLED; PRESTIGE_SEEKING_ENABLED implies PERSIST_AI (it reads
-      # the persisted per-AI renown), so all three must be on together — matches dev.
-      - RENOWN_V2_ENABLED=${RENOWN_V2_ENABLED:-1}
-      - RENOWN_V2_PERSIST_AI=${RENOWN_V2_PERSIST_AI:-1}
-      - PRESTIGE_SEEKING_ENABLED=${PRESTIGE_SEEKING_ENABLED:-1}
-      # Director economy thermostat (genesis seed + reserve-gated levers).
-      - GENESIS_RESERVE_ENABLED=${GENESIS_RESERVE_ENABLED:-1}
+      # ─── Cash-economy / circuit feature flags ───
+      # Now resolved by the central registry (core/feature_flags.py) with per-env
+      # defaults. On prod (FLASK_ENV=production → env=prod) the launch set resolves
+      # ON automatically and no longer needs arming here: TOURNAMENT_CIRCUIT/DRAW,
+      # CHIP_CUSTODY_ENABLED/DERIVE_READS, RENOWN_V2_ENABLED/PERSIST_AI,
+      # PRESTIGE_SEEKING, and the Director thermostat (GENESIS_RESERVE_ENABLED,
+      # RAKE_RESERVE_GATED, DIRECTOR_POLICY_HOLD, VICE_RESERVE_GATED,
+      # CASINO_RESEED_ON_SPENT). Verify with `scripts/flags.py status --env prod`;
+      # see docs/guides/FEATURE_FLAGS.md. To override one ad hoc, re-add its env line.
+      #
+      # GENESIS_RESERVE_RATIO is a numeric tunable (not a boolean flag), so it stays.
       - GENESIS_RESERVE_RATIO=${GENESIS_RESERVE_RATIO:-0.05}
-      - RAKE_RESERVE_GATED=${RAKE_RESERVE_GATED:-1}
-      - DIRECTOR_POLICY_HOLD=${DIRECTOR_POLICY_HOLD:-1}
-      - VICE_RESERVE_GATED=${VICE_RESERVE_GATED:-1}
-      - CASINO_RESEED_ON_SPENT=${CASINO_RESEED_ON_SPENT:-1}
     command: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
     depends_on:
       - redis

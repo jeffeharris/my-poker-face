@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { adminAPI } from '../../../utils/api';
 import { useAuth } from '../../../hooks/useAuth';
+import { useVisiblePolling } from '../../../hooks/useVisiblePolling';
 import type {
   AuditResponse,
   LedgerEntry,
@@ -12,7 +13,14 @@ import type {
   ActualTotals,
   ChipLedgerPanelProps,
 } from './types';
-import { fmt, signed, HISTORY_DAYS_OPTIONS, REFRESH_MS, ALL_SANDBOXES } from './ledgerUtils';
+import {
+  fmt,
+  signed,
+  HISTORY_DAYS_OPTIONS,
+  REFRESH_MS,
+  HISTORY_REFRESH_MS,
+  ALL_SANDBOXES,
+} from './ledgerUtils';
 import { HoldingsChart } from './HoldingsChart';
 import { HoldingsTable } from './HoldingsTable';
 import { BankPoolFlow } from './BankPoolFlow';
@@ -38,18 +46,22 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   const [lifecycle, setLifecycle] = useState<LifecycleResponse | null>(null);
   const [highlightedEntity, setHighlightedEntity] = useState<string | null>(null);
 
-  const fetchAll = useCallback(async () => {
+  // Core panels: audit drift, recent feed, holdings, lifecycle. These are the
+  // live-ish views that warrant frequent refresh. Deliberately excludes the
+  // holdings/history time-series — that reads ticker-written snapshots
+  // (~every 10 min), so it polls on its own slow cadence (fetchHistory below)
+  // instead of riding this loop and re-sending its large payload every minute.
+  const fetchCore = useCallback(async () => {
     setError(null);
     const scope = sandboxId ? `?sandbox_id=${encodeURIComponent(sandboxId)}` : '';
     // Same value as `scope` but as a trailing `&` param for URLs that already
-    // carry a query string (recent's `limit`, history's `days`).
+    // carry a query string (recent's `limit`).
     const scopeParam = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
     try {
-      const [auditResp, recentResp, holdingsResp, historyResp, lifecycleResp] = await Promise.all([
+      const [auditResp, recentResp, holdingsResp, lifecycleResp] = await Promise.all([
         adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
         adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${scopeParam}`),
         adminAPI.fetch(`/api/admin/chip-ledger/holdings${scope}`),
-        adminAPI.fetch(`/api/admin/chip-ledger/holdings/history?days=${historyDays}${scopeParam}`),
         adminAPI.fetch(`/api/admin/chip-ledger/lifecycle${scope}`),
       ]);
       if (!auditResp.ok) {
@@ -66,10 +78,6 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
         setHoldings(holdingsData.rows || []);
         setHoldingsScoped(Boolean(holdingsData.net_worth_scoped));
       }
-      if (historyResp.ok) {
-        const historyData: HoldingsHistoryResponse = await historyResp.json();
-        setHistory(historyData);
-      }
       if (lifecycleResp.ok) {
         const lifecycleData: LifecycleResponse = await lifecycleResp.json();
         setLifecycle(lifecycleData);
@@ -79,7 +87,32 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     } finally {
       setLoading(false);
     }
+  }, [sandboxId]);
+
+  // Holdings/history: heaviest payload, slowest-moving data. Fetched on its own
+  // 5-min cadence (HISTORY_REFRESH_MS) and immediately on sandbox/day change
+  // (this callback's identity changes, re-running its polling effect). Failures
+  // are best-effort — the core panels still render without the chart.
+  const fetchHistory = useCallback(async () => {
+    const scopeParam = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
+    try {
+      const resp = await adminAPI.fetch(
+        `/api/admin/chip-ledger/holdings/history?days=${historyDays}${scopeParam}`
+      );
+      if (resp.ok) {
+        const historyData: HoldingsHistoryResponse = await resp.json();
+        setHistory(historyData);
+      }
+    } catch {
+      // History chart is best-effort; leave the prior series in place.
+    }
   }, [sandboxId, historyDays]);
+
+  // Manual refresh button / retry: pull everything at once.
+  const refreshAll = useCallback(() => {
+    fetchCore();
+    fetchHistory();
+  }, [fetchCore, fetchHistory]);
 
   // Sandbox list is loaded once on mount — the set rarely changes
   // mid-session and refetching it on every audit refresh would be
@@ -114,11 +147,11 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     setSandboxId((prev) => (prev === target ? prev : target));
   }, [sandboxes, user]);
 
-  useEffect(() => {
-    fetchAll();
-    const interval = setInterval(fetchAll, REFRESH_MS);
-    return () => clearInterval(interval);
-  }, [fetchAll]);
+  // Poll on two cadences, both paused while the tab is hidden: the core panels
+  // every 60s, the heavy history chart every 5 min. Each fires immediately on
+  // mount and whenever its scope changes (the callbacks' identities change).
+  useVisiblePolling(fetchCore, REFRESH_MS);
+  useVisiblePolling(fetchHistory, HISTORY_REFRESH_MS);
 
   if (loading && !audit) {
     return (
@@ -132,7 +165,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     return (
       <div className={`chip-ledger-panel ${embedded ? 'embedded' : ''}`}>
         <p className="chip-ledger-error">Audit error: {error}</p>
-        <button onClick={fetchAll}>Retry</button>
+        <button onClick={refreshAll}>Retry</button>
       </div>
     );
   }
@@ -190,7 +223,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           world ticks: {audit.world_ticks == null ? '—' : audit.world_ticks.toLocaleString()}
         </span>
         <span className="chip-ledger-asof">as of {new Date(audit.as_of).toLocaleString()}</span>
-        <button className="chip-ledger-refresh" onClick={fetchAll}>
+        <button className="chip-ledger-refresh" onClick={refreshAll}>
           Refresh
         </button>
       </div>

@@ -15,6 +15,7 @@ import { CaptureView } from './CaptureView';
 import { ReplayEditor } from './ReplayEditor';
 import { InterrogationChat } from './InterrogationChat';
 import { PipelineTracePanel } from './PipelineTracePanel';
+import { DecisionLabelsEditor } from './DecisionLabelsEditor';
 
 interface CaptureDetailPanelProps {
   // 'desktop' renders the detail-header (player + phase); 'mobile' omits it
@@ -26,6 +27,14 @@ interface CaptureDetailPanelProps {
   mode: DebugMode;
   onModeChange: (mode: DebugMode) => void;
   onSelectCapture: (captureId: number) => void;
+
+  // Labels for the selected decision (from the list row) + a callback so edits
+  // sync back to the list pills and filter counts.
+  decisionLabels?: Array<{ label: string; label_type: string; created_at?: string }>;
+  onLabelsChanged?: (
+    decisionId: number,
+    labels: Array<{ label: string; label_type: string; created_at?: string }>
+  ) => void;
 
   // Replay editor state (forwarded to <ReplayEditor>)
   modifiedSystemPrompt: string;
@@ -97,6 +106,8 @@ export function CaptureDetailPanel({
   mode,
   onModeChange,
   onSelectCapture,
+  decisionLabels,
+  onLabelsChanged,
   modifiedSystemPrompt,
   onSystemPromptChange,
   modifiedUserMessage,
@@ -200,6 +211,15 @@ export function CaptureDetailPanel({
           <span>{ctx.player_stack != null ? `$${ctx.player_stack}` : '-'}</span>
         </div>
       </div>
+
+      {/* Labels — taggable for every player type (keyed on the decision row) */}
+      {analysis && (
+        <DecisionLabelsEditor
+          decisionId={analysis.id}
+          initialLabels={decisionLabels}
+          onLabelsChanged={(labels) => onLabelsChanged?.(analysis.id, labels)}
+        />
+      )}
 
       {/* Error/Correction Info */}
       {capture && (capture.error_type || capture.parent_id) && (

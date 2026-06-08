@@ -4,9 +4,12 @@ Hand History Recording System.
 Records complete hand data for analysis, learning, and memory.
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -398,6 +401,23 @@ class HandHistoryRecorder:
                 amount=amount,
                 phase=phase,
                 pot_after=pot_total,
+            )
+        else:
+            # No hand is being recorded — the action is lost. This is the
+            # mechanism behind EXP_008's "garbage recap" (e.g. a $2530 tourney
+            # pot stored with 1 action): actions arriving while current_hand is
+            # None vanish silently, leaving the AI commentary/recap an empty,
+            # confusing hand. Surface it loudly so the boundary/ordering bug
+            # (on_hand_start not yet called, or complete_hand called early) is
+            # observable instead of producing a silently-broken recap.
+            logger.warning(
+                "HandHistoryRecorder: dropped action (no current_hand) — "
+                "player=%s action=%s phase=%s pot_after=%s. Recap will be "
+                "incomplete; on_hand_start likely not called for this hand yet.",
+                player_name,
+                action,
+                phase,
+                pot_total,
             )
 
     def record_community_cards(self, phase: str, cards: List[str]) -> None:

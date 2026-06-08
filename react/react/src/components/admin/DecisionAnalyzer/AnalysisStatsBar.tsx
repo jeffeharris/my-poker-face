@@ -1,23 +1,14 @@
-import type { CaptureStats, CaptureFilters, DecisionAnalysisStats, LabelStats } from './types';
-import { formatLabelName, getLabelSeverity } from './utils';
+import type { CaptureStats, DecisionAnalysisStats } from './types';
 
 interface AnalysisStatsBarProps {
   analysisStats: DecisionAnalysisStats;
   stats: CaptureStats | null;
-  labelStats: LabelStats | null;
-  filters: CaptureFilters;
-  onToggleLabel: (label: string) => void;
 }
 
-// Decision-analysis summary stats: totals, correctness, EV, equity, selected
-// action counts, and clickable label-filter chips.
-export function AnalysisStatsBar({
-  analysisStats,
-  stats,
-  labelStats,
-  filters,
-  onToggleLabel,
-}: AnalysisStatsBarProps) {
+// Decision-analysis summary stats: totals, correctness, EV, equity, and
+// selected action counts. (Label filtering lives in the filter controls, not
+// here.)
+export function AnalysisStatsBar({ analysisStats, stats }: AnalysisStatsBarProps) {
   return (
     <div className="debugger-stats analysis-stats">
       <div className="stat-item">
@@ -69,24 +60,6 @@ export function AnalysisStatsBar({
             <span className="stat-value">{stats.by_action.raise || 0}</span>
             <span className="stat-label">Raise</span>
           </div>
-        </div>
-      )}
-      {/* Label stats row - clickable chips */}
-      {labelStats && Object.keys(labelStats).length > 0 && (
-        <div className="stat-row label-stats-row">
-          {Object.entries(labelStats)
-            .filter(([, count]) => count > 0)
-            .map(([label, count]) => (
-              <button
-                key={label}
-                className={`label-chip label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
-                onClick={() => onToggleLabel(label)}
-                type="button"
-              >
-                <span className="label-chip__count">{count}</span>
-                <span className="label-chip__name">{formatLabelName(label)}</span>
-              </button>
-            ))}
         </div>
       )}
     </div>

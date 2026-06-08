@@ -81,7 +81,7 @@ export function CharacterCardPreview() {
       <div style={{ maxWidth: 720, width: '100%', textAlign: 'center', color: '#e8d8b0' }}>
         <h1
           style={{
-            fontFamily: '"Bodoni Moda", serif',
+            fontFamily: '"Bodoni Moda Variable", serif',
             fontWeight: 900,
             fontSize: 'clamp(36px, 6vw, 64px)',
             letterSpacing: '-0.02em',
@@ -92,7 +92,7 @@ export function CharacterCardPreview() {
         </h1>
         <p
           style={{
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: '"JetBrains Mono Variable", monospace',
             fontSize: 12,
             letterSpacing: '0.32em',
             color: '#b08433',
@@ -124,7 +124,7 @@ export function CharacterCardPreview() {
                 background: 'rgba(236, 225, 200, 0.06)',
                 border: '1px solid rgba(176, 132, 51, 0.5)',
                 color: '#ece1c8',
-                fontFamily: '"Fraunces", serif',
+                fontFamily: '"Fraunces Variable", serif',
                 fontSize: 18,
                 cursor: 'pointer',
                 transition: 'background 0.2s ease',

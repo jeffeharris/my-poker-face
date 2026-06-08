@@ -3,8 +3,6 @@
    JetBrains Mono for technical metadata, restrained dark palette with one
    warm amber accent that nods to the winner-card gold. */
 
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 .ws {
   --bg: #0c0c10;
   --bg-grid: rgba(255, 255, 255, 0.02);
@@ -19,8 +17,8 @@
   --accent-dim: rgba(212, 165, 116, 0.16);
   --hairline: rgba(244, 244, 246, 0.06);
 
-  --font-display: 'Fraunces', Georgia, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Fraunces Variable', Georgia, serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
   --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
   min-height: 100vh;

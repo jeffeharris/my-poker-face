@@ -88,7 +88,7 @@
   flex-direction: column;
   padding: 4px;
   box-sizing: border-box;
-  font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'JetBrains Mono Variable', 'Fira Code', monospace;
   position: relative;
 
   /* Subtle CRT curvature */

@@ -85,6 +85,7 @@ class CallType(str, Enum):
     IMAGE_DESCRIPTION = "image_description"
     CATEGORIZATION = "categorization"
     NARRATION_CLEANUP = "narration_cleanup"
+    JOURNEY_NARRATION = "journey_narration"  # Circuit-story session/arc narration (Assistant tier)
     VICE_NARRATION = "vice_narration"
     SIDE_HUSTLE_NARRATION = "side_hustle_narration"
     DEBUG_REPLAY = "debug_replay"

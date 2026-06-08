@@ -29,16 +29,13 @@ services:
       - IMAGE_MODEL=${IMAGE_MODEL:-}
       - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY:-}
       - RUNWARE_API_KEY=${RUNWARE_API_KEY:-}
-      # Presence cutover COMPLETE: entity_presence is the permanent authority
-      # (hardwired in cash_mode/economy_flags.py, no env override). The legacy
-      # PRESENCE_SHADOW_WRITE_ENABLED / PRESENCE_AUTHORITY_ENABLED env toggles
-      # were retired with the cash_idle_pool cache (schema v152).
-      # Chip-custody (the Presence twin): record ai<->seat ledger transfers so AI
-      # bankroll is ledger-derivable (default OFF). Conservation-neutral — only
-      # adds ledger rows. Enable on dev after running scripts/backfill_chip_custody.py
-      # so existing balances reconcile; validate via scripts/validate_chip_custody.py.
-      # Prod uses docker-compose.prod.yml.
-      - CHIP_CUSTODY_ENABLED=${CHIP_CUSTODY_ENABLED:-0}
+      # Cash-economy / circuit feature flags now come from the central registry
+      # (core/feature_flags.py) with per-env defaults — they no longer need to be
+      # set here or in .env. The dev defaults (CHIP_CUSTODY_*, RENOWN_V2_*,
+      # PRESTIGE_SEEKING, TOURNAMENT_*) resolve ON for env=dev; the Director
+      # thermostat (GENESIS/RAKE_RESERVE/DIRECTOR_POLICY/VICE_RESERVE/CASINO_RESEED)
+      # resolves OFF in dev / ON in prod. Override any one ad hoc by setting its
+      # env var. See docs/guides/FEATURE_FLAGS.md; check with `scripts/flags.py status`.
       # Redirect tool caches OUT of the bind-mounted repo. The per-worktree
       # docker-compose.override.yml mounts `.:/app`, and `make test` runs
       # pytest/ruff in-container as root — which otherwise leaves root-owned
@@ -77,6 +74,8 @@ services:
       - VITE_BACKEND_PORT=${BACKEND_PORT:-5000}
       - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
       - VITE_ENABLE_AI_DEBUG=${ENABLE_AI_DEBUG:-false}
+      # Sentry (session replay + bug-report widget). Empty => Sentry stays off.
+      - VITE_SENTRY_DSN=${VITE_SENTRY_DSN:-}
     depends_on:
       - backend
     command: sh -c "rm -rf node_modules/.vite* && npm run dev -- --host 0.0.0.0"
@@ -122,9 +121,12 @@ volumes:
 networks:
   poker-network:
     driver: bridge
-    # Pin a dedicated subnet so this worktree's network doesn't collide with the
-    # other my-poker-face worktrees (desktop .45 / main .46 / circuit .47) when
-    # Docker's default address pool is exhausted. See the desktop-parity fix.
+    # Pin a dedicated subnet so this checkout's network doesn't collide with the
+    # other my-poker-face worktrees when Docker's default address pool is
+    # exhausted. This committed value is the MAIN checkout's slot (.46); every
+    # other worktree pins its own distinct /24 via a gitignored
+    # docker-compose.override.yml (in use: circuit .47 / narrative-beats .48 /
+    # user-feedback .49). Keep each worktree's override unique.
     ipam:
       config:
-        - subnet: 10.123.48.0/24
+        - subnet: 10.123.46.0/24

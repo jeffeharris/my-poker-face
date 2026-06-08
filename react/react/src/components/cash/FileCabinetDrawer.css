@@ -8,8 +8,6 @@
  * index and the files it opens read as one artifact.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,700;0,6..96,900;1,6..96,400&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
-
 .archive-overlay {
   --paper: #ece1c8;
   --paper-hi: #f5ecd5;
@@ -36,7 +34,7 @@
   background:
     radial-gradient(ellipse at center, rgba(20, 16, 12, 0.6) 0%, rgba(6, 4, 2, 0.94) 70%),
     linear-gradient(135deg, #0c0805 0%, #1a120a 100%);
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   cursor: pointer;
   isolation: isolate;
   animation: archive-fade 0.25s ease-out;
@@ -130,7 +128,7 @@
   background: var(--ink);
   color: var(--paper-hi);
   cursor: pointer;
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-size: 24px;
   line-height: 1;
   font-weight: 700;
@@ -170,7 +168,7 @@
 }
 .archive__stamp-inner {
   display: block;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.16em;
@@ -178,7 +176,7 @@
 }
 .archive__stamp-sub {
   display: block;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 8px;
   margin-top: 3px;
   letter-spacing: 0.3em;
@@ -197,7 +195,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-family: 'JetBrains Mono Variable', 'Courier New', monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.28em;
@@ -217,7 +215,7 @@
 }
 .archive__title {
   margin: 10px 0 6px;
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-weight: 900;
   font-size: clamp(26px, 6vw, 36px);
   line-height: 0.98;
@@ -225,7 +223,7 @@
   color: var(--ink);
 }
 .archive__census {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -253,7 +251,7 @@
   flex-wrap: wrap;
 }
 .archive__index-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.3em;
@@ -265,7 +263,7 @@
   gap: 4px;
 }
 .archive__index-tab {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 10px;
   letter-spacing: 0.06em;
   padding: 3px 9px 4px;
@@ -370,14 +368,14 @@
   gap: 8px;
 }
 .folder__no {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.12em;
   color: var(--ink-faint);
 }
 .folder__rival {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -388,7 +386,7 @@
 }
 .folder__pnl {
   margin-left: auto;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -404,7 +402,7 @@
 }
 
 .folder__name {
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-weight: 700;
   font-size: 19px;
   line-height: 1.1;
@@ -419,7 +417,7 @@
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 9px;
   letter-spacing: 0.08em;
 }
@@ -465,7 +463,7 @@
 }
 .archive__empty-stamp {
   display: inline-block;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-weight: 700;
   font-size: 18px;
   letter-spacing: 0.2em;
@@ -479,7 +477,7 @@
 .archive__empty p {
   margin: 0 auto;
   max-width: 30ch;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: 14px;
   line-height: 1.5;
@@ -515,7 +513,7 @@
   border: none;
   background: transparent;
   outline: none;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--ink);
@@ -530,7 +528,7 @@
   border: none;
   background: none;
   cursor: pointer;
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-size: 18px;
   line-height: 1;
   color: var(--ink-faint);
@@ -543,7 +541,7 @@
 .archive__no-match {
   text-align: center;
   padding: 1.6rem 1rem;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: 14px;
   color: var(--ink-soft);
@@ -580,7 +578,7 @@
   border-radius: 5px 5px 0 0;
   margin-bottom: -1px;
   background: transparent;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -629,7 +627,7 @@
   gap: 9px;
   padding: 7px 2px;
   border-bottom: 1px dashed rgba(120, 95, 60, 0.22);
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-size: 14px;
   color: var(--ink-soft);
 }
@@ -706,13 +704,13 @@
   gap: 8px;
 }
 .intel-field__name {
-  font-family: 'Bodoni Moda', serif;
+  font-family: 'Bodoni Moda Variable', serif;
   font-weight: 700;
   font-size: 17px;
   color: var(--ink);
 }
 .intel-field__tag {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -722,7 +720,7 @@
 }
 .intel-field__pnl {
   margin-left: auto;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono Variable', monospace;
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -738,7 +736,7 @@
 }
 .intel-field__detail {
   margin-top: 2px;
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: 'Fraunces Variable', Georgia, serif;
   font-style: italic;
   font-size: 13px;
   color: var(--ink-soft);

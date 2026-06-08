@@ -87,6 +87,27 @@ export function CaptureFilters({
             }}
             onApply={() => onFilterSheetOpenChange(false)}
           >
+            {/* Labels first — the primary way to find flagged decisions on mobile */}
+            {labelStats && Object.keys(labelStats).length > 0 && (
+              <FilterGroup label="Labels / Flags">
+                <div className="debugger-filter-chips">
+                  {Object.entries(labelStats)
+                    .filter(([, count]) => count > 0)
+                    .map(([label, count]) => (
+                      <button
+                        key={label}
+                        className={`label-chip label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
+                        onClick={() => onToggleLabel(label)}
+                        type="button"
+                      >
+                        <span className="label-chip__count">{count}</span>
+                        <span className="label-chip__name">{formatLabelName(label)}</span>
+                      </button>
+                    ))}
+                </div>
+              </FilterGroup>
+            )}
+
             <FilterGroup label="Player">
               <select
                 className="mobile-filter-sheet__select"
@@ -265,27 +286,6 @@ export function CaptureFilters({
                 step={0.1}
               />
             </FilterGroup>
-
-            {/* Label filter chips */}
-            {labelStats && Object.keys(labelStats).length > 0 && (
-              <FilterGroup label="Labels">
-                <div className="debugger-filter-chips">
-                  {Object.entries(labelStats)
-                    .filter(([, count]) => count > 0)
-                    .map(([label, count]) => (
-                      <button
-                        key={label}
-                        className={`label-chip label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
-                        onClick={() => onToggleLabel(label)}
-                        type="button"
-                      >
-                        <span className="label-chip__count">{count}</span>
-                        <span className="label-chip__name">{formatLabelName(label)}</span>
-                      </button>
-                    ))}
-                </div>
-              </FilterGroup>
-            )}
           </FilterSheetContent>
         </MobileFilterSheet>
       </>

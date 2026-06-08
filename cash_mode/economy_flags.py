@@ -55,19 +55,9 @@ import logging
 import os
 from typing import Optional
 
+from core.feature_flags import is_enabled as _flag
+
 logger = logging.getLogger(__name__)
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    """Read a boolean toggle from the environment, falling back to `default`.
-
-    Lets an operator opt a flag on/off per-deployment (e.g. enable the Presence
-    shadow on dev without flipping the committed default — which would also flip
-    production on the next deploy). Truthy: 1/true/yes/on (case-insensitive)."""
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 # --- Faucet ---------------------------------------------------------------
@@ -75,11 +65,30 @@ def _env_flag(name: str, default: bool) -> bool:
 # Passive regen retired per CASH_MODE_SIDE_HUSTLE.md — the active side
 # hustle is the replacement faucet. Flip back to True only to A/B the old
 # passive-accrual behaviour; production runs with it off.
-REGEN_ENABLED: bool = False
+REGEN_ENABLED: bool = _flag("REGEN_ENABLED")
 
 # The active faucet: broke AIs earn a pool-funded lump via an off-grid
 # side hustle (`cash_mode/ai_side_hustle.py`), gated at the lobby refresh.
-SIDE_HUSTLE_ENABLED: bool = True
+SIDE_HUSTLE_ENABLED: bool = _flag("SIDE_HUSTLE_ENABLED")
+
+
+# --- Stake conservation guard ---------------------------------------------
+#
+# The stake state machine's settle-time guard (invariant 3 of
+# CASH_MODE_STAKE_STATE_MACHINE.md): before a stake pays its staker out of the
+# borrower's seat, verify the stake's FUNDING actually credited that borrower
+# seat — not the staker's own seat (the wrong-seat mint bug behind the
+# 2026-06-08 prod drift). When a violation is detected at settle:
+#   - True  → raise StakeConservationError. dev / sim / tests fail loud so a
+#             misrouted-funding regression can never ship silently.
+#   - False → logger.error (Sentry) + proceed. Production is alarm-only per the
+#             doc's staged rollout, so legacy / edge violations are observed
+#             without wedging a live player's table-leave.
+# Default False (alarm-only) keeps prod safe; the sim harness + tests flip it
+# on. The funding fixes (aspiration PR #217 + take_stake) already stop NEW
+# violations — this guard is the structural backstop that makes any future
+# origination path funding the wrong seat impossible to mint through unnoticed.
+STAKE_SETTLE_GUARD_ENFORCE: bool = os.environ.get('STAKE_SETTLE_GUARD_ENFORCE', '0').strip() == '1'
 
 
 # --- Vice mode (mutually-exclusive 3-state toggle) ------------------------
@@ -153,7 +162,7 @@ FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry
 #
 # Default OFF — flip only after sim-validating the cadence alongside the rest
 # of the Director thermostat. See docs/plans/PROD_STARTING_CONDITIONS.md §1.5.
-VICE_RESERVE_GATED: bool = _env_flag("VICE_RESERVE_GATED", False)
+VICE_RESERVE_GATED: bool = _flag("VICE_RESERVE_GATED")
 
 
 # --- Genesis reserve seed (fresh-sandbox bank pool) ------------------------
@@ -169,7 +178,7 @@ VICE_RESERVE_GATED: bool = _env_flag("VICE_RESERVE_GATED", False)
 # opening day. 0.05 lands just below RESERVE_HEALTHY (0.06) — the sim validates
 # whether to boot in the low or healthy band. Default OFF; needs a prod genesis
 # path + sim. See docs/plans/PROD_STARTING_CONDITIONS.md §1.1.
-GENESIS_RESERVE_ENABLED: bool = _env_flag("GENESIS_RESERVE_ENABLED", False)
+GENESIS_RESERVE_ENABLED: bool = _flag("GENESIS_RESERVE_ENABLED")
 GENESIS_RESERVE_RATIO: float = 0.05  # seed reserve = this × holdings, once at birth
 
 
@@ -187,8 +196,8 @@ def lever_field_mode() -> bool:
 
 # --- Sink (table rake) ----------------------------------------------------
 
-RAKE_ENABLED: bool = True
-RAKE_PLAYER_TABLES: bool = True
+RAKE_ENABLED: bool = _flag("RAKE_ENABLED")
+RAKE_PLAYER_TABLES: bool = _flag("RAKE_PLAYER_TABLES")
 RAKE_RATE: float = 0.02
 RAKE_CAP_BB: int = 4
 
@@ -207,7 +216,7 @@ RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
 # never switched off — only the extra refill layers are reserve-gated. Default
 # OFF; flip with the rest of the Director thermostat after sim. See
 # docs/plans/PROD_STARTING_CONDITIONS.md §1.4.
-RAKE_RESERVE_GATED: bool = _env_flag("RAKE_RESERVE_GATED", False)
+RAKE_RESERVE_GATED: bool = _flag("RAKE_RESERVE_GATED")
 
 # Director instrument choice (inequality-aware rake). Vice drains the rich
 # (concentration-gated) and so leads the refill on a TOP-HEAVY field; when the
@@ -217,7 +226,7 @@ RAKE_RESERVE_GATED: bool = _env_flag("RAKE_RESERVE_GATED", False)
 # inequality read is recomputed at most once per INEQUALITY_RECOMPUTE_SECONDS
 # (`cash_mode.field_inequality`) — the Director steers slowly, not every tick.
 # Implies RAKE_RESERVE_GATED. Default OFF. See PROD_STARTING_CONDITIONS.md §1.2.
-DIRECTOR_INEQUALITY_RAKE: bool = _env_flag("DIRECTOR_INEQUALITY_RAKE", False)
+DIRECTOR_INEQUALITY_RAKE: bool = _flag("DIRECTOR_INEQUALITY_RAKE")
 INEQUALITY_FLAT_THRESHOLD: float = 2.5  # p90/median at/below this → flat field
 INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per sandbox
 
@@ -233,7 +242,7 @@ INEQUALITY_RECOMPUTE_SECONDS: int = 300  # steer slowly: recompute cadence per s
 # window-stable. Implies RAKE_RESERVE_GATED (it holds that schedule). Default
 # OFF — flip with the rest of the thermostat after sim. See
 # docs/plans/PROD_STARTING_CONDITIONS.md §1.4.
-DIRECTOR_POLICY_HOLD: bool = _env_flag("DIRECTOR_POLICY_HOLD", False)
+DIRECTOR_POLICY_HOLD: bool = _flag("DIRECTOR_POLICY_HOLD")
 POLICY_WINDOW_SECONDS: int = 300  # rake schedule held this long between recomputes
 
 # Casino/whale pool thresholds relative to holdings. The spawn/close/whale gates
@@ -242,7 +251,7 @@ POLICY_WINDOW_SECONDS: int = 300  # rake schedule held this long between recompu
 # FRACTIONS of holdings instead (calibrated to ~the absolute values at the launch
 # ~$2.64M holdings), so casinos open/close at the same relative bank depth at any
 # economy size. Default OFF — sim-validate with the rest of the thermostat.
-CASINO_RELATIVE_THRESHOLDS: bool = _env_flag("CASINO_RELATIVE_THRESHOLDS", False)
+CASINO_RELATIVE_THRESHOLDS: bool = _flag("CASINO_RELATIVE_THRESHOLDS")
 
 # Lean casino fish lifecycle. The casino is the pool→field drain (fish bring
 # pool-funded chips and bleed them to grinders). With 2 fish/casino at a 2.5–3.6×
@@ -252,7 +261,7 @@ CASINO_RELATIVE_THRESHOLDS: bool = _env_flag("CASINO_RELATIVE_THRESHOLDS", False
 # fish (two at $2), prefunded leaner, and reseed only when the current fish busts
 # — turning the step-function drain into a steady trickle (same net pool→field
 # flow over time, no crashes). Default OFF — sim-validate with the thermostat.
-CASINO_RESEED_ON_SPENT: bool = _env_flag("CASINO_RESEED_ON_SPENT", False)
+CASINO_RESEED_ON_SPENT: bool = _flag("CASINO_RESEED_ON_SPENT")
 
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
@@ -269,7 +278,7 @@ CASINO_RESEED_ON_SPENT: bool = _env_flag("CASINO_RESEED_ON_SPENT", False)
 # zero residual effect (the other prestige hooks — chat tone, backing gating,
 # table pull — are unaffected). See `_apply_reputation_demeanor` in
 # `flask_app/handlers/game_handler.py` and `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
-REPUTATION_DEMEANOR_ENABLED: bool = True
+REPUTATION_DEMEANOR_ENABLED: bool = _flag("REPUTATION_DEMEANOR_ENABLED")
 
 # Number of open seats the live-world greedy fill leaves untouched on
 # each table, so a human browsing the lobby always has a seat to sit/
@@ -296,7 +305,7 @@ LIVE_FILL_HUMAN_HEADROOM: int = 1
 # (zero residual effect — the gate is a pure read-time transform). See
 # `flask_app/services/dossier_scouting.py` and
 # `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
-DOSSIER_SCOUTING_GATE_ENABLED: bool = True
+DOSSIER_SCOUTING_GATE_ENABLED: bool = _flag("DOSSIER_SCOUTING_GATE_ENABLED")
 
 
 # --- Presence machine (the authoritative actor-location store) -----------
@@ -311,7 +320,7 @@ DOSSIER_SCOUTING_GATE_ENABLED: bool = True
 # fresh DB no longer has `cash_idle_pool` to fall back to). Code still reads it
 # (`if PRESENCE_AUTHORITY_ENABLED:`) at the call sites; those branches are now
 # always taken.
-PRESENCE_AUTHORITY_ENABLED: bool = True
+PRESENCE_AUTHORITY_ENABLED: bool = _flag("PRESENCE_AUTHORITY_ENABLED")
 
 # Vestigial. Was the kill switch for the pre-flip SHADOW dual-write (mirror to
 # `entity_presence` to validate the machine before authority was flipped). With
@@ -319,7 +328,7 @@ PRESENCE_AUTHORITY_ENABLED: bool = True
 # this flag (it is `SHADOW or AUTHORITY`), so the off-grid hustle/vice writers
 # still record presence. Kept only so the few remaining references resolve; it
 # no longer changes any behaviour.
-PRESENCE_SHADOW_WRITE_ENABLED: bool = False
+PRESENCE_SHADOW_WRITE_ENABLED: bool = _flag("PRESENCE_SHADOW_WRITE_ENABLED")
 
 
 # --- Chip-custody machine cutover (the Presence twin) ---------------------
@@ -338,7 +347,7 @@ PRESENCE_SHADOW_WRITE_ENABLED: bool = False
 # no-op until an operator opts in (mirror `PRESENCE_AUTHORITY_ENABLED`'s env
 # pattern). See `docs/plans/CASH_MODE_CHIP_CUSTODY_SCOPE.md` +
 # `docs/plans/CASH_MODE_CHIP_CUSTODY_HANDOFF.md`.
-CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
+CHIP_CUSTODY_ENABLED: bool = _flag("CHIP_CUSTODY_ENABLED")
 
 # D2 — ledger-derived bankroll reads. When True, `BankrollRepository.load_*`
 # return the LEDGER-DERIVED chip count (Σ over `chip_ledger_entries`) as the
@@ -350,7 +359,7 @@ CHIP_CUSTODY_ENABLED: bool = _env_flag("CHIP_CUSTODY_ENABLED", False)
 # sub-millisecond window would be momentarily stale — the int avoids that). Flip
 # on to make the ledger authoritative for reads after validating int==derived
 # via scripts/audit_ledger_completeness.py. See CASH_MODE_CHIP_CUSTODY_SCOPE.md (D2).
-CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
+CHIP_CUSTODY_DERIVE_READS: bool = _flag("CHIP_CUSTODY_DERIVE_READS")
 
 
 # --- Tournament circuit world-tick hook (P3.7) ----------------------------
@@ -368,7 +377,7 @@ CHIP_CUSTODY_DERIVE_READS: bool = _env_flag("CHIP_CUSTODY_DERIVE_READS", False)
 # (`GET /api/tournament/invite`) still offers/expires invites without it. Flip on
 # only after re-validating the economy sim under the per-tournament overlay
 # cadence (P3_REMAINING_HANDOFF §6). See `docs/plans/P3_REMAINING_HANDOFF.md` §P3.7.
-TOURNAMENT_CIRCUIT_ENABLED: bool = _env_flag("TOURNAMENT_CIRCUIT_ENABLED", False)
+TOURNAMENT_CIRCUIT_ENABLED: bool = _flag("TOURNAMENT_CIRCUIT_ENABLED")
 
 # --- Tournaments as a draw (cash→tournament migration) --------------------
 
@@ -381,7 +390,7 @@ TOURNAMENT_CIRCUIT_ENABLED: bool = _env_flag("TOURNAMENT_CIRCUIT_ENABLED", False
 # built in later phases). Default **False** — Phase A ships the primitive only,
 # wired to nothing, so flipping this changes nothing yet. See
 # docs/plans/* (tournaments-as-a-draw) when the later phases land.
-TOURNAMENT_DRAW_ENABLED: bool = _env_flag("TOURNAMENT_DRAW_ENABLED", False)
+TOURNAMENT_DRAW_ENABLED: bool = _flag("TOURNAMENT_DRAW_ENABLED")
 
 # --- Player-prestige Renown-v2 (read-side field scorer) -------------------
 
@@ -398,7 +407,7 @@ TOURNAMENT_DRAW_ENABLED: bool = _env_flag("TOURNAMENT_DRAW_ENABLED", False)
 # docs/plans/CASH_MODE_PLAYER_PRESTIGE.md ("v2 implemented" note).
 # Env-flippable (committed default stays False so production is unaffected):
 # set RENOWN_V2_ENABLED=1 in a dev .env to turn the field-relative gauge on.
-RENOWN_V2_ENABLED: bool = _env_flag("RENOWN_V2_ENABLED", False)
+RENOWN_V2_ENABLED: bool = _flag("RENOWN_V2_ENABLED")
 
 # Persist a field-relative renown row for every AI entity (not just the human)
 # each ticker recompute. The field scorer already computes every AI's renown and
@@ -410,7 +419,7 @@ RENOWN_V2_ENABLED: bool = _env_flag("RENOWN_V2_ENABLED", False)
 # human gauge. MUST be stress-validated (50+ AIs under CYCLE_BUDGET_MS) before
 # enabling on a real field. Default OFF. See
 # docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage A).
-RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
+RENOWN_V2_PERSIST_AI: bool = _flag("RENOWN_V2_PERSIST_AI")
 
 # Prestige-seeking movement (Renown-v2 B4). When on, the autonomous seat-fill
 # adds the marquee term to table attractiveness: status-seeking AIs (own renown
@@ -419,7 +428,7 @@ RENOWN_V2_PERSIST_AI: bool = _env_flag("RENOWN_V2_PERSIST_AI", False)
 # the term is 0 → no effect). A real chip-flow/movement change → sim-validate
 # before enabling. Own kill switch; default OFF. See
 # docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage B / B4).
-PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
+PRESTIGE_SEEKING_ENABLED: bool = _flag("PRESTIGE_SEEKING_ENABLED")
 
 # Career progression — the Act-1 narrative walkthrough + intake (MASTER flag).
 # When on, a brand-new sandbox enters the Circuit intro: the Lucky Stack intake
@@ -431,7 +440,7 @@ PRESTIGE_SEEKING_ENABLED: bool = _env_flag("PRESTIGE_SEEKING_ENABLED", False)
 # ships dark to prod and flips on when ready. The emergent-vouch sub-feature has
 # its own flag below (CAREER_VOUCH_ENABLED) and only matters once a sandbox is in
 # career mode. See docs/plans/CASH_MODE_CAREER_PROGRESSION.md.
-CAREER_PROGRESSION_ENABLED: bool = _env_flag("CAREER_PROGRESSION_ENABLED", False)
+CAREER_PROGRESSION_ENABLED: bool = _flag("CAREER_PROGRESSION_ENABLED")
 
 # Career M2 — emergent vouches. When on, the world ticker evaluates the player's
 # inbound regard edges and fires at most one `vouch_ready` AI per sandbox per tick
@@ -439,7 +448,7 @@ CAREER_PROGRESSION_ENABLED: bool = _env_flag("CAREER_PROGRESSION_ENABLED", False
 # after a live playtest; only engages for a career sandbox (career_active +
 # tutorial_complete) — so CAREER_PROGRESSION_ENABLED is the master gate for it.
 # See docs/plans/CASH_MODE_CAREER_M2_PLAN.md.
-CAREER_VOUCH_ENABLED: bool = _env_flag("CAREER_VOUCH_ENABLED", False)
+CAREER_VOUCH_ENABLED: bool = _flag("CAREER_VOUCH_ENABLED")
 
 # Intake world warm-up. When on, completing the Lucky Stack intake fires a short
 # deterministic, no-LLM sim burst across the player's HIDDEN lobby tables (a
@@ -449,7 +458,7 @@ CAREER_VOUCH_ENABLED: bool = _env_flag("CAREER_VOUCH_ENABLED", False)
 # Inert unless CAREER_PROGRESSION_ENABLED (no intake → no trigger), so it's safe
 # ON by default; flip OFF to kill the burst. See flask_app/services/world_warmup.py
 # and docs/plans/CASH_MODE_INTAKE_WORLD_WARMUP.md.
-INTAKE_WORLD_WARMUP_ENABLED: bool = _env_flag("INTAKE_WORLD_WARMUP_ENABLED", True)
+INTAKE_WORLD_WARMUP_ENABLED: bool = _flag("INTAKE_WORLD_WARMUP_ENABLED")
 
 # Table affinity — success-weighted room stickiness. When on, an idle AI's
 # table-selection score gains `W_AFFINITY * stake_fit * tanh(net_chips / buyins)`
@@ -459,7 +468,7 @@ INTAKE_WORLD_WARMUP_ENABLED: bool = _env_flag("INTAKE_WORLD_WARMUP_ENABLED", Tru
 # rooms WITHIN a tier the AI is suited to; never overrides a sensible climb).
 # Reads per-(sandbox, ai, table) net from ai_table_hand_counts. A real
 # chip-flow/movement change → sim-validate before enabling. Default OFF.
-TABLE_AFFINITY_ENABLED: bool = _env_flag("TABLE_AFFINITY_ENABLED", False)
+TABLE_AFFINITY_ENABLED: bool = _flag("TABLE_AFFINITY_ENABLED")
 
 
 def compute_rake(

@@ -54,6 +54,7 @@ from ..extensions import (
 from ..services import game_state_service
 from ..services.ai_debug_service import get_all_players_llm_stats
 from ..services.elasticity_service import format_elasticity_data
+from ..state_version import next_state_version
 from .avatar_handler import get_avatar_url_with_fallback, start_single_emotion_generation
 from .message_handler import (
     format_action_message,
@@ -705,6 +706,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     # resolves via the no-LLM path. Like ai_instant, this lets the UI hide the
     # (now permanently-on) fast-forward button.
     game_state_dict['always_fast_forward'] = _resolve_game_speed(current_game_data) == 'always'
+
+    # Monotonic version stamp so the client drops a stale frame from a leaked
+    # socket or a late sequencer beat instead of regressing to an earlier hand
+    # (the two-hand-flicker class of bug). See flask_app.state_version.
+    game_state_dict['state_version'] = next_state_version()
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
@@ -3912,11 +3918,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Single-table tournament hand boundary. Every non-cash game is a one-table
     # TournamentSession (TournamentTracker is retired): fold the finished hand
     # into the field, feed per-elimination beats, and end the game the moment the
-    # human's fate is sealed (bust or heads-up win). Multi-table games
-    # (tournament_multi_table) run their own boundary later in the inter-hand
-    # step; cash games have no session and skip this entirely.
+    # human's fate is sealed (bust or heads-up win). Multi-table games run their
+    # own boundary later in the inter-hand step; cash games have no session and
+    # skip this entirely. The single/multi split is read off the SESSION
+    # (`is_multi_table`), not a volatile game_data flag — the flag was dropped on
+    # cold-load, which misrouted a rehydrated MTT through this single-table
+    # boundary (it advances the blind clock but never escalates the live table's
+    # blinds — they froze while the tournament clock climbed).
     _st_session = game_data.get('tournament_session')
-    if _st_session is not None and not game_data.get('tournament_multi_table'):
+    if _st_session is not None and not _st_session.is_multi_table:
         from flask_app.handlers.single_table_tournament import single_table_hand_boundary
 
         if single_table_hand_boundary(
@@ -4126,12 +4136,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Multi-table tournament: the human plays one table; at each hand boundary
     # fold the result into the field, pace the AI tables, settle, and either
     # reconcile this table's roster/blinds for the next hand (continue/relocated)
-    # or pause the game (human out / tournament complete). Gated on
-    # `tournament_multi_table` (not merely `tournament_session`, which EVERY
-    # non-cash game now carries) — single-table tournaments run their own boundary
-    # at handle_evaluating_hand_phase above and must NOT also run this one, or
-    # they double-advance the session and reset blinds/dealer every hand.
-    if game_data.get('tournament_multi_table'):
+    # or pause the game (human out / tournament complete). Gated on the SESSION's
+    # `is_multi_table` (not merely the presence of a session, which EVERY non-cash
+    # game now carries) — single-table tournaments run their own boundary at
+    # handle_evaluating_hand_phase above and must NOT also run this one, or they
+    # double-advance the session and reset blinds/dealer every hand. Reading the
+    # session (always reconstructed on cold-load) rather than a volatile game_data
+    # flag is what keeps the two boundaries mutually exclusive across a restart.
+    _mtt_session = game_data.get('tournament_session')
+    if _mtt_session is not None and _mtt_session.is_multi_table:
         try:
             from flask_app.handlers.tournament_game_builder import tournament_hand_boundary
 

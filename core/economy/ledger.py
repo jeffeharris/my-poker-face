@@ -1078,12 +1078,21 @@ def record_ai_regen(
 def record_house_stake_issue(
     repo: Optional[ChipLedgerRepository],
     *,
-    owner_id: str,
+    game_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
-    """House-archetype stake principal: central_bank → borrower.
+    """House-archetype stake principal: central_bank → borrower seat.
+
+    The chips land on the borrower's table seat (`seat(game_id)`), not in
+    their persistent bankroll — the player puts up nothing and the principal
+    is committed straight to the stack, mirroring the self-funded sit's
+    `player → seat` shape (`record_player_buy_in`). Sinking into
+    `player(owner_id)` instead would inflate the ledger-derived bankroll by
+    the stake amount whenever `CHIP_CUSTODY_DERIVE_READS` is on (the read path
+    sums `player:<id>` — see `derive_player_balance`), double-counting the
+    principal against the live seat stack.
 
     Personality and human stake principals are pure transfers between
     non-bank entities (staker's bankroll → borrower's table stack) and
@@ -1095,7 +1104,7 @@ def record_house_stake_issue(
     return record(
         repo,
         source=bank(),
-        sink=player(owner_id),
+        sink=seat(game_id),
         amount=amount,
         reason='house_stake_issue',
         context=context,
@@ -1137,23 +1146,29 @@ def record_table_rake(
 def record_house_stake_settle(
     repo: Optional[ChipLedgerRepository],
     *,
-    owner_id: str,
+    game_id: str,
     amount: int,
     context: Optional[Dict[str, Any]] = None,
     sandbox_id: Optional[str] = None,
 ) -> Optional[int]:
-    """borrower → central_bank for a house-archetype stake settle.
+    """borrower seat → central_bank for a house-archetype stake settle.
 
-    The staker share (principal recovered + cut on upside) goes back
-    to the bank on leave-time settlement. Personality and human stakes
-    don't route here — the staker share credits the staker's persistent
-    bankroll instead, a pure non-bank transfer.
+    The staker share (principal recovered + cut on upside) comes off the
+    borrower's table seat (`seat(game_id)`) — where `record_house_stake_issue`
+    placed the principal — and goes back to the bank on leave-time
+    settlement. The borrower's own keep drains the same seat via
+    `record_player_cash_out`. Sourcing from `player(owner_id)` here (the old
+    behaviour, paired with the old issue sink) would debit the ledger-derived
+    bankroll for chips that live on the seat, diverging it from the stored
+    int. Personality and human stakes don't route here — the staker share
+    credits the staker's persistent bankroll instead, a pure non-bank
+    transfer.
     """
     if repo is None or amount <= 0:
         return None
     return record(
         repo,
-        source=player(owner_id),
+        source=seat(game_id),
         sink=bank(),
         amount=amount,
         reason='house_stake_settle',

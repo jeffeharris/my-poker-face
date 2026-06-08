@@ -5,8 +5,15 @@ import { AuthProvider } from './hooks/useAuth';
 import { DeckPackProvider } from './hooks/useDeckPack';
 import { UsageStatsProvider } from './hooks/UsageStatsProvider';
 import { installCsrfFetch } from './utils/csrf';
+import { initSentry } from './sentry';
+import './styles/fonts.css';
 import './index.css';
 import App from './App.tsx';
+
+// Initialize Sentry (UX session replay + bug-report widget) first, so the
+// replay buffer and error hooks are armed before any app code runs. No-op
+// unless VITE_SENTRY_DSN is set, so local dev stays quiet.
+initSentry();
 
 // PRH-36: attach the X-CSRF-Token header to mutating API requests, before any
 // fetch fires. Must run before the providers below (which fetch on mount).

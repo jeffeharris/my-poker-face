@@ -162,23 +162,28 @@ def load_personality_from_json(name):
 # Economy-flag isolation (suite-wide)
 # ---------------------------------------------------------------------------
 
-# Every `_env_flag(...)` toggle in `cash_mode.economy_flags`. These read the
-# environment ONCE at import, and `flask_app.config` calls
-# `load_dotenv(override=True)`, so a developer's local `.env` (which typically
-# ARMS flags to run the app — DIRECTOR_INEQUALITY_RAKE, CASINO_RESEED_ON_SPENT,
-# GENESIS_RESERVE_ENABLED, TOURNAMENT_*, etc.) leaks into the pytest process and
-# silently flips behaviour under tests that assert the OFF baseline. That broke
-# 6 casino_provisioning + 3 economy_flags tests locally while CI stayed green
-# (CI sets only SECRET_KEY/OPENAI_API_KEY → all flags defaulted). Forcing them
-# all OFF reproduces CI's effective baseline (every flag's code default is now
-# False except PRESENCE_AUTHORITY_ENABLED, whose code default is True since the
-# Presence cutover completed — the fixture resets it to True, not False).
+# Economy flags forced to the OFF test baseline. These read the environment at
+# import, and `flask_app.config` calls `load_dotenv(override=True)`, so a
+# developer's local `.env` (or a prod container's env) — which ARMS flags like
+# CASINO_RESEED_ON_SPENT, GENESIS_RESERVE_ENABLED, CHIP_CUSTODY_ENABLED,
+# TOURNAMENT_* — leaks into the pytest process and silently flips behaviour under
+# tests that assert the OFF baseline. That broke 6 casino_provisioning + 3
+# economy_flags tests locally while CI stayed green. Forcing them OFF reproduces a
+# deterministic baseline regardless of ambient env / flag stage.
 #
-# DEPRECATION CONTROL POINT: keep this list complete. `test_economy_flag_defaults.py`
-# fails if it drifts from the module — a NEW flag missing here would re-open the
-# .env-pollution hole; a retired flag should be dropped. A test that needs a
-# flag ON opts in explicitly (runs after this fixture → wins).
+# NOTE: this is the TEST baseline, decoupled from a flag's production stage — many
+# of these are STABLE (on in prod) but tests still want the simpler OFF path
+# unless a test exercises the feature explicitly (which runs after this fixture →
+# wins). The complementary set (economy flags intentionally left ON in tests) is
+# TEST_BASELINE_ON_ECONOMY_FLAGS below; together they must cover every non-locked
+# economy flag.
+#
+# DEPRECATION CONTROL POINT: keep this complete. `test_economy_flag_defaults.py`
+# fails if RESET ∪ TEST_BASELINE_ON doesn't partition the registry's non-locked
+# economy flags — a NEW flag missing from both would re-open the .env-pollution
+# hole.
 RESET_ECONOMY_FLAGS = (
+    "REGEN_ENABLED",
     "VICE_RESERVE_GATED",
     "GENESIS_RESERVE_ENABLED",
     "RAKE_RESERVE_GATED",
@@ -202,6 +207,18 @@ RESET_ECONOMY_FLAGS = (
     "CAREER_PROGRESSION_ENABLED",
     "CAREER_VOUCH_ENABLED",
     "INTAKE_WORLD_WARMUP_ENABLED",
+)
+
+# Economy flags intentionally left ON in the test baseline — the long-shipped
+# "always on" features (formerly hardcoded `True` in economy_flags.py). They are
+# not force-reset; their registry default (STABLE, on) carries through. Together
+# with RESET_ECONOMY_FLAGS this must cover every non-locked economy flag, so a new
+# flag can't be silently forgotten (see test_economy_flag_defaults.py).
+TEST_BASELINE_ON_ECONOMY_FLAGS = (
+    "SIDE_HUSTLE_ENABLED",
+    "RAKE_PLAYER_TABLES",
+    "REPUTATION_DEMEANOR_ENABLED",
+    "DOSSIER_SCOUTING_GATE_ENABLED",
 )
 
 

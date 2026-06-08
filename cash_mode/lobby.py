@@ -2650,6 +2650,25 @@ def settle_departed_ai_stake(
     )
     if active_stake is None:
         return None
+
+    # Conservation guard (stake state machine invariant 3): prove this stake's
+    # funding actually credited the BORROWER's seat before draining that seat to
+    # pay the staker. Path-agnostic — catches a wrong-seat misroute from ANY
+    # origination path (aspiration, take_stake, human sponsor). Enforce mode
+    # (dev/sim/tests) raises StakeConservationError; prod alarms + proceeds (the
+    # funding fix is the live protection, this is the structural backstop).
+    from cash_mode.stake_lifecycle import (
+        assert_stake_funding_reached_borrower_seat,
+    )
+
+    assert_stake_funding_reached_borrower_seat(
+        stake_id=active_stake.stake_id,
+        borrower_id=active_stake.borrower_id,
+        principal=active_stake.principal,
+        sandbox_id=sandbox_id,
+        chip_ledger_repo=chip_ledger_repo,
+    )
+
     settlement = settle_stake_on_leave(
         active_stake.stake_id,
         chips_at_leave,
@@ -2889,6 +2908,21 @@ def _settle_table_stakes(
             last_from_seat_index[bc.personality_id] = i
 
     for pid, idx in last_from_seat_index.items():
+        # An aspiration climb vacates the OLD seat to move UP a tier — that
+        # `from_seat` is a tier MOVE, not a session end. The stake was just
+        # created this tick (FUNDED), and the climber is about to re-seat at
+        # the higher tier (ACTIVE) via the idle pool. Settling here would
+        # close the stake before the staked session is ever played — splitting
+        # the climber's old-table chips with the staker as fake "winnings"
+        # (created_at == settled_at). Skip: leave the stake ACTIVE so it
+        # settles on the real leave from the higher tier, and let the
+        # `from_seat` apply normally (the climber carries seat_chips +
+        # principal into their bankroll for the re-buy). The one-active-stake
+        # gate guarantees the only active stake for this pid IS the one just
+        # created, so nothing else is owed a settle here. See
+        # docs/plans/CASH_MODE_STAKE_STATE_MACHINE.md (bug #3).
+        if result.decisions.get(pid) == "aspiration_climb":
+            continue
         chips_at_leave = result.bankroll_changes[idx].amount
         settlement = settle_departed_ai_stake(
             pid,
@@ -2931,13 +2965,23 @@ def _apply_stake_creations(
     # (the borrower's chips moved from chips_at_bust → principal,
     # and the from_seat above credited the borrower's bankroll
     # with chips_at_bust). What remains:
-    #   - Debit the staker's bankroll by principal.
+    #   - Fund the stake: debit the staker's bankroll AND credit the
+    #     BORROWER's seat with the principal (the seat that settlement
+    #     drains). This MUST route through `fund_climb_stake` — the single
+    #     funding site the aspiration path uses — NOT
+    #     `debit_bankroll_for_seat(staker_id)`, which credits the STAKER's
+    #     OWN seat. Funding the wrong seat while settlement drains the
+    #     borrower's seat mints chips: PR #217 fixed this for the
+    #     aspiration path but left this take_stake path on the buggy call
+    #     (prod drift re-grew 2026-06-08 — see
+    #     docs/plans/CASH_MODE_STAKE_STATE_MACHINE.md).
     #   - Persist a Stake row (status=active, both kinds personality).
     #   - Fire STAKE_OFFERED so the staker's relationship axes
     #     toward the borrower reflect the new tie.
     #   - Emit EVENT_AI_STAKE on the lobby ticker (Commit 5).
     from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
-    from cash_mode.bankroll import debit_bankroll_for_seat
+    from cash_mode.stake_lifecycle import fund_climb_stake, unwind_climb_funding
+    from cash_mode.tables import open_slot
 
     if result.stake_creations:
         import uuid
@@ -2951,16 +2995,49 @@ def _apply_stake_creations(
         )
 
         for sc in result.stake_creations:
-            debit_bankroll_for_seat(
-                bankroll_repo,
-                sc.staker_id,
-                sc.principal,
-                sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo,
-                now=now,
-            )
+            # Fund the BORROWER's seat (climber_id=sc.borrower_id), never the
+            # staker's. `fund_climb_stake` debits the staker and records the
+            # principal landing on `seat:ai:<sb>:<borrower>` — the exact seat
+            # `_settle_table_stakes` later drains. It signals failure two ways
+            # (RAISES or returns None); BOTH must skip creation and revert the
+            # borrower's seat refill (movement baked it into new_table), or the
+            # unbacked chips mint. stake_id is generated up front so the funding
+            # ledger row can carry it.
+            stake_id = f"ai_stake_{uuid.uuid4().hex[:12]}"
+            try:
+                debited = fund_climb_stake(
+                    staker_id=sc.staker_id,
+                    climber_id=sc.borrower_id,
+                    principal=sc.principal,
+                    stake_id=stake_id,
+                    bankroll_repo=bankroll_repo,
+                    chip_ledger_repo=chip_ledger_repo,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] take_stake: staker funding raised "
+                    "staker=%r borrower=%r principal=%d: %s — reverting seat",
+                    sc.staker_id,
+                    sc.borrower_id,
+                    sc.principal,
+                    exc,
+                )
+                result.new_table.seats[sc.seat_index] = open_slot()
+                continue
+            if debited is None:
+                logger.warning(
+                    "[CASH][LOBBY] take_stake: staker funding refused "
+                    "staker=%r borrower=%r principal=%d — reverting seat",
+                    sc.staker_id,
+                    sc.borrower_id,
+                    sc.principal,
+                )
+                result.new_table.seats[sc.seat_index] = open_slot()
+                continue
             stake = Stake(
-                stake_id=f"ai_stake_{uuid.uuid4().hex[:12]}",
+                stake_id=stake_id,
                 session_id=f"ai_session_{sc.borrower_id}_{int(now.timestamp())}",
                 staker_id=sc.staker_id,
                 staker_kind=STAKER_KIND_PERSONALITY,
@@ -2977,7 +3054,31 @@ def _apply_stake_creations(
                 created_at=now,
             )
             if stake_repo is not None:
-                stake_repo.create_stake(stake)
+                try:
+                    stake_repo.create_stake(stake)
+                except Exception as exc:
+                    # Funded but the row write failed → unwind the funding
+                    # (refund staker + reverse the borrower-seat credit) and
+                    # revert the seat, else the borrower plays on minted chips.
+                    logger.warning(
+                        "[CASH][LOBBY] take_stake: create_stake failed "
+                        "staker=%r borrower=%r: %s — unwinding funding",
+                        sc.staker_id,
+                        sc.borrower_id,
+                        exc,
+                    )
+                    unwind_climb_funding(
+                        staker_id=sc.staker_id,
+                        climber_id=sc.borrower_id,
+                        principal=sc.principal,
+                        stake_id=stake_id,
+                        debited=debited,
+                        bankroll_repo=bankroll_repo,
+                        chip_ledger_repo=chip_ledger_repo,
+                        sandbox_id=sandbox_id,
+                    )
+                    result.new_table.seats[sc.seat_index] = open_slot()
+                    continue
             if relationship_repo is not None:
                 try:
                     from poker.memory import OpponentModelManager
@@ -4991,20 +5092,31 @@ def _process_aspiration_asks(
         # single `from_seat` of `seat_chips + principal`.
         seat_chips = int(slot.get("chips", 0) or 0)
 
-        # (1) Debit the staker inline (matches Phase 4's stake_creations
-        # post-loop debit pattern). `debit_bankroll_for_seat` signals
-        # failure two ways: it RAISES, or it returns None (insufficient
-        # funds / missing row — the audit-safe refusal). BOTH must skip
-        # the ask cleanly without touching the seat, or chips mint.
-        try:
-            from cash_mode.bankroll import debit_bankroll_for_seat
+        # (1) Fund the climb: debit the staker and credit the CLIMBER's seat
+        # via the single funding site `fund_climb_stake`. This is the fix for
+        # the aspiration chip-mint: the old `debit_bankroll_for_seat(staker_id)`
+        # credited the STAKER's own seat (`seat:<staker>`) while settlement
+        # drains the CLIMBER's seat, so the climber's seat was drained for a
+        # principal it never received → minted chips (see
+        # docs/plans/CASH_MODE_STAKE_STATE_MACHINE.md). `fund_climb_stake`
+        # signals failure two ways — it RAISES, or returns None (insufficient
+        # funds / missing row). BOTH must skip the ask without touching the
+        # seat. The `stake_id` is generated here so the funding ledger row can
+        # carry it (per-contract reconciliation).
+        import uuid
 
-            debited = debit_bankroll_for_seat(
-                bankroll_repo,
-                staker_id,
-                principal,
-                sandbox_id=sandbox_id,
+        stake_id = f"ai_stake_aspire_{uuid.uuid4().hex[:12]}"
+        try:
+            from cash_mode.stake_lifecycle import fund_climb_stake
+
+            debited = fund_climb_stake(
+                staker_id=staker_id,
+                climber_id=asker_pid,
+                principal=principal,
+                stake_id=stake_id,
+                bankroll_repo=bankroll_repo,
                 chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
                 now=now,
             )
         except Exception as exc:
@@ -5030,11 +5142,9 @@ def _process_aspiration_asks(
         # (2) Create the stake row. If the write fails AFTER the staker
         # was debited, refund the staker the `principal` (reversing only
         # the transfer portion — any regen the debit committed is real
-        # and stays) and skip the ask. The seat has NOT been touched yet.
-        import uuid
-
+        # and stays) and skip the ask.
         stake = Stake(
-            stake_id=f"ai_stake_aspire_{uuid.uuid4().hex[:12]}",
+            stake_id=stake_id,
             session_id=f"ai_aspire_{asker_pid}_{int(now.timestamp())}",
             staker_id=staker_id,
             staker_kind=STAKER_KIND_PERSONALITY,
@@ -5059,45 +5169,22 @@ def _process_aspiration_asks(
                 staker_id,
                 exc,
             )
-            # Refund the staker so the committed debit isn't a silent
-            # loss. `debited` is the post-debit AIBankrollState; add the
-            # principal back to it (the transfer is reversed; the regen
-            # commit, if any, is preserved).
-            try:
-                from cash_mode.bankroll import AIBankrollState
+            # Reverse the funding so the committed debit isn't a silent loss:
+            # restore the staker int AND reverse the stake_fund credit on the
+            # climber's seat (the int-only refund would leave a +principal
+            # orphan on the seat). `debited` is the post-debit AIBankrollState.
+            from cash_mode.stake_lifecycle import unwind_climb_funding
 
-                bankroll_repo.save_ai_bankroll(
-                    AIBankrollState(
-                        personality_id=staker_id,
-                        chips=debited.chips + principal,
-                        last_regen_tick=debited.last_regen_tick,
-                    ),
-                    sandbox_id=sandbox_id,
-                )
-            except TypeError as te:
-                if "sandbox_id" not in str(te):
-                    logger.warning(
-                        "[CASH][LOBBY] aspiration: staker refund failed "
-                        "staker=%r principal=%d: %s",
-                        staker_id,
-                        principal,
-                        te,
-                    )
-                else:
-                    bankroll_repo.save_ai_bankroll(
-                        AIBankrollState(
-                            personality_id=staker_id,
-                            chips=debited.chips + principal,
-                            last_regen_tick=debited.last_regen_tick,
-                        )
-                    )
-            except Exception as refund_exc:
-                logger.warning(
-                    "[CASH][LOBBY] aspiration: staker refund failed " "staker=%r principal=%d: %s",
-                    staker_id,
-                    principal,
-                    refund_exc,
-                )
+            unwind_climb_funding(
+                staker_id=staker_id,
+                climber_id=asker_pid,
+                principal=principal,
+                stake_id=stake_id,
+                debited=debited,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+            )
             continue
 
         # (3) Both financial ops committed — now vacate the seat and queue
