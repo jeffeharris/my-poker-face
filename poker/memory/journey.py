@@ -52,6 +52,21 @@ def _spectator_beat(hand: RecordedHand) -> str:
     return f"A ${hand.pot_size:,} pot played out"
 
 
+def stack_curve(hands: List[RecordedHand], player_name: str) -> List[Dict[str, Any]]:
+    """The player's chip stack after each hand of a session, as Sparkline
+    points (`{t, value}`, oldest → newest). `value` is their end-of-hand
+    stack; `t` is the hand's timestamp. Hands where the stack wasn't recorded
+    are skipped so a gap never reads as a drop to zero."""
+    points: List[Dict[str, Any]] = []
+    for h in hands:
+        p = next((p for p in h.players if p.name == player_name), None)
+        if p is None or p.final_stack is None:
+            continue
+        ts = h.timestamp.isoformat() if hasattr(h.timestamp, "isoformat") else str(h.timestamp)
+        points.append({"t": ts, "value": int(p.final_stack)})
+    return points
+
+
 def session_facts(
     hands: List[RecordedHand],
     player_name: str,

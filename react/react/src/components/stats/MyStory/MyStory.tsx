@@ -7,6 +7,10 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { config } from '../../../config';
+import { Sparkline } from '../../cash/Sparkline';
+import type { BankrollPoint } from '../../cash/types';
+import { MenuBar } from '../../shared/MenuBar';
+import { PageLayout } from '../../shared/PageLayout';
 import './MyStory.css';
 
 interface Beat {
@@ -31,6 +35,10 @@ interface Session {
   summary: string;
   stats: SessionStats;
   beats: Beat[];
+  stack_curve: BankrollPoint[]; // chip stack after each hand of the session
+  stake_label: string | null; // e.g. "$200"
+  table_name: string | null; // the named room, e.g. "Hotel Mezzanine"
+  started_at: string | null; // ISO timestamp the session began
   beat?: string; // the voiced session beat (present only when ?voiced=1)
 }
 
@@ -56,6 +64,13 @@ interface MyStoryProps {
 }
 
 const fmt = (n: number) => `${n > 0 ? '+' : ''}${n.toLocaleString()}`;
+
+const fmtDate = (iso: string | null): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
 
 export function MyStory({ onBack }: MyStoryProps) {
   const [journey, setJourney] = useState<Journey | null>(null);
@@ -88,72 +103,97 @@ export function MyStory({ onBack }: MyStoryProps) {
   const voiced = !!journey?.arc_beat;
 
   return (
-    <div className="mystory">
-      <div className="mystory__bar">
-        <button className="mystory__back" onClick={onBack}>
-          ← Back
-        </button>
-        <h1 className="mystory__title">Your Circuit</h1>
-        {hasStory && (
-          <button className="mystory__narrate" disabled={narrating} onClick={() => load(true)}>
-            {narrating ? 'Narrating…' : voiced ? '↻ Re-narrate' : '✨ Narrate my story'}
-          </button>
-        )}
-      </div>
+    <>
+      <MenuBar onBack={onBack} title="Your Circuit" showUserInfo onMainMenu={onBack} />
+      <PageLayout variant="top" glowColor="gold" maxWidth="md" hasMenuBar>
+        <div className="mystory">
+          {hasStory && (
+            <div className="mystory__actions">
+              <button className="mystory__narrate" disabled={narrating} onClick={() => load(true)}>
+                {narrating ? 'Narrating…' : voiced ? '↻ Re-narrate' : '✨ Narrate my story'}
+              </button>
+            </div>
+          )}
 
-      {loading && <p className="mystory__muted">Reading your hands…</p>}
-      {error && <p className="mystory__error">{error}</p>}
-      {!loading && !error && !hasStory && (
-        <p className="mystory__muted">
-          No circuit story yet — sit at a cash table and your career will write itself.
-        </p>
-      )}
-
-      {!loading && journey?.arc && (
-        <div className="mystory__arc">
-          <h2>The Arc So Far</h2>
-          {journey.arc_beat ? (
-            <p>{journey.arc_beat}</p>
-          ) : (
-            <p>
-              {journey.arc.sessions} session{journey.arc.sessions !== 1 ? 's' : ''},{' '}
-              {journey.arc.winning_sessions} winning · {journey.arc.total_hands} hands,{' '}
-              {journey.arc.total_hands_won} won · net{' '}
-              <span className={journey.arc.total_net_chips >= 0 ? 'up' : 'down'}>
-                {fmt(journey.arc.total_net_chips)}
-              </span>{' '}
-              chips · biggest pot {journey.arc.biggest_pot.toLocaleString()}
+          {loading && <p className="mystory__muted">Reading your hands…</p>}
+          {error && <p className="mystory__error">{error}</p>}
+          {!loading && !error && !hasStory && (
+            <p className="mystory__muted">
+              No circuit story yet — sit at a cash table and your career will write itself.
             </p>
           )}
-        </div>
-      )}
 
-      {!loading &&
-        journey?.sessions?.map((s) => (
-          <div className="mystory__session" key={s.game_id}>
-            <div className="mystory__session-head">
-              <span className="mystory__kind">Session</span>
-              {s.stats.net_chips === null ? (
-                <span className="mystory__net mystory__muted">in progress</span>
+          {!loading && journey?.arc && (
+            <div className="mystory__arc">
+              <h2>The Arc So Far</h2>
+              {journey.arc_beat ? (
+                <p>{journey.arc_beat}</p>
               ) : (
-                <span className={`mystory__net ${s.stats.net_chips >= 0 ? 'up' : 'down'}`}>
-                  {fmt(s.stats.net_chips)}
-                </span>
+                <p>
+                  {journey.arc.sessions} session{journey.arc.sessions !== 1 ? 's' : ''},{' '}
+                  {journey.arc.winning_sessions} winning · {journey.arc.total_hands} hands,{' '}
+                  {journey.arc.total_hands_won} won · net{' '}
+                  <span className={journey.arc.total_net_chips >= 0 ? 'up' : 'down'}>
+                    {fmt(journey.arc.total_net_chips)}
+                  </span>{' '}
+                  chips · biggest pot {journey.arc.biggest_pot.toLocaleString()}
+                </p>
               )}
             </div>
-            <p className="mystory__summary">{s.beat || s.summary}</p>
-            {s.beats.length > 0 && (
-              <ul className="mystory__beats">
-                {s.beats.map((b) => (
-                  <li key={b.hand_number}>
-                    <span className="mystory__hand">#{b.hand_number}</span> {b.text}
-                    {b.headline && <span className="mystory__headline">{b.headline}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
-    </div>
+          )}
+
+          {!loading &&
+            journey?.sessions?.map((s) => (
+              <div className="mystory__session" key={s.game_id}>
+                <div className="mystory__session-head">
+                  <div className="mystory__session-id">
+                    <span className="mystory__table">{s.table_name || 'Cash table'}</span>
+                    <span className="mystory__meta">
+                      {s.stake_label && <span className="mystory__stake">{s.stake_label}</span>}
+                      {s.started_at && (
+                        <span className="mystory__date">{fmtDate(s.started_at)}</span>
+                      )}
+                    </span>
+                  </div>
+                  {s.stats.net_chips === null ? (
+                    <span className="mystory__net mystory__muted">in progress</span>
+                  ) : (
+                    <span className={`mystory__net ${s.stats.net_chips >= 0 ? 'up' : 'down'}`}>
+                      {fmt(s.stats.net_chips)}
+                    </span>
+                  )}
+                </div>
+                {s.stack_curve.length >= 2 && (
+                  <Sparkline
+                    className="mystory__spark"
+                    points={s.stack_curve}
+                    tone={
+                      s.stats.net_chips == null
+                        ? 'flat'
+                        : s.stats.net_chips > 0
+                          ? 'up'
+                          : s.stats.net_chips < 0
+                            ? 'down'
+                            : 'flat'
+                    }
+                    label="Chip stack across the session"
+                  />
+                )}
+                <p className="mystory__summary">{s.beat || s.summary}</p>
+                {s.beats.length > 0 && (
+                  <ul className="mystory__beats">
+                    {s.beats.map((b) => (
+                      <li key={b.hand_number}>
+                        <span className="mystory__hand">#{b.hand_number}</span> {b.text}
+                        {b.headline && <span className="mystory__headline">{b.headline}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+        </div>
+      </PageLayout>
+    </>
   );
 }

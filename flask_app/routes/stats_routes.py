@@ -165,6 +165,7 @@ def get_journey():
         own_buy_in,
         session_facts,
         session_facts_text,
+        stack_curve,
         summarize_session,
         voice_over,
     )
@@ -202,6 +203,17 @@ def get_journey():
                 ended_at=cs.ended_at,
             )
             buy_in = own_buy_in(cs.total_buy_in, cs.sponsor_principal)
+            # The named room this session was played in (e.g. "Hotel Mezzanine").
+            # Fail-soft: a missing table just drops the name, never the session.
+            table_name = None
+            if cs.cash_table_id:
+                try:
+                    table = extensions.cash_table_repo.load_table(
+                        cs.cash_table_id, sandbox_id=cs.sandbox_id
+                    )
+                    table_name = table.name if table else None
+                except Exception:
+                    table_name = None
             summary = summarize_session(
                 human,
                 hands_played=facts['hands_played'],
@@ -226,6 +238,12 @@ def get_journey():
                 'summary': summary,
                 'stats': stats,
                 'beats': facts['beats'],
+                # Per-hand chip stack across the session, for the sparkline.
+                'stack_curve': stack_curve(hands, human),
+                # Session header: which room, what stakes, when.
+                'stake_label': cs.stake_label,
+                'table_name': table_name,
+                'started_at': cs.started_at.isoformat() if cs.started_at else None,
             }
             if voiced:
                 # One narrative beat per session, grounded in that session's facts.
