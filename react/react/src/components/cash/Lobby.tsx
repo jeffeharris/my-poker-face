@@ -38,6 +38,7 @@ import {
   setWorldPace,
 } from './api';
 import { SponsorModal } from './SponsorModal';
+import { LuckyStackColdOpen } from './LuckyStackColdOpen';
 import { LuckyStackIntake } from './LuckyStackIntake';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
@@ -247,6 +248,10 @@ export function Lobby() {
   // that lands right after `submitIntake` flips it false and unmounts the
   // reveal mid-beat (the "flash").
   const [showIntake, setShowIntake] = useState(false);
+  // The cinematic cold open plays first (black setup beat → neon diner reveal),
+  // then hands off to the intake modal. Client-only: once the player advances
+  // past it, the intake shows; a mid-cold-open refresh just replays it.
+  const [coldOpenDone, setColdOpenDone] = useState(false);
   // The three authored backgrounds for intake Q2, from the lobby payload (the
   // server is the single source of truth so there's no client copy to drift).
   const [intakeBackstories, setIntakeBackstories] = useState<IntakeBackstory[]>([]);
@@ -1184,7 +1189,8 @@ export function Lobby() {
             });
           }}
         />
-        {showIntake && (
+        {showIntake && !coldOpenDone && <LuckyStackColdOpen onDone={() => setColdOpenDone(true)} />}
+        {showIntake && coldOpenDone && (
           <LuckyStackIntake backstories={intakeBackstories} onDone={handleIntakeDone} />
         )}
         {/* Sal's post-graduation handoff: his portrait + bubble walk the player
