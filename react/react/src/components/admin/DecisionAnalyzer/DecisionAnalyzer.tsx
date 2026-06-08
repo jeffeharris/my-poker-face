@@ -618,13 +618,7 @@ export function DecisionAnalyzer({
           isOpen={statsOpen}
           onToggle={() => setStatsOpen((o) => !o)}
         >
-          <AnalysisStatsBar
-            analysisStats={analysisStats}
-            stats={stats}
-            labelStats={labelStats}
-            filters={filters}
-            onToggleLabel={toggleLabelFilter}
-          />
+          <AnalysisStatsBar analysisStats={analysisStats} stats={stats} />
         </CollapsibleSection>
       )}
 
