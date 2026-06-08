@@ -2280,6 +2280,26 @@ def sponsor_and_sit():
         )
     )
 
+    # Obligation dimension: the human borrower owes the lender (house or AI
+    # sponsor) the principal, regardless of which chip path funded the seat
+    # (central_bank house-issue vs AI debit). Emit the originate once here.
+    # NOTE: the matching extinguish/forgive for HUMAN borrowers settles on the
+    # leave_table path (not settle_departed_ai_stake), which is the paired P1
+    # settle item still to wire — until then this balance stays open in shadow.
+    # See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags as _eflags_oblig
+    from flask_app.extensions import chip_ledger_repo as _clr_oblig
+
+    if _clr_oblig is not None and sandbox_id is not None and _eflags_oblig.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_obligations import apply_obligation_flows, flows_on_originate
+
+        apply_obligation_flows(
+            flows_on_originate(stake_id, offer_amount),
+            _clr_oblig,
+            sandbox_id=sandbox_id,
+            context={'site': 'sponsor_sit_principal', 'stake_id': stake_id},
+        )
+
     # The player put up no own chips — `sponsor_principal` carries the
     # full table stack, `initial_buy_in` stays 0. The leave-time summary
     # uses this split to label the modal correctly ("Sponsor put up $X"
@@ -3980,6 +4000,21 @@ def offer_stake_to_ai():
                 amount=principal,
                 context={'site': 'player_stake_principal', 'stake_id': stake_id},
                 sandbox_id=sandbox_id,
+            )
+            # Obligation dimension: the AI borrower owes the human staker the
+            # principal. Settles via settle_departed_ai_stake (AI borrower),
+            # which emits the matching extinguish/forgive. The origination fee
+            # is NOT debt (settled at origination), so only principal originates.
+            from cash_mode.stake_obligations import (
+                apply_obligation_flows,
+                flows_on_originate,
+            )
+
+            apply_obligation_flows(
+                flows_on_originate(stake_id, principal),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'site': 'player_stake_principal', 'stake_id': stake_id},
             )
             if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
                 _chip_ledger_fund.record_stake_fund(

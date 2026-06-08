@@ -307,10 +307,22 @@ backfill — the obligation ledger is forward-only, like the chip ledger's
 
 ## Migration & schema
 
-- **No new table.** Obligation accounts live in `chip_ledger_entries`. The only
-  schema touch is the new reason strings (no DDL — reasons are TEXT).
-- Optional later: a `funded_seat` column on `stakes` to make the bound seat
-  explicit/queryable for the audit (deferred; the ledger rows already carry it).
+- **P1 needs no migration at all.** The obligation accounts (`oblig:<id>`,
+  `oblig_genesis/settled/forgiven`) are string values in the existing
+  `chip_ledger_entries.source` / `.sink` TEXT columns; the new reasons
+  (`stake_originate/extinguish/forgive/cancel`) are string values in the
+  existing `.reason` TEXT column, validated against `LEDGER_REASONS` in code,
+  not by a DB constraint. No new table, column, or DDL. The dimension is purely
+  additive via string namespacing in a table that already exists.
+- **If P2 ever needs DDL** — the optional `funded_seat` column on `stakes`, or a
+  `repaid` status if we choose a column over status+balance — author it as a
+  **file migration** under `poker/repositories/migrations/` (the new
+  applied-set loader from #236, `migration_loader._run_file_migrations`), NOT
+  the legacy `SCHEMA_VERSION` chain. New migrations prefer the file loader: it
+  tracks applied IDs in `applied_migrations` (no high-water-mark skip-bug, no
+  parallel-worktree version collisions) and commits each migration atomically.
+  See `docs/plans/SCHEMA_BASELINE_PLAN.md`. Both P2 DDL items are deferred — the
+  ledger rows already carry the bound seat, and status+balance covers "repaid".
 
 ---
 
