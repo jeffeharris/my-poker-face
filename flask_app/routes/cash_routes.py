@@ -2282,11 +2282,10 @@ def sponsor_and_sit():
 
     # Obligation dimension: the human borrower owes the lender (house or AI
     # sponsor) the principal, regardless of which chip path funded the seat
-    # (central_bank house-issue vs AI debit). Emit the originate once here.
-    # NOTE: the matching extinguish/forgive for HUMAN borrowers settles on the
-    # leave_table path (not settle_departed_ai_stake), which is the paired P1
-    # settle item still to wire — until then this balance stays open in shadow.
-    # See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    # (central_bank house-issue vs AI debit). Emit the originate once here; the
+    # matching extinguish/forgive fires for HUMAN borrowers on the leave_table
+    # path (_leave_table_locked) and via the carry-resolution / staker-forgive
+    # routes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
     from cash_mode import economy_flags as _eflags_oblig
     from flask_app.extensions import chip_ledger_repo as _clr_oblig
 
@@ -4181,6 +4180,29 @@ def offer_stake_to_ai():
                     "[STAKE][PLAYER_OFFER] ROLLBACK AI fee/match reversal "
                     "FAILED for %r; chip-ledger audit is the backstop",
                     target_pid,
+                )
+            # 4) Reverse the obligation originate — the principal debt was born
+            #    (player_stake_principal above) before this failed create_stake,
+            #    so cancel it or oblig:<id> orphans at +principal for a stake
+            #    that never existed. Mirrors unwind_climb_funding on the
+            #    take_stake path. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            try:
+                if chip_ledger_repo is not None and _economy_flags_fund.CHIP_CUSTODY_ENABLED:
+                    from cash_mode.stake_obligations import (
+                        apply_obligation_flows,
+                        flows_on_cancel,
+                    )
+
+                    apply_obligation_flows(
+                        flows_on_cancel(stake_id, principal),
+                        chip_ledger_repo,
+                        sandbox_id=sandbox_id,
+                        context={'site': 'player_stake_offer_rollback', 'stake_id': stake_id},
+                    )
+            except Exception:
+                logger.exception(
+                    "[STAKE][PLAYER_OFFER] ROLLBACK obligation cancel FAILED for %r",
+                    stake_id,
                 )
             return jsonify({"error": "Failed to record the stake — your chips were refunded."}), 500
 

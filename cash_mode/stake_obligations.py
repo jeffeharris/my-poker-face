@@ -18,8 +18,11 @@ docs/plans/CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Obligation operations. Each maps 1:1 to a `core.economy.ledger.record_stake_*`
 # writer in the imperative shell below.
@@ -188,6 +191,11 @@ def apply_obligation_flows(
     }
     for flow in flows:
         writer = writers.get(flow.op)
-        if writer is None:  # unknown op — skip rather than mint/raise
+        if writer is None:
+            # Unknown op (a typo) would silently break conservation — skip the
+            # write (never mint), but surface it so it can't hide.
+            logger.warning(
+                "apply_obligation_flows: unknown op %r on stake %r", flow.op, flow.stake_id
+            )
             continue
         writer(flow)
