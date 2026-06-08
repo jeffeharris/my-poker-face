@@ -441,6 +441,16 @@ CAREER_PROGRESSION_ENABLED: bool = _env_flag("CAREER_PROGRESSION_ENABLED", False
 # See docs/plans/CASH_MODE_CAREER_M2_PLAN.md.
 CAREER_VOUCH_ENABLED: bool = _env_flag("CAREER_VOUCH_ENABLED", False)
 
+# Intake world warm-up. When on, completing the Lucky Stack intake fires a short
+# deterministic, no-LLM sim burst across the player's HIDDEN lobby tables (a
+# background task), so the world has accumulated history — AI↔AI relationships,
+# economy movement, table redistribution — by the time they graduate Scene 0
+# (instead of a from-zero cold start). One-shot per sandbox (`world_warmed`).
+# Inert unless CAREER_PROGRESSION_ENABLED (no intake → no trigger), so it's safe
+# ON by default; flip OFF to kill the burst. See flask_app/services/world_warmup.py
+# and docs/plans/CASH_MODE_INTAKE_WORLD_WARMUP.md.
+INTAKE_WORLD_WARMUP_ENABLED: bool = _env_flag("INTAKE_WORLD_WARMUP_ENABLED", True)
+
 # Table affinity — success-weighted room stickiness. When on, an idle AI's
 # table-selection score gains `W_AFFINITY * stake_fit * tanh(net_chips / buyins)`
 # per candidate room (cash_mode.attractiveness): it drifts back to rooms it wins

@@ -2,10 +2,21 @@
 purpose: Plan to pre-warm a new player's hidden world with a deterministic background simulation burst during the Scene-0 session, so the lobby feels lived-in by graduation
 type: spec
 created: 2026-06-07
-last_updated: 2026-06-07
+last_updated: 2026-06-08
 ---
 
 # Intake world warm-up — pre-warm the world during Scene 0
+
+> **SHIPPED (branch `circuit-progression`).** Built as
+> `flask_app/services/world_warmup.py` (`warm_up_world` core + `schedule_warm_up`
+> one-shot wrapper), fired from the intake route on completion, gated by
+> `INTAKE_WORLD_WARMUP_ENABLED` (default ON; inert unless
+> `CAREER_PROGRESSION_ENABLED`) and the one-shot `CareerProgress.world_warmed`
+> (JSON field — no migration). Reuses `refresh_unseated_tables` (no LLM, chunked
+> under the sandbox lock); conservation verified via the audit-drift invariant.
+> Tests: `tests/test_cash_mode/test_world_warmup.py`. The "trigger at the Scene-0
+> sit" below was implemented as "at intake completion" — the same moment (the sit
+> is the next beat), and a single clean hook with the lobby already seeded.
 
 ## Goal
 

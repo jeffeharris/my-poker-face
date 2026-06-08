@@ -109,6 +109,12 @@ class CareerProgress:
     # in one at a time (play-based cadence) instead of bursting when several AIs
     # cross the thresholds at once. 0 = no vouch yet (first one is uncapped).
     last_vouch_at_hands: int = 0
+    # One-shot: the off-screen world has been pre-warmed for this sandbox (a short
+    # deterministic sim burst, fired when intake completes so the hidden lobby has
+    # accumulated history — relationships, economy, redistribution — by the time
+    # the player graduates Scene 0). True once the burst has been scheduled, so a
+    # reconnect / lobby reload never re-fires it. See flask_app/services/world_warmup.py.
+    world_warmed: bool = False
 
     def has_vouched(self, personality_id: str) -> bool:
         """True if `personality_id` has already spent its one vouch (v1 rule)."""
@@ -140,6 +146,7 @@ class CareerProgress:
                 "comp_returned": self.comp_returned,
                 "mentor_stake_used": self.mentor_stake_used,
                 "last_vouch_at_hands": self.last_vouch_at_hands,
+                "world_warmed": self.world_warmed,
             }
         )
 
@@ -181,6 +188,7 @@ class CareerProgress:
             comp_returned=bool(blob.get("comp_returned", False)),
             mentor_stake_used=bool(blob.get("mentor_stake_used", False)),
             last_vouch_at_hands=int(blob.get("last_vouch_at_hands") or 0),
+            world_warmed=bool(blob.get("world_warmed", False)),
         )
 
 

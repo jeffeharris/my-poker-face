@@ -6589,6 +6589,17 @@ def cash_intake_route():
             except Exception as exc:
                 logger.warning("[CAREER] intake bio set failed: %s", exc)
         bio = persona.get("bio", "")
+        # Pre-warm the hidden world in the background (one-shot, flag-gated) so the
+        # lobby the player graduates Scene 0 into feels lived-in rather than cold.
+        # Fired here — intake done, the Scene-0 sit is the very next beat — so the
+        # burst runs through the whole tutorial session. Best-effort; never blocks
+        # or fails intake. See flask_app/services/world_warmup.py.
+        try:
+            from flask_app.services.world_warmup import schedule_warm_up
+
+            schedule_warm_up(sandbox_id, owner_id)
+        except Exception as exc:
+            logger.warning("[CAREER] world warm-up schedule failed: %s", exc)
     else:
         bio = user_prefs_repo.get_bio(owner_id) if user_prefs_repo else ""
 
