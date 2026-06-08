@@ -23,6 +23,12 @@ from poker.tiered_bot_controller import BaselineSolverBot, TieredBotController
 
 logger = logging.getLogger(__name__)
 
+# Live-path preflop/postflop raise-size jitter (fraction). The solver charts emit
+# one raise-size token per node, so without jitter every raise of a given type is
+# byte-identical — the recognizable "always exactly 3x" tell. ±12% spreads a 3x
+# 3-bet across ~2.6–3.4x. LIVE only (factory-set); sims/tests stay deterministic.
+LIVE_SIZING_JITTER = 0.12
+
 
 # Strategy tables are immutable for the process lifetime. Load them once and
 # share across every controller instead of re-reading the JSON from disk on each
@@ -132,6 +138,16 @@ def build_tiered_controller(
     # Apply the skill tier post-construction (same seam the fish path uses for
     # _deviation_profile). No-op for the default ceiling tier — see skill_tiers.
     apply_skill_tier(controller, skill)
+
+    # Live-path sizing jitter: the solver charts emit a single raise-size token
+    # (raise_3x) per preflop node, so without this every open / 3-bet is
+    # mechanically identical — the "always exactly 3x my bet" tell. Vary the
+    # resolved raise-to by ±LIVE_SIZING_JITTER on the LIVE path only; sims/tests
+    # build controllers directly and keep the deterministic 0.0 default, and the
+    # Baseline solver (GTO reference) stays exact. This is the band-aid; proper
+    # per-archetype size VARIETY is docs/plans/PREFLOP_SIZING_VARIETY.md.
+    if not baseline:
+        controller.sizing_jitter = LIVE_SIZING_JITTER
 
     # Baseline solver intentionally skips the expression layer — it's the
     # "pure GTO, no personality" option.
@@ -425,6 +441,7 @@ def build_fish_controller(
         expression_enabled=False,
     )
     controller.skip_equity_in_analysis = True
+    controller.sizing_jitter = LIVE_SIZING_JITTER  # live-path raise-size variety (see above)
     from cash_mode.stakes_ladder import WEAK_FISH_STAKES, stake_label_for_big_blind
 
     if stake_label is None:
