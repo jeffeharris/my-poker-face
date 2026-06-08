@@ -8,6 +8,7 @@ loudly instead of silently mangling the file.
 
 Run from repo root:  python scripts/_extract_legacy_migrations.py
 """
+
 import re
 
 SM = "poker/repositories/schema_manager.py"
@@ -55,8 +56,11 @@ rb = repl(
     "    def _run_migrations(self) -> None:",
     "    def run(self, connection_factory, current_version: int, target_version: int) -> None:",
 )
-rb = repl(rb, '        """Run any pending schema migrations."""\n',
-          '        """Apply the archived chain to bring a sub-baseline DB to target."""\n')
+rb = repl(
+    rb,
+    '        """Run any pending schema migrations."""\n',
+    '        """Apply the archived chain to bring a sub-baseline DB to target."""\n',
+)
 # Drop the self-fetch of current_version (now a parameter).
 rb2 = re.sub(r"[ \t]*current_version = self\._get_current_schema_version\(\)\n", "", rb, count=1)
 assert rb2 != rb, "current_version fetch line not found"
@@ -137,6 +141,8 @@ new_sm += delegator
 with open(SM, "w") as f:
     f.write(new_sm)
 
-print(f"legacy_migrations.py: {legacy.count(chr(10))} lines, "
-      f"{legacy.count('def _migrate_v')} migration methods")
+print(
+    f"legacy_migrations.py: {legacy.count(chr(10))} lines, "
+    f"{legacy.count('def _migrate_v')} migration methods"
+)
 print(f"schema_manager.py: {new_sm.count(chr(10))} lines (was {''.join(lines).count(chr(10))})")

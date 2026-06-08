@@ -37,8 +37,8 @@ from flask_app.services.chip_ledger_audit import compute_audit
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.cash_table_repository import CashTableRepository
 from poker.repositories.chip_ledger_repository import ChipLedgerRepository
-from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.legacy_migrations import LegacyMigrations
+from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.stake_repository import StakeRepository
 

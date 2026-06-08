@@ -27,8 +27,8 @@ from poker.memory.opponent_model import (
     CashPairStats,
     RelationshipState,
 )
-from poker.repositories.relationship_repository import RelationshipRepository
 from poker.repositories.legacy_migrations import LegacyMigrations
+from poker.repositories.relationship_repository import RelationshipRepository
 from poker.repositories.schema_manager import SchemaManager
 
 

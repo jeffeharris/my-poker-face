@@ -33,9 +33,7 @@ class LegacyMigrations:
         if current_version >= target_version:
             return
 
-        logger.info(
-            f"Running legacy migrations from version {current_version} to {target_version}"
-        )
+        logger.info(f"Running legacy migrations from version {current_version} to {target_version}")
 
         migrations: Dict[int, tuple] = {
             1: (self._migrate_v1_add_owner_columns, "Add owner_id and owner_name to games table"),
@@ -739,7 +737,6 @@ class LegacyMigrations:
                     except Exception as e:
                         logger.error(f"Migration v{version} failed: {e}")
                         raise
-
 
     def _migrate_v1_add_owner_columns(self, conn: sqlite3.Connection) -> None:
         """Migration v1: Add owner_id and owner_name columns to games table."""

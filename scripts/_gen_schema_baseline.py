@@ -12,6 +12,7 @@ emits:
 Run inside a backend container with the worktree mounted at /app:
     python scripts/_gen_schema_baseline.py
 """
+
 import os
 import re
 import sqlite3
@@ -38,7 +39,7 @@ def normalize(sql: str) -> str:
     uniq = (m.group("uniq") or "").upper()
     kind = m.group("kind").upper()
     head = f"CREATE {uniq}{kind} IF NOT EXISTS {m.group('name')}"
-    return head + sql[m.end():]
+    return head + sql[m.end() :]
 
 
 d = tempfile.mkdtemp()
