@@ -37,6 +37,19 @@ def test_recorder_classifies_3bet_war():
     assert lag['hands'] == 1 and lag['vpip'] == 1
 
 
+def test_weak_fish_archetype_key_not_misattributed():
+    """Regression: the recorder must identify weak_fish via the deviation
+    profile, NOT anchor-based archetype_name (which collapses weak_fish's
+    loose-passive anchors to calling_station). full_sim uses
+    `_table_archetype_key()` for exactly this reason."""
+    from poker.strategy.deviation_profiles import DEVIATION_PROFILES
+    from poker.tiered_bot_controller import TieredBotController
+
+    ctrl = TieredBotController.__new__(TieredBotController)
+    ctrl._deviation_profile = DEVIATION_PROFILES['weak_fish']
+    assert ctrl._table_archetype_key() == 'weak_fish'
+
+
 def test_recorder_no_archetype_is_noop():
     r = ArchetypeStatRecorder('sb')
     r.record_decision(None, 'X', 'PRE_FLOP', 'rfi', 'raise')

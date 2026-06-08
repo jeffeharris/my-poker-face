@@ -1285,9 +1285,17 @@ def _run_hand(
                 )
             else:
                 node = ""
+            # Use the deviation-profile key (handles explicit loadouts like
+            # weak_fish, which share loose-passive anchors with calling_station
+            # and so are indistinguishable via anchor-based `archetype_name`).
+            # Falls back to archetype_name internally when no profile is bound,
+            # and to None for non-tiered controllers. Matches the identity the
+            # live `deviation_profile_name` snapshot uses, so sim/live agree.
+            _arch_fn = getattr(ctrl, "_table_archetype_key", None)
+            archetype = _arch_fn() if callable(_arch_fn) else getattr(ctrl, "archetype_name", None)
             try:
                 archetype_recorder.record_decision(
-                    getattr(ctrl, "archetype_name", None),
+                    archetype,
                     actor_name,
                     decision_phase,
                     node,
