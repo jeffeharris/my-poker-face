@@ -47,11 +47,13 @@ export function initSentry(): void {
         enableScreenshot: true,
       }),
     ],
-    // Record 10% of all sessions, but 100% of any session that hits an error —
-    // so every bug report / crash arrives with its replay attached even though
-    // baseline sampling stays cheap.
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1.0,
+    // Both 0 so replay does NOT auto-start at page load — we don't want to
+    // record anonymous landing-page browsing (and it would burn the limited
+    // free-tier quota). Instead we manually start buffering once a session
+    // authenticates (see setReplayRecording), which still flushes a replay on
+    // any error or feedback submission for logged-in users.
+    replaysSessionSampleRate: 0,
+    replaysOnErrorSampleRate: 0,
     tracesSampleRate: 0.1,
   });
 
@@ -117,20 +119,33 @@ export function setSentryGame(gameId: string | null): void {
   Sentry.setTag('game_id', gameId ?? undefined);
 }
 
+// Tracks whether we've started the replay buffer, so we only start/stop on an
+// actual transition (startBuffering()/stop() are not safe to call repeatedly).
+let replayActive = false;
+
 /**
- * Stop session-replay recording for admins (i.e. us, dogfooding), so our own
- * testing sessions don't burn the limited free-tier replay quota or add noise.
- * Errors/feedback are still captured — only the replay recording is dropped.
+ * Gate session-replay recording on whether the session should be recorded.
  *
- * One-way + best-effort: once stopped it stays stopped for this page load. We
- * deliberately don't auto-restart on a later identity swap, because start()
- * would begin recording a *full* session (overriding our on-error-only
- * sampling); a page reload re-evaluates cleanly for whoever is signed in.
+ * Replay does not auto-start (both sample rates are 0), so this is the only
+ * thing that turns it on: we start buffering once a session authenticates, and
+ * stop on logout. Pass `false` for admins (us) too, so our dogfooding sessions
+ * don't burn the limited free-tier quota. While buffering, a replay is flushed
+ * (and attached) on any error or feedback submission.
+ *
+ * Best-effort: replay control must never throw into the app.
  */
-export function suppressReplayForAdmin(isAdmin: boolean): void {
-  if (!sentryEnabled || !isAdmin) return;
+export function setReplayRecording(shouldRecord: boolean): void {
+  if (!sentryEnabled) return;
+  const replay = Sentry.getReplay();
+  if (!replay) return;
   try {
-    void Sentry.getReplay()?.stop();
+    if (shouldRecord && !replayActive) {
+      replay.startBuffering();
+      replayActive = true;
+    } else if (!shouldRecord && replayActive) {
+      void replay.stop();
+      replayActive = false;
+    }
   } catch {
     // best-effort — never let replay control throw into the app
   }

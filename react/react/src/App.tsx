@@ -16,7 +16,7 @@ import { ShuffleLoading, GuestLimitModal } from './components/shared';
 import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor';
 import { logger } from './utils/logger';
 import { FeedbackButton } from './components/feedback/FeedbackButton';
-import { setSentryUser, setSentryGame, suppressReplayForAdmin } from './sentry';
+import { setSentryUser, setSentryGame, setReplayRecording } from './sentry';
 import { config } from './config';
 import { type Theme } from './types/theme';
 import toast, { Toaster } from 'react-hot-toast';
@@ -210,9 +210,10 @@ function App() {
     setSentryUser(
       userId ? { id: userId, name: userName ?? '', email: userEmail, isGuest: userIsGuest } : null
     );
-    // Don't record OUR (admin) replays — saves the limited free-tier quota.
-    suppressReplayForAdmin(userIsAdmin);
-  }, [userId, userName, userEmail, userIsGuest, userIsAdmin]);
+    // Only record replays for authenticated sessions (not anonymous landing-page
+    // browsing), and never for admins (us) — both to protect the free-tier quota.
+    setReplayRecording(isAuthenticated && !userIsAdmin);
+  }, [isAuthenticated, userId, userName, userEmail, userIsGuest, userIsAdmin]);
 
   // Tag the active game id (from /game/:id) so a feedback report links straight
   // to that game's admin debug views. Cleared on any non-game route.
