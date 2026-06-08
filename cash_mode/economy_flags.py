@@ -72,6 +72,25 @@ REGEN_ENABLED: bool = _flag("REGEN_ENABLED")
 SIDE_HUSTLE_ENABLED: bool = _flag("SIDE_HUSTLE_ENABLED")
 
 
+# --- Stake conservation guard ---------------------------------------------
+#
+# The stake state machine's settle-time guard (invariant 3 of
+# CASH_MODE_STAKE_STATE_MACHINE.md): before a stake pays its staker out of the
+# borrower's seat, verify the stake's FUNDING actually credited that borrower
+# seat — not the staker's own seat (the wrong-seat mint bug behind the
+# 2026-06-08 prod drift). When a violation is detected at settle:
+#   - True  → raise StakeConservationError. dev / sim / tests fail loud so a
+#             misrouted-funding regression can never ship silently.
+#   - False → logger.error (Sentry) + proceed. Production is alarm-only per the
+#             doc's staged rollout, so legacy / edge violations are observed
+#             without wedging a live player's table-leave.
+# Default False (alarm-only) keeps prod safe; the sim harness + tests flip it
+# on. The funding fixes (aspiration PR #217 + take_stake) already stop NEW
+# violations — this guard is the structural backstop that makes any future
+# origination path funding the wrong seat impossible to mint through unnoticed.
+STAKE_SETTLE_GUARD_ENFORCE: bool = os.environ.get('STAKE_SETTLE_GUARD_ENFORCE', '0').strip() == '1'
+
+
 # --- Vice mode (mutually-exclusive 3-state toggle) ------------------------
 
 # Which vice mechanism (if any) drains rich AIs into the bank pool.
