@@ -6518,8 +6518,11 @@ class SchemaManager:
             return
 
         # 2. Rescue first, so the synthesized rows are picked up by step 1's join.
-        #    A user label on a real player_decision capture with no decision row
-        #    gets a thin decision row built from the capture.
+        #    A user label on a real player-decision capture with no decision row
+        #    gets a thin decision row built from the capture. call_type IS NULL
+        #    is included: pre-v39 captures predate the column and were all player
+        #    decisions, and NULL is treated as 'player_decision' elsewhere — so
+        #    legacy hand-curated labels survive instead of being dropped.
         rescued = conn.execute(
             """
             INSERT INTO player_decision_analysis
@@ -6527,7 +6530,7 @@ class SchemaManager:
             SELECT pc.game_id, pc.player_name, pc.hand_number, pc.phase, pc.action_taken,
                    pc.id, 'backfill_v156'
             FROM prompt_captures pc
-            WHERE pc.call_type = 'player_decision'
+            WHERE (pc.call_type = 'player_decision' OR pc.call_type IS NULL)
               AND pc.game_id IS NOT NULL
               AND pc.player_name IS NOT NULL
               AND pc.id IN (

@@ -369,6 +369,32 @@ class CaptureLabelRepository(BaseRepository):
             ).fetchone()
         return row[0] if row else None
 
+    def get_labels_for_captures(self, capture_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """Batch-fetch labels keyed by capture id (avoids N+1 in capture search).
+
+        Returns a dict mapping capture_id -> list of label dicts; captures with
+        no linked decision/labels are absent.
+        """
+        if not capture_ids:
+            return {}
+        placeholders = ','.join(['?'] * len(capture_ids))
+        result: Dict[int, List[Dict[str, Any]]] = {}
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT pda.capture_id AS capture_id, dl.label, dl.label_type, dl.created_at
+                FROM decision_labels dl
+                JOIN player_decision_analysis pda ON pda.id = dl.decision_id
+                WHERE pda.capture_id IN ({placeholders})
+                ORDER BY pda.capture_id, dl.label
+            """,
+                capture_ids,
+            )
+            for row in cursor.fetchall():
+                d = dict(row)
+                result.setdefault(d.pop('capture_id'), []).append(d)
+        return result
+
     def get_labels_by_capture(self, capture_id: int) -> List[Dict[str, Any]]:
         """Get labels for the decision linked to a capture (capture-id space)."""
         with self._get_connection() as conn:
@@ -564,8 +590,11 @@ class CaptureLabelRepository(BaseRepository):
                                 field,
                                 capture.get('id'),
                             )
-                # Get labels for this capture's decision
-                capture['labels'] = self.get_labels_by_capture(capture['id'])
                 captures.append(capture)
+
+            # Attach labels in one batched query (avoids N+1 over the page).
+            labels_by_capture = self.get_labels_for_captures([c['id'] for c in captures])
+            for capture in captures:
+                capture['labels'] = labels_by_capture.get(capture['id'], [])
 
             return {'captures': captures, 'total': total}

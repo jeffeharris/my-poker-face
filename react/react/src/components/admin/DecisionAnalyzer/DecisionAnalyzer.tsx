@@ -463,6 +463,24 @@ export function DecisionAnalyzer({
     setFilters({ ...filters, labels: newLabels.length > 0 ? newLabels : undefined, offset: 0 });
   };
 
+  // Sync label edits from the detail panel back to the list row pills and the
+  // filter counts, so a freshly-added flag is immediately usable from the list.
+  const handleLabelsChanged = useCallback(
+    (
+      decisionId: number,
+      labels: Array<{ label: string; label_type: string; created_at?: string }>
+    ) => {
+      const normalized = labels.map((l) => ({ ...l, created_at: l.created_at ?? '' }));
+      setCaptures((prev) =>
+        prev.map((c) => (c.id === decisionId ? { ...c, labels: normalized } : c))
+      );
+      // Refresh label-stats so the filter chip counts (and chip existence for a
+      // brand-new label) stay accurate.
+      fetchCaptureStats();
+    },
+    [fetchCaptureStats]
+  );
+
   const activeFilterCount = getActiveFilterCount();
 
   // Get current capture index in filtered list for prev/next navigation
@@ -506,6 +524,10 @@ export function DecisionAnalyzer({
     mode,
     onModeChange: setMode,
     onSelectCapture: fetchCaptureDetail,
+    decisionLabels: selectedAnalysis
+      ? captures.find((c) => c.id === selectedAnalysis.id)?.labels
+      : undefined,
+    onLabelsChanged: handleLabelsChanged,
     modifiedSystemPrompt,
     onSystemPromptChange: setModifiedSystemPrompt,
     modifiedUserMessage,
