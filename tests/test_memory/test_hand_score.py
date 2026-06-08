@@ -137,6 +137,32 @@ def test_equity_swing_and_suckout():
     assert sc.components["lead_changes"] >= 0.5  # Vil led, then Hero
 
 
+def test_folded_hero_gets_no_bad_beat_or_swing():
+    # The hero folds early; the others fight it out. None of that drama is the
+    # hero's — no suckout/bad-beat tag, no equity_swing/lead_changes credit.
+    hand = _hand(
+        players=[_player("Hero"), _player("Vil")],
+        actions=[_action("Hero", "fold", 0)],
+        pot_size=20_000,
+        was_showdown=True,
+        winners=[_winner("Vil", 20_000)],
+    )
+    eq = _equity(
+        "g",
+        1,
+        [
+            ("FLOP", {"Hero": 0.70, "Vil": 0.30}),
+            ("TURN", {"Hero": 0.65, "Vil": 0.35}),
+            ("RIVER", {"Hero": 0.0, "Vil": 1.0}),  # would read as a "bad beat" if not gated
+        ],
+    )
+    sc = score_hand(hand, "Hero", big_blind=200, equity=eq)
+    assert "bad beat" not in sc.tags
+    assert "suckout" not in sc.tags
+    assert sc.components["equity_swing"] == 0.0
+    assert sc.components["lead_changes"] == 0.0
+
+
 def test_top_hands_ranks_and_limits():
     hands = [
         _hand(
