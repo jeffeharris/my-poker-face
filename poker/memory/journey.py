@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from ..hand_narrator import narrate_key_moments
 from .hand_history import RecordedHand
+from .hand_score import top_hands
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,32 @@ def hand_beat(
     return narrate_key_moments(hand, player_name, big_blind)
 
 
+def _spectator_beat(hand: RecordedHand) -> str:
+    """A neutral one-liner for a hand the hero wasn't central to (folded early)
+    but that still mattered at the table — they watched it happen."""
+    if hand.winners:
+        w = hand.winners[0]
+        where = " at showdown" if hand.was_showdown else ""
+        with_hand = f" with {w.hand_name}" if (hand.was_showdown and w.hand_name) else ""
+        return f"You folded; {w.name} took ${hand.pot_size:,}{where}{with_hand}"
+    return f"A ${hand.pot_size:,} pot played out"
+
+
 def session_facts(
-    hands: List[RecordedHand], player_name: str, *, big_blind: Optional[int] = None
+    hands: List[RecordedHand],
+    player_name: str,
+    *,
+    big_blind: Optional[int] = None,
+    equity_by_hand: Optional[Dict[int, Any]] = None,
+    top_n: int = 5,
 ) -> Dict[str, Any]:
-    """Hand-derived facts for one player's session: counts + notable beats.
+    """Hand-derived facts for one player's session: counts + the most DRAMATIC
+    hands (ranked by `hand_score`, not every showdown), with a one-line
+    headline of WHY each mattered (pot size, equity swing, cooler, all-in…).
+
+    Pass `big_blind` (improves the pot-size signal) and `equity_by_hand`
+    (hand_number → HandEquityHistory; enables swing/lead-change/suckout signals).
+    Both optional — scoring degrades gracefully without them.
 
     NOTE: deliberately does NOT compute session net — per-hand chip flow isn't a
     reliable session P&L (blinds, uncalled returns, rebuys). The caller supplies
@@ -52,11 +75,30 @@ def session_facts(
     mine = [h for h in hands if _player_in(h, player_name)]
     won = [h for h in mine if any(w.name == player_name for w in h.winners)]
     biggest = max((h.pot_size for h in won), default=0)
+
+    ranked = top_hands(
+        mine,
+        player_name,
+        big_blind=big_blind,
+        equity_by_hand=equity_by_hand,
+        limit=top_n,
+        min_score=1,
+    )
     beats: List[Dict[str, Any]] = []
-    for h in mine:
-        b = hand_beat(h, player_name, big_blind)
-        if b:
-            beats.append({"hand_number": h.hand_number, "text": b})
+    for h, sc in ranked:
+        # Narrate in dollars (readable); the BB is for SCORING, and the pot's BB
+        # size already rides in the headline. When the hero wasn't central
+        # (folded out of a hand that was dramatic at the table), fall back to a
+        # spectator beat instead of a bare "notable hand".
+        text = hand_beat(h, player_name) or _spectator_beat(h)
+        beats.append(
+            {
+                "hand_number": h.hand_number,
+                "text": text,
+                "headline": sc.headline,
+                "score": sc.score,
+            }
+        )
     return {
         "hands_played": len(mine),
         "hands_won": len(won),
@@ -138,8 +180,14 @@ def journey_arc_facts(session_stats: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def session_facts_text(summary: str, beats: List[Dict[str, Any]]) -> str:
-    """Flatten a session's recap + beats into the grounded input for voice_over."""
-    return "\n".join([summary] + [b["text"] for b in beats])
+    """Flatten a session's recap + ranked beats into the grounded input for
+    voice_over. Each beat carries its drama headline (pot size, swing, cooler…)
+    so the narrator can lean on WHY a hand mattered."""
+    lines = [summary]
+    for b in beats:
+        headline = b.get("headline")
+        lines.append(f"{b['text']} [{headline}]" if headline else b["text"])
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +206,12 @@ _VOICE_SYSTEM = (
 
 
 def voice_over(facts: str, *, hero: str = "the player", length: str = "2-4 sentences") -> str:
-    """Wrap deterministic facts in narrative prose via the cheap Fast tier.
+    """Wrap deterministic facts in narrative prose via the stronger Assistant tier.
+
+    The story is a deliberate, on-demand read (a button press, not an in-game
+    latency path), and the cheap Fast tier was caught embellishing dollar
+    amounts that weren't in the facts. The Assistant tier (a reasoning model)
+    stays faithful to the numbers, which matters here.
 
     Fail-soft: returns ``facts`` unchanged on any error or empty input. The
     facts are the source of truth; this only changes the telling.
@@ -168,13 +221,11 @@ def voice_over(facts: str, *, hero: str = "the player", length: str = "2-4 sente
         return ""
     try:
         from core.llm import CallType, LLMClient, settings as llm_settings
-        from core.llm.config import FAST_LLM_TIMEOUT_SECONDS
 
         client = LLMClient(
-            provider=llm_settings.get_fast_provider(),
-            model=llm_settings.get_fast_model(),
-            reasoning_effort="minimal",
-            default_timeout=FAST_LLM_TIMEOUT_SECONDS,
+            provider=llm_settings.get_assistant_provider(),
+            model=llm_settings.get_assistant_model(),
+            default_timeout=30.0,
         )
         resp = client.complete(
             messages=[
@@ -182,7 +233,7 @@ def voice_over(facts: str, *, hero: str = "the player", length: str = "2-4 sente
                 {"role": "user", "content": f"FACTS:\n{facts}\n\nTell the story."},
             ],
             json_format=False,
-            max_tokens=300,
+            max_tokens=400,
             call_type=CallType.HAND_NARRATIVE,
             prompt_template="journey_voice",
         )

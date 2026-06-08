@@ -157,6 +157,7 @@ def get_journey():
 
     voiced = request.args.get('voiced') in ('1', 'true', 'yes')
 
+    from cash_mode.stakes_ladder import STAKES_LADDER
     from poker.memory.hand_history import RecordedHand
     from poker.memory.journey import (
         cash_pnl,
@@ -167,6 +168,9 @@ def get_journey():
         summarize_session,
         voice_over,
     )
+    from poker.repositories.hand_equity_repository import HandEquityRepository
+
+    equity_repo = HandEquityRepository(extensions.hand_history_repo.db_path)
 
     # Circuit = cash mode. The owner's cash sessions are the career; session_id
     # IS the game_id ('cash-*'). Tournaments/quick-play are excluded by design.
@@ -182,7 +186,11 @@ def get_journey():
             human = next((p.name for h in hands for p in h.players if p.is_human), None)
             if not human:
                 continue
-            facts = session_facts(hands, human)
+            # Drama ranking: big blind (from the stake) sharpens the pot-size
+            # signal; the stored equity history drives swing/lead-change/suckout.
+            big_blind = (STAKES_LADDER.get(cs.stake_label or '') or {}).get('big_blind')
+            equity_by_hand = equity_repo.get_equities_for_game(cs.session_id)
+            facts = session_facts(hands, human, big_blind=big_blind, equity_by_hand=equity_by_hand)
             if facts['hands_played'] == 0:
                 continue
             player = player or human

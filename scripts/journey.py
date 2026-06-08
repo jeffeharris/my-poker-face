@@ -15,7 +15,10 @@ import json
 import sqlite3
 import sys
 
+from cash_mode.stakes_ladder import STAKES_LADDER
+from poker.equity_snapshot import EquitySnapshot, HandEquityHistory
 from poker.memory.hand_history import RecordedHand
+from poker.memory.hand_score import score_hand
 from poker.memory.journey import (
     cash_pnl,
     journey_arc_facts,
@@ -25,6 +28,31 @@ from poker.memory.journey import (
     summarize_session,
     voice_over,
 )
+
+
+def _equity_for(conn, game_id):
+    """Map hand_number -> HandEquityHistory from the stored hand_equity rows
+    (read with the caller's read-only connection)."""
+    rows = conn.execute(
+        "SELECT hand_number, street, player_name, player_hole_cards, board_cards, "
+        "equity, was_active, sample_count FROM hand_equity WHERE game_id=?",
+        (game_id,),
+    ).fetchall()
+    by_hand: dict = {}
+    for r in rows:
+        by_hand.setdefault(r["hand_number"], []).append(
+            EquitySnapshot(
+                player_name=r["player_name"],
+                street=r["street"],
+                equity=r["equity"],
+                hole_cards=tuple(json.loads(r["player_hole_cards"] or "[]")),
+                board_cards=tuple(json.loads(r["board_cards"] or "[]")),
+                was_active=bool(r["was_active"]),
+                sample_count=r["sample_count"],
+            )
+        )
+    return {hn: HandEquityHistory(None, game_id, hn, tuple(snaps)) for hn, snaps in by_hand.items()}
+
 
 DEFAULT_DB = "/app/data/poker_games.db"
 
@@ -54,6 +82,7 @@ def main() -> int:
     ap.add_argument("--db", default=DEFAULT_DB)
     ap.add_argument("--voiced", action="store_true", help="LLM prose over the facts")
     ap.add_argument("--cash", action="store_true", help="circuit/cash games only (cash-*)")
+    ap.add_argument("--score", action="store_true", help="rank each session's top hands by drama")
     ap.add_argument("--limit-games", type=int, default=10)
     args = ap.parse_args()
 
@@ -86,9 +115,6 @@ def main() -> int:
             "SELECT * FROM hand_history WHERE game_id=? ORDER BY hand_number", (gid,)
         ).fetchall()
         hands = [_row_to_recorded_hand(r) for r in rows]
-        facts = session_facts(hands, args.player)
-        if facts["hands_played"] == 0:
-            continue
         # Money from the cash-session ledger (truth), not summed from hands.
         cs = c.execute(
             "SELECT total_buy_in, sponsor_principal, player_take_home, ended_at, stake_label "
@@ -106,6 +132,13 @@ def main() -> int:
             buy_in = own_buy_in(cs["total_buy_in"], cs["sponsor_principal"])
             take_home = cs["player_take_home"]
             stake = cs["stake_label"]
+        # Drama ranking: pot-size signal wants the big blind (from the stake),
+        # swing/lead-change signals want the stored equity history.
+        bb = (STAKES_LADDER.get(stake or "") or {}).get("big_blind")
+        equity_by_hand = _equity_for(c, gid)
+        facts = session_facts(hands, args.player, big_blind=bb, equity_by_hand=equity_by_hand)
+        if facts["hands_played"] == 0:
+            continue
         summary = summarize_session(
             args.player,
             hands_played=facts["hands_played"],
@@ -126,8 +159,20 @@ def main() -> int:
         )
         print(f"\n── {stake or 'Session'}  ({gid[:20]}…) ──")
         print(f"   {summary}")
+        print("   ★ Most dramatic hands:")
         for b in facts["beats"]:
-            print(f"     • hand {b['hand_number']}: {b['text']}")
+            tail = f"  — {b['headline']}" if b.get("headline") else ""
+            print(f"     [{b.get('score', 0):3d}] hand {b['hand_number']}: {b['text']}{tail}")
+            if args.score:  # component breakdown for tuning
+                sc = score_hand(
+                    next(h for h in hands if h.hand_number == b["hand_number"]),
+                    args.player,
+                    big_blind=bb,
+                    equity=equity_by_hand.get(b["hand_number"]),
+                )
+                print(
+                    "           " + "  ".join(f"{k}={v:.2f}" for k, v in sc.components.items() if v)
+                )
         if args.voiced:
             print(
                 "\n   STORY:",

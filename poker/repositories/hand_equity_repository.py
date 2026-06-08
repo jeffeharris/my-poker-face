@@ -164,6 +164,40 @@ class HandEquityRepository(BaseRepository):
                 snapshots=tuple(snapshots),
             )
 
+    def get_equities_for_game(self, game_id: str) -> Dict[int, HandEquityHistory]:
+        """Every hand's equity history for a game, keyed by hand_number, in ONE
+        query (vs N calls to get_equity_history_by_game_hand). Used by the
+        journey/drama scorer, which needs equity for all of a session's hands."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT hand_number, hand_history_id, street, player_name,
+                       player_hole_cards, board_cards, equity, was_active, sample_count
+                FROM hand_equity
+                WHERE game_id = ?
+                """,
+                (game_id,),
+            ).fetchall()
+        by_hand: Dict[int, List[EquitySnapshot]] = {}
+        for row in rows:
+            by_hand.setdefault(row["hand_number"], []).append(
+                EquitySnapshot(
+                    player_name=row["player_name"],
+                    street=row["street"],
+                    equity=row["equity"],
+                    hole_cards=tuple(json.loads(row["player_hole_cards"] or "[]")),
+                    board_cards=tuple(json.loads(row["board_cards"] or "[]")),
+                    was_active=bool(row["was_active"]),
+                    sample_count=row["sample_count"],
+                )
+            )
+        return {
+            hn: HandEquityHistory(
+                hand_history_id=None, game_id=game_id, hand_number=hn, snapshots=tuple(snaps)
+            )
+            for hn, snaps in by_hand.items()
+        }
+
     def get_player_equity_stats(
         self, player_name: str, game_id: Optional[str] = None, limit: int = 100
     ) -> Dict[str, Any]:

@@ -12,6 +12,8 @@ import './MyStory.css';
 interface Beat {
   hand_number: number;
   text: string;
+  headline?: string; // why this hand mattered (pot size, swing, cooler, all-in…)
+  score?: number; // 0-100 drama score (hands are surfaced ranked by this)
 }
 
 interface SessionStats {
@@ -145,6 +147,7 @@ export function MyStory({ onBack }: MyStoryProps) {
                 {s.beats.map((b) => (
                   <li key={b.hand_number}>
                     <span className="mystory__hand">#{b.hand_number}</span> {b.text}
+                    {b.headline && <span className="mystory__headline">{b.headline}</span>}
                   </li>
                 ))}
               </ul>

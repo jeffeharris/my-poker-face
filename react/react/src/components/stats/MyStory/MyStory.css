@@ -133,3 +133,11 @@
   font-variant-numeric: tabular-nums;
   margin-right: 6px;
 }
+
+.mystory__headline {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: #c8a24a;
+  letter-spacing: 0.01em;
+}
