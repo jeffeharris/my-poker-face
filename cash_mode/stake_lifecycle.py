@@ -192,6 +192,7 @@ def fund_climb_stake(
         ai_seat,
         record_ai_regen,
         record_stake_fund,
+        record_stake_originate,
     )
 
     try:
@@ -292,6 +293,19 @@ def fund_climb_stake(
                     'stake_id': stake_id,
                     'sandbox_id': sandbox_id,
                 },
+                sandbox_id=sandbox_id,
+                conn=conn,
+            )
+            # Obligation dimension (P1 shadow): the principal debt is born on
+            # the borrower (climber) — `oblig_genesis → oblig:<stake_id>`. Same
+            # `conn` as the chip-side stake_fund so the two axes commit atomically
+            # (a partial write would desync debt from chips). Bank-neutral →
+            # invisible to chip drift. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            record_stake_originate(
+                chip_ledger_repo,
+                stake_id=stake_id,
+                principal=principal,
+                context={'site': 'ai_aspire_grubstake', 'sandbox_id': sandbox_id},
                 sandbox_id=sandbox_id,
                 conn=conn,
             )

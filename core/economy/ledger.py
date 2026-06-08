@@ -171,6 +171,24 @@ LEDGER_REASONS = frozenset(
         # `stored − derived` in the `reconciliation` account so a derived
         # bankroll re-aligns with its authoritative stored int. Bank-neutral
         # (no central_bank side) → invisible to pool-depth + drift sums.
+        # Obligation dimension (staking) — a SECOND accounting axis that tracks
+        # the DEBT (borrower owes staker the principal), separate from chip
+        # custody. Both ends are `oblig*` accounts (never a chip account /
+        # central_bank / seat), so these rows are bank-neutral TRANSFERS,
+        # structurally invisible to the chip drift + bank-pool sums. They give
+        # each stake a per-contract conservation invariant the chip layer can't
+        # express (stake chips commingle with gameplay winnings on the seat).
+        # See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        'stake_originate',  # oblig_genesis → oblig:<stake_id>: the principal debt
+        # coming into existence at funding (principal ONLY — never
+        # match_amount / origination_fee, which aren't debts to the
+        # staker). Pairs 1:1 with the chip-side stake_fund / ai_buy_in.
+        'stake_extinguish',  # oblig:<stake_id> → oblig_settled: principal RECOVERED
+        # at settle (`min(S, principal)`). The staker's profit share
+        # (`cut×winnings`) is NOT here — it's a pure chip flow, not
+        # debt repayment.
+        'stake_forgive',  # oblig:<stake_id> → oblig_forgiven: unrecovered principal
+        # written off (default / house forgiveness — bad debt).
     }
 )
 
@@ -190,6 +208,23 @@ TRANSFER_REASONS = frozenset(
         'tournament_buy_in',
         'tournament_payout',
         'ledger_reconciliation',
+        'stake_originate',
+        'stake_extinguish',
+        'stake_forgive',
+    }
+)
+
+# Obligation-dimension reasons — the staking debt axis. A strict subset of
+# TRANSFER_REASONS whose rows live entirely in the `oblig*` namespace. Kept as
+# its own set so bank-pool / chip views can cleanly exclude the second axis
+# (the rows are already bank-neutral, so this is belt-and-suspenders for any
+# reason-iterating view — e.g. a future per-reason breakdown that shouldn't
+# show debt rows as chip movement). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+OBLIGATION_REASONS = frozenset(
+    {
+        'stake_originate',
+        'stake_extinguish',
+        'stake_forgive',
     }
 )
 
@@ -323,6 +358,47 @@ def reconciliation() -> str:
     a growing magnitude flags a fresh leak to chase.
     """
     return "reconciliation"
+
+
+# --- Obligation dimension (staking debt) — see CASH_MODE_STAKING_OBLIGATION_LEDGER.md
+#
+# A second accounting axis: `oblig:<stake_id>` holds the OUTSTANDING PRINCIPAL
+# the borrower owes the staker on that stake. The three contra accounts mark
+# where principal flows as the contract moves. Every obligation row keeps BOTH
+# ends in this namespace, so it never touches a chip account / central_bank /
+# seat — making it a bank-neutral transfer the chip-conservation sums ignore.
+#
+# Discipline: read the per-contract invariant via the per-stake `oblig(stake_id)`
+# account ONLY. The contras aggregate across all stakes and are meaningful only
+# in bulk (e.g. `balance_of(oblig_forgiven())` = total bad debt written off);
+# never treat a contra balance as one stake's state.
+
+
+def oblig(stake_id: str) -> str:
+    """Outstanding principal the borrower owes the staker on `stake_id`.
+
+    `balance_of(oblig(stake_id))` > 0 ⇒ live debt (active or carried); == 0 ⇒
+    fully recovered or written off. This is the per-contract conservation
+    handle.
+    """
+    if not stake_id:
+        raise ValueError("oblig() requires a non-empty stake_id")
+    return f"oblig:{stake_id}"
+
+
+def oblig_genesis() -> str:
+    """Contra for origination — principal debt coming into existence."""
+    return "oblig_genesis"
+
+
+def oblig_settled() -> str:
+    """Contra for recovery — principal returned to the staker at settle."""
+    return "oblig_settled"
+
+
+def oblig_forgiven() -> str:
+    """Contra for write-off — unrecovered principal forgiven / defaulted."""
+    return "oblig_forgiven"
 
 
 # --- D2: ledger-derived bankroll (the int becomes a cache of these) ---------
@@ -762,6 +838,152 @@ def record_stake_payoff(
         sink=sink,
         amount=amount,
         reason='stake_payoff',
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+# --- Obligation dimension writers (staking debt) ---------------------------
+#
+# Thin wrappers over `record_transfer` that move principal within the `oblig*`
+# namespace. They MUST go through `record_transfer` (not `record`) — the rows
+# are bank-neutral, and `record` would reject a row with no central_bank side.
+# Each carries `context.stake_id` (so `entries_for_stake` finds it) and
+# `sandbox_id`. Best-effort like the chip transfers: a dropped obligation row
+# is a forensics gap, not a chip-conservation problem, so a failure logs and
+# returns None rather than tearing down the stake's chip-moving path.
+
+
+def _record_obligation(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    reason: str,
+    stake_id: str,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """Write one obligation-dimension row. `reason` must be in
+    `OBLIGATION_REASONS`; both `source` and `sink` must be `oblig*` accounts
+    (enforced so a debt row can never accidentally touch a chip account). The
+    `stake_id` is stamped into the context for per-contract lookup."""
+    if reason not in OBLIGATION_REASONS:
+        logger.warning(
+            "chip ledger: rejecting _record_obligation with non-obligation reason=%r",
+            reason,
+        )
+        return None
+    for label, acct in (("source", source), ("sink", sink)):
+        if not (
+            acct == "oblig_genesis"
+            or acct == "oblig_settled"
+            or acct == "oblig_forgiven"
+            or acct.startswith("oblig:")
+        ):
+            logger.warning(
+                "chip ledger: rejecting _record_obligation with non-oblig %s=%r "
+                "(obligation rows must stay in the oblig* namespace)",
+                label,
+                acct,
+            )
+            return None
+    ctx = dict(context or {})
+    ctx['stake_id'] = stake_id
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason=reason,
+        context=ctx,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_stake_originate(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    stake_id: str,
+    principal: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """`oblig_genesis → oblig:<stake_id>` for `principal` — the debt is born.
+
+    `principal` ONLY (never match_amount / origination_fee — those aren't debts
+    to the staker). No-op when `repo` is None or `principal <= 0`."""
+    if repo is None or principal <= 0:
+        return None
+    return _record_obligation(
+        repo,
+        source=oblig_genesis(),
+        sink=oblig(stake_id),
+        amount=principal,
+        reason='stake_originate',
+        stake_id=stake_id,
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_stake_extinguish(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    stake_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """`oblig:<stake_id> → oblig_settled` for `amount` — principal recovered.
+
+    `amount` is the principal returned to the staker (`min(S, principal)`), NOT
+    `staker_payout` (which includes profit share — a chip-only flow). After a
+    clean settle `balance_of(oblig(stake_id))` is 0; after a partial recovery it
+    is the carry. No-op when `repo` is None or `amount <= 0`."""
+    if repo is None or amount <= 0:
+        return None
+    return _record_obligation(
+        repo,
+        source=oblig(stake_id),
+        sink=oblig_settled(),
+        amount=amount,
+        reason='stake_extinguish',
+        stake_id=stake_id,
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_stake_forgive(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    stake_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+    conn=None,
+) -> Optional[int]:
+    """`oblig:<stake_id> → oblig_forgiven` for `amount` — unrecovered principal
+    written off (default / house forgiveness). Drives `oblig:<stake_id>` to 0.
+    No-op when `repo` is None or `amount <= 0`."""
+    if repo is None or amount <= 0:
+        return None
+    return _record_obligation(
+        repo,
+        source=oblig(stake_id),
+        sink=oblig_forgiven(),
+        amount=amount,
+        reason='stake_forgive',
+        stake_id=stake_id,
         context=context,
         sandbox_id=sandbox_id,
         conn=conn,
