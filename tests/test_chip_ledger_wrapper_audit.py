@@ -131,12 +131,12 @@ class TestWrapperToAudit:
         db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo = env
         chip_ledger.record_house_stake_issue(
             ledger_repo,
-            owner_id='alice',
+            game_id='cash-alice-1',
             amount=200,
         )
         chip_ledger.record_house_stake_settle(
             ledger_repo,
-            owner_id='alice',
+            game_id='cash-alice-1',
             amount=50,
         )
         chip_ledger.record_forgive_balance(

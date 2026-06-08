@@ -170,7 +170,7 @@ class TestDestructionHelpers:
     def test_house_stake_settle_helper_no_op_when_amount_zero(self, ledger_repo):
         result = chip_ledger.record_house_stake_settle(
             ledger_repo,
-            owner_id="alice",
+            game_id="cash-alice-1",
             amount=0,
         )
         assert result is None
