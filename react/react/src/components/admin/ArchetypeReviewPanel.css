@@ -46,6 +46,13 @@
   background: #4a5cff;
   color: #fff;
 }
+.arp-mode:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.arp-mode:disabled.arp-mode--active {
+  opacity: 0.8;
+}
 .arp-refresh {
   background: #2a2a32;
   border: 1px solid #3a3a42;

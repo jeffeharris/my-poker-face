@@ -98,19 +98,26 @@ export function ArchetypeReviewPanel({ embedded = false }: Props) {
               </button>
             ))}
           </div>
-          {source === 'live' && (
-            <div className="arp-modes">
-              {MODES.map((m) => (
+          <div
+            className="arp-modes"
+            title={source === 'sim' ? 'Sim is cash-only (AI-vs-AI background games)' : ''}
+          >
+            {MODES.map((m) => {
+              // Sim is cash-only — keep the toggle visible (don't vanish it) but
+              // disabled, with 'cash' shown active, so the layout doesn't jump.
+              const active = source === 'sim' ? m === 'cash' : mode === m;
+              return (
                 <button
                   key={m}
-                  className={`arp-mode ${mode === m ? 'arp-mode--active' : ''}`}
-                  onClick={() => setMode(m)}
+                  className={`arp-mode ${active ? 'arp-mode--active' : ''}`}
+                  onClick={() => source === 'live' && setMode(m)}
+                  disabled={source === 'sim'}
                 >
                   {m}
                 </button>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
           <button className="arp-refresh" onClick={() => load(source, mode)} disabled={loading}>
             <RefreshCw size={14} className={loading ? 'arp-spin' : ''} />
           </button>
