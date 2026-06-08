@@ -67,6 +67,14 @@ _GUEST_TRACKING_SIGNER_SALT = 'guest-tracking-v1'
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(days=7)
 
+# Native (mobile) token lifetimes. Native clients hold tokens at rest in the
+# device Keychain/Keystore and refresh them, so the access token is short-lived
+# (limits the blast radius if one leaks) and paired with a long-lived refresh
+# token. The legacy JWT_EXPIRATION_DELTA above still backs generate_token() for
+# any non-browser API client that wants a single long-lived bearer token.
+ACCESS_TOKEN_EXPIRATION = timedelta(hours=1)
+REFRESH_TOKEN_EXPIRATION = timedelta(days=30)
+
 # OAuth state expiration (10 minutes)
 OAUTH_STATE_EXPIRATION = timedelta(minutes=10)
 GUEST_ID_PATTERN = re.compile(r'^guest_[a-f0-9]{32}$')
@@ -516,9 +524,49 @@ class AuthManager:
                 )
 
             session_user = self._google_session_user(user_data)
-            token = self.generate_token(session_user)
             logger.info(f"User {user_data['id']} logged in via Google native sign-in")
-            return jsonify({'success': True, 'user': session_user, 'token': token})
+            return jsonify(
+                {
+                    'success': True,
+                    'user': session_user,
+                    'token': self.generate_access_token(session_user),
+                    'refresh_token': self.generate_refresh_token(session_user['id']),
+                    'expires_in': int(ACCESS_TOKEN_EXPIRATION.total_seconds()),
+                }
+            )
+
+        @self.app.route('/api/auth/token/refresh', methods=['POST'])
+        def refresh_token():
+            """Exchange a valid refresh token for a fresh access token.
+
+            Stateless and bearer-only (no cookies), so it carries no CSRF
+            requirement (exempted in flask_app.csrf). The refresh token is
+            rotated on every use; identity is re-read from the DB so name /
+            permission changes take effect on the next refresh.
+            """
+            data = request.get_json(silent=True) or {}
+            user_id = self.decode_refresh_token(data.get('refresh_token'))
+            if not user_id:
+                return (
+                    jsonify({'success': False, 'error': 'Invalid refresh token'}),
+                    401,
+                )
+
+            user_row = self.user_repo.get_user_by_id(user_id) if self.user_repo else None
+            # Refresh tokens are only issued to real (non-guest) accounts.
+            if not user_row or user_row.get('is_guest'):
+                return jsonify({'success': False, 'error': 'User not found'}), 401
+
+            session_user = self._google_session_user(user_row)
+            return jsonify(
+                {
+                    'success': True,
+                    'user': session_user,
+                    'token': self.generate_access_token(session_user),
+                    'refresh_token': self.generate_refresh_token(user_id),
+                    'expires_in': int(ACCESS_TOKEN_EXPIRATION.total_seconds()),
+                }
+            )
 
     @staticmethod
     def _is_valid_guest_id(guest_id: Optional[str]) -> bool:
@@ -703,11 +751,7 @@ class AuthManager:
             auth_header = request.headers.get('Authorization')
             if auth_header and auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
-                try:
-                    payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-                    user = payload.get('user')
-                except jwt.InvalidTokenError as e:
-                    logger.debug(f"Invalid JWT token: {e}")
+                user = self.get_user_from_token(token)
 
                 # Check for guest_id cookie and restore session if valid.
                 # The cookie is signed (T1-26); _unsign_guest_id returns
@@ -816,9 +860,90 @@ class AuthManager:
         }
 
     def generate_token(self, user_data: Dict[str, Any]) -> str:
-        """Generate a JWT token for the user."""
+        """Generate a long-lived JWT (legacy API-client token)."""
         payload = {'user': user_data, 'exp': datetime.utcnow() + JWT_EXPIRATION_DELTA}
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+    def generate_access_token(self, user_data: Dict[str, Any]) -> str:
+        """Generate a short-lived access token (native sign-in)."""
+        payload = {
+            'user': user_data,
+            'type': 'access',
+            'exp': datetime.utcnow() + ACCESS_TOKEN_EXPIRATION,
+        }
+        return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+    def generate_refresh_token(self, user_id: str) -> str:
+        """Generate a long-lived refresh token bound to a user id.
+
+        Carries only the user id (not the full user dict) so a refresh always
+        re-reads fresh identity/permissions from the DB rather than trusting a
+        stale snapshot baked into the token.
+        """
+        payload = {
+            'sub': user_id,
+            'type': 'refresh',
+            'exp': datetime.utcnow() + REFRESH_TOKEN_EXPIRATION,
+        }
+        return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+    def get_user_from_token(self, token: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Decode a bearer access (or legacy) token into a user dict.
+
+        Returns None for missing/invalid/expired tokens, and explicitly rejects
+        a refresh token being presented for access.
+        """
+        if not token:
+            return None
+        try:
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        except jwt.InvalidTokenError as e:
+            logger.debug(f"Invalid JWT token: {e}")
+            return None
+        if payload.get('type') == 'refresh':
+            logger.debug("Refresh token presented as access token; rejecting")
+            return None
+        return payload.get('user')
+
+    def decode_refresh_token(self, token: Optional[str]) -> Optional[str]:
+        """Return the user id from a valid refresh token, else None."""
+        if not token:
+            return None
+        try:
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        except jwt.InvalidTokenError as e:
+            logger.debug(f"Invalid refresh token: {e}")
+            return None
+        if payload.get('type') != 'refresh':
+            return None
+        return payload.get('sub')
+
+    def authenticate_socket(self, auth: Any) -> Optional[Dict[str, Any]]:
+        """Resolve (and persist) the user for a Socket.IO connection.
+
+        Browser clients authenticate via the handshake session cookie, which
+        ``get_current_user`` already sees. Native clients can't set custom
+        headers on a WebSocket upgrade, so they pass their access token in the
+        Socket.IO ``auth`` payload (``{'token': '...'}``). When that's how the
+        socket authenticates, we stash the user in the socket session so every
+        later event's ``get_current_user()`` resolves it without re-decoding.
+
+        Returns the user dict if authenticated, else None.
+        """
+        user = self.get_current_user()
+        if user:
+            return user
+
+        token = auth.get('token') if isinstance(auth, dict) else None
+        if isinstance(token, str) and token.startswith('Bearer '):
+            token = token.split(' ', 1)[1]
+
+        user = self.get_user_from_token(token)
+        if user:
+            # Persist into the socket session for subsequent events.
+            session['user'] = user
+            session.permanent = True
+        return user
 
     def require_auth(self, f):
         """Decorator to require authentication for a route."""

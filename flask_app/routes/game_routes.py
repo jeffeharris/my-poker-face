@@ -2457,7 +2457,7 @@ def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
 
     @sio.on('connect')
-    def on_connect():
+    def on_connect(auth=None):
         """Register cash presence + join the per-user lobby room.
 
         Drives the realtime world ticker: a sandbox is ticked while the
@@ -2465,13 +2465,23 @@ def register_socket_events(sio):
         Best-effort and non-fatal: anonymous/guest sockets or any
         resolution failure just skip presence, leaving game sockets
         working exactly as before. We never reject the connection.
+
+        Native (mobile) clients can't set an Authorization header on the
+        WebSocket upgrade, so they pass their access token in the Socket.IO
+        ``auth`` payload. authenticate_socket() resolves it (falling back to
+        the handshake cookie for browsers) and stashes the user in the socket
+        session so subsequent events authenticate without re-decoding.
         """
         try:
             from flask_app.extensions import sandbox_repo
             from flask_app.services import presence
             from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
-            user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+            user = (
+                extensions.auth_manager.authenticate_socket(auth)
+                if extensions.auth_manager
+                else None
+            )
             owner_id = user.get('id') if user else None
             if not owner_id:
                 return  # unauthenticated socket — nothing to track

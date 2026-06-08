@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
+import { createAuthedSocket } from '../../utils/socket';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
 import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
@@ -434,7 +434,7 @@ export function Lobby() {
   // instant motion ahead of the refetch. No-op gracefully if the socket
   // can't connect — the fallback poll above still refreshes.
   useEffect(() => {
-    const socket = io(config.SOCKET_URL, {
+    const socket = createAuthedSocket(config.SOCKET_URL, {
       withCredentials: true,
       ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
     });

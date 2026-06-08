@@ -41,8 +41,10 @@ logger = logging.getLogger(__name__)
 _MUTATING_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
 
 # Paths exempt from the header check (still receive a token cookie). Kept tiny
-# and explicit: only auth bootstrap + the external OAuth callback.
-_EXEMPT_EXACT = frozenset({'/api/auth/login'})
+# and explicit: only auth bootstrap + the external OAuth callback + the
+# bearer-only native token refresh (no cookie auth, so CSRF doesn't apply —
+# native clients have no CSRF cookie to send).
+_EXEMPT_EXACT = frozenset({'/api/auth/login', '/api/auth/token/refresh'})
 _EXEMPT_PREFIXES = ('/api/auth/google/',)
 
 

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createAuthedSocket } from '../utils/socket';
 import toast from 'react-hot-toast';
 import type {
   ChatMessage,
@@ -666,7 +667,7 @@ export function usePokerGame({
       // frames during the upgrade probe. Production (gunicorn +
       // GeventWebSocketWorker behind Caddy) handles WS fine, so let
       // socket.io negotiate normally there.
-      const socket = io(config.SOCKET_URL, {
+      const socket = createAuthedSocket(config.SOCKET_URL, {
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,

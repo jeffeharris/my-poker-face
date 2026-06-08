@@ -102,10 +102,14 @@ def test_native_login_creates_user_and_returns_bearer_token():
     assert body['user']['is_guest'] is False
     token = body['token']
     assert token
+    # Native sign-in returns an access + refresh token pair plus expiry.
+    assert body['refresh_token']
+    assert body['refresh_token'] != token
+    assert body['expires_in'] == 3600
 
     repo.create_google_user.assert_called_once()
 
-    # The returned JWT must authenticate via the Authorization header.
+    # The returned access token must authenticate via the Authorization header.
     me = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
     assert me.get_json()['user']['id'] == 'google_sub-123'
 
@@ -215,6 +219,165 @@ def test_native_route_is_csrf_exempt_by_prefix():
     app = Flask(__name__)
     with app.test_request_context('/api/auth/google/native', method='POST'):
         assert _is_protected_request() is False
+
+
+def test_native_route_and_refresh_are_csrf_exempt():
+    """Both bearer-only auth endpoints must bypass the CSRF double-submit."""
+    from flask_app.csrf import _is_protected_request
+
+    app = Flask(__name__)
+    for path in ('/api/auth/google/native', '/api/auth/token/refresh'):
+        with app.test_request_context(path, method='POST'):
+            assert _is_protected_request() is False, path
+
+
+# --- Refresh token flow -----------------------------------------------------
+
+
+def _user_row():
+    return {
+        'id': 'google_sub-123',
+        'email': 'p@example.com',
+        'name': 'Phil',
+        'picture': 'http://pic',
+        'is_guest': 0,
+        'created_at': '2026-01-01T00:00:00',
+    }
+
+
+def test_refresh_exchanges_for_new_tokens():
+    repo = _fresh_repo()
+    repo.get_user_by_id.return_value = _user_row()
+    app, manager = _make_app(repo)
+    client = app.test_client()
+
+    refresh = manager.generate_refresh_token('google_sub-123')
+    resp = client.post('/api/auth/token/refresh', json={'refresh_token': refresh})
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['success'] is True
+    assert body['user']['id'] == 'google_sub-123'
+    assert body['expires_in'] == 3600
+    # Rotated: a fresh refresh token is issued, and the access token works.
+    assert body['refresh_token']
+    repo.get_user_by_id.assert_called_once_with('google_sub-123')
+
+    me = client.get(
+        '/api/auth/me', headers={'Authorization': f"Bearer {body['token']}"}
+    )
+    assert me.get_json()['user']['id'] == 'google_sub-123'
+
+
+def test_refresh_rejects_access_token():
+    repo = _fresh_repo()
+    app, manager = _make_app(repo)
+    client = app.test_client()
+
+    access = manager.generate_access_token({'id': 'google_sub-123', 'name': 'Phil'})
+    resp = client.post('/api/auth/token/refresh', json={'refresh_token': access})
+
+    assert resp.status_code == 401
+    repo.get_user_by_id.assert_not_called()
+
+
+def test_refresh_rejects_garbage_token():
+    repo = _fresh_repo()
+    app, _ = _make_app(repo)
+    client = app.test_client()
+
+    resp = client.post('/api/auth/token/refresh', json={'refresh_token': 'not.a.jwt'})
+    assert resp.status_code == 401
+
+
+def test_refresh_rejects_unknown_user():
+    repo = _fresh_repo()
+    repo.get_user_by_id.return_value = None
+    app, manager = _make_app(repo)
+    client = app.test_client()
+
+    refresh = manager.generate_refresh_token('google_sub-gone')
+    resp = client.post('/api/auth/token/refresh', json={'refresh_token': refresh})
+    assert resp.status_code == 401
+
+
+def test_refresh_rejects_guest_user():
+    repo = _fresh_repo()
+    guest_row = _user_row()
+    guest_row['is_guest'] = 1
+    repo.get_user_by_id.return_value = guest_row
+    app, manager = _make_app(repo)
+    client = app.test_client()
+
+    refresh = manager.generate_refresh_token('guest_whatever')
+    resp = client.post('/api/auth/token/refresh', json={'refresh_token': refresh})
+    assert resp.status_code == 401
+
+
+def test_access_token_authenticates_but_refresh_token_does_not():
+    """A refresh token must never be accepted as a bearer access token."""
+    repo = _fresh_repo()
+    app, manager = _make_app(repo)
+    client = app.test_client()
+
+    access = manager.generate_access_token({'id': 'u1', 'name': 'A'})
+    refresh = manager.generate_refresh_token('u1')
+
+    ok = client.get('/api/auth/me', headers={'Authorization': f'Bearer {access}'})
+    assert ok.get_json()['user']['id'] == 'u1'
+
+    bad = client.get('/api/auth/me', headers={'Authorization': f'Bearer {refresh}'})
+    assert bad.get_json()['user'] is None
+
+
+# --- Socket.IO auth payload -------------------------------------------------
+
+
+def test_authenticate_socket_resolves_token_payload_and_persists():
+    repo = _fresh_repo()
+    app, manager = _make_app(repo)
+    access = manager.generate_access_token({'id': 'u1', 'name': 'A', 'is_guest': False})
+
+    with app.test_request_context('/socket.io/'):
+        from flask import session
+
+        user = manager.authenticate_socket({'token': access})
+        assert user is not None and user['id'] == 'u1'
+        # Persisted into the (socket) session for later events.
+        assert session['user']['id'] == 'u1'
+
+
+def test_authenticate_socket_accepts_bearer_prefixed_token():
+    repo = _fresh_repo()
+    app, manager = _make_app(repo)
+    access = manager.generate_access_token({'id': 'u1', 'name': 'A'})
+
+    with app.test_request_context('/socket.io/'):
+        user = manager.authenticate_socket({'token': f'Bearer {access}'})
+        assert user is not None and user['id'] == 'u1'
+
+
+def test_authenticate_socket_returns_none_without_credentials():
+    repo = _fresh_repo()
+    app, manager = _make_app(repo)
+
+    with app.test_request_context('/socket.io/'):
+        assert manager.authenticate_socket(None) is None
+        assert manager.authenticate_socket({}) is None
+        assert manager.authenticate_socket({'token': 'garbage'}) is None
+
+
+def test_authenticate_socket_prefers_existing_session_cookie():
+    """Browser path: an authenticated session is used without an auth payload."""
+    repo = _fresh_repo()
+    app, manager = _make_app(repo)
+
+    with app.test_request_context('/socket.io/'):
+        from flask import session
+
+        session['user'] = {'id': 'cookie-user', 'name': 'C', 'is_guest': False}
+        user = manager.authenticate_socket(None)
+        assert user is not None and user['id'] == 'cookie-user'
 
 
 class TestVerifyGoogleIdToken:
