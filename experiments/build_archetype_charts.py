@@ -196,10 +196,19 @@ def _loosen_facing(actions: dict, keep_fold: float, raise_share: float = 0.4) ->
     return out
 
 
-def _station_facing(actions: dict, keep_fold: float) -> dict:
+def _station_facing(actions: dict, keep_fold: float, damp_raise: float = 0.0) -> dict:
     """Calling-station transform: cut fold to `keep_fold` * original and put
     ~ALL freed mass into CALL (a hair into raise so it isn't perfectly face-up).
     Produces high VPIP via flats with low PFR. Pure-fold hands stay folded.
+
+    `damp_raise` (in [0, 1]) additionally routes that fraction of the row's
+    EXISTING re-raise mass into call. The base chart 3-bets its premiums (AA/KK
+    raise ~85% facing an open); a calling station TRAPS those — it flats, it does
+    not 3-bet. Without this the freed-fold redistribution alone left the station
+    inheriting the base's ~18% facing-open 3-bet (realized ~13%, band 1–5). At
+    0.85 the station 3-bets premiums ~13% of the time it holds them — a stray,
+    readable spike, not a reg's polarized 3-bet game. vs_open/vs_3bet only; RFI
+    (open-or-fold) is untouched so PFR is unchanged.
     """
     fold = actions.get('fold', 0.0)
     if fold >= 0.999:
@@ -211,8 +220,10 @@ def _station_facing(actions: dict, keep_fold: float) -> dict:
     raise_keys = [a for a in actions if a.startswith('raise') or a in ('all_in', 'jam')]
     if raise_keys:
         rk = raise_keys[0]
-        out[rk] = out.get(rk, 0.0) + freed * 0.08
-        out['call'] = out.get('call', 0.0) + freed * 0.92
+        existing_raise = out.get(rk, 0.0)
+        moved = existing_raise * damp_raise
+        out[rk] = existing_raise - moved + freed * 0.08
+        out['call'] = out.get('call', 0.0) + freed * 0.92 + moved
     else:
         out['call'] = out.get('call', 0.0) + freed
     return out
@@ -274,7 +285,17 @@ def build_station(base: dict) -> dict:
     with open(_TIGHT) as f:
         tight = json.load(f)
     data['rfi'] = copy.deepcopy(tight['rfi'])
-    _transform_facing(data, _station_facing, {'vs_open': 0.30, 'vs_3bet': 0.55, 'vs_4bet': 0.80})
+    _transform_facing(
+        data,
+        _station_facing,
+        {'vs_open': 0.30, 'vs_3bet': 0.55, 'vs_4bet': 0.80},
+        # Trap the premiums the base chart 3-bets: a station does not re-raise.
+        # Damps facing-open 3-bet ~18%→~3% and facing-3bet 4-bet ~14%→~3%.
+        extra_by_scenario={
+            'vs_open': {'damp_raise': 0.85},
+            'vs_3bet': {'damp_raise': 0.85},
+        },
+    )
     return data
 
 
@@ -291,7 +312,50 @@ def build_weak_station(base: dict) -> dict:
     with open(_TIGHT) as f:
         tight = json.load(f)
     data['rfi'] = copy.deepcopy(tight['rfi'])
-    _transform_facing(data, _station_facing, {'vs_open': 0.10, 'vs_3bet': 0.35, 'vs_4bet': 0.65})
+    _transform_facing(
+        data,
+        _station_facing,
+        {'vs_open': 0.10, 'vs_3bet': 0.35, 'vs_4bet': 0.65},
+        # Same trap-the-premiums damp as the station, a touch softer (the $2 fish
+        # is a hair more spew-prone). Damps facing-open 3-bet ~19%→~4%.
+        extra_by_scenario={
+            'vs_open': {'damp_raise': 0.80},
+            'vs_3bet': {'damp_raise': 0.80},
+        },
+    )
+    return data
+
+
+def build_tight(base: dict) -> dict:
+    """nit / rock tier — the tight RFI (kept verbatim) over the base facing rows
+    with their premium re-raise mass TRIMMED into flat-calls.
+
+    nit and rock both read ``preflop_100bb_6max_tight_rfi.json``, whose facing
+    rows were a verbatim copy of the standard base (~14.5% facing-open 3-bet,
+    premiums raising ~85%). The per-action distortion cap (0.30) cannot pull an
+    0.85 raise down to a nit's ~2-7% 3-bet — so realized 3-bet stuck high (nit
+    ~9%, rock ~12%, both over band). The chart is the lever: damp the existing
+    re-raise mass into CALL (a nit/rock TRAPS a premium facing an open — it does
+    not 3-bet it, and it certainly does not fold it), keeping the fold mass
+    untouched (``keep_fold=1.0``) so the tight range is preserved. vs_open only is
+    damped hard; vs_3bet lighter so the 4-bet stays in band. RFI is untouched, so
+    VPIP/PFR move only by the small premium-flat shift. See
+    docs/technical/ARCHETYPE_SHAPING_FINDINGS.md (Knob 2, tight tier).
+    """
+    with open(_TIGHT) as f:
+        tight = json.load(f)
+    data = copy.deepcopy(base)
+    data['rfi'] = copy.deepcopy(tight['rfi'])
+    _transform_facing(
+        data,
+        _station_facing,
+        # keep_fold=1.0: do NOT widen the tight range; only re-route raise->call.
+        {'vs_open': 1.0, 'vs_3bet': 1.0, 'vs_4bet': 1.0},
+        extra_by_scenario={
+            'vs_open': {'damp_raise': 0.55},
+            'vs_3bet': {'damp_raise': 0.45},
+        },
+    )
     return data
 
 
@@ -311,6 +375,12 @@ def _write(data: dict, name: str):
 def main():
     with open(_BASE) as f:
         base = json.load(f)
+    # Tight tier first: it preserves the existing tight RFI and only trims the
+    # facing-row re-raise mass (idempotent — facing rows derive from `base`, not
+    # from the prior output). station/weak_station read this file's RFI, which is
+    # unchanged, so order is safe either way.
+    print("=== TIGHT (nit / rock) ===")
+    _write(build_tight(base), 'preflop_100bb_6max_tight_rfi.json')
     print("=== LOOSE (Maniac) ===")
     _write(build_loose(base), 'preflop_100bb_6max_loose.json')
     print("=== LOOSE-MID (LAG) ===")

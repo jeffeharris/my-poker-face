@@ -7,6 +7,41 @@ last_updated: 2026-06-08
 
 # Archetype Shaping — Handover
 
+## Session update (2026-06-08b) — all 7 validated, passive 3-bet fixed
+
+Ran backlog #1 (validate all 7 archetypes). Built two measurement upgrades and
+landed one tuning fix:
+
+- **Probe upgraded to full-stat** (`scripts/archetype_3bet_probe.py`): now tallies
+  every banded stat (vpip/pfr/threebet/fourbet/fold_to_3bet/af/all_in) for all 7
+  archetypes and scores vs `ARCHETYPE_TARGETS` (pass/warn/fail), not just 3bet/4bet.
+- **New mixed-field probe** (`scripts/archetype_mixedfield_probe.py`): seats 6 of
+  the 7 archetypes at one table (rotating the sit-out) so each is measured vs a
+  realistic field — the proper *absolute* instrument (the all-Baseline probe's
+  tight field inflates fold-to-3bet). Local stand-in for the review tool's
+  `source=sim` until a stack accrues `archetype_stat_counts`.
+- **FIXED — passive archetypes over-3-bet** (all now PASS, mixed-field 6k hands):
+  nit 9.2→4.7 (2–7), rock 12.1→5.2 (4–9), calling_station 13.3→3.2 (1–5),
+  weak_fish 8.6→3.0 (2–7). Root: the loosen/station chart transforms only
+  redistributed *fold* mass; they never damped the base chart's existing *raise*
+  mass, so every derived chart inherited the base's premium 3-betting (AA raises
+  ~85% facing an open). The per-action distortion cap (≤0.30) can't pull an 0.85
+  raise to a nit's ~5% — the **chart** is the lever. Fix is in the generator
+  (`experiments/build_archetype_charts.py`): `_station_facing` gained a
+  `damp_raise` param (routes existing re-raise mass → call: a station/fish *traps*
+  premiums) and a new `build_tight()` applies the same damp to the `tight_rfi`
+  chart (nit/rock) with `keep_fold=1.0` so the tight range is preserved. Re-ran
+  the generator → regenerated `station`, `weak_station`, `tight_rfi`. 1498 strategy
+  tests green. **VPIP/PFR/AF/4bet stayed in band; PR #240's looseness→raise decouple
+  confirmed** (nit VPIP 15.0, station PFR 9.6 — earlier nit-too-loose /
+  station-over-PFR are resolved). Minor: rock PFR slipped 12.6→10.5 (WARN, 0.5
+  below floor) since removing ~7pts of 3-bets removes preflop raises; nudge rock's
+  RFI up a hair to recover if desired.
+- **NEW systemic finding — everyone over-folds to 3-bets** → backlog #2 below.
+
+NOT committed — staged on `archetype-shaping-tuning` (generator + 3 regenerated
+charts + 2 probe scripts).
+
 Goal of the workstream: make AI cash opponents **reliable, readable archetypes** —
 a player should get a real read on a `nit` vs a `maniac` and feel challenged. We
 do this by giving each archetype a **target range** for behavioral stats and
@@ -39,17 +74,24 @@ Sizing plan: `docs/plans/PREFLOP_SIZING_VARIETY.md`.
 - `fourbet` = same at `vs_3bet`. `fold_to_3bet` = fold at `vs_3bet`.
 - `vpip`/`pfr` = per preflop hand-instance. `af` = postflop (bet+raise)/call. `all_in` = hands with an all-in.
 
-**The controlled probe** (the tuning instrument): `scripts/archetype_3bet_probe.py`
-(persisted from this session; `scripts/` is gitignored — keep a copy). Runs N
-hands of 1 hero archetype + 5 `BaselineSolverBot`s and reports realized
-facing-open 3-bet, facing-3bet 4-bet, and postflop AF per hero. Run:
+**The probes** (`scripts/` is gitignored — keep copies). Both score every banded
+stat (vpip/pfr/threebet/fourbet/fold_to_3bet/af/all_in) vs `ARCHETYPE_TARGETS`
+(pass/warn/fail) for all 7 archetypes:
+- `scripts/archetype_3bet_probe.py` — **controlled A/B**: 1 hero + 5
+  `BaselineSolverBot`s. Deterministic, same field both arms — use it to confirm a
+  tuning change moved the right direction. Caveat: the all-`Baseline` (tight) field
+  compresses AF and **inflates fold-to-3bet** (tight openers 3-bet a strong range,
+  so folding is correct) — don't read its fold_to_3bet as absolute.
+- `scripts/archetype_mixedfield_probe.py` — **absolute**: seats 6 of 7 archetypes
+  at one table (rotating the sit-out), so each is measured vs a realistic field.
+  Use this for absolute band comparison. ~6k hands gives n≈500–1800 per node.
+Run (suppress the `[EMOTIONAL]` log noise):
 ```
-sed 's/^N_HANDS = 6000/N_HANDS = 2500/' scripts/archetype_3bet_probe.py | docker compose exec -T backend python
+docker compose exec -T backend python < scripts/archetype_mixedfield_probe.py 2>&1 | grep -vE "EMOTIONAL|zone_effects"
 ```
-Edit `HEROES` to add archetypes (calling_station, nit, rock, weak_fish — see backlog #1).
-Caveat: it measures vs an all-`Baseline` (tight) field, so absolute AF is
-compressed and 3-bet rates run a touch low vs a looser live field — but it's a
-clean, deterministic A/B instrument (same field both arms).
+(The 3bet probe reads N_HANDS from the file; `sed 's/^N_HANDS = 6000/N_HANDS = 2500/' …`
+to shorten.) Tip: pytest summary lines get eaten by a sentry exit-hang in this
+container — use `--junit-xml=/tmp/j.xml` and parse it for pass/fail counts.
 
 **Where the knobs live:**
 - Per-archetype distortion: `poker/strategy/deviation_profiles.py` (`DEVIATION_PROFILES`).
@@ -82,42 +124,63 @@ clean, deterministic A/B instrument (same field both arms).
 
 ## Backlog (prioritized)
 
-### 1. Validate ALL 7 archetypes on real data  ← do first
-Only lag/maniac/tag were tuned. The review tool earlier flagged `calling_station`
-**over-PFR** (~19.5% vs 4–12) and `nit` **too loose** (VPIP ~19 vs 10–16);
-`rock`/`weak_fish` unverified post-fix. The looseness→raise decouple (PR #240)
-*should* have helped the loose ones — confirm.
-- **Do:** add `calling_station`/`nit`/`rock`/`weak_fish` to `HEROES` in the probe,
-  run, compare vs `ARCHETYPE_TARGETS`. Also check `source=sim` on the live tool
-  once `archetype_stat_counts` accrues on a running stack.
-- **Tune:** if station over-raises, lower its `reraise_*` and/or check its
-  station chart `raise_share`; if nit too loose, that's the `nit` RFI/width chart.
+### 1. ~~Validate ALL 7 archetypes~~ ✅ DONE (2026-06-08b)
+All 7 measured vs `ARCHETYPE_TARGETS` on both probes. VPIP/PFR/AF/4bet/all_in in
+band across the board (PR #240 decouple confirmed). Passive over-3-bet FIXED (see
+session update above). Residual: tag 3bet 16.1 (WARN, band top — fine, a TAG
+3-bets a polarized range; see #4) and the fold-to-3bet systemic below. The
+`source=sim` review-tool read is still worth doing once a stack accrues
+`archetype_stat_counts` (cross-check the probe's mixed-field numbers).
 
-### 2. Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots
+### 2. SYSTEMIC — every archetype over-folds to 3-bets  ← do first
+Mixed-field 6k: fold_to_3bet fails HIGH for ALL — nit 86.5, rock 83.2, tag 77.5,
+lag 60.2, maniac 67.0, station 82.9, weak_fish 70.0 — and the distortion-OFF
+Baseline control folds 82.3%. Two problems: (a) absolute level too high, (b) the
+*spread* is compressed (nit 86 vs maniac 67 is ~20pts; a readable field should span
+~50pts — a maniac should defend 3-bets, a nit should fold them). Root: the base
+`preflop_100bb_6max.json` vs_3bet rows fold ~73% (combo-weighted, →~80% realized
+after range-weighting), and the loosen transforms' `keep_fold` at vs_3bet (loose
+0.60 / loose_mid 0.80 / station 0.55 / weak 0.35) plus the per-action cap can't
+pull the aggressive archetypes' defense down far enough.
+- **Levers:** (i) lower `keep_fold` at vs_3bet in `build_loose`/`build_loose_mid`
+  (maniac/lag) in `build_archetype_charts.py` — isolated to those two charts,
+  routes fold→call/4bet so they DEFEND; (ii) for nit/rock/tag (standard + tight
+  base) the base chart's vs_3bet fold itself is the lever — bigger blast radius
+  (moves the Baseline solver's defense too), needs a strength re-validation
+  (`experiments/champion_challenger.py` / `sng_runner.py`) since defending wider
+  vs 3-bets can be −EV if overdone.
+- **Caveat to settle first:** are the *targets* a touch low? Real nits fold
+  ~75–85% to 3-bets, so nit's 86 vs band 60–80 may be a band problem, not a bot
+  problem. Sanity-check the bands against a reference before chasing them; the
+  clear defects are tag/lag/maniac (should defend far more than they do).
+- **Measure:** both probes already report fold_to_3bet; use the mixed-field one
+  for absolutes.
+
+### 3. Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots
 `poker/strategy/exploitation.py:1077` adds `+0.3×scale` to raise unconditionally
 when a station opponent is detected, with no guard that the station is the
 *opener* — so a bot 3-bets MORE vs a passive opener (gate `:1424`,
 `is_preflop_defend_spot`). Add a guard so the value-extraction rule doesn't push
 3-bets in a 3-bet-defend spot. Validate with the probe + the exploitation tests.
 
-### 3. tag's mild over-3bet (17.8% vs 10–16)
-Comes from the **standard chart** (~16% combo-weighted), shared as the base for
-every derived chart. Trimming it (lower `raise_share` on the standard chart's
-vs_open, or the base authoring) moves everyone — careful, separate change. Or
-accept the "warn" and widen tag's band to ~11–18 (a TAG legitimately 3-bets a
-polarized range facing opens).
+### 4. tag's mild over-3bet (mixed-field 16.1, band 10–16, WARN)
+Comes from the **standard chart** (~14.5% combo-weighted), shared as the base for
+the tight tier too. Now only a boundary WARN (was a FAIL earlier). Either trim it
+(lower `raise_share` on the standard chart's vs_open / base authoring — moves
+everyone, careful) or accept the WARN and widen tag's band to ~11–18 (a TAG
+legitimately 3-bets a polarized range facing opens). Recommend the latter.
 
-### 4. Review-tool Phase 3 — c-bet / fold-to-cbet columns
+### 5. Review-tool Phase 3 — c-bet / fold-to-cbet columns
 Currently empty. Architect's plan: source them from `opponent_observation_lifetime`
 (it has `cbet_attempt_count`, `fold_to_cbet_count`, etc.) via
 `reconstruct_tendencies_from_lifetime`. Add to the route + grid.
 
-### 5. Preflop sizing VARIETY (the proper fix; jitter is the band-aid)
+### 6. Preflop sizing VARIETY (the proper fix; jitter is the band-aid)
 Execute `docs/plans/PREFLOP_SIZING_VARIETY.md`: P1 emit multiple raise-size tokens
 in the preflop charts, P2 engage the `SIZING_PERSONALITY` size gradient on them
 (maniac overbets, nit min-3bets), P3 add a "3-bet size" read to the review tool.
 
-### 6. Config VERSIONING for the review tool (compare chart/knob versions)
+### 7. Config VERSIONING for the review tool (compare chart/knob versions)
 **Why:** the whole workstream is iterative tuning, but the review tool currently
 aggregates ALL decisions for an archetype regardless of which chart/knob version
 produced them. After a deploy, new + old decisions mix → before/after comparison
