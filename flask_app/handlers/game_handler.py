@@ -54,6 +54,7 @@ from ..extensions import (
 from ..services import game_state_service
 from ..services.ai_debug_service import get_all_players_llm_stats
 from ..services.elasticity_service import format_elasticity_data
+from ..state_version import next_state_version
 from .avatar_handler import get_avatar_url_with_fallback, start_single_emotion_generation
 from .message_handler import (
     format_action_message,
@@ -705,6 +706,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     # resolves via the no-LLM path. Like ai_instant, this lets the UI hide the
     # (now permanently-on) fast-forward button.
     game_state_dict['always_fast_forward'] = _resolve_game_speed(current_game_data) == 'always'
+
+    # Monotonic version stamp so the client drops a stale frame from a leaked
+    # socket or a late sequencer beat instead of regressing to an earlier hand
+    # (the two-hand-flicker class of bug). See flask_app.state_version.
+    game_state_dict['state_version'] = next_state_version()
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
