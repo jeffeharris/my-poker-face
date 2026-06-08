@@ -2683,6 +2683,52 @@ def settle_departed_ai_stake(
     )
     if settlement is None:
         return None
+
+    # Obligation dimension (P1 shadow): mirror the chip settlement in the debt
+    # axis. Extinguish the principal RECOVERED (`min(staker_total, principal)`) —
+    # never `staker_total`, whose excess is the staker's profit share, a
+    # chip-only flow that is not debt repayment. A clean settle zeroes
+    # `oblig:<id>`; a CARRY leaves the unrecovered principal as the live balance;
+    # a forgive/default writes the residual off so the debt still closes. Rows
+    # are bank-neutral best-effort (the existing settle path is not a single
+    # transaction — full atomicity is a P2 concern when the invariant is
+    # enforced). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags
+
+    if (
+        chip_ledger_repo is not None
+        and sandbox_id is not None
+        and economy_flags.CHIP_CUSTODY_ENABLED
+    ):
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
+
+        # Gated on origination: a legacy stake (no originate row) is skipped so
+        # the close doesn't drive oblig:<id> negative. The bool return says
+        # whether it was originated — reused to skip the assert's redundant
+        # origination re-scan (and skip the assert entirely for legacy).
+        if apply_close_flows(
+            flows_on_settle(
+                active_stake.stake_id,
+                principal=int(active_stake.principal),
+                staker_total=int(settlement.staker_total),
+                is_carry=settlement.new_status == STAKE_STATUS_CARRY,
+            ),
+            chip_ledger_repo,
+            active_stake.stake_id,
+            sandbox_id=sandbox_id,
+            context={"site": "ai_session_end", "sandbox_id": sandbox_id},
+        ):
+            # P2: the debt must now equal its residual (0 on a clean/forgiven
+            # settle, carry_amount on a carry). Enforced in dev/sim; alarm in prod.
+            assert_stake_obligation_closed(
+                stake_id=active_stake.stake_id,
+                expected_residual=int(settlement.carry_amount),
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                already_originated=True,
+            )
+
     # Apply the settlement flows. For AI-staker / AI-borrower
     # personality stakes the flows are pure bankroll→bankroll
     # transfers — no ledger entry, mirror the route's leave

@@ -2474,6 +2474,25 @@ def sponsor_and_sit():
         )
     )
 
+    # Obligation dimension: the human borrower owes the lender (house or AI
+    # sponsor) the principal, regardless of which chip path funded the seat
+    # (central_bank house-issue vs AI debit). Emit the originate once here; the
+    # matching extinguish/forgive fires for HUMAN borrowers on the leave_table
+    # path (_leave_table_locked) and via the carry-resolution / staker-forgive
+    # routes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags as _eflags_oblig
+    from flask_app.extensions import chip_ledger_repo as _clr_oblig
+
+    if _clr_oblig is not None and sandbox_id is not None and _eflags_oblig.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_obligations import apply_obligation_flows, flows_on_originate
+
+        apply_obligation_flows(
+            flows_on_originate(stake_id, offer_amount),
+            _clr_oblig,
+            sandbox_id=sandbox_id,
+            context={'site': 'sponsor_sit_principal', 'stake_id': stake_id},
+        )
+
     # The player put up no own chips — `sponsor_principal` carries the
     # full table stack, `initial_buy_in` stays 0. The leave-time summary
     # uses this split to label the modal correctly ("Sponsor put up $X"
@@ -3008,6 +3027,32 @@ def default_stake(stake_id: str):
         settled_at=datetime.utcnow(),
     )
 
+    # Obligation dimension: an explicit default writes off the carried principal
+    # as bad debt so oblig:<id> closes. No chips move (the reputation hit is the
+    # cost). Gated on origination. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags as _eflags_default
+    from flask_app.extensions import chip_ledger_repo as _clr_default
+
+    if _clr_default is not None and _eflags_default.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
+
+        _default_sandbox = _resolve_sandbox_id(owner_id)
+        if apply_close_flows(
+            flows_on_forgive(stake_id, int(former_carry)),
+            _clr_default,
+            stake_id,
+            sandbox_id=_default_sandbox,
+            context={'stake_id': stake_id, 'site': 'human_default'},
+        ):
+            assert_stake_obligation_closed(
+                stake_id=stake_id,
+                expected_residual=0,
+                sandbox_id=_default_sandbox,
+                chip_ledger_repo=_clr_default,
+                already_originated=True,
+            )
+
     # Fire the reputation hit. The dispatch table's STAKE_DEFAULTED
     # entry is the sharpest negative axis shift in the calibration —
     # the spec calls this "the worst thing a borrower can do to a
@@ -3188,6 +3233,28 @@ def payoff_stake(stake_id: str):
         )
 
     stake_repo.update_carry_amount(stake_id, 0)
+
+    # Obligation dimension: the carry is repaid in full → extinguish that much
+    # principal so oblig:<id> closes to 0. Gated on origination (legacy stakes
+    # skip). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    if chip_ledger_repo is not None and _economy_flags_payoff.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_carry_payment
+
+        if apply_close_flows(
+            flows_on_carry_payment(stake_id, carry_amount),
+            chip_ledger_repo,
+            stake_id,
+            sandbox_id=sandbox_id,
+            context={'stake_id': stake_id, 'site': 'voluntary_payoff'},
+        ):
+            assert_stake_obligation_closed(
+                stake_id=stake_id,
+                expected_residual=0,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                already_originated=True,
+            )
 
     # v106 payout accounting on voluntary payoff:
     #   staker_payout  += carry_amount  (staker received the deferred chips)
@@ -3546,6 +3613,31 @@ def staker_forgive(stake_id: str):
         stake_repo.update_carry_amount(stake_id, 0)
         stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
         stake_repo.update_pending_forgiveness_ask(stake_id, None)
+        # Obligation dimension: write off the forgiven carry as bad debt so
+        # oblig:<id> closes (the borrower no longer owes it). The forgiven amount
+        # is the carry being cleared. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        from cash_mode import economy_flags as _eflags_forgive
+        from flask_app.extensions import chip_ledger_repo as _clr_forgive
+
+        if _clr_forgive is not None and _eflags_forgive.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
+
+            _forgive_sandbox = _resolve_sandbox_id(owner_id)
+            if apply_close_flows(
+                flows_on_forgive(stake_id, int(stake.carry_amount or 0)),
+                _clr_forgive,
+                stake_id,
+                sandbox_id=_forgive_sandbox,
+                context={'stake_id': stake_id, 'site': 'staker_forgive'},
+            ):
+                assert_stake_obligation_closed(
+                    stake_id=stake_id,
+                    expected_residual=0,
+                    sandbox_id=_forgive_sandbox,
+                    chip_ledger_repo=_clr_forgive,
+                    already_originated=True,
+                )
         _record_relationship_event(
             actor_id=owner_id,
             target_id=stake.borrower_id,
@@ -4229,6 +4321,21 @@ def offer_stake_to_ai():
                 context={'site': 'player_stake_principal', 'stake_id': stake_id},
                 sandbox_id=sandbox_id,
             )
+            # Obligation dimension: the AI borrower owes the human staker the
+            # principal. Settles via settle_departed_ai_stake (AI borrower),
+            # which emits the matching extinguish/forgive. The origination fee
+            # is NOT debt (settled at origination), so only principal originates.
+            from cash_mode.stake_obligations import (
+                apply_obligation_flows,
+                flows_on_originate,
+            )
+
+            apply_obligation_flows(
+                flows_on_originate(stake_id, principal),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'site': 'player_stake_principal', 'stake_id': stake_id},
+            )
             if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
                 _chip_ledger_fund.record_stake_fund(
                     chip_ledger_repo,
@@ -4379,6 +4486,29 @@ def offer_stake_to_ai():
                     "[STAKE][PLAYER_OFFER] ROLLBACK AI fee/match reversal "
                     "FAILED for %r; chip-ledger audit is the backstop",
                     target_pid,
+                )
+            # 4) Reverse the obligation originate — the principal debt was born
+            #    (player_stake_principal above) before this failed create_stake,
+            #    so cancel it or oblig:<id> orphans at +principal for a stake
+            #    that never existed. Mirrors unwind_climb_funding on the
+            #    take_stake path. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            try:
+                if chip_ledger_repo is not None and _economy_flags_fund.CHIP_CUSTODY_ENABLED:
+                    from cash_mode.stake_obligations import (
+                        apply_obligation_flows,
+                        flows_on_cancel,
+                    )
+
+                    apply_obligation_flows(
+                        flows_on_cancel(stake_id, principal),
+                        chip_ledger_repo,
+                        sandbox_id=sandbox_id,
+                        context={'site': 'player_stake_offer_rollback', 'stake_id': stake_id},
+                    )
+            except Exception:
+                logger.exception(
+                    "[STAKE][PLAYER_OFFER] ROLLBACK obligation cancel FAILED for %r",
+                    stake_id,
                 )
             return jsonify({"error": "Failed to record the stake — your chips were refunded."}), 500
 
@@ -5015,6 +5145,38 @@ def _leave_table_locked(owner_id: str, game_id: str):
         flows = build_stake_settlement_flows(stake_settlement)
         borrower_credit = 0
         from cash_mode import economy_flags as _economy_flags_leave
+
+        # Obligation dimension: close the HUMAN borrower's debt — the pair to the
+        # sponsor_sit_principal / player_stake_principal originate. Mirrors the
+        # AI-borrower settle (settle_departed_ai_stake): extinguish the principal
+        # RECOVERED (min(staker_total, principal)); on a non-carry terminal
+        # (incl. house forgive, which never carries) write off the residual so
+        # the debt fully closes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        if chip_ledger_repo is not None and _economy_flags_leave.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
+
+            if apply_close_flows(
+                flows_on_settle(
+                    active_stake.stake_id,
+                    principal=int(active_stake.principal),
+                    staker_total=int(stake_settlement.staker_total),
+                    is_carry=stake_settlement.new_status == STAKE_STATUS_CARRY,
+                ),
+                chip_ledger_repo,
+                active_stake.stake_id,
+                sandbox_id=sandbox_id,
+                context={'game_id': game_id, 'site': 'leave_table'},
+            ):
+                # P2: the debt must now equal its residual (0 clean/forgiven,
+                # carry_amount on a carry). Enforced in dev/sim; alarm in prod.
+                assert_stake_obligation_closed(
+                    stake_id=active_stake.stake_id,
+                    expected_residual=int(stake_settlement.carry_amount),
+                    sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    already_originated=True,
+                )
 
         for flow in flows:
             if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
