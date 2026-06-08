@@ -168,11 +168,15 @@ def _set_rfi(data: dict, rfi_map: dict):
             pos_dict[hand] = {'raise_2.5bb': 1.0} if hand in open_set else {'fold': 1.0}
 
 
-def _loosen_facing(actions: dict, keep_fold: float) -> dict:
+def _loosen_facing(actions: dict, keep_fold: float, raise_share: float = 0.4) -> dict:
     """Loose-aggressive transform of a facing-action row: cut fold to
-    `keep_fold` * original, split the freed mass between call and raise
-    favouring raise (60/40). Hands the base pure-folds (fold==1.0) stay folded
-    — we don't invent opens the chart never had (avoids opening 72o).
+    `keep_fold` * original, split the freed mass between call and raise.
+    `raise_share` is the fraction of freed mass that becomes RE-RAISE (3-bet /
+    4-bet); the rest becomes flat-call. Default 0.4 (the original 60/40 call/raise
+    split). LOWERING raise_share cuts re-raise frequency while keeping the SAME
+    continue rate (VPIP) — it just flats more — which is the clean knob for taming
+    a tier's 3-bet without narrowing its range. Hands the base pure-folds
+    (fold==1.0) stay folded (we don't invent opens the chart never had).
     """
     fold = actions.get('fold', 0.0)
     if fold >= 0.999:  # pure fold -> leave as is
@@ -185,8 +189,8 @@ def _loosen_facing(actions: dict, keep_fold: float) -> dict:
     raise_keys = [a for a in actions if a.startswith('raise') or a in ('all_in', 'jam')]
     if raise_keys:
         rk = raise_keys[0]
-        out[rk] = out.get(rk, 0.0) + freed * 0.4
-        out['call'] = out.get('call', 0.0) + freed * 0.6
+        out[rk] = out.get(rk, 0.0) + freed * raise_share
+        out['call'] = out.get('call', 0.0) + freed * (1.0 - raise_share)
     else:
         out['call'] = out.get('call', 0.0) + freed
     return out
@@ -214,11 +218,19 @@ def _station_facing(actions: dict, keep_fold: float) -> dict:
     return out
 
 
-def _transform_facing(data: dict, fn, keep_fold_by_scenario: dict):
+def _transform_facing(
+    data: dict, fn, keep_fold_by_scenario: dict, extra_by_scenario: "dict | None" = None
+):
+    """Apply `fn(actions, keep_fold, **extra)` to every row of each scenario.
+    `extra_by_scenario` (optional) supplies per-scenario kwargs — e.g. a lower
+    `raise_share` at vs_open/vs_3bet to cut 3-bet/4-bet frequency without
+    changing the continue (VPIP) rate."""
+    extra_by_scenario = extra_by_scenario or {}
     for scenario, keep_fold in keep_fold_by_scenario.items():
+        extra = extra_by_scenario.get(scenario, {})
         for pos_dict in data[scenario].values():
             for hand in pos_dict:
-                pos_dict[hand] = fn(pos_dict[hand], keep_fold)
+                pos_dict[hand] = fn(pos_dict[hand], keep_fold, **extra)
 
 
 def build_loose(base: dict) -> dict:
@@ -231,10 +243,26 @@ def build_loose(base: dict) -> dict:
 
 def build_loose_mid(base: dict) -> dict:
     """LAG tier — moderately wide RFI + moderately wide continues, landing
-    between TAG (~25% VPIP) and Maniac (~50%)."""
+    between TAG (~25% VPIP) and Maniac (~50%).
+
+    LAG's identity is "plays wide", not "re-raises everything": the default 0.4
+    raise-share pushed realized facing-open 3-bet to ~32% (target 16–26). We keep
+    the SAME continue rate (keep_fold unchanged → VPIP unchanged) but route more
+    of the freed mass to FLAT-CALL via a lower raise_share at the re-raise nodes,
+    so LAG flats wide instead of 3-betting wide. See ARCHETYPE_SHAPING_FINDINGS.md.
+    """
     data = copy.deepcopy(base)
     _set_rfi(data, _LOOSE_MID)
-    _transform_facing(data, _loosen_facing, {'vs_open': 0.72, 'vs_3bet': 0.80, 'vs_4bet': 0.86})
+    _transform_facing(
+        data,
+        _loosen_facing,
+        {'vs_open': 0.72, 'vs_3bet': 0.80, 'vs_4bet': 0.86},
+        extra_by_scenario={
+            'vs_open': {'raise_share': 0.18},
+            'vs_3bet': {'raise_share': 0.25},
+            'vs_4bet': {'raise_share': 0.30},
+        },
+    )
     return data
 
 
