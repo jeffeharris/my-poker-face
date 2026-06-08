@@ -50,6 +50,30 @@ def test_weak_fish_archetype_key_not_misattributed():
     assert ctrl._table_archetype_key() == 'weak_fish'
 
 
+def test_recorder_excludes_squeeze_defence_from_vs_3bet():
+    """A vs_3bet decision by a NON-opener (squeeze defence: cold-call an open,
+    then face a 3-bet) must NOT count toward fourbet / fold_to_3bet — only the
+    RFI opener facing a 3-bet does. Without this gate the wide-flatting
+    archetypes' fold_to_3bet is crushed by ~100%-folding squeeze spots."""
+    r = ArchetypeStatRecorder('sb')
+    # Station cold-called an open (vs_open call), then folds to a squeeze 3-bet.
+    r.record_decision('calling_station', 'S', 'PRE_FLOP', 'vs_open', 'call')
+    r.record_decision('calling_station', 'S', 'PRE_FLOP', 'vs_3bet', 'fold', is_opener=False)
+    # A real opener-vs-3bet fold for contrast (counts).
+    r.record_decision('tag', 'T', 'PRE_FLOP', 'rfi', 'raise')
+    r.record_decision('tag', 'T', 'PRE_FLOP', 'vs_3bet', 'fold', is_opener=True)
+    r.end_hand()
+
+    station = r._totals['calling_station']
+    # The squeeze fold is excluded — not a fold_to_3bet.
+    assert station['vs_3bet'] == 0 and station['vs_3bet_fold'] == 0
+    # …but the cold-call at vs_open is still recorded (3-bet stat denominator).
+    assert station['vs_open'] == 1 and station['vs_open_agg'] == 0
+    # The opener's fold to a 3-bet DOES count.
+    tag = r._totals['tag']
+    assert tag['vs_3bet'] == 1 and tag['vs_3bet_fold'] == 1
+
+
 def test_recorder_no_archetype_is_noop():
     r = ArchetypeStatRecorder('sb')
     r.record_decision(None, 'X', 'PRE_FLOP', 'rfi', 'raise')

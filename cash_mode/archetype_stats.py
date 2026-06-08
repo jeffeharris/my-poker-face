@@ -54,9 +54,19 @@ class ArchetypeStatRecorder:
         phase: str,
         node: str,
         action: str,
+        is_opener: bool = True,
     ) -> None:
         """Record one decision. ``node`` is '' for postflop or one of
-        rfi/vs_open/vs_3bet/vs_4bet preflop. No-ops without an archetype."""
+        rfi/vs_open/vs_3bet/vs_4bet preflop. No-ops without an archetype.
+
+        ``is_opener`` = the actor made this hand's first preflop raise (RFI). The
+        ``vs_3bet`` columns (which drive the fourbet / fold_to_3bet stats) are
+        counted ONLY for the opener — facing a 3-bet *as the raiser* is what the
+        standard "Fold to 3-Bet" / "4-Bet" stats (and ARCHETYPE_TARGETS) mean. A
+        ``vs_3bet`` node reached as a cold-caller is SQUEEZE defence (a different
+        stat that folds ~100%); counting it crushed fold_to_3bet for the
+        wide-flatting archetypes. vs_open (the 3-bet stat) is unaffected — every
+        actor at a vs_open node is facing an open, never the opener."""
         if not archetype:
             return
         t = self._totals[archetype]
@@ -75,7 +85,7 @@ class ArchetypeStatRecorder:
                 t['vs_open'] += 1
                 if action in _AGGRESSIVE:
                     t['vs_open_agg'] += 1
-            elif node == 'vs_3bet':
+            elif node == 'vs_3bet' and is_opener:
                 t['vs_3bet'] += 1
                 if action in _AGGRESSIVE:
                     t['vs_3bet_agg'] += 1

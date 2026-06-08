@@ -227,13 +227,24 @@ realized facing-open 3-bet, facing-3bet 4-bet, and postflop AF:
   `tight_rfi`. Mixed-field 6k result — all passive archetypes now PASS 3-bet:
   nit 9.2→4.7, rock 12.1→5.2, calling_station 13.3→3.2, weak_fish 8.6→3.0. (Minor:
   rock PFR slipped 12.6→10.5 WARN — removing 3-bets removes preflop raises.)
-- **NEW open finding — every archetype over-folds to 3-bets** (mixed-field 6k:
-  nit 86, rock 83, tag 78, lag 60, maniac 67, station 83, weak_fish 70; Baseline
-  control 82). The vs_3bet defense is too fold-heavy AND its spread across
-  archetypes is compressed (a maniac should defend, a nit should fold). Root: base
-  chart vs_3bet folds ~73% combo-weighted + the loosen `keep_fold` at vs_3bet +
-  the per-action cap. Now the top backlog item — see the handoff. Settle whether
-  the *targets* are slightly low (real nits do fold ~75–85%) before chasing.
+- **fold-to-3bet "systemic over-fold" was a METRIC BUG** (2026-06-08c). The
+  apparent "every archetype over-folds (60–86%), even the distortion-OFF Baseline
+  at 82%" was ~90% measurement contamination: `classify_preflop_scenario` buckets
+  `vs_3bet` by raise-count==2 with no check that the actor was the RFI raiser, so
+  it swept in SQUEEZE defence (cold-call an open → face a 3-bet), which folds
+  ~100% and made up 33–85% of the bucket for the wide-flatting archetypes. Fixed
+  by conditioning fourbet/fold_to_3bet on the RFI opener (recorder + full_sim +
+  live route reconstruction + both probes). After the fix (opener-only, 6k mixed):
+  station 22, maniac 20, lag 44, weak_fish 21, rock 65, nit 59, tag 68 — 6/7 in
+  band. The clean metric then exposed the real residuals: tag over-folds (68 vs
+  40–58) and tag/lag/maniac 4-bet a touch high as openers (their reraise splits
+  were tuned against the contaminated number). See the handoff backlog #2/#3.
+- **Depth-commit at 40bb — investigated, not a leak** (2026-06-08c). All-in ~2× at
+  the 40bb casino buy-in, but `scripts/commit_quality_40bb.py` (eval7
+  equity-vs-random per committed hand) shows 4-bet ranges are value-weighted (mean
+  0.61–0.71, 0% trash) — the "Q2o 4-bet-shove" symptom doesn't reproduce post-#240.
+  Consistent with `SOLVER_CHART_SCOPE` (solver parked; shallow "collapse" was a
+  Jeff_station artifact). Depth-aware *sizing* stays a feel/tell item, not a fix.
 
 ## Prioritized plan
 

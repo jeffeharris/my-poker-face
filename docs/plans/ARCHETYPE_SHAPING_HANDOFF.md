@@ -7,6 +7,26 @@ last_updated: 2026-06-08
 
 # Archetype Shaping — Handover
 
+## Session update (2026-06-08c) — fold-to-3bet was a metric bug; depth-commit ruled out
+
+- **fold-to-3bet "systemic over-fold" was ~90% MEASUREMENT contamination** (squeeze
+  defence counted as fold-to-3bet). FIXED by opener-conditioning fourbet/fold_to_3bet
+  across the recorder, full_sim, live route, and both probes. 6 of 7 archetypes now
+  in band; details in backlog #2 below. New `scripts/foldto3bet_attribution.py`
+  splits the bucket RFI-vs-3bet vs squeeze. Tests: `test_archetype_review_route.py`
+  + a squeeze case in `test_archetype_stats.py`.
+- **Exposed residual** (backlog #3, next): tag over-folds + tag/lag/maniac 4-bet a
+  touch high as openers — masked until the metric was cleaned.
+- **Depth-commit at the 40bb casino buy-in — INVESTIGATED, not a leak.** All-in
+  rate ~2× at 40bb vs 100bb, but `scripts/commit_quality_40bb.py` (eval7
+  equity-vs-random of every committed hand) shows the 4-bet ranges are
+  value-weighted (mean eq 0.61–0.71, **0% trash**) — the prod "Q2o 4-bet-shove"
+  symptom does NOT reproduce post-#240. Matches prior art (`SOLVER_CHART_SCOPE`
+  parked the solver; Sweep A/D found shallow stacks fine). Elevated all-in is
+  correct low-SPR poker + the fish's designed postflop stickiness. A depth-aware
+  *strength* fix is NOT warranted; depth-aware 3-bet/4-bet *sizing* remains a
+  feel/tell item (→ backlog #7 sizing variety), not a leak.
+
 ## Session update (2026-06-08b) — all 7 validated, passive 3-bet fixed
 
 Ran backlog #1 (validate all 7 archetypes). Built two measurement upgrades and
@@ -132,55 +152,62 @@ session update above). Residual: tag 3bet 16.1 (WARN, band top — fine, a TAG
 `source=sim` review-tool read is still worth doing once a stack accrues
 `archetype_stat_counts` (cross-check the probe's mixed-field numbers).
 
-### 2. SYSTEMIC — every archetype over-folds to 3-bets  ← do first
-Mixed-field 6k: fold_to_3bet fails HIGH for ALL — nit 86.5, rock 83.2, tag 77.5,
-lag 60.2, maniac 67.0, station 82.9, weak_fish 70.0 — and the distortion-OFF
-Baseline control folds 82.3%. Two problems: (a) absolute level too high, (b) the
-*spread* is compressed (nit 86 vs maniac 67 is ~20pts; a readable field should span
-~50pts — a maniac should defend 3-bets, a nit should fold them). Root: the base
-`preflop_100bb_6max.json` vs_3bet rows fold ~73% (combo-weighted, →~80% realized
-after range-weighting), and the loosen transforms' `keep_fold` at vs_3bet (loose
-0.60 / loose_mid 0.80 / station 0.55 / weak 0.35) plus the per-action cap can't
-pull the aggressive archetypes' defense down far enough.
-- **Levers:** (i) lower `keep_fold` at vs_3bet in `build_loose`/`build_loose_mid`
-  (maniac/lag) in `build_archetype_charts.py` — isolated to those two charts,
-  routes fold→call/4bet so they DEFEND; (ii) for nit/rock/tag (standard + tight
-  base) the base chart's vs_3bet fold itself is the lever — bigger blast radius
-  (moves the Baseline solver's defense too), needs a strength re-validation
-  (`experiments/champion_challenger.py` / `sng_runner.py`) since defending wider
-  vs 3-bets can be −EV if overdone.
-- **Caveat to settle first:** are the *targets* a touch low? Real nits fold
-  ~75–85% to 3-bets, so nit's 86 vs band 60–80 may be a band problem, not a bot
-  problem. Sanity-check the bands against a reference before chasing them; the
-  clear defects are tag/lag/maniac (should defend far more than they do).
-- **Measure:** both probes already report fold_to_3bet; use the mixed-field one
-  for absolutes.
+### 2. ~~"Everyone over-folds to 3-bets"~~ ✅ WAS A METRIC BUG (2026-06-08c)
+The apparent systemic over-fold was ~90% **measurement contamination**, not
+behavior. `classify_preflop_scenario` buckets `vs_3bet` by raise-count==2 only —
+with no check that the actor was the RFI raiser — so it swept in SQUEEZE defence
+(cold-call an open, then face a 3-bet), which folds ~100% and dominates the
+bucket for the wide-flatting archetypes (squeeze share 33–85%!). **Fix: condition
+fourbet / fold_to_3bet on the actor being the RFI opener** — in the recorder
+(`cash_mode/archetype_stats.py` `record_decision(is_opener=…)` + `full_sim.py`
+tracks `rfi_opener_name`), the live route (`archetype_review_routes._aggregate`
+reconstructs opener-ness from the rows — `preflop_node_key` is the strategy node,
+can't be repurposed), and both probes. fold_to_3bet after the fix (opener-only,
+6k mixed): station 82.9→**22.0**, maniac 67→**20.3**, lag 60→**44**, weak_fish
+70→**21**, rock 83→**65**, nit 86→**59**, tag 77→**68**. 6 of 7 now in band /
+WARN-by-a-hair. (The bands were always the opener-conditioned definition — this
+just makes the measurement match.) **The contaminated 3-bet probe / review-tool
+numbers in older notes are wrong for fold_to_3bet & 4-bet; re-measure.** sim
+counters (`archetype_stat_counts`) are forward-only — old rows mixed squeeze in;
+reset a sandbox's counters for a clean source=sim read.
 
-### 3. Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots
+### 3. tag / lag / maniac over-aggressive 3-bet DEFENCE  ← do first (PART 2)
+Exposed once #2 cleaned the metric. Opener-conditioned (6k mixed): **tag** fold
+68.3 (band 40–58 FAIL) + 4-bet 16.3 (5–13 WARN) — over-*polarized* (4-bet-or-fold,
+flats too little); **maniac** 4-bet 48.5 (24–40 FAIL); **lag** 4-bet 24.6 (10–20
+WARN). lag/maniac reraise splits (`reraise_aggression_scale`) were tuned against
+the *contaminated* metric so the true 4-bet is higher than thought; tag has no
+split at all. Lever: the reraise split in `deviation_profiles.py` — add one to
+tag (+ nudge it toward flatting more vs 3-bets), tighten lag/maniac's a touch.
+Re-tune against the now-correct probe; strength-check via `sng_runner.py` since
+widening flat-defence changes EV. Open question: are tag's bands (fold 40–58)
+modeling a flat-heavy TAG our polarized one legitimately isn't? Sanity-check first.
+
+### 4. Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots
 `poker/strategy/exploitation.py:1077` adds `+0.3×scale` to raise unconditionally
 when a station opponent is detected, with no guard that the station is the
 *opener* — so a bot 3-bets MORE vs a passive opener (gate `:1424`,
 `is_preflop_defend_spot`). Add a guard so the value-extraction rule doesn't push
 3-bets in a 3-bet-defend spot. Validate with the probe + the exploitation tests.
 
-### 4. tag's mild over-3bet (mixed-field 16.1, band 10–16, WARN)
+### 5. tag's mild over-3bet (mixed-field 16.1, band 10–16, WARN)
 Comes from the **standard chart** (~14.5% combo-weighted), shared as the base for
 the tight tier too. Now only a boundary WARN (was a FAIL earlier). Either trim it
 (lower `raise_share` on the standard chart's vs_open / base authoring — moves
 everyone, careful) or accept the WARN and widen tag's band to ~11–18 (a TAG
 legitimately 3-bets a polarized range facing opens). Recommend the latter.
 
-### 5. Review-tool Phase 3 — c-bet / fold-to-cbet columns
+### 6. Review-tool Phase 3 — c-bet / fold-to-cbet columns
 Currently empty. Architect's plan: source them from `opponent_observation_lifetime`
 (it has `cbet_attempt_count`, `fold_to_cbet_count`, etc.) via
 `reconstruct_tendencies_from_lifetime`. Add to the route + grid.
 
-### 6. Preflop sizing VARIETY (the proper fix; jitter is the band-aid)
+### 7. Preflop sizing VARIETY (the proper fix; jitter is the band-aid)
 Execute `docs/plans/PREFLOP_SIZING_VARIETY.md`: P1 emit multiple raise-size tokens
 in the preflop charts, P2 engage the `SIZING_PERSONALITY` size gradient on them
 (maniac overbets, nit min-3bets), P3 add a "3-bet size" read to the review tool.
 
-### 7. Config VERSIONING for the review tool (compare chart/knob versions)
+### 8. Config VERSIONING for the review tool (compare chart/knob versions)
 **Why:** the whole workstream is iterative tuning, but the review tool currently
 aggregates ALL decisions for an archetype regardless of which chart/knob version
 produced them. After a deploy, new + old decisions mix → before/after comparison
