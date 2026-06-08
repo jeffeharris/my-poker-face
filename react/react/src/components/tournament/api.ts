@@ -4,12 +4,7 @@
  */
 
 import { config } from '../../config';
-import type {
-  RegisterRequest,
-  RegisterResponse,
-  TournamentLobbyResponse,
-  TournamentStandings,
-} from './types';
+import type { TournamentLobbyResponse, TournamentStandings } from './types';
 
 const BASE = `${config.API_URL}/api/tournament`;
 
@@ -32,7 +27,12 @@ async function postJson<T>(path: string, body: object = {}): Promise<T> {
 
 export const tournamentApi = {
   lobby: () => getJson<TournamentLobbyResponse>('/lobby'),
-  register: (body: RegisterRequest) => postJson<RegisterResponse>('/register', body),
+  // The on-demand `/register` route was removed in main (130ee314 — it seated the
+  // human as a synthetic P01). Human Main Events now come from the economy-gated
+  // invite flow: GET /invite opportunistically offers one (bank FLUSH + cooldown
+  // + no active event), then POST /invite/accept spawns the real-persona field.
+  getInvite: () => getJson<{ invite: unknown | null }>('/invite'),
+  acceptInvite: () => postJson<{ tournament_id: string }>('/invite/accept'),
   /** Build (or return) the human's LIVE single-table game; navigate to /game/:id. */
   sit: (id: string) => postJson<{ game_id: string }>(`/${id}/sit`),
   standings: (id: string) => getJson<TournamentStandings>(`/${id}/standings`),
