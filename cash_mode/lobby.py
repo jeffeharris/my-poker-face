@@ -4983,20 +4983,31 @@ def _process_aspiration_asks(
         # single `from_seat` of `seat_chips + principal`.
         seat_chips = int(slot.get("chips", 0) or 0)
 
-        # (1) Debit the staker inline (matches Phase 4's stake_creations
-        # post-loop debit pattern). `debit_bankroll_for_seat` signals
-        # failure two ways: it RAISES, or it returns None (insufficient
-        # funds / missing row — the audit-safe refusal). BOTH must skip
-        # the ask cleanly without touching the seat, or chips mint.
-        try:
-            from cash_mode.bankroll import debit_bankroll_for_seat
+        # (1) Fund the climb: debit the staker and credit the CLIMBER's seat
+        # via the single funding site `fund_climb_stake`. This is the fix for
+        # the aspiration chip-mint: the old `debit_bankroll_for_seat(staker_id)`
+        # credited the STAKER's own seat (`seat:<staker>`) while settlement
+        # drains the CLIMBER's seat, so the climber's seat was drained for a
+        # principal it never received → minted chips (see
+        # docs/plans/CASH_MODE_STAKE_STATE_MACHINE.md). `fund_climb_stake`
+        # signals failure two ways — it RAISES, or returns None (insufficient
+        # funds / missing row). BOTH must skip the ask without touching the
+        # seat. The `stake_id` is generated here so the funding ledger row can
+        # carry it (per-contract reconciliation).
+        import uuid
 
-            debited = debit_bankroll_for_seat(
-                bankroll_repo,
-                staker_id,
-                principal,
-                sandbox_id=sandbox_id,
+        stake_id = f"ai_stake_aspire_{uuid.uuid4().hex[:12]}"
+        try:
+            from cash_mode.stake_lifecycle import fund_climb_stake
+
+            debited = fund_climb_stake(
+                staker_id=staker_id,
+                climber_id=asker_pid,
+                principal=principal,
+                stake_id=stake_id,
+                bankroll_repo=bankroll_repo,
                 chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
                 now=now,
             )
         except Exception as exc:
@@ -5022,11 +5033,9 @@ def _process_aspiration_asks(
         # (2) Create the stake row. If the write fails AFTER the staker
         # was debited, refund the staker the `principal` (reversing only
         # the transfer portion — any regen the debit committed is real
-        # and stays) and skip the ask. The seat has NOT been touched yet.
-        import uuid
-
+        # and stays) and skip the ask.
         stake = Stake(
-            stake_id=f"ai_stake_aspire_{uuid.uuid4().hex[:12]}",
+            stake_id=stake_id,
             session_id=f"ai_aspire_{asker_pid}_{int(now.timestamp())}",
             staker_id=staker_id,
             staker_kind=STAKER_KIND_PERSONALITY,
@@ -5051,45 +5060,22 @@ def _process_aspiration_asks(
                 staker_id,
                 exc,
             )
-            # Refund the staker so the committed debit isn't a silent
-            # loss. `debited` is the post-debit AIBankrollState; add the
-            # principal back to it (the transfer is reversed; the regen
-            # commit, if any, is preserved).
-            try:
-                from cash_mode.bankroll import AIBankrollState
+            # Reverse the funding so the committed debit isn't a silent loss:
+            # restore the staker int AND reverse the stake_fund credit on the
+            # climber's seat (the int-only refund would leave a +principal
+            # orphan on the seat). `debited` is the post-debit AIBankrollState.
+            from cash_mode.stake_lifecycle import unwind_climb_funding
 
-                bankroll_repo.save_ai_bankroll(
-                    AIBankrollState(
-                        personality_id=staker_id,
-                        chips=debited.chips + principal,
-                        last_regen_tick=debited.last_regen_tick,
-                    ),
-                    sandbox_id=sandbox_id,
-                )
-            except TypeError as te:
-                if "sandbox_id" not in str(te):
-                    logger.warning(
-                        "[CASH][LOBBY] aspiration: staker refund failed "
-                        "staker=%r principal=%d: %s",
-                        staker_id,
-                        principal,
-                        te,
-                    )
-                else:
-                    bankroll_repo.save_ai_bankroll(
-                        AIBankrollState(
-                            personality_id=staker_id,
-                            chips=debited.chips + principal,
-                            last_regen_tick=debited.last_regen_tick,
-                        )
-                    )
-            except Exception as refund_exc:
-                logger.warning(
-                    "[CASH][LOBBY] aspiration: staker refund failed " "staker=%r principal=%d: %s",
-                    staker_id,
-                    principal,
-                    refund_exc,
-                )
+            unwind_climb_funding(
+                staker_id=staker_id,
+                climber_id=asker_pid,
+                principal=principal,
+                stake_id=stake_id,
+                debited=debited,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+            )
             continue
 
         # (3) Both financial ops committed — now vacate the seat and queue

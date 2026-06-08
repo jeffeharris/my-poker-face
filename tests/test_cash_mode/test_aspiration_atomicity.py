@@ -243,7 +243,10 @@ def test_staker_debit_failure_does_not_mint_chips(monkeypatch):
     def _boom(*args, **kwargs):
         raise RuntimeError("forced staker debit failure")
 
-    monkeypatch.setattr(bankroll_mod, "debit_bankroll_for_seat", _boom)
+    # Funding now flows through the single site `fund_climb_stake`
+    # (cash_mode.stake_lifecycle); lobby imports it at call time, so patching
+    # the module attribute intercepts the climb funding.
+    monkeypatch.setattr("cash_mode.stake_lifecycle.fund_climb_stake", _boom)
 
     result, table = _run(bankroll_repo=bankroll_repo, stake_repo=stake_repo)
 
