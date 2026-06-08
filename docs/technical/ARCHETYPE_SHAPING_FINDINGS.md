@@ -215,6 +215,25 @@ realized facing-open 3-bet, facing-3bet 4-bet, and postflop AF:
   `_table_archetype_key()` (raw `_deviation_profile` reverse-lookup, lazy-resolved).
 - **chart_label in the snapshot** — `player_decision_analysis` now records which
   base chart fed each decision (`6max:loose_mid`, `50bb`, `HU`, …).
+- **Knob 2 — chart raise-damp for the passive tiers** (2026-06-08b). The loosen/
+  station transforms in `build_archetype_charts.py` only redistributed *fold*
+  mass; they never touched the base chart's existing *raise* mass, so every
+  derived chart inherited the base's premium 3-betting (AA raises ~85% facing an
+  open) and the per-action distortion cap (≤0.30) couldn't pull it down to a
+  passive archetype's band. Fix: `_station_facing` gained `damp_raise` (routes
+  existing re-raise mass → call — a station/fish *traps* premiums) and a new
+  `build_tight()` applies the same damp to the `tight_rfi` chart (nit/rock) with
+  `keep_fold=1.0` (tight range preserved). Regenerated `station`/`weak_station`/
+  `tight_rfi`. Mixed-field 6k result — all passive archetypes now PASS 3-bet:
+  nit 9.2→4.7, rock 12.1→5.2, calling_station 13.3→3.2, weak_fish 8.6→3.0. (Minor:
+  rock PFR slipped 12.6→10.5 WARN — removing 3-bets removes preflop raises.)
+- **NEW open finding — every archetype over-folds to 3-bets** (mixed-field 6k:
+  nit 86, rock 83, tag 78, lag 60, maniac 67, station 83, weak_fish 70; Baseline
+  control 82). The vs_3bet defense is too fold-heavy AND its spread across
+  archetypes is compressed (a maniac should defend, a nit should fold). Root: base
+  chart vs_3bet folds ~73% combo-weighted + the loosen `keep_fold` at vs_3bet +
+  the per-action cap. Now the top backlog item — see the handoff. Settle whether
+  the *targets* are slightly low (real nits do fold ~75–85%) before chasing.
 
 ## Prioritized plan
 
