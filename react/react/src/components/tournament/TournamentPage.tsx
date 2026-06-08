@@ -74,31 +74,17 @@ export function TournamentPage() {
     [navigate]
   );
 
-  // Enter a Main Event via the supported invite flow (the on-demand /register
-  // route was removed in main). GET /invite opportunistically offers one when
-  // the economy allows (bank FLUSH + cooldown + no active event); if one is
-  // open we accept it (spawns the real-persona field) and drop onto the felt.
-  // The legacy field-size/table-size form values no longer apply — the spawn
-  // drafts the field — so the body is intentionally ignored.
-  const handleRegister = async (_body: RegisterRequest) => {
+  const handleRegister = async (body: RegisterRequest) => {
     setBusy(true);
     setError(null);
     try {
-      const { invite } = await tournamentApi.getInvite();
-      if (!invite) {
-        setError(
-          'No Main Event on offer right now. The bank funds them on a cadence ' +
-            '(it must be flush and off cooldown), and you can’t already be in an ' +
-            'active event. Finish/leave your current event, then try again shortly.'
-        );
-        setBusy(false);
-        return;
-      }
-      const { tournament_id } = await tournamentApi.acceptInvite();
-      setTournamentId(tournament_id);
-      await goToTable(tournament_id); // straight to the felt
+      const res = await tournamentApi.spawn(body);
+      setTournamentId(res.tournament_id);
+      await goToTable(res.tournament_id); // straight to the felt
     } catch {
-      setError('Could not enter the Main Event — you may already be in an event.');
+      setError(
+        'Could not start the Main Event — not enough players available, or you may already be in an event.'
+      );
       setBusy(false);
     }
   };

@@ -66,8 +66,18 @@ class TournamentSession:
         *,
         entries: dict[str, str] | None = None,
         single_table: bool = False,
+        decoupled: bool = False,
     ):
         self.config = config
+        # Decoupled ("exhibition") tournament: a fully-ISOLATED standalone event
+        # with a real-persona field for flavor but NO wires to the persistent
+        # world — no money (free buy-in, no payout/renown/escrow), no persona-mood
+        # carry in/out, exempt from the one-active-per-owner guard, and personas
+        # start at baseline. Results still count in the shared tournament career
+        # stats. Stored on the session (serialized into session_json) so it
+        # survives cold-load; downstream gates (game builder, cold-load route,
+        # active-tournament guards) read it to no-op every durable side effect.
+        self.decoupled = decoupled
         # Whether this is the unified single-table game (one table, no field
         # balancing / table breaks) vs a true multi-table tournament. The live
         # hand-boundary dispatch keys on `is_multi_table` to pick the right
@@ -534,6 +544,7 @@ class TournamentSession:
             'config': self.config.to_dict(),
             'human_id': self.human_id,
             'single_table': self.single_table,
+            'decoupled': self.decoupled,
             'rounds': self.rounds,
             'hand_counter': self._hand_counter,
             'field': self.field.to_dict(),
@@ -564,6 +575,8 @@ class TournamentSession:
             # persisted `resolver_kind` for single-table games, so a legacy
             # single blob isn't misrouted.
             single_table=d.get('single_table', False),
+            # Legacy blobs predate this key; default coupled (the dominant case).
+            decoupled=d.get('decoupled', False),
         )
         session.field = TournamentField.from_dict(d['field'])
         session.seating = Seating.from_dict(d['seating'])
