@@ -53,6 +53,8 @@ services:
       # PRH-32: finite retention for api_usage cost rows (aggregates are kept
       # via the rollup; raw rows past this are purged on a schedule).
       - API_USAGE_RETENTION_DAYS=${API_USAGE_RETENTION_DAYS:-90}
+      # Sentry backend error monitoring. Empty => Sentry init is a no-op.
+      - SENTRY_DSN=${SENTRY_DSN:-}
       # PRH-30: per-decision equity Monte Carlo iterations (analytics only, not
       # the bot's actual decision). Lower than the 2000 default to raise the
       # single-worker concurrent-hands ceiling; override via host env.

@@ -74,6 +74,8 @@ services:
       - VITE_BACKEND_PORT=${BACKEND_PORT:-5000}
       - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
       - VITE_ENABLE_AI_DEBUG=${ENABLE_AI_DEBUG:-false}
+      # Sentry (session replay + bug-report widget). Empty => Sentry stays off.
+      - VITE_SENTRY_DSN=${VITE_SENTRY_DSN:-}
     depends_on:
       - backend
     command: sh -c "rm -rf node_modules/.vite* && npm run dev -- --host 0.0.0.0"

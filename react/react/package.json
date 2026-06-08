@@ -23,6 +23,7 @@
     "@fontsource/bebas-neue": "^5.2.7",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/noto-sans-symbols-2": "^5.2.8",
+    "@sentry/react": "^10.56.0",
     "framer-motion": "^12.24.0",
     "lucide-react": "^0.562.0",
     "react": "^19.0.0",

@@ -8,7 +8,7 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
 import { rememberAdminOrigin } from './components/admin/adminOrigin';
 import { setTournamentOrigin } from './utils/tournamentOrigin';
-import { useAuth } from './hooks/useAuth';
+import { useAuth, hasPermission } from './hooks/useAuth';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useUsageStats } from './hooks/useUsageStats';
 import { useNicknameOverridesStore } from './stores/nicknameOverridesStore';
@@ -16,6 +16,8 @@ import { fetchNicknameOverrides } from './components/character/api';
 import { ShuffleLoading, GuestLimitModal } from './components/shared';
 import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor';
 import { logger } from './utils/logger';
+import { FeedbackButton } from './components/feedback/FeedbackButton';
+import { setSentryUser, setSentryGame, setReplayRecording } from './sentry';
 import { config } from './config';
 import { type Theme } from './types/theme';
 import toast, { Toaster } from 'react-hot-toast';
@@ -196,6 +198,30 @@ function App() {
       fetchSavedGamesCount();
     }
   }, [isAuthenticated, location.pathname]);
+
+  // Keep Sentry's identity context in sync so every session replay and bug
+  // report is searchable by player (and the feedback form prefills name/email).
+  // No-op when Sentry is disabled.
+  const userId = user?.id;
+  const userName = user?.name;
+  const userEmail = user?.email;
+  const userIsGuest = user?.is_guest;
+  const userIsAdmin = hasPermission(user, 'can_access_admin_tools');
+  useEffect(() => {
+    setSentryUser(
+      userId ? { id: userId, name: userName ?? '', email: userEmail, isGuest: userIsGuest } : null
+    );
+    // Only record replays for authenticated sessions (not anonymous landing-page
+    // browsing), and never for admins (us) — both to protect the free-tier quota.
+    setReplayRecording(isAuthenticated && !userIsAdmin);
+  }, [isAuthenticated, userId, userName, userEmail, userIsGuest, userIsAdmin]);
+
+  // Tag the active game id (from /game/:id) so a feedback report links straight
+  // to that game's admin debug views. Cleared on any non-game route.
+  useEffect(() => {
+    const match = location.pathname.match(/^\/game\/([^/]+)$/);
+    setSentryGame(match && match[1] !== 'new' ? match[1] : null);
+  }, [location.pathname]);
 
   // Redirect to menu after login if on login page
   useEffect(() => {
@@ -779,6 +805,9 @@ function App() {
 
       {/* PWA Install Prompt */}
       <InstallPrompt />
+
+      {/* App-wide bug-report launcher (renders only when Sentry is configured) */}
+      <FeedbackButton />
     </>
   );
 }

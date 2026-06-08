@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import * as Sentry from '@sentry/react';
 import { logger } from '../utils/logger';
 
 interface ErrorBoundaryProps {
@@ -26,6 +27,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     logger.error('ErrorBoundary caught an error:', error, errorInfo);
+    // Report to Sentry with the React component stack so the crash arrives with
+    // its session replay attached. No-op when Sentry isn't initialized.
+    Sentry.captureException(error, {
+      contexts: { react: { componentStack: errorInfo.componentStack } },
+    });
   }
 
   handleReload = (): void => {
