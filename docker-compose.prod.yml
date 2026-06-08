@@ -61,6 +61,12 @@ services:
       # Scaling Stage 0: 500 -> 250 to halve the per-decision CPU burst (still
       # analytics-only; no gameplay impact).
       - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
+      # WebSocket transport: gevent is the standards-aligned async_mode under the
+      # gevent-websocket gunicorn worker. Prod evidence (2026-06-08) showed
+      # threading produced a 1002 protocol error + clients stuck on long-polling
+      # (0 ws upgrades); under gevent a sid handshake completes 101 Switching
+      # Protocols cleanly. Overrides the threading default in flask_app/config.py.
+      - SOCKETIO_ASYNC_MODE=${SOCKETIO_ASYNC_MODE:-gevent}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com
