@@ -419,6 +419,89 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(stake.staker_kind, 'personality')
         self.assertGreater(stake.principal, 0)
 
+    def test_personality_stake_principal_comes_from_lender_not_minted(self):
+        """CONSERVATION AUDIT (the gate for wiring Sal as the home-court backer).
+
+        A personality stake's principal must come OUT of the lender's bankroll —
+        never minted — even when the lender is NOT seated at the table (the mentor-
+        stake / Sal case: auto-sit, no table_id). Runs _build_cash_game UNMOCKED so
+        the real funding path executes, and checks the chip-ledger audit drift
+        (mint detector) + the lender's bankroll delta.
+
+        Fixed 2026-06-01 (`_debit_personality_lender_principal`): every personality
+        stake now debits the lender's projected bankroll by the principal as a pure
+        non-bank transfer to the player's table stack, keeping the audit drift flat.
+        """
+        import flask_app.extensions as ext
+        from flask_app.services import game_state_service
+        from flask_app.services.chip_ledger_audit import compute_audit
+
+        def _drift():
+            return compute_audit(
+                ledger_repo=ext.chip_ledger_repo,
+                bankroll_repo=self.bankroll_repo,
+                cash_table_repo=ext.cash_table_repo,
+                stake_repo=self.stake_repo,
+                db_path=ext.persistence_db_path,
+                list_game_ids_fn=game_state_service.list_game_ids,
+                get_game_fn=game_state_service.get_game,
+            )['drift']
+
+        def _nap():
+            return self.bankroll_repo.load_ai_bankroll(
+                self.napoleon_id, sandbox_id=self.test_sandbox_id
+            ).chips
+
+        nap_before = _nap()
+        drift_before = _drift()
+
+        # NOTE: deliberately NOT patching _build_cash_game — we want the real
+        # funding/debit path to run.
+        response = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={'stake_label': '$10', 'lender_id': self.napoleon_id, 'opponents': 2},
+        )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        data = response.get_json()
+        stake = self.stake_repo.load_active_for_session(data['game_id'])
+        principal = stake.principal
+
+        drift_after = _drift()
+        nap_after = _nap()
+
+        # No minting: the chip universe didn't grow by the principal. A tiny
+        # residual up to the posted blinds is expected and is NOT a mint — it's
+        # the documented v0 audit gap (compute_audit sums seat `stack`s but not
+        # the live pot, so the blinds posted at the first action read as drift
+        # until the hand resolves). Bound the change well below the principal so
+        # a real principal-scale mint (the pre-fix behavior: +1000) still fails.
+        from cash_mode.stakes_ladder import table_buy_in_window
+
+        big_blind = table_buy_in_window('$10')[0]
+        blinds_in_pot = 2 * big_blind  # bounds SB + BB posted at first action
+        drift_delta = drift_after - drift_before
+        self.assertGreaterEqual(
+            drift_delta,
+            0,
+            f"chips destroyed: drift {drift_before} -> {drift_after}",
+        )
+        self.assertLessEqual(
+            drift_delta,
+            blinds_in_pot,
+            f"principal {principal} minted? drift {drift_before} -> {drift_after} "
+            f"(> posted-blinds residual {blinds_in_pot})",
+        )
+        # The principal came OUT of the lender's bankroll: it dropped by at least
+        # ~the full principal (a lower bound — the drop is even larger if napoleon
+        # also happened to be seated, and slightly smaller only by any passive
+        # regen that accrued meanwhile, bounded here by the blinds-scale slack).
+        self.assertGreaterEqual(
+            nap_before - nap_after,
+            principal - blinds_in_pot,
+            f"lender bankroll didn't fund the principal (before={nap_before}, "
+            f"after={nap_after}, principal={principal})",
+        )
+
     def test_personality_path_emits_sponsorship_offered_event(self):
         # The route fires STAKE_OFFERED via the relationship_repo
         # when an AI staker extends a loan. The repo's projection-on-read

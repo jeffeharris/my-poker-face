@@ -520,3 +520,33 @@ register(
         prod=False,
     )
 )
+register(
+    FeatureFlag(
+        "CAREER_PROGRESSION_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Act-1 narrative master gate: Lucky Stack intake + Scene-0 tutorial + keyring lobby for a brand-new sandbox.",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "CAREER_VOUCH_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Career-M2 emergent vouches: the ticker reveals a played-with AI's home room when it likes+respects the player enough.",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "INTAKE_WORLD_WARMUP_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Pre-warm the hidden lobby with a short deterministic sim burst on intake completion (inert without CAREER_PROGRESSION_ENABLED).",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)

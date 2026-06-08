@@ -875,7 +875,10 @@
   left: 0;
   right: 0;
   width: 100%;
-  z-index: var(--z-sticky);
+  /* Just above the inter-hand HUD layer (160) so the hero's controls always sit
+     over transient AI chatter / the Sal floater, but still below modals & sheets
+     (200+). Keeps the action bar the highest *table* element and tappable. */
+  z-index: calc(var(--z-interhand-hud) + 10);
   height: 12dvh;
   min-height: 12dvh;
   margin: 0;

@@ -339,7 +339,24 @@ _test_schema_template_path = None
 # v152: Drop the legacy `cash_idle_pool` cache — the Presence cutover is
 #       complete; `entity_presence` (state='idle') + `cash_idle_metadata` are
 #       the authoritative idle store.
-SCHEMA_VERSION = 156
+# v153: Create `ai_table_hand_counts` — per-(sandbox, ai, table) hand counter
+#       (net added v154); foundation for the table-affinity lever + per-room reads.
+# v154: Add `net_chips` to ai_table_hand_counts — cumulative per-room PnL feeding
+#       the success-weighted table-affinity term (`TABLE_AFFINITY_ENABLED`).
+# v155: Rebaseline the respect/likability neutral baseline 0.5 → 0.35 in
+#       `relationship_states` (earned/asymmetric regard; see `REGARD_NEUTRAL`).
+# v156: Repoint the label store onto the decision spine (main; decision_labels).
+# v157: Create `career_progress` — per-(sandbox, owner) narrative state for the
+#       Act-1 career-progression spine (`CASH_MODE_CAREER_PROGRESSION.md`). A
+#       small JSON blob holds the keyring (`revealed_table_ids`), the Scene-0
+#       tutorial flags (seeded / fish id / graduated), the chosen home court,
+#       and the per-AI one-vouch ledger (`vouched_by`). The lobby renders only
+#       revealed cardrooms; the world doesn't grow, the player's view does.
+#       Renumbered (v124 → v132 → v141 → v152 → v155 → v156 → v157) to land
+#       after main's v156 (label-store repoint) on the main→circuit sync. This
+#       is the in-flight legacy `_migrate_vN` the comment below anticipates —
+#       SCHEMA_VERSION bumped to 157 accordingly.
+SCHEMA_VERSION = 157
 # This is the head of the LEGACY integer chain, retained until the deploy-time
 # squash (docs/plans/SCHEMA_BASELINE_PLAN.md). Prefer authoring NEW migrations as
 # files under `migrations/` (migration_loader.FileMigrationLoader, applied-set
@@ -804,8 +821,9 @@ class SchemaManager:
             #      AI has played at each table, and its cumulative net there,
             #      per sandbox. Incremented ONCE per AI per hand (NOT bilateral
             #      like cash_pair_stats). `net_chips` feeds the success-weighted
-            #      table-affinity attractiveness lever: an AI drifts back to the
-            #      rooms it wins at, concentrating its play into a home room.
+            #      table-affinity attractiveness lever (an AI drifts back to the
+            #      rooms it wins at); `hands` also backs the Career-M2 home-table
+            #      resolver — an AI vouches the player into its most-played room.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS ai_table_hand_counts (
                     sandbox_id   TEXT NOT NULL,
@@ -2376,6 +2394,10 @@ class SchemaManager:
             156: (
                 self._migrate_v156_repoint_labels_to_decisions,
                 "Repoint the label store from prompt_captures to the decision spine: create decision_labels(decision_id → player_decision_analysis.id), backfill from capture_labels via pda.capture_id, rescue user labels stranded on pre-spine player_decision captures by synthesizing a thin decision row, drop capture_labels. Makes EVERY decision (human/tiered/rule/LLM) taggable instead of LLM captures only. Auto-label-only orphans (non-decision captures) are dropped and counted.",
+            ),
+            157: (
+                self._migrate_v157_create_career_progress,
+                "Create career_progress table — per-(sandbox, owner) Act-1 narrative state: keyring (revealed_table_ids), Scene-0 tutorial flags, home court, and the per-AI one-vouch ledger. Renumbered 141→152→155→156→157 to land after main's v156 (label-store repoint) on the main sync.",
             ),
         }
 
@@ -7244,6 +7266,40 @@ class SchemaManager:
             f"Migration v123 complete: added circulating column, "
             f"marked {updated} public personas circulating"
         )
+
+    def _migrate_v157_create_career_progress(self, conn: sqlite3.Connection) -> None:
+        """Migration v157: create `career_progress` for the Act-1 spine.
+
+        One row per (sandbox, owner). Holds the narrative keyring and tutorial
+        state for `CASH_MODE_CAREER_PROGRESSION.md` as a single JSON blob so the
+        shape can evolve without a migration per field:
+
+          - `revealed_table_ids` — the keyring: which cardrooms the player has
+            been vouched into and may therefore SEE in the lobby. New players
+            start empty (only the Scene-0 table shows); each vouch appends one.
+          - `scene0_seeded` / `scene0_table_id` / `scene0_fish_id` — the pinned
+            intimate tutorial table (Sal + one fish + you), so the seeder is
+            idempotent and the vouch trigger knows which fish to measure.
+          - `tutorial_complete` — Scene-0 graduated (the first vouch fired).
+          - `home_court_table_id` — the random cardroom the first vouch revealed.
+          - `vouched_by` — append-only list of personality_ids that have already
+            spent their one vouch (v1: one per AI).
+
+        The world economy still runs across ALL tables (the lobby just filters
+        what it renders), so nothing here gates the sim — it's a read-side
+        visibility layer plus the scripted-graduation bookkeeping. Sandbox-keyed
+        so a fresh save starts the keyring over. Non-destructive, idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS career_progress (
+                sandbox_id    TEXT NOT NULL,
+                owner_id      TEXT NOT NULL,
+                progress_json TEXT NOT NULL DEFAULT '{}',
+                updated_at    TIMESTAMP NOT NULL,
+                PRIMARY KEY (sandbox_id, owner_id)
+            )
+        """)
+        logger.info("Migration v157 complete: career_progress table created")
 
     def _migrate_v124_create_opponent_observation_lifetime(self, conn: sqlite3.Connection) -> None:
         """Migration v124: create `opponent_observation_lifetime` + add the

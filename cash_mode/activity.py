@@ -210,6 +210,17 @@ EVENT_TOURNAMENT_WINNER = "tournament_winner"
 the autonomous field collapses to a winner on the settling tick."""
 
 
+EVENT_VOUCH = "vouch"
+"""An AI vouched the human into a new cardroom (v124, Act-1 career spine). The
+beat reveals a room on the player's keyring — *"Sal Monroe leans over: 'Come by
+The Back Room — tell 'em I sent you.'"* `personality_id`/`name` are the voucher;
+`table_id`/`stake_label` point at the revealed cardroom; `message` is the
+pre-formatted line. Emitted from the cash hand-completion hook when the scripted
+(M1) or relationship-driven (M2) vouch fires. The frontend lobby listens for
+this on the existing `world_event` channel and surfaces the new door. See
+`cash_mode/career_progression.py` and `docs/plans/CASH_MODE_CAREER_PROGRESSION.md`."""
+
+
 @dataclass(frozen=True)
 class LobbyEvent:
     """One movement event surfaced to the lobby UI.
@@ -302,6 +313,28 @@ def clear_events() -> None:
         _events.clear()
 
 
+def filter_events_for_player(events, *, career_active: bool, revealed_table_ids):
+    """Awareness-gate the activity feed for a Circuit (career) player.
+
+    A career player hears only about rooms on their keyring: an event tied to a
+    table they haven't been revealed is dropped. Roomless events (falsy
+    `table_id` — tournament beats use `""`, plus reputation shifts, vice /
+    hustle, the player's own vouch) always pierce, so the wider-world +
+    addressed-to-you signals still land. A vouch's own event passes either way
+    because `fire_vouch` adds the room to `revealed_table_ids` before emitting it.
+
+    Non-career sandboxes (`career_active` False — legacy / grandfathered lobbies)
+    are unchanged: the full feed, as before. Mirrors the lobby's
+    `career_progression.visible_tables` filter so the feed matches what the
+    player can actually see.
+    """
+    if not career_active:
+        return list(events)
+    revealed = set(revealed_table_ids or ())
+    # Falsy table_id (None or "") = roomless/global beat → always pierce.
+    return [e for e in events if not e.table_id or e.table_id in revealed]
+
+
 # --- Message formatters -----------------------------------------------------
 
 
@@ -343,6 +376,11 @@ def format_leave_message(
 def format_join_message(name: str, stake_label: str, table_name: Optional[str] = None) -> str:
     """Human-readable phrasing for a join event."""
     return f"{name} sat down at {format_table_location(table_name, stake_label)}"
+
+
+def format_vouch_message(name: str, stake_label: str, table_name: Optional[str] = None) -> str:
+    """Human-readable phrasing for a vouch event — a new door opening."""
+    return f"{name} vouched you into {format_table_location(table_name, stake_label)}"
 
 
 def format_big_win_message(

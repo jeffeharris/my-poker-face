@@ -1,29 +1,56 @@
 # See https://pre-commit.com for usage and config reference.
-# Install once after cloning: `pre-commit install`.
-# Run against everything: `pre-commit run --all-files`.
+# Install once after cloning: `pre-commit install` (wires BOTH pre-commit and
+# pre-push via default_install_hook_types below).
+# Run the formatters on demand: `pre-commit run --all-files --hook-stage pre-push`.
+#
+# Hooks are split by stage so commits — especially MERGE commits — never fight
+# the hooks:
+#   - pre-commit (every commit): fast, NON-modifying checks only. A resolved
+#     merge has no conflict markers / private keys / invalid yaml, so these never
+#     trip it — the commit goes through clean.
+#   - pre-push (before sharing): the file-MODIFYING formatters/linters. CI
+#     (.github/workflows/deploy.yml) runs `ruff format --check`, `ruff check`,
+#     and `npm run format:check` INDEPENDENTLY of pre-commit, so CI — not the
+#     local commit — is the real gate; pre-push is just a convenience that
+#     catches format drift before it goes up. A big merge *push* can use
+#     `git push --no-verify` if it trips on incoming code (CI still enforces it).
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
-      - id: trailing-whitespace
-        exclude: '\.md$'
-      - id: end-of-file-fixer
+      # --- pre-commit: non-modifying checks (always safe, including on merges) ---
       - id: check-yaml
         exclude: '^\.github/' # GitHub workflows use !!ge syntax that fails the basic loader
+        stages: [pre-commit]
       - id: check-toml
+        stages: [pre-commit]
       - id: check-added-large-files
         args: ['--maxkb=512']
-      - id: check-merge-conflict
+        stages: [pre-commit]
+      - id: check-merge-conflict # catches unresolved <<<<<<< markers before commit
+        stages: [pre-commit]
       - id: detect-private-key
+        stages: [pre-commit]
+      # --- pre-push: file-modifying fixers (CI is the authoritative gate) ---
+      - id: trailing-whitespace
+        exclude: '\.md$'
+        stages: [pre-push]
+      - id: end-of-file-fixer
+        stages: [pre-push]
       - id: mixed-line-ending
         args: ['--fix=lf']
+        stages: [pre-push]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.7.4
     hooks:
       - id: ruff
         args: ['--fix']
+        stages: [pre-push]
       - id: ruff-format
+        stages: [pre-push]
 
   - repo: https://github.com/pre-commit/mirrors-prettier
     rev: v3.1.0
@@ -35,3 +62,4 @@ repos:
         # would let pre-commit format files CI then rejects.
         additional_dependencies:
           - prettier@3.8.3
+        stages: [pre-push]

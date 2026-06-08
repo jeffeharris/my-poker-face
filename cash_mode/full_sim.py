@@ -1000,11 +1000,13 @@ def _play_one_hand_inner(
         new_seats[idx] = {**new_seats[idx], "chips": int(final_chips.get(pid, 0))}
 
     # Per-table hand/net counter: record each seated AI's hand + net chip
-    # result at this table, feeding the success-weighted table-affinity lever
-    # (AIs drift back to rooms they win at). ONE increment per AI per hand —
+    # result at this table. Serves TWO consumers: (1) the success-weighted
+    # table-affinity lever — AIs drift back to rooms they win at; and (2) the
+    # Career-M2 vouch evaluator — resolves an AI's home court (the lobby table
+    # where it has played the most hands). ONE increment per AI per hand —
     # not bilateral. Best-effort; a counter write never breaks the ~227
     # hand/sec loop. Most AI hands happen here off-screen, so this is where
-    # per-room records mostly accrue.
+    # per-room records (and home tables) mostly accrue.
     if table_id and sandbox_id and memory_manager is not None:
         _rel_repo = getattr(memory_manager, "_relationship_repo", None)
         if _rel_repo is not None:

@@ -47,6 +47,9 @@ interface UsePokerGameOptions {
   onGameCreated?: (gameId: string) => void;
   onNewAiMessage?: (message: ChatMessage) => void;
   onGameLoadFailed?: () => void;
+  /** Fired when a scripted scene (Scene 0) completes — the backend signals the
+   *  game should return to the lobby (where Sal's handoff beat continues). */
+  onSceneComplete?: () => void;
 }
 
 export type QueuedAction = 'check_fold' | null;
@@ -107,6 +110,7 @@ export function usePokerGame({
   onGameCreated,
   onNewAiMessage,
   onGameLoadFailed,
+  onSceneComplete,
 }: UsePokerGameOptions): UsePokerGameResult {
   // Game state lives in Zustand store for granular subscriptions
   const applyGameState = useGameStore((state) => state.applyGameState);
@@ -216,10 +220,13 @@ export function usePokerGame({
           setMessages((prev) => [...prev, ...newMessages].slice(-MAX_MESSAGES));
 
           if (onNewAiMessage) {
-            const aiMessages = newMessages.filter((msg: ChatMessage) => msg.type === 'ai');
-            if (aiMessages.length > 0) {
-              onNewAiMessage(aiMessages[aiMessages.length - 1]);
-            }
+            // Forward EVERY new AI message in order (not just the last of the
+            // batch) so the consumer can queue rapid-fire lines — e.g. Sal's
+            // multi-line graduation. The non-Sal floater slot still keeps "last
+            // wins" because each call overwrites it.
+            newMessages
+              .filter((msg: ChatMessage) => msg.type === 'ai')
+              .forEach((msg: ChatMessage) => onNewAiMessage(msg));
           }
         }
       }
@@ -299,6 +306,12 @@ export function usePokerGame({
         // Placeholder for future player join handling
       });
 
+      // A scripted scene (Scene 0) finished — hand off to the component, which
+      // returns to the lobby once the mentor's closing lines have played.
+      socket.on('scene_complete', () => {
+        if (onSceneComplete) onSceneComplete();
+      });
+
       socket.on('update_game_state', (data: { game_state: GameState }) => {
         if (!data?.game_state) {
           logger.error('[SEQUENCER] Received invalid state update — missing game_state', { data });
@@ -366,10 +379,11 @@ export function usePokerGame({
           );
 
           if (onNewAiMessage) {
-            const aiMessages = newMessages.filter((msg) => msg.message_type === 'ai');
-            if (aiMessages.length > 0) {
-              onNewAiMessage(aiMessages[aiMessages.length - 1] as unknown as ChatMessage);
-            }
+            // Forward every new AI message in order (see note above) so Sal's
+            // back-to-back lines all reach the queue.
+            newMessages
+              .filter((msg) => msg.message_type === 'ai')
+              .forEach((msg) => onNewAiMessage(msg as unknown as ChatMessage));
           }
         }
       });
@@ -554,6 +568,7 @@ export function usePokerGame({
     },
     [
       onNewAiMessage,
+      onSceneComplete,
       clearAiThinkingTimeout,
       updateStorePlayers,
       updateStorePlayerOptions,

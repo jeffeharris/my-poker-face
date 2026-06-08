@@ -2,7 +2,7 @@ import logging
 import random
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .poker_game import (
     PokerGameState,
@@ -100,6 +100,21 @@ class ImmutableStateMachine:
     blind_config: BlindConfig = field(default_factory=BlindConfig)
     current_hand_seed: Optional[int] = None  # For deterministic deck seeding in A/B experiments
     hand_seed_provided: bool = False
+    # One-shot pre-stacked deck for the NEXT hand (scripted scenes — e.g. the
+    # career Scene-0 tutorial deals fixed cards so a lesson is guaranteed). When
+    # provided, it replaces the random shuffle for exactly one hand, then clears
+    # (same consume-once semantics as the seed override above). Takes precedence
+    # over `current_hand_seed`. None = normal random deal.
+    current_hand_deck: Optional[Tuple] = None
+    hand_deck_provided: bool = False
+    # Like current_hand_deck, but specified as scripted HOLES keyed by player
+    # NAME plus a fixed board, resolved into a concrete deck at deal time against
+    # the actual (post-button-rotation) seating. Name-keyed so a rigged scene
+    # survives reset_game_state_for_new_hand rotating the players tuple each hand
+    # — a seat-indexed deck goes stale the moment the button moves. Consumed once.
+    current_hand_holes: Optional[Dict[str, Tuple]] = None
+    current_hand_board: Optional[Tuple] = None
+    hand_holes_provided: bool = False
     # When False, advance_state_pure skips the snapshot append. The
     # snapshots tuple otherwise grows monotonically (one entry per
     # transition, no pruning), which is fine for short-lived game
@@ -129,6 +144,26 @@ class ImmutableStateMachine:
     def with_hand_seed(self, seed: Optional[int], provided: bool = True) -> 'ImmutableStateMachine':
         """Return new state with updated hand seed."""
         return replace(self, current_hand_seed=seed, hand_seed_provided=provided)
+
+    def with_hand_deck(
+        self, deck: Optional[Tuple], provided: bool = True
+    ) -> 'ImmutableStateMachine':
+        """Return new state with a one-shot pre-stacked deck for the next hand."""
+        return replace(self, current_hand_deck=deck, hand_deck_provided=provided)
+
+    def with_hand_holes(
+        self,
+        holes: Optional[Dict[str, Tuple]],
+        board: Optional[Tuple],
+        provided: bool = True,
+    ) -> 'ImmutableStateMachine':
+        """Return new state with one-shot scripted holes (by name) + board for the next hand."""
+        return replace(
+            self,
+            current_hand_holes=holes,
+            current_hand_board=board,
+            hand_holes_provided=provided,
+        )
 
     @property
     def current_phase(self) -> PokerPhase:
@@ -198,6 +233,43 @@ def _resolve_hand_seed(state: ImmutableStateMachine) -> int:
     return random.getrandbits(32)
 
 
+def _deck_from_scripted_holes(
+    players: Tuple, holes_by_name: Dict[str, Tuple], board: Optional[Tuple]
+) -> Tuple:
+    """Order a full deck so each named player is dealt their scripted hole cards.
+
+    Mirrors the deal: ``deal_hole_cards`` gives 2 cards per active player in
+    player-list order, then the community cards come off the top (no burns). So
+    laying out ``[seat0 holes, seat1 holes, …, board, filler]`` pins every
+    scripted card. Players with no scripted holes get filler pairs; leftover
+    cards follow. Resolved against the LIVE ``players`` order passed in, which is
+    why it's immune to the button-rotation reorder that
+    ``reset_game_state_for_new_hand`` applies each hand (the old seat-indexed
+    approach went stale the instant the button moved).
+    """
+
+    def _key(c):
+        return (c.rank, c.suit)
+
+    board = tuple(board or ())
+    placed = [c for cards in holes_by_name.values() for c in cards] + list(board)
+    placed_keys = {_key(c) for c in placed}
+    if len(placed_keys) != len(placed):
+        raise ValueError("scripted holes/board contain a duplicate card")
+    pool = iter(c for c in create_deck(shuffled=True, random_seed=0) if _key(c) not in placed_keys)
+
+    ordered: List = []
+    for p in players:
+        cards = holes_by_name.get(p.name)
+        if cards is not None:
+            ordered.extend(cards)
+        else:
+            ordered.extend([next(pool), next(pool)])
+    ordered.extend(board)
+    ordered.extend(pool)
+    return tuple(ordered)
+
+
 def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for INITIALIZING_HAND phase transition."""
     # First hand never goes through HAND_OVER, so seed it here.
@@ -205,14 +277,27 @@ def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
     seeded_state = state
     if state.stats.hand_count == 0:
         hand_seed = _resolve_hand_seed(state)
+        # A provided pre-stacked deck (scripted scene) wins over the shuffle.
+        # Name-keyed scripted holes take precedence over a raw seat-indexed deck.
+        if state.hand_holes_provided and state.current_hand_holes is not None:
+            deck = _deck_from_scripted_holes(
+                state.game_state.players, state.current_hand_holes, state.current_hand_board
+            )
+        elif state.hand_deck_provided and state.current_hand_deck is not None:
+            deck = state.current_hand_deck
+        else:
+            deck = create_deck(shuffled=True, random_seed=hand_seed)
         seeded_game_state = state.game_state.update(
-            deck=create_deck(shuffled=True, random_seed=hand_seed),
+            deck=deck,
             discard_pile=tuple(),
             community_cards=tuple(),
             newly_dealt_count=0,
         )
-        seeded_state = state.with_game_state(seeded_game_state).with_hand_seed(
-            hand_seed, provided=False
+        seeded_state = (
+            state.with_game_state(seeded_game_state)
+            .with_hand_seed(hand_seed, provided=False)
+            .with_hand_deck(None, provided=False)  # consume one-shot
+            .with_hand_holes(None, None, provided=False)
         )
 
     new_game_state = setup_hand(seeded_state.game_state)
@@ -322,6 +407,21 @@ def hand_over_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     hand_seed = _resolve_hand_seed(state)
     new_game_state = reset_game_state_for_new_hand(state.game_state, deck_seed=hand_seed)
 
+    # A provided pre-stacked deck (scripted scene — e.g. a Scene-0 teaching hand)
+    # replaces the freshly shuffled one for exactly this hand. The reset above
+    # still does all its other work (clears the board, rotates the button,
+    # resets bets); we only swap the cards. Crucially the reset has ALREADY
+    # rotated the players tuple, so scripted holes are resolved by NAME against
+    # the post-rotation order here — immune to the button moving each hand.
+    if state.hand_holes_provided and state.current_hand_holes is not None:
+        new_game_state = new_game_state.update(
+            deck=_deck_from_scripted_holes(
+                new_game_state.players, state.current_hand_holes, state.current_hand_board
+            )
+        )
+    elif state.hand_deck_provided and state.current_hand_deck is not None:
+        new_game_state = new_game_state.update(deck=state.current_hand_deck)
+
     # Increment hand count
     new_stats = state.stats.increment_hand_count()
 
@@ -338,6 +438,8 @@ def hand_over_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
         state.with_game_state(new_game_state)
         .with_stats(new_stats)
         .with_hand_seed(hand_seed, provided=False)
+        .with_hand_deck(None, provided=False)  # consume the one-shot scripted deck
+        .with_hand_holes(None, None, provided=False)
         .with_phase(get_next_phase(state))
     )
 
@@ -554,6 +656,25 @@ class PokerStateMachine:
     def current_hand_seed(self, seed: Optional[int]) -> None:
         """Set hand seed for deterministic deck shuffling (compatibility method)."""
         self._state = self._state.with_hand_seed(seed)
+
+    def provide_hand_deck(self, deck: Optional[Tuple]) -> None:
+        """Provide a one-shot pre-stacked deck for the NEXT hand (mutable-style).
+
+        Used by scripted scenes (the career Scene-0 tutorial) to deal fixed
+        cards. Consumed after one hand; pass None to clear. Compatibility method
+        for the Flask game handler.
+        """
+        self._state = self._state.with_hand_deck(deck, provided=deck is not None)
+
+    def provide_hand_holes(self, holes: Optional[Dict[str, Tuple]], board: Optional[Tuple]) -> None:
+        """Provide one-shot scripted holes (keyed by player NAME) + board for the
+        NEXT hand (mutable-style).
+
+        Resolved into a concrete deck at deal time against the live seating, so it
+        survives the per-hand button rotation that ``provide_hand_deck``'s
+        seat-indexed deck does not. Consumed after one hand; pass None to clear.
+        """
+        self._state = self._state.with_hand_holes(holes, board, provided=holes is not None)
 
     def advance_state(self) -> None:
         """

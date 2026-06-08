@@ -890,12 +890,14 @@ class PersonalityRepository(BaseRepository):
             else:
                 # The curated cast IS the live pool, so seed it circulating=1 by
                 # default. A persona can opt OUT with `"circulating": false` in
-                # its JSON entry — used to keep eval/control bots, IP-risk
-                # holdovers, and bench extras out of the auto-seeded lobby while
-                # still shipping them in the corpus (selectable/promotable later).
-                # Without the default, a fresh-install DB would land every
-                # persona at the circulating=0 default and start with an empty
-                # opponent pool. (Re-seeds of an existing row go through
+                # its JSON entry — used both to keep eval/control bots, IP-risk
+                # holdovers, and bench extras out of the auto-seeded lobby AND for
+                # authored scene personas (Sal Moretti, the Scene-0 fish) that must
+                # exist as real, pickable personalities but never auto-seed into a
+                # sandbox's world (the career scene system places them explicitly).
+                # Without the default, a fresh-install DB would land every persona
+                # at the circulating=0 default and start with an empty opponent
+                # pool. (Re-seeds of an existing row go through
                 # update_personality_config above, which leaves circulating
                 # untouched = preserved.) The flag lives in its own column, not
                 # config_json, so strip it from the config before saving.

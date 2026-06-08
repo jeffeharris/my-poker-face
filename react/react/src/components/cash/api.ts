@@ -108,6 +108,26 @@ export async function leaveTable(): Promise<LeaveResponse> {
   return postJson('/leave');
 }
 
+/** The Lucky Stack intake (cold open) result — the LLM-christened persona. */
+export interface IntakeResult {
+  player_name: string;
+  fish_name: string;
+  bio: string;
+  /** Seam for generating an avatar from the persona (not fired automatically). */
+  avatar_prompt: string;
+}
+
+/** Submit the cold open: the player's name + the reply they picked when the
+ *  waitress asked them to say something about themselves. `reply` is the verbatim
+ *  line (feeds the bio); `replyId` is a stable key for later narrative callbacks. */
+export async function submitIntake(
+  name: string,
+  reply: string,
+  replyId: string
+): Promise<IntakeResult> {
+  return postJson('/intake', { name, reply, reply_id: replyId });
+}
+
 /** One row of the player's chip transaction history (GET /api/cash/ledger). */
 export interface LedgerEntry {
   created_at: string;

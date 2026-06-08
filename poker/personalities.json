@@ -7413,6 +7413,115 @@
       "skill": "weak_reg",
       "circulating": true,
       "id": "king_tut"
+    },
+    "Sal Monroe": {
+      "play_style": "disciplined and patient; a lifelong low-stakes grinder ('The Clock') who never gambles, waits for the right spot, and presses hard only when the math is with him",
+      "default_confidence": "steady",
+      "default_attitude": "gruff but generous",
+      "anchors": {
+        "baseline_aggression": 0.52,
+        "baseline_looseness": 0.3,
+        "ego": 0.28,
+        "poise": 0.86,
+        "expressiveness": 0.58,
+        "risk_identity": 0.28,
+        "adaptation_bias": 0.62,
+        "baseline_energy": 0.42,
+        "recovery_rate": 0.22
+      },
+      "verbal_tics": [
+        "Patience is a position, kid. Fold enough and you'll never go broke.",
+        "I've been grinding this room since before you could see over the rail.",
+        "The money comes to the one who waits for it. It always does.",
+        "Tick, tick. The right spot's coming.",
+        "Mind your roll and your roll'll mind you."
+      ],
+      "physical_tics": [
+        "*checks a battered steel wristwatch*",
+        "*stacks his chips into perfect, even towers*",
+        "*nods slowly, sizing you up*",
+        "*sips black coffee without breaking eye contact*"
+      ],
+      "visual_identity": {
+        "identity": "a weathered lifelong cardroom grinder they call 'The Clock'",
+        "appearance": "late 60s, lean and sharp-eyed, deep smile lines, close-cropped silver hair and a neat grey mustache, unhurried",
+        "apparel": "a worn but pressed flannel shirt under a faded windbreaker, a battered steel wristwatch, reading glasses pushed up on his head"
+      },
+      "nickname": "Sal",
+      "bankroll_knobs": {
+        "starting_bankroll": 6000,
+        "bankroll_rate": 300,
+        "buy_in_multiplier": 1.2,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "sal_moretti",
+      "circulating": false,
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.1,
+        "respect_floor": -0.4,
+        "heat_ceiling": 0.7
+      },
+      "borrower_profile": {
+        "willing": false
+      }
+    },
+    "Loose Larry": {
+      "play_style": "loose-passive regular; limps in light, calls down with any piece, pays off the nuts — the soft spot every grinder wants on their left",
+      "default_confidence": "cheerful",
+      "default_attitude": "happy-go-lucky",
+      "anchors": {
+        "baseline_aggression": 0.18,
+        "baseline_looseness": 0.82,
+        "ego": 0.25,
+        "poise": 0.55,
+        "expressiveness": 0.75,
+        "risk_identity": 0.45,
+        "adaptation_bias": 0.05,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.12
+      },
+      "verbal_tics": [
+        "'Eh, I'll look you up — feeling lucky.'",
+        "'You probably got me, but it's only money, right?'",
+        "'I never fold a pair, that's my rule.'",
+        "'One time! Come on, one time!'"
+      ],
+      "physical_tics": [
+        "*splashes chips into the pot without counting*",
+        "*peeks at his cards twice to make sure*",
+        "*chats with the dealer mid-hand*"
+      ],
+      "visual_identity": {
+        "identity": "a friendly, perpetually-optimistic neighborhood regular",
+        "appearance": "mid 40s, ruddy cheeks, easy smile, a few days of stubble, ball cap pushed back",
+        "apparel": "a faded team ball cap, a comfortable zip-up hoodie, a coffee he never finishes"
+      },
+      "nickname": "Larry",
+      "bankroll_knobs": {
+        "starting_bankroll": 2500,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "loose_larry",
+      "circulating": false,
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "calls_down_top_pair",
+      "spot_tendencies": [
+        [
+          "sticky",
+          0.7
+        ]
+      ]
     }
   }
 }

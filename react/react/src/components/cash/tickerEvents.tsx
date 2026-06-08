@@ -132,6 +132,9 @@ export function renderEventIcon(type: LobbyEvent['type']): ReactNode {
       return <DoorOpen {...iconProps} />;
     case 'hustle_start':
       return <Briefcase {...iconProps} />;
+    // Career — a vouch opens a new door for the player.
+    case 'vouch':
+      return <DoorOpen {...iconProps} />;
     // Whales — arrival is the pull signal; departure is a quiet dot.
     case 'whale_arrival':
       return <Gem {...iconProps} />;

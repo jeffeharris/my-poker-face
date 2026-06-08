@@ -16,7 +16,8 @@ Cross-session/cross-game tables owned by this repository:
   cumulative-net counter. Incremented once per AI per hand (not bilateral,
   unlike cash_pair_stats). `net_chips` feeds the success-weighted
   table-affinity attractiveness lever (an AI drifts back to rooms it wins
-  at); `hands` is a general per-room activity tally.
+  at); `hands` is a per-room activity tally that also backs the Career-M2
+  home-table resolver (an AI vouches the player into its most-played room).
 
 All persistence APIs use **stable personality_ids** for keys, not
 display names. The relationship layer's read paths consume
@@ -534,7 +535,8 @@ class RelationshipRepository(BaseRepository):
                 for row in rows
             ]
 
-    # --- ai table hand counts (v153/v154) — per-room hand+net, feeds table affinity ---
+    # --- ai table hand counts (v153/v154) — per-room hand+net; feeds table
+    #     affinity (net) + the Career-M2 home-table resolver (hands) ---
 
     def increment_ai_table_hands(
         self,
@@ -555,9 +557,9 @@ class RelationshipRepository(BaseRepository):
         for the success-weighted table-affinity term. `now` is an ISO-8601
         string stamped as `last_hand_at` for auditability.
 
-        Via `net_chips`, feeds the table-affinity attractiveness lever.
-        Best-effort by convention — callers wrap this so a counter write
-        never breaks hand resolution.
+        Feeds `resolve_home_table` (most-played room) and, via `net_chips`,
+        the table-affinity attractiveness lever. Best-effort by convention —
+        callers wrap this so a counter write never breaks hand resolution.
         """
         with self._get_connection() as conn:
             conn.execute(
@@ -605,8 +607,9 @@ class RelationshipRepository(BaseRepository):
     ) -> dict[str, int]:
         """Return `{table_id: hands}` for one AI in one sandbox.
 
-        Per-room activity tally — exposed for tests and admin/debug surfaces.
-        Empty dict when the AI has no recorded hands.
+        Per-room activity tally and the raw read behind `resolve_home_table`
+        — exposed for tests and admin/debug surfaces. Empty dict when the AI
+        has no recorded hands.
         """
         with self._get_connection() as conn:
             rows = conn.execute(
@@ -618,6 +621,51 @@ class RelationshipRepository(BaseRepository):
                 (sandbox_id, ai_id),
             ).fetchall()
         return {row["table_id"]: int(row["hands"]) for row in rows}
+
+    def resolve_home_table(
+        self,
+        ai_id: str,
+        *,
+        sandbox_id: str,
+        eligible_table_ids: frozenset,
+        min_hands: int = 30,
+    ) -> Optional[str]:
+        """The AI's home table: where it has played the most hands.
+
+        Returns the `table_id` with the highest hand count for `ai_id`
+        that (a) has at least `min_hands` hands and (b) is in
+        `eligible_table_ids`. Returns None when no row qualifies — by
+        design the AI then vouches no one this tick (no fallback).
+
+        `min_hands` is a *fluke guard* (don't call a 3-hand stint a "home"),
+        NOT a vouch gate — keep it low. In a live world an AI's affinity is
+        long-established, so the floor rarely bites; it only matters at a cold
+        start where every AI begins at zero. 30 ≈ a real session's worth.
+
+        `eligible_table_ids` is the caller-supplied set of currently-live
+        LOBBY tables in the sandbox (the resolver stays ignorant of
+        `cash_tables`; the ticker passes the live lobby set). Filtering in
+        Python after the ordered fetch keeps casino/scripted tables and
+        closed rooms out automatically — a counted table that's no longer
+        a live lobby room is simply skipped. Ties break on
+        `hands DESC, table_id ASC` (deterministic).
+        """
+        if not eligible_table_ids:
+            return None
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT table_id
+                FROM ai_table_hand_counts
+                WHERE sandbox_id = ? AND ai_id = ? AND hands >= ?
+                ORDER BY hands DESC, table_id ASC
+                """,
+                (sandbox_id, ai_id, min_hands),
+            ).fetchall()
+        for row in rows:
+            if row["table_id"] in eligible_table_ids:
+                return row["table_id"]
+        return None
 
     # --- notes (v95) ---
 

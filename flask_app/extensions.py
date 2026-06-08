@@ -91,6 +91,7 @@ user_prefs_repo = None
 user_avatar_repo = None
 holdings_snapshots_repo = None
 prestige_snapshots_repo = None
+career_progress_repo = None
 cash_scalps_repo = None  # durable attributed "who busted whom" counter (v132)
 renown_field_repo = None  # batched Renown-v2 field-input read (v133)
 entity_presence_repo = None  # dormant Presence machine store (Cut 3 / cutover)
@@ -239,6 +240,7 @@ def init_persistence() -> None:
         user_avatar_repo, \
         holdings_snapshots_repo, \
         prestige_snapshots_repo, \
+        career_progress_repo, \
         cash_scalps_repo, \
         renown_field_repo, \
         entity_presence_repo, \
@@ -278,6 +280,7 @@ def init_persistence() -> None:
     user_avatar_repo = repos['user_avatar_repo']
     holdings_snapshots_repo = repos['holdings_snapshots_repo']
     prestige_snapshots_repo = repos['prestige_snapshots_repo']
+    career_progress_repo = repos['career_progress_repo']
     cash_scalps_repo = repos['cash_scalps_repo']
     renown_field_repo = repos['renown_field_repo']
     entity_presence_repo = repos['entity_presence_repo']
