@@ -111,6 +111,25 @@
   margin: 2px 0 10px;
 }
 
+.mystory__preflop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: #9a958a;
+}
+.mystory__stat b {
+  color: #e9e6df;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.mystory__arc .mystory__preflop {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(244, 213, 141, 0.18);
+}
+
 .mystory__summary {
   margin: 0 0 10px;
   line-height: 1.5;

@@ -30,6 +30,14 @@ interface SessionStats {
   in_progress: boolean;
 }
 
+interface Preflop {
+  hands: number;
+  vpip_pct: number; // % of hands played voluntarily preflop
+  pfr_pct: number; // % of hands raised preflop
+  premium: number; // count of premium starting hands (AA/KK/QQ/JJ/AKs)
+  avg_hand_pct: number | null; // avg starting-hand quality as a top-X% (lower = stronger)
+}
+
 interface Session {
   game_id: string;
   summary: string;
@@ -39,6 +47,7 @@ interface Session {
   stake_label: string | null; // e.g. "$200"
   table_name: string | null; // the named room, e.g. "Hotel Mezzanine"
   started_at: string | null; // ISO timestamp the session began
+  preflop: Preflop | null; // VPIP / PFR / starting-hand quality
   beat?: string; // the voiced session beat (present only when ?voiced=1)
 }
 
@@ -57,13 +66,15 @@ interface Journey {
   sessions: Session[];
   arc: Arc | null;
   arc_beat: string | null;
+  preflop_overall: Preflop | null;
 }
 
 interface MyStoryProps {
   onBack: () => void;
 }
 
-const fmt = (n: number) => `${n > 0 ? '+' : ''}${n.toLocaleString()}`;
+// Unicode minus for negatives (matches Sparkline + CareerHighlightsCard).
+const fmt = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toLocaleString()}`;
 
 const fmtDate = (iso: string | null): string => {
   if (!iso) return '';
@@ -71,6 +82,29 @@ const fmtDate = (iso: string | null): string => {
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
+
+function PreflopStats({ p }: { p: Preflop }) {
+  return (
+    <div className="mystory__preflop">
+      <span className="mystory__stat">
+        <b>{p.vpip_pct}%</b> VPIP
+      </span>
+      <span className="mystory__stat">
+        <b>{p.pfr_pct}%</b> PFR
+      </span>
+      {p.avg_hand_pct != null && (
+        <span className="mystory__stat">
+          avg hand <b>top {p.avg_hand_pct}%</b>
+        </span>
+      )}
+      {p.premium > 0 && (
+        <span className="mystory__stat">
+          <b>{p.premium}</b> premium
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function MyStory({ onBack }: MyStoryProps) {
   const [journey, setJourney] = useState<Journey | null>(null);
@@ -139,6 +173,7 @@ export function MyStory({ onBack }: MyStoryProps) {
                   chips · biggest pot {journey.arc.biggest_pot.toLocaleString()}
                 </p>
               )}
+              {journey.preflop_overall && <PreflopStats p={journey.preflop_overall} />}
             </div>
           )}
 
@@ -179,6 +214,7 @@ export function MyStory({ onBack }: MyStoryProps) {
                     label="Chip stack across the session"
                   />
                 )}
+                {s.preflop && <PreflopStats p={s.preflop} />}
                 <p className="mystory__summary">{s.beat || s.summary}</p>
                 {s.beats.length > 0 && (
                   <ul className="mystory__beats">

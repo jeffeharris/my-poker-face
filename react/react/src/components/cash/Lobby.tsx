@@ -42,6 +42,7 @@ import {
 import { feedEventKey, renderEventIcon } from './tickerEvents';
 import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
+import { CareerHighlightsCard } from './CareerHighlightsCard';
 import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { IntelHub } from './IntelHub';
@@ -725,27 +726,7 @@ export function Lobby() {
             />
           )}
 
-          {bankroll !== null && (
-            <button
-              type="button"
-              onClick={() => navigate('/story')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                margin: '4px auto 0',
-                padding: '8px 16px',
-                borderRadius: 10,
-                border: '1px solid rgba(244,213,141,0.35)',
-                background: 'rgba(244,213,141,0.08)',
-                color: '#f4d58d',
-                cursor: 'pointer',
-                fontWeight: 600,
-              }}
-            >
-              📖 Your Circuit story
-            </button>
-          )}
+          {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
 
           {reputation && <ReputationPanel reputation={reputation} />}
 
