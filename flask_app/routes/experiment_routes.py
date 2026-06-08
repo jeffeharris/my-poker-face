@@ -403,7 +403,7 @@ SQL_QUERY_TOOL = {
 # Tables allowed for SQL queries (safety whitelist)
 ALLOWED_SQL_TABLES = {
     'prompt_captures',
-    'capture_labels',
+    'decision_labels',
     'player_decision_analysis',
     'prompt_presets',
     'personalities',
@@ -1238,8 +1238,8 @@ SELECT name FROM sqlite_master WHERE type='table'  -- List all tables
 - Game state: pot_total, cost_to_call, pot_odds, player_stack, player_hand, community_cards
 - LLM info: model, provider, latency_ms, input_tokens, output_tokens
 
-**capture_labels** - Labels/tags on captures
-- capture_id, label, label_type ('user' or 'smart')
+**decision_labels** - Labels/tags on decisions (keyed on the decision spine)
+- decision_id, label, label_type ('user' or 'auto')
 
 **player_decision_analysis** - Decision quality metrics (joined on capture_id)
 - decision_quality: 'optimal', 'acceptable', or 'mistake'
@@ -1276,7 +1276,7 @@ These are common AI decision problems worth testing with replay experiments:
 
 ```sql
 -- Get available labels
-SELECT label, COUNT(*) as count FROM capture_labels GROUP BY label ORDER BY count DESC
+SELECT label, COUNT(*) as count FROM decision_labels GROUP BY label ORDER BY count DESC
 
 -- Find fold mistakes (highest EV impact)
 SELECT pc.id, pc.player_name, pc.phase, pda.equity, pda.ev_lost

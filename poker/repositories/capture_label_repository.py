@@ -1,6 +1,18 @@
-"""Repository for capture label persistence.
+"""Repository for decision label persistence.
 
-Covers the capture_labels table and label-based searching of prompt_captures.
+Covers the `decision_labels` table — tags/labels keyed on the decision spine
+(`player_decision_analysis.id`) so EVERY decision (human, tiered/sharp, rule,
+or LLM) is taggable, not just LLM prompt captures.
+
+Two id-spaces meet here:
+
+* The Decision Analyzer works natively in decision-id space — use
+  `add_labels` / `remove_labels` / `get_labels` / `get_labels_for_decisions`.
+* The Prompt Playground (capture selector + replay experiments) works in
+  capture-id space. The `*_by_capture` bridges and `search_captures_with_labels`
+  translate through `player_decision_analysis.capture_id`; only LLM decisions
+  (the ones with a capture) are reachable that way, which is correct — replay
+  can only re-run a captured prompt.
 """
 
 from __future__ import annotations
@@ -20,21 +32,25 @@ logger = logging.getLogger(__name__)
 
 
 class CaptureLabelRepository(BaseRepository):
-    """Handles capture label operations and label-based capture searches."""
+    """Handles decision label operations and label-based capture searches."""
 
     def __init__(self, db_path: str, prompt_capture_repo: PromptCaptureRepository):
         super().__init__(db_path)
         self._prompt_capture_repo = prompt_capture_repo
 
-    def add_capture_labels(
-        self, capture_id: int, labels: List[str], label_type: str = 'user'
+    # ------------------------------------------------------------------
+    # Decision-id space (the canonical surface)
+    # ------------------------------------------------------------------
+
+    def add_labels(
+        self, decision_id: int, labels: List[str], label_type: str = 'user'
     ) -> List[str]:
-        """Add labels to a captured AI decision.
+        """Add labels to a decision.
 
         Args:
-            capture_id: The prompt_captures ID
+            decision_id: The player_decision_analysis ID
             labels: List of label strings to add
-            label_type: Type of label ('user' for manual, 'smart' for auto-generated)
+            label_type: 'user' for manual, 'auto' for auto-generated
 
         Returns:
             List of labels that were actually added (excludes duplicates)
@@ -48,39 +64,110 @@ class CaptureLabelRepository(BaseRepository):
                 try:
                     conn.execute(
                         """
-                        INSERT INTO capture_labels (capture_id, label, label_type)
+                        INSERT INTO decision_labels (decision_id, label, label_type)
                         VALUES (?, ?, ?)
                     """,
-                        (capture_id, label, label_type),
+                        (decision_id, label, label_type),
                     )
                     added.append(label)
                 except sqlite3.IntegrityError:
-                    # Label already exists for this capture, skip
+                    # Label already exists for this decision, skip
                     pass
         if added:
-            logger.debug(f"Added labels {added} to capture {capture_id}")
+            logger.debug(f"Added labels {added} to decision {decision_id}")
         return added
 
-    def compute_and_store_auto_labels(
-        self, capture_id: int, capture_data: Dict[str, Any]
-    ) -> List[str]:
-        """Compute auto-labels for a capture based on rules and store them.
+    def remove_labels(self, decision_id: int, labels: List[str]) -> int:
+        """Remove labels from a decision.
 
-        Labels are computed based on the capture data at capture time.
-        Stored with label_type='auto' to distinguish from user-added labels.
+        Returns:
+            Number of labels that were removed
+        """
+        with self._get_connection() as conn:
+            total_removed = 0
+            for label in labels:
+                label = label.strip().lower()
+                if not label:
+                    continue
+                cursor = conn.execute(
+                    """
+                    DELETE FROM decision_labels
+                    WHERE decision_id = ? AND label = ?
+                """,
+                    (decision_id, label),
+                )
+                total_removed += cursor.rowcount
+        if total_removed:
+            logger.debug(f"Removed {total_removed} label(s) from decision {decision_id}")
+        return total_removed
+
+    def get_labels(self, decision_id: int) -> List[Dict[str, Any]]:
+        """Get all labels for a decision.
+
+        Returns:
+            List of label dicts with 'label', 'label_type', 'created_at'
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT label, label_type, created_at
+                FROM decision_labels
+                WHERE decision_id = ?
+                ORDER BY label
+            """,
+                (decision_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_labels_for_decisions(self, decision_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """Batch-fetch labels for many decisions (avoids N+1 in list views).
+
+        Returns:
+            Dict mapping decision_id -> list of label dicts. Decisions with no
+            labels are absent from the dict.
+        """
+        if not decision_ids:
+            return {}
+        placeholders = ','.join(['?'] * len(decision_ids))
+        result: Dict[int, List[Dict[str, Any]]] = {}
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT decision_id, label, label_type, created_at
+                FROM decision_labels
+                WHERE decision_id IN ({placeholders})
+                ORDER BY decision_id, label
+            """,
+                decision_ids,
+            )
+            for row in cursor.fetchall():
+                d = dict(row)
+                result.setdefault(d.pop('decision_id'), []).append(d)
+        return result
+
+    def compute_and_store_auto_labels(
+        self, decision_id: int, decision_data: Dict[str, Any]
+    ) -> List[str]:
+        """Compute auto-labels for a decision and store them (label_type='auto').
+
+        Labels are computed from the decision state at decision time. Fields not
+        present in ``decision_data`` simply skip their label, so this works for
+        every player type — humans/rule bots supply the fold/pot fields and no
+        drama context; LLM bots supply both.
 
         Args:
-            capture_id: The prompt_captures ID
-            capture_data: Dict containing capture fields (action_taken, pot_odds, stack_bb, already_bet_bb, etc.)
+            decision_id: The player_decision_analysis ID
+            decision_data: Dict with action_taken, pot_odds, stack_bb,
+                already_bet_bb, and optional drama_context.
 
         Returns:
             List of auto-labels that were added
         """
         labels = []
-        action = capture_data.get('action_taken')
-        pot_odds = capture_data.get('pot_odds')
-        stack_bb = capture_data.get('stack_bb')
-        already_bet_bb = capture_data.get('already_bet_bb')
+        action = decision_data.get('action_taken')
+        pot_odds = decision_data.get('pot_odds')
+        stack_bb = decision_data.get('stack_bb')
+        already_bet_bb = decision_data.get('already_bet_bb')
 
         # SHORT_STACK: Folding with < 3 BB is almost always wrong
         if action == 'fold' and stack_bb is not None and stack_bb < 3:
@@ -102,7 +189,7 @@ class CaptureLabelRepository(BaseRepository):
                 labels.append('suspicious_fold')
 
         # DRAMA: Add labels for notable drama situations
-        drama = capture_data.get('drama_context')
+        drama = decision_data.get('drama_context')
         if drama:
             level = drama.get('level')
             tone = drama.get('tone')
@@ -123,65 +210,16 @@ class CaptureLabelRepository(BaseRepository):
 
         # Store labels if any were computed
         if labels:
-            self.add_capture_labels(capture_id, labels, label_type='auto')
-            logger.debug(f"Auto-labeled capture {capture_id}: {labels}")
+            self.add_labels(decision_id, labels, label_type='auto')
+            logger.debug(f"Auto-labeled decision {decision_id}: {labels}")
 
         return labels
-
-    def remove_capture_labels(self, capture_id: int, labels: List[str]) -> int:
-        """Remove labels from a captured AI decision.
-
-        Args:
-            capture_id: The prompt_captures ID
-            labels: List of label strings to remove
-
-        Returns:
-            Number of labels that were removed
-        """
-        with self._get_connection() as conn:
-            total_removed = 0
-            for label in labels:
-                label = label.strip().lower()
-                if not label:
-                    continue
-                cursor = conn.execute(
-                    """
-                    DELETE FROM capture_labels
-                    WHERE capture_id = ? AND label = ?
-                """,
-                    (capture_id, label),
-                )
-                total_removed += cursor.rowcount
-        if total_removed:
-            logger.debug(f"Removed {total_removed} label(s) from capture {capture_id}")
-        return total_removed
-
-    def get_capture_labels(self, capture_id: int) -> List[Dict[str, Any]]:
-        """Get all labels for a captured AI decision.
-
-        Args:
-            capture_id: The prompt_captures ID
-
-        Returns:
-            List of label dicts with 'label', 'label_type', 'created_at'
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT label, label_type, created_at
-                FROM capture_labels
-                WHERE capture_id = ?
-                ORDER BY label
-            """,
-                (capture_id,),
-            )
-            return [dict(row) for row in cursor.fetchall()]
 
     def list_all_labels(self, label_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all unique labels with counts.
 
         Args:
-            label_type: Optional filter by label type ('user' or 'smart')
+            label_type: Optional filter by label type ('user' or 'auto')
 
         Returns:
             List of dicts with 'name', 'count', 'label_type'
@@ -191,7 +229,7 @@ class CaptureLabelRepository(BaseRepository):
                 cursor = conn.execute(
                     """
                     SELECT label as name, label_type, COUNT(*) as count
-                    FROM capture_labels
+                    FROM decision_labels
                     WHERE label_type = ?
                     GROUP BY label, label_type
                     ORDER BY count DESC, label
@@ -201,7 +239,7 @@ class CaptureLabelRepository(BaseRepository):
             else:
                 cursor = conn.execute("""
                     SELECT label as name, label_type, COUNT(*) as count
-                    FROM capture_labels
+                    FROM decision_labels
                     GROUP BY label, label_type
                     ORDER BY count DESC, label
                 """)
@@ -215,24 +253,26 @@ class CaptureLabelRepository(BaseRepository):
     ) -> Dict[str, int]:
         """Get label counts filtered by game_id, player_name, and/or call_type.
 
-        Args:
-            game_id: Optional filter by game
-            player_name: Optional filter by player
-            call_type: Optional filter by call type
+        Spines on the decision table. ``call_type`` is a capture-only field, so
+        when it is supplied (and is not the catch-all 'player_decision') we
+        LEFT JOIN the linked capture to honor it; otherwise every decision row
+        qualifies.
 
         Returns:
             Dict mapping label name to count
         """
         conditions = []
-        params = []
+        params: List[Any] = []
+        join = ""
 
         if game_id:
-            conditions.append("pc.game_id = ?")
+            conditions.append("pda.game_id = ?")
             params.append(game_id)
         if player_name:
-            conditions.append("pc.player_name = ?")
+            conditions.append("pda.player_name = ?")
             params.append(player_name)
-        if call_type:
+        if call_type and call_type != 'player_decision':
+            join = "LEFT JOIN prompt_captures pc ON pc.id = pda.capture_id"
             conditions.append("pc.call_type = ?")
             params.append(call_type)
 
@@ -241,16 +281,134 @@ class CaptureLabelRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 f"""
-                SELECT cl.label, COUNT(*) as count
-                FROM capture_labels cl
-                JOIN prompt_captures pc ON cl.capture_id = pc.id
+                SELECT dl.label, COUNT(*) as count
+                FROM decision_labels dl
+                JOIN player_decision_analysis pda ON pda.id = dl.decision_id
+                {join}
                 {where_clause}
-                GROUP BY cl.label
-                ORDER BY count DESC, cl.label
+                GROUP BY dl.label
+                ORDER BY count DESC, dl.label
             """,
                 params,
             )
             return {row['label']: row['count'] for row in cursor.fetchall()}
+
+    def bulk_add_labels(
+        self, decision_ids: List[int], labels: List[str], label_type: str = 'user'
+    ) -> Dict[str, int]:
+        """Add labels to multiple decisions at once.
+
+        Returns:
+            Dict with 'captures_affected' and 'labels_added' counts
+            (key name kept for client compatibility — counts decisions).
+        """
+        labels = [l.strip().lower() for l in labels if l.strip()]
+        if not labels or not decision_ids:
+            return {'captures_affected': 0, 'labels_added': 0}
+
+        total_added = 0
+        touched = set()
+
+        with self._get_connection() as conn:
+            for decision_id in decision_ids:
+                for label in labels:
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO decision_labels (decision_id, label, label_type)
+                            VALUES (?, ?, ?)
+                        """,
+                            (decision_id, label, label_type),
+                        )
+                        total_added += 1
+                        touched.add(decision_id)
+                    except sqlite3.IntegrityError:
+                        # Label already exists for this decision
+                        pass
+
+        logger.info(f"Bulk added {total_added} label(s) to {len(touched)} decision(s)")
+        return {'captures_affected': len(touched), 'labels_added': total_added}
+
+    def bulk_remove_labels(self, decision_ids: List[int], labels: List[str]) -> Dict[str, int]:
+        """Remove labels from multiple decisions at once.
+
+        Returns:
+            Dict with 'captures_affected' and 'labels_removed' counts.
+        """
+        labels = [l.strip().lower() for l in labels if l.strip()]
+        if not labels or not decision_ids:
+            return {'captures_affected': 0, 'labels_removed': 0}
+
+        with self._get_connection() as conn:
+            id_placeholders = ','.join(['?' for _ in decision_ids])
+            label_placeholders = ','.join(['?' for _ in labels])
+
+            cursor = conn.execute(
+                f"""
+                DELETE FROM decision_labels
+                WHERE decision_id IN ({id_placeholders})
+                AND label IN ({label_placeholders})
+            """,
+                decision_ids + labels,
+            )
+            removed = cursor.rowcount
+
+        logger.info(f"Bulk removed {removed} label(s) from decisions")
+        return {'captures_affected': len(decision_ids), 'labels_removed': removed}
+
+    # ------------------------------------------------------------------
+    # Capture-id bridge (Prompt Playground / replay experiments)
+    # ------------------------------------------------------------------
+
+    def decision_id_for_capture(self, capture_id: int) -> Optional[int]:
+        """Resolve the decision row id for a prompt capture, if one exists."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM player_decision_analysis WHERE capture_id = ? LIMIT 1",
+                (capture_id,),
+            ).fetchone()
+        return row[0] if row else None
+
+    def get_labels_for_captures(self, capture_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """Batch-fetch labels keyed by capture id (avoids N+1 in capture search).
+
+        Returns a dict mapping capture_id -> list of label dicts; captures with
+        no linked decision/labels are absent.
+        """
+        if not capture_ids:
+            return {}
+        placeholders = ','.join(['?'] * len(capture_ids))
+        result: Dict[int, List[Dict[str, Any]]] = {}
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT pda.capture_id AS capture_id, dl.label, dl.label_type, dl.created_at
+                FROM decision_labels dl
+                JOIN player_decision_analysis pda ON pda.id = dl.decision_id
+                WHERE pda.capture_id IN ({placeholders})
+                ORDER BY pda.capture_id, dl.label
+            """,
+                capture_ids,
+            )
+            for row in cursor.fetchall():
+                d = dict(row)
+                result.setdefault(d.pop('capture_id'), []).append(d)
+        return result
+
+    def get_labels_by_capture(self, capture_id: int) -> List[Dict[str, Any]]:
+        """Get labels for the decision linked to a capture (capture-id space)."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT dl.label, dl.label_type, dl.created_at
+                FROM decision_labels dl
+                JOIN player_decision_analysis pda ON pda.id = dl.decision_id
+                WHERE pda.capture_id = ?
+                ORDER BY dl.label
+            """,
+                (capture_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
 
     def search_captures_with_labels(
         self,
@@ -273,27 +431,13 @@ class CaptureLabelRepository(BaseRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
-        """Search captures by labels and optional filters.
+        """Search prompt captures by decision labels and optional filters.
 
-        Args:
-            labels: List of labels to search for
-            match_all: If True, captures must have ALL labels; if False, ANY label
-            game_id: Optional filter by game
-            player_name: Optional filter by player
-            action: Optional filter by action taken
-            phase: Optional filter by game phase
-            min_pot_odds: Optional minimum pot odds filter
-            max_pot_odds: Optional maximum pot odds filter
-            call_type: Optional filter by call type (e.g., 'player_decision')
-            min_pot_size: Optional minimum pot total filter
-            max_pot_size: Optional maximum pot total filter
-            min_big_blind: Optional minimum big blind filter (computed from stack_bb)
-            max_big_blind: Optional maximum big blind filter (computed from stack_bb)
-            error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
-            has_error: Filter to captures with errors (True) or without errors (False)
-            is_correction: Filter to correction attempts only (True) or original only (False)
-            limit: Maximum results to return
-            offset: Pagination offset
+        Returns capture rows (capture-id space) so the Prompt Playground and
+        replay experiments keep working. The label filter resolves through the
+        decision spine: a capture matches when its decision carries the label.
+        Captures without a decision row are unreachable here (and unreplayable),
+        which is correct.
 
         Returns:
             Dict with 'captures' list and 'total' count
@@ -317,9 +461,9 @@ class CaptureLabelRepository(BaseRepository):
                 offset=offset,
             )
 
-        # Build base conditions
+        # Build base conditions (on the capture row)
         conditions = []
-        params = []
+        params: List[Any] = []
 
         if game_id:
             conditions.append("pc.game_id = ?")
@@ -371,29 +515,33 @@ class CaptureLabelRepository(BaseRepository):
         where_clause = build_where_clause(conditions)
 
         with self._get_connection() as conn:
-            # Build label matching subquery
+            # Label matching resolves capture -> decision -> decision_labels.
             label_placeholders = ','.join(['?' for _ in labels])
-            params_for_labels = [l for l in labels]
+            params_for_labels: List[Any] = [l for l in labels]
 
             if match_all:
-                # Must have ALL specified labels
+                # Capture's decision must carry ALL specified labels
                 label_subquery = f"""
                     pc.id IN (
-                        SELECT capture_id
-                        FROM capture_labels
-                        WHERE label IN ({label_placeholders})
-                        GROUP BY capture_id
-                        HAVING COUNT(DISTINCT label) = ?
+                        SELECT pda.capture_id
+                        FROM player_decision_analysis pda
+                        JOIN decision_labels dl ON dl.decision_id = pda.id
+                        WHERE pda.capture_id IS NOT NULL
+                          AND dl.label IN ({label_placeholders})
+                        GROUP BY pda.capture_id
+                        HAVING COUNT(DISTINCT dl.label) = ?
                     )
                 """
                 params_for_labels.append(len(labels))
             else:
-                # Must have ANY of the specified labels
+                # Capture's decision must carry ANY of the specified labels
                 label_subquery = f"""
                     pc.id IN (
-                        SELECT capture_id
-                        FROM capture_labels
-                        WHERE label IN ({label_placeholders})
+                        SELECT pda.capture_id
+                        FROM player_decision_analysis pda
+                        JOIN decision_labels dl ON dl.decision_id = pda.id
+                        WHERE pda.capture_id IS NOT NULL
+                          AND dl.label IN ({label_placeholders})
                     )
                 """
 
@@ -442,82 +590,11 @@ class CaptureLabelRepository(BaseRepository):
                                 field,
                                 capture.get('id'),
                             )
-                # Get labels for this capture
-                capture['labels'] = self.get_capture_labels(capture['id'])
                 captures.append(capture)
 
+            # Attach labels in one batched query (avoids N+1 over the page).
+            labels_by_capture = self.get_labels_for_captures([c['id'] for c in captures])
+            for capture in captures:
+                capture['labels'] = labels_by_capture.get(capture['id'], [])
+
             return {'captures': captures, 'total': total}
-
-    def bulk_add_capture_labels(
-        self, capture_ids: List[int], labels: List[str], label_type: str = 'user'
-    ) -> Dict[str, int]:
-        """Add labels to multiple captures at once.
-
-        Args:
-            capture_ids: List of prompt_captures IDs
-            labels: Labels to add to all captures
-            label_type: Type of label
-
-        Returns:
-            Dict with 'captures_affected' and 'labels_added' counts
-        """
-        labels = [l.strip().lower() for l in labels if l.strip()]
-        if not labels or not capture_ids:
-            return {'captures_affected': 0, 'labels_added': 0}
-
-        total_added = 0
-        captures_touched = set()
-
-        with self._get_connection() as conn:
-            for capture_id in capture_ids:
-                for label in labels:
-                    try:
-                        conn.execute(
-                            """
-                            INSERT INTO capture_labels (capture_id, label, label_type)
-                            VALUES (?, ?, ?)
-                        """,
-                            (capture_id, label, label_type),
-                        )
-                        total_added += 1
-                        captures_touched.add(capture_id)
-                    except sqlite3.IntegrityError:
-                        # Label already exists for this capture
-                        pass
-
-        logger.info(f"Bulk added {total_added} label(s) to {len(captures_touched)} capture(s)")
-        return {'captures_affected': len(captures_touched), 'labels_added': total_added}
-
-    def bulk_remove_capture_labels(
-        self, capture_ids: List[int], labels: List[str]
-    ) -> Dict[str, int]:
-        """Remove labels from multiple captures at once.
-
-        Args:
-            capture_ids: List of prompt_captures IDs
-            labels: Labels to remove from all captures
-
-        Returns:
-            Dict with 'captures_affected' and 'labels_removed' counts
-        """
-        labels = [l.strip().lower() for l in labels if l.strip()]
-        if not labels or not capture_ids:
-            return {'captures_affected': 0, 'labels_removed': 0}
-
-        with self._get_connection() as conn:
-            # Build query with multiple capture_ids
-            id_placeholders = ','.join(['?' for _ in capture_ids])
-            label_placeholders = ','.join(['?' for _ in labels])
-
-            cursor = conn.execute(
-                f"""
-                DELETE FROM capture_labels
-                WHERE capture_id IN ({id_placeholders})
-                AND label IN ({label_placeholders})
-            """,
-                capture_ids + labels,
-            )
-            removed = cursor.rowcount
-
-        logger.info(f"Bulk removed {removed} label(s) from captures")
-        return {'captures_affected': len(capture_ids), 'labels_removed': removed}

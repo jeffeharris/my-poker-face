@@ -339,7 +339,7 @@ _test_schema_template_path = None
 # v152: Drop the legacy `cash_idle_pool` cache — the Presence cutover is
 #       complete; `entity_presence` (state='idle') + `cash_idle_metadata` are
 #       the authoritative idle store.
-SCHEMA_VERSION = 155
+SCHEMA_VERSION = 156
 
 
 class SchemaManager:
@@ -1355,6 +1355,12 @@ class SchemaManager:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)"
             )
+            # Bridges a prompt_capture back to its decision row — used by the
+            # decision-keyed label store (decision_labels) when the Prompt
+            # Playground tags/searches in capture-id space.
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_capture ON player_decision_analysis(capture_id)"
+            )
             # Zone indexes may fail on existing databases before migration v71 adds columns
             try:
                 conn.execute(
@@ -1555,22 +1561,25 @@ class SchemaManager:
                 "CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)"
             )
 
-            # 29. Capture labels (v48) - Tags/labels for captured AI decisions
+            # 29. Decision labels (v48 capture_labels, repointed to the decision
+            # spine in v156) - tags/labels keyed on player_decision_analysis so
+            # EVERY decision (human, tiered, rule, LLM) is taggable, not just
+            # LLM captures.
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS capture_labels (
+                CREATE TABLE IF NOT EXISTS decision_labels (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    capture_id INTEGER NOT NULL REFERENCES prompt_captures(id) ON DELETE CASCADE,
+                    decision_id INTEGER NOT NULL REFERENCES player_decision_analysis(id) ON DELETE CASCADE,
                     label TEXT NOT NULL,
                     label_type TEXT DEFAULT 'user',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(capture_id, label)
+                    UNIQUE(decision_id, label)
                 )
             """)
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_capture_labels_label ON capture_labels(label)"
+                "CREATE INDEX IF NOT EXISTS idx_decision_labels_label ON decision_labels(label)"
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_capture_labels_capture_id ON capture_labels(capture_id)"
+                "CREATE INDEX IF NOT EXISTS idx_decision_labels_decision_id ON decision_labels(decision_id)"
             )
 
             # 30. Replay experiment captures (v49) - Links captures to replay experiments
@@ -2341,6 +2350,10 @@ class SchemaManager:
             155: (
                 self._migrate_v155_rebaseline_regard_neutral,
                 "Re-baseline existing relationship_states regard from the old neutral 0.5 to REGARD_NEUTRAL (0.35): subtract 0.15 from every respect/likability (clamped to [0,1]); heat untouched. Preserves each edge's offset-from-neutral so renown contributions / hints / offers are unchanged — the data-side mirror of the code rebaseline. ONE-TIME data transform (NOT idempotent if re-run); the version gate guarantees once-only. Fresh DBs are built at SCHEMA_VERSION and skip it (rows already at 0.35).",
+            ),
+            156: (
+                self._migrate_v156_repoint_labels_to_decisions,
+                "Repoint the label store from prompt_captures to the decision spine: create decision_labels(decision_id → player_decision_analysis.id), backfill from capture_labels via pda.capture_id, rescue user labels stranded on pre-spine player_decision captures by synthesizing a thin decision row, drop capture_labels. Makes EVERY decision (human/tiered/rule/LLM) taggable instead of LLM captures only. Auto-label-only orphans (non-decision captures) are dropped and counted.",
             ),
         }
 
@@ -6440,6 +6453,127 @@ class SchemaManager:
         logger.info(
             "Migration v155 complete: relationship_states regard re-baselined "
             "0.5 → 0.35 (respect/likability −0.15, clamped; heat untouched)"
+        )
+
+    def _migrate_v156_repoint_labels_to_decisions(self, conn: sqlite3.Connection) -> None:
+        """Migration v156: move the label store onto the decision spine.
+
+        `capture_labels` keyed labels off `prompt_captures(id)`, so only LLM
+        decisions (the only player type that writes a capture row) could be
+        tagged. Human, tiered/sharp, and rule-bot decisions live in
+        `player_decision_analysis` with no capture, so they were untaggable.
+
+        This recreates the store as `decision_labels(decision_id →
+        player_decision_analysis.id)` and migrates existing labels:
+
+        1. Clean remap — labels whose capture has a decision row (`pda.capture_id
+           = cl.capture_id`) move straight onto that decision.
+        2. Rescue — user-curated labels stranded on a real `player_decision`
+           capture that predates the decision spine (no `pda` row) would
+           otherwise be dropped. We synthesize a thin decision row from the
+           capture (game_id/player/phase/action — enough to carry the label and
+           surface the decision) so the hand-curated label survives. Only done
+           for `label_type='user'` (auto-labels regenerate) and only when the
+           capture has the NOT NULL identity fields.
+        3. Drop — auto-label-only orphans (labels on non-decision captures:
+           narration, image, etc.) have no decision to attach to. They are
+           dropped and counted in the log; auto-labels recompute going forward.
+
+        Fresh DBs are built at SCHEMA_VERSION with `decision_labels` already in
+        `_init_db` and never enter this step.
+        """
+        # decision_labels normally exists already (created by _init_db, which
+        # runs before migrations). Assert it here so the migration is also
+        # correct if run in isolation.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS decision_labels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_id INTEGER NOT NULL REFERENCES player_decision_analysis(id) ON DELETE CASCADE,
+                label TEXT NOT NULL,
+                label_type TEXT DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(decision_id, label)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_labels_label ON decision_labels(label)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_labels_decision_id ON decision_labels(decision_id)"
+        )
+        # The backfill JOIN + runtime capture→decision bridge both need this.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_analysis_capture ON player_decision_analysis(capture_id)"
+        )
+
+        has_old = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='capture_labels'"
+        ).fetchone()
+        if not has_old:
+            logger.info(
+                "Migration v156: no capture_labels table — decision_labels ready, nothing to backfill"
+            )
+            return
+
+        # 2. Rescue first, so the synthesized rows are picked up by step 1's join.
+        #    A user label on a real player-decision capture with no decision row
+        #    gets a thin decision row built from the capture. call_type IS NULL
+        #    is included: pre-v39 captures predate the column and were all player
+        #    decisions, and NULL is treated as 'player_decision' elsewhere — so
+        #    legacy hand-curated labels survive instead of being dropped.
+        rescued = conn.execute(
+            """
+            INSERT INTO player_decision_analysis
+                (game_id, player_name, hand_number, phase, action_taken, capture_id, analyzer_version)
+            SELECT pc.game_id, pc.player_name, pc.hand_number, pc.phase, pc.action_taken,
+                   pc.id, 'backfill_v156'
+            FROM prompt_captures pc
+            WHERE (pc.call_type = 'player_decision' OR pc.call_type IS NULL)
+              AND pc.game_id IS NOT NULL
+              AND pc.player_name IS NOT NULL
+              AND pc.id IN (
+                  SELECT cl.capture_id FROM capture_labels cl
+                  WHERE cl.label_type = 'user'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM player_decision_analysis pda WHERE pda.capture_id = pc.id
+              )
+            """
+        ).rowcount
+
+        # 1. Clean remap (now also covers the rescued rows). OR IGNORE absorbs
+        #    the UNIQUE(decision_id, label) guard if a decision somehow shares a
+        #    capture across two label rows.
+        moved = conn.execute(
+            """
+            INSERT OR IGNORE INTO decision_labels (decision_id, label, label_type, created_at)
+            SELECT pda.id, cl.label, cl.label_type, cl.created_at
+            FROM capture_labels cl
+            JOIN player_decision_analysis pda ON pda.capture_id = cl.capture_id
+            """
+        ).rowcount
+
+        # 3. Anything left unmapped is dropped with the table. Count for the log.
+        dropped = conn.execute(
+            """
+            SELECT COUNT(*) FROM capture_labels cl
+            WHERE NOT EXISTS (
+                SELECT 1 FROM player_decision_analysis pda WHERE pda.capture_id = cl.capture_id
+            )
+            """
+        ).fetchone()[0]
+
+        conn.execute("DROP TABLE capture_labels")
+
+        logger.info(
+            "Migration v156 complete: moved %s label(s) to decision_labels "
+            "(rescued %s pre-spine user label(s) via synthesized decision rows; "
+            "dropped %s orphan label(s) on non-decision captures); capture_labels removed",
+            moved,
+            rescued,
+            dropped,
         )
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:

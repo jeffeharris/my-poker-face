@@ -265,6 +265,8 @@ class DecisionAnalysisRepository(BaseRepository):
         max_tilt_level: Optional[float] = None,
         decision_quality: Optional[str] = None,
         min_ev_lost: Optional[float] = None,
+        labels: Optional[List[str]] = None,
+        label_match_all: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
@@ -278,9 +280,12 @@ class DecisionAnalysisRepository(BaseRepository):
         This replaces the old prompt_captures-spined listing that fabricated
         synthetic negative ids (`-pda.id`) for capture-less decisions.
 
+        Filterable by decision labels (decision_labels, keyed on the spine):
+        `labels` ANY-matches by default, ALL-matches when `label_match_all`.
+
         Capture-only browse filters (call_type, error_type, has_error,
-        is_correction, raw tags, labels) are intentionally NOT supported here
-        — non-decision captures live in the Prompt Playground.
+        is_correction, raw tags) are intentionally NOT supported here —
+        non-decision captures live in the Prompt Playground.
 
         Returns:
             Dict with 'decisions' list and 'total' count.
@@ -332,6 +337,25 @@ class DecisionAnalysisRepository(BaseRepository):
         if min_ev_lost is not None:
             conditions.append("pda.ev_lost >= ?")
             params.append(min_ev_lost)
+
+        # Label filter resolves through decision_labels (keyed on the spine).
+        clean_labels = [l.strip().lower() for l in (labels or []) if l and l.strip()]
+        if clean_labels:
+            placeholders = ','.join(['?'] * len(clean_labels))
+            if label_match_all:
+                conditions.append(
+                    f"pda.id IN (SELECT decision_id FROM decision_labels "
+                    f"WHERE label IN ({placeholders}) "
+                    f"GROUP BY decision_id HAVING COUNT(DISTINCT label) = ?)"
+                )
+                params.extend(clean_labels)
+                params.append(len(clean_labels))
+            else:
+                conditions.append(
+                    f"pda.id IN (SELECT decision_id FROM decision_labels "
+                    f"WHERE label IN ({placeholders}))"
+                )
+                params.extend(clean_labels)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

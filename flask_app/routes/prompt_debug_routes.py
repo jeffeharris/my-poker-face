@@ -84,9 +84,21 @@ def list_captures():
         max_tilt_level=_float('max_tilt_level'),
         decision_quality=request.args.get('decision_quality'),
         min_ev_lost=_float('min_ev_lost'),
+        labels=[l for l in request.args.get('labels', '').split(',') if l.strip()],
+        label_match_all=request.args.get('label_match_all', 'false').lower() == 'true',
         limit=int(request.args.get('limit', 50)),
         offset=int(request.args.get('offset', 0)),
     )
+
+    # Attach labels (keyed on the decision spine) so every decision — human,
+    # tiered, rule, or LLM — shows its tags, not just LLM captures. Batched to
+    # avoid N+1.
+    decisions = result['decisions']
+    labels_by_decision = extensions.capture_label_repo.get_labels_for_decisions(
+        [d['id'] for d in decisions]
+    )
+    for d in decisions:
+        d['labels'] = labels_by_decision.get(d['id'], [])
 
     # Stats are expensive (full-table aggregations). Callers that want the
     # list to paint fast pass include_stats=false and fetch /stats +
