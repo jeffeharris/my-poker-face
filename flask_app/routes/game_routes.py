@@ -2541,8 +2541,14 @@ def register_socket_events(sio):
             logger.debug(f"[SOCKET] connect presence skipped: {e}")
 
     @sio.on('disconnect')
-    def on_disconnect():
-        """Drop the socket from cash presence (TTL grace handles gaps)."""
+    def on_disconnect(reason=None):
+        """Drop the socket from cash presence (TTL grace handles gaps).
+
+        Flask-SocketIO/python-socketio passes a disconnect ``reason`` positional
+        arg to the handler; accept it (optional, so older versions that call with
+        no args still work) — otherwise every disconnect raised a TypeError and
+        the presence cleanup below never ran (orphaned sids).
+        """
         try:
             from flask_app.services import presence
 

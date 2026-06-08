@@ -114,19 +114,27 @@ def _log_async_runtime():
             "worker (docker-compose.prod.yml) or set SOCKETIO_ASYNC_MODE=gevent."
         )
 
-    # PRH-24 follow-up (two-hand-flicker): the existing monkey-patch check above
-    # reports active=True under the gevent-websocket worker and stays silent —
-    # its blind spot. Even with patching ON, `async_mode='threading'` serves the
-    # WS transport via simple_websocket, while the worker exposes geventwebsocket:
-    # a transport mismatch whose WS reads break at the protocol level on
-    # close/upgrade → repeated 1002 closes + Infinity reconnect (the storm that
-    # amplified the leaked-socket flicker). The standards-aligned pairing under
-    # this worker is `gevent`. Escalate the mismatch so the deploy is fixed.
+    # PRH-24 follow-up (two-hand-flicker): the monkey-patch check above reports
+    # active=True under the gevent-websocket worker and stays silent — its blind
+    # spot. Even with patching ON, `async_mode='threading'` serves the WS
+    # transport via simple_websocket while the worker exposes geventwebsocket: a
+    # transport mismatch that can break a WS upgrade at the protocol level (1002).
+    #
+    # Downgraded ERROR→WARNING after pulling prod evidence (2026-06-08): the
+    # "repeated 1002 closes + reconnect storms" framing was overstated — a quiet
+    # ~7-min window showed a *single* `simple_websocket 1002` and only ~6 distinct
+    # sids (no storm). The real observed effect is that clients run on the heavier
+    # long-polling fallback (`transport=polling` only, 0 websocket upgrades) rather
+    # than a crash. So this is a degradation worth flagging, not a broken deploy.
+    # `gevent` is still the standards-aligned pairing under this worker; flipping
+    # to it should be validated (does `transport=websocket` then appear?) rather
+    # than assumed — see docs/SCALING.md PRH-40 for the counter-argument.
     if is_gevent_ws_worker and SOCKETIO_ASYNC_MODE == "threading" and not is_development:
-        logger.error(
+        logger.warning(
             "[ASYNC] running under the gevent-websocket gunicorn worker with "
-            "async_mode=threading — this transport mismatch causes repeated WS "
-            "1002 closes + reconnect storms. Set SOCKETIO_ASYNC_MODE=gevent."
+            "async_mode=threading — WS upgrades use simple_websocket and may hit "
+            "1002 protocol errors, so clients fall back to long-polling (heavier "
+            "on the single worker). Consider validating SOCKETIO_ASYNC_MODE=gevent."
         )
 
     # Single-process socket-state assumption: the Socket.IO rate limiter
