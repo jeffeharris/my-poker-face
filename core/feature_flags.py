@@ -126,6 +126,13 @@ class FeatureFlag:
     prod: bool = False  # default when current_env() == 'prod'
     db_overridable: bool = False  # may an app_settings row override it at runtime?
     since: str = ""  # ISO date the flag was introduced (lifecycle tracking)
+    # When True, this flag's resolved value is published to the browser via
+    # /api/feature-flags and attached to Sentry events (errors/replays/feedback)
+    # so a bug report shows which UX-affecting flags were active. Keep this to
+    # player-facing toggles — do NOT mark internal economy/sim flags, since the
+    # endpoint is readable by any client (incl. guests). See sentry_relay_routes
+    # / FEATURE_FLAGS.md.
+    client_exposed: bool = False
 
     def default_for(self, env: str) -> bool:
         if self.stage is Stage.GRADUATED:
@@ -231,9 +238,24 @@ def snapshot(env: Optional[str] = None) -> list[dict]:
                 "db_overridable": flag.db_overridable,
                 "since": flag.since,
                 "description": flag.description,
+                "client_exposed": flag.client_exposed,
             }
         )
     return rows
+
+
+def client_snapshot(env: Optional[str] = None) -> dict[str, bool]:
+    """`{name: value}` for flags marked ``client_exposed`` — the browser view.
+
+    Backs the ``/api/feature-flags`` endpoint and the Sentry feature-flag
+    context. Intentionally narrow: only player-facing toggles are published,
+    since the endpoint is readable by any client. See the ``client_exposed``
+    note on :class:`FeatureFlag`.
+    """
+    env = env or current_env()
+    return {
+        flag.name: resolve(flag, env=env)[0] for flag in REGISTRY.values() if flag.client_exposed
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +400,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-observable: AI demeanor shifts toward them
     )
 )
 register(
@@ -388,6 +411,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-facing: gates a dossier UI feature
     )
 )
 
@@ -440,6 +464,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-facing: Main Event invites surface in UI
     )
 )
 register(
@@ -450,6 +475,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-observable: AIs visibly leave the table
     )
 )
 

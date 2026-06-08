@@ -104,6 +104,24 @@ def _init_sentry():
     dsn = os.environ.get("SENTRY_DSN")
     if not dsn:
         return
+
+    def _attach_feature_flags(event, _hint):
+        """Stamp the resolved feature-flag state onto each event (best-effort).
+
+        Backend bugs often hinge on which flags were live, so attach the full
+        snapshot as a context. Cheap: the registry resolves in-memory (no flag
+        is currently db_overridable), and errors are infrequent.
+        """
+        try:
+            from core import feature_flags
+
+            event.setdefault("contexts", {})["feature_flags"] = {
+                row["name"]: row["value"] for row in feature_flags.snapshot()
+            }
+        except Exception:
+            pass
+        return event
+
     try:
         import sentry_sdk
 
@@ -112,6 +130,7 @@ def _init_sentry():
             environment=os.environ.get("FLASK_ENV", "development"),
             traces_sample_rate=0.1,
             send_default_pii=False,
+            before_send=_attach_feature_flags,
         )
         logger.info("[SENTRY] backend error monitoring enabled")
     except Exception as e:  # never let monitoring setup break app boot
@@ -298,6 +317,7 @@ def register_blueprints(app: Flask) -> None:
         prompt_preset_bp,
         range_explorer_bp,
         replay_experiment_bp,
+        sentry_relay_bp,
         stats_bp,
         tournament_bp,
         training_bp,
@@ -317,6 +337,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(range_explorer_bp)
     app.register_blueprint(capture_label_bp)
     app.register_blueprint(replay_experiment_bp)
+    app.register_blueprint(sentry_relay_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(coach_bp)
     app.register_blueprint(cash_bp)

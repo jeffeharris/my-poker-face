@@ -10,6 +10,7 @@
 // floating launcher is our own <FeedbackButton/> (matches app styling and the
 // portal pattern). This module just owns init + the imperative form trigger.
 import * as Sentry from '@sentry/react';
+import { config } from './config';
 
 const DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
@@ -21,6 +22,12 @@ export function initSentry(): void {
 
   Sentry.init({
     dsn: DSN,
+    // Route envelopes through our own backend instead of *.ingest.sentry.io, so
+    // ad/tracker blockers (uBlock, Brave shields, etc.) can't silently drop our
+    // users' errors, replays, and feedback. The backend forwards to Sentry —
+    // see flask_app/routes/sentry_relay_routes.py. In prod config.API_URL is ''
+    // (same-origin → '/api/event-relay'); in dev it points at the API host.
+    tunnel: `${config.API_URL}/api/event-relay`,
     environment: import.meta.env.MODE,
     // Tie a release to the build so replays/errors group by deploy. The CI
     // build passes the git sha through as VITE_SENTRY_RELEASE (optional).
@@ -47,6 +54,25 @@ export function initSentry(): void {
     replaysOnErrorSampleRate: 1.0,
     tracesSampleRate: 0.1,
   });
+
+  // Pull the client-exposed feature flags and attach them to the Sentry scope,
+  // so errors / replays / bug reports show which player-facing flags were live.
+  // Fire-and-forget: a failure here must never block app startup.
+  void loadFeatureFlagsIntoSentry();
+}
+
+/** Fetch the client-exposed flags and stamp them onto the Sentry scope. */
+async function loadFeatureFlagsIntoSentry(): Promise<void> {
+  try {
+    const res = await fetch(`${config.API_URL}/api/feature-flags`, {
+      credentials: 'include',
+    });
+    if (!res.ok) return;
+    const flags = (await res.json()) as Record<string, boolean>;
+    Sentry.setContext('feature_flags', flags);
+  } catch {
+    // best-effort context only — ignore
+  }
 }
 
 /**
@@ -63,10 +89,26 @@ export async function openFeedbackForm(): Promise<void> {
   form.open();
 }
 
-/** Attach the signed-in identity so reports/replays are searchable by player. */
-export function setSentryUser(user: { id: string; name: string } | null): void {
+/**
+ * Attach the signed-in identity so reports/replays/errors are searchable by
+ * player. Email is included so the feedback form prefills it (and so you can
+ * reach the reporter); `user_type` is a tag for guest-vs-registered filtering.
+ */
+export function setSentryUser(
+  user: { id: string; name: string; email?: string; isGuest?: boolean } | null
+): void {
   if (!sentryEnabled) return;
-  Sentry.setUser(user ? { id: user.id, username: user.name } : null);
+  if (!user) {
+    Sentry.setUser(null);
+    Sentry.setTag('user_type', undefined);
+    return;
+  }
+  Sentry.setUser({
+    id: user.id,
+    username: user.name,
+    ...(user.email ? { email: user.email } : {}),
+  });
+  Sentry.setTag('user_type', user.isGuest ? 'guest' : 'registered');
 }
 
 /** Tag the current game so a report links straight to its admin debug views. */

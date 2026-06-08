@@ -41,8 +41,11 @@ logger = logging.getLogger(__name__)
 _MUTATING_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
 
 # Paths exempt from the header check (still receive a token cookie). Kept tiny
-# and explicit: only auth bootstrap + the external OAuth callback.
-_EXEMPT_EXACT = frozenset({'/api/auth/login'})
+# and explicit: only auth bootstrap + the external OAuth callback, plus the
+# Sentry tunnel relay (the browser Sentry SDK's transport posts envelopes here
+# and cannot carry our CSRF token; the route is an allowlisted forward-only
+# proxy to Sentry ingest — see routes/sentry_relay_routes.py).
+_EXEMPT_EXACT = frozenset({'/api/auth/login', '/api/event-relay'})
 _EXEMPT_PREFIXES = ('/api/auth/google/',)
 
 

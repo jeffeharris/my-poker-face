@@ -199,12 +199,17 @@ function App() {
   }, [isAuthenticated, location.pathname]);
 
   // Keep Sentry's identity context in sync so every session replay and bug
-  // report is searchable by player. No-op when Sentry is disabled.
+  // report is searchable by player (and the feedback form prefills name/email).
+  // No-op when Sentry is disabled.
   const userId = user?.id;
   const userName = user?.name;
+  const userEmail = user?.email;
+  const userIsGuest = user?.is_guest;
   useEffect(() => {
-    setSentryUser(userId ? { id: userId, name: userName ?? '' } : null);
-  }, [userId, userName]);
+    setSentryUser(
+      userId ? { id: userId, name: userName ?? '', email: userEmail, isGuest: userIsGuest } : null
+    );
+  }, [userId, userName, userEmail, userIsGuest]);
 
   // Tag the active game id (from /game/:id) so a feedback report links straight
   // to that game's admin debug views. Cleared on any non-game route.
