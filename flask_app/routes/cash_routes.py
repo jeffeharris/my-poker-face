@@ -2779,6 +2779,31 @@ def default_stake(stake_id: str):
         settled_at=datetime.utcnow(),
     )
 
+    # Obligation dimension: an explicit default writes off the carried principal
+    # as bad debt so oblig:<id> closes. No chips move (the reputation hit is the
+    # cost). Gated on origination. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags as _eflags_default
+    from flask_app.extensions import chip_ledger_repo as _clr_default
+
+    if _clr_default is not None and _eflags_default.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
+
+        _default_sandbox = _resolve_sandbox_id(owner_id)
+        apply_close_flows(
+            flows_on_forgive(stake_id, int(former_carry)),
+            _clr_default,
+            stake_id,
+            sandbox_id=_default_sandbox,
+            context={'stake_id': stake_id, 'site': 'human_default'},
+        )
+        assert_stake_obligation_closed(
+            stake_id=stake_id,
+            expected_residual=0,
+            sandbox_id=_default_sandbox,
+            chip_ledger_repo=_clr_default,
+        )
+
     # Fire the reputation hit. The dispatch table's STAKE_DEFAULTED
     # entry is the sharpest negative axis shift in the calibration —
     # the spec calls this "the worst thing a borrower can do to a
@@ -2959,6 +2984,27 @@ def payoff_stake(stake_id: str):
         )
 
     stake_repo.update_carry_amount(stake_id, 0)
+
+    # Obligation dimension: the carry is repaid in full → extinguish that much
+    # principal so oblig:<id> closes to 0. Gated on origination (legacy stakes
+    # skip). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    if chip_ledger_repo is not None and _economy_flags_payoff.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_carry_payment
+
+        apply_close_flows(
+            flows_on_carry_payment(stake_id, carry_amount),
+            chip_ledger_repo,
+            stake_id,
+            sandbox_id=sandbox_id,
+            context={'stake_id': stake_id, 'site': 'voluntary_payoff'},
+        )
+        assert_stake_obligation_closed(
+            stake_id=stake_id,
+            expected_residual=0,
+            sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+        )
 
     # v106 payout accounting on voluntary payoff:
     #   staker_payout  += carry_amount  (staker received the deferred chips)
