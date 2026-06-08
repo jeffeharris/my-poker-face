@@ -28,7 +28,17 @@ export const CHART_COLORS = [
   '#73c991',
 ];
 
-export const REFRESH_MS = 30_000;
+// Core panels (audit drift, recent feed, holdings, lifecycle) refresh on this
+// cadence. These are live-ish SQLite aggregations (~1s each on prod's single
+// worker), and the economy moves slowly — 60s keeps them current without
+// hammering the worker. Polling is also paused while the tab is hidden
+// (see useVisiblePolling), so a backgrounded dashboard costs nothing.
+export const REFRESH_MS = 60_000;
+// Holdings/history is the heaviest payload and the slowest-moving data: it
+// reads `holdings_snapshots`, which the world ticker only writes ~every 10 min.
+// Polling it on the 60s core loop was near-pure waste, so it gets its own
+// 5-min cadence (plus an immediate refetch on sandbox/day change).
+export const HISTORY_REFRESH_MS = 300_000;
 export const ALL_SANDBOXES = ''; // sentinel for the cross-sandbox admin view
 
 // Scoped-only columns: meaningless (absent) in the All-sandboxes view.
