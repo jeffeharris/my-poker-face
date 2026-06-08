@@ -62,6 +62,7 @@ from ..handlers.message_handler import (
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..socket_rate_limit import socket_rate_limit
+from ..state_version import next_state_version
 from ..validation import validate_player_action
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,47 @@ def _emit_reload_if_persisted(game_id: str) -> None:
             emit('reload_required', {'game_id': game_id, 'code': 'RELOAD_REQUIRED'})
     except Exception as e:
         logger.debug("[SOCKET] reload signal skipped for %s: %s", game_id, e)
+
+
+def _reattach_mtt_session(current_game_data: dict, mtt_session_row, game_id: str) -> None:
+    """Re-attach the multi-table tournament session on cold load. The games row
+    only persists the single table's state machine; the field / seating / blinds
+    live in the TournamentSession (tournaments table). Without this, an evicted or
+    restarted MTT table loses game_data['tournament_session'], the hand-boundary
+    hook stops advancing the field, and the event silently decays into a lone
+    single table. Rehydrate via the registry and re-point it at this game.
+
+    `mtt_session_row` is None for cash / single-table games (the caller only sets
+    it for a row whose `resolver_kind != 'single'`), so this is a no-op there.
+    """
+    if mtt_session_row is None:
+        return
+    try:
+        from flask_app.services import tournament_registry
+
+        _rec = tournament_registry.get(mtt_session_row['tournament_id'])
+        _sess = _rec.get('session') if _rec else None
+        if _sess is None:
+            return
+        _ht = _sess.human_table
+        # The rehydrated session carries `is_multi_table=True`, which is what the
+        # hand-boundary dispatch keys on — so simply restoring the session here is
+        # enough to route this cold-loaded game back through the multi-table
+        # boundary (the only path that escalates the live table's blinds). No
+        # separate game_data flag to re-stamp (and thus none to drop).
+        current_game_data['tournament_session'] = _sess
+        current_game_data['tournament_id'] = mtt_session_row['tournament_id']
+        current_game_data['tournament_human_id'] = _sess.human_id
+        current_game_data['tournament_table_id'] = _ht.table_id if _ht is not None else None
+        current_game_data['tournament_resolver_kind'] = _rec.get('resolver_kind', 'fake')
+        if _rec.get('game_id') != game_id:
+            _rec['game_id'] = game_id
+    except Exception:
+        logger.error(
+            "[LOAD] failed to re-attach tournament session for %s",
+            game_id,
+            exc_info=True,
+        )
 
 
 def load_game_mode_preset(game_mode: str) -> PromptConfig:
@@ -997,6 +1039,14 @@ def api_game_state(game_id):
                                         single_session = TournamentSession.from_dict(
                                             _sj, FakeHandResolver()
                                         )
+                                        # `resolver_kind == 'single'` is the
+                                        # authoritative persisted signal — force
+                                        # it on the rehydrated session so a legacy
+                                        # blob (predating the serialized
+                                        # `single_table` key, which defaults to
+                                        # multi) isn't misrouted to the MTT
+                                        # boundary.
+                                        single_session.single_table = True
                                 except Exception:
                                     logger.error(
                                         "[LOAD] single session rehydrate failed for %s; "
@@ -1200,41 +1250,8 @@ def api_game_state(game_id):
                             )
 
                         # Re-attach the multi-table tournament session on cold
-                        # load. The games row only persists the single table's
-                        # state machine; the field / seating / blinds live in the
-                        # TournamentSession (tournaments table). Without this, an
-                        # evicted or restarted MTT table loses
-                        # game_data['tournament_session'], the hand-boundary hook
-                        # stops advancing the field, and the event silently
-                        # decays into a lone single table. Rehydrate via the
-                        # registry and re-point it at this game.
-                        if mtt_session_row is not None:
-                            try:
-                                from flask_app.services import tournament_registry
-
-                                _rec = tournament_registry.get(mtt_session_row['tournament_id'])
-                                _sess = _rec.get('session') if _rec else None
-                                if _sess is not None:
-                                    _ht = _sess.human_table
-                                    current_game_data['tournament_session'] = _sess
-                                    current_game_data['tournament_id'] = mtt_session_row[
-                                        'tournament_id'
-                                    ]
-                                    current_game_data['tournament_human_id'] = _sess.human_id
-                                    current_game_data['tournament_table_id'] = (
-                                        _ht.table_id if _ht is not None else None
-                                    )
-                                    current_game_data['tournament_resolver_kind'] = _rec.get(
-                                        'resolver_kind', 'fake'
-                                    )
-                                    if _rec.get('game_id') != game_id:
-                                        _rec['game_id'] = game_id
-                            except Exception:
-                                logger.error(
-                                    "[LOAD] failed to re-attach tournament session for %s",
-                                    game_id,
-                                    exc_info=True,
-                                )
+                        # load (no-op for cash / single-table games).
+                        _reattach_mtt_session(current_game_data, mtt_session_row, game_id)
 
                         game_state_service.set_game(game_id, current_game_data)
 
@@ -1361,6 +1378,11 @@ def api_game_state(game_id):
         'messages': messages,
         'game_id': game_id,
         'betting_context': betting_context,
+        # Authoritative cold-load snapshot: the client treats this as a baseline
+        # RESET for its monotonic frame guard (it accepts this version even after
+        # a server restart reset the counter), so stale socket frames older than
+        # it are dropped. See flask_app.state_version.
+        'state_version': next_state_version(),
     }
 
     # Cash-mode metadata. Included on the cold-load path too so the
@@ -2455,6 +2477,43 @@ def api_game_llm_configs(game_id):
 # SocketIO event handlers
 def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
+
+    @sio.on_error_default
+    def on_socket_error(e):
+        """Catch-all for unhandled exceptions in any socket event handler.
+
+        Without this, an exception inside a handler is logged by Flask-SocketIO
+        but the *client* gets no signal — the action silently stalls until the
+        30s `aiThinking` safety-net refresh fires. Here we log it (with the sid
+        + the event that raised, for correlation) and emit a recoverable
+        `game_error` to the offending client so it re-syncs immediately. The
+        client's `game_error` handler (recoverable=true) does a throttled
+        `refreshGameState`, which cold-loads authoritative state.
+
+        Best-effort: the emit itself is guarded so a failure here can't mask the
+        original error or raise out of the error handler.
+        """
+        event = None
+        sid = None
+        try:
+            event = (getattr(request, 'event', None) or {}).get('message')
+            sid = getattr(request, 'sid', None)
+        except Exception:
+            pass
+        logger.error(
+            "[SOCKET] unhandled error in event=%s sid=%s: %s",
+            event,
+            sid,
+            e,
+            exc_info=True,
+        )
+        try:
+            emit(
+                'game_error',
+                {'error': 'Something went wrong processing that request.', 'recoverable': True},
+            )
+        except Exception:
+            logger.debug("[SOCKET] failed to emit game_error from default handler", exc_info=True)
 
     @sio.on('connect')
     def on_connect():

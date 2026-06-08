@@ -334,8 +334,10 @@ def build_tournament_game(
         # `tournament_tracker` (the multi-table session owns eliminations) and no
         # `cash_mode`, so handle_eliminations / check_tournament_complete /
         # the cash block all early-return for this game.
+        # The MTT vs single-table boundary split is read off `session.is_multi_table`
+        # (a multi-table session built here), not a game_data flag — so it survives
+        # cold-load and can't desync.
         "tournament_session": session,
-        "tournament_multi_table": True,  # use the MTT boundary, not the single-table one
         "tournament_id": tournament_id,
         "tournament_table_id": session.human_table.table_id,
         "tournament_human_id": session.human_id,

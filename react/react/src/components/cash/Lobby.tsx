@@ -62,6 +62,7 @@ import { STAKES } from './types';
 import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { setTournamentOrigin } from '../../utils/tournamentOrigin';
 import { CharacterDetailCard, type CharacterDossierData } from '../character';
 import './CashMode.css';
 
@@ -638,6 +639,8 @@ export function Lobby() {
    *  it through the normal game UI (back-nav returns to /tournament). */
   const handleEnterTournament = useCallback(
     (gameId: string) => {
+      // Entered from the cash lobby — the standings hub backs out to /cash.
+      setTournamentOrigin('/cash');
       setSittingDown({ submessage: 'Main Event' });
       navigate(`/game/${gameId}`);
     },
@@ -655,6 +658,8 @@ export function Lobby() {
    *  returns the existing game when one's already built) and navigate in. */
   const handleResumeTournament = useCallback(async () => {
     if (!activeTournamentId) return;
+    // Resumed from the cash lobby — the standings hub backs out to /cash.
+    setTournamentOrigin('/cash');
     setSittingDown({ submessage: 'Main Event' });
     try {
       const { game_id } = await sitTournament(activeTournamentId);

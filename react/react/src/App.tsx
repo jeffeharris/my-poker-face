@@ -7,6 +7,7 @@ import { LoginForm } from './components/auth/LoginForm';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
 import { rememberAdminOrigin } from './components/admin/adminOrigin';
+import { setTournamentOrigin } from './utils/tournamentOrigin';
 import { useAuth, hasPermission } from './hooks/useAuth';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useUsageStats } from './hooks/useUsageStats';
@@ -605,7 +606,12 @@ function App() {
                       rememberAdminOrigin(location.pathname);
                       navigate('/admin');
                     }}
-                    onMultiTable={() => navigate('/tournament')}
+                    onMultiTable={() => {
+                      // Launched from the Tournament menu — the standings hub
+                      // should back out here, not to the cash lobby.
+                      setTournamentOrigin('/menu/tournament');
+                      navigate('/tournament');
+                    }}
                     onBack={() => navigate('/menu')}
                     savedGamesCount={savedGamesCount}
                     isCreatingGame={isCreatingGame}

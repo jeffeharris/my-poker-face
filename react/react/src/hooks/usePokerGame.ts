@@ -627,7 +627,10 @@ export function usePokerGame({
 
         const currentPlayer = data.players[data.current_player_idx];
 
-        applyGameState(data);
+        // Authoritative cold-load snapshot: reset the store's frame-version
+        // baseline so post-restart/reconnect frames apply (and stale socket
+        // frames older than this snapshot are dropped). See gameStore.
+        applyGameState(data, true);
 
         if (!silent) {
           setLoading(false);
