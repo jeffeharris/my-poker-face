@@ -5,7 +5,7 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 5
-hero: /blog/covers/how-to-beat-a-maniac.png
+hero: /blog/covers/how-to-beat-a-maniac.jpg
 heroAlt: "How to Beat a Maniac in Poker"
 excerpt: The maniac is the calling station's violent cousin. Just as sticky, except they bet. You beat them by getting out of the way and letting them hang themselves.
 draft: false

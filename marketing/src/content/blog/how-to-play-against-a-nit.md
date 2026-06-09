@@ -5,7 +5,7 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 6
-hero: /blog/covers/how-to-play-against-a-nit.png
+hero: /blog/covers/how-to-play-against-a-nit.jpg
 heroAlt: "How to Play Against a Nit"
 excerpt: The nit is the calling station's opposite. They fold too much. You beat them by stealing every pot they don't want and believing them every single time they do.
 draft: false

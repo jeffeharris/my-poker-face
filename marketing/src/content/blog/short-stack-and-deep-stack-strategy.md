@@ -5,7 +5,7 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 27
-hero: /blog/covers/short-stack-and-deep-stack-strategy.png
+hero: /blog/covers/short-stack-and-deep-stack-strategy.jpg
 heroAlt: "Stack Depth: Why Short and Deep Stacks Are Different Games"
 excerpt: "Two players, same cards, same board. One has 20 big blinds and one has 200, and they are not playing the same game at all."
 draft: false

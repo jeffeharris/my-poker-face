@@ -5,7 +5,7 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 29
-hero: /blog/covers/how-to-stop-tilting-in-poker.png
+hero: /blog/covers/how-to-stop-tilting-in-poker.jpg
 heroAlt: "Tilt and the Mental Game: How to Stop Spewing After a Bad Beat"
 excerpt: "Anyone can learn the math of poker. The mental game is the part that actually separates winners from losers, and tilt is its biggest enemy."
 draft: false

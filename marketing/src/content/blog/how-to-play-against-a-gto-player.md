@@ -5,7 +5,7 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 9
-hero: /blog/covers/how-to-play-against-a-gto-player.png
+hero: /blog/covers/how-to-play-against-a-gto-player.jpg
 heroAlt: "How to Play Against a Balanced (GTO) Player"
 excerpt: A perfectly balanced opponent has no leak to attack. You don't beat them, you break even. The real skill is recognizing that and spending your chips elsewhere.
 draft: false

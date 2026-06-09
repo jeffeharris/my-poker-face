@@ -4,7 +4,7 @@ description: The AI opponents in My Poker Face carry a real, persistent mood you
 track: Inside the Table
 date: 2026-06-09
 order: 1
-hero: /blog/covers/poker-where-the-opponents-are-alive.png
+hero: /blog/covers/poker-where-the-opponents-are-alive.jpg
 heroAlt: "Poker where the opponents are alive"
 excerpt: Most poker apps give you a difficulty slider with a name attached. This one gives you characters with a mood the game actually keeps track of.
 draft: false

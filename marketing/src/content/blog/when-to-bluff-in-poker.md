@@ -5,7 +5,7 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 24
-hero: /blog/covers/when-to-bluff-in-poker.png
+hero: /blog/covers/when-to-bluff-in-poker.jpg
 heroAlt: "When to Bluff in Poker (and When to Just Give Up)"
 excerpt: A bluff is a bet that makes a better hand fold. If nobody at the table can fold, you are not bluffing, you are just paying them.
 draft: false

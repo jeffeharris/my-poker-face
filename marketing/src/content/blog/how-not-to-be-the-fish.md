@@ -5,7 +5,7 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 10
-hero: /blog/covers/how-not-to-be-the-fish.png
+hero: /blog/covers/how-not-to-be-the-fish.jpg
 heroAlt: "How Not to Be the Fish"
 excerpt: You've spent six posts learning to beat every type at the table. This one is about making sure you aren't the type getting beaten.
 draft: false

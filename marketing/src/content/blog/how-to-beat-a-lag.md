@@ -5,7 +5,7 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 8
-hero: /blog/covers/how-to-beat-a-lag.png
+hero: /blog/covers/how-to-beat-a-lag.jpg
 heroAlt: "How to Beat a LAG (the Loose-Aggressive Player)"
 excerpt: The LAG is the maniac with a license. Same relentless aggression, except now it's earned. You beat them with position, patience, and a willingness to play back.
 draft: false

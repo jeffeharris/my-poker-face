@@ -5,7 +5,7 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 7
-hero: /blog/covers/how-to-beat-a-tight-aggressive-player.png
+hero: /blog/covers/how-to-beat-a-tight-aggressive-player.jpg
 heroAlt: "How to Beat a Tight-Aggressive Player (the TAG)"
 excerpt: The TAG is the hardest seat at the table and the most honest mirror. Against the others you exploit a flaw. Against a TAG, the flaw it finds is usually yours.
 draft: false

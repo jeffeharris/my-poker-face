@@ -5,7 +5,7 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 4
-hero: /blog/covers/how-to-beat-a-calling-station.png
+hero: /blog/covers/how-to-beat-a-calling-station.jpg
 heroAlt: "How to Beat a Calling Station"
 excerpt: The calling station is the player who will not fold. You beat it with a plan you can write on a napkin, and the roster is full of them to practice on.
 draft: false

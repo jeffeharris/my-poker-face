@@ -5,7 +5,7 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 28
-hero: /blog/covers/how-to-read-your-opponents.png
+hero: /blog/covers/how-to-read-your-opponents.jpg
 heroAlt: "How to Read Your Opponents (and Their Tells)"
 excerpt: You can't see their cards, but you can see almost everything else. Reading opponents is the skill the whole game is really about.
 draft: false

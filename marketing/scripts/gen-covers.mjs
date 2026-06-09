@@ -2,14 +2,14 @@
 //
 // Builds a self-contained HTML page (public/__covergen.html) with one 1200x630
 // "After Hours" branded cover per blog post. A separate step (Playwright)
-// rasterizes each #cover-<slug> element to public/blog/covers/<slug>.png, then
+// rasterizes each #cover-<slug> element to public/blog/covers/<slug>.jpg, then
 // this file is removed. Run: node scripts/gen-covers.mjs
 //
 // Character-led covers (archetype posts) embed the matching opponent avatar;
 // every other post gets a typographic cover with a rotating suit motif. Either
 // way: no recycled screenshots, one unique cover per post.
 
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -52,12 +52,18 @@ const posts = readdirSync(blogDir)
   .map((f) => {
     const slug = f.replace(/\.md$/, '');
     const fm = parseFrontmatter(readFileSync(join(blogDir, f), 'utf8'));
+    // Flagship posts get bespoke Runware art (see gen-art.mjs) used as a
+    // full-bleed background; it takes precedence over a character portrait.
+    const art = existsSync(join(root, 'public/blog/art', `${slug}.png`))
+      ? `/blog/art/${slug}.png`
+      : null;
     return {
       slug,
       title: fm.title || slug,
       track: fm.track || 'Devlog',
       series: fm.series || null,
-      character: CHARACTER[slug] || null,
+      character: art ? null : CHARACTER[slug] || null,
+      art,
     };
   })
   .map((p, i) => ({ ...p, suit: SUITS[i % SUITS.length] }));
@@ -122,6 +128,16 @@ const html = `<!doctype html>
     box-shadow: 0 0 0 10px rgba(212,165,116,0.06), 0 30px 80px -20px rgba(0,0,0,0.9);
   }
   .cover--portrait .cover__title { --tw: 580px; }
+
+  /* Flagship art covers: full-bleed Runware image + bottom scrim + bottom copy */
+  .cover--art { background-size: cover; background-position: center; }
+  .cover__scrim {
+    position: absolute; inset: 0;
+    background: linear-gradient(0deg, rgba(6,6,8,0.97) 4%, rgba(6,6,8,0.58) 30%, rgba(6,6,8,0) 62%);
+  }
+  .cover__brand--top { position: absolute; top: 60px; left: 84px; z-index: 2; }
+  .cover__artcopy { position: absolute; left: 84px; right: 84px; bottom: 64px; z-index: 2; }
+  .cover__artcopy .cover__eyebrow { margin-bottom: 18px; }
 </style>
 </head>
 <body>
@@ -139,17 +155,30 @@ const html = `<!doctype html>
     const eyebrow = p.series
       ? p.track + ' &nbsp;<b>&middot; ' + p.series + '</b>'
       : p.track;
-    root.insertAdjacentHTML('beforeend',
-      '<div class="cover ' + (p.character ? 'cover--portrait' : '') + '" id="cover-' + p.slug + '">' +
-        '<div class="cover__suit">' + p.suit + '</div>' +
-        portrait +
-        '<div class="cover__inner">' +
-          '<div class="cover__eyebrow">' + eyebrow + '</div>' +
-          '<h1 class="cover__title" style="font-size:' + size + 'px">' + p.title + '</h1>' +
-          '<div class="cover__brand"><span>' + p.suit + '</span> My Poker Face</div>' +
-        '</div>' +
-      '</div>'
-    );
+    if (p.art) {
+      root.insertAdjacentHTML('beforeend',
+        '<div class="cover cover--art" id="cover-' + p.slug + '" style="background-image:url(' + p.art + ')">' +
+          '<div class="cover__scrim"></div>' +
+          '<div class="cover__brand cover__brand--top"><span>' + p.suit + '</span> My Poker Face</div>' +
+          '<div class="cover__artcopy">' +
+            '<div class="cover__eyebrow">' + eyebrow + '</div>' +
+            '<h1 class="cover__title" style="font-size:' + size + 'px">' + p.title + '</h1>' +
+          '</div>' +
+        '</div>'
+      );
+    } else {
+      root.insertAdjacentHTML('beforeend',
+        '<div class="cover ' + (p.character ? 'cover--portrait' : '') + '" id="cover-' + p.slug + '">' +
+          '<div class="cover__suit">' + p.suit + '</div>' +
+          portrait +
+          '<div class="cover__inner">' +
+            '<div class="cover__eyebrow">' + eyebrow + '</div>' +
+            '<h1 class="cover__title" style="font-size:' + size + 'px">' + p.title + '</h1>' +
+            '<div class="cover__brand"><span>' + p.suit + '</span> My Poker Face</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }
   }
   document.fonts.ready.then(() => { document.body.dataset.ready = '1'; });
 </script>

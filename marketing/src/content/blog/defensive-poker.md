@@ -5,7 +5,7 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 26
-hero: /blog/covers/defensive-poker.png
+hero: /blog/covers/defensive-poker.jpg
 heroAlt: "Defensive Poker: How Not to Get Run Over"
 excerpt: "Every post about beating a player type has a flip side: not being the player type that gets beaten. This is the defensive half of poker."
 draft: false

@@ -4,7 +4,7 @@ description: "In 2006, Stacked with Daniel Negreanu put world-class academic pok
 track: Devlog
 date: 2026-06-09
 order: 11
-hero: /blog/covers/stacked-daniel-negreanu-poker-ai.png
+hero: /blog/covers/stacked-daniel-negreanu-poker-ai.jpg
 heroAlt: "Stacked With Daniel Negreanu, and the Poker AI We've Been Chasing for 20 Years"
 excerpt: A 2006 game licensed the best poker AI in the world and still got read in 40 hands. Its one fatal flaw shaped everything about how we built our opponents.
 draft: false

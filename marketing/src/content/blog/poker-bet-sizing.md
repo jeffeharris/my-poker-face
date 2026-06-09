@@ -5,7 +5,7 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 23
-hero: /blog/covers/poker-bet-sizing.png
+hero: /blog/covers/poker-bet-sizing.jpg
 heroAlt: "Poker Bet Sizing: How Much to Bet and Why"
 excerpt: "Beginners obsess over whether to bet. The bigger leak is how much. Your bet size should answer one question: what are you trying to make happen?"
 draft: false

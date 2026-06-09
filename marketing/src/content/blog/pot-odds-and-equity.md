@@ -5,7 +5,7 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 22
-hero: /blog/covers/pot-odds-and-equity.png
+hero: /blog/covers/pot-odds-and-equity.jpg
 heroAlt: "Pot Odds and Equity: the Only Poker Math You Really Need"
 excerpt: You don't need to be good at math to use pot odds. You need one ratio and one shortcut, and most calling decisions start to answer themselves.
 draft: false
