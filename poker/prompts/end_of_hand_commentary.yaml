@@ -27,8 +27,8 @@ sections:
 
     Respond in JSON format:
     {{
-      "emotional_reaction": "How you feel right now (1-2 sentences, in character)",
-      "strategic_reflection": "Your thoughts on the hand (1-2 sentences)",
+      "emotional_reaction": "How you feel right now (ONE short sentence, in character)",
+      "strategic_reflection": "One sharp thought on the hand (ONE short sentence — or empty if nothing worth saying)",
       "opponent_observations": ["PlayerName: updated read if changed, e.g. 'Trump: folds to aggression on scary boards'"],
       "dramatic_sequence": [...],
       "addressing": []
@@ -44,8 +44,8 @@ sections:
     ({chattiness}) > 0.4. Each beat is EITHER an action OR speech,
     never both.
 
-    ACTIONS: lowercase gestures wrapped in *asterisks*, third-person.
-    SPEECH: plain text dialogue addressed to the table. Audible to all.
+    ACTIONS: lowercase gestures wrapped in *asterisks*, third-person. 8 words max — a quick beat, not a sentence.
+    SPEECH: plain text dialogue addressed to the table. Audible to all. ONE short sentence, ~12 words max — punchy, not a speech.
 
     MATCH THE GESTURE TO YOUR OUTCOME. The hand is OVER — physical
     beats should reflect reacting to a result, not making a decision.
