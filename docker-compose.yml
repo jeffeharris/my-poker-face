@@ -58,6 +58,36 @@ services:
     networks:
       - poker-network
 
+  # Out-of-band decision-analysis worker (opt-in: `--profile analytics`).
+  # Drains the Redis decision-analysis queue so the heavy per-decision equity-MC
+  # runs off the gameplay worker. Only does work when the backend is started with
+  # DECISION_ANALYSIS_QUEUE_ENABLED=1 (otherwise the backend analyzes inline and
+  # this idles on an empty queue). See docs/SCALING.md.
+  analytics-worker:
+    profiles: ["analytics"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "true"
+    volumes:
+      - ./data:/app/data
+      - ./poker:/app/poker
+      - ./flask_app:/app/flask_app
+      - ./core:/app/core
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-2000}
+    env_file:
+      - .env
+    command: python -m poker.decision_analysis_worker
+    depends_on:
+      - redis
+    networks:
+      - poker-network
+
   # React frontend development server
   frontend:
     build:

@@ -61,6 +61,14 @@ services:
       # Scaling Stage 0: 500 -> 250 to halve the per-decision CPU burst (still
       # analytics-only; no gameplay impact).
       - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
+      # Route the per-decision equity-MC analytics to the out-of-band
+      # analytics-worker (separate container, idle 2nd core) instead of running
+      # it inline on the single gevent gameplay worker — the 2026-06-09 load test
+      # showed it's ~70% of gameplay-worker CPU and nothing live reads its output.
+      # Default off (inline) until the worker is rolled out + watched; set to 1 to
+      # activate. DECISION_ANALYSIS_ENABLED=0 turns analytics off entirely later.
+      - DECISION_ANALYSIS_QUEUE_ENABLED=${DECISION_ANALYSIS_QUEUE_ENABLED:-0}
+      - DECISION_ANALYSIS_ENABLED=${DECISION_ANALYSIS_ENABLED:-1}
       # WebSocket transport: gevent is the standards-aligned async_mode under the
       # gevent-websocket gunicorn worker. Prod evidence (2026-06-08) showed
       # threading produced a 1002 protocol error + clients stuck on long-polling
@@ -108,6 +116,41 @@ services:
     networks:
       - poker-network
       - web
+
+  # Out-of-band decision-analysis worker. Drains the Redis decision-analysis
+  # queue and runs the per-decision equity-MC + persistence off the gameplay
+  # worker (uses the box's otherwise-idle 2nd vCPU). Only does work when the
+  # backend has DECISION_ANALYSIS_QUEUE_ENABLED=1; otherwise the backend analyzes
+  # inline and this idles. Writes player_decision_analysis to the shared SQLite
+  # (WAL + retry absorbs cross-process write contention at current volume).
+  # See docs/SCALING.md (2026-06-09 load test).
+  analytics-worker:
+    hostname: poker-analytics-worker
+    image: ghcr.io/jeffeharris/my-poker-face-backend:${TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 768m
+    mem_reservation: 256m
+    volumes:
+      - ./data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - DROP_PRIVILEGES=1
+      - REDIS_URL=redis://redis:6379
+      # Match the gameplay worker's iteration count so logged analytics are
+      # consistent regardless of where they're computed.
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
+      - DECISION_ANALYSIS_WORKER_BATCH=${DECISION_ANALYSIS_WORKER_BATCH:-50}
+    command: python -m poker.decision_analysis_worker
+    depends_on:
+      - redis
+    networks:
+      - poker-network
 
   frontend:
     hostname: poker-frontend
