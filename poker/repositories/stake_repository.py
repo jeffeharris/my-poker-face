@@ -87,8 +87,8 @@ class StakeRepository(BaseRepository):
                      principal, match_amount, origination_fee, cut,
                      status, carry_amount, stake_tier,
                      created_at, settled_at,
-                     staker_payout, borrower_payout, table_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     staker_payout, borrower_payout, table_id, sandbox_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     stake.stake_id,
@@ -110,6 +110,7 @@ class StakeRepository(BaseRepository):
                     stake.staker_payout,
                     stake.borrower_payout,
                     stake.table_id,
+                    stake.sandbox_id,
                 ),
             )
 
@@ -150,7 +151,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE stake_id = ?
                 """,
@@ -178,7 +179,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE session_id = ? AND status = 'active'
                 ORDER BY created_at DESC
@@ -194,6 +195,8 @@ class StakeRepository(BaseRepository):
         self,
         borrower_id: str,
         borrower_kind: str,
+        *,
+        sandbox_id: Optional[str] = None,
     ) -> Optional[Stake]:
         """Load the borrower's single active stake, or None.
 
@@ -207,24 +210,40 @@ class StakeRepository(BaseRepository):
         The invariant from Phase 1 — one active stake per borrower at
         a time — makes this a single-row read. If multiple match
         (shouldn't happen), returns the most recently created.
+
+        `sandbox_id` scopes the lookup to a stake's origination sandbox
+        — pass it for AI (`personality`) borrowers, who exist in EVERY
+        sandbox. A stake funds `seat:ai:<sandbox>:<borrower>` and must
+        settle against that same seat, so a tick processing sandbox B
+        must not load a stake originated in sandbox A and drain B's
+        never-funded seat (the 2026-06-09 cross-sandbox mint). The
+        filter matches the row's `sandbox_id` OR NULL so legacy pre-fix
+        rows (no origination sandbox stored) stay findable from any
+        sandbox and drain out under the old global behavior. Omitting
+        `sandbox_id` keeps the original global lookup — correct for
+        human borrowers, who belong to a single (their own) sandbox.
         """
+        clauses = ["borrower_id = ?", "borrower_kind = ?", "status = 'active'"]
+        params: list = [borrower_id, borrower_kind]
+        if sandbox_id is not None:
+            clauses.append("(sandbox_id = ? OR sandbox_id IS NULL)")
+            params.append(sandbox_id)
         with self._get_connection() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT stake_id, session_id, staker_id, staker_kind,
                        borrower_id, borrower_kind, format,
                        principal, match_amount, origination_fee, cut,
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
-                WHERE borrower_id = ? AND borrower_kind = ?
-                  AND status = 'active'
+                WHERE {' AND '.join(clauses)}
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
-                (borrower_id, borrower_kind),
+                tuple(params),
             ).fetchone()
             if not row:
                 return None
@@ -246,7 +265,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE session_id = ?
                 ORDER BY created_at ASC
@@ -280,7 +299,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE borrower_id = ? AND borrower_kind = ?
                   AND status = ?
@@ -313,7 +332,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -351,7 +370,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE (staker_id = ? OR borrower_id = ?)
                   AND status IN ('settled', 'defaulted')
@@ -386,7 +405,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE staker_id = ? AND status = ?
                 ORDER BY created_at ASC
@@ -728,7 +747,7 @@ class StakeRepository(BaseRepository):
                        status, carry_amount, stake_tier,
                        created_at, settled_at, forgiveness_last_asked,
                        staker_payout, borrower_payout,
-                       pending_forgiveness_ask, table_id, resolution
+                       pending_forgiveness_ask, table_id, resolution, sandbox_id
                 FROM stakes
                 WHERE staker_id = ?
                   AND staker_kind = 'human'
@@ -778,6 +797,13 @@ def _row_to_stake(row) -> Stake:
         resolution=(
             row["resolution"]
             if "resolution" in row.keys() and row["resolution"] is not None
+            else None
+        ),
+        # Origination sandbox (2026-06-09). Read defensively — not every
+        # SELECT in this repo lists it, and legacy rows are NULL.
+        sandbox_id=(
+            row["sandbox_id"]
+            if "sandbox_id" in row.keys() and row["sandbox_id"] is not None
             else None
         ),
     )
