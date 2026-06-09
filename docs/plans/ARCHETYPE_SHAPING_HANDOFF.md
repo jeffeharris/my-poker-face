@@ -292,10 +292,16 @@ Note: tag/lag are live-faithful — this correction is **maniac-specific**.
 `ARCHETYPE_TARGETS['rock']` (VPIP 15–22 / PFR 11–17) is looser + more aggressive
 than `nit` (10–16 / 8–13), but `deviation_profiles` makes rock *tighter* (looseness
 0.7 < nit 1.2, both on `tight_rfi`). The targets predict the opposite VPIP ordering
-from what the strategy produces → mis-flag. Rebuild rock band ≤ nit (VPIP ~10–14,
-lower PFR, bigger VPIP−PFR gap = the classic tight-passive rock), OR reconcile the
-strategy if "rock = tighter-but-harder-than-nit" is the intended definition. Confirm
-the produced ordering with the mixed-field probe before re-banding.
+from what the strategy produces → mis-flag.
+
+**DECISION (2026-06-09): Option A — make rock the classic TIGHT-PASSIVE archetype**
+(not just a band fix). nit = tight-AGGRESSIVE (few hands, played hard); rock =
+tight-PASSIVE (few hands, limps/calls, rarely raises) → two genuinely distinct
+reads, serving the readable-archetypes goal. Work: in `deviation_profiles.py` lower
+rock's `aggression_scale` BELOW nit's and widen the VPIP−PFR gap; then re-band
+`ARCHETYPE_TARGETS['rock']` to ~VPIP 10–14 / low PFR / high fold_to_3bet / low AF.
+Confirm rock-vs-nit VPIP/PFR/AF ordering with `scripts/archetype_mixedfield_probe.py`
+before finalizing the band. (Band-only Option B rejected — would make rock ≈ nit.)
 
 ### 11. Methodology: AFq + WTSD/W$SD + per-street AF
 Add to `archetype_review_routes._aggregate` + `cash_mode/archetype_stats` +
@@ -307,6 +313,26 @@ Add to `archetype_review_routes._aggregate` + `cash_mode/archetype_stats` +
 - **per-street AF** — aggregate postflop AF hides flop-maniac/turn-passive texture.
 This also extends review-tool **#6** (the showdown family pairs naturally with the
 c-bet/fold-to-cbet columns sourced from `opponent_observation_lifetime`).
+
+**BLUEPRINT READY (2026-06-09) — data-source resolution (the key unknown, solved):**
+- **AFq** = free on both paths: postflop fold rows already exist in
+  `player_decision_analysis` (live just discards them today) and as new sim
+  counters. Live AFq is also retroactive on historical rows.
+- **WTSD/W$SD** are hand-level OUTCOMES, NOT in `player_decision_analysis`. LIVE
+  path = pre-fetch `hand_history` (`showdown`, `winners_json`) into a dict keyed
+  `(game_id, hand_number)` and join in Python (saw-flop = ≥1 FLOP action; reached
+  SD = showdown=1 & still active; won = name in winners). Dedup to per-hand grain.
+  Only human-present games contribute (the LEAN sim never wrote `player_decision_analysis`).
+  SIM path = new counters (`saw_flop`/`showdowns`/`showdowns_won`); `end_hand()`
+  gains `was_showdown`/`winner_names` (sim is LEAN, no `hand_history`).
+- **Schema:** +12 cols on `archetype_stat_counts` (per-file migration, per-column
+  try/except — SQLite has no ADD COLUMN IF NOT EXISTS) + extend `COUNTER_COLUMNS`.
+- **per-street AF** ships as `no_target` (like c-bet) until sim data sets bands.
+- **Targets:** WTSD/W$SD from research §1B (high-conf); AFq derived (nit/rock
+  provisional — tune from probe data).
+- **Frontend:** zero structural change — `STAT_LABELS` drives `stat_order` → columns.
+- Build order: schema → sim counters → live aggregation → targets/labels → ts → probe.
+- **Sequencing vs #10:** both edit `archetype_targets.py` — serialize those two edits.
 
 ### 12. Perceptibility & conditioning (the believability frontier — highest leverage)
 The unifier for Findings 1–3 + the Stacked lesson: adaptation that isn't *felt* is
