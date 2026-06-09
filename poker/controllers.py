@@ -1,7 +1,9 @@
 import json
 import logging
+import os
 import random
 from collections import deque
+from dataclasses import asdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
@@ -29,7 +31,7 @@ from .config import (
     OPPONENT_SUMMARY_TOKENS,
     is_development_mode,
 )
-from .decision_analyzer import calculate_max_winnable
+from .decision_analyzer import calculate_max_winnable, run_decision_analysis_job
 from .hand_narrator import narrate_hand_breakdown
 from .hand_ranges import (
     EquityConfig,
@@ -54,6 +56,41 @@ from .response_validator import ResponseValidator
 from .utils import prepare_ui_data
 
 logger = logging.getLogger(__name__)
+
+
+def _decision_analysis_enabled() -> bool:
+    """Master switch for per-decision analytics (the equity-MC quality logging).
+
+    Default on; set ``DECISION_ANALYSIS_ENABLED=0`` to turn it off entirely in
+    prod once enough data has been gathered — the hot path then does nothing.
+    """
+    return os.environ.get("DECISION_ANALYSIS_ENABLED", "1").lower() not in ("0", "false", "no")
+
+
+def _decision_analysis_queue_enabled() -> bool:
+    """When on, decisions are enqueued for the out-of-band analytics worker
+    instead of analyzed inline on the gameplay worker. Default off (inline),
+    which keeps existing/test behavior unchanged."""
+    return os.environ.get("DECISION_ANALYSIS_QUEUE_ENABLED", "0").lower() in ("1", "true", "yes")
+
+
+def _dispatch_decision_analysis(job, analysis_repo, capture_label_repo) -> Optional[int]:
+    """Route a built analysis job.
+
+    Queue-enabled → enqueue for the analytics worker (moves the heavy equity-MC
+    off the gameplay worker; returns None, nothing consumes the id live). Else →
+    run inline (default). Enqueue failures fall back to inline so data is never
+    silently dropped.
+    """
+    if _decision_analysis_queue_enabled():
+        try:
+            from .decision_analysis_queue import enqueue_decision_analysis_job
+
+            enqueue_decision_analysis_job(job)
+            return None
+        except Exception as e:
+            logger.warning(f"[DECISION_ANALYSIS] enqueue failed, running inline: {e}")
+    return run_decision_analysis_job(job, analysis_repo, capture_label_repo)
 
 
 def _serialize_intervention_trace(traces, *, player_name: str) -> Optional[str]:
@@ -2068,12 +2105,10 @@ class AIPlayerController:
         Returns:
             The saved decision row id, or None if not persisted.
         """
-        if not self._decision_analysis_repo:
+        if not self._decision_analysis_repo or not _decision_analysis_enabled():
             return None
 
         try:
-            from poker.decision_analyzer import get_analyzer
-
             game_state = self.state_machine.game_state
             player = game_state.current_player
 
@@ -2210,87 +2245,59 @@ class AIPlayerController:
 
                 psychology_snapshot = snapshot
 
-            analyzer = get_analyzer()
-            analysis = analyzer.analyze(
-                game_id=self.game_id,
-                player_name=self.player_name,
-                hand_number=self.current_hand_number,
-                phase=self.state_machine.current_phase.name
+            # Build a fully JSON-serializable analysis job. The heavy equity
+            # Monte Carlo + persistence happens in run_decision_analysis_job
+            # (inline by default, or off-box on the analytics worker when
+            # DECISION_ANALYSIS_QUEUE_ENABLED). opponent_infos are flattened to
+            # dicts; the trace/pipeline snapshots serialize to JSON here (cheap)
+            # and ride along verbatim.
+            analyze_kwargs = {
+                'game_id': self.game_id,
+                'player_name': self.player_name,
+                'hand_number': self.current_hand_number,
+                'phase': self.state_machine.current_phase.name
                 if self.state_machine.current_phase
                 else None,
-                player_hand=player_hand,
-                community_cards=community_cards,
-                pot_total=game_state.pot.get('total', 0),
-                cost_to_call=context.get('call_amount', 0),
-                player_stack=player.stack,
-                num_opponents=num_opponents,
-                action_taken=response_dict.get('action'),
-                raise_amount=response_dict.get('raise_to'),
-                raise_amount_bb=response_dict.get('_raise_to_bb'),  # BB amount if BB mode
-                bet_sizing=response_dict.get('bet_sizing', ''),
-                request_id=request_id,
-                capture_id=capture_id,
-                player_position=player_position,
-                opponent_positions=opponent_positions,
-                opponent_infos=opponent_infos,
-                player_bet=player_bet,
-                all_players_bets=all_players_bets,
-                psychology_snapshot=psychology_snapshot,
-                skip_equity=getattr(self, 'skip_equity_in_analysis', False),
+                'player_hand': player_hand,
+                'community_cards': community_cards,
+                'pot_total': game_state.pot.get('total', 0),
+                'cost_to_call': context.get('call_amount', 0),
+                'player_stack': player.stack,
+                'num_opponents': num_opponents,
+                'action_taken': response_dict.get('action'),
+                'raise_amount': response_dict.get('raise_to'),
+                'raise_amount_bb': response_dict.get('_raise_to_bb'),  # BB amount if BB mode
+                'bet_sizing': response_dict.get('bet_sizing', ''),
+                'request_id': request_id,
+                'capture_id': capture_id,
+                'player_position': player_position,
+                'opponent_positions': opponent_positions,
+                'opponent_infos': [asdict(oi) for oi in opponent_infos],
+                'player_bet': player_bet,
+                'all_players_bets': all_players_bets,
+                'psychology_snapshot': psychology_snapshot,
+                'skip_equity': getattr(self, 'skip_equity_in_analysis', False),
+            }
+            job = {
+                'analyze_kwargs': analyze_kwargs,
+                'bounded_options': bounded_options,
+                # Phase 7.6 (Steps 3b/6): trace + pipeline snapshot. Serialization
+                # failures degrade gracefully (return None) — the row still persists.
+                'intervention_trace_json': _serialize_intervention_trace(
+                    getattr(self, '_last_intervention_trace', None),
+                    player_name=self.player_name,
+                ),
+                'strategy_pipeline_snapshot_json': _serialize_pipeline_snapshot(
+                    getattr(self, '_last_pipeline_snapshot', None),
+                    player_name=self.player_name,
+                ),
+                'player_bet': player_bet,
+                'big_blind': game_state.current_ante or 100,
+                'auto_label_extra': auto_label_extra,
+            }
+            return _dispatch_decision_analysis(
+                job, self._decision_analysis_repo, self._capture_label_repo
             )
-
-            # Menu compliance: score against bounded options if available
-            if bounded_options:
-                analyzer.evaluate_menu_compliance(analysis, bounded_options)
-
-            # Phase 7.6 (Step 3b): attach per-decision intervention trace
-            # when the controller exposes one (tiered bot only today).
-            # Serialization failures degrade gracefully — the analysis
-            # row still persists without the trace.
-            analysis.intervention_trace_json = _serialize_intervention_trace(
-                getattr(self, '_last_intervention_trace', None),
-                player_name=self.player_name,
-            )
-
-            # Phase 7.6 (Step 6): attach pipeline snapshot for Mode 1
-            # shadow-eval replay. Same degrade-gracefully contract.
-            analysis.strategy_pipeline_snapshot_json = _serialize_pipeline_snapshot(
-                getattr(self, '_last_pipeline_snapshot', None),
-                player_name=self.player_name,
-            )
-
-            decision_id = self._decision_analysis_repo.save_decision_analysis(analysis)
-
-            equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
-            menu_str = (
-                f", menu_best={analysis.menu_picked_best}"
-                if analysis.menu_picked_best is not None
-                else ""
-            )
-            logger.debug(
-                f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
-                f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f}{menu_str})"
-            )
-
-            # Auto-label the decision (keyed on the decision spine). Fires for
-            # every self-saving controller, so standard/lean/tiered get the same
-            # fold/pot mistake tags the chaos path always had. drama_context, when
-            # supplied, adds the situational drama:/tone:/factor: tags.
-            if self._capture_label_repo and decision_id:
-                big_blind = game_state.current_ante or 100
-                label_data = {
-                    'action_taken': analysis.action_taken,
-                    'pot_odds': (analysis.pot_total / analysis.cost_to_call)
-                    if analysis.cost_to_call
-                    else None,
-                    'stack_bb': (analysis.player_stack / big_blind) if big_blind > 0 else None,
-                    'already_bet_bb': (player_bet / big_blind) if big_blind > 0 else None,
-                }
-                if auto_label_extra:
-                    label_data.update(auto_label_extra)
-                self._capture_label_repo.compute_and_store_auto_labels(decision_id, label_data)
-
-            return decision_id
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
             return None
