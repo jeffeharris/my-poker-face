@@ -240,6 +240,19 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
+      - name: Build and push marketing image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./marketing
+          file: ./marketing/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/jeffeharris/my-poker-face-marketing:${{ github.sha }}
+            ghcr.io/jeffeharris/my-poker-face-marketing:latest
+          cache-from: type=gha,scope=marketing
+          cache-to: type=gha,mode=max,scope=marketing
+
   deploy:
     name: Deploy to Production
     # Gated on build-images (which itself requires the lint/test jobs). test-e2e

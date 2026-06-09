@@ -1,0 +1,114 @@
+---
+import '../styles/global.css';
+
+export interface Props {
+  title: string;
+  description: string;
+  /** Path-only canonical, e.g. "/opponents/sherlock-holmes/". */
+  path: string;
+  /** OG image path (defaults to the shared social card). */
+  image?: string;
+  /** Optional JSON-LD object(s) injected into <head>. */
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+  /** When true, omit the shared topbar/footer/background (the page supplies its own). */
+  bare?: boolean;
+}
+
+const {
+  title,
+  description,
+  path,
+  image = '/og-image.png',
+  jsonLd,
+  bare = false,
+} = Astro.props;
+
+const site = Astro.site?.toString().replace(/\/$/, '') ?? 'https://mypokerfacegame.com';
+const canonical = `${site}${path}`;
+const ogImage = image.startsWith('http') ? image : `${site}${image}`;
+const jsonLdBlocks = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
+const year = 2026;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#060608" />
+    <link rel="icon" type="image/svg+xml" href="/poker-favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="My Poker Face" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <!-- Fonts: external link (no service worker here, so CSP font-src is enough).
+         Degrades to Georgia / system sans if blocked. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap"
+    />
+
+    {
+      jsonLdBlocks.map((block) => (
+        <script type="application/ld+json" set:html={JSON.stringify(block)} />
+      ))
+    }
+  </head>
+  <body>
+    {
+      bare ? (
+        <slot />
+      ) : (
+        <>
+          <div class="bg" aria-hidden="true">
+            <div class="bg__glow bg__glow--gold" />
+            <div class="bg__glow bg__glow--felt" />
+            <div class="bg__grain" />
+          </div>
+
+          <header class="topbar">
+            <a class="topbar__brand" href="/">MY POKER <b>FACE</b></a>
+            <nav class="topbar__nav">
+              <a href="/opponents/">Opponents</a>
+              <a href="/login" class="btn btn--ghost" style="padding:9px 18px">
+                Play free
+              </a>
+            </nav>
+          </header>
+
+          <main>
+            <slot />
+          </main>
+
+          <footer class="footer">
+            <span>© {year} My Poker Face — play Texas Hold'em free against AI personalities.</span>
+            <span>
+              <a href="/opponents/">Opponents</a> ·
+              <a href="https://mypokerfacegame.com/privacy">Privacy</a> ·
+              <a href="https://mypokerfacegame.com/terms">Terms</a>
+            </span>
+          </footer>
+        </>
+      )
+    }
+  </body>
+</html>

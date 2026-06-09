@@ -3,6 +3,7 @@
 from .admin_dashboard_routes import admin_dashboard_bp
 from .capture_label_routes import capture_label_bp
 from .cash_routes import cash_bp
+from .character_request_routes import character_request_bp
 from .character_routes import character_bp
 from .chip_ledger_routes import chip_ledger_bp
 from .coach_routes import coach_bp
@@ -42,6 +43,7 @@ __all__ = [
     'cash_bp',
     'chip_ledger_bp',
     'character_bp',
+    'character_request_bp',
     'tournament_bp',
     'training_bp',
     'register_socket_events',

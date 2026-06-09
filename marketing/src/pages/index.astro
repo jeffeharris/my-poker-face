@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { LandingPage } from '../components/LandingPage.tsx';
+
+// The real "After Hours" landing, ported from the game app. Rendered as a React
+// island: Astro server-renders it to static HTML at build (so it's fully
+// crawlable) and hydrates it on load for the scroll-reveal, reel, and lightbox.
+const title = 'My Poker Face — Play Texas Hold’em Free Against AI Personalities';
+const description =
+  'Free browser poker against 100+ AI characters with real playing styles, table talk, tilt, and a memory of how you play — plus a coach that turns your mistakes into drills. No download.';
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'VideoGame',
+  name: 'My Poker Face',
+  url: 'https://mypokerfacegame.com/',
+  description,
+  applicationCategory: 'Game',
+  operatingSystem: 'Web Browser',
+  genre: ['Poker', 'Card Game'],
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+};
+---
+
+<BaseLayout title={title} description={description} path="/" jsonLd={jsonLd} bare>
+  <LandingPage client:load />
+</BaseLayout>

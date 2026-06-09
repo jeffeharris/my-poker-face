@@ -390,6 +390,7 @@ def register_blueprints(app: Flask) -> None:
         capture_label_bp,
         cash_bp,
         character_bp,
+        character_request_bp,
         chip_ledger_bp,
         coach_bp,
         debug_bp,
@@ -428,6 +429,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(cash_bp)
     app.register_blueprint(chip_ledger_bp)
     app.register_blueprint(character_bp)
+    app.register_blueprint(character_request_bp)
     app.register_blueprint(tournament_bp)
     app.register_blueprint(training_bp)
 

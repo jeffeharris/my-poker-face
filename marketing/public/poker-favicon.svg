@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Outer chip edge - dark -->
+  <circle cx="16" cy="16" r="15" fill="#1a1a1a"/>
+
+  <!-- Notches around edge (white) -->
+  <g fill="#ffffff">
+    <rect x="14.5" y="0" width="3" height="4" rx="1"/>
+    <rect x="14.5" y="28" width="3" height="4" rx="1"/>
+    <rect x="0" y="14.5" width="4" height="3" rx="1"/>
+    <rect x="28" y="14.5" width="4" height="3" rx="1"/>
+    <rect x="4.2" y="4.2" width="3" height="4" rx="1" transform="rotate(45 5.7 6.2)"/>
+    <rect x="24.8" y="4.2" width="3" height="4" rx="1" transform="rotate(-45 26.3 6.2)"/>
+    <rect x="4.2" y="23.8" width="3" height="4" rx="1" transform="rotate(-45 5.7 25.8)"/>
+    <rect x="24.8" y="23.8" width="3" height="4" rx="1" transform="rotate(45 26.3 25.8)"/>
+  </g>
+
+  <!-- Inner ring - white -->
+  <circle cx="16" cy="16" r="11" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+
+  <!-- Center circle - dark -->
+  <circle cx="16" cy="16" r="9" fill="#0a0b10"/>
+
+  <!-- MPF text - gold -->
+  <text x="16" y="19.5"
+        font-family="Arial, sans-serif"
+        font-size="8"
+        font-weight="bold"
+        fill="#d4a574"
+        text-anchor="middle">MPF</text>
+</svg>
