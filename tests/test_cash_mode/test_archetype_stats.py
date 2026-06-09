@@ -32,7 +32,7 @@ def test_recorder_classifies_3bet_war():
     assert tag['vs_3bet'] == 1 and tag['vs_3bet_fold'] == 1 and tag['vs_3bet_agg'] == 0
     # lag 3-bet facing the open, then bet the flop
     assert lag['vs_open'] == 1 and lag['vs_open_agg'] == 1
-    assert lag['postflop_agg'] == 1
+    assert lag['flop_agg'] == 1
     # per-hand booleans roll up once each
     assert lag['hands'] == 1 and lag['vpip'] == 1
 
@@ -82,9 +82,9 @@ def test_recorder_no_archetype_is_noop():
 
 
 def test_per_street_postflop_dispatch():
-    """Postflop agg/call/fold are split by street AND rolled into the aggregate
-    postflop_agg/postflop_call (back-compat). Folds feed only the per-street
-    bucket (the AFq denominator)."""
+    """Postflop agg/call/fold are tallied per street — the single source of truth
+    for AF/AFq (all three share one accumulation timeline). The legacy aggregate
+    postflop_agg/postflop_call counters are no longer written."""
     r = ArchetypeStatRecorder('sb')
     r.record_decision('lag', 'L', 'FLOP', '', 'raise')
     r.record_decision('lag', 'L', 'TURN', '', 'call')
@@ -95,8 +95,8 @@ def test_per_street_postflop_dispatch():
     # Per-street split.
     assert lag['flop_agg'] == 1 and lag['turn_call'] == 1 and lag['river_fold'] == 1
     assert lag['flop_call'] == 0 and lag['flop_fold'] == 0
-    # Aggregate back-compat counters still move for agg/call (not for fold).
-    assert lag['postflop_agg'] == 1 and lag['postflop_call'] == 1
+    # The retired aggregate counters are not written.
+    assert 'postflop_agg' not in lag and 'postflop_call' not in lag
 
 
 def test_saw_flop_boolean_rolls_up():
@@ -210,8 +210,8 @@ def test_cbet_flags_default_off_back_compat():
     assert tag.get('cbet_made', 0) == 0
     assert tag.get('cbet_faced', 0) == 0
     assert tag.get('fold_to_cbet', 0) == 0
-    # …but the aggregate postflop aggression still moved (proves it ran).
-    assert tag['postflop_agg'] == 1
+    # …but the per-street postflop aggression still moved (proves it ran).
+    assert tag['flop_agg'] == 1
 
 
 def test_end_to_end_recording_via_play_one_hand():

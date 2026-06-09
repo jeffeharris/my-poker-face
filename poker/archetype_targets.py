@@ -69,8 +69,12 @@ STAT_LABELS: Dict[str, str] = {
 #   af              = postflop (bet+raise)/call (a ratio, not a %)
 #   all_in          = hand-instances with any all-in / hands
 #   afq             = postflop (bet+raise)/(bet+raise+call+fold) % (folds in the
-#                     denominator — the AF discriminator). Derived metric; the
-#                     nit/rock bands are PROVISIONAL (tune from probe data).
+#                     denominator — the AF discriminator; checks EXCLUDED). Bands
+#                     re-baselined 2026-06-09 by poker judgment (no hard
+#                     population citation exists at this granularity) against the
+#                     6-max mixed-field probe: the originals ran ~10-15pts low for
+#                     the tight/aggressive types because AFq excludes checks, so
+#                     even a "tight" player's non-check actions skew aggressive.
 #   wtsd            = went-to-showdown / saw-the-flop % (research §1B, 6-max)
 #   wsd             = won-at-showdown / went-to-showdown % (research §1B, 6-max)
 #   flop/turn/river_af = per-street (bet+raise)/call. NO target band by design
@@ -88,10 +92,16 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (60, 80),
         'af': (1.5, 2.8),
         'all_in': (0, 3),
-        'afq': (20, 35),  # provisional
-        'wtsd': (20, 24),
+        # AFq re-baselined 20-35 -> 35-50 (2026-06-09 gut-check). AFq EXCLUDES
+        # checks, so a nit's non-check postflop actions are dominated by
+        # value-bets (strong range) + folds, with few calls — that runs ~40-48%,
+        # not the old too-low band. Judgment call, not a hard citation.
+        'afq': (35, 50),
+        'wtsd': (22, 28),  # was 20-24; real 6-max nit WTSD ~24-28, band widened
         'wsd': (52, 58),
-        'cbet': (55, 70),
+        # cbet 55-70 -> 50-70: our nit sits between rock (passive) and tag — a
+        # touch below textbook TAG c-bet, defensibly so given its low aggression.
+        'cbet': (50, 70),
         'fold_to_cbet': (55, 70),
     },
     # Rock: tight-PASSIVE (backlog #10, Option A) — tightest in the field, plays
@@ -106,10 +116,15 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (65, 85),
         'af': (0.8, 1.8),
         'all_in': (0, 2),
-        'afq': (18, 32),  # provisional
-        'wtsd': (20, 24),
+        # Rock is tight-PASSIVE: more checks/calls than a nit → lower AFq, but
+        # still not as low as the old band. ~25-40 (gut-check, 2026-06-09).
+        'afq': (25, 40),
+        'wtsd': (22, 30),  # was 20-24; widened (tight-passive shows down a bit)
         'wsd': (54, 60),
-        'cbet': (45, 60),
+        # cbet lowered 45-60 -> 26-46: rock is tight-PASSIVE, it checks back far
+        # more as the aggressor than a TAG/nit. The old band assumed too much
+        # c-betting for a passive identity; even eased, rock c-bets ~25% (gut-check).
+        'cbet': (26, 46),
         'fold_to_cbet': (55, 70),
     },
     'tag': {
@@ -125,8 +140,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (40, 58),
         'af': (2.5, 3.8),
         'all_in': (0, 5),
-        'afq': (35, 45),
-        'wtsd': (26, 29),
+        'afq': (42, 55),  # was 35-45; balanced-aggressive TAG AFq ~45-55 (gut-check)
+        'wtsd': (26, 32),  # was 26-29; 3-pt band too narrow for a noisy stat
         'wsd': (52, 56),
         'cbet': (55, 70),
         'fold_to_cbet': (45, 55),
@@ -139,9 +154,12 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (30, 48),
         'af': (3.3, 5.5),
         'all_in': (0, 7),
-        'afq': (40, 52),
-        'wtsd': (27, 31),
-        'wsd': (48, 52),
+        'afq': (48, 62),  # was 40-52; LAG aggression runs higher (gut-check)
+        'wtsd': (27, 33),  # was 27-31; slight widen
+        # W$SD widened 48-52 -> 45-52: a LAG shows down a WIDER range, so it wins a
+        # slightly smaller fraction at showdown; 48-52 was an unrealistically tight
+        # 4-pt band for a noisy outcome stat.
+        'wsd': (45, 52),
         'cbet': (60, 75),
         'fold_to_cbet': (40, 50),
     },
@@ -167,7 +185,7 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (15, 40),
         'af': (5, 9),
         'all_in': (3, 14),
-        'afq': (48, 65),
+        'afq': (55, 72),  # was 48-65; maniac is the most aggressive type (gut-check)
         'wtsd': (30, 40),
         'wsd': (40, 48),
         'cbet': (75, 95),
@@ -181,8 +199,8 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (20, 40),
         'af': (0.4, 1.2),
         'all_in': (0, 4),
-        'afq': (12, 25),
-        'wtsd': (32, 45),
+        'afq': (12, 28),  # call-dominated denominator → low AFq (top nudged up)
+        'wtsd': (33, 45),
         'wsd': (44, 50),
         'cbet': (25, 45),
         'fold_to_cbet': (20, 35),
@@ -195,10 +213,10 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (25, 45),
         'af': (0.7, 1.6),
         'all_in': (0, 5),
-        'afq': (14, 28),
-        'wtsd': (30, 38),
+        'afq': (15, 32),  # spewy-passive: a touch more aggression than a station
+        'wtsd': (30, 40),
         'wsd': (45, 50),
-        'cbet': (40, 60),
+        'cbet': (24, 48),  # loose-passive fish barely c-bets (checks back a lot)
         'fold_to_cbet': (30, 45),
     },
 }

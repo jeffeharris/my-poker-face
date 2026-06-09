@@ -92,10 +92,22 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
     'nit': DeviationProfile(
         max_kl=0.6,
         max_per_action_shift=0.30,
-        aggression_scale=0.6,
+        # 0.6 -> 0.72: the nit was drifting tight-PASSIVE (AF 1.44, c-bet ~45,
+        # fold-to-3bet 58 all below band) — but nit is the tight-AGGRESSIVE seat
+        # (rock is the passive one). A modest lift restores postflop aggression +
+        # strong-hand c-bets (auto_cbet only covers medium/weak/air) without
+        # moving VPIP off its ceiling (looseness_scale governs entry, not this).
+        aggression_scale=0.72,
         looseness_scale=1.2,
         risk_scale=0.3,
         ego_fold_penalty=0.05,
+        # Nit is tight-AGGRESSIVE: its low aggression_scale (right for overall bet
+        # volume) was crushing its FLOP c-bet (~42% vs a 55-70 target — a nit
+        # c-bets its strong range). auto_cbet pumps flop continuation betting with
+        # initiative, restoring the tight-aggressive read without loosening entry.
+        # 0.9: at 0.6 the boost (bounded by the 0.30 per-action cap, fighting
+        # aggression_scale 0.6) only reached ~45%.
+        spot_tendencies=(('auto_cbet', 0.9),),
     ),
     # Rock: the classic TIGHT-PASSIVE archetype (backlog #10, Option A) — the
     # tightest entry in the field, plays those few hands PASSIVELY (checks/calls
@@ -135,7 +147,12 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=2.4,
         risk_scale=0.2,
         ego_fold_penalty=0.08,
-        spot_tendencies=(('passive_postflop', 0.30),),
+        # passive_postflop eased 0.30->0.22: at 0.30 it suppressed rock's flop
+        # c-bet to ~20% (below even a passive band). 0.22 keeps AF below nit's
+        # while letting c-bet recover toward the (lowered) rock band. 0.18: 0.22
+        # still left c-bet ~22% (below the lowered band); easing further nudges it
+        # up without lifting AF above nit's.
+        spot_tendencies=(('passive_postflop', 0.18),),
     ),
     # TAG: tight-aggressive — the competent-reg anchor, so it sits at the LOWER
     # edge of the TAG band (~22/19), not over the ceiling. High aggression_scale
@@ -170,6 +187,12 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=0.8,
         risk_scale=0.4,
         ego_fold_penalty=0.55,
+        # The station had NO postflop tendency, so once the base chart's calling
+        # discipline tightened, it folded flop c-bets too much (fold-to-CB ~48%,
+        # WTSD below band). `sticky` (now flop+turn+river) restores its defining
+        # float-calling with weak/medium made hands → WTSD up, fold-to-CB down.
+        # 0.85: 0.75 left WTSD just under band (32.5) and fold-to-CB still ~40.
+        spot_tendencies=(('sticky', 0.85),),
     ),
     # LAG: loose-aggressive. Loose table + strong aggression. Global aggression
     # stays high (postflop AF is LAG's identity); the facing-raise SPLIT
@@ -209,7 +232,10 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.0,
         risk_scale=0.3,
         ego_fold_penalty=0.70,
-        spot_tendencies=(('sticky', 0.85), ('over_bluff', 0.55)),
+        # sticky trimmed 0.85->0.55: `sticky` now spans flop/turn/river (was
+        # river-only), so the same strength calls far more — 0.55 keeps weak_fish
+        # WTSD in band rather than over-sticky across every street.
+        spot_tendencies=(('sticky', 0.55), ('over_bluff', 0.55)),
         position_blind=0.8,
     ),
     # Isolation profile (measurement only): calling_station + position_blind, on
