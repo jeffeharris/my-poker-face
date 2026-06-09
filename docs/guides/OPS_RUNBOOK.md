@@ -2,7 +2,7 @@
 purpose: Operations runbook for deploying, launching, and running My Poker Face in production — activation checklist, env knobs, deploy/rollback, backups, monitoring, and incident playbooks
 type: guide
 created: 2026-05-29
-last_updated: 2026-05-29
+last_updated: 2026-06-09
 ---
 
 # Ops Runbook
@@ -78,7 +78,9 @@ These are armed in `docker-compose.prod.yml`; override via host env only with re
 | `LLM_BUDGET_VELOCITY_WARN_FRACTION` | `0.8` | Page when a scope crosses this fraction of its cap (early warning) | 41 |
 | `LLM_PROMPT_RETENTION_DAYS` | `30` | Daily sweep purges older `prompt_captures` | 32 |
 | `API_USAGE_RETENTION_DAYS` | `90` | Daily sweep purges older `api_usage` | 32 |
-| `DECISION_ANALYSIS_ITERATIONS` | `500` | Per-decision equity MC iterations (analytics; lower = less CPU) | 30 |
+| `DECISION_ANALYSIS_ITERATIONS` | `100` | Per-decision equity MC iterations — drives the in-game analyzer **and** the coach (analytics; linear CPU lever post-cache; 2000→…→100, see §9 / SCALING.md) | 30 |
+| `DECISION_ANALYSIS_ENABLED` | `1` | Master switch for per-decision analytics; `0` skips it entirely (§9) | — |
+| `DECISION_ANALYSIS_QUEUE_ENABLED` | `0` | Route the analyzer equity to the out-of-band `analytics-worker` (off the gameplay core) instead of inline. Activation per **§9** | — |
 | `LLM_INGAME_TIMEOUT` | `30` | Per-call timeout (s) for in-game decision/narration | 18 |
 | `LLM_TICKER_TIMEOUT` | `10` | Tighter per-call timeout (s) for world-ticker narration | 21 |
 | `LOG_FORMAT` | `json` | Structured logs (set empty for human-readable) | 35 |
@@ -194,3 +196,69 @@ return an `X-Request-ID` header.
 - **Same-origin SPA** — CSRF (PRH-36) relies on the SPA being served same-origin as the
   API (it is, via nginx). A cross-origin frontend would need the token delivered in a
   response body instead of via `document.cookie`.
+
+---
+
+## 9. Decision-analysis eval worker (offload) — rollout
+
+**What it is.** The per-AI-decision equity Monte Carlo (decision-quality analytics —
+*not* the bot's move; nothing in live gameplay reads its output, only admin dashboards)
+is the dominant CPU cost on the single gevent gameplay worker (2026-06-09 load test;
+see [`/docs/SCALING.md`](/docs/SCALING.md)). The `analytics-worker` container drains a
+Redis queue and runs that equity off the gameplay core, on the box's otherwise-**idle
+2nd vCPU** — lifting the per-box ceiling from ~8 to ~12–16 concurrent active cash
+players. It's **fire-and-forget + async**: the gameplay worker `LPUSH`es a small job and
+returns immediately; the worker `BRPOP`s and processes (delayed-OK, lossy by design).
+
+**Wiring (already in `docker-compose.prod.yml`).** The `analytics-worker` service ships
+with the deploy (own container, `mem_limit 768m`, shared `./data` SQLite via WAL,
+`REDIS_URL`). It is **inert until activated**: the backend only enqueues when
+`DECISION_ANALYSIS_QUEUE_ENABLED=1`; otherwise it analyzes inline (today's behavior) and
+the worker idles on an empty queue. So deploying this change is a **no-op** by default.
+
+**Staged activation (recommended):**
+1. **Deploy** as normal (`./deploy.sh`). The worker container starts and idles
+   (`depth=0`); backend still inline. Confirm the worker booted:
+   `docker logs poker-analytics-worker-1 2>&1 | grep "worker started"`.
+2. **Flip the flag** — set `DECISION_ANALYSIS_QUEUE_ENABLED=1` in the prod env
+   (`.env.prod` → re-encrypt, or host env) and redeploy/recreate the **backend** (the
+   flag is read at process start, so a restart is required — it is *not* a hot toggle).
+   Jobs now flow to the worker.
+3. **Watch** for ~10–15 min under real traffic (see signals below).
+
+**Monitoring — the backpressure signal is queue depth:**
+```bash
+# Queue depth — should hover near 0. Sustained growth = the worker can't keep up.
+ssh root@178.156.202.136 "docker exec poker-redis-1 redis-cli LLEN decision_analysis:jobs"
+# Worker is draining (batch logs):
+ssh root@178.156.202.136 "docker logs --tail 20 poker-analytics-worker-1 | grep processed"
+# Gameplay-worker CPU should DROP after activation (analytics moved off its core).
+# analysis rows still accumulating:
+python3 scripts/dbq.py "SELECT COUNT(*) FROM player_decision_analysis"
+```
+A single eval worker ≈ one core ≈ ~50 jobs/s at iterations=100 (~50 jobs/s ≈ the load at
+the ~12–16-player ceiling). If `depth` climbs steadily, analytics are falling behind
+(gameplay is unaffected — it never blocks on this); the box is at its 2-core limit.
+
+**Rollback (instant-ish).** Set `DECISION_ANALYSIS_QUEUE_ENABLED=0` and recreate the
+backend → reverts to inline analysis immediately. The worker can keep running (idle) or
+be stopped (`docker compose -f docker-compose.prod.yml stop analytics-worker`). No data
+model change to undo. Enqueue failures already fall back to inline automatically, so a
+Redis hiccup degrades to today's behavior rather than dropping analytics silently.
+
+**Off-switch for the analytics entirely.** `DECISION_ANALYSIS_ENABLED=0` (backend) skips
+the analysis (and the enqueue) altogether — use when the captured data is no longer
+needed.
+
+**Constraints / when to go further:**
+- Bounded by the box's **2 cores** (gameplay on core 1, eval worker on core 2). More eval
+  throughput = a bigger box (more cores) or separate boxes.
+- A **separate-box** eval fleet can't share the file-based SQLite → needs the
+  `player_decision_analysis` tables on **Postgres** first (a focused slice of Stage 5).
+- The **coach** progression equity (~6% after it was fixed to honor
+  `DECISION_ANALYSIS_ITERATIONS`) stays **inline** by design — its training-mode feedback
+  is consumed synchronously, and the marginal gameplay-core relief lands on the same
+  core-2 worker. Revisit only for a fully analytics-free app server.
+- If shared-SQLite write contention ever shows up (rising write latency in logs), the
+  Postgres-free escape hatch is a dedicated `analytics.db` for the worker (repoint the two
+  admin read routes), before reaching for Postgres.

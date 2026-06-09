@@ -146,12 +146,17 @@ services:
       - DROP_PRIVILEGES=1
       - REDIS_URL=redis://redis:6379
       # Match the gameplay worker's iteration count so logged analytics are
-      # consistent regardless of where they're computed.
-      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
+      # consistent regardless of where they're computed (backend default is 100).
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-100}
       - DECISION_ANALYSIS_WORKER_BATCH=${DECISION_ANALYSIS_WORKER_BATCH:-50}
     command: python -m poker.decision_analysis_worker
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      # Wait for the backend to be healthy so the schema/personality seed has run
+      # (the worker shares the SQLite); avoids a first-bring-up seed race.
+      backend:
+        condition: service_healthy
     networks:
       - poker-network
 
