@@ -4,9 +4,12 @@ Flag-gated (TILT_PERSISTENCE_ENABLED): slow-recovery-while-tilted + second-wind
 escape. Off => recover() is byte-identical to the old behaviour. Fit/validation of
 the *parameters* lives in experiments/measure_zone_distribution.py; these tests pin
 the *mechanism* and the inert-when-off guarantee.
+
+We patch the gate FUNCTION (`_tilt_persistence_enabled`) rather than `os.environ`:
+the config path calls `load_dotenv(override=True)`, which reloads `.env` mid-test
+and would clobber an env patch when the flag is armed in a dev `.env`.
 """
 
-import os
 import random
 import statistics
 from unittest import mock
@@ -17,7 +20,7 @@ from poker.player_psychology import (
     PlayerPsychology,
 )
 
-FLAG = 'TILT_PERSISTENCE_ENABLED'
+GATE = 'poker.player_psychology._tilt_persistence_enabled'
 
 # A low-poise "hothead" — tilts readily, so a couple of bad beats cross the line.
 _HOTHEAD = {
@@ -50,14 +53,14 @@ def _drive_below_line(psy: PlayerPsychology, beats: int = 3) -> PlayerPsychology
 
 def test_flag_off_recovery_unchanged_and_no_new_state():
     """Off => composure recovery is the normal (faster) rate and no streak state."""
-    with mock.patch.dict(os.environ, {FLAG: '0'}):
+    with mock.patch(GATE, return_value=False):
         psy = _drive_below_line(_hothead())
         pre = psy.axes.composure
         psy.recover()
         delta_off = psy.axes.composure - pre
         assert getattr(psy, '_tilt_streak', None) is None  # inert: no new attribute
 
-    with mock.patch.dict(os.environ, {FLAG: '1'}):
+    with mock.patch(GATE, return_value=True):
         psy2 = _drive_below_line(_hothead())
         pre2 = psy2.axes.composure
         psy2.recover()
@@ -69,7 +72,7 @@ def test_flag_off_recovery_unchanged_and_no_new_state():
 
 def test_second_wind_accelerates_after_K_hands():
     """Once stuck below the line for K hands, recovery jumps to the brisk escape."""
-    with mock.patch.dict(os.environ, {FLAG: '1'}):
+    with mock.patch(GATE, return_value=True):
         psy = _hothead()
         for _ in range(6):  # drive deep so the slow drag keeps it below for >K hands
             psy.apply_pressure_event('bad_beat')
@@ -85,7 +88,7 @@ def test_second_wind_accelerates_after_K_hands():
 
 
 def test_streak_resets_when_back_above_line():
-    with mock.patch.dict(os.environ, {FLAG: '1'}):
+    with mock.patch(GATE, return_value=True):
         psy = _drive_below_line(_hothead(), beats=1)
         psy.recover()
         assert psy._tilt_streak >= 1  # accruing while tilted
