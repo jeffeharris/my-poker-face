@@ -66,13 +66,21 @@ WIN_MIX = {'win': 0.80, 'big_win': 0.15, 'successful_bluff': 0.05}
 # (big_loss/bad_beat/suckout/crippled). Punishing (~35%) over-tilted hotheads
 # (~26%); fully-soft (~21%) starved the mid bands (volatile 3.5%). This middle
 # keeps the mid bands felt while the exp/spread knob brings the hothead end down.
-LOSS_MIX = {'loss': 0.62, 'big_loss': 0.16, 'bluff_called': 0.09,
-            'bad_beat': 0.06, 'got_sucked_out': 0.04, 'crippled': 0.03}
+LOSS_MIX = {
+    'loss': 0.62,
+    'big_loss': 0.16,
+    'bluff_called': 0.09,
+    'bad_beat': 0.06,
+    'got_sucked_out': 0.04,
+    'crippled': 0.03,
+}
+
 
 # A recovery policy is a per-hand fn(psy, tilt_streak) -> recovery_rate override
 # for the upcoming recover() call (None = use the persona's anchor rate).
 # tilt_streak = consecutive prior hands ended below the tilt line (for second wind).
-CURRENT_POLICY = lambda psy, ts: None  # anchors as shipped
+def CURRENT_POLICY(psy, ts):  # anchors as shipped (no recovery-rate override)
+    return None
 
 
 def make_drag(floor: float, exp: float = 2.0, second_wind_k=None, accel: float = 0.45):
@@ -88,14 +96,17 @@ def make_drag(floor: float, exp: float = 2.0, second_wind_k=None, accel: float =
     TAIL without moving the median. This is the tail bound the fit proved the drag
     alone needs (slow-recovery couples median and tail). None = no escape.
     """
+
     def rate_fn(psy, tilt_streak):
         if psy.axes.composure < TILT_EMO:
             if second_wind_k is not None and tilt_streak >= second_wind_k:
                 return accel
-            drag = floor + (1.0 - floor) * (psy.anchors.poise ** exp)
+            drag = floor + (1.0 - floor) * (psy.anchors.poise**exp)
             return psy.anchors.recovery_rate * drag
         return None
+
     return rate_fn
+
 
 BANDS = [  # (label, poise_low_inclusive, poise_high_exclusive)
     ('monk   >=0.90', 0.90, 1.01),
@@ -117,24 +128,28 @@ def _pick(rng: random.Random, mix: Dict[str, float]) -> str:
     return rng.choices(list(mix), weights=list(mix.values()), k=1)[0]
 
 
-def steady_state_series(name: str, cfg: dict, *, hands: int, play_rate: float, seed: int,
-                        policy) -> List[float]:
+def steady_state_series(
+    name: str, cfg: dict, *, hands: int, play_rate: float, seed: int, policy
+) -> List[float]:
     """Composure series over `hands`. `policy` is a per-hand fn(psy)->rate|None."""
     rng = random.Random(seed)
     psy = PlayerPsychology.from_personality_config(name, cfg)
-    consec = 0          # consecutive losses (for losing_streak)
-    tilt_streak = 0     # consecutive hands below the tilt line (for second wind)
+    consec = 0  # consecutive losses (for losing_streak)
+    tilt_streak = 0  # consecutive hands below the tilt line (for second wind)
     out: List[float] = []
     for _ in range(hands):
         if rng.random() < play_rate:
             if rng.random() < 0.5:
-                psy.apply_pressure_event(_pick(rng, WIN_MIX)); consec = 0
+                psy.apply_pressure_event(_pick(rng, WIN_MIX))
+                consec = 0
             else:
-                psy.apply_pressure_event(_pick(rng, LOSS_MIX)); consec += 1
+                psy.apply_pressure_event(_pick(rng, LOSS_MIX))
+                consec += 1
                 if consec >= 3:
                     psy.apply_pressure_event('losing_streak')
         else:
-            psy.apply_pressure_event('not_in_hand'); consec = 0
+            psy.apply_pressure_event('not_in_hand')
+            consec = 0
         psy.recover(policy(psy, tilt_streak))
         comp = psy.axes.composure
         tilt_streak = tilt_streak + 1 if comp < TILT_EMO else 0
@@ -150,7 +165,8 @@ def episodes(series: List[float], thresh: float = TILT_EMO) -> List[int]:
         if c < thresh:
             cur += 1
         elif cur:
-            runs.append(cur); cur = 0
+            runs.append(cur)
+            cur = 0
     if cur:
         runs.append(cur)
     return runs
@@ -204,8 +220,10 @@ def main() -> None:
 
     print('=' * 90)
     print(f'TILT EXCURSION MODEL — REAL psychology, {n} personas (eval bots excluded)')
-    print(f'  tilt = composure < {TILT_EMO};  penalty zone < {tilt_pen};  '
-          f'play_rate={args.play_rate}, {args.hands} hands')
+    print(
+        f'  tilt = composure < {TILT_EMO};  penalty zone < {tilt_pen};  '
+        f'play_rate={args.play_rate}, {args.hands} hands'
+    )
     print('=' * 90)
 
     # ---- (1) CURRENT per-band spread: frequency AND episode length ----
@@ -218,15 +236,23 @@ def main() -> None:
         poise = float(cfg['anchors'].get('poise', 0.7))
         b = _band(poise)
         band_members[b] += 1
-        series = steady_state_series(name, cfg, hands=args.hands, play_rate=args.play_rate,
-                                     seed=args.seed + i, policy=CURRENT_POLICY)
+        series = steady_state_series(
+            name,
+            cfg,
+            hands=args.hands,
+            play_rate=args.play_rate,
+            seed=args.seed + i,
+            policy=CURRENT_POLICY,
+        )
         eps = episodes(series)
         band_pct[b].append(100.0 * sum(1 for c in series if c < TILT_EMO) / len(series))
         band_epcount[b].append(len(eps))
         band_eplen[b].extend(eps)
 
     print('\n(1) CURRENT per-temperament spread (as shipped):')
-    print(f'  {"band":16s} {"n":>3s} {"%time tilt":>11s} {"tilt episodes/1k h":>19s} {"med episode len":>16s}')
+    print(
+        f'  {"band":16s} {"n":>3s} {"%time tilt":>11s} {"tilt episodes/1k h":>19s} {"med episode len":>16s}'
+    )
     for b, _, _ in BANDS:
         m = band_members[b]
         if not m:
@@ -251,15 +277,23 @@ def main() -> None:
             lens: List[float] = []
             pcts: List[float] = []
             for i, (nm, c) in enumerate(members_by_band[b]):
-                series = steady_state_series(nm, c, hands=args.hands, play_rate=args.play_rate,
-                                             seed=args.seed + i, policy=policy)
+                series = steady_state_series(
+                    nm,
+                    c,
+                    hands=args.hands,
+                    play_rate=args.play_rate,
+                    seed=args.seed + i,
+                    policy=policy,
+                )
                 lens.extend(episodes(series))
                 pcts.append(100.0 * sum(1 for x in series if x < TILT_EMO) / len(series))
             res[b] = (_median(lens), _median(pcts), _pctile(lens, 0.95))
         return res
 
     print('\n(2) FIT — per-band %TIME tilted per (exp, floor, K). Targets:')
-    print('    stoic 0.3-2 / composed 1.5-4 / volatile 5-9 / hothead 10-19; never-chronic hot95p<=30')
+    print(
+        '    stoic 0.3-2 / composed 1.5-4 / volatile 5-9 / hothead 10-19; never-chronic hot95p<=30'
+    )
     hdr = '  '.join(f'{b.split()[0]:>8s}' for b in target_bands)
     print(f'  {"exp":>4s} {"flr":>4s} {"K":>4s}   {hdr}   {"hits":>4s} {"hot95p":>6s}')
     # exp compresses the episode-length (hence %time) spread; sweep it with floor x K.
@@ -267,13 +301,14 @@ def main() -> None:
     best = None
     for exp, floor, K in grid:
         res = eval_config(make_drag(floor, exp, second_wind_k=K))
-        hits = sum(1 for b in target_bands
-                   if TARGET_PCT[b][0] <= res[b][1] <= TARGET_PCT[b][1])
+        hits = sum(1 for b in target_bands if TARGET_PCT[b][0] <= res[b][1] <= TARGET_PCT[b][1])
         hot95 = res['hothead <0.45'][2]
         chronic = hot95 > 30
         cells = '  '.join(f'{res[b][1]:7.1f}%' for b in target_bands)
-        print(f'  {exp:4.1f} {floor:4.2f} {str(K):>4s}   {cells}   {hits:>2d}/4 {hot95:5.0f}'
-              f'{" chronic?" if chronic else ""}')
+        print(
+            f'  {exp:4.1f} {floor:4.2f} {str(K):>4s}   {cells}   {hits:>2d}/4 {hot95:5.0f}'
+            f'{" chronic?" if chronic else ""}'
+        )
         score = (not chronic, hits, -abs(res['hothead <0.45'][1] - 15.0))
         if best is None or score > best[0]:
             best = (score, exp, floor, K, res)
@@ -287,8 +322,12 @@ def main() -> None:
         lo, hi = TARGET_PCT[b]
         ok = '✓' if lo <= pct <= hi else '✗'
         print(f'  {b:16s} {pct:6.2f}% {f"{lo}-{hi}":>9s} {med:5.0f}hd {p95:4.0f} {ok}')
-    print('\n  exp compresses the spread (lower exp -> mid bands up, hothead down); floor/K = persistence/tail.')
-    print('  NOTE: absolute %time is event-model-dependent (validate vs real play); spread shape is robust.')
+    print(
+        '\n  exp compresses the spread (lower exp -> mid bands up, hothead down); floor/K = persistence/tail.'
+    )
+    print(
+        '  NOTE: absolute %time is event-model-dependent (validate vs real play); spread shape is robust.'
+    )
 
 
 if __name__ == '__main__':

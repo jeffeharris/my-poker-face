@@ -30,6 +30,7 @@ from typing import Dict, List
 
 import numpy as np
 
+from poker.psychology_model import PersonalityAnchors
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
 from poker.strategy.personality_modifier import (
     _kl_divergence,
@@ -37,7 +38,6 @@ from poker.strategy.personality_modifier import (
     modify_strategy,
 )
 from poker.strategy.strategy_profile import StrategyProfile
-from poker.psychology_model import PersonalityAnchors
 
 FLAG = 'TILT_SIGNATURE_ENABLED'
 PROFILE = DEVIATION_PROFILES['tag']  # neutral, held constant across both arms
@@ -45,10 +45,10 @@ INTENSITY = 0.5  # representative moderate tilt
 
 # Representative preflop baseline strategies (the "same spots" both arms see).
 BASELINES: List[Dict[str, float]] = [
-    {'fold': 0.30, 'call': 0.40, 'raise_2.5bb': 0.30},               # balanced open/defend
+    {'fold': 0.30, 'call': 0.40, 'raise_2.5bb': 0.30},  # balanced open/defend
     {'fold': 0.20, 'call': 0.30, 'raise_2.5bb': 0.30, 'all_in': 0.20},  # aggressive spot
-    {'fold': 0.50, 'call': 0.35, 'raise_2.5bb': 0.15},               # facing pressure
-    {'fold': 0.15, 'call': 0.55, 'raise_2.5bb': 0.30},               # call-heavy
+    {'fold': 0.50, 'call': 0.35, 'raise_2.5bb': 0.15},  # facing pressure
+    {'fold': 0.15, 'call': 0.55, 'raise_2.5bb': 0.30},  # call-heavy
 ]
 
 
@@ -94,8 +94,10 @@ def main() -> None:
     with open('poker/personalities.json') as f:
         personas = json.load(f).get('personalities', {})
     real = {
-        n: c for n, c in personas.items()
-        if isinstance(c, dict) and 'anchors' in c
+        n: c
+        for n, c in personas.items()
+        if isinstance(c, dict)
+        and 'anchors' in c
         and float(c['anchors'].get('recovery_rate', 0) or 0) > 0
     }
 
@@ -106,15 +108,20 @@ def main() -> None:
     ]
 
     print('=' * 86)
-    print(f'TILT SIGNATURE — paired within-spot probe ({len(real)} personas, '
-          f'intensity {INTENSITY}, tilted state)')
+    print(
+        f'TILT SIGNATURE — paired within-spot probe ({len(real)} personas, '
+        f'intensity {INTENSITY}, tilted state)'
+    )
     print('  Δagg = Σp(aggressive)|on−off (direction). KL = divergence from the EV-optimal')
     print('  solver baseline (exploitability budget). Paired => trajectory-free.')
     print('=' * 86)
     print(f'  {"tier":22s} {"n":>3s} {"Δagg":>8s} {"KL_off":>8s} {"KL_on":>8s} {"ΔKL":>8s}')
     for label, pred in tiers:
-        members = [(n, _anchors_of(c)) for n, c in real.items()
-                   if pred(float(c['anchors'].get('risk_identity', 0.5)))]
+        members = [
+            (n, _anchors_of(c))
+            for n, c in real.items()
+            if pred(float(c['anchors'].get('risk_identity', 0.5)))
+        ]
         if not members:
             continue
         rows = [_measure(a, 'tilted') for _, a in members]

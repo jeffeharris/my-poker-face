@@ -40,10 +40,10 @@ logger = logging.getLogger(__name__)
 # Parameters fitted via experiments/measure_zone_distribution.py: at play_rate
 # 0.30 these give hothead ~18% time tilted in ~10-hand episodes (felt, exploitable)
 # with a bounded tail, stoics ~0 (only a cooler run tilts them).
-TILT_LINE = 0.40              # 'tilted' threshold (the episode boundary; matches emotional_state)
-TILT_DRAG_FLOOR = 0.30        # recovery drag at poise->0 while tilted (slower climb-out = longer episode)
-TILT_DRAG_EXP = 2.0           # poise exponent for the drag (shapes the per-temperament spread)
-TILT_SECOND_WIND_K = 15       # consecutive tilted hands before the second-wind escape fires
+TILT_LINE = 0.40  # 'tilted' threshold (the episode boundary; matches emotional_state)
+TILT_DRAG_FLOOR = 0.30  # recovery drag at poise->0 while tilted (slower climb-out = longer episode)
+TILT_DRAG_EXP = 2.0  # poise exponent for the drag (shapes the per-temperament spread)
+TILT_SECOND_WIND_K = 15  # consecutive tilted hands before the second-wind escape fires
 TILT_SECOND_WIND_ACCEL = 0.45  # brisk recovery rate once second wind triggers (caps the tail)
 
 
@@ -986,7 +986,9 @@ class PlayerPsychology:
             if getattr(self, '_tilt_streak', 0) >= TILT_SECOND_WIND_K:
                 comp_rate = TILT_SECOND_WIND_ACCEL
             else:
-                drag = TILT_DRAG_FLOOR + (1.0 - TILT_DRAG_FLOOR) * (self.anchors.poise ** TILT_DRAG_EXP)
+                drag = TILT_DRAG_FLOOR + (1.0 - TILT_DRAG_FLOOR) * (
+                    self.anchors.poise**TILT_DRAG_EXP
+                )
                 comp_rate = rate * drag
 
         new_comp = pre_comp + (comp_baseline - pre_comp) * comp_rate * comp_modifier
@@ -1015,7 +1017,9 @@ class PlayerPsychology:
         # state, byte-identical). Not serialized — a cold-loaded persona just
         # restarts the counter, at most lengthening one episode after a reload.
         if tilt_persist:
-            self._tilt_streak = (getattr(self, '_tilt_streak', 0) + 1) if new_comp < TILT_LINE else 0
+            self._tilt_streak = (
+                (getattr(self, '_tilt_streak', 0) + 1) if new_comp < TILT_LINE else 0
+            )
 
         self._mark_updated()
 

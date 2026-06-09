@@ -27,9 +27,15 @@ PROFILE = DEVIATION_PROFILES['tag']
 
 def _anchors(risk: float) -> PersonalityAnchors:
     return PersonalityAnchors(
-        baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.3,
-        expressiveness=0.5, risk_identity=risk, adaptation_bias=0.5,
-        baseline_energy=0.5, recovery_rate=0.15,
+        baseline_aggression=0.5,
+        baseline_looseness=0.5,
+        ego=0.5,
+        poise=0.3,
+        expressiveness=0.5,
+        risk_identity=risk,
+        adaptation_bias=0.5,
+        baseline_energy=0.5,
+        recovery_rate=0.15,
     )
 
 

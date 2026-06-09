@@ -22,7 +22,9 @@ class _RNG:
         return self._v
 
 
-def _controller(roll: float, pressure_source: str = 'bad_beat', nemesis=None) -> TieredBotController:
+def _controller(
+    roll: float, pressure_source: str = 'bad_beat', nemesis=None
+) -> TieredBotController:
     c = TieredBotController.__new__(TieredBotController)
     c.player_name = 'Hot'
     c.rng = _RNG(roll)
@@ -48,8 +50,8 @@ def test_fires_on_entry_with_cause_and_no_stat_leak():
         c = _controller(roll=0.0, pressure_source='bad_beat')  # roll < prob -> fires
         out = c._compute_tilt_telegraph(_TILTED)
     assert 'rattled' in out.lower()
-    assert 'bad beat' in out.lower()          # the cause is surfaced
-    assert 'own words' in out.lower()          # varied-phrasing instruction (not a fixed line)
+    assert 'bad beat' in out.lower()  # the cause is surfaced
+    assert 'own words' in out.lower()  # varied-phrasing instruction (not a fixed line)
     assert not any(ch.isdigit() for ch in out)  # no raw stats/numbers
 
 
