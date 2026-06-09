@@ -880,7 +880,29 @@ def _play_one_hand_inner(
 
     if archetype_recorder is not None:
         try:
-            archetype_recorder.end_hand(db_path_for_memory)
+            # Derive hand outcome for WTSD/W$SD (backlog #11). Showdown = ≥2
+            # players still live (not folded) at hand end; winners = names that
+            # won chips. Best-effort — never break the tick on a shape change.
+            was_showdown = False
+            winner_names: set[str] = set()
+            try:
+                live = [p for p in sm.game_state.players if not p.is_folded]
+                was_showdown = len(live) >= 2
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                for pot in (winner_info or {}).get('pot_breakdown', []) or []:
+                    for w in pot.get('winners', []) or []:
+                        name = w.get('name')
+                        if name:
+                            winner_names.add(name)
+            except Exception:  # noqa: BLE001
+                pass
+            archetype_recorder.end_hand(
+                db_path_for_memory,
+                was_showdown=was_showdown,
+                winner_names=winner_names,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.debug("[FULL_SIM] archetype end_hand failed: %s", exc)
 

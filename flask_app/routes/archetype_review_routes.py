@@ -18,6 +18,18 @@ Stats are derived directly from the decision log:
   reconstructed from the rows — so SQUEEZE defence (cold-call then face a 3-bet)
   doesn't contaminate them; the ``vs_3bet`` node alone is raise-count-only.
 * **AF** — postflop (bet+raise+all_in) ÷ postflop calls.
+* **AFq** — postflop (bet+raise) ÷ (bet+raise+call+fold): folds in the
+  denominator (the discriminator AF lacks — separates a fit-or-fold nit from a
+  maniac). Folds are sourced from the same decision rows the live path already
+  has (it previously discarded postflop folds).
+* **WTSD / W$SD** — hand-level OUTCOMES, NOT in player_decision_analysis. Joined
+  from ``hand_history`` (``showdown`` + ``winners_json``) keyed by
+  (game_id, hand_number): saw-flop = ≥1 postflop decision; WTSD = showdowns ÷
+  saw-flop; W$SD = won-at-showdown ÷ showdowns. Only human-present games have
+  hand_history on this path (the LEAN sim never wrote it) — the sim source uses
+  its own counters instead.
+* **Per-street AF** — flop/turn/river (bet+raise) ÷ call, split out (aggregate
+  AF hides flop-maniac/turn-passive texture). No target band (renders no_target).
 * **All-in %** — hand-instances with any all_in ÷ total hand-instances.
 
 Dedup: the analyzer double-logs some decisions, so each
@@ -29,6 +41,7 @@ Targets + scoring live in ``poker.archetype_targets``.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -76,6 +89,59 @@ def _mode_clause(mode: str) -> str:
     return "(game_id LIKE 'cash-%' OR game_id LIKE 'sim\\_%' ESCAPE '\\')"
 
 
+def _fetch_showdown_map(conn: sqlite3.Connection, mode: str) -> dict:
+    """Map (game_id, hand_number) -> (was_showdown: bool, winner_names: set[str]).
+
+    Hand-level outcomes for WTSD/W$SD, sourced from `hand_history` (NOT in
+    player_decision_analysis). Scoped by the SAME game-mode clause as the
+    decision rows. Only human-present games have hand_history rows on this path
+    (the LEAN sim never wrote them) — a missing key just means no outcome data,
+    which the caller treats gracefully (the hand drops out of WTSD/W$SD).
+    """
+    out: dict[tuple, tuple] = {}
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT game_id, hand_number, showdown, winners_json
+            FROM hand_history
+            WHERE {_mode_clause(mode)}
+            """
+        ).fetchall()
+    except sqlite3.Error:
+        # hand_history absent (e.g. an in-memory test fixture) — no outcomes.
+        return out
+    for game_id, hand_number, showdown, winners_json in rows:
+        names: set[str] = set()
+        if winners_json:
+            try:
+                parsed = json.loads(winners_json)
+            except (ValueError, TypeError):
+                parsed = None
+            for w in _iter_winner_names(parsed):
+                names.add(w)
+        out[(game_id, hand_number)] = (bool(showdown), names)
+    return out
+
+
+def _iter_winner_names(parsed) -> list:
+    """Best-effort extraction of winner display names from a winners_json blob.
+
+    The shape varies across writers (list of names, list of {name|player_name},
+    or a dict keyed by name) — pull every plausible name string we can find."""
+    names: list = []
+    if isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, str):
+                names.append(item)
+            elif isinstance(item, dict):
+                n = item.get('name') or item.get('player_name')
+                if n:
+                    names.append(n)
+    elif isinstance(parsed, dict):
+        names.extend(str(k) for k in parsed.keys())
+    return names
+
+
 def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
     """Compute per-archetype behavioral stats for the given game mode."""
     rows = conn.execute(
@@ -106,6 +172,21 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
             'vs_3bet_fold': 0,
             'pf_agg': 0,
             'pf_call': 0,  # postflop aggressive / calls
+            'pf_fold': 0,  # postflop folds (AFq denominator)
+            # Per-street aggression (flop/turn/river): agg / call / fold.
+            'flop_agg': 0,
+            'flop_call': 0,
+            'flop_fold': 0,
+            'turn_agg': 0,
+            'turn_call': 0,
+            'turn_fold': 0,
+            'river_agg': 0,
+            'river_call': 0,
+            'river_fold': 0,
+            # WTSD/W$SD are hand-level outcomes joined from hand_history below.
+            'saw_flop_hands': set(),  # (game,player,hand) that saw the flop
+            'showdown_hands': set(),  # of those, reached showdown
+            'showdown_won_hands': set(),  # of those, won
         }
 
     acc: dict[str, dict] = defaultdict(_new_acc)
@@ -122,6 +203,11 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
     for game_id, player, hand, phase, action, node_key, _board, _arch in rows:
         if phase == 'PRE_FLOP' and action in _AGGRESSIVE and node_key.split('|', 1)[0] == 'rfi':
             rfi_raisers.add((game_id, player, hand))
+
+    # Hand-level OUTCOMES (showdown reached + winners) are NOT in
+    # player_decision_analysis — pre-fetch them from hand_history keyed by
+    # (game_id, hand_number) and join in Python (WTSD/W$SD, backlog #11).
+    showdown_map = _fetch_showdown_map(conn, mode)
 
     for game_id, player, hand, phase, action, node_key, board, archetype in rows:
         arch = archetype or 'unknown'
@@ -154,13 +240,43 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
                 elif action == 'fold':
                     a['vs_3bet_fold'] += 1
         elif phase in _POSTFLOP_PHASES:
+            # Saw the flop → WTSD denominator (joined to outcomes below).
+            a['saw_flop_hands'].add(hand_key)
+            street = phase.lower()  # flop / turn / river
             if action in _AGGRESSIVE:
                 a['pf_agg'] += 1
+                a[f'{street}_agg'] += 1
             elif action == 'call':
                 a['pf_call'] += 1
+                a[f'{street}_call'] += 1
+            elif action == 'fold':
+                # AFq counts folds in the denominator (vs AF which ignores them).
+                a['pf_fold'] += 1
+                a[f'{street}_fold'] += 1
+
+    # Second pass: join saw-flop hands to outcomes for WTSD/W$SD. Grain matches
+    # the saw-flop set: one (game, player, hand). reached-showdown = the hand
+    # showdown'd AND this player saw the flop; won = player in winners.
+    for a in acc.values():
+        for hand_key in a['saw_flop_hands']:
+            game_id, player, hand = hand_key
+            outcome = showdown_map.get((game_id, hand))
+            if outcome is None:
+                continue
+            was_sd, winners = outcome
+            if was_sd:
+                a['showdown_hands'].add(hand_key)
+                if player in winners:
+                    a['showdown_won_hands'].add(hand_key)
 
     def _pct(num: int, den: int):
         return round(100.0 * num / den, 1) if den else None
+
+    def _af(agg: int, call: int):
+        """Per-street AF (agg/call); None when no denominator, 99.0 when all-agg."""
+        if call:
+            return round(agg / call, 2)
+        return None if agg == 0 else 99.0
 
     per_arch: dict = {}
     for arch, a in acc.items():
@@ -168,6 +284,10 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
         n_pf = len(a['pf_hands'])
         pf_call = a['pf_call']
         af = round(a['pf_agg'] / pf_call, 2) if pf_call else (None if a['pf_agg'] == 0 else 99.0)
+        # AFq = (bet+raise) / (bet+raise+call+fold) — folds in the denominator.
+        afq_den = a['pf_agg'] + pf_call + a['pf_fold']
+        n_saw = len(a['saw_flop_hands'])
+        n_sd = len(a['showdown_hands'])
         per_arch[arch] = {
             'hands': n_hands,
             'stats': {
@@ -177,6 +297,21 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
                 'fourbet': (_pct(a['vs_3bet_agg'], a['vs_3bet']), a['vs_3bet']),
                 'fold_to_3bet': (_pct(a['vs_3bet_fold'], a['vs_3bet']), a['vs_3bet']),
                 'af': (af, pf_call + a['pf_agg']),
+                'afq': (_pct(a['pf_agg'], afq_den), afq_den),
+                'wtsd': (_pct(n_sd, n_saw), n_saw),
+                'wsd': (_pct(len(a['showdown_won_hands']), n_sd), n_sd),
+                'flop_af': (
+                    _af(a['flop_agg'], a['flop_call']),
+                    a['flop_agg'] + a['flop_call'],
+                ),
+                'turn_af': (
+                    _af(a['turn_agg'], a['turn_call']),
+                    a['turn_agg'] + a['turn_call'],
+                ),
+                'river_af': (
+                    _af(a['river_agg'], a['river_call']),
+                    a['river_agg'] + a['river_call'],
+                ),
                 'all_in': (_pct(len(a['allin_hands']), n_hands), n_hands),
             },
         }
@@ -196,6 +331,11 @@ def _aggregate_sim() -> dict:
     def _pct(num: int, den: int):
         return round(100.0 * num / den, 1) if den else None
 
+    def _af(agg: int, call: int):
+        if call:
+            return round(agg / call, 2)
+        return None if agg == 0 else 99.0
+
     per_arch: dict = {}
     total = 0
     for r in rows:
@@ -204,6 +344,12 @@ def _aggregate_sim() -> dict:
         pf_call = r['postflop_call']
         pf_agg = r['postflop_agg']
         af = round(pf_agg / pf_call, 2) if pf_call else (None if pf_agg == 0 else 99.0)
+        # AFq = (bet+raise) / (bet+raise+call+fold). Aggregate postflop fold is
+        # the sum of the three street folds (not stored separately, by design).
+        pf_fold = r['flop_fold'] + r['turn_fold'] + r['river_fold']
+        afq_den = pf_agg + pf_call + pf_fold
+        saw = r['saw_flop']
+        sd = r['showdowns']
         per_arch[r['archetype']] = {
             'hands': hands,
             'stats': {
@@ -213,6 +359,15 @@ def _aggregate_sim() -> dict:
                 'fourbet': (_pct(r['vs_3bet_agg'], r['vs_3bet']), r['vs_3bet']),
                 'fold_to_3bet': (_pct(r['vs_3bet_fold'], r['vs_3bet']), r['vs_3bet']),
                 'af': (af, pf_call + pf_agg),
+                'afq': (_pct(pf_agg, afq_den), afq_den),
+                'wtsd': (_pct(sd, saw), saw),
+                'wsd': (_pct(r['showdowns_won'], sd), sd),
+                'flop_af': (_af(r['flop_agg'], r['flop_call']), r['flop_agg'] + r['flop_call']),
+                'turn_af': (_af(r['turn_agg'], r['turn_call']), r['turn_agg'] + r['turn_call']),
+                'river_af': (
+                    _af(r['river_agg'], r['river_call']),
+                    r['river_agg'] + r['river_call'],
+                ),
                 'all_in': (_pct(r['allin_hands'], hands), hands),
             },
         }

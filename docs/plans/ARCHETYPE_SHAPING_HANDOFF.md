@@ -351,7 +351,46 @@ is inert for all non-rock archetypes (locked by `test_rock_carries_passive_postf
 The passivity is an intended, realistic slight −EV (a readable, exploitable rock —
 exploiter: "value-bet thin and barrel, it won't punish you"); not forced to EV-neutral.
 
-### 11. Methodology: AFq + WTSD/W$SD + per-street AF
+### 11. Methodology: AFq + WTSD/W$SD + per-street AF — ✅ DONE (2026-06-09)
+
+**Shipped** (branch `archetype-rock-and-stats`, not yet committed — user reviews):
+- **Migration** `poker/repositories/migrations/20260609_1200_archetype_stat_showdown.py`
+  adds 12 columns to `archetype_stat_counts` (per-column try/except OperationalError):
+  `saw_flop, showdowns, showdowns_won, {flop,turn,river}_{agg,call,fold}`. Aggregate
+  postflop fold = sum of the three street folds (not stored). `COUNTER_COLUMNS`
+  extended in `archetype_stat_repository.py` (upsert/read are column-driven).
+- **Sim path** (`cash_mode/archetype_stats.py`): `record_decision()` postflop branch
+  dispatches per-street agg/call/fold + sets a `saw_flop` scratch bool;
+  `end_hand(was_showdown=False, winner_names=None)` (kw-defaulted, back-compat) rolls
+  up saw_flop and credits showdowns/showdowns_won. `full_sim.py` derives
+  `was_showdown` (≥2 live players) + `winner_names` (from `winner_info.pot_breakdown`)
+  best-effort and passes them.
+- **Live path** (`archetype_review_routes.py`): `_aggregate` now counts postflop folds
+  (AFq denom) + per-street agg/call/fold, and `_fetch_showdown_map()` pre-fetches
+  `hand_history` (`showdown`, `winners_json`) keyed `(game_id, hand_number)` scoped by
+  the same `_mode_clause`; a second pass over saw-flop hands joins outcomes for
+  WTSD/W$SD. `_aggregate_sim` mirrors from the new counter columns. Emits `afq`,
+  `wtsd`, `wsd`, `flop_af`, `turn_af`, `river_af`.
+- **Targets** (`archetype_targets.py`): added `afq`/`wtsd`/`wsd` to `STAT_LABELS` +
+  bands for all 7 archetypes (WTSD/W$SD from research §1B; AFq derived, **nit/rock
+  provisional**). Per-street AF has NO band → renders `no_target` (like c-bet).
+- **Frontend**: zero structural change (iterates `stat_order`); `tsc` clean.
+- **Tests**: `tests/test_archetype_review_route.py` +6 (AFq fold-in-denom, per-street
+  split, WTSD/W$SD hand_history join, W$SD loss, graceful no-hand_history);
+  `tests/test_cash_mode/test_archetype_stats.py` +6 (per-street dispatch, saw_flop,
+  showdown/won rollup, no-showdown, back-compat default-args); updated the
+  `test_archetype_targets` invariant to allow the band-less per-street AF stats.
+
+**Forward-only caveat**: sim counters do NOT backfill (only accrue on new sim hands);
+WTSD/W$SD are retroactive **only for live human-present games** (the LEAN sim never
+wrote `hand_history` or `player_decision_analysis`); AFq and per-street AF ARE
+retroactive on existing `player_decision_analysis` rows (the postflop folds were
+always logged, just discarded). AFq nit/rock bands are provisional — tune from probe.
+
+---
+
+(Original spec retained below for reference.)
+
 Add to `archetype_review_routes._aggregate` + `cash_mode/archetype_stats` +
 `ARCHETYPE_TARGETS`:
 - **AFq** = (bet+raise)/(bet+raise+call+fold) — fixes the AF discriminator (AF

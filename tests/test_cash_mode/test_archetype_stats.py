@@ -81,6 +81,75 @@ def test_recorder_no_archetype_is_noop():
     assert not r._totals
 
 
+def test_per_street_postflop_dispatch():
+    """Postflop agg/call/fold are split by street AND rolled into the aggregate
+    postflop_agg/postflop_call (back-compat). Folds feed only the per-street
+    bucket (the AFq denominator)."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('lag', 'L', 'FLOP', '', 'raise')
+    r.record_decision('lag', 'L', 'TURN', '', 'call')
+    r.record_decision('lag', 'L', 'RIVER', '', 'fold')
+    r.end_hand()
+
+    lag = r._totals['lag']
+    # Per-street split.
+    assert lag['flop_agg'] == 1 and lag['turn_call'] == 1 and lag['river_fold'] == 1
+    assert lag['flop_call'] == 0 and lag['flop_fold'] == 0
+    # Aggregate back-compat counters still move for agg/call (not for fold).
+    assert lag['postflop_agg'] == 1 and lag['postflop_call'] == 1
+
+
+def test_saw_flop_boolean_rolls_up():
+    """A player with ≥1 postflop decision sets saw_flop; a fold-preflop player
+    does not."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('tag', 'T', 'PRE_FLOP', 'rfi', 'raise')
+    r.record_decision('tag', 'T', 'FLOP', '', 'call')  # saw the flop
+    r.record_decision('nit', 'N', 'PRE_FLOP', 'vs_open', 'fold')  # never saw flop
+    r.end_hand()
+
+    assert r._totals['tag']['saw_flop'] == 1
+    assert r._totals['nit'].get('saw_flop', 0) == 0
+
+
+def test_showdown_and_won_rollup():
+    """end_hand(was_showdown, winner_names) increments showdowns for flop-seers
+    and showdowns_won for those in winner_names. A non-flop-seer is ignored even
+    if it (somehow) appears in winners."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('tag', 'T', 'FLOP', '', 'call')  # saw flop, will win
+    r.record_decision('lag', 'L', 'FLOP', '', 'call')  # saw flop, will lose
+    r.record_decision('nit', 'N', 'PRE_FLOP', 'rfi', 'fold')  # no flop
+    r.end_hand(was_showdown=True, winner_names={'T', 'N'})
+
+    assert r._totals['tag']['showdowns'] == 1 and r._totals['tag']['showdowns_won'] == 1
+    assert r._totals['lag']['showdowns'] == 1 and r._totals['lag']['showdowns_won'] == 0
+    # N never saw the flop → no showdown credit despite being a winner.
+    assert r._totals['nit'].get('showdowns', 0) == 0
+
+
+def test_no_showdown_does_not_count_showdowns():
+    """When the hand did not reach showdown, flop-seers get saw_flop but no
+    showdown."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('tag', 'T', 'FLOP', '', 'raise')
+    r.end_hand(was_showdown=False, winner_names={'T'})
+    assert r._totals['tag']['saw_flop'] == 1
+    assert r._totals['tag'].get('showdowns', 0) == 0
+
+
+def test_end_hand_back_compat_default_args():
+    """end_hand() with no outcome args still rolls up the hand (no showdown
+    credit) — back-compat for callers without hand-outcome context."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('tag', 'T', 'PRE_FLOP', 'rfi', 'raise')
+    r.record_decision('tag', 'T', 'FLOP', '', 'raise')
+    r.end_hand()  # no kwargs
+    tag = r._totals['tag']
+    assert tag['hands'] == 1 and tag['saw_flop'] == 1
+    assert tag.get('showdowns', 0) == 0
+
+
 def test_end_to_end_recording_via_play_one_hand():
     """Running a real sim hand populates the per-sandbox recorder."""
     sandbox = 'test-archetype-stats-e2e'

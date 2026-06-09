@@ -22,7 +22,7 @@ def _snap(arch: str) -> str:
     return json.dumps({'deviation_profile_name': arch})
 
 
-def _conn_with_rows(rows):
+def _conn_with_rows(rows, hand_history=None):
     conn = sqlite3.connect(':memory:')
     conn.execute(
         """CREATE TABLE player_decision_analysis (
@@ -31,6 +31,12 @@ def _conn_with_rows(rows):
             strategy_pipeline_snapshot_json TEXT)"""
     )
     conn.executemany('INSERT INTO player_decision_analysis VALUES (?,?,?,?,?,?,?,?)', rows)
+    if hand_history is not None:
+        conn.execute(
+            """CREATE TABLE hand_history (
+                game_id TEXT, hand_number INTEGER, showdown BOOLEAN, winners_json TEXT)"""
+        )
+        conn.executemany('INSERT INTO hand_history VALUES (?,?,?,?)', hand_history)
     return conn
 
 
@@ -69,3 +75,89 @@ def test_opener_fourbet_counts():
     assert fourbet['actual'] == 100.0
     # And it is NOT a fold_to_3bet.
     assert _stat(payload, 'tag', 'fold_to_3bet')['actual'] == 0.0
+
+
+def test_afq_counts_folds_in_denominator():
+    """AFq = (bet+raise)/(bet+raise+call+fold) — postflop folds are in the
+    denominator (unlike AF, which ignores them). 1 raise + 1 call + 2 folds =>
+    AFq 1/4 = 25%, but AF = 1/1 = 1.0."""
+    rows = [
+        ('cash-1', 'M', 1, 'FLOP', 'raise', '', 'Ah Kd Qs', _snap('maniac')),
+        ('cash-1', 'M', 1, 'TURN', 'call', '', 'Ah Kd Qs 2c', _snap('maniac')),
+        ('cash-2', 'M', 2, 'FLOP', 'fold', '', 'Ah Kd Qs', _snap('maniac')),
+        ('cash-3', 'M', 3, 'RIVER', 'fold', '', 'Ah Kd Qs 2c 7h', _snap('maniac')),
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    afq = _stat(payload, 'maniac', 'afq')
+    assert afq['sample'] == 4  # agg + call + fold + fold
+    assert afq['actual'] == 25.0
+    # AF (folds excluded) is unchanged: 1 agg / 1 call = 1.0.
+    assert _stat(payload, 'maniac', 'af')['actual'] == 1.0
+
+
+def test_per_street_af_split():
+    """Per-street AF splits postflop aggression by flop/turn/river. flop = 2 agg
+    / 1 call = 2.0; turn = 1 agg / 1 call = 1.0; river has no calls → all-agg
+    sentinel 99.0. No target band (no_target)."""
+    rows = [
+        ('cash-1', 'L', 1, 'FLOP', 'raise', '', 'b', _snap('lag')),
+        ('cash-1', 'L', 1, 'FLOP', 'raise', '', 'b2', _snap('lag')),
+        ('cash-1', 'L', 1, 'FLOP', 'call', '', 'b3', _snap('lag')),
+        ('cash-1', 'L', 1, 'TURN', 'raise', '', 'bt', _snap('lag')),
+        ('cash-1', 'L', 1, 'TURN', 'call', '', 'bt2', _snap('lag')),
+        ('cash-1', 'L', 1, 'RIVER', 'raise', '', 'br', _snap('lag')),
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    assert _stat(payload, 'lag', 'flop_af')['actual'] == 2.0
+    assert _stat(payload, 'lag', 'turn_af')['actual'] == 1.0
+    assert _stat(payload, 'lag', 'river_af')['actual'] == 99.0
+    # Per-street AF ships with no target band.
+    assert _stat(payload, 'lag', 'flop_af')['status'] == 'no_target'
+
+
+def test_wtsd_wsd_joined_from_hand_history():
+    """WTSD = went-to-showdown / saw-flop; W$SD = won / showdown. Player T sees
+    the flop in 2 hands; hand 1 showdowns and T wins, hand 2 doesn't showdown.
+    WTSD = 1/2 = 50%; W$SD = 1/1 = 100%."""
+    rows = [
+        ('cash-1', 'T', 1, 'FLOP', 'call', '', 'Ah Kd Qs', _snap('tag')),
+        ('cash-1', 'T', 2, 'FLOP', 'raise', '', 'Ah Kd Qs', _snap('tag')),
+    ]
+    hh = [
+        ('cash-1', 1, 1, '[{"name": "T"}]'),  # showdown, T won
+        ('cash-1', 2, 0, '[{"name": "T"}]'),  # no showdown
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows, hand_history=hh), 'cash')
+    wtsd = _stat(payload, 'tag', 'wtsd')
+    assert wtsd['sample'] == 2  # saw flop in 2 hands
+    assert wtsd['actual'] == 50.0
+    wsd = _stat(payload, 'tag', 'wsd')
+    assert wsd['sample'] == 1  # reached 1 showdown
+    assert wsd['actual'] == 100.0
+
+
+def test_wsd_loss_at_showdown():
+    """A flop-seeing player who reaches showdown but is NOT in winners → W$SD 0."""
+    rows = [
+        ('cash-1', 'F', 1, 'FLOP', 'call', '', 'Ah Kd Qs', _snap('calling_station')),
+    ]
+    hh = [('cash-1', 1, 1, '[{"name": "SomeoneElse"}]')]  # showdown, F lost
+    payload = rr._aggregate(_conn_with_rows(rows, hand_history=hh), 'cash')
+    assert _stat(payload, 'calling_station', 'wtsd')['actual'] == 100.0
+    assert _stat(payload, 'calling_station', 'wsd')['actual'] == 0.0
+
+
+def test_wtsd_graceful_without_hand_history():
+    """No hand_history table (or no matching rows) → WTSD/W$SD report no_data
+    rather than erroring (the saw-flop hands have no outcome to join)."""
+    rows = [
+        ('cash-1', 'T', 1, 'FLOP', 'call', '', 'Ah Kd Qs', _snap('tag')),
+    ]
+    # No hand_history table at all.
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    wtsd = _stat(payload, 'tag', 'wtsd')
+    # saw-flop denominator exists, but no showdown rows → 0 showdowns / 1 saw-flop.
+    assert wtsd['sample'] == 1
+    assert wtsd['actual'] == 0.0
+    # W$SD has a zero denominator (no showdowns) → no_data.
+    assert _stat(payload, 'tag', 'wsd')['actual'] is None

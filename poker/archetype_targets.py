@@ -48,6 +48,12 @@ STAT_LABELS: Dict[str, str] = {
     'fold_to_3bet': 'Fold-to-3bet %',
     'af': 'Aggression Factor',
     'all_in': 'All-in %',
+    'afq': 'AFq %',
+    'wtsd': 'WTSD %',
+    'wsd': 'W$SD %',
+    'flop_af': 'Flop AF',
+    'turn_af': 'Turn AF',
+    'river_af': 'River AF',
 }
 
 # (lo, hi) inclusive target band per archetype per stat. See module docstring.
@@ -60,6 +66,13 @@ STAT_LABELS: Dict[str, str] = {
 #   fold_to_3bet    = fold at a vs_3bet node / decisions facing a 3-bet
 #   af              = postflop (bet+raise)/call (a ratio, not a %)
 #   all_in          = hand-instances with any all-in / hands
+#   afq             = postflop (bet+raise)/(bet+raise+call+fold) % (folds in the
+#                     denominator — the AF discriminator). Derived metric; the
+#                     nit/rock bands are PROVISIONAL (tune from probe data).
+#   wtsd            = went-to-showdown / saw-the-flop % (research §1B, 6-max)
+#   wsd             = won-at-showdown / went-to-showdown % (research §1B, 6-max)
+#   flop/turn/river_af = per-street (bet+raise)/call. NO target band by design
+#                     (renders no_target, like c-bet) until sim data sets bands.
 ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'nit': {
         'vpip': (10, 16),
@@ -69,6 +82,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (60, 80),
         'af': (1.5, 2.8),
         'all_in': (0, 3),
+        'afq': (20, 35),  # provisional
+        'wtsd': (20, 24),
+        'wsd': (52, 58),
     },
     # Rock: tight-PASSIVE (backlog #10, Option A) — tightest in the field, plays
     # those hands passively (low PFR/VPIP, low AF, high fold-to-3bet). Distinct
@@ -82,6 +98,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (65, 85),
         'af': (0.8, 1.8),
         'all_in': (0, 2),
+        'afq': (18, 32),  # provisional
+        'wtsd': (20, 24),
+        'wsd': (54, 60),
     },
     'tag': {
         'vpip': (20, 28),
@@ -91,6 +110,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (40, 58),
         'af': (2.5, 3.8),
         'all_in': (0, 5),
+        'afq': (35, 45),
+        'wtsd': (26, 29),
+        'wsd': (52, 56),
     },
     'lag': {
         'vpip': (28, 40),
@@ -100,6 +122,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (30, 48),
         'af': (3.3, 5.5),
         'all_in': (0, 7),
+        'afq': (40, 52),
+        'wtsd': (27, 31),
+        'wsd': (48, 52),
     },
     'maniac': {
         'vpip': (45, 70),
@@ -109,6 +134,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (15, 35),
         'af': (5, 9),
         'all_in': (3, 14),
+        'afq': (48, 65),
+        'wtsd': (30, 40),
+        'wsd': (40, 48),
     },
     'calling_station': {
         'vpip': (40, 58),
@@ -118,6 +146,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (20, 40),
         'af': (0.4, 1.2),
         'all_in': (0, 4),
+        'afq': (12, 25),
+        'wtsd': (32, 45),
+        'wsd': (44, 50),
     },
     'weak_fish': {
         'vpip': (33, 52),
@@ -127,6 +158,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'fold_to_3bet': (25, 45),
         'af': (0.7, 1.6),
         'all_in': (0, 5),
+        'afq': (14, 28),
+        'wtsd': (30, 38),
+        'wsd': (45, 50),
     },
 }
 
