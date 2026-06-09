@@ -2,7 +2,7 @@
 purpose: Plan to replace the single-token preflop raise sizing (always raise_3x / raise_2.5bb) with archetype-characterful size VARIETY, so AI opens and 3-bets stop being mechanically identical
 type: design
 created: 2026-06-08
-last_updated: 2026-06-08
+last_updated: 2026-06-09
 ---
 
 # Preflop sizing variety — kill the "always exactly 3×" tell
@@ -46,6 +46,17 @@ So the postflop gradient never engages preflop, and the resolver
 deterministic `0.0` default; Baseline GTO reference stays exact). This breaks the
 *exact-number* tell but not the *one-size-fits-all* character — every raise is
 still ~3×.
+
+**P0.5 — round the jittered amount (2026-06-09, shipped).** The raw jitter
+produced unrealistic amounts (raise to 287, not 300) — a tell of its own; people
+bet round numbers. `round_to_human_bet` (`action_mapper.py`) snaps the jittered
+raise/bet to a natural chip increment whose granularity scales with size
+(~BB/4 for opens, ~BB/2 for 3-bets, ~BB for 4-bets+, each snapped to a clean
+1/2/2.5/5×10ⁿ denomination). Applied in both `_compute_raise_to` (preflop) and
+`resolve_postflop_sizing` (postflop), live-only (gated on `jitter>0`, so sim/
+Baseline sizing stays byte-exact). Live 3-bets now land on `{650, 700, 750, 800,
+850}` instead of `{661, 687, 712, …}`. Still doesn't fix the *one-size character*
+(Part 1/2 below) — that's the remaining work.
 
 ## The proper fix (two parts)
 
