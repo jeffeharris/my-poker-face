@@ -265,6 +265,7 @@ against real-play data.
 
 ## Cross-references
 
+- `docs/technical/TILT_EXCURSION_DESIGN.md` — the **target design** this analysis fed into (keep frequency, add slow-recovery-while-tilted persistence, monk exceptions, then signature/telegraph).
 - `docs/plans/PERCEPTIBILITY_CONDITIONING.md` — the tilt-conditioning feature this feeds.
 - `docs/technical/ARCHETYPE_SHAPING_FINDINGS.md` §C — the believability thesis.
 - `docs/technical/PSYCHOLOGY_OVERVIEW.md` / `PSYCHOLOGY_ZONES_MODEL.md` — the system spec.
