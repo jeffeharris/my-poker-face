@@ -10,10 +10,12 @@ Run:  python -m poker.decision_analysis_worker
 Env:  REDIS_URL, DECISION_ANALYSIS_ITERATIONS, DECISION_ANALYSIS_WORKER_BATCH,
       DECISION_ANALYSIS_DB_PATH (defaults to the app's DB).
 """
+
 import logging
 import os
 import signal
 import sys
+import time
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -47,15 +49,23 @@ def main() -> int:
 
     logger.info(
         "decision-analysis worker started (db=%s, batch=%d, iterations=%s)",
-        db_path, batch, os.environ.get("DECISION_ANALYSIS_ITERATIONS", "2000"),
+        db_path,
+        batch,
+        os.environ.get("DECISION_ANALYSIS_ITERATIONS", "2000"),
     )
 
     processed = 0
+    backoff = 1.0  # seconds; grows on repeated dequeue failure (Redis down), resets on success
     while not _stop:
         try:
             jobs = dequeue_batch(batch, timeout=5)
+            backoff = 1.0
         except Exception:
-            logger.exception("dequeue failed; backing off")
+            # Redis down/misconfigured: dequeue_batch raises immediately, so without
+            # a sleep this loop would spin (peg CPU + flood logs). Back off, capped.
+            logger.warning("dequeue failed; backing off %.0fs", backoff)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 30.0)
             continue
         if not jobs:
             continue
@@ -69,7 +79,10 @@ def main() -> int:
         processed += ok
         logger.info(
             "processed batch=%d ok=%d total=%d depth=%s",
-            len(jobs), ok, processed, queue_depth(),
+            len(jobs),
+            ok,
+            processed,
+            queue_depth(),
         )
 
     logger.info("decision-analysis worker stopped (total processed=%d)", processed)

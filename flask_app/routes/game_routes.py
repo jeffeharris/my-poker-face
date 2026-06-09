@@ -258,6 +258,13 @@ def analyze_player_decision(
     chance to capture the intervention trace and pipeline snapshot. Pulled
     here from the controller's `_last_*` accumulators if available.
     """
+    # Master off-switch — must gate this (non-self-saving: human/RuleBot/casebot)
+    # path too, not just the controller-side _analyze_decision, or DECISION_ANALYSIS_
+    # ENABLED=0 would still pay CPU + write rows here.
+    from poker.controllers import _decision_analysis_enabled
+
+    if not _decision_analysis_enabled():
+        return
     try:
         from poker.decision_analyzer import get_analyzer
 
