@@ -13,7 +13,10 @@ Stats are derived directly from the decision log:
 * **3-bet %** — raise/all_in at a ``vs_open`` ``preflop_node_key`` ÷ decisions
   facing an open. **4-bet %** — same at ``vs_3bet``. **Fold-to-3bet** —
   folds at ``vs_3bet`` ÷ decisions there. (Opportunity-normalized via the
-  node key, so they're true frequencies, not raw counts.)
+  node key, so they're true frequencies, not raw counts.) 4-bet / fold-to-3bet
+  are scored only when the actor was the RFI **opener** facing the 3-bet —
+  reconstructed from the rows — so SQUEEZE defence (cold-call then face a 3-bet)
+  doesn't contaminate them; the ``vs_3bet`` node alone is raise-count-only.
 * **AF** — postflop (bet+raise+all_in) ÷ postflop calls.
 * **All-in %** — hand-instances with any all_in ÷ total hand-instances.
 
@@ -108,6 +111,18 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
     acc: dict[str, dict] = defaultdict(_new_acc)
     seen: set[tuple] = set()
 
+    # Pre-pass: who was the RFI opener in each (game, hand)? fourbet /
+    # fold_to_3bet are scored only when the actor at a vs_3bet node WAS the
+    # opener (facing a 3-bet as the raiser). A vs_3bet node reached as a
+    # cold-caller is SQUEEZE defence — a different stat that folds ~100% and
+    # otherwise crushes fold_to_3bet for the wide-flatting archetypes. The
+    # preflop_node_key is the strategy node (can't be repurposed), so we
+    # reconstruct opener-ness from the same rows. See ARCHETYPE_SHAPING_HANDOFF.
+    rfi_raisers: set[tuple] = set()
+    for game_id, player, hand, phase, action, node_key, _board, _arch in rows:
+        if phase == 'PRE_FLOP' and action in _AGGRESSIVE and node_key.split('|', 1)[0] == 'rfi':
+            rfi_raisers.add((game_id, player, hand))
+
     for game_id, player, hand, phase, action, node_key, board, archetype in rows:
         arch = archetype or 'unknown'
         dedup_key = (game_id, player, hand, phase, node_key, board, action)
@@ -132,7 +147,7 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
                 a['vs_open'] += 1
                 if action in _AGGRESSIVE:
                     a['vs_open_agg'] += 1
-            elif node == 'vs_3bet':
+            elif node == 'vs_3bet' and (game_id, player, hand) in rfi_raisers:
                 a['vs_3bet'] += 1
                 if action in _AGGRESSIVE:
                     a['vs_3bet_agg'] += 1

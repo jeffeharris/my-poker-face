@@ -1211,6 +1211,11 @@ def _run_hand(
     # archetype recorder: 0 raises = rfi (open), 1 = vs_open (a raise here is a
     # 3-bet), 2 = vs_3bet (a 4-bet), 3+ = vs_4bet. Controller-independent.
     preflop_raises = 0
+    # The hand's RFI opener (first preflop raiser). fourbet / fold_to_3bet are
+    # scored only when the actor at a vs_3bet node IS the opener (facing a 3-bet
+    # as the raiser) — a vs_3bet node reached as a cold-caller is SQUEEZE defence,
+    # a different stat. See ArchetypeStatRecorder.record_decision.
+    rfi_opener_name: Optional[str] = None
     while actions < _MAX_ACTIONS_PER_HAND:
         sm.run_until([PokerPhase.EVALUATING_HAND])
         gs = sm.game_state
@@ -1302,10 +1307,13 @@ def _run_hand(
                     decision_phase,
                     node,
                     action,
+                    is_opener=(actor_name == rfi_opener_name),
                 )
             except Exception as exc:  # noqa: BLE001 — observability, never fatal
                 logger.debug("[FULL_SIM] archetype record failed: %s", exc)
             if decision_phase == "PRE_FLOP" and action in ("raise", "all_in"):
+                if preflop_raises == 0 and rfi_opener_name is None:
+                    rfi_opener_name = actor_name
                 preflop_raises += 1
 
         # Feed action into the memory manager so opponent_model

@@ -67,8 +67,10 @@ def run_hero(archetype_key):
     pf = {'agg': 0, 'call': 0}
     # Per-hand accumulators (denominator = hands_dealt).
     counts = {'hands': 0, 'vpip': 0, 'pfr': 0, 'all_in': 0}
-    # Reset per hand inside the loop.
-    flags = {'vpip': False, 'pfr': False, 'all_in': False}
+    # Reset per hand inside the loop. `opener` = hero made the hand's first
+    # preflop raise (RFI) — fourbet / fold_to_3bet are conditioned on it so the
+    # squeeze-defence spots (cold-call then face a 3-bet) don't contaminate them.
+    flags = {'vpip': False, 'pfr': False, 'all_in': False, 'opener': False}
 
     hero_name = f'{archetype_key}_hero'
     opp_seats = [f'Base{i}' for i in range(5)]
@@ -90,11 +92,20 @@ def run_hero(archetype_key):
             if action in ('raise', 'all_in'):
                 flags['pfr'] = True
             scenario, _, _ = classify_preflop_scenario(gs)
+            if scenario == 'rfi' and action in ('raise', 'all_in'):
+                flags['opener'] = True
             nodes[scenario][0] += 1
             if action in ('raise', 'all_in'):
                 nodes[scenario][1] += 1
             if action == 'fold':
                 nodes[scenario][2] += 1
+            if scenario == 'vs_3bet' and flags['opener']:
+                op = nodes['vs_3bet_op']
+                op[0] += 1
+                if action in ('raise', 'all_in'):
+                    op[1] += 1
+                if action == 'fold':
+                    op[2] += 1
         else:
             if action in ('raise', 'all_in', 'bet'):
                 pf['agg'] += 1
@@ -106,7 +117,7 @@ def run_hero(archetype_key):
         dealer_idx = hand_num % 6
         random.seed(hand_seed)
 
-        flags['vpip'] = flags['pfr'] = flags['all_in'] = False
+        flags['vpip'] = flags['pfr'] = flags['all_in'] = flags['opener'] = False
 
         gs = make_game_state(
             player_names=all_names,
@@ -143,7 +154,8 @@ def run_hero(archetype_key):
         counts['all_in'] += 1 if flags['all_in'] else 0
 
     vs_open = nodes['vs_open']
-    vs_3bet = nodes['vs_3bet']
+    # fourbet / fold_to_3bet use the opener-conditioned node (excludes squeeze).
+    vs_3bet = nodes['vs_3bet_op']
     hands = max(counts['hands'], 1)
     return {
         # (value, sample_size) per stat

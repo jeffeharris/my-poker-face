@@ -68,6 +68,12 @@ counts = defaultdict(lambda: {'hands': 0, 'vpip': 0, 'pfr': 0, 'all_in': 0})
 name_to_arch = {}
 # Per-hand scratch: name -> flags.
 hand_flags = {}
+# Per-hand: '_opener' -> name of the hand's RFI opener (first preflop raiser).
+# fourbet / fold_to_3bet are conditioned on the actor being the RFI opener — the
+# `vs_3bet` node (raise count == 2) otherwise sweeps in SQUEEZE defence (you
+# cold-called an open, then someone 3-bet), which is a different stat and folds
+# ~100%, contaminating fold_to_3bet badly for the wide-flatting archetypes.
+opener = {}
 
 
 def on_decision(
@@ -87,12 +93,22 @@ def on_decision(
         if action in ('raise', 'all_in'):
             flags['pfr'] = True
         scenario, _, _ = classify_preflop_scenario(gs)
+        if scenario == 'rfi' and action in ('raise', 'all_in'):
+            opener.setdefault('_opener', current_player.name)
         node = nodes[arch][scenario]
         node[0] += 1
         if action in ('raise', 'all_in'):
             node[1] += 1
         if action == 'fold':
             node[2] += 1
+        # Opener-conditioned vs_3bet (the clean fourbet / fold_to_3bet spot).
+        if scenario == 'vs_3bet' and opener.get('_opener') == current_player.name:
+            op = nodes[arch]['vs_3bet_op']
+            op[0] += 1
+            if action in ('raise', 'all_in'):
+                op[1] += 1
+            if action == 'fold':
+                op[2] += 1
     else:
         if action in ('raise', 'all_in', 'bet'):
             pf[arch]['agg'] += 1
@@ -113,6 +129,7 @@ for hand_num in range(N_HANDS):
 
     name_to_arch.clear()
     hand_flags.clear()
+    opener.clear()
     all_names = []
     seat_configs = []
     for sim_key, target_key in seated:
@@ -154,7 +171,8 @@ for hand_num in range(N_HANDS):
 
 def stats_for(arch):
     vs_open = nodes[arch]['vs_open']
-    vs_3bet = nodes[arch]['vs_3bet']
+    # fourbet / fold_to_3bet use the opener-conditioned node (excludes squeeze).
+    vs_3bet = nodes[arch]['vs_3bet_op']
     c = counts[arch]
     hands = max(c['hands'], 1)
     return {
