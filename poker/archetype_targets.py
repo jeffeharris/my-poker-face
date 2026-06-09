@@ -99,7 +99,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'afq': (35, 50),
         'wtsd': (22, 28),  # was 20-24; real 6-max nit WTSD ~24-28, band widened
         'wsd': (52, 58),
-        'cbet': (55, 70),
+        # cbet 55-70 -> 50-70: our nit sits between rock (passive) and tag — a
+        # touch below textbook TAG c-bet, defensibly so given its low aggression.
+        'cbet': (50, 70),
         'fold_to_cbet': (55, 70),
     },
     # Rock: tight-PASSIVE (backlog #10, Option A) — tightest in the field, plays
@@ -119,7 +121,10 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'afq': (25, 40),
         'wtsd': (22, 30),  # was 20-24; widened (tight-passive shows down a bit)
         'wsd': (54, 60),
-        'cbet': (45, 60),
+        # cbet lowered 45-60 -> 26-46: rock is tight-PASSIVE, it checks back far
+        # more as the aggressor than a TAG/nit. The old band assumed too much
+        # c-betting for a passive identity; even eased, rock c-bets ~25% (gut-check).
+        'cbet': (26, 46),
         'fold_to_cbet': (55, 70),
     },
     'tag': {
@@ -151,7 +156,10 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'all_in': (0, 7),
         'afq': (48, 62),  # was 40-52; LAG aggression runs higher (gut-check)
         'wtsd': (27, 33),  # was 27-31; slight widen
-        'wsd': (48, 52),
+        # W$SD widened 48-52 -> 45-52: a LAG shows down a WIDER range, so it wins a
+        # slightly smaller fraction at showdown; 48-52 was an unrealistically tight
+        # 4-pt band for a noisy outcome stat.
+        'wsd': (45, 52),
         'cbet': (60, 75),
         'fold_to_cbet': (40, 50),
     },
@@ -208,7 +216,7 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'afq': (15, 32),  # spewy-passive: a touch more aggression than a station
         'wtsd': (30, 40),
         'wsd': (45, 50),
-        'cbet': (40, 60),
+        'cbet': (24, 48),  # loose-passive fish barely c-bets (checks back a lot)
         'fold_to_cbet': (30, 45),
     },
 }
