@@ -8,7 +8,7 @@ order: 24
 hero: /blog/cash-table-the-garage.jpeg
 heroAlt: A tense river spot in My Poker Face, where the only question left is whether your opponent can fold.
 excerpt: A bluff is a bet that makes a better hand fold. If nobody at the table can fold, you are not bluffing, you are just paying them.
-draft: true
+draft: false
 ---
 
 Bluffing is the part of poker everyone wants to do and most people do badly. The fix is one sentence: a bluff is a bet that makes a *better hand fold*. If a better hand cannot or will not fold, you are just donating with a story attached. Hold onto that and most of the hard questions about bluffing answer themselves.

@@ -8,7 +8,7 @@ order: 22
 hero: /blog/cash-table-flop.jpeg
 heroAlt: A flop decision in My Poker Face, the moment pot odds and equity decide whether you call.
 excerpt: You don't need to be good at math to use pot odds. You need one ratio and one shortcut, and most calling decisions start to answer themselves.
-draft: true
+draft: false
 ---
 
 Most of poker is reads, position, and nerve. But there is one piece of actual math that pays for itself the first time you use it, and it is much simpler than people make it sound. It comes down to two numbers: the price you are being asked to pay, and how often you win. Pot odds are the price. Equity is how often you win. When your chance to win beats the price, you call. That is the whole engine.

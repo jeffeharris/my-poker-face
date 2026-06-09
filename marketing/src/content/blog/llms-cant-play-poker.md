@@ -69,7 +69,7 @@ The moment I made that split, three things fell out almost for free:
 - **I could finally simulate at scale.** Deterministic bots can play millions of hands against each other in a sim harness. Multi-table tournaments, A/B tests on a strategy tweak, whole-economy runs, all of it became possible the instant the decisions stopped going through a model.
 - **I could shape them.** Because the play is dials and distributions, I can make a character tight, loose, sticky, or aggressive on purpose, and verify it in the data.
 
-And here's the part that still feels like vindication: the deterministic bot is *better at poker*. A disciplined tiered bot does to a calling station exactly what a good player should. It wins, and it wins big: a later version of it posts +102 big blinds per 100 hands head to head against a bot that calls everything, the kind of clean, repeatable result the LLM versions never produced. (The full numbers, and the one fix that got it there, are the next post.) The model I'd spent years trying to make play well played better the moment I stopped asking it to play.
+And here's the part that still feels like vindication: the deterministic bot is *better at poker*. A disciplined tiered bot does to a calling station exactly what a good player should. It wins, and it wins big: a disciplined version of it posts roughly +125 big blinds per 100 hands head to head against a bot that calls everything, the kind of clean, repeatable result the LLM versions never produced. (The full numbers, and the one fix that got it there, are the next post.) The model I'd spent years trying to make play well played better the moment I stopped asking it to play.
 
 ## The $50k bot I'm glad I didn't build
 
