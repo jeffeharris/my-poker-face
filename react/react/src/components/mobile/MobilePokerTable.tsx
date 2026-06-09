@@ -387,7 +387,10 @@ export function MobilePokerTable({
   // Splash duration scales with the pacing tier (fastest → 0 → no splash), and
   // the sequencer holds the reveal/run-out behind it by the matching tier-scaled
   // BEAT.stageSplashHold (see handSequencer.planReveal).
-  const stageSplashMs = scale(STAGE_SPLASH_MS, deriveTier(fastForward, alwaysFastForward, aiInstant));
+  const stageSplashMs = scale(
+    STAGE_SPLASH_MS,
+    deriveTier(fastForward, alwaysFastForward, aiInstant)
+  );
 
   // Run-out reveal cascade order: each revealed opponent reveals after the
   // previous one finishes (and within an opponent, card 2 after card 1). The

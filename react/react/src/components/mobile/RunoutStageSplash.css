@@ -9,11 +9,7 @@
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  background: radial-gradient(
-    circle at center,
-    rgba(8, 9, 13, 0.95) 0%,
-    rgba(8, 9, 13, 0.99) 70%
-  );
+  background: radial-gradient(circle at center, rgba(8, 9, 13, 0.95) 0%, rgba(8, 9, 13, 0.99) 70%);
   animation: runoutSplashFade 1s ease forwards;
 }
 

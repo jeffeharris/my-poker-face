@@ -1363,7 +1363,9 @@
                                bottom edge */
   --stage-opp-rise: -6dvh; /* pull the whole avatar row up toward the page top
                               (the hidden nav frees the space) */
-  --stage-opp-height: calc((35dvh - 5dvh) * 0.78); /* shrink the avatar CONTAINER
+  --stage-opp-height: calc(
+    (35dvh - 5dvh) * 0.78
+  ); /* shrink the avatar CONTAINER
                               ~22% — object-fit:cover crops the photo and the
                               name/stack rides up with the shorter card */
   --stage-ease: cubic-bezier(0.22, 1, 0.36, 1);
