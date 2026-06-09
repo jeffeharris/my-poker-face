@@ -1093,9 +1093,10 @@ class AIMemoryManager:
         return commentaries
 
     # Soft cap: above this many speakers per hand we start gating with the
-    # OVERFLOW_SPEAK_PROB roll. Three reactions feel like a table; five
-    # feel like everyone shouting over the hand.
-    MAX_UNCAPPED_SPEAKERS = 3
+    # OVERFLOW_SPEAK_PROB roll. Two reactions read as a quick exchange; three+
+    # start to feel like everyone shouting over the hand. (The drama-score
+    # speak gate already thins the field upstream — this caps the pile-on.)
+    MAX_UNCAPPED_SPEAKERS = 2
     OVERFLOW_SPEAK_PROB = 0.15
 
     def _cap_post_hand_speakers(
