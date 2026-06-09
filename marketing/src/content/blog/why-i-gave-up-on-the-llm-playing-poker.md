@@ -4,8 +4,8 @@ description: I spent years trying to get a language model to play poker as a cha
 track: Devlog
 date: 2026-06-09
 order: 2
-hero: /blog/cash-table-flop.jpeg
-heroAlt: A cash table mid-hand, each AI character showing a live emotion state and an action.
+hero: /blog/characters-trio.png
+heroAlt: "Three of the game's public-domain AI opponents: Sherlock Holmes, Blackbeard, and Cleopatra."
 excerpt: The model made a great demo and a statistically terrible player. The fix wasn't a better prompt. It was taking the model out of the decision entirely.
 draft: true
 ---
