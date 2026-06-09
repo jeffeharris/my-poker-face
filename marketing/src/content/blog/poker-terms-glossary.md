@@ -5,8 +5,8 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 19
-hero: /blog/cash-table-the-garage.jpeg
-heroAlt: A full poker table in My Poker Face, where every one of these terms is in play at once.
+hero: /blog/covers/poker-terms-glossary.png
+heroAlt: "The Poker Terms You Actually Need to Know"
 excerpt: Every game has its own language. Here is the poker vocabulary that actually comes up, in plain English, with links to go deeper on each one.
 draft: false
 ---

@@ -4,8 +4,8 @@ description: The AI opponents in My Poker Face carry a real, persistent mood you
 track: Inside the Table
 date: 2026-06-09
 order: 1
-hero: /blog/cash-table-the-garage.jpeg
-heroAlt: A cash table of public-domain characters (Louis XIV, Alexander the Great, Cleopatra, Santa Claus), each with a live emotional state.
+hero: /blog/covers/poker-where-the-opponents-are-alive.png
+heroAlt: "Poker where the opponents are alive"
 excerpt: Most poker apps give you a difficulty slider with a name attached. This one gives you characters with a mood the game actually keeps track of.
 draft: false
 ---

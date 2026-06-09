@@ -5,8 +5,8 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 20
-hero: /blog/cash-table-flop.jpeg
-heroAlt: A flop in My Poker Face. The player who acts last on this street has the edge, and it is free.
+hero: /blog/covers/why-position-is-the-most-underrated-edge-in-poker.png
+heroAlt: "Why Position Is the Most Underrated Edge in Poker"
 excerpt: "Position is one thing: who acts last. It is also the closest thing poker has to a free edge, and most players give it away."
 draft: false
 ---

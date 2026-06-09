@@ -5,8 +5,8 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 23
-hero: /blog/cash-table-flop.jpeg
-heroAlt: A bet going into the pot in My Poker Face, where the size says as much as the action.
+hero: /blog/covers/poker-bet-sizing.png
+heroAlt: "Poker Bet Sizing: How Much to Bet and Why"
 excerpt: "Beginners obsess over whether to bet. The bigger leak is how much. Your bet size should answer one question: what are you trying to make happen?"
 draft: false
 ---

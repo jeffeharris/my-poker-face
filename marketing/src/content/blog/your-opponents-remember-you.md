@@ -4,8 +4,8 @@ description: For three years the AI opponents forgot you the moment a game ended
 track: Inside the Table
 date: 2026-06-09
 order: 3
-hero: /blog/dossier-edgar-allan-poe.png
-heroAlt: An opponent dossier, a CLASSIFIED case file with behavioral reads that unlock as you log hands.
+hero: /blog/covers/your-opponents-remember-you.png
+heroAlt: "Your opponents remember you"
 excerpt: A lifetime table, a tally that's safe to run twice, and a dossier you earn. How opponents grew a memory that survives the game ending.
 draft: false
 ---

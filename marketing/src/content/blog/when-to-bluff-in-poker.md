@@ -5,8 +5,8 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 24
-hero: /blog/cash-table-the-garage.jpeg
-heroAlt: A tense river spot in My Poker Face, where the only question left is whether your opponent can fold.
+hero: /blog/covers/when-to-bluff-in-poker.png
+heroAlt: "When to Bluff in Poker (and When to Just Give Up)"
 excerpt: A bluff is a bet that makes a better hand fold. If nobody at the table can fold, you are not bluffing, you are just paying them.
 draft: false
 ---
