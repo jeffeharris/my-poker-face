@@ -57,6 +57,13 @@ from .strategy.postflop_commit import apply_postflop_commit
 from .strategy.preflop_classifier import build_preflop_node
 from .strategy.push_fold import PUSH_FOLD_THRESHOLD_BB, lookup_push_fold_action
 from .strategy.short_stack import apply_short_stack_heuristics
+from .strategy.sizing_tendencies import (
+    SizeContext,
+    SizingPersonality,
+    parse_sizing_tendencies,
+    resolve_size_multiplier,
+    sample_sizing_personality,
+)
 from .strategy.strategy_profile import StrategyProfile
 from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
 from .strategy.value_override import (
@@ -303,6 +310,17 @@ class TieredBotController(AIPlayerController):
         # one-time config read (and lets an explicit () mean "override to none").
         self._spot_tendencies_override: Optional[Tuple[Tuple[str, float], ...]] = None
         self._spot_tendencies_resolved: bool = False
+        # Per-PLAYER preflop sizing personality (sizing_tendencies P1,
+        # docs/plans/SIZING_TENDENCIES.md). Deterministically SAMPLED per persona
+        # (persona-seeded RNG) so a character's go-to raise size is stable but
+        # same-archetype players size differently — a read you EARN, not a one-shot
+        # tell. None until lazily resolved on first preflop sizing (mirrors the
+        # deviation_profile lazy-resolve). An explicit override (sims/tests) wins.
+        # The per-personality `sizing_tendencies` config key is the P2+ override
+        # lane (parsed here, carried onto the sampled struct's `behaviors`).
+        self._sizing_personality: Optional[SizingPersonality] = None
+        self._sizing_personality_override: Optional[SizingPersonality] = None
+        self._sizing_tendencies_override: Optional[Tuple[Tuple[str, float], ...]] = None
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
         # Phase 7.6: per-decision intervention trace accumulator. Reset
@@ -684,6 +702,72 @@ class TieredBotController(AIPlayerController):
             return self._spot_tendencies_override
         return None
 
+    def _effective_sizing_tendencies(self) -> Tuple[Tuple[str, float], ...]:
+        """Per-personality `sizing_tendencies` override lane (P2+ behaviors).
+
+        Mirrors `_effective_spot_tendencies`: an explicit
+        `_sizing_tendencies_override` (set by sims/tests) wins; otherwise the
+        personality config's `sizing_tendencies` key is read once and cached.
+        In P1 stock personas carry no key, so this returns `()` (the sampled
+        `base_size_bias` is the whole personality). The behaviors it returns ride
+        along on the sampled SizingPersonality's `behaviors` for P2+ to consult.
+        """
+        override = getattr(self, '_sizing_tendencies_override', None)
+        if override is not None:
+            return override
+        config = getattr(self.psychology, 'personality_config', None)
+        raw = config.get('sizing_tendencies') if isinstance(config, dict) else None
+        return parse_sizing_tendencies(raw)
+
+    @property
+    def sizing_personality(self) -> SizingPersonality:
+        """The per-player preflop sizing personality (sizing_tendencies P1).
+
+        Deterministically SAMPLED once per persona (persona-seeded RNG keyed on
+        the player name), then cached — so a character's go-to raise size is
+        stable across calls/sessions while same-archetype players differ. The
+        Baseline-GTO reference (`skip_personality_distortion`) and any controller
+        without anchors get the NEUTRAL personality (multiplier always 1.0), so
+        the deterministic sim stays byte-identical.
+
+        An explicit `_sizing_personality_override` (sims/tests) wins. Lazy-resolve
+        mirrors `deviation_profile`; getattr guards controllers built via __new__.
+        """
+        override = getattr(self, '_sizing_personality_override', None)
+        if override is not None:
+            return override
+        cached = getattr(self, '_sizing_personality', None)
+        if cached is not None:
+            return cached
+        # Resolve once and cache. Any failure (e.g. a malformed `sizing_tendencies`
+        # persona config) degrades to the neutral no-op personality (multiplier
+        # 1.0) rather than crashing the decision or re-raising every hand — sizing
+        # is a frequency-neutral cosmetic layer, so neutral is the safe default.
+        try:
+            if getattr(self, 'skip_personality_distortion', False):
+                resolved = SizingPersonality.neutral()
+            else:
+                psych = getattr(self, 'psychology', None)
+                anchors = psych.anchors if psych else None
+                if anchors is None:
+                    resolved = SizingPersonality.neutral()
+                else:
+                    resolved = sample_sizing_personality(
+                        anchors,
+                        persona_seed=self.player_name,
+                        archetype_key=self._table_archetype_key(),
+                        sizing_tendencies=self._effective_sizing_tendencies(),
+                    )
+        except Exception:
+            logger.warning(
+                'sizing_personality resolution failed for %s; using neutral',
+                getattr(self, 'player_name', '?'),
+                exc_info=True,
+            )
+            resolved = SizingPersonality.neutral()
+        self._sizing_personality = resolved
+        return resolved
+
     @property
     def archetype_name(self) -> str:
         """Get personality archetype name from anchors."""
@@ -960,12 +1044,29 @@ class TieredBotController(AIPlayerController):
                 f"sampled={abstract_action} emotional={emotional_state.state}"
             )
 
+        # Per-player sizing personality (sizing_tendencies P1). Center the raise
+        # size on this player's sampled `base_size_bias` BEFORE jitter+rounding,
+        # so same-archetype players visibly size differently (a read you earn).
+        # Frequency-neutral: only the magnitude is scaled, never which action
+        # fires. The multiplier is 1.0 for Baseline-GTO / no-anchor controllers,
+        # keeping the deterministic sim byte-identical. P1 ignores the context;
+        # it's built so P2+ palette behaviors plug in without changing this seam.
+        size_context = SizeContext(
+            scenario=getattr(node, 'scenario', None),
+            hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
+            position=getattr(node, 'position', None),
+            emotional_state=getattr(emotional_state, 'state', None),
+            big_blind=getattr(game_state, 'current_ante', 0),
+        )
+        size_multiplier = resolve_size_multiplier(self.sizing_personality, size_context)
+
         game_action, raise_to = resolve_preflop_sizing(
             abstract_action,
             game_state,
             player_idx,
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
+            size_multiplier=size_multiplier,
         )
 
         if game_action not in valid_actions:

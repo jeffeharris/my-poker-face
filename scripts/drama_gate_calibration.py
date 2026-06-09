@@ -8,7 +8,10 @@ Baseline to beat: ~96% of hands have >=1 speaker, ~2.0 speakers/commented hand.
 
   docker compose exec -T backend python3 - < scripts/drama_gate_calibration.py
 """
-import sqlite3, json, statistics as st
+
+import json
+import sqlite3
+import statistics as st
 
 from poker.memory.hand_history import RecordedHand
 from poker.memory.hand_score import score_hand
@@ -19,9 +22,7 @@ N = 6000  # recent hands to replay
 c = sqlite3.connect(DB)
 c.row_factory = sqlite3.Row
 
-rows = c.execute(
-    f"""SELECT * FROM hand_history ORDER BY id DESC LIMIT {N}"""
-).fetchall()
+rows = c.execute(f"""SELECT * FROM hand_history ORDER BY id DESC LIMIT {N}""").fetchall()
 
 
 def row_to_hand(r):
@@ -74,10 +75,12 @@ def pct(vals, p):
 
 
 print(f"\n==== DRAMA-SCORE CALIBRATION (real hands, n_hands={len(hand_scores)}, bad={bad}) ====")
-print(f"per-(hand,player) drama score, big_blind=None/equity=None (conservative):")
-print(f"  n={len(all_scores)} mean={st.mean(all_scores):.1f} "
-      f"p25={pct(all_scores,25)} p50={pct(all_scores,50)} p75={pct(all_scores,75)} "
-      f"p90={pct(all_scores,90)} p99={pct(all_scores,99)} max={max(all_scores)}")
+print("per-(hand,player) drama score, big_blind=None/equity=None (conservative):")
+print(
+    f"  n={len(all_scores)} mean={st.mean(all_scores):.1f} "
+    f"p25={pct(all_scores,25)} p50={pct(all_scores,50)} p75={pct(all_scores,75)} "
+    f"p90={pct(all_scores,90)} p99={pct(all_scores,99)} max={max(all_scores)}"
+)
 # how many distinct hands have at least one >=K player
 for K in (15, 20, 25, 30, 40, 50):
     f = sum(1 for ps in hand_scores if max(ps) >= K) / len(hand_scores)
@@ -97,7 +100,7 @@ def expected(curve, chat=0.5):
         # P(>=1 speaker) = 1 - prod(1-p)
         prod = 1.0
         for p in probs:
-            prod *= (1 - p)
+            prod *= 1 - p
         p1.append(1 - prod)
     return st.mean(p1), st.mean(spk)
 
@@ -106,7 +109,8 @@ print("\n-- CANDIDATE CURVES (evaluated at chattiness=0.5) --")
 print("   baseline now: ~96% hands have a speaker, ~2.0 speakers/hand\n")
 
 curves = {
-    "A linear  a=1.3,b=.4  prob=1.3*(s/100)+.4*(c-.5)": lambda s, c: 1.3 * (s / 100) + 0.4 * (c - 0.5),
+    "A linear  a=1.3,b=.4  prob=1.3*(s/100)+.4*(c-.5)": lambda s, c: 1.3 * (s / 100)
+    + 0.4 * (c - 0.5),
     "B linear  a=1.6,b=.4": lambda s, c: 1.6 * (s / 100) + 0.4 * (c - 0.5),
     "C thresh  T=20,S=30  +chat": lambda s, c: (s - 20) / 30 + 0.3 * (c - 0.5),
     "D thresh  T=25,S=35  +chat": lambda s, c: (s - 25) / 35 + 0.3 * (c - 0.5),

@@ -132,6 +132,17 @@ export function usePokerGame({
   // beat that first carries each AI line (separate from messageIdsRef, which is
   // the apply-time display dedup).
   const enqueuedAiMsgIdsRef = useRef<Set<string>>(new Set());
+  // Post-hand commentary timing. End-of-hand commentary is emitted ASAP by the
+  // backend (async `new_message` pushes, seconds after the winner), which would
+  // otherwise pop on screen WHILE the run-out / showdown is still animating. So
+  // while the hand sequencer is mid-playback we buffer immediately-emitted chat
+  // here instead of surfacing it, then flush the moment the timeline drains —
+  // the comment lands right after the run-out, not on top of it. The backend is
+  // unchanged; this only delays the client-side reveal. `isPlayingRef` mirrors
+  // the sequencer's `isPlaying` for the (stable) socket handlers to read.
+  const isPlayingRef = useRef(false);
+  const pendingMessagesRef = useRef<ChatMessage[]>([]);
+  const pendingAiMessagesRef = useRef<ChatMessage[]>([]);
   const [winnerInfo, setWinnerInfo] = useState<WinnerInfo | null>(null);
   const [revealedCards, setRevealedCards] = useState<RevealedCardsInfo | null>(null);
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
@@ -287,6 +298,46 @@ export function usePokerGame({
     heroRetreating,
   } = sequencer;
 
+  // Release any chat buffered during hand playback (see pendingMessagesRef).
+  const flushPendingMessages = useCallback(() => {
+    const pending = pendingMessagesRef.current;
+    if (pending.length > 0) {
+      pendingMessagesRef.current = [];
+      setMessages((prev) => [...prev, ...pending].slice(-MAX_MESSAGES));
+    }
+    const pendingAi = pendingAiMessagesRef.current;
+    if (pendingAi.length > 0) {
+      pendingAiMessagesRef.current = [];
+      if (onNewAiMessage) pendingAi.forEach((msg) => onNewAiMessage(msg));
+    }
+  }, [onNewAiMessage]);
+
+  // Surface a single immediately-emitted chat line — straight to the feed when
+  // the table is idle, or buffered until the run-out drains when it isn't. The
+  // singular path transforms to `type`; the plural (mobile) path pushes raw
+  // backend rows keyed on `message_type`, so detect AI from either shape.
+  const surfaceMessage = useCallback(
+    (message: ChatMessage) => {
+      const isAi =
+        message.type === 'ai' || (message as { message_type?: string }).message_type === 'ai';
+      if (isPlayingRef.current) {
+        pendingMessagesRef.current.push(message);
+        if (isAi) pendingAiMessagesRef.current.push(message);
+        return;
+      }
+      setMessages((prev) => [...prev, message].slice(-MAX_MESSAGES));
+      if (onNewAiMessage && isAi) onNewAiMessage(message);
+    },
+    [onNewAiMessage]
+  );
+
+  // Mirror `isPlaying` for the stable socket handlers, and flush buffered chat
+  // the instant the sequencer's timeline drains (the run-out has finished).
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    if (!isPlaying) flushPendingMessages();
+  }, [isPlaying, flushPendingMessages]);
+
   // ========================================================================
   // Socket Listeners
   // ========================================================================
@@ -356,11 +407,8 @@ export function usePokerGame({
         };
 
         messageIdsRef.current.add(msgId);
-        setMessages((prev) => [...prev, transformedMessage].slice(-MAX_MESSAGES));
-
-        if (onNewAiMessage && transformedMessage.type === 'ai') {
-          onNewAiMessage(transformedMessage);
-        }
+        // Buffered while the run-out animates, surfaced immediately otherwise.
+        surfaceMessage(transformedMessage);
       });
 
       // Listen for new messages (plural - mobile format)
@@ -373,18 +421,10 @@ export function usePokerGame({
           newMessages.forEach((msg) => {
             const msgId = msg.id || String(msg.timestamp);
             messageIdsRef.current.add(msgId);
+            // Buffered while the run-out animates, surfaced immediately otherwise.
+            // Per-message preserves order so Sal's back-to-back lines all queue.
+            surfaceMessage(msg as unknown as ChatMessage);
           });
-          setMessages((prev) =>
-            [...prev, ...(newMessages as unknown as ChatMessage[])].slice(-MAX_MESSAGES)
-          );
-
-          if (onNewAiMessage) {
-            // Forward every new AI message in order (see note above) so Sal's
-            // back-to-back lines all reach the queue.
-            newMessages
-              .filter((msg) => msg.message_type === 'ai')
-              .forEach((msg) => onNewAiMessage(msg as unknown as ChatMessage));
-          }
         }
       });
 
@@ -567,7 +607,7 @@ export function usePokerGame({
       );
     },
     [
-      onNewAiMessage,
+      surfaceMessage,
       onSceneComplete,
       clearAiThinkingTimeout,
       updateStorePlayers,
@@ -654,9 +694,14 @@ export function usePokerGame({
         if (data.messages) {
           const capped = data.messages.slice(-MAX_MESSAGES);
           setMessages(capped);
-          // Clear and repopulate to prevent unbounded growth
+          // Clear and repopulate to prevent unbounded growth. Drop any chat
+          // buffered for a run-out that this authoritative snapshot supersedes —
+          // the snapshot already contains those lines, so a later flush would
+          // duplicate them (ids were just cleared, defeating the dedup).
           messageIdsRef.current.clear();
           enqueuedAiMsgIdsRef.current.clear();
+          pendingMessagesRef.current = [];
+          pendingAiMessagesRef.current = [];
           capped.forEach((msg: ChatMessage) => {
             messageIdsRef.current.add(msg.id);
             if (msg.type === 'ai') enqueuedAiMsgIdsRef.current.add(msg.id);

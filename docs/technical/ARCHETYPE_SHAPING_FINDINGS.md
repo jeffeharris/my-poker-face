@@ -2,7 +2,7 @@
 purpose: Data-grounded diagnosis of AI over-aggression, the committed-fold exploit, and the aggression-nudge calibration, plus the design for a per-archetype target-range review tool
 type: design
 created: 2026-06-08
-last_updated: 2026-06-08
+last_updated: 2026-06-09
 ---
 
 # Archetype Shaping — Findings & Plan
@@ -272,3 +272,130 @@ realized facing-open 3-bet, facing-3bet 4-bet, and postflop AF:
    trash in the preflop nodes + personality layer; add a flat-call band so entering ≠ raising.
 3. **Committed-fold fix** — `math_floor.py` call-off-all-in case (staged).
 4. **Nudge UX** — show post-softmax delta + display threshold.
+
+---
+
+## Research-doc validation & the believability thesis (2026-06-09)
+
+Two external research briefs were validated against the shipped system:
+[[../vision/texas_hold_em_research_text_markdown]] (archetype benchmarks, study
+methodology, the Poki/"Stacked" deep dive) and
+[[../vision/poker_aggression_benchmarks_text_markdown]] (live-vs-online aggression
+data + designing a believable aggressive archetype). **Headline: our measurement
+methodology is sound and our band *means* are mostly live-faithful — the real gap
+is that aggression is context-free and invisible, which is the exact failure that
+sank "Stacked."**
+
+### A. Methodology validation (vs PokerTracker 4 / Hold'em Manager 3)
+
+Our `archetype_review_routes._aggregate` formulas match the canonical
+*opportunity-based* definitions:
+- VPIP/PFR per preflop hand-instance ✓ (minor: we don't exclude *walks* from the
+  denominator the way PT4 does — negligible at 6-max).
+- 3-bet = raise at `vs_open` / decisions facing an open ✓ — the canonical
+  opportunity denominator (`cnt_p_3bet / cnt_p_3bet_opp`).
+- fold-to-3bet & 4-bet **opener-conditioned** ✓ — *exactly* PT4's rule that only
+  the initial raiser has a fold-to-3bet opportunity (this is the Finding-2 metric
+  fix; we got it right).
+- AF = postflop (bet+raise)/call ✓.
+
+Gaps to close (all cheap; `archetype_review_routes` + `cash_mode/archetype_stats`):
+1. **AFq** = (bet+raise)/(bet+raise+call+fold). AF alone can't separate a
+   fit-or-fold nit from a maniac (both rarely call → both trend high-AF). Our
+   **nit AF band (1.5–2.8) silently assumes the nit calls postflop** — a real nit
+   folds its non-value and plays value hard → *high* AF, so that band may be
+   structurally unhittable. AFq fixes the discriminator.
+2. **WTSD + W$SD** — untracked anywhere. `high WTSD + low W$SD` is *the*
+   calling-station signature and the most player-legible "calls too much" read.
+3. **Per-street AF** — aggregate postflop AF hides flop-maniac/turn-passive texture.
+
+### B. Target-band corrections
+
+Key reframe from the aggression brief: **online tracker benchmarks are the WRONG
+reference population.** Live players 3-bet *more* (winning live reg ~13% vs ~8–10%
+online — Hand2Note 972k-hand live DB), fields are looser/deeper/multiway, and
+folds-to-3bet are rare. So our elevated bands are *directionally correct* — do
+**not** lower tag/lag toward online numbers.
+
+| archetype | our `threebet` band (facing-open) | research verdict | action |
+|---|---|---|---|
+| tag | 10–16 | live-faithful (live reg ~13%) | **keep** |
+| lag | 16–26 | "high edge but defensible" for live recreational | **keep** (watch ceiling) |
+| **maniac** | **36–52** | **above realistic *sustained* ceiling** (live maniac ~15–25% even by expert estimate; 15% is already "spewy" online) | **lower baseline to ~20–25; make 30+ a *conditioned/tilt* state, not a flat constant** |
+
+Unambiguous (VPIP is total-hands, no denominator subtlety):
+- **`rock` band is inverted.** Our rock target (VPIP 15–22 / PFR 11–17) is *looser
+  & more aggressive than our own nit* (10–16 / 8–13), but `deviation_profiles`
+  makes rock *tighter* (looseness 0.7 < nit 1.2, both on `tight_rfi`). The targets
+  predict the opposite VPIP ordering from what the strategy produces → a sim will
+  mis-flag. Research def: rock = tightest + most passive (VPIP ~10–14, big
+  VPIP−PFR gap). **Rebuild rock band ≤ nit, lower PFR.**
+- `lag` VPIP ceiling (40) blurs into station/maniac; loose live fields justify it,
+  but note it.
+
+> Earlier-turn hedge resolved: I initially worried the maniac/lag ceilings might
+> just be a denominator artifact (the texas-holdem brief's §1B 3-bet column appears
+> to mix total-hands and opportunity numbers — the trap it warns about). The
+> aggression brief anchors cleanly to PT4 HUD (opportunity) numbers, so the
+> maniac-too-high verdict is apples-to-apples and real; tag/lag are genuinely fine.
+
+### C. The believability thesis (all three sources converge)
+
+> **A high frequency is realistic; a *constant* high frequency is a caricature.**
+> "Stacked" (2006) carried genuine world-class adaptation (Poki's per-opponent
+> weight tables) and was *still* "readable in ~40 hands" — because aggression was
+> monotonic and **the adaptation was imperceptible.** This is flanderization, and
+> it is **our Finding 3 verbatim**: the exploitation layer fires ~2% of the time at
+> ~0.0012 logit effect, sample-gated, never surfaced.
+
+The fix is not band numbers — it's **conditioning + variance + perceptibility.**
+
+**Poki — what players loved → our equivalent:**
+
+| Loved | Mechanism | Ours |
+|---|---|---|
+| "it learns and reacts" | per-opponent weight table over 1,081 hands, re-weighted each action | `exploitation.py` + `opponent_observation_lifetime` |
+| emergent tactics (un-scripted check-raise) | simulation / selective sampling | solver tables + EV options |
+| "Ask Daniel" coaching | in-hand advice | our coach (Assistant tier) |
+
+**Poki — what players hated = our open bug list:**
+
+| Hated in Stacked | Our finding |
+|---|---|
+| "pre-tuned, readable in 40 hands; adaptation made no difference" | **Finding 3** (exploitation invisible) |
+| "calls all-ins with junk; folds to small reraises" | **Finding 1** (trash 4-bet shoves) + **Finding 2** (committed-fold) |
+| "coaching out of sync with the action" | coach now off the hallucinating 8B tier — keep grounded |
+
+**Cross-game lessons → the work:**
+- **Nemesis** (memory → explicit callbacks): *speak* the opponent-model read
+  ("you've folded every 3-bet tonight"). Perceived memory *is* the relationship.
+  We have heat/respect + `dramatic_sequence` but never voice the read.
+- **F.E.A.R.** (intelligence via dialogue): voicing the read makes the exploitation
+  layer *legible* even at small magnitude.
+- **Alien: Isolation** (progressive unlock = illusion of learning): reframes
+  Finding 3's sample-gate from a hidden weakness into an audible "figuring you out"
+  arc. Ties to `docs/plans/PREDATOR_LOADOUTS.md`.
+- **Drivatars** (fidelity without bad habits; visible rubber-banding breaks trust):
+  keep adaptation framed as "reading *you*," never house-rigging.
+
+**The target player experience (the readability/depth arc):**
+- `<40 hands`: "that's the aggressive guy" (readable archetype — good).
+- `~200 hands`: "he 3-bets my steals but folds to my 4-bets when calm" (a
+  learnable *conditional* exploit).
+- under tilt: the read *inverts* (he won't fold) → re-read.
+
+**Conditioning levers** (priority order, per the aggression brief): opponent-specific
+memory > position > tilt/emotional state > table image/recent history > stack
+depth/straddle. **Tilt is the best variance tool** — Tendler's 7 tilt types
+(running-bad, injustice, hate-losing, mistake, entitlement, revenge, desperation)
+each have a distinct *trigger* = direct fuel for the emotion + relationship layers;
+the avatar must *telegraph* the spike so it's earned and readable.
+
+**Playtest decision thresholds:**
+- archetype ID'd in `<40` hands AND never surprises → aggression too monotonic (add conditioning).
+- no articulable exploit after ~200 hands → variance too random (tighten the rules).
+- maniac *session-average* 3-bet `> ~25%` sustained → drifting to caricature (cap baseline, let only transient states exceed).
+- tilt spikes not attributable to a visible cause → strengthen avatar/table-talk telegraphing.
+
+Actionable items land in the handoff backlog (`docs/plans/ARCHETYPE_SHAPING_HANDOFF.md`
+#9–#12).

@@ -9,7 +9,11 @@ Run inside the backend container (has sqlite + the DB mount):
   docker compose exec -T backend python3 - < scripts/chat_verbosity_baseline.py
   ssh root@PROD "docker exec -i poker-backend-1 python3 -" < scripts/chat_verbosity_baseline.py
 """
-import sqlite3, json, re, statistics as st
+
+import json
+import re
+import sqlite3
+import statistics as st
 
 DB = "/app/data/poker_games.db"
 DAYS = 30  # recent window
@@ -98,8 +102,10 @@ for r in rows:
 
 print(f"\n==== AI SPEECH VERBOSITY BASELINE (last {DAYS} days, DB={DB}) ====")
 print(f"responses with a dramatic_sequence: {n_resp}")
-print(f"  ...of which had >=1 spoken (non-action) beat: {n_with_speech_beat} "
-      f"({100*n_with_speech_beat/max(1,n_resp):.0f}%)")
+print(
+    f"  ...of which had >=1 spoken (non-action) beat: {n_with_speech_beat} "
+    f"({100*n_with_speech_beat/max(1,n_resp):.0f}%)"
+)
 print("\n-- BEAT STRUCTURE (count, NOT being tightened) --")
 dist("beats per response", beats_per)
 print("\n-- ACTION-BEAT VERBOSITY  (*...* gestures) --")
@@ -135,10 +141,14 @@ try:
             else "SELECT COUNT(*) total, NULL hands_with FROM hand_commentary"
         ).fetchone()
         print(f"  distinct hands (recent): {total_hands:,}")
-        print(f"  hand_commentary rows: {rows_hc['total']:,}, "
-              f"hands with commentary: {rows_hc['hands_with']}")
+        print(
+            f"  hand_commentary rows: {rows_hc['total']:,}, "
+            f"hands with commentary: {rows_hc['hands_with']}"
+        )
         if rows_hc["hands_with"] and total_hands:
-            print(f"  => commentary fires on ~{100*rows_hc['hands_with']/total_hands:.0f}% of hands; "
-                  f"~{rows_hc['total']/max(1,rows_hc['hands_with']):.1f} speakers/commented-hand")
+            print(
+                f"  => commentary fires on ~{100*rows_hc['hands_with']/total_hands:.0f}% of hands; "
+                f"~{rows_hc['total']/max(1,rows_hc['hands_with']):.1f} speakers/commented-hand"
+            )
 except Exception as e:
     print("  (frequency calc failed:", e, ")")

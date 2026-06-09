@@ -14,12 +14,12 @@ expectation (the band is symmetric around the table's intent).
 
 import math
 import random
-from typing import Optional, Tuple
+from typing import NoReturn, Optional, Tuple
 
 from .action_vocab import ENGINE_ONLY_TOKENS, AbstractAction, EngineAction
 
 
-def _raise_unknown_abstract(abstract_action: str):
+def _raise_unknown_abstract(abstract_action: str) -> NoReturn:
     """Raise for an abstract token the resolvers can't size.
 
     We do NOT alias engine tokens to their abstract equivalents — that would
@@ -88,6 +88,7 @@ def _compute_raise_to(
     rng: Optional[random.Random] = None,
     jitter: float = 0.0,
     big_blind: int = 0,
+    size_multiplier: float = 1.0,
 ) -> int:
     """Compute raise-to amount, clamped to legal bounds.
 
@@ -104,8 +105,13 @@ def _compute_raise_to(
             (default) preserves exact table-derived sizing.
         big_blind: blind unit for human-rounding the jittered amount. Only used
             when jitter fires (live path); 0 keeps plain integer rounding.
+        size_multiplier: per-player sizing-personality center (sizing_tendencies
+            P1). Scales the chart target BEFORE jitter — chart token × this →
+            jitter ±band → human-round — so the personality sets the center and
+            the jitter wobbles around it. 1.0 (default) is a perfect no-op: the
+            deterministic / Baseline-GTO path stays byte-identical.
     """
-    target = multiplier * base_amount
+    target = multiplier * base_amount * size_multiplier
     if rng is not None and jitter > 0.0:
         # Sample uniformly from [target*(1-jitter), target*(1+jitter)], then snap
         # to a natural chip increment so the jitter doesn't read as a bot tell.
@@ -122,6 +128,7 @@ def resolve_preflop_sizing(
     player_idx: int,
     rng: Optional[random.Random] = None,
     sizing_jitter: float = 0.0,
+    size_multiplier: float = 1.0,
 ) -> Tuple[str, int]:
     """Resolve abstract preflop action to concrete game engine action + amount.
 
@@ -129,6 +136,10 @@ def resolve_preflop_sizing(
         abstract_action: Action from strategy table (e.g., 'raise_2.5bb', 'fold', 'call', 'jam')
         game_state: Current PokerGameState with player stacks, bets, blinds
         player_idx: Index of the acting player
+        size_multiplier: per-player sizing-personality center (sizing_tendencies
+            P1). Scales the chart-derived raise target BEFORE jitter/rounding so
+            same-archetype players size differently. 1.0 (default) is a no-op —
+            the deterministic sim / Baseline-GTO reference stays byte-identical.
 
     Returns:
         Tuple of (game_action, amount) where:
@@ -172,6 +183,7 @@ def resolve_preflop_sizing(
             rng=rng,
             jitter=sizing_jitter,
             big_blind=big_blind,
+            size_multiplier=size_multiplier,
         )
     elif action.endswith('x'):
         # Multiplier of current bet: raise_3x, raise_4x, raise_2.2x
@@ -184,6 +196,7 @@ def resolve_preflop_sizing(
             rng=rng,
             jitter=sizing_jitter,
             big_blind=big_blind,
+            size_multiplier=size_multiplier,
         )
     else:
         _raise_unknown_abstract(abstract_action)
