@@ -880,14 +880,18 @@ def _play_one_hand_inner(
 
     if archetype_recorder is not None:
         try:
-            # Derive hand outcome for WTSD/W$SD (backlog #11). Showdown = ≥2
-            # players still live (not folded) at hand end; winners = names that
-            # won chips. Best-effort — never break the tick on a shape change.
-            was_showdown = False
+            # Derive hand outcome for WTSD/W$SD (backlog #11). The players who
+            # WENT TO SHOWDOWN are the ones still live (not folded) at hand end
+            # when ≥2 remain — NOT every flop-seeing player. A player who saw the
+            # flop but folded the turn/river did not reach showdown, so crediting
+            # them inflates WTSD (and compresses the station-vs-nit spread WTSD
+            # exists to measure). winners = names that won chips. Best-effort.
+            showdown_players: set[str] = set()
             winner_names: set[str] = set()
             try:
-                live = [p for p in sm.game_state.players if not p.is_folded]
-                was_showdown = len(live) >= 2
+                live = [p.name for p in sm.game_state.players if not p.is_folded]
+                if len(live) >= 2:
+                    showdown_players = set(live)
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -900,7 +904,7 @@ def _play_one_hand_inner(
                 pass
             archetype_recorder.end_hand(
                 db_path_for_memory,
-                was_showdown=was_showdown,
+                showdown_players=showdown_players,
                 winner_names=winner_names,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1238,6 +1242,12 @@ def _run_hand(
     # as the raiser) — a vs_3bet node reached as a cold-caller is SQUEEZE defence,
     # a different stat. See ArchetypeStatRecorder.record_decision.
     rfi_opener_name: Optional[str] = None
+    # The hand's LAST preflop raiser = the preflop aggressor expected to
+    # continuation-bet the flop (PT4/HM3 c-bet attribution). In a 3-bet pot this
+    # is the 3-bettor, NOT the RFI opener — so c-bet flags key on this, not
+    # rfi_opener_name (which stays the fold-to-3bet/4bet opener gate). Matches the
+    # live route's `last_pf_raiser`.
+    last_pf_raiser_name: Optional[str] = None
     # C-bet tracking (backlog #6). ``flop_bet_made`` = ANY aggressive flop action
     # has occurred this hand (so the preflop aggressor acting after it is NOT
     # c-betting — it's facing a donk / raising vs a donk). ``flop_cbet_made`` =
@@ -1335,11 +1345,11 @@ def _run_hand(
             # facing that c-bet drives the fold-to-c-bet stat.
             is_aggr = action in ("raise", "all_in")
             is_cbet_opportunity = (
-                decision_phase == "FLOP" and actor_name == rfi_opener_name and not flop_bet_made
+                decision_phase == "FLOP" and actor_name == last_pf_raiser_name and not flop_bet_made
             )
             is_cbet = is_cbet_opportunity and is_aggr
             is_facing_cbet = (
-                decision_phase == "FLOP" and flop_cbet_made and actor_name != rfi_opener_name
+                decision_phase == "FLOP" and flop_cbet_made and actor_name != last_pf_raiser_name
             )
             try:
                 archetype_recorder.record_decision(
@@ -1358,6 +1368,7 @@ def _run_hand(
             if decision_phase == "PRE_FLOP" and is_aggr:
                 if preflop_raises == 0 and rfi_opener_name is None:
                     rfi_opener_name = actor_name
+                last_pf_raiser_name = actor_name  # c-bet aggressor = LAST raiser
                 preflop_raises += 1
             # Advance c-bet state AFTER recording (so the acting player is scored
             # vs the flop state it actually faced). A c-bet specifically marks the

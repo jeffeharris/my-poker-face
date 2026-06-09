@@ -132,18 +132,20 @@ class ArchetypeStatRecorder:
         self,
         db_path: Optional[str] = None,
         *,
-        was_showdown: bool = False,
+        showdown_players: Optional[set] = None,
         winner_names: Optional[set] = None,
     ) -> None:
         """Roll up this hand's per-(archetype, player) booleans into totals and
         flush to ``db_path`` once the cadence is reached. Best-effort.
 
-        ``was_showdown`` — the hand reached a showdown (≥2 players still live at
-        the end). ``winner_names`` — names that won chips this hand. Together
-        these drive WTSD (showdowns / saw-flop) and W$SD (won / showdowns): a
-        flop-seeing player reaches showdown when ``was_showdown`` and wins it
-        when in ``winner_names``. Keyword-defaulted for back-compat with callers
-        that don't have hand-outcome context."""
+        ``showdown_players`` — the names that actually WENT TO SHOWDOWN (still
+        live when ≥2 players remained at hand end), NOT every flop-seeing player.
+        WTSD = showdowns / saw-flop, so a flop-seeing player who FOLDED the
+        turn/river must not be counted (counting them inflates WTSD and blurs the
+        station-vs-nit spread). ``winner_names`` — names that won chips. W$SD =
+        won-at-showdown / showdowns. Keyword-defaulted for back-compat with
+        callers that don't have hand-outcome context (no showdown credited)."""
+        sd_players = showdown_players or set()
         winners = winner_names or set()
         for (arch, player), s in self._hand.items():
             t = self._totals[arch]
@@ -156,7 +158,7 @@ class ArchetypeStatRecorder:
                 t['allin_hands'] += 1
             if s['saw_flop']:
                 t['saw_flop'] += 1
-                if was_showdown:
+                if player in sd_players:
                     t['showdowns'] += 1
                     if player in winners:
                         t['showdowns_won'] += 1

@@ -205,6 +205,10 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
 
     acc: dict[str, dict] = defaultdict(_new_acc)
     seen: set[tuple] = set()
+    # (game, player, hand) of players who FOLDED postflop — they saw the flop but
+    # did NOT reach showdown, so they must be excluded from the WTSD numerator
+    # even when the hand showdown'd (PT4: WTSD = the PLAYER went to showdown).
+    folded_postflop: set[tuple] = set()
 
     # Pre-pass: who was the RFI opener in each (game, hand)? fourbet /
     # fold_to_3bet are scored only when the actor at a vs_3bet node WAS the
@@ -275,10 +279,13 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
                 # AFq counts folds in the denominator (vs AF which ignores them).
                 a['pf_fold'] += 1
                 a[f'{street}_fold'] += 1
+                # Folded postflop → did not reach showdown (WTSD exclusion below).
+                folded_postflop.add(hand_key)
 
-    # Second pass: join saw-flop hands to outcomes for WTSD/W$SD. Grain matches
-    # the saw-flop set: one (game, player, hand). reached-showdown = the hand
-    # showdown'd AND this player saw the flop; won = player in winners.
+    # Second pass: join saw-flop hands to outcomes for WTSD/W$SD. reached-showdown
+    # = the hand showdown'd AND this player saw the flop AND did NOT fold postflop
+    # (a flop-seeing player who folds the turn/river did not reach showdown — see
+    # folded_postflop). won = reached showdown AND in winners.
     for a in acc.values():
         for hand_key in a['saw_flop_hands']:
             game_id, player, hand = hand_key
@@ -286,7 +293,7 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
             if outcome is None:
                 continue
             was_sd, winners = outcome
-            if was_sd:
+            if was_sd and hand_key not in folded_postflop:
                 a['showdown_hands'].add(hand_key)
                 if player in winners:
                     a['showdown_won_hands'].add(hand_key)
