@@ -285,7 +285,24 @@ function HeroReel() {
   );
 }
 
-export function LandingPage() {
+interface FeaturedOpponent {
+  slug: string;
+  name: string;
+  avatar: string;
+  skill: string;
+}
+interface TeaserPost {
+  slug: string;
+  title: string;
+  excerpt: string;
+  track: string;
+}
+interface LandingPageProps {
+  featuredOpponents?: FeaturedOpponent[];
+  latestPosts?: TeaserPost[];
+}
+
+export function LandingPage({ featuredOpponents = [], latestPosts = [] }: LandingPageProps = {}) {
   const go = (path: string) => () => {
     window.location.href = `${APP}${path}`;
   };
@@ -321,6 +338,12 @@ export function LandingPage() {
           <button className="lp-link" onClick={scrollTo('climb')}>
             The Climb
           </button>
+          <a className="lp-link" href="/opponents/">
+            Opponents
+          </a>
+          <a className="lp-link" href="/blog/">
+            Devlog
+          </a>
           <button className="lp-btn lp-btn--ghost lp-btn--sm" onClick={go('/login')}>
             Sign in
           </button>
@@ -468,6 +491,31 @@ export function LandingPage() {
             </div>
           </article>
         </div>
+
+        {featuredOpponents.length > 0 && (
+          <div className="lp-cast" data-reveal>
+            <p className="lp-cast__lead">Meet a few of the regulars. There are 76 at the table.</p>
+            <div className="lp-cast__row">
+              {featuredOpponents.map((o) => (
+                <a key={o.slug} className="lp-cast__card" href={`/opponents/${o.slug}/`}>
+                  <img
+                    className="lp-cast__avatar"
+                    src={o.avatar}
+                    alt={`${o.name} — AI poker opponent`}
+                    width="88"
+                    height="88"
+                    loading="lazy"
+                  />
+                  <span className="lp-cast__name">{o.name}</span>
+                  <span className="lp-cast__skill">{o.skill}</span>
+                </a>
+              ))}
+            </div>
+            <a className="lp-cast__more" href="/opponents/">
+              Meet all 76 opponents →
+            </a>
+          </div>
+        )}
       </section>
 
       {/* ===================== MODES (triptych) ===================== */}
@@ -646,6 +694,43 @@ export function LandingPage() {
       {/* ===================== GALLERY ===================== */}
       <Gallery />
 
+      {/* ===================== DEVLOG TEASER ===================== */}
+      {latestPosts.length > 0 && (
+        <section className="lp-section lp-devlog" id="devlog">
+          <div className="lp-section__head">
+            <p className="lp-eyebrow" data-reveal>
+              <span>06</span> Devlog
+            </p>
+            <h2 className="lp-h2" data-reveal>
+              How it&apos;s <em>built</em>.
+            </h2>
+            <p className="lp-section__lead" data-reveal>
+              Honest notes from making the game: how the opponents actually work, what broke along
+              the way, and what it&apos;s like to play.
+            </p>
+          </div>
+          <div className="lp-devlog__row" data-reveal>
+            {latestPosts.map((p) => (
+              <a key={p.slug} className="lp-devlog__card" href={`/blog/${p.slug}/`}>
+                <span
+                  className={`lp-devlog__tag lp-devlog__tag--${
+                    p.track === 'Devlog' ? 'devlog' : 'table'
+                  }`}
+                >
+                  {p.track}
+                </span>
+                <h3 className="lp-devlog__title">{p.title}</h3>
+                <p className="lp-devlog__excerpt">{p.excerpt}</p>
+                <span className="lp-devlog__more">Read →</span>
+              </a>
+            ))}
+          </div>
+          <a className="lp-devlog__all" href="/blog/">
+            Read the Devlog →
+          </a>
+        </section>
+      )}
+
       {/* ===================== FINAL CTA ===================== */}
       <section className="lp-closer">
         <span className="lp-closer__suit lp-closer__suit--a" aria-hidden="true">
@@ -675,6 +760,8 @@ export function LandingPage() {
         </span>
         <span className="lp-footer__links">
           <a href="/opponents/">Opponents</a>
+          <i aria-hidden="true">·</i>
+          <a href="/blog/">Devlog</a>
           <i aria-hidden="true">·</i>
           <a href={`${APP}/privacy.html`}>Privacy</a>
           <i aria-hidden="true">·</i>

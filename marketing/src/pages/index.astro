@@ -1,6 +1,37 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { LandingPage } from '../components/LandingPage.tsx';
+import { getCollection } from 'astro:content';
+import opponents from '../data/opponents.json';
+
+// Featured opponents for the homepage cast strip — a curated, recognizable mix.
+const FEATURED = [
+  'sherlock-holmes',
+  'cleopatra',
+  'blackbeard',
+  'salvador-dali',
+  'zeus',
+  'sigmund-freud',
+];
+const featuredOpponents = FEATURED.map((slug) => opponents.find((o) => o.slug === slug))
+  .filter((o) => o != null)
+  .map((o) => ({ slug: o.slug, name: o.name, avatar: o.avatar, skill: o.skill }));
+
+// Devlog posts for the homepage teaser (the "how it's built" creator track).
+// Drafts are excluded in prod (mirrors the blog index rule), so the teaser only
+// ever shows live posts.
+const latestPosts = (
+  await getCollection('blog', ({ data }) => (import.meta.env.PROD ? !data.draft : true))
+)
+  .filter((p) => p.data.track === 'Devlog')
+  .sort((a, b) => a.data.order - b.data.order)
+  .slice(0, 3)
+  .map((p) => ({
+    slug: p.id,
+    title: p.data.title,
+    excerpt: p.data.excerpt,
+    track: p.data.track,
+  }));
 
 // The real "After Hours" landing, ported from the game app. Rendered as a React
 // island: Astro server-renders it to static HTML at build (so it's fully
@@ -23,5 +54,5 @@ const jsonLd = {
 ---
 
 <BaseLayout title={title} description={description} path="/" jsonLd={jsonLd} bare>
-  <LandingPage client:load />
+  <LandingPage client:load featuredOpponents={featuredOpponents} latestPosts={latestPosts} />
 </BaseLayout>
