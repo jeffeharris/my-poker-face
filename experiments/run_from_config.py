@@ -40,6 +40,7 @@ def run_experiment_from_config(
     model_override: str = None,
     provider_override: str = None,
     db_path: str = None,
+    seed_override: int = None,
 ):
     """Run an experiment from a config file.
 
@@ -50,6 +51,10 @@ def run_experiment_from_config(
         model_override: Override model
         provider_override: Override provider
         db_path: Optional database path
+        seed_override: Override random_seed (for multi-seed sweeps)
+
+    Returns:
+        (results, experiment_id) — experiment_id lets callers query the run's rows.
     """
     # Load config
     config_dict = load_config(config_path)
@@ -63,6 +68,8 @@ def run_experiment_from_config(
         config_dict['model'] = model_override
     if provider_override:
         config_dict['provider'] = provider_override
+    if seed_override is not None:
+        config_dict['random_seed'] = seed_override
 
     # Add timestamp to name to make it unique
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -129,7 +136,7 @@ def run_experiment_from_config(
         print(f"\nExperiment ID: {runner.experiment_id}")
         print(f"View results: SELECT * FROM experiments WHERE id = {runner.experiment_id}")
 
-    return results
+    return results, runner.experiment_id
 
 
 def main():
@@ -139,6 +146,7 @@ def main():
     parser.add_argument("--tournaments", "-t", type=int, help="Override number of tournaments")
     parser.add_argument("--model", "-m", help="Override LLM model")
     parser.add_argument("--provider", help="Override LLM provider")
+    parser.add_argument("--seed", type=int, help="Override random_seed (for multi-seed sweeps)")
 
     args = parser.parse_args()
 
@@ -152,6 +160,7 @@ def main():
         tournaments_override=args.tournaments,
         model_override=args.model,
         provider_override=args.provider,
+        seed_override=args.seed,
     )
 
 

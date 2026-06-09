@@ -50,6 +50,15 @@ few hands (even though full return to baseline takes ~16), so tilt never *lasts*
 long enough for an opponent to notice and exploit. The lever is **persistence, not
 frequency.**
 
+> **Superseded in part (2026-06-09 second pass).** This table is the original §7
+> snapshot under the pre-recalibration event model. After the `LOSS_MIX`
+> recalibration to fresh live data (see the revised validation block below), the
+> as-shipped synthetic hothead band sits at ~12.5% %time with ~9-hand median
+> episodes — already inside the felt band *without* the persistence drag. So the
+> "1–3 hand flicker" framing overstated the gap: persistence's real contribution is
+> **episode length** (≈9→15 hd) and lifting the mid bands, not hothead frequency.
+> The episode-length/spread *shape* is the robust signal; absolute %time is noisy.
+
 ## Target model
 
 ### 1. Frequency spread — KEEP (small nudge only)
@@ -292,26 +301,43 @@ gated by `TILT_PERSISTENCE_ENABLED` (EXPERIMENTAL, off in dev+prod):
   psychology tests pass unchanged; new `tests/test_tilt_persistence.py` pins the
   mechanism + the inert-when-off guarantee.
 
-**Real-play validation (2026-06-09)** via `experiments/configs/tilt_persistence_check.json`
-(tiered no-LLM bots, psychology on, 1,200 hands, real pressure detector), flag ON vs OFF:
+**Real-play validation — REVISED (2026-06-09, multi-seed sweep).** Via
+`experiments/tilt_live_sweep.py` over `tilt_persistence_check.json` (tiered no-LLM
+bots, psychology on, 1,200 hands/run, real pressure detector), **5 base seeds per
+arm**, per-hand any-street tilt from `player_decision_analysis.zone_composure`
+(mean ± sd):
 
-| persona | poise | ON %tilt | OFF %tilt |
+| persona | poise | OFF (5 seeds) | ON (5 seeds) |
 |---|---|---|---|
-| Edgar Allan Poe | 0.40 | 12.8% | 2.4% |
-| Fyodor Dostoevsky | 0.25 | 7.0% | 3.7% |
-| Abraham Lincoln (stoic) | 0.78 | 0.0% | 0.0% |
+| Edgar Allan Poe | 0.40 | 9.3% ± 3.3 | 10.0% ± 2.6 |
+| Fyodor Dostoevsky | 0.25 | 15.8% ± 5.8 | 12.8% ± 4.4 |
+| Abraham Lincoln (stoic) | 0.78 | 0.4% | 0.1% |
 | Buddha (monk) | 0.92 | 0.0% | 0.0% |
 
-Confirms: the mechanism fires in the real loop (hothead ON ≫ OFF), it is targeted
-(stoic/monk untouched — they never enter tilt so the drag is inert), it is not
-chronic (they recover; avg composure stays above the line), and it lands
-**comfortably under 20%**. Real-poker onset is *gentler* than the synthetic harness
-(which predicted ~16–18% for hotheads), so the live %time comes in lower — the
-event-model-dependence flagged above, confirmed. The Poe-over-Fyodor ordering is
-play variance over a modest sample and smooths with more hands.
+What holds: tilt is **targeted** (stoic≈0, monk 0, drag inert) and **not chronic**;
+the OFF order is now monotonic in poise (deeper hothead Fyodor > edge Poe), as it
+should be — the earlier single-run inversion was noise. What the first pass got
+wrong:
 
-Still to do: the §4 signature/coupling/telegraph layer (and a larger real-play
-sample if a precise per-archetype %time is wanted).
+1. **The on/off real-play sim cannot measure persistence's marginal effect.** ON is
+   not consistently ≥ OFF (Fyodor OFF 15.8% > ON 12.8%). Slow-recovery can only
+   *lengthen* episodes for a fixed trajectory, so ON<OFF can only be **trajectory
+   desync** — the flag changes decisions, which diverges the game (the
+   `reference_cash_sim_ab_paired` confound). The first pass read this desync as
+   "hothead ON ≫ OFF"; it isn't signal. The marginal %time effect needs the
+   **paired** harness (`docs/plans/TILT_EV_HARNESS.md`), not an on/off sim.
+2. **The first-pass OFF numbers (2.4% / 3.7%) don't reproduce.** Every fresh run
+   reads ≥ 6% for the hotheads (OFF mean 9–16%); the OFF recover() path is unchanged,
+   so the prior figures were a different denominator. Live hothead %time is therefore
+   **consistent with**, not "gentler than," the recalibrated synthetic harness. The
+   `measure_zone_distribution.py` `LOSS_MIX` was recalibrated to this anchor —
+   synthetic hothead band median ~12.5% ≈ the live hothead-pair mean ~12.6%. NB the
+   match is **aggregate only**: per-persona synthetic diverges (Poe synth ~23% vs
+   live 9%), so the synthetic is a spread-shape/order-of-magnitude tool, not a
+   per-persona predictor.
+
+Still to do: a paired EV harness for the §4 layer
+(`docs/plans/TILT_EV_HARNESS.md`).
 
 ## Open parameters / decisions
 

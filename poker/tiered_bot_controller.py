@@ -4239,6 +4239,18 @@ class TieredBotController(AIPlayerController):
         episode. Returns '' when the flag is off, not entering tilt, or the roll
         misses. Frequency-neutral (Layer 3 only). A non-empty return is also the
         signal to force a spoken beat (see caller)."""
+        # Track the tilt-entry edge UNCONDITIONALLY — before (and independent of)
+        # the feature-flag gate. If this only updated while the flag was on, a bot
+        # that entered tilt with the flag off would be seen as a *fresh* entry the
+        # first time the flag flips on, firing a spurious one-time telegraph for an
+        # episode already in progress. Tracking every call closes that runtime-toggle
+        # edge. (A cold-loaded mid-tilt bot still telegraphs on its first decision —
+        # `_was_tilted` is not serialized — but that is the correct "fire once when
+        # first observed tilted" behavior, not a spurious mid-episode fire.)
+        state = getattr(emotional, 'state', 'composed') if emotional is not None else 'composed'
+        now_tilted = state == 'tilted'
+        was_tilted = getattr(self, '_was_tilted', False)
+        self._was_tilted = now_tilted
         try:
             from core.feature_flags import is_enabled
 
@@ -4246,10 +4258,6 @@ class TieredBotController(AIPlayerController):
                 return ''
         except Exception:
             return ''
-        state = getattr(emotional, 'state', 'composed') if emotional is not None else 'composed'
-        now_tilted = state == 'tilted'
-        was_tilted = getattr(self, '_was_tilted', False)
-        self._was_tilted = now_tilted
         if not now_tilted or was_tilted:
             return ''  # not a fresh entry
         if self.rng.random() >= TILT_TELEGRAPH_PROB:

@@ -62,17 +62,27 @@ def _load_real_personas() -> Dict[str, dict]:
 # ── steady-state episodes under a balanced mix + recovery-policy prototypes ────
 
 WIN_MIX = {'win': 0.80, 'big_win': 0.15, 'successful_bluff': 0.05}
-# Loss mix tuned to a MIDDLE onset: ~29% of losses are composure-crushers
-# (big_loss/bad_beat/suckout/crippled). Punishing (~35%) over-tilted hotheads
-# (~26%); fully-soft (~21%) starved the mid bands (volatile 3.5%). This middle
-# keeps the mid bands felt while the exp/spread knob brings the hothead end down.
+# Loss mix CALIBRATED TO LIVE REAL-PLAY (2026-06-09, all tilt flags OFF, real
+# pressure detector) via a 5-seed sweep (`experiments/tilt_live_sweep.py`). The
+# prior mix (~29% composure-crushers) put the hothead band at 18.7% per-hand;
+# softening to ~20% crushers (big_loss/bad_beat/suckout/crippled) lands the band
+# MEDIAN at ~12.5%, matching the live hothead-pair MEAN of ~12.6% (Poe poise 0.40:
+# 9.3% ± 3.3; Fyodor 0.25: 15.8% ± 5.8). The match is AGGREGATE only:
+#  - per-persona synthetic DIVERGES from live (Poe synth ~23% vs live 9%, and the
+#    synthetic even inverts the Poe>Fyodor order live gets right) — poise is not the
+#    sole driver (recovery_rate/baseline dominate individual response). So treat a
+#    single persona's synthetic %time as unreliable; use the live sweep for that.
+#  - only the hothead band has a live anchor (the validation config has no mid-band
+#    personas), so the mid-band %time below is extrapolation, not a measured point.
+# What IS robust: the per-band SPREAD SHAPE and order-of-magnitude (monk≈0, monotonic
+# poise gradient). Absolute %time stays event-model-dependent (EMOTIONAL_SYSTEM_ANALYSIS §7).
 LOSS_MIX = {
-    'loss': 0.62,
-    'big_loss': 0.16,
-    'bluff_called': 0.09,
-    'bad_beat': 0.06,
-    'got_sucked_out': 0.04,
-    'crippled': 0.03,
+    'loss': 0.72,
+    'big_loss': 0.11,
+    'bluff_called': 0.08,
+    'bad_beat': 0.04,
+    'got_sucked_out': 0.03,
+    'crippled': 0.02,
 }
 
 

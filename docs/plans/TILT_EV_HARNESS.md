@@ -17,6 +17,41 @@ so they can't be catastrophic. What's missing before either could go default-on 
 a **believable bb/100 number in live play** — and the existing eval harnesses
 can't produce it. This doc scopes the harness that could.
 
+## Current measurement (2026-06-09)
+
+A first pass against this scope produced three results worth recording:
+
+1. **Loss-mix recalibration (distribution harness).** `measure_zone_distribution.py`'s
+   synthetic event model ran hot. A 5-seed live sweep (`experiments/tilt_live_sweep.py`,
+   tilt flags OFF, real pressure detector) puts the hotheads at **Poe (0.40) 9.3% ±
+   3.3** and **Fyodor (0.25) 15.8% ± 5.8** per-hand tilt; the synthetic hothead band
+   sat at 18.7%. Softening `LOSS_MIX` from ~29% to ~20% composure-crushers lands the
+   synthetic hothead band **median at 12.5%**, matching the live hothead-pair **mean
+   ~12.6%**. The match is **aggregate only** — per-persona synthetic diverges (Poe
+   synth ~23% vs live 9%), so the synthetic is a spread-shape tool, not a per-persona
+   predictor. Consequence for this harness: the bb/100 multiplier is the **live
+   per-archetype tilted rate** (from the sweep), not the synthetic absolute.
+
+2. **The prior recorded live OFF numbers don't reproduce.** `TILT_EXCURSION_DESIGN.md`
+   recorded OFF tilt of 2.4% (Poe) / 3.7% (Fyodor) from an earlier run with no
+   committed script; the OFF recover() path is unchanged since, yet every fresh run
+   reads ≥ 6% (OFF mean 9–16%). Almost certainly a measurement-denominator difference
+   in the prior run. The corrected, multi-seed live baseline is in the design doc's
+   validation block. Note the on/off sim is **trajectory-desynced** (ON not
+   consistently ≥ OFF across 5 seeds) — it cannot measure persistence's marginal
+   effect, which is exactly the gap this paired harness fills.
+
+3. **Phase-1 of approach C is built** — `experiments/tilt_ev_probe.py`: the paired
+   signature probe + an eval7-priced EV estimator (fold-equity model, fish vs
+   competent backdrop). It validates the EV machinery end-to-end and prices the
+   **collapse** direction plausibly (risk-averse: ~−0.03 bb/spot vs a fish, ~0 vs a
+   competent opp). It surfaced a **hard requirement for the trustworthy build**: `eq`
+   is currently vs a *random* hand, so heads-up aggression is mechanically +EV (even
+   72o is ~37% vs random) and the **spew** direction reads spuriously +EV. Light spew
+   is −EV only against the villain's *continue* range — so **range-aware
+   eq-when-called is required (not a refinement)** before the aggression-direction
+   bb/100 can be trusted. The collapse sign/magnitude is usable now.
+
 ## Why the existing harnesses can't measure this
 
 Two independent blockers, both confirmed against the code:
@@ -95,11 +130,17 @@ tilted." A is a good cross-check if C's EV model is doubted.
   `experiments/configs/tilt_persistence_check.json`); add spot-capture (the
   `decision_analysis_repo` already records zone state per decision — extend it to
   dump the full decision context, or capture in a sidecar).
-- **Paired evaluation:** `experiments/tilt_signature_probe.py` already toggles the
-  flag per arm via `os.environ` and runs `modify_strategy` on a fixed spot. Swap
-  its synthetic baselines for the recorded corpus and add the EV estimator.
-- **EV estimator:** the bounded-options layer already computes per-action
-  `ev_estimate`; or use `eval7` equity + pot odds for a closed-form / rollout EV.
+- **Paired evaluation + EV estimator:** `experiments/tilt_ev_probe.py` (Phase-1,
+  BUILT) is `tilt_signature_probe.py` plus an eval7-priced EV estimator. It already
+  toggles the flag per arm, prices each arm's strategy in bb (fold-equity model,
+  fish vs competent backdrop), and reports paired ΔEV. Phase-2 = (a) swap its
+  synthetic spots for the recorded corpus, (b) replace `eq`-vs-random with
+  **range-aware eq-when-called** (`decision_analyzer.calculate_equity_vs_ranges`
+  already exists) — the hard requirement the Phase-1 run surfaced.
+- **EV estimator components:** `decision_analyzer.calculate_equity_vs_random` /
+  `calculate_equity_vs_ranges` (eval7 Monte-Carlo) are the equity core;
+  `bounded_options.calculate_required_equity` for pot odds. (`bounded_options`'s
+  `ev_estimate` is only a categorical "+EV/neutral/-EV" label — not a number.)
 - **CRN bb/100 (for approach A):** `exploit_bb100`'s CRN loop is the template;
   it would need a psychology-pipeline call per hand + a forced-shared-state hook +
   an env-flag toggle per arm (the `CHANGES`/`_apply_flags` path only does
@@ -124,6 +165,8 @@ tilted." A is a good cross-check if C's EV model is doubted.
   the structural clamp bound + the KL-from-baseline EV-safety measure already done.
 - `experiments/tilt_signature_probe.py` — the paired decision/KL probe (approach C
   minus the EV estimator).
+- `experiments/tilt_ev_probe.py` — Phase-1 of approach C: the paired probe + an
+  eval7-priced EV estimator (collapse priced; spew awaits range-aware equity).
 - `experiments/exploit_bb100.py` / `experiments/champion_challenger.py` — the CRN
   bb/100 machinery (approach A template; today psychology-blind).
 - `experiments/configs/tilt_persistence_check.json` — the psychology-on sim config

@@ -39,10 +39,22 @@ _TILTED = SimpleNamespace(state='tilted')
 
 
 def test_off_is_inert():
+    """Inert-when-off is a guarantee about OUTPUT: no telegraph, no forced speech."""
     with mock.patch.dict(os.environ, {FLAG: '0'}):
         c = _controller(roll=0.0)
         assert c._compute_tilt_telegraph(_TILTED) == ''
-        assert c._was_tilted is False  # off-path never updates the transition flag
+
+
+def test_off_path_still_tracks_entry_edge():
+    """The transition flag is tracked even when off, so flipping the flag on
+    mid-episode is NOT mistaken for a fresh entry (no spurious one-time telegraph)."""
+    c = _controller(roll=0.0)
+    with mock.patch.dict(os.environ, {FLAG: '0'}):
+        assert c._compute_tilt_telegraph(_TILTED) == ''  # off: no output
+        assert c._was_tilted is True  # but the entry edge IS recorded
+    with mock.patch.dict(os.environ, {FLAG: '1'}):
+        # flag flipped on while STILL in the same tilt episode -> not a fresh entry
+        assert c._compute_tilt_telegraph(_TILTED) == ''
 
 
 def test_fires_on_entry_with_cause_and_no_stat_leak():
