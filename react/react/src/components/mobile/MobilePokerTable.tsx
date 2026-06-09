@@ -10,6 +10,7 @@ import { MobileHero } from './MobileHero';
 import { MobileActionArea } from './MobileActionArea';
 import { FloatingChat } from './FloatingChat';
 import { SalFloater } from './SalFloater';
+import { RunoutStageSplash } from './RunoutStageSplash';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
@@ -361,6 +362,9 @@ export function MobilePokerTable({
     []
   );
   const stageMode = stagePreview || runoutDirectorActive || !!isInShowdown;
+  // The splash label reflects what kicked off the stage: an all-in board run-out
+  // ("All In") vs. a plain river showdown reveal ("Showdown").
+  const stageSplashLabel = runoutDirectorActive ? 'All In' : 'Showdown';
 
   // Run-out reveal cascade order: each revealed opponent reveals after the
   // previous one finishes (and within an opponent, card 2 after card 1). The
@@ -566,6 +570,10 @@ export function MobilePokerTable({
             playerAvatars={playerAvatars}
           />
           <SalFloater queue={salQueue} onShown={dismissSalMessage} />
+
+          {/* Run-out / showdown splash — drops over the table on the rising edge
+              of stage mode, masking the layout reconfigure behind it. */}
+          <RunoutStageSplash stageActive={stageMode} label={stageSplashLabel} />
 
           {/* Hero Section - Your Cards */}
           <MobileHero
