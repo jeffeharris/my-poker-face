@@ -573,6 +573,55 @@ def _donk_when_weak(
     return new, f'donk_when_weak_{hand_class}'
 
 
+# ── passive postflop / the rock's calls-down character ───────────────────────
+# The TIGHT-PASSIVE archetype's defining postflop trait: a rock plays its few
+# (premium) hands PASSIVELY — it checks and calls rather than betting and raising.
+# Unlike slow-play (nuts/strong only, flop/turn, trap) or under-bluff (river air
+# only), this dampens aggression across the WHOLE postflop range on EVERY street:
+# it routes a `strength` fraction of bet/raise mass to check (else call), so the
+# rock's postflop aggression-factor (AF = (bet+raise)/call) lands BELOW nit's. A
+# tight range value-bets a lot on the shared solver chart, and `aggression_scale`
+# is near-inert on postflop AF (chart/floor-pinned), so this spot tendency — not a
+# distortion scale — is the lever that makes rock genuinely tight-PASSIVE rather
+# than just "a tighter nit." Reuses `_dampen_aggression` (bet→check/call), gated
+# only on a postflop street + a spot where hero CAN bet (`unopened`; facing a bet
+# the dampen already routes raise→call so it also applies). Strong value is NOT
+# excluded — the whole point is the rock under-bets even its made hands. A
+# readable, mildly −EV character (the passivity is the leak; its exploiter is
+# "value-bet thin and barrel — the rock won't punish you"). See
+# docs/plans/ARCHETYPE_SHAPING_HANDOFF.md #10.
+_PASSIVE_POSTFLOP_STREETS = frozenset({'flop', 'turn', 'river'})
+
+
+def _passive_postflop(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
+) -> Tuple[StrategyProfile, str]:
+    """Passive-postflop handler. Dampen bet/raise → check/call across all
+    postflop streets and hand classes (the tight-passive rock's calls-down line).
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op". Gated on
+    a postflop street only (no class/initiative gate — the passivity is range-wide);
+    `street` is None preflop, so it no-ops on the preflop call site like every
+    other street-gated tendency."""
+    applies = (street or '').lower() in _PASSIVE_POSTFLOP_STREETS
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _dampen_aggression(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_bet_mass_or_sink'
+    return new, f'passive_postflop_{hand_class}'
+
+
 # ── defend 3-bet / de-polarize the vs_3bet response ──────────────────────────
 # The ONLY preflop-scoped tendency: it gates on `scenario == 'vs_3bet'`, not on a
 # postflop street, so it fires exactly at the spot where a tight-aggressive reg
@@ -628,6 +677,7 @@ _TENDENCIES = {
     'over_fold_2nd_barrel': _over_fold_2nd_barrel,
     'donk_when_weak': _donk_when_weak,
     'defend_3bet': _defend_3bet,
+    'passive_postflop': _passive_postflop,
 }
 
 # Public, read-only view of the registered tendency names. Consumers that need

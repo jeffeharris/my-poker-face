@@ -70,14 +70,18 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'af': (1.5, 2.8),
         'all_in': (0, 3),
     },
+    # Rock: tight-PASSIVE (backlog #10, Option A) — tightest in the field, plays
+    # those hands passively (low PFR/VPIP, low AF, high fold-to-3bet). Distinct
+    # read from nit (tight-AGGRESSIVE). Bands tuned vs archetype_mixedfield_probe;
+    # postflop passivity (AF < nit) carried by the `passive_postflop` spot tendency.
     'rock': {
-        'vpip': (15, 22),
-        'pfr': (11, 17),
-        'threebet': (4, 9),
-        'fourbet': (4, 12),
-        'fold_to_3bet': (50, 70),
-        'af': (1.5, 2.8),
-        'all_in': (0, 4),
+        'vpip': (8, 15),
+        'pfr': (5, 10),
+        'threebet': (1, 5),
+        'fourbet': (1, 9),
+        'fold_to_3bet': (65, 85),
+        'af': (0.8, 1.8),
+        'all_in': (0, 2),
     },
     'tag': {
         'vpip': (20, 28),

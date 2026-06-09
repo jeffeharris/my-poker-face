@@ -20,6 +20,7 @@ OVERBLUFF = (('over_bluff', 0.6),)
 UNDERBLUFF = (('under_bluff', 0.6),)
 FOLD2B = (('over_fold_2nd_barrel', 0.6),)
 DONK = (('donk_when_weak', 0.6),)
+PASSIVE_PF = (('passive_postflop', 0.6),)
 # A flop spot facing a bet (fold + call + a little raise) — fit-or-fold input.
 FACING = StrategyProfile(action_probabilities={'fold': 0.40, 'call': 0.45, 'raise_67': 0.15})
 # Loose cap so the reshape isn't clipped (isolates the slow-play effect).
@@ -698,6 +699,70 @@ def test_signal_gated_leaks_validate():
     for _, traces in runs:
         for t in traces:
             validate_trace(t)
+
+
+# ── passive postflop (the rock's calls-down character) ───────────────────────
+
+
+def test_passive_postflop_dampens_aggression_all_streets_and_classes():
+    # Range-wide: fires on every postflop street and every hand class (unlike
+    # slowplay/under_bluff which gate on class). The whole-range dampen is what
+    # pulls the rock's postflop AF below nit's.
+    for street in ('flop', 'turn', 'river'):
+        for hc in ('nuts', 'strong_made', 'medium_made', 'weak_made', 'air_no_draw'):
+            out, traces = _apply(tendencies=PASSIVE_PF, hand_class=hc, street=street)
+            assert _agg(out) < _agg(BASE), (street, hc)
+            assert out.action_probabilities['check'] > BASE.action_probabilities['check'], (
+                street,
+                hc,
+            )
+            assert traces[0].fired and traces[0].rule_id == 'passive_postflop', (street, hc)
+            assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9, (street, hc)
+
+
+def test_passive_postflop_routes_bet_to_call_when_no_check():
+    # Facing a bet (no check legal): bet/raise mass routes to the call sink.
+    out, traces = _apply(
+        FACING, tendencies=PASSIVE_PF, hand_class='strong_made', action_context='facing_bet'
+    )
+    assert _agg(out) < _agg(FACING)
+    assert out.action_probabilities['call'] > FACING.action_probabilities['call']
+    assert traces[0].fired and traces[0].rule_id == 'passive_postflop'
+
+
+def test_passive_postflop_no_op_preflop():
+    # street=None (the preflop call site) → no-op like every street-gated tendency.
+    out, traces = _apply(tendencies=PASSIVE_PF, hand_class='strong_made', street=None)
+    assert out is BASE and not traces[0].fired
+
+
+def test_passive_postflop_respects_cap_and_ablation_and_validates():
+    cap = 0.10
+    out, _ = _apply(tendencies=PASSIVE_PF, hand_class='strong_made', street='turn', max_shift=cap)
+    for action, base_p in BASE.action_probabilities.items():
+        assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
+    _, fired = _apply(tendencies=PASSIVE_PF, hand_class='strong_made', street='turn')
+    _, disabled = _apply(
+        tendencies=PASSIVE_PF,
+        hand_class='strong_made',
+        street='turn',
+        disable_rules=frozenset({(LAYER, 'passive_postflop')}),
+    )
+    assert disabled[0].reason_code == 'disabled_by_ablation'
+    for traces in (fired, disabled):
+        for t in traces:
+            validate_trace(t)
+
+
+def test_rock_carries_passive_postflop():
+    # The fix's attachment point: only rock carries the new tendency.
+    assert DEVIATION_PROFILES['rock'].spot_tendencies == (('passive_postflop', 0.30),)
+    # And no other production archetype carries it (inert unless carried).
+    for key, prof in DEVIATION_PROFILES.items():
+        if key == 'rock':
+            continue
+        carried = {name for name, _ in prof.spot_tendencies}
+        assert 'passive_postflop' not in carried, key
 
 
 # ── per-personality override hook ────────────────────────────────────────────
