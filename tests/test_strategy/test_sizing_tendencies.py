@@ -23,6 +23,9 @@ import pytest
 from poker.strategy.action_mapper import _compute_raise_to, resolve_preflop_sizing
 from poker.strategy.sizing_tendencies import (
     ARCHETYPE_SIZE_BIAS,
+    SIZE_BY_STRENGTH,
+    SIZE_BY_STRENGTH_GAP,
+    SIZE_BY_STRENGTH_WEIGHTS,
     SIZE_MULT_MAX,
     SIZE_MULT_MIN,
     SizeContext,
@@ -204,14 +207,149 @@ class TestArchetypeLean:
 
 
 class TestResolveSizeMultiplier:
-    def test_p1_is_context_independent(self):
+    def test_no_behavior_is_context_independent(self):
+        # A personality with NO palette behaviors stays context-independent (the P1
+        # contract): only base_size_bias is consulted.
         p = SizingPersonality(base_size_bias=1.07)
         ctx_a = SizeContext(scenario='rfi', hand_strength='strong', position='UTG')
         ctx_b = SizeContext(scenario='vs_3bet', hand_strength='not_strong', position='BB')
-        # P1: only base_size_bias is consulted — context does not change the result.
         assert resolve_size_multiplier(p, ctx_a) == pytest.approx(1.07)
         assert resolve_size_multiplier(p, ctx_b) == pytest.approx(1.07)
         assert resolve_size_multiplier(p, None) == pytest.approx(1.07)
+
+
+class TestSizeByStrength:
+    """P2: size_by_strength scales UP for strong hands, DOWN for not-strong, around
+    the base_size_bias center, composed multiplicatively and clamped."""
+
+    def test_strong_sizes_up_weak_sizes_down(self):
+        p = SizingPersonality(base_size_bias=1.0, behaviors=((SIZE_BY_STRENGTH, 1.0),))
+        strong = resolve_size_multiplier(p, SizeContext(hand_strength='strong'))
+        weak = resolve_size_multiplier(p, SizeContext(hand_strength='not_strong'))
+        assert strong > 1.0 > weak
+        half_gap = 0.5 * SIZE_BY_STRENGTH_GAP
+        assert strong == pytest.approx(1.0 + half_gap)
+        assert weak == pytest.approx(1.0 - half_gap)
+
+    def test_center_preserved_on_average(self):
+        # Mean of strong+weak (a strength-balanced mix) stays ≈ base bias — only the
+        # CORRELATION with strength is the tell, not the absolute size.
+        p = SizingPersonality(base_size_bias=1.03, behaviors=((SIZE_BY_STRENGTH, 1.0),))
+        strong = resolve_size_multiplier(p, SizeContext(hand_strength='strong'))
+        weak = resolve_size_multiplier(p, SizeContext(hand_strength='not_strong'))
+        assert (strong + weak) / 2 == pytest.approx(1.03, abs=0.01)
+
+    def test_no_context_or_none_strength_is_base_bias(self):
+        # size_by_strength present but hand_strength unknown → base bias only (no-op).
+        p = SizingPersonality(base_size_bias=1.05, behaviors=((SIZE_BY_STRENGTH, 1.0),))
+        assert resolve_size_multiplier(p, None) == pytest.approx(1.05)
+        assert resolve_size_multiplier(p, SizeContext(hand_strength=None)) == pytest.approx(1.05)
+
+    def test_strength_param_scales_the_swing(self):
+        weak_param = SizingPersonality(base_size_bias=1.0, behaviors=((SIZE_BY_STRENGTH, 0.5),))
+        full_param = SizingPersonality(base_size_bias=1.0, behaviors=((SIZE_BY_STRENGTH, 1.0),))
+        ctx = SizeContext(hand_strength='strong')
+        # A 0.5-strength tell swings half as far from center as a 1.0-strength tell.
+        assert (resolve_size_multiplier(weak_param, ctx) - 1.0) == pytest.approx(
+            0.5 * (resolve_size_multiplier(full_param, ctx) - 1.0)
+        )
+
+    def test_composed_multiplier_clamped(self):
+        # A big-biased recreational player with a strong hand can't balloon past MAX.
+        p = SizingPersonality(base_size_bias=SIZE_MULT_MAX, behaviors=((SIZE_BY_STRENGTH, 1.0),))
+        assert resolve_size_multiplier(p, SizeContext(hand_strength='strong')) <= SIZE_MULT_MAX
+        p_lo = SizingPersonality(base_size_bias=SIZE_MULT_MIN, behaviors=((SIZE_BY_STRENGTH, 1.0),))
+        assert resolve_size_multiplier(p_lo, SizeContext(hand_strength='not_strong')) >= SIZE_MULT_MIN
+
+    def test_neutral_personality_invariant_to_strength(self):
+        # Baseline-GTO / neutral → exactly 1.0 regardless of hand_strength.
+        n = SizingPersonality.neutral()
+        assert resolve_size_multiplier(n, SizeContext(hand_strength='strong')) == 1.0
+        assert resolve_size_multiplier(n, SizeContext(hand_strength='not_strong')) == 1.0
+        assert resolve_size_multiplier(None, SizeContext(hand_strength='strong')) == 1.0
+
+
+class TestPaletteSampling:
+    """Archetype-weighted palette sampling: recreational tiers carry size_by_strength,
+    the disciplined/competent archetypes never do (regs stay clean)."""
+
+    def _anchors(self):
+        return SimpleNamespace(baseline_looseness=0.5, baseline_aggression=0.5)
+
+    def _carries_rate(self, key, n=4000):
+        a = self._anchors()
+        carries = sum(
+            1
+            for i in range(n)
+            if any(
+                b == SIZE_BY_STRENGTH
+                for b, _ in sample_sizing_personality(
+                    a, persona_seed=f'{key}-{i}', archetype_key=key
+                ).behaviors
+            )
+        )
+        return carries / n
+
+    def test_regs_never_carry_the_tell(self):
+        # tag + the disciplined tiers must NEVER sample size_by_strength.
+        for key in ('tag', 'nit', 'rock', 'lag', 'maniac'):
+            assert self._carries_rate(key) == 0.0, key
+
+    def test_reg_multiplier_invariant_to_hand_strength(self):
+        # A reg (tag) — sampled, no tell — sizes identically for strong & weak hands.
+        a = self._anchors()
+        for i in range(50):
+            p = sample_sizing_personality(a, persona_seed=f'tag-{i}', archetype_key='tag')
+            strong = resolve_size_multiplier(p, SizeContext(hand_strength='strong'))
+            weak = resolve_size_multiplier(p, SizeContext(hand_strength='not_strong'))
+            assert strong == weak == pytest.approx(p.base_size_bias)
+
+    def test_recreational_tiers_carry_with_expected_probability(self):
+        for key in ('calling_station', 'weak_fish'):
+            rate = self._carries_rate(key)
+            expected = SIZE_BY_STRENGTH_WEIGHTS[key]
+            assert rate == pytest.approx(expected, abs=0.03), (key, rate, expected)
+
+    def test_recreational_persona_has_learnable_tell(self):
+        # A carrying recreational persona sizes strong > weak (the earned read).
+        a = self._anchors()
+        carriers = [
+            p
+            for i in range(40)
+            for p in [sample_sizing_personality(a, persona_seed=f'wf-{i}', archetype_key='weak_fish')]
+            if any(b == SIZE_BY_STRENGTH for b, _ in p.behaviors)
+        ]
+        assert carriers, "expected some weak_fish to carry size_by_strength"
+        p = carriers[0]
+        strong = resolve_size_multiplier(p, SizeContext(hand_strength='strong'))
+        weak = resolve_size_multiplier(p, SizeContext(hand_strength='not_strong'))
+        assert strong > weak
+
+
+class TestOverrideLanePinsBehaviors:
+    def test_explicit_override_wins_over_archetype_draw(self):
+        # The per-personality override lane pins behaviors even on a clean reg.
+        a = SimpleNamespace(baseline_looseness=0.5, baseline_aggression=0.5)
+        p = sample_sizing_personality(
+            a, persona_seed='tag-x', archetype_key='tag',
+            sizing_tendencies=((SIZE_BY_STRENGTH, 1.0),),
+        )
+        assert p.behaviors == ((SIZE_BY_STRENGTH, 1.0),)
+        strong = resolve_size_multiplier(p, SizeContext(hand_strength='strong'))
+        weak = resolve_size_multiplier(p, SizeContext(hand_strength='not_strong'))
+        assert strong > weak
+
+    def test_explicit_override_skips_palette_draw(self):
+        # A pinned override means the archetype palette draw is skipped — a
+        # recreational persona pinned to () carries NO sampled tell.
+        a = SimpleNamespace(baseline_looseness=0.6, baseline_aggression=0.3)
+        # Pin a different (P3-shaped) behavior; size_by_strength must not be added.
+        p = sample_sizing_personality(
+            a, persona_seed='cs-pin', archetype_key='calling_station',
+            sizing_tendencies=(('anchor_number', 1.0),),
+        )
+        assert p.behaviors == (('anchor_number', 1.0),)
+        assert not any(b == SIZE_BY_STRENGTH for b, _ in p.behaviors)
 
 
 class TestParseSizingTendencies:

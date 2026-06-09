@@ -5,6 +5,30 @@ created: 2026-06-09
 last_updated: 2026-06-09
 ---
 
+> **Status: P2 (first learnable tell) SHIPPED — 2026-06-09.** Adds the
+> `size_by_strength` behavior (recreational "big = strong" tell) +
+> archetype-weighted palette sampling + the hands-to-read measurement.
+> `resolve_size_multiplier` now folds a strength-conditioned factor
+> (`SIZE_BY_STRENGTH_GAP=0.10`, half in each direction so the per-player CENTER is
+> preserved — only the size↔strength *correlation* is the tell) on top of
+> `base_size_bias`, clamped to the existing band. `sample_sizing_personality` draws
+> the palette behavior AFTER the bias draw (P1 bias values byte-unchanged), keyed by
+> `SIZE_BY_STRENGTH_WEIGHTS`: calling_station 0.65 / weak_fish 0.70 carry it; tag and
+> the disciplined tiers (nit/rock/lag/maniac) are ZERO — **regs stay clean**. The
+> per-personality `sizing_tendencies` override lane still pins a behavior explicitly.
+> **Validated:** mixed-field probe — VPIP/PFR/3-bet/4-bet/fold-to-3bet byte-identical
+> vs the P1 baseline (only the same tiny downstream postflop-AF/all-in pot-size
+> ripple P1 noted); hands-to-read (`scripts/sizing_hands_to_read.py`, AUC
+> size→strength, live ±12% jitter) — reg control flat at AUC≈0.50 (no tell),
+> recreational carriers reach a STABLE read after ~24–56 observed RFI opens (median
+> 24) ≈ **~250 hands at the table** → "legible but not instant" PASS; EV probe
+> (`scripts/sizing_ev_probe.py`) — modest leak, not a huge edge; regs (never sample
+> it) unaffected. Tests: `tests/test_strategy/test_sizing_tendencies.py` extended
+> (regs-never-carry, reg-invariant-to-strength, recreational-carries-with-prob,
+> strong-up/weak-down, center-preserved, clamp, override-pins); strategy suite green.
+> **P3 (polarized_size, position_blind, tilt_escalation, anchor_number) + P4
+> (surfacing / review-tool column) NOT yet started.**
+
 # Sizing tendencies — per-player sizing personalities (the learnable size tell)
 
 > **Status: P1 (substrate) SHIPPED — 2026-06-09.** Data model
@@ -172,8 +196,11 @@ visible "learning"). The sizing tell pays off most when it's *felt*:
    `resolve_size_multiplier` seam. Deliverable met: same-archetype players
    visibly size differently; histograms overlap; preflop frequencies unchanged
    (byte-identical). See the status block at the top.
-2. **P2 — first learnable tell.** `size_by_strength` (recreational-weighted) +
-   the hands-to-read measurement. Deliverable: an *earned* read.
+2. **P2 — first learnable tell.** ✅ **DONE (2026-06-09).** `size_by_strength`
+   (recreational-weighted) + the hands-to-read measurement. Deliverable met: an
+   *earned* read — recreational carriers' opens become strength-predictive over ~250
+   table-hands (AUC ≈0.50→0.78), regs stay flat at chance; frequencies byte-identical.
+   See the status block at the top.
 3. **P3 — palette.** `polarized_size`, `position_blind`, `tilt_escalation`
    (psychology-coupled), `anchor_number`.
 4. **P4 — surface it.** Opponent-model / table-talk / coach callbacks + a

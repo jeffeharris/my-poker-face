@@ -47,20 +47,67 @@ LAYER = 'sizing_tendencies'
 # clamp in _compute_raise_to is the final safety net, but we keep the *center*
 # realistic so jitter + rounding compose cleanly. ±~25% is the believable spread
 # of human go-to sizings; the per-archetype means sit well inside it.
+#
+# The band clamps the COMPOSED multiplier too: base_size_bias × any palette factor
+# (P2: size_by_strength) is clamped back into [MIN, MAX] so a big-biased recreational
+# player with a strong hand can't balloon the raise past sane bounds (and the
+# small-biased weak-hand corner can't collapse it). The clamp is generous enough
+# that the strength split stays clearly visible inside it (see SIZE_BY_STRENGTH_*).
 SIZE_MULT_MIN = 0.80
 SIZE_MULT_MAX = 1.25
+
+# size_by_strength (the recreational "big = strong" tell, Sequencing P2). When a
+# persona carries this behavior, the preflop multiplier scales UP for a strong hand
+# and DOWN for a not-strong hand by `gap × strength`, composed multiplicatively on
+# top of base_size_bias. `gap` is the FULL strong-vs-weak swing at strength 1.0; the
+# half-gap is applied in each direction so the per-player CENTER (mean over a
+# strength-balanced hand mix) stays ≈ base_size_bias — the absolute size is still
+# not type-diagnostic, only its CORRELATION with showdown strength is the tell.
+#
+# GAP is deliberately kept BELOW the live ±12% sizing jitter band so the strong and
+# weak size distributions OVERLAP heavily — a single observed raise is ambiguous and
+# the read only resolves over many raises + showdowns ("legible but not instant",
+# docs/plans/SIZING_TENDENCIES.md §Validation). A larger gap (e.g. 0.30) cleanly
+# SEPARATES the bands and reads in a handful of opens — the Stacked/Poki caricature
+# the design exists to avoid (validated via scripts/sizing_hands_to_read.py: gap 0.30
+# → AUC≈0.95 by ~4 observed opens; gap 0.10 → the read emerges over dozens). The
+# leak stays a realistic, modest EV cost rather than a giant one.
+SIZE_BY_STRENGTH_GAP = 0.10
+SIZE_BY_STRENGTH = 'size_by_strength'
+
+# Archetype-weighted sampling probabilities for palette behaviors, keyed by
+# deviation-profile key (P2: only `size_by_strength`). The recreational tiers carry
+# the obvious tell (they ARE the skill gradient — the fish you can read over time);
+# the competent / disciplined archetypes stay clean and unreadable on size. Putting
+# the amateur tell on a "reg" is the Drivatar "learned the bad habits" mistake the
+# design warns against (docs/plans/SIZING_TENDENCIES.md §Drivatars), so tag and the
+# disciplined tiers (nit/rock/lag/maniac) are ZERO here — regs carry no size tell.
+# (P3 gives the strong regs the *advanced* polarized_size instead.)
+SIZE_BY_STRENGTH_WEIGHTS: Dict[str, float] = {
+    'calling_station': 0.65,
+    'weak_fish': 0.70,
+    # Disciplined / competent — clean, no learnable size tell.
+    'nit': 0.0,
+    'rock': 0.0,
+    'tag': 0.0,
+    'lag': 0.0,
+    'maniac': 0.0,
+}
+# Unknown / measurement-only keys default to clean (no tell) — never import the
+# leak onto a profile we don't explicitly mark recreational.
+SIZE_BY_STRENGTH_WEIGHT_DEFAULT: float = 0.0
 
 
 @dataclass(frozen=True)
 class SizingPersonality:
     """A player's immutable preflop sizing personality.
 
-    P1 carries only ``base_size_bias`` — the player's default open/3-bet size
-    multiplier (1.0 = exactly the chart token). P2+ palette behaviors
-    (``size_by_strength``, ``polarized_size``, ``position_blind``,
-    ``tilt_escalation``, ``anchor_number``) attach here as additional immutable
-    fields / a frozen ``behaviors`` map; ``resolve_size_multiplier`` will consult
-    them. Until then ``behaviors`` is empty and only ``base_size_bias`` is read.
+    ``base_size_bias`` is the player's default open/3-bet size multiplier
+    (1.0 = exactly the chart token). ``behaviors`` carries sampled/pinned palette
+    behaviors as ``((name, strength), …)`` (same shape as spot_tendencies);
+    ``resolve_size_multiplier`` consults them. P2 ships ``size_by_strength`` (the
+    recreational "big = strong" tell); P3 adds ``polarized_size``,
+    ``position_blind``, ``tilt_escalation``, ``anchor_number``.
 
     A multiplier of exactly 1.0 (``base_size_bias == 1.0``, no behaviors) is the
     deterministic no-op: ``resolve_size_multiplier`` returns 1.0 and sizing is
@@ -194,8 +241,10 @@ def sample_sizing_personality(
         archetype_key: explicit deviation-profile key (e.g. 'maniac'). Preferred
             when known (handles loadouts like ``weak_fish`` that anchor
             classification can't see); falls back to anchor classification.
-        sizing_tendencies: P2+ override-lane behaviors ((name, strength), …),
-            carried through onto the returned struct's ``behaviors``. Empty in P1.
+        sizing_tendencies: per-personality override-lane behaviors
+            ((name, strength), …). When supplied they PIN the behaviors explicitly
+            (a specific character's signature) and the archetype-weighted palette
+            draw is skipped — the override lane wins. Empty → archetype-weighted draw.
 
     Returns:
         A frozen ``SizingPersonality``. Clamped to [SIZE_MULT_MIN, SIZE_MULT_MAX].
@@ -213,13 +262,52 @@ def sample_sizing_personality(
     mean, sigma = ARCHETYPE_SIZE_BIAS.get(archetype_key or '', ARCHETYPE_DEFAULT)
 
     rng = random.Random(_persona_seed(persona_seed))
+    # base_size_bias draw FIRST so P1's persona-seeded bias values are byte-unchanged
+    # (the palette draw below consumes the RNG stream only AFTER this — the committed
+    # P1 determinism tests + histogram must still hold).
     bias = rng.gauss(mean, sigma)
     bias = max(SIZE_MULT_MIN, min(bias, SIZE_MULT_MAX))
 
+    # Palette behaviors. An explicit override pins them (the per-character signature
+    # lane); otherwise draw the archetype-weighted palette (P2: only size_by_strength).
+    if sizing_tendencies:
+        behaviors = tuple(sizing_tendencies)
+    else:
+        behaviors = _sample_palette_behaviors(rng, archetype_key)
+
     return SizingPersonality(
         base_size_bias=bias,
-        behaviors=tuple(sizing_tendencies),
+        behaviors=behaviors,
     )
+
+
+def _sample_palette_behaviors(
+    rng: random.Random, archetype_key: Optional[str]
+) -> Tuple[Tuple[str, float], ...]:
+    """Draw 0–N palette behaviors by archetype-weighted probability (Sequencing P2).
+
+    P2 ships ONE palette behavior — ``size_by_strength`` — carried only by the
+    recreational tiers (calling_station / weak_fish); the disciplined / competent
+    archetypes draw nothing (regs stay clean, no learnable size tell). Strength is
+    fixed at 1.0 for the sampled behavior (the per-player magnitude variety already
+    comes from base_size_bias + the live jitter); a specific character wanting a
+    softer/sharper tell uses the explicit ``sizing_tendencies`` override lane.
+
+    Consumes the RNG stream AFTER the base_size_bias draw, so P1 bias values are
+    byte-unchanged. Returns ``()`` for clean archetypes.
+    """
+    p = SIZE_BY_STRENGTH_WEIGHTS.get(archetype_key or '', SIZE_BY_STRENGTH_WEIGHT_DEFAULT)
+    if p > 0.0 and rng.random() < p:
+        return ((SIZE_BY_STRENGTH, 1.0),)
+    return ()
+
+
+def _behavior_strength(personality: SizingPersonality, name: str) -> Optional[float]:
+    """The strength of a palette behavior on the personality, or None if absent."""
+    for bname, strength in personality.behaviors:
+        if bname == name:
+            return float(strength)
+    return None
 
 
 def resolve_size_multiplier(
@@ -228,13 +316,32 @@ def resolve_size_multiplier(
 ) -> float:
     """Resolve the preflop raise-size multiplier for the current decision.
 
-    P1: returns the personality's ``base_size_bias`` (context-independent). The
-    ``context`` is accepted now so P2+ palette behaviors can layer
-    strength/position/emotion adjustments on top without changing this signature.
+    Starts from the personality's ``base_size_bias`` (the per-player center), then
+    folds in any context-driven palette behaviors:
 
-    A ``None`` personality (or the neutral one) returns exactly 1.0 — the
-    deterministic no-op that keeps the Baseline-GTO reference byte-identical.
+      * ``size_by_strength`` (P2): when the persona carries it AND
+        ``context.hand_strength`` is set, scales the multiplier UP for a 'strong'
+        hand and DOWN for a 'not_strong' hand, by ``half-gap × strength`` in each
+        direction (so the per-player center is preserved and only the size↔strength
+        CORRELATION is the tell). Composed multiplicatively on the base bias and the
+        result clamped to [SIZE_MULT_MIN, SIZE_MULT_MAX].
+
+    ``context is None`` or ``context.hand_strength is None`` (or no behavior) →
+    behaves exactly as P1 (base bias only). A ``None`` personality (or the neutral
+    one) returns exactly 1.0 — the deterministic no-op that keeps the Baseline-GTO
+    reference byte-identical.
     """
     if sizing_personality is None:
         return 1.0
-    return float(sizing_personality.base_size_bias)
+    mult = float(sizing_personality.base_size_bias)
+
+    if context is not None and context.hand_strength is not None:
+        s = _behavior_strength(sizing_personality, SIZE_BY_STRENGTH)
+        if s is not None:
+            half_gap = 0.5 * SIZE_BY_STRENGTH_GAP * s
+            if context.hand_strength == 'strong':
+                mult *= 1.0 + half_gap
+            else:  # 'not_strong' (or any non-strong class) → size down
+                mult *= 1.0 - half_gap
+
+    return max(SIZE_MULT_MIN, min(mult, SIZE_MULT_MAX))
