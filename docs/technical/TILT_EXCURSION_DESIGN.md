@@ -222,8 +222,26 @@ gated by `TILT_PERSISTENCE_ENABLED` (EXPERIMENTAL, off in dev+prod):
   psychology tests pass unchanged; new `tests/test_tilt_persistence.py` pins the
   mechanism + the inert-when-off guarantee.
 
-Not yet done: validate %time against real play (turn the flag on in dev, run
-games, re-measure), then the §4 signature/coupling/telegraph layer.
+**Real-play validation (2026-06-09)** via `experiments/configs/tilt_persistence_check.json`
+(tiered no-LLM bots, psychology on, 1,200 hands, real pressure detector), flag ON vs OFF:
+
+| persona | poise | ON %tilt | OFF %tilt |
+|---|---|---|---|
+| Edgar Allan Poe | 0.40 | 12.8% | 2.4% |
+| Fyodor Dostoevsky | 0.25 | 7.0% | 3.7% |
+| Abraham Lincoln (stoic) | 0.78 | 0.0% | 0.0% |
+| Buddha (monk) | 0.92 | 0.0% | 0.0% |
+
+Confirms: the mechanism fires in the real loop (hothead ON ≫ OFF), it is targeted
+(stoic/monk untouched — they never enter tilt so the drag is inert), it is not
+chronic (they recover; avg composure stays above the line), and it lands
+**comfortably under 20%**. Real-poker onset is *gentler* than the synthetic harness
+(which predicted ~16–18% for hotheads), so the live %time comes in lower — the
+event-model-dependence flagged above, confirmed. The Poe-over-Fyodor ordering is
+play variance over a modest sample and smooths with more hands.
+
+Still to do: the §4 signature/coupling/telegraph layer (and a larger real-play
+sample if a precise per-archetype %time is wanted).
 
 ## Open parameters / decisions
 
