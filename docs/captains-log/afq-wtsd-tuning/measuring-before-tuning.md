@@ -1,5 +1,5 @@
 ---
-purpose: Narrative log of the afq-wtsd-tuning arc — a reported "AFq too high" that turned out to be a measurement timeline bug plus miscalibrated bands, and the 6-max instrument that separated artifact from real behavior
+purpose: Narrative log of the afq-wtsd-tuning arc — a reported "AFq too high" that was a measurement timeline bug plus miscalibrated bands, the 6-max instrument that separated artifact from real behavior, a buy-in lever ruled out by stack-depth data, and the postflop rebalance that pulled WTSD/c-bet into band
 type: guide
 created: 2026-06-09
 last_updated: 2026-06-09
@@ -149,6 +149,40 @@ now aimed at targets we trust: raise c-bet frequency for the aggressor, and stop
 calling down so light. The order of operations mattered. Measuring before tuning
 turned a vague "the numbers look high" into a precise, two-item list, and threw
 out one of my own wrong answers along the way.
+
+## The buy-in red herring
+
+Before the tuning, Jeff floated a different lever for the in-game 3-bet
+over-aggression: require a bigger minimum buy-in. Make the tables deeper and maybe
+the bots stop shoving.
+
+I liked it, and I had a mechanism ready. Short stacks are what drive
+3-bet-and-jam-with-trash: when the effective stack is twenty or thirty big blinds,
+a 3-bet is most of it, so "3-bet" and "shove" collapse into one action and the
+math will happily jam junk. Prod was going all-in in seventeen percent of hands,
+which reads like a short-stacked table. The story fit. The realistic-poker-rooms
+question also checked out, because buy-in floors and deep-stack games are a normal
+thing rooms actually offer.
+
+Then I pulled the number instead of trusting the story. There is no big-blind
+column on a cash game, so I recovered each table's blind from the one spot that
+betrays it (an unopened-pot caller's cost-to-call is exactly the big blind),
+snapped it to the known stake tiers, and bucketed the effective stack depth at
+every decision. The median decision happened at 67bb. The 3-bets specifically
+happened at a median of 78bb, with not one of them under 25bb. The table was not
+short. The 3-bets were deep 3-bets, which means a bigger buy-in cannot touch them.
+Only the all-ins skewed short (median 43bb), so a deeper buy-in plus a top-up would
+trim the jamming, but jamming was the smaller pathology, not the 3-bet frequency
+Jeff started from.
+
+So the buy-in came off the table as a 3-bet lever. The over-3-betting is a strategy
+matter (the charts, tilt conditioning, and the human being the table's biggest
+3-bettor), which lines up with the controlled 100bb sim showing healthy 3-bet all
+along. The idea did not die, though. Depth-varied tables, the same stake offered
+shallow or deep, is a good feature on its own, and a deep-stack table is exactly
+where the postflop tuning below earns its keep. It just was not the fix it looked
+like. The cheap stack-depth query is the whole lesson: a plausible mechanism and a
+suggestive aggregate are not a diagnosis.
 
 ## The tuning pass
 
