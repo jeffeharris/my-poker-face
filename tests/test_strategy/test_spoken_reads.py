@@ -322,9 +322,9 @@ def test_no_number_or_stat_name_leak_in_text():
                 'fold_to_big',
                 'score',
             ):
-                assert banned not in lowered, (
-                    f"stat name '{banned}' leaked in {spec.read_key}/{tier}: {text}"
-                )
+                assert (
+                    banned not in lowered
+                ), f"stat name '{banned}' leaked in {spec.read_key}/{tier}: {text}"
 
 
 # ── select_spoken_reads: integration over a manager ─────────────────────────
@@ -454,17 +454,13 @@ def test_silent_hands_do_not_reset_or_spam_cooldown():
     state = SpokenReadState()
 
     # Hand 1: only V eligible → voiced, index 1.
-    obs, state, _ = select_spoken_reads(
-        'Hero', ['V'], None, mgr, state, config
-    )
+    obs, state, _ = select_spoken_reads('Hero', ['V'], None, mgr, state, config)
     assert obs and state.eligible_hand_index == 1
 
     # Several hands where ONLY the unmatured opponent is at the table:
     # nothing eligible → index must stay at 1.
     for _ in range(5):
-        obs, state, _ = select_spoken_reads(
-            'Hero', ['U'], None, mgr, state, config
-        )
+        obs, state, _ = select_spoken_reads('Hero', ['U'], None, mgr, state, config)
         assert obs == []
     assert state.eligible_hand_index == 1
 

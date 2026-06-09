@@ -136,8 +136,8 @@ def test_flop_seer_who_folded_postflop_gets_no_showdown_credit():
     counting flop-seers who later folded inflates WTSD and blurs the
     station-vs-nit spread."""
     r = ArchetypeStatRecorder('sb')
-    r.record_decision('tag', 'T', 'FLOP', '', 'call')   # saw flop, went to SD
-    r.record_decision('nit', 'F', 'FLOP', '', 'fold')   # saw flop, folded postflop
+    r.record_decision('tag', 'T', 'FLOP', '', 'call')  # saw flop, went to SD
+    r.record_decision('nit', 'F', 'FLOP', '', 'fold')  # saw flop, folded postflop
     # Hand showdown'd between T and someone else; F is NOT among showdown_players.
     r.end_hand(showdown_players={'T'}, winner_names={'T'})
 

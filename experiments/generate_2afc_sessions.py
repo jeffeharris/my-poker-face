@@ -55,31 +55,30 @@ import random
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 # Add project root to path so this runs as a module or a script.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from experiments._hand_loop import drive_hand  # noqa: E402
+from experiments.simulate_bb100 import (  # noqa: E402
+    ARCHETYPES,
+    make_controller,
+    make_game_state,
+)
 from poker.card_utils import card_to_string  # noqa: E402
 from poker.memory.cbet_detector import CbetDetector  # noqa: E402
 from poker.memory.opponent_model import OpponentModelManager  # noqa: E402
-from poker.psychology_model import ComposureState  # noqa: E402
 from poker.poker_state_machine import PokerStateMachine  # noqa: E402
+from poker.psychology_model import ComposureState  # noqa: E402
 from poker.strategy.spoken_reads import (  # noqa: E402
     SpokenReadConfig,
     SpokenReadState,
     select_spoken_reads,
 )
 from poker.strategy.strategy_table import load_strategy_table  # noqa: E402
-
-from experiments.simulate_bb100 import (  # noqa: E402
-    ARCHETYPES,
-    make_controller,
-    make_game_state,
-)
-from experiments._hand_loop import drive_hand  # noqa: E402
 
 # The closed archetype list the rater chooses from (research §2.1a: chance = 1/n).
 # These are the player-recognizable poker archetypes — not the eval-only rule
@@ -229,9 +228,7 @@ def _run_session(
         sm = PokerStateMachine(gs)
         sm.current_hand_seed = hand_seed
 
-        hero_ctrl = make_controller(
-            hero_name, config_hero, strategy_table, sm, rng_seed=hand_seed
-        )
+        hero_ctrl = make_controller(hero_name, config_hero, strategy_table, sm, rng_seed=hand_seed)
         # Adaptation arm lever: 0.0 == exploitation layer no-op (effective_bias 0).
         hero_ctrl.exploitation_strength = exploitation_strength
         hero_ctrl.opponent_model_manager = opponent_manager
@@ -249,14 +246,12 @@ def _run_session(
             # zone_effects.penalties -> get_emotional_shift maps 'tilted' to the
             # aggressive 'tilted' EmotionalShift (extreme severity). Mirrors the
             # tilt_conditioning_probe's "EXTREME forced bad_beat tilt" setup.
-            hero_ctrl.psychology.zone_effects = _types.SimpleNamespace(
-                penalties={"tilted": 0.9}
-            )
+            hero_ctrl.psychology.zone_effects = _types.SimpleNamespace(penalties={"tilted": 0.9})
         else:
             hero_ctrl.psychology.composure_state = ComposureState()
 
         controllers = [hero_ctrl]
-        for i, (seat, cfg) in enumerate(zip(opp_seats, opp_configs)):
+        for i, (seat, cfg) in enumerate(zip(opp_seats, opp_configs, strict=False)):
             controllers.append(
                 make_controller(
                     seat, cfg, strategy_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1)
@@ -315,7 +310,9 @@ def _capture_hand(
     cbet_detector = CbetDetector()
     pre_fold_snapshot: List[str] = []
 
-    def _on_decision(current_player, controller, action, raise_to, phase_name, gs, sim_street, decision):
+    def _on_decision(
+        current_player, controller, action, raise_to, phase_name, gs, sim_street, decision
+    ):
         nonlocal pre_fold_snapshot
         board = []
         try:
@@ -326,7 +323,8 @@ def _capture_hand(
         hero_speech = ""
         if current_player.name == hero_name:
             active_opps = [
-                p.name for p in gs.players
+                p.name
+                for p in gs.players
                 if not getattr(p, "is_folded", False) and p.name != hero_name
             ]
             try:
@@ -366,9 +364,7 @@ def _capture_hand(
 
         # Snapshot active players BEFORE play_turn (CbetDetector needs the
         # pre-fold view to seed its facing-set on flop c-bets) — mirrors run_hand.
-        pre_fold_snapshot = [
-            p.name for p in gs.players if not getattr(p, "is_folded", False)
-        ]
+        pre_fold_snapshot = [p.name for p in gs.players if not getattr(p, "is_folded", False)]
 
         # Compute was_facing_bet BEFORE the c-bet detector updates — mirror
         # AIMemoryManager.on_action / run_hand so the opportunity-normalized
@@ -589,7 +585,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         default="adaptation",
         help="Which detection arm to generate.",
     )
-    ap.add_argument("--sessions", type=int, default=4, help="Sessions (arch) or pairs (tilt/adapt).")
+    ap.add_argument(
+        "--sessions", type=int, default=4, help="Sessions (arch) or pairs (tilt/adapt)."
+    )
     ap.add_argument("--hands", type=int, default=40, help="Hands per session.")
     ap.add_argument("--seed", type=int, default=42, help="Base RNG seed.")
     ap.add_argument("--out", type=str, default=None, help="Output JSON path.")

@@ -4497,9 +4497,7 @@ class TieredBotController(AIPlayerController):
                     config=self._spoken_read_config,
                 )
             except Exception as e:  # noqa: BLE001 — narration is observability
-                logger.warning(
-                    f"[TIERED_BOT] {self.player_name}: spoken_reads failed: {e}"
-                )
+                logger.warning(f"[TIERED_BOT] {self.player_name}: spoken_reads failed: {e}")
                 spoken = []
                 spoken_reads = []
 

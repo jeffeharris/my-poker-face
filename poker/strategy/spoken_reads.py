@@ -272,7 +272,7 @@ def select_spoken_reads(
     opponent_model_manager,
     state: SpokenReadState,
     config: SpokenReadConfig,
-) -> Tuple[List[Tuple[str, str]], SpokenReadState, List['SpokenRead']]:
+) -> Tuple[List[Tuple[str, str]], SpokenReadState, List[SpokenRead]]:
     """Select up to `config.max_observations_per_decision` intuition-framed
     spoken reads for this decision.
 
