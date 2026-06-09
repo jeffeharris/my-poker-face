@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.astro/
+.DS_Store
+*.log
+# public/avatars/ IS committed: it's the build input for the Docker image
+# (the build can't reach prod). Refresh with `npm run avatars` then commit.

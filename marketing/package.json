@@ -1,0 +1,26 @@
+{
+  "name": "mypokerface-marketing",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Static marketing + SEO site (landing, opponent pages, blog) for My Poker Face. Separate from the game SPA.",
+  "scripts": {
+    "avatars": "node scripts/fetch-avatars.mjs",
+    "sync": "node scripts/sync-opponents.mjs",
+    "dev": "npm run sync && astro dev",
+    "build": "npm run sync && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/react": "^5.0.7",
+    "@astrojs/sitemap": "^3.7.3",
+    "astro": "^6.4.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

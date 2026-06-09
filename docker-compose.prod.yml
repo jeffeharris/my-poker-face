@@ -130,6 +130,27 @@ services:
       - poker-network
       - web
 
+  marketing:
+    hostname: poker-marketing
+    # Static SEO/marketing site (Astro): landing + /opponents/* + sitemap.
+    # See backend note: pulled pre-built from GHCR; build: kept as fallback.
+    # Caddy routes /, /opponents/*, /_astro/*, /avatars/*, /screenshots/*,
+    # /menu-banner.webp, /sitemap*, /robots.txt here; everything else → frontend.
+    image: ghcr.io/jeffeharris/my-poker-face-marketing:${TAG:-latest}
+    build:
+      context: ./marketing
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - poker-network
+      - web
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
