@@ -83,6 +83,21 @@ def get_drama_speak_score_weight() -> float:
         return DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT
 
 
+# In-hand counterpart of the post-hand dial — scales how often AIs speak AND
+# gesture DURING a hand (drama-gated via speak_gate). Higher => chattier table
+# mid-hand; lower => routine folds/checks stay silent (and skip the expression
+# LLM call on the tiered path). Read per decision by compute_narration_gate.
+MIDGAME_SPEAK_WEIGHT_DEFAULT = 1.3
+
+
+def get_midgame_speak_weight() -> float:
+    """Live AI talk-volume dial (in-hand narration gate: speech + gesture)."""
+    try:
+        return float(_get_setting('MIDGAME_SPEAK_WEIGHT', str(MIDGAME_SPEAK_WEIGHT_DEFAULT)))
+    except (TypeError, ValueError):
+        return MIDGAME_SPEAK_WEIGHT_DEFAULT
+
+
 def get_default_provider() -> str:
     return _get_setting('DEFAULT_PROVIDER', DEFAULT_PROVIDER)
 

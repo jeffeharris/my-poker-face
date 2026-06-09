@@ -1173,6 +1173,7 @@ VALID_SETTING_KEYS = {
     'ASSISTANT_MODEL',
     'ALERT_WEBHOOK_URL',
     'DRAMA_SPEAK_SCORE_WEIGHT',
+    'MIDGAME_SPEAK_WEIGHT',
 }
 # =============================================================================
 
@@ -1206,7 +1207,10 @@ def api_get_settings():
         NANO_MODEL,
         NANO_PROVIDER,
     )
-    from core.llm.settings import DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT
+    from core.llm.settings import (
+        DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT,
+        MIDGAME_SPEAK_WEIGHT_DEFAULT,
+    )
     from flask_app.services.alerting import get_webhook_url, mask_url
 
     try:
@@ -1220,10 +1224,13 @@ def api_get_settings():
         # Get DB values directly to show if overridden
         db_settings = extensions.settings_repo.get_all_settings()
 
-        # Gameplay: live AI talk-volume dial
+        # Gameplay: live AI talk-volume dials (post-hand + in-hand)
         drama_speak_weight = extensions.settings_repo.get_setting(
             'DRAMA_SPEAK_SCORE_WEIGHT', ''
         ) or str(DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT)
+        midgame_speak_weight = extensions.settings_repo.get_setting(
+            'MIDGAME_SPEAK_WEIGHT', ''
+        ) or str(MIDGAME_SPEAK_WEIGHT_DEFAULT)
 
         # System model settings - get from DB or fall back to env/defaults
         default_provider = extensions.settings_repo.get_setting('DEFAULT_PROVIDER', '') or 'openai'
@@ -1347,6 +1354,18 @@ def api_get_settings():
                 'env_default': str(DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT),
                 'is_db_override': 'DRAMA_SPEAK_SCORE_WEIGHT' in db_settings,
             },
+            # Gameplay: how often AIs talk/react DURING a hand (no restart).
+            'MIDGAME_SPEAK_WEIGHT': {
+                'value': midgame_speak_weight,
+                'type': 'number',
+                'description': (
+                    'AI talk-volume dial: how often players speak/react during a '
+                    'hand. Routine folds & checks stay quiet at low values; '
+                    'higher = chattier mid-hand. Range 0.5–2.5.'
+                ),
+                'env_default': str(MIDGAME_SPEAK_WEIGHT_DEFAULT),
+                'is_db_override': 'MIDGAME_SPEAK_WEIGHT' in db_settings,
+            },
         }
 
         return jsonify(
@@ -1413,7 +1432,7 @@ def api_update_setting():
                     {'success': False, 'error': 'Webhook URL must start with https://'}
                 ), 400
 
-        elif key == 'DRAMA_SPEAK_SCORE_WEIGHT':
+        elif key in ('DRAMA_SPEAK_SCORE_WEIGHT', 'MIDGAME_SPEAK_WEIGHT'):
             try:
                 w = float(value)
             except ValueError:
@@ -1438,6 +1457,7 @@ def api_update_setting():
             'ASSISTANT_MODEL': 'Model for experiment design, analysis, theme generation',
             'ALERT_WEBHOOK_URL': 'Slack/Discord webhook for ERROR + ledger/budget alerts',
             'DRAMA_SPEAK_SCORE_WEIGHT': 'AI talk-volume dial (post-hand commentary frequency)',
+            'MIDGAME_SPEAK_WEIGHT': 'AI talk-volume dial (in-hand speech + gesture frequency)',
         }
 
         success = extensions.settings_repo.set_setting(key, value, descriptions.get(key))

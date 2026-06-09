@@ -22,6 +22,7 @@ from ..config import COMMENTARY_ENABLED, is_development_mode
 from ..hand_narrator import narrate_hand_recap
 from ..moment_analyzer import MomentAnalyzer
 from ..prompt_manager import DRAMA_CONTEXTS, TONE_MODIFIERS, PromptManager
+from ..speak_gate import speak_probability
 from .hand_history import RecordedHand
 from .hand_score import score_hand
 from .session_memory import SessionMemory
@@ -30,19 +31,15 @@ logger = logging.getLogger(__name__)
 
 # Post-hand speech gate. A player's visible commentary is gated on the hand's
 # narrative drama score (hand_score.score_hand — the same 0..100 scorer the
-# circuit journey uses to rank a session's hands), scaled by chattiness:
-#   prob = score_weight * (drama/100) + CHAT_WEIGHT * (chattiness - 0.5)
+# circuit journey uses to rank a session's hands), fed through the shared
+# speak model (poker.speak_gate) with the live post-hand dial:
+#   prob = speak_probability(drama/100, chattiness, get_drama_speak_score_weight())
 # Calibrated against real recorded hands (scripts/drama_gate_calibration.py):
-# at score_weight 1.3, ~44% of hands draw a speaker at chattiness 0.5 (vs ~96%
-# under the old per-signal rolls + unconditional "any pot >= 5bb -> speak"
-# branch). Routine hands score low and stay quiet; coolers / big all-ins /
-# suckouts score high and get talked about.
-#
-# score_weight is the live "talk-volume dial" — read per hand-end from
-# app_settings (get_drama_speak_score_weight) so it's tunable from the admin
-# Settings UI without a restart. The two shaping constants below are fixed.
-DRAMA_SPEAK_CHAT_WEIGHT = 0.4
-DRAMA_SPEAK_MAX_PROB = 0.95
+# at dial 1.3, ~44% of hands draw a speaker at chattiness 0.5 (vs ~96% under the
+# old per-signal rolls + unconditional "any pot >= 5bb -> speak" branch). The
+# dial is read per hand-end from app_settings, tunable live from the admin
+# Settings UI; speak_gate owns the shaping constants (shared with the in-hand
+# gate).
 
 
 @dataclass
@@ -289,9 +286,8 @@ class CommentaryGenerator:
             logger.debug("drama scoring failed; staying quiet", exc_info=True)
             return False
 
-        score_weight = get_drama_speak_score_weight()  # live admin dial
-        prob = score_weight * (drama / 100.0) + DRAMA_SPEAK_CHAT_WEIGHT * (chattiness - 0.5)
-        prob = max(0.0, min(DRAMA_SPEAK_MAX_PROB, prob))
+        # Shared speak model (speak_gate) with the live post-hand dial.
+        prob = speak_probability(drama / 100.0, chattiness, get_drama_speak_score_weight())
         speak = random.random() < prob
         logger.debug(
             f"_should_speak({player_name}): drama={drama} chat={chattiness:.2f} "
