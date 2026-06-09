@@ -120,7 +120,7 @@ class SizingPersonality:
     behaviors: Tuple[Tuple[str, float], ...] = ()
 
     @staticmethod
-    def neutral() -> "SizingPersonality":
+    def neutral() -> SizingPersonality:
         """The identity personality — size multiplier is always 1.0 (no-op).
 
         Used for the Baseline-GTO reference and any controller without persona

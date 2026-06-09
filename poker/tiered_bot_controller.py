@@ -24,13 +24,6 @@ from .hand_tiers import is_hand_in_range
 from .stack_utils import big_blind_of, effective_stack_bb
 from .strategy.action_mapper import resolve_postflop_sizing, resolve_preflop_sizing
 from .strategy.deviation_profiles import DeviationProfile, select_deviation_profile
-from .strategy.sizing_tendencies import (
-    SizeContext,
-    SizingPersonality,
-    parse_sizing_tendencies,
-    resolve_size_multiplier,
-    sample_sizing_personality,
-)
 from .strategy.exploitation import (
     DEFAULT_MAX_TOTAL_SHIFT,
     GATING_FLOOR,
@@ -64,6 +57,13 @@ from .strategy.postflop_commit import apply_postflop_commit
 from .strategy.preflop_classifier import build_preflop_node
 from .strategy.push_fold import PUSH_FOLD_THRESHOLD_BB, lookup_push_fold_action
 from .strategy.short_stack import apply_short_stack_heuristics
+from .strategy.sizing_tendencies import (
+    SizeContext,
+    SizingPersonality,
+    parse_sizing_tendencies,
+    resolve_size_multiplier,
+    sample_sizing_personality,
+)
 from .strategy.strategy_profile import StrategyProfile
 from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
 from .strategy.value_override import (
@@ -318,8 +318,8 @@ class TieredBotController(AIPlayerController):
         # deviation_profile lazy-resolve). An explicit override (sims/tests) wins.
         # The per-personality `sizing_tendencies` config key is the P2+ override
         # lane (parsed here, carried onto the sampled struct's `behaviors`).
-        self._sizing_personality: Optional["SizingPersonality"] = None
-        self._sizing_personality_override: Optional["SizingPersonality"] = None
+        self._sizing_personality: Optional[SizingPersonality] = None
+        self._sizing_personality_override: Optional[SizingPersonality] = None
         self._sizing_personality_resolved: bool = False
         self._sizing_tendencies_override: Optional[Tuple[Tuple[str, float], ...]] = None
         self.skip_personality_distortion = skip_personality_distortion
@@ -737,7 +737,10 @@ class TieredBotController(AIPlayerController):
         override = getattr(self, '_sizing_personality_override', None)
         if override is not None:
             return override
-        if getattr(self, '_sizing_personality_resolved', False) and self._sizing_personality is not None:
+        if (
+            getattr(self, '_sizing_personality_resolved', False)
+            and self._sizing_personality is not None
+        ):
             return self._sizing_personality
         self._sizing_personality_resolved = True
         # Baseline-GTO / no-anchor controllers stay exact (no-op multiplier).

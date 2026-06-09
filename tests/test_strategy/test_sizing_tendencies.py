@@ -200,7 +200,9 @@ class TestArchetypeLean:
             for i in range(200)
         ]
         maniac = [
-            sample_sizing_personality(a, persona_seed=f'm{i}', archetype_key='maniac').base_size_bias
+            sample_sizing_personality(
+                a, persona_seed=f'm{i}', archetype_key='maniac'
+            ).base_size_bias
             for i in range(200)
         ]
         assert max(nit) > min(maniac), "nit/maniac size distributions should overlap"
@@ -259,7 +261,9 @@ class TestSizeByStrength:
         p = SizingPersonality(base_size_bias=SIZE_MULT_MAX, behaviors=((SIZE_BY_STRENGTH, 1.0),))
         assert resolve_size_multiplier(p, SizeContext(hand_strength='strong')) <= SIZE_MULT_MAX
         p_lo = SizingPersonality(base_size_bias=SIZE_MULT_MIN, behaviors=((SIZE_BY_STRENGTH, 1.0),))
-        assert resolve_size_multiplier(p_lo, SizeContext(hand_strength='not_strong')) >= SIZE_MULT_MIN
+        assert (
+            resolve_size_multiplier(p_lo, SizeContext(hand_strength='not_strong')) >= SIZE_MULT_MIN
+        )
 
     def test_neutral_personality_invariant_to_strength(self):
         # Baseline-GTO / neutral → exactly 1.0 regardless of hand_strength.
@@ -316,7 +320,9 @@ class TestPaletteSampling:
         carriers = [
             p
             for i in range(40)
-            for p in [sample_sizing_personality(a, persona_seed=f'wf-{i}', archetype_key='weak_fish')]
+            for p in [
+                sample_sizing_personality(a, persona_seed=f'wf-{i}', archetype_key='weak_fish')
+            ]
             if any(b == SIZE_BY_STRENGTH for b, _ in p.behaviors)
         ]
         assert carriers, "expected some weak_fish to carry size_by_strength"
@@ -331,7 +337,9 @@ class TestOverrideLanePinsBehaviors:
         # The per-personality override lane pins behaviors even on a clean reg.
         a = SimpleNamespace(baseline_looseness=0.5, baseline_aggression=0.5)
         p = sample_sizing_personality(
-            a, persona_seed='tag-x', archetype_key='tag',
+            a,
+            persona_seed='tag-x',
+            archetype_key='tag',
             sizing_tendencies=((SIZE_BY_STRENGTH, 1.0),),
         )
         assert p.behaviors == ((SIZE_BY_STRENGTH, 1.0),)
@@ -345,7 +353,9 @@ class TestOverrideLanePinsBehaviors:
         a = SimpleNamespace(baseline_looseness=0.6, baseline_aggression=0.3)
         # Pin a different (P3-shaped) behavior; size_by_strength must not be added.
         p = sample_sizing_personality(
-            a, persona_seed='cs-pin', archetype_key='calling_station',
+            a,
+            persona_seed='cs-pin',
+            archetype_key='calling_station',
             sizing_tendencies=(('anchor_number', 1.0),),
         )
         assert p.behaviors == (('anchor_number', 1.0),)
@@ -365,7 +375,9 @@ class TestParseSizingTendencies:
     def test_carried_onto_personality_behaviors(self):
         a = SimpleNamespace(baseline_looseness=0.5, baseline_aggression=0.5)
         p = sample_sizing_personality(
-            a, persona_seed='x', archetype_key='tag',
+            a,
+            persona_seed='x',
+            archetype_key='tag',
             sizing_tendencies=(('overbet_lean', 0.5),),
         )
         assert p.behaviors == (('overbet_lean', 0.5),)
