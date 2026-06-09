@@ -299,10 +299,10 @@ interface TeaserPost {
 }
 interface LandingPageProps {
   featuredOpponents?: FeaturedOpponent[];
-  latestPosts?: TeaserPost[];
+  devlogPosts?: TeaserPost[];
 }
 
-export function LandingPage({ featuredOpponents = [], latestPosts = [] }: LandingPageProps = {}) {
+export function LandingPage({ featuredOpponents = [], devlogPosts = [] }: LandingPageProps = {}) {
   const go = (path: string) => () => {
     window.location.href = `${APP}${path}`;
   };
@@ -695,7 +695,7 @@ export function LandingPage({ featuredOpponents = [], latestPosts = [] }: Landin
       <Gallery />
 
       {/* ===================== DEVLOG TEASER ===================== */}
-      {latestPosts.length > 0 && (
+      {devlogPosts.length > 0 && (
         <section className="lp-section lp-devlog" id="devlog">
           <div className="lp-section__head">
             <p className="lp-eyebrow" data-reveal>
@@ -710,7 +710,7 @@ export function LandingPage({ featuredOpponents = [], latestPosts = [] }: Landin
             </p>
           </div>
           <div className="lp-devlog__row" data-reveal>
-            {latestPosts.map((p) => (
+            {devlogPosts.map((p) => (
               <a key={p.slug} className="lp-devlog__card" href={`/blog/${p.slug}/`}>
                 <span
                   className={`lp-devlog__tag lp-devlog__tag--${

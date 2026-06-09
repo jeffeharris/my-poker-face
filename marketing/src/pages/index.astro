@@ -17,10 +17,11 @@ const featuredOpponents = FEATURED.map((slug) => opponents.find((o) => o.slug ==
   .filter((o) => o != null)
   .map((o) => ({ slug: o.slug, name: o.name, avatar: o.avatar, skill: o.skill }));
 
-// Devlog posts for the homepage teaser (the "how it's built" creator track).
-// Drafts are excluded in prod (mirrors the blog index rule), so the teaser only
-// ever shows live posts.
-const latestPosts = (
+// Devlog posts for the homepage teaser (the "how it's built" creator track),
+// shown in the same curated `order` the blog index uses (lowest first = the
+// author's featured sequence, not by date). Drafts are excluded in prod
+// (mirrors the blog index rule), so the teaser only ever shows live posts.
+const devlogPosts = (
   await getCollection('blog', ({ data }) => (import.meta.env.PROD ? !data.draft : true))
 )
   .filter((p) => p.data.track === 'Devlog')
@@ -54,5 +55,5 @@ const jsonLd = {
 ---
 
 <BaseLayout title={title} description={description} path="/" jsonLd={jsonLd} bare>
-  <LandingPage client:load featuredOpponents={featuredOpponents} latestPosts={latestPosts} />
+  <LandingPage client:load featuredOpponents={featuredOpponents} devlogPosts={devlogPosts} />
 </BaseLayout>
