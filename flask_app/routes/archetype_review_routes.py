@@ -412,12 +412,19 @@ def _aggregate_sim() -> dict:
     for r in rows:
         hands = r['hands']
         total += r['pf_decisions']
-        pf_call = r['postflop_call']
-        pf_agg = r['postflop_agg']
-        af = round(pf_agg / pf_call, 2) if pf_call else (None if pf_agg == 0 else 99.0)
-        # AFq = (bet+raise) / (bet+raise+call+fold). Aggregate postflop fold is
-        # the sum of the three street folds (not stored separately, by design).
+        # AF and AFq are derived from the per-street columns ONLY (all three —
+        # agg/call/fold — share a single accumulation timeline). The legacy
+        # aggregate postflop_agg/postflop_call counters are NOT used: they began
+        # accumulating ~20h before the per-street fold columns existed (migrations
+        # 20260608_1600 vs 20260609_1200), so mixing the full-history agg/call with
+        # the shorter-history folds under-weighted folds and inflated AFq for every
+        # archetype. Per-street agg == the old aggregate going forward, so nothing
+        # is lost.
+        pf_agg = r['flop_agg'] + r['turn_agg'] + r['river_agg']
+        pf_call = r['flop_call'] + r['turn_call'] + r['river_call']
         pf_fold = r['flop_fold'] + r['turn_fold'] + r['river_fold']
+        af = round(pf_agg / pf_call, 2) if pf_call else (None if pf_agg == 0 else 99.0)
+        # AFq = (bet+raise) / (bet+raise+call+fold) — folds in the denominator.
         afq_den = pf_agg + pf_call + pf_fold
         saw = r['saw_flop']
         sd = r['showdowns']
