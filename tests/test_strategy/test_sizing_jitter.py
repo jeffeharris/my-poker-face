@@ -4,7 +4,10 @@ Competitive feel improvement: when the controller passes a non-zero
 sizing_jitter to resolve_preflop_sizing / resolve_postflop_sizing, the
 returned raise-to amount is sampled uniformly from a band around the
 table's target instead of being deterministic. Zero EV cost (symmetric
-band) but breaks sizing tells.
+band) but breaks sizing tells. The jittered amount is then snapped to a
+natural chip increment (round_to_human_bet) so it reads like a person bet
+(300, not 287) — variety on round numbers, not a bot tell. Both are
+live-only (jitter>0); the deterministic sim/Baseline path stays exact.
 """
 
 from __future__ import annotations
@@ -17,9 +20,46 @@ import pytest
 
 from poker.strategy.action_mapper import (
     _compute_raise_to,
+    _nice_step,
     resolve_postflop_sizing,
     resolve_preflop_sizing,
+    round_to_human_bet,
 )
+
+
+class TestHumanRounding:
+    """The live (jittered) amount is snapped to a natural chip increment so it
+    reads like a person bet (300, not 287), not a bot tell."""
+
+    def test_rounds_to_clean_amounts_at_bb_100(self):
+        assert round_to_human_bet(287, 100) == 275  # open: BB/4 = 25 step
+        assert round_to_human_bet(312, 100) == 300
+        assert round_to_human_bet(743, 100) == 750  # 3-bet: BB/2 = 50 step
+        assert round_to_human_bet(1837, 100) == 1800  # 4-bet: BB step = 100
+
+    def test_clean_steps_across_blind_levels(self):
+        # BB/4 = 12.5 must snap to a CLEAN denomination (10), not 12.
+        assert round_to_human_bet(143, 50) == 140
+        assert round_to_human_bet(372, 50) == 375
+        assert round_to_human_bet(563, 200) == 550
+        # micro stakes: step floors at 1 chip
+        assert round_to_human_bet(7, 2) == 7
+
+    def test_nice_step_ladder(self):
+        assert _nice_step(12.5) == 10
+        assert _nice_step(25) == 25
+        assert _nice_step(50) == 50
+        assert _nice_step(0.5) == 1
+
+    def test_noop_without_big_blind(self):
+        # big_blind<=0 → plain integer rounding (the deterministic path stays exact)
+        assert round_to_human_bet(287.0, 0) == 287
+
+    def test_deterministic_path_is_exact_unchanged(self):
+        # No rng/jitter → no rounding even though the code path exists. The
+        # GTO/sim reference sizing must stay byte-exact.
+        assert _compute_raise_to(2.5, 100, 50, 10000, big_blind=100) == 250
+        assert _compute_raise_to(3.0, 250, 50, 10000, big_blind=100) == 750
 
 
 class TestComputeRaiseToJitter:
@@ -127,11 +167,11 @@ class TestResolvePreflopJitter:
         assert action == 'raise'
         assert amount == 300
 
-    def test_with_jitter_amount_varies_within_band(self):
+    def test_with_jitter_amount_varies_and_rounds(self):
         rng = random.Random(7)
-        state = _make_preflop_game_state()
+        state = _make_preflop_game_state()  # BB=100, min_raise=300
         amounts = set()
-        for _ in range(30):
+        for _ in range(60):
             _, amount = resolve_preflop_sizing(
                 'raise_3bb',
                 state,
@@ -140,9 +180,12 @@ class TestResolvePreflopJitter:
                 sizing_jitter=0.15,
             )
             amounts.add(amount)
-            # 3 BB = 300; ±15% band: [255, 345]; min_raise=200
-            assert 255 <= amount <= 345
-        assert len(amounts) > 5, "Expected meaningful variance"
+            # 3 BB = 300; ±15% band [255, 345] → snapped to 25-chip steps and
+            # clamped up to min_raise=300 → {300, 325, 350}. Live amounts are
+            # human-round multiples of the BB/4 step (no 287-style tells).
+            assert amount % 25 == 0, f"{amount} not a round 25-chip increment"
+            assert 300 <= amount <= 350
+        assert len(amounts) > 1, "Expected size variety (just on round numbers)"
 
     def test_fold_and_call_unaffected_by_jitter(self):
         state = _make_preflop_game_state()
@@ -174,11 +217,11 @@ class TestResolvePostflopJitter:
         assert action == 'raise'
         assert amount == 670
 
-    def test_jitter_bet_67_varies_within_band(self):
+    def test_jitter_bet_67_varies_and_rounds(self):
         rng = random.Random(11)
-        state = _make_postflop_game_state(pot_total=1000)
+        state = _make_postflop_game_state(pot_total=1000)  # BB=100
         amounts: List[int] = []
-        for _ in range(40):
+        for _ in range(60):
             _, amount = resolve_postflop_sizing(
                 'bet_67',
                 state,
@@ -187,10 +230,12 @@ class TestResolvePostflopJitter:
                 sizing_jitter=0.15,
             )
             amounts.append(amount)
-        # 670 ± 15% = [569, 770]
+        # 67% of 1000 = 670; ±15% band [569, 770] → snapped to 50-chip steps
+        # (the ~half-BB tier for a 5–15 BB bet): {550 … 800}. Human-round, varied.
         for a in amounts:
-            assert 569 <= a <= 770
-        assert len(set(amounts)) > 5
+            assert a % 50 == 0, f"{a} not a round 50-chip increment"
+            assert 500 <= a <= 850
+        assert len(set(amounts)) > 1
 
     def test_jitter_raise_postflop_clamps_to_legal_min(self):
         """If jitter would sample under min_raise, the clamp catches it."""
