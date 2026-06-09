@@ -230,7 +230,10 @@ Once episodes last long enough to matter, make them *legible and exploitable*:
   this is the third, in-the-moment verbal channel. Off => no block, no forced
   speech. Follow-up: suppress the fixed `narration_facts` `tilt_<type>` line when
   the telegraph fires (avoid the canned line co-occurring with the free-form one).
-- **Remove the dead `SizeContext.emotional_state` wire** (`sizing_tendencies.py:158`) — TODO.
+- **Remove the dead `SizeContext.emotional_state` wire** — ✅ DONE (2026-06-09).
+  It was forward-scaffolding for a never-built `tilt_escalation` sizing behavior
+  (`resolve_size_multiplier` never read it); removed the field + its construction
+  site, left a docstring note to re-add if `tilt_escalation` is ever built.
 
 ## Validation (harness-driven)
 

@@ -1139,7 +1139,6 @@ class TieredBotController(AIPlayerController):
             scenario=getattr(node, 'scenario', None),
             hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
             position=getattr(node, 'position', None),
-            emotional_state=getattr(emotional_state, 'state', None),
             big_blind=getattr(game_state, 'current_ante', 0),
         )
         size_multiplier = resolve_size_multiplier(self.sizing_personality, size_context)
