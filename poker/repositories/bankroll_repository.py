@@ -683,9 +683,13 @@ class BankrollRepository(BaseRepository):
             return stored_chips
         if derived != stored_chips:
             self._reconcile_player_cache(player_id, derived, conn=conn)
+            # Present-tense: the write-back rides the caller's read transaction
+            # and is not durable until that block commits. Claiming a completed
+            # "reconciled" here would misreport if the commit later rolls back;
+            # a rolled-back heal simply re-fires on the next read.
             logger.warning(
-                "[CHIP_CUSTODY] player bankroll cache reconciled player=%s "
-                "stored=%d derived=%d (ledger authoritative)",
+                "[CHIP_CUSTODY] player bankroll cache drift player=%s "
+                "stored=%d derived=%d — healing on read transaction (ledger authoritative)",
                 player_id,
                 stored_chips,
                 derived,
