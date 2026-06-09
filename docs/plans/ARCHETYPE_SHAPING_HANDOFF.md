@@ -2,10 +2,31 @@
 purpose: Handover for the archetype-shaping workstream — what's shipped, how to measure/tune, and the prioritized backlog with file refs so a fresh context can execute
 type: guide
 created: 2026-06-08
-last_updated: 2026-06-08
+last_updated: 2026-06-09
 ---
 
 # Archetype Shaping — Handover
+
+## Session update (2026-06-09b) — research-doc validation; believability is the next frontier
+
+Validated two external briefs ([[../vision/texas_hold_em_research_text_markdown]],
+[[../vision/poker_aggression_benchmarks_text_markdown]]) against the shipped system.
+Full writeup: `ARCHETYPE_SHAPING_FINDINGS.md` → "Research-doc validation & the
+believability thesis." Headline:
+
+- **Methodology is sound** — our formulas match PT4/HM3 opportunity denominators
+  (incl. the opener-conditioned fold-to-3bet/4-bet). Gaps: add **AFq** (AF can't
+  separate a fit-or-fold nit from a maniac), **WTSD/W$SD** (the station signature),
+  per-street AF → backlog **#11**.
+- **Band means mostly live-faithful** — online benchmarks are the *wrong*
+  population (live regs 3-bet more). **Keep tag/lag — do NOT lower them.** Two
+  corrections: **maniac 3-bet (36–52) is too high *sustained*** → lower baseline
+  ~20–25, make 30+ conditional (**#9**); **rock band is inverted** (looser than
+  nit, but the strategy makes it tighter) → rebuild ≤ nit (**#10**).
+- **The real gap is perceptibility, not numbers.** Stacked had great adaptation and
+  was *still* "readable in 40 hands" because it was monotonic + invisible — our
+  Finding 3 exactly. Highest-leverage work = surface the read + condition the
+  aggression (**#12**).
 
 ## Session update (2026-06-08c) — fold-to-3bet was a metric bug; depth-commit ruled out
 
@@ -215,6 +236,9 @@ the tight tier too. Now only a boundary WARN (was a FAIL earlier). Either trim i
 (lower `raise_share` on the standard chart's vs_open / base authoring — moves
 everyone, careful) or accept the WARN and widen tag's band to ~11–18 (a TAG
 legitimately 3-bets a polarized range facing opens). Recommend the latter.
+**Research backs the latter** ([[../vision/poker_aggression_benchmarks_text_markdown]]):
+a live TAG 3-betting ~16% facing an open is faithful (live reg ~13%, recreational
+higher) — don't trim the chart toward online numbers; widen the band.
 
 ### 6. Review-tool Phase 3 — c-bet / fold-to-cbet columns
 Currently empty. Architect's plan: source them from `opponent_observation_lifetime`
@@ -225,6 +249,11 @@ Currently empty. Architect's plan: source them from `opponent_observation_lifeti
 Execute `docs/plans/PREFLOP_SIZING_VARIETY.md`: P1 emit multiple raise-size tokens
 in the preflop charts, P2 engage the `SIZING_PERSONALITY` size gradient on them
 (maniac overbets, nit min-3bets), P3 add a "3-bet size" read to the review tool.
+**Per-archetype sizing character — P1/P2 are the substrate work now that raise
+amounts round cleanly (#246).** Research reinforces this as a *believability/tell*
+lever, not just variety: a maniac who overbets and a nit who min-3-bets *telegraph*
+their archetype through size — exactly the legible-style signal the aggression brief
+wants (see #12).
 
 ### 8. Config VERSIONING for the review tool (compare chart/knob versions)
 **Why:** the whole workstream is iterative tuning, but the review tool currently
@@ -248,6 +277,53 @@ place**, so they can't be compared across versions at all without a version axis
 - Review tool: a version selector + an A/B diff view (vN vs vN-1 per archetype/stat).
 **Near-term stopgap (no schema):** `chart_label` + decision timestamps already
 let you eyeball before/after a known deploy date — coarse but zero-build.
+
+### 9. Maniac 3-bet: cap the baseline, make extremity conditional
+Source: [[../vision/poker_aggression_benchmarks_text_markdown]]. Realized maniac
+3-bet (facing-open ~37) is above the realistic *sustained* ceiling (live maniac
+~15–25% even by expert estimate). **Don't just lower the mean** — lower the
+*baseline* to ~20–25 and let conditioning/tilt push it transiently into the 30s
+(#12), so it reads as a *state* not a flat constant. Touches
+`ARCHETYPE_TARGETS['maniac']['threebet']` + the maniac reraise split in
+`deviation_profiles.py`. Re-validate with `scripts/archetype_mixedfield_probe.py`.
+Note: tag/lag are live-faithful — this correction is **maniac-specific**.
+
+### 10. Rock band inversion
+`ARCHETYPE_TARGETS['rock']` (VPIP 15–22 / PFR 11–17) is looser + more aggressive
+than `nit` (10–16 / 8–13), but `deviation_profiles` makes rock *tighter* (looseness
+0.7 < nit 1.2, both on `tight_rfi`). The targets predict the opposite VPIP ordering
+from what the strategy produces → mis-flag. Rebuild rock band ≤ nit (VPIP ~10–14,
+lower PFR, bigger VPIP−PFR gap = the classic tight-passive rock), OR reconcile the
+strategy if "rock = tighter-but-harder-than-nit" is the intended definition. Confirm
+the produced ordering with the mixed-field probe before re-banding.
+
+### 11. Methodology: AFq + WTSD/W$SD + per-street AF
+Add to `archetype_review_routes._aggregate` + `cash_mode/archetype_stats` +
+`ARCHETYPE_TARGETS`:
+- **AFq** = (bet+raise)/(bet+raise+call+fold) — fixes the AF discriminator (AF
+  can't separate a fit-or-fold nit from a maniac; our nit AF band may be unhittable).
+- **WTSD** = showdowns / saw-flop, **W$SD** = won-at-showdown / showdowns — the
+  calling-station's most legible signature (high WTSD + low W$SD).
+- **per-street AF** — aggregate postflop AF hides flop-maniac/turn-passive texture.
+This also extends review-tool **#6** (the showdown family pairs naturally with the
+c-bet/fold-to-cbet columns sourced from `opponent_observation_lifetime`).
+
+### 12. Perceptibility & conditioning (the believability frontier — highest leverage)
+The unifier for Findings 1–3 + the Stacked lesson: adaptation that isn't *felt* is
+worthless (Stacked was "readable in 40 hands" despite world-class AI). Two halves:
+- **Surface the read** (cheap, do first): voice the exploitation-layer /
+  opponent-model read as `dramatic_sequence` callbacks (Nemesis/F.E.A.R.), and turn
+  the Finding-3 sample-gate ramp into an audible "figuring you out" arc (Alien).
+  Subsumes the parked nudge-display fix. See `docs/plans/TELLS_SYSTEM.md`,
+  `docs/plans/PREDATOR_LOADOUTS.md`.
+- **Condition the aggression**: modulate 3-bet/aggression by *opponent memory >
+  position > tilt-type > image > stack* (priority per the aggression brief) instead
+  of a flat per-archetype constant. Backlog **#4** (`_apply_hyper_passive` opener
+  guard) is a small correctness instance of opponent-conditioning. Tilt uses
+  Tendler's 7 types as triggers into the existing emotion + relationship layers; the
+  avatar must telegraph the spike so it's earned and readable. Playtest gates: ID'd
+  in <40 hands AND never surprises = too monotonic; no articulable exploit after
+  ~200 hands = too random.
 
 ## Independent / parked (diagnosed, not in scope of the above)
 
