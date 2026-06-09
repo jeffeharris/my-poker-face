@@ -128,37 +128,46 @@ before climbing out, so episodes *chain* (hothead 95th-pctile reached 70 hands,
 > per-episode "hands-tilted" counter in the recovery path; reset on climb-out.
 
 **FIT CONVERGED (2026-06-09, `experiments/measure_zone_distribution.py`):**
-`TILT_DRAG_FLOOR=0.20`, `exp=2.0`, `second_wind_K=15`, `accel≈0.45`, with a
-**realistic loss mix** (~21% of losses are composure-crushers, not the ~35% an
-earlier punishing mix used — most poker losses are small):
+`TILT_DRAG_FLOOR=0.30`, `exp=2.0`, `second_wind_K=15`, `accel≈0.45`, with a
+**middle loss mix** (~29% of losses are composure-crushers):
 
-| Band | median episode | %time tilt | 95p (tail) |
+| Band | %time tilt | median episode | 95p (tail) |
 |---|---|---|---|
-| stoic | ~1 hd | 0.0% | 4 |
-| composed | ~3 hd | 0.7% | 13 |
-| volatile | ~5 hd | 3.5% | 16 |
-| hothead | **12 hd** | **15.8%** | **18** |
+| monk | 0.0% | — | — |
+| stoic | 0.0% | — | — |
+| composed | 1.1% | 3 hd | 13 |
+| volatile | **5.9%** | 4 hd | 16 |
+| hothead | **17.7%** | 10 hd | 18 |
 
-This satisfies the design: a clean monotonic temperament spread, **hothead tilt is
-felt (12-hand episodes — readable/exploitable) but under 20% time and
-never-chronic** (tail capped at 18 by the second wind), and the composed/stoic
-bands tilt rarely and briefly (correct — they're composed). The earlier ~26% was
-an artifact of an over-punishing event mix, not the persistence model.
+This is the locked balance: a clean monotonic temperament spread, **hothead tilt
+felt (10-hand episodes, readable/exploitable) at <18% time and never-chronic**
+(tail capped at 18 by the second wind), volatile felt at ~6%, composed occasional,
+stoic/monk ≈ 0.
 
-Notes:
-- **Onset, not persistence, drives %time.** Dropping 26%→16% came from a *realism*
-  fix to event frequency (onset), with the drag/second-wind (persistence, episode
-  shape) unchanged. This confirmed the design's separation of concerns: drag sets
-  episode length, `K` caps the tail, the event/onset rate sets how *often*.
-- **%time is event-model-dependent** — the real in-game value depends on the actual
-  bad-beat frequency; the robust, transferable signals are episode length, the
-  per-band spread, and the bounded tail. Validate %time against real play once
-  ported.
-- The per-band episode-LENGTH targets only bind for bands that tilt often enough to
-  matter (volatile/hothead); for the rarely-tilting bands the median is a tiny-
-  sample artifact and is not a fit target.
-- `K=20` is an alternative (hothead ~18% time, slightly longer felt tail) if a bit
-  more persistence is wanted while staying under 20%.
+**The three knobs are separable (confirmed by the fit):**
+- **drag (`floor`, `exp`)** sets episode *length* and the length *spread* (lower
+  `exp` compresses; higher `floor` shortens),
+- **`K` (second wind)** caps the *tail*,
+- **onset (event rate/severity)** sets *how often* — the dominant %time lever.
+
+**The frontier (a real constraint, not a tuning miss):** %time is driven by
+*global* onset, so the mid/low bands can't be lifted without dragging the hothead
+end back up. Tuning explored:
+- `floor=0.30` (locked): hothead 17.7% / volatile 5.9% — safe margin, mid felt,
+  low bands light.
+- `floor=0.20`: volatile 7.2% (longer episodes) but hothead ~21% (over the line).
+
+**Stoic/monk ≈ 0% is intended, not a defect.** Their baseline composure (~0.7) sits
+far from the 0.40 line, so only a sustained cooler run tilts them — rare by design
+(they're the near-immune band). They *can* tilt (the reachability check: all 104
+personas can be held in tilt by a run); they rarely *do* in normal play, which is
+realistic. The `exp` knob compresses episode-length spread but cannot make a stoic
+*enter* tilt more often — that would require lowering their baseline (breaks the
+archetype) or global onset (raises everyone).
+
+**Caveat:** absolute %time is event-model-dependent (here: play_rate 0.30, middle
+mix). The transferable signals are the *spread shape*, episode length, and the
+bounded tail; **re-validate %time against real play once ported.**
 
 ### 3. Monk exceptions — designate 1–2 explicitly
 

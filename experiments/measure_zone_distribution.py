@@ -62,12 +62,12 @@ def _load_real_personas() -> Dict[str, dict]:
 # ── steady-state episodes under a balanced mix + recovery-policy prototypes ────
 
 WIN_MIX = {'win': 0.80, 'big_win': 0.15, 'successful_bluff': 0.05}
-# Realistic loss mix: most losses are SMALL (fold to a bet, lose a small pot).
-# Composure-crushers (big_loss/bad_beat/suckout/crippled) are the rare tail —
-# ~21% of losses, not the ~35% an earlier punishing mix used (which over-inflated
-# tilt ONSET and pushed hothead %time to ~26%).
-LOSS_MIX = {'loss': 0.72, 'big_loss': 0.12, 'bluff_called': 0.07,
-            'bad_beat': 0.04, 'got_sucked_out': 0.03, 'crippled': 0.02}
+# Loss mix tuned to a MIDDLE onset: ~29% of losses are composure-crushers
+# (big_loss/bad_beat/suckout/crippled). Punishing (~35%) over-tilted hotheads
+# (~26%); fully-soft (~21%) starved the mid bands (volatile 3.5%). This middle
+# keeps the mid bands felt while the exp/spread knob brings the hothead end down.
+LOSS_MIX = {'loss': 0.62, 'big_loss': 0.16, 'bluff_called': 0.09,
+            'bad_beat': 0.06, 'got_sucked_out': 0.04, 'crippled': 0.03}
 
 # A recovery policy is a per-hand fn(psy, tilt_streak) -> recovery_rate override
 # for the upcoming recover() call (None = use the persona's anchor rate).
@@ -180,6 +180,16 @@ TARGET_EPLEN = {
     'hothead <0.45': (12, 20),
 }
 
+# Per-band target %TIME tilted — the felt-frequency the design balances on. A
+# compressed, monotonic spread: mid bands stay felt, hothead under 20%, nobody
+# (bar the monk) at zero.
+TARGET_PCT = {
+    'stoic  0.78-90': (0.3, 2.0),
+    'composd 0.60-78': (1.5, 4.0),
+    'volatil 0.45-60': (5.0, 9.0),
+    'hothead <0.45': (10.0, 19.0),
+}
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -248,37 +258,37 @@ def main() -> None:
             res[b] = (_median(lens), _median(pcts), _pctile(lens, 0.95))
         return res
 
-    print('\n(2) FIT slow-recovery + second-wind — median episode length (hd) per (floor, K):')
-    print('    targets: stoic 2-4, composed 4-7, volatile 6-10, hothead 12-20; never-chronic = hot95p <=30')
+    print('\n(2) FIT — per-band %TIME tilted per (exp, floor, K). Targets:')
+    print('    stoic 0.3-2 / composed 1.5-4 / volatile 5-9 / hothead 10-19; never-chronic hot95p<=30')
     hdr = '  '.join(f'{b.split()[0]:>8s}' for b in target_bands)
-    print(f'  {"floor":>5s} {"K":>4s}   {hdr}   {"hits":>4s} {"hot%":>5s} {"hot95p":>6s}')
-    # exp fixed at 2.0 (prior sweep showed it needed for the spread); sweep floor x K
-    grid = [(f, k) for k in (None, 20, 15) for f in (0.30, 0.20)]
+    print(f'  {"exp":>4s} {"flr":>4s} {"K":>4s}   {hdr}   {"hits":>4s} {"hot95p":>6s}')
+    # exp compresses the episode-length (hence %time) spread; sweep it with floor x K.
+    grid = [(e, f, k) for e in (2.0, 1.5) for k in (20, 15) for f in (0.30, 0.20)]
     best = None
-    for floor, K in grid:
-        res = eval_config(make_drag(floor, 2.0, second_wind_k=K))
+    for exp, floor, K in grid:
+        res = eval_config(make_drag(floor, exp, second_wind_k=K))
         hits = sum(1 for b in target_bands
-                   if TARGET_EPLEN[b][0] <= res[b][0] <= TARGET_EPLEN[b][1])
-        hotpct, hot95 = res['hothead <0.45'][1], res['hothead <0.45'][2]
+                   if TARGET_PCT[b][0] <= res[b][1] <= TARGET_PCT[b][1])
+        hot95 = res['hothead <0.45'][2]
         chronic = hot95 > 30
-        cells = '  '.join(f'{res[b][0]:8.0f}' for b in target_bands)
-        print(f'  {floor:5.2f} {str(K):>4s}   {cells}   {hits:>2d}/4 {hotpct:4.0f}% {hot95:5.0f}'
+        cells = '  '.join(f'{res[b][1]:7.1f}%' for b in target_bands)
+        print(f'  {exp:4.1f} {floor:4.2f} {str(K):>4s}   {cells}   {hits:>2d}/4 {hot95:5.0f}'
               f'{" chronic?" if chronic else ""}')
-        score = (not chronic, hits, -hot95)  # prefer non-chronic, then more hits, then shorter tail
+        score = (not chronic, hits, -abs(res['hothead <0.45'][1] - 15.0))
         if best is None or score > best[0]:
-            best = (score, floor, K, res)
+            best = (score, exp, floor, K, res)
 
     assert best is not None
-    _, bf, bk, bres = best
-    print(f'\n  BEST FIT: floor={bf}, exp=2.0, second_wind_K={bk}')
-    print(f'  {"band":16s} {"med eplen":>9s} {"target":>9s} {"%time":>7s} {"95p len":>8s}')
+    _, be, bf, bk, bres = best
+    print(f'\n  BEST FIT: exp={be}, floor={bf}, second_wind_K={bk}')
+    print(f'  {"band":16s} {"%time":>7s} {"target":>9s} {"med ep":>7s} {"95p":>5s}')
     for b in target_bands:
         med, pct, p95 = bres[b]
-        lo, hi = TARGET_EPLEN[b]
-        ok = '✓' if lo <= med <= hi else '✗'
-        print(f'  {b:16s} {med:7.0f}hd {f"{lo}-{hi}":>9s} {pct:6.2f}% {p95:6.0f}hd {ok}')
-    print('\n  never-chronic check: hothead 95th-pctile episode length <=~30 (second wind caps the tail).')
-    print('  NOTE: absolute %time is event-model-dependent; episode LENGTH + spread are robust.')
+        lo, hi = TARGET_PCT[b]
+        ok = '✓' if lo <= pct <= hi else '✗'
+        print(f'  {b:16s} {pct:6.2f}% {f"{lo}-{hi}":>9s} {med:5.0f}hd {p95:4.0f} {ok}')
+    print('\n  exp compresses the spread (lower exp -> mid bands up, hothead down); floor/K = persistence/tail.')
+    print('  NOTE: absolute %time is event-model-dependent (validate vs real play); spread shape is robust.')
 
 
 if __name__ == '__main__':
