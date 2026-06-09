@@ -383,7 +383,9 @@ export function LandingPage() {
               <span>01</span> The Players
             </p>
             <h2 className="lp-h2">
-              The table is full of <em>personality</em>.
+              The table is full
+              <br />
+              of <em>personality</em>.
             </h2>
             <p className="lp-section__lead">
               Most poker AI plays a chart. Ours plays a person — with an ego, a mood, and a memory
