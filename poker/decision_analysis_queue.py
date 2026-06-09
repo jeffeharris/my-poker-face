@@ -27,7 +27,10 @@ def _get_redis():
         import redis  # local import — only needed when the queue is enabled
 
         url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        _redis = redis.from_url(url, socket_timeout=5)
+        # No socket_timeout: dequeue_batch uses a blocking BRPOP whose own timeout
+        # governs the idle wait. A socket_timeout <= the BRPOP timeout would abort
+        # the blocking read mid-wait (TimeoutError) every idle cycle.
+        _redis = redis.from_url(url)
     return _redis
 
 
