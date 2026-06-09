@@ -575,3 +575,14 @@ register(
         db_overridable=True,
     )
 )
+register(
+    FeatureFlag(
+        "TILT_TELEGRAPH_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt telegraph (TILT_EXCURSION_DESIGN.md §4): on entering a tilt episode, a probabilistic Layer-3 trigger that forces the sharp bot to speak and hands the LLM the tilt state + loose suggestions (own words, not a fixed line). Frequency-neutral; off => no telegraph block, no forced speech.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)

@@ -187,12 +187,20 @@ Once episodes last long enough to matter, make them *legible and exploitable*:
   the cliff with a taper, and reconsider direction (a tilted player arguably
   *over-applies* a read — "I KNOW he's bluffing" — rather than forgetting all
   reads).
-- **Telegraph** (the perceptibility win): the avatar already leaks tilt (tilt zone
-  ≠ poker-face), and post-hand commentary fires. Add a **probabilistic chat
-  trigger on *entering* tilt** that feeds the LLM the tilt *state* + loose
-  *suggestions* (not fixed lines — varied phrasing so it isn't memorizable). See
-  `docs/plans/PERCEPTIBILITY_CONDITIONING.md`.
-- **Remove the dead `SizeContext.emotional_state` wire** (`sizing_tendencies.py:158`).
+- **Telegraph** (the perceptibility win) — ✅ BUILT (2026-06-09), flag
+  `TILT_TELEGRAPH_ENABLED` (EXPERIMENTAL, off). On *entering* a tilt episode
+  (`_was_tilted` transition), with probability `TILT_TELEGRAPH_PROB=0.7`, the sharp
+  bot's Layer-3 path forces a spoken beat (overrides the chattiness gate, incl. an
+  otherwise-silent turn) and hands the LLM the tilt **cause** (from
+  `composure_state.pressure_source`) + a loose **suggestion** to react in its own
+  words — explicitly NOT a fixed line, so the read isn't memorizable. New
+  `ExpressionContext.tilt_telegraph` field + `_compute_tilt_telegraph` +
+  `tests/test_strategy/test_tilt_telegraph.py`. Frequency-neutral. The avatar
+  already leaks tilt (tilt zone ≠ poker-face) and post-hand commentary fires, so
+  this is the third, in-the-moment verbal channel. Off => no block, no forced
+  speech. Follow-up: suppress the fixed `narration_facts` `tilt_<type>` line when
+  the telegraph fires (avoid the canned line co-occurring with the free-form one).
+- **Remove the dead `SizeContext.emotional_state` wire** (`sizing_tendencies.py:158`) — TODO.
 
 ## Validation (harness-driven)
 

@@ -154,3 +154,11 @@ class ExpressionContext:
     # the persisted prestige stat. Flavor only — never feeds action selection.
     # Empty default preserves the baseline prompt.
     human_reputation_tone: str = ''
+
+    # Tilt telegraph (TILT_EXCURSION_DESIGN.md §4): a loose, character-driven
+    # SUGGESTION block built by the controller when the bot has just entered a
+    # tilt episode (probabilistic, flag-gated). It hands the LLM the tilt *state*
+    # + the cause and asks it to react in its own words — deliberately NOT a fixed
+    # line, so the read isn't memorizable. Frequency-neutral (Layer-3 only). Empty
+    # default preserves the baseline prompt.
+    tilt_telegraph: str = ''

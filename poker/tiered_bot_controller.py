@@ -225,6 +225,23 @@ def _fill_prior_action_source(
     return current_trace
 
 
+# Tilt telegraph (TILT_EXCURSION_DESIGN.md §4). On ENTERING a tilt episode, with
+# probability TILT_TELEGRAPH_PROB, hand the LLM the tilt cause + a loose
+# suggestion to react in its own words (not a fixed line). Cause phrases are keyed
+# on composure_state.pressure_source; {nemesis} is filled when known.
+TILT_TELEGRAPH_PROB = 0.7
+_TILT_CAUSE_PHRASES = {
+    'bad_beat': "just took a brutal bad beat",
+    'got_sucked_out': "just got sucked out on",
+    'big_loss': "just shipped a big pot the wrong way",
+    'losing_streak': "have been card-dead and losing for a while",
+    'nemesis_loss': "just lost another one to {nemesis}",
+    'crippled': "just got crippled down to a short stack",
+    'bluff_called': "just got your bluff snapped off",
+}
+_TILT_CAUSE_FALLBACK = "are rattled and off your game right now"
+
+
 class TieredBotController(AIPlayerController):
     """AI player using 3-layer tiered architecture.
 
@@ -4185,6 +4202,43 @@ class TieredBotController(AIPlayerController):
             capture_id=capture_id,
         )
 
+    def _compute_tilt_telegraph(self, emotional) -> str:
+        """TILT_EXCURSION_DESIGN.md §4: when the bot has just ENTERED a tilt
+        episode, return (with probability TILT_TELEGRAPH_PROB) a loose suggestion
+        block for the LLM to voice in its own words — NOT a fixed line. Tracks
+        `_was_tilted` so it fires once per entry, not every hand of a long
+        episode. Returns '' when the flag is off, not entering tilt, or the roll
+        misses. Frequency-neutral (Layer 3 only). A non-empty return is also the
+        signal to force a spoken beat (see caller)."""
+        try:
+            from core.feature_flags import is_enabled
+
+            if not is_enabled('TILT_TELEGRAPH_ENABLED'):
+                return ''
+        except Exception:
+            return ''
+        state = getattr(emotional, 'state', 'composed') if emotional is not None else 'composed'
+        now_tilted = state == 'tilted'
+        was_tilted = getattr(self, '_was_tilted', False)
+        self._was_tilted = now_tilted
+        if not now_tilted or was_tilted:
+            return ''  # not a fresh entry
+        if self.rng.random() >= TILT_TELEGRAPH_PROB:
+            return ''
+        composure_state = getattr(getattr(self, 'psychology', None), 'composure_state', None)
+        source = getattr(composure_state, 'pressure_source', '') if composure_state else ''
+        nemesis = getattr(composure_state, 'nemesis', None) if composure_state else None
+        cause = _TILT_CAUSE_PHRASES.get(source, _TILT_CAUSE_FALLBACK)
+        if '{nemesis}' in cause:
+            cause = cause.format(nemesis=nemesis or 'them')
+        return (
+            "=== You're rattled ===\n"
+            f"You {cause}, and it's gotten under your skin. Let it leak into your "
+            "table talk the way YOUR character would when tilted — your own words, "
+            "fresh each time, never a stock line. It might be needling, sulking, "
+            "going quiet then snapping, or stubborn bravado. Never quote stats or numbers."
+        )
+
     def _run_expression_layer(
         self,
         decision: Dict,
@@ -4252,7 +4306,13 @@ class TieredBotController(AIPlayerController):
             gate = self.compute_narration_gate(game_state, drama_level=drama_level)
             should_speak = gate.should_speak
             should_gesture = gate.should_gesture
-            if gate.fully_silent:
+            # Tilt telegraph (§4): on a fresh tilt entry, force a spoken beat so
+            # the spike is *read*, overriding the chattiness gate (incl. an
+            # otherwise-fully-silent turn). Empty string => no telegraph.
+            tilt_telegraph = self._compute_tilt_telegraph(emotional)
+            if tilt_telegraph:
+                should_speak = True
+            elif gate.fully_silent:
                 return None
 
             # Opponent narrative observations — surfaced so Layer 3
@@ -4365,6 +4425,7 @@ class TieredBotController(AIPlayerController):
                 relationship_context=relationship_context,
                 human_bio=human_bio_block,
                 human_reputation_tone=getattr(self, 'human_reputation_tone', '') or '',
+                tilt_telegraph=tilt_telegraph,
             )
 
             capture_id_holder = [None]

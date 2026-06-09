@@ -389,6 +389,14 @@ class ExpressionGenerator:
         if rep_block.strip():
             user_text = f"{user_text}\n\n{rep_block.strip()}"
 
+        # Append the tilt telegraph (TILT_EXCURSION_DESIGN.md §4) when present —
+        # a loose, character-driven suggestion to let a fresh tilt episode leak
+        # into the table talk in the bot's own words. Pre-formatted + gated by the
+        # controller; flavor only, never action selection.
+        tilt_block = getattr(ctx, 'tilt_telegraph', '') or ''
+        if tilt_block.strip():
+            user_text = f"{user_text}\n\n{tilt_block.strip()}"
+
         return system_text, user_text
 
     def _render_opponent_observations_block(self, ctx: ExpressionContext) -> str:
