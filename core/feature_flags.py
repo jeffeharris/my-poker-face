@@ -556,10 +556,10 @@ _STRAT = "poker.strategy"
 register(
     FeatureFlag(
         "TILT_CONDITIONING_ENABLED",
-        Stage.EXPERIMENTAL,
+        Stage.BETA,
         "Option-C tilt_conditioning layer: state-conditioned aggression spike in re-raise spots (inert until an archetype opts in via DeviationProfile.tilt_conditioning_cap).",
         owner=_STRAT,
-        dev=False,
+        dev=True,
         prod=False,
         db_overridable=True,
     )
