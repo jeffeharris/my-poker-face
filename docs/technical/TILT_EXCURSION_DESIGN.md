@@ -192,19 +192,27 @@ Once episodes last long enough to matter, make them *legible and exploitable*:
   the erratic-reads coupling). Off => state-driven legacy direction.
   `tests/test_strategy/test_tilt_signature.py`.
 
-  > **Validation status — mechanism unit-tested, behavioral sim INCONCLUSIVE.** The
-  > offset-direction flip is proven by unit tests. A quick on-vs-off aggregate sim
-  > (1,200 hands) did **not** cleanly confirm the behavioral effect and is not
-  > trustworthy: (a) the flag changes decisions so the two arms diverge into
-  > different game trajectories (the *composed*-state aggression differed across
-  > arms — proof the spots aren't comparable); (b) tilt correlates with losing →
-  > short stacks → forced all-ins (counted as "aggression"), which swamps the
-  > modest logit offset; (c) the penalty-zone tilt threshold (0.35) ≠ the
-  > emotional-state line (0.40) used in the ad-hoc query. A trustworthy behavioral
-  > check needs a **within-run paired probe** (toggle the offset on the *same*
-  > spot, measure the decision delta — see `reference_cash_sim_ab_paired`) plus an
-  > EV sim to confirm it doesn't harm/over-expose the bot. TODO before any
-  > default-on.
+  > **Validation status — behaviorally CONFIRMED by a paired probe.** Unit tests
+  > prove the offset-direction flip. A quick on-vs-off *aggregate* game sim was
+  > inconclusive (the flag changes decisions, so the arms diverge into different
+  > trajectories — the *composed*-state rates differed, proving the spots weren't
+  > comparable — and tilt→short-stack→forced all-ins swamp the offset). The clean
+  > check is `experiments/tilt_signature_probe.py`: a **within-spot paired probe**
+  > that runs both arms through the real `modify_strategy` on the *same* spot
+  > (`reference_cash_sim_ab_paired`), so only the flag differs. Result (104
+  > personas, intensity 0.5, aggression-mass Δ = on−off):
+  >
+  > | tier | Δagg tilted | Δagg shaken |
+  > |---|---|---|
+  > | risk-averse (<0.40) | **−0.058** (collapse) | +0.000 |
+  > | mid (0.40–0.60) | −0.040 | +0.047 |
+  > | risk-seeking (≥0.60) | +0.000 | **+0.171** (spew) |
+  >
+  > Exactly as designed: risk-averse collapse when tilted, risk-seekers spew when
+  > shaken, same-direction cells at 0.000. **Still pending:** an EV sim to confirm
+  > the magnitude is believable-not-catastrophic (the signature is *meant* to make
+  > tilted bots more exploitable — that's the point — so the EV check is "right
+  > amount," not "no regression"). Required before any default-on.
 - **Coupling: cliff → erratic taper** — ✅ BUILT (2026-06-09), flag
   `TILT_ERRATIC_READS_ENABLED` (EXPERIMENTAL, off). The old `_zone_to_tilt_factor`
   was a deterministic cliff (composed 1.0 / tilted 0.5 / shaken 0.0 — a shaken bot
