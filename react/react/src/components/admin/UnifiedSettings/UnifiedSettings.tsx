@@ -1,5 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Sliders, Database, HardDrive, DollarSign, Menu, Check, Palette, Bell } from 'lucide-react';
+import {
+  Sliders,
+  Database,
+  HardDrive,
+  DollarSign,
+  Menu,
+  Check,
+  Palette,
+  Bell,
+  MessageSquare,
+} from 'lucide-react';
 import { useViewport } from '../../../hooks/useViewport';
 import { MobileFilterSheet } from '../shared/MobileFilterSheet';
 import type { AlertState, CategoryConfig, SettingsCategory, UnifiedSettingsProps } from './types';
@@ -9,6 +19,7 @@ import { StorageSection } from './sections/StorageSection';
 import { AlertingSection } from './sections/AlertingSection';
 import { PricingSection } from './sections/PricingSection';
 import { AppearanceSection } from './sections/AppearanceSection';
+import { GameplaySection } from './sections/GameplaySection';
 import '../AdminShared.css';
 import './UnifiedSettings.css';
 
@@ -52,6 +63,12 @@ const CATEGORIES: CategoryConfig[] = [
     label: 'Alerting',
     description: 'Webhook for error/ledger/budget alerts',
     icon: <Bell size={20} />,
+  },
+  {
+    id: 'gameplay',
+    label: 'Gameplay',
+    description: 'How often AI players talk at the table',
+    icon: <MessageSquare size={20} />,
   },
 ];
 
@@ -116,6 +133,8 @@ export function UnifiedSettings({
         return <AppearanceSection />;
       case 'alerting':
         return <AlertingSection showAlert={showAlert} />;
+      case 'gameplay':
+        return <GameplaySection showAlert={showAlert} />;
       default:
         return null;
     }

@@ -12,7 +12,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.llm import CallType, LLMClient
-from core.llm.settings import get_default_model, get_default_provider
+from core.llm.settings import (
+    get_default_model,
+    get_default_provider,
+    get_drama_speak_score_weight,
+)
 
 from ..config import COMMENTARY_ENABLED, is_development_mode
 from ..hand_narrator import narrate_hand_recap
@@ -27,13 +31,16 @@ logger = logging.getLogger(__name__)
 # Post-hand speech gate. A player's visible commentary is gated on the hand's
 # narrative drama score (hand_score.score_hand — the same 0..100 scorer the
 # circuit journey uses to rank a session's hands), scaled by chattiness:
-#   prob = SCORE_WEIGHT * (drama/100) + CHAT_WEIGHT * (chattiness - 0.5)
+#   prob = score_weight * (drama/100) + CHAT_WEIGHT * (chattiness - 0.5)
 # Calibrated against real recorded hands (scripts/drama_gate_calibration.py):
-# ~44% of hands draw a speaker at chattiness 0.5 (vs ~96% under the old
-# per-signal rolls + unconditional "any pot >= 5bb -> speak" branch). Routine
-# hands score low and stay quiet; coolers / big all-ins / suckouts score high
-# and get talked about. Tune the speak rate here.
-DRAMA_SPEAK_SCORE_WEIGHT = 1.3
+# at score_weight 1.3, ~44% of hands draw a speaker at chattiness 0.5 (vs ~96%
+# under the old per-signal rolls + unconditional "any pot >= 5bb -> speak"
+# branch). Routine hands score low and stay quiet; coolers / big all-ins /
+# suckouts score high and get talked about.
+#
+# score_weight is the live "talk-volume dial" — read per hand-end from
+# app_settings (get_drama_speak_score_weight) so it's tunable from the admin
+# Settings UI without a restart. The two shaping constants below are fixed.
 DRAMA_SPEAK_CHAT_WEIGHT = 0.4
 DRAMA_SPEAK_MAX_PROB = 0.95
 
@@ -282,9 +289,8 @@ class CommentaryGenerator:
             logger.debug("drama scoring failed; staying quiet", exc_info=True)
             return False
 
-        prob = DRAMA_SPEAK_SCORE_WEIGHT * (drama / 100.0) + DRAMA_SPEAK_CHAT_WEIGHT * (
-            chattiness - 0.5
-        )
+        score_weight = get_drama_speak_score_weight()  # live admin dial
+        prob = score_weight * (drama / 100.0) + DRAMA_SPEAK_CHAT_WEIGHT * (chattiness - 0.5)
         prob = max(0.0, min(DRAMA_SPEAK_MAX_PROB, prob))
         speak = random.random() < prob
         logger.debug(
