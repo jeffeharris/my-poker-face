@@ -242,6 +242,17 @@ _TILT_CAUSE_PHRASES = {
 _TILT_CAUSE_FALLBACK = "are rattled and off your game right now"
 
 
+def _tilt_erratic_enabled() -> bool:
+    """Live read of TILT_ERRATIC_READS_ENABLED; False if the registry is
+    unavailable (sim/test isolation) so the off-path keeps the legacy cliff."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('TILT_ERRATIC_READS_ENABLED')
+    except Exception:
+        return False
+
+
 class TieredBotController(AIPlayerController):
     """AI player using 3-layer tiered architecture.
 
@@ -4082,20 +4093,39 @@ class TieredBotController(AIPlayerController):
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
-        """Map emotional_state.state -> 3-phase tilt_factor.
+        """Map emotional_state -> exploitation-strength multiplier (0..1).
 
-        composed -> 1.0 (full exploitation)
-        overconfident/tilted -> 0.5 (slight tilt, half-strength)
-        shaken/dissociated -> 0.0 (heavy tilt, no exploitation)
+        OFF (default): the original deterministic 3-phase cliff —
+        composed 1.0, tilted/overconfident 0.5, shaken/dissociated 0.0.
+
+        ON (TILT_ERRATIC_READS_ENABLED, §4): tilt makes the bot's reads ERRATIC
+        instead of cleanly halved. A single random draw per decision (memoized on
+        the threaded emotional_state object so every layer in one decision agrees)
+        tapers the multiplier with tilt intensity: `factor = 1 - intensity·U(0,1)`.
+        So a tilted bot sometimes trusts a read and sometimes loses the plot, with
+        no hard 0.0 cliff. Random, not character-keyed (for now). Changes
+        decisions -> flag-gated + sim-validated.
         """
         if emotional_state is None:
             return 1.0
         state = getattr(emotional_state, 'state', 'composed')
-        if state in ('shaken', 'dissociated'):
-            return 0.0
-        if state in ('tilted', 'overconfident'):
-            return 0.5
-        return 1.0
+        if state == 'composed':
+            return 1.0
+        if not _tilt_erratic_enabled():
+            if state in ('shaken', 'dissociated'):
+                return 0.0
+            if state in ('tilted', 'overconfident'):
+                return 0.5
+            return 1.0
+        # Erratic taper: one draw per decision, memoized on the emotional_state
+        # identity (it is computed once per decision and threaded to every layer).
+        cache = getattr(self, '_erratic_tilt_cache', None)
+        if cache is not None and cache[0] is emotional_state:
+            return cache[1]
+        intensity = float(getattr(emotional_state, 'intensity', 0.5) or 0.5)
+        factor = max(0.0, min(1.0, 1.0 - intensity * self.rng.random()))
+        self._erratic_tilt_cache = (emotional_state, factor)
+        return factor
 
     def _get_money_committed(self, game_state):
         """Per-opponent chips committed this hand.

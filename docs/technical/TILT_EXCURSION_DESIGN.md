@@ -182,11 +182,18 @@ Once episodes last long enough to matter, make them *legible and exploitable*:
   `compute_modifiers`): aggressive characters **spew** (over-aggression — the
   maniac case), passive characters **collapse** (over-fold / call-station). The
   signature is what an opponent learns to punish.
-- **Coupling: taper, not cliff.** The current `_zone_to_tilt_factor` *zeroes* the
-  whole exploitation layer when shaken (`tiered_bot_controller.py:4067`). Replace
-  the cliff with a taper, and reconsider direction (a tilted player arguably
-  *over-applies* a read — "I KNOW he's bluffing" — rather than forgetting all
-  reads).
+- **Coupling: cliff → erratic taper** — ✅ BUILT (2026-06-09), flag
+  `TILT_ERRATIC_READS_ENABLED` (EXPERIMENTAL, off). The old `_zone_to_tilt_factor`
+  was a deterministic cliff (composed 1.0 / tilted 0.5 / shaken 0.0 — a shaken bot
+  forgot *all* its reads instantly). Flag-on replaces it with an **erratic** taper:
+  `factor = 1 − intensity·U(0,1)`, one draw per decision (memoized on the threaded
+  `emotional_state` so every layer in a decision agrees), so a tilted bot's reads
+  go *unreliable* — sometimes trusts the read, sometimes loses the plot — with no
+  hard 0.0. Chosen **random, not character-keyed** (user call: "random for now");
+  this keeps the *dampening* direction (reads degrade on average, erratically), with
+  the *over-apply* alternative ("I KNOW he's bluffing") left as a future option.
+  Changes decisions → flag-gated; off = byte-identical legacy cliff; **needs sim
+  validation** before any default-on. `tests/test_strategy/test_tilt_erratic_reads.py`.
 - **Telegraph** (the perceptibility win) — ✅ BUILT (2026-06-09), flag
   `TILT_TELEGRAPH_ENABLED` (EXPERIMENTAL, off). On *entering* a tilt episode
   (`_was_tilted` transition), with probability `TILT_TELEGRAPH_PROB=0.7`, the sharp

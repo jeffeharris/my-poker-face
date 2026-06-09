@@ -586,3 +586,14 @@ register(
         db_overridable=True,
     )
 )
+register(
+    FeatureFlag(
+        "TILT_ERRATIC_READS_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt coupling (TILT_EXCURSION_DESIGN.md §4): replace the deterministic exploitation cliff (_zone_to_tilt_factor 1.0/0.5/0.0) with an ERRATIC random taper scaled by tilt intensity, so a tilted sharp bot's reads get unreliable (never a hard 0.0). Changes decisions; off => the legacy deterministic cliff.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
