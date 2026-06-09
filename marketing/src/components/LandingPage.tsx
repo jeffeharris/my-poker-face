@@ -377,20 +377,22 @@ export function LandingPage() {
 
       {/* ===================== THE PLAYERS (bento) ===================== */}
       <section className="lp-section" id="players">
-        <div className="lp-section__head">
-          <p className="lp-eyebrow" data-reveal>
-            <span>01</span> The Players
-          </p>
-          <h2 className="lp-h2" data-reveal>
-            The table is full of <em>personality</em>.
-          </h2>
-          <p className="lp-section__lead" data-reveal>
-            Most poker AI plays a chart. Ours plays a person — with an ego, a mood, and a memory of
-            what you just pulled on them.
-          </p>
-        </div>
-
         <div className="lp-bento">
+          <div className="lp-bento__head" data-reveal>
+            <p className="lp-eyebrow">
+              <span>01</span> The Players
+            </p>
+            <h2 className="lp-h2">
+              The table is full
+              <br />
+              of <em>personality</em>.
+            </h2>
+            <p className="lp-section__lead">
+              Most poker AI plays a chart. Ours plays a person — with an ego, a mood, and a memory
+              of what you just pulled on them.
+            </p>
+          </div>
+
           <article
             className="lp-tile lp-tile--feature"
             style={accent('var(--color-gold)')}
@@ -439,19 +441,6 @@ export function LandingPage() {
             </div>
           </article>
 
-          <article className="lp-tile" style={accent('var(--color-emerald)')} data-reveal>
-            <span className="lp-tile__glyph" aria-hidden="true">
-              ♣
-            </span>
-            <div className="lp-tile__body">
-              <h3 className="lp-tile__title">Table talk</h3>
-              <p className="lp-tile__text">
-                Needle them into calling, get under their skin, or just trade banter. What you say
-                lands differently on every personality.
-              </p>
-            </div>
-          </article>
-
           <article className="lp-tile" style={accent('var(--color-sapphire)')} data-reveal>
             <span className="lp-tile__glyph lp-tile__glyph--target" aria-hidden="true">
               ◎
@@ -462,6 +451,19 @@ export function LandingPage() {
                 Every opponent has strengths — and a leak or two. Watch how they play, uncover the
                 crack, and turn their own pattern against them. Figuring out who you&apos;re really
                 up against is the whole game.
+              </p>
+            </div>
+          </article>
+
+          <article className="lp-tile" style={accent('var(--color-emerald)')} data-reveal>
+            <span className="lp-tile__glyph" aria-hidden="true">
+              ♣
+            </span>
+            <div className="lp-tile__body">
+              <h3 className="lp-tile__title">Table talk</h3>
+              <p className="lp-tile__text">
+                Needle them into calling, get under their skin, or just trade banter. What you say
+                lands differently on every personality.
               </p>
             </div>
           </article>

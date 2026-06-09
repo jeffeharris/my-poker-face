@@ -244,11 +244,11 @@ export function MobilePokerTable({
       }
     }
     clearTournamentResult();
-    // Call onBack if available, otherwise reload
+    // Call onBack if available, otherwise reload back to the menu
     if (onBack) {
       onBack();
     } else {
-      window.location.href = '/';
+      window.location.href = '/menu';
     }
   }, [gameId, clearTournamentResult, onBack]);
 
