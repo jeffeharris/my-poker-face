@@ -54,9 +54,6 @@ const InstallPrompt = lazy(() =>
 const AdminRoutes = lazy(() =>
   import('./components/admin/AdminRoutes').then((m) => ({ default: m.AdminRoutes }))
 );
-const LandingPage = lazy(() =>
-  import('./components/landing').then((m) => ({ default: m.LandingPage }))
-);
 const Lobby = lazy(() => import('./components/cash/Lobby').then((m) => ({ default: m.Lobby })));
 const TournamentPage = lazy(() =>
   import('./components/tournament/TournamentPage').then((m) => ({ default: m.TournamentPage }))
@@ -749,12 +746,18 @@ function App() {
               }
             />
 
-            {/* Landing page and fallback */}
+            {/* Root + fallback. The public landing page is the standalone Astro
+                marketing site (served at / by the Caddy edge); the SPA only sees
+                these routes when reached client-side (e.g. an installed PWA, or a
+                stray in-app URL), so send guests to login rather than the pitch. */}
             <Route
               path="/"
-              element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />}
+              element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />}
             />
-            <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
+            <Route
+              path="*"
+              element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />}
+            />
           </Routes>
         </Suspense>
       </ErrorBoundary>
