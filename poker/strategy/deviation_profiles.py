@@ -244,10 +244,35 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
     # the field (its VPIP shares the loose envelope with LAG; the wildness shows
     # in aggression). Global aggression stays at the priced ceiling (postflop AF
     # is the maniac's whole identity — the field's wildest). The facing-raise
-    # SPLIT (reraise_*) pulls the preflop 3-bet/4-bet wars down off the chart
-    # floor (~30%) without touching that postflop wildness — at the old global
-    # 2.2 the realized facing-open 3-bet hit ~64% (target 36–52). Looseness no
-    # longer boosts raise (Knob 1b). See ARCHETYPE_SHAPING_FINDINGS.md.
+    # SPLIT (reraise_*) pulls the preflop 3-bet/4-bet wars down toward the chart
+    # floor without touching that postflop wildness. Looseness no longer boosts
+    # raise (Knob 1b). See ARCHETYPE_SHAPING_FINDINGS.md.
+    #
+    # #9 / PERCEPTIBILITY_CONDITIONING.md Phase 3 — BASELINE LOWERED + tilt opt-in.
+    # The believability thesis: a high frequency is realistic; a *constant* high
+    # frequency is a caricature. Research puts a live maniac's *sustained* facing-
+    # open 3-bet at ~15–25% (expert estimate), so the old ~37 baseline read as a
+    # flat caricature. We lower the baseline as far as the cap can pull it and let
+    # the tilt_conditioning layer push it transiently into the 30s/low-40s, so
+    # 30+ reads as a *state* (a fresh bad-beat / loss), not a constant.
+    #   - reraise_max_per_action_shift 0.08→0.01 (the binding lever) + scale
+    #     0.8→0.4. 4k mixed: 3-bet 36.4→30.0, 4-bet 40.2→31.8 (both still in band;
+    #     4-bet was at the ceiling, now mid-band). VPIP/PFR/AF/all_in unchanged
+    #     (the split is isolated to facing-raise nodes).
+    #   - FLOOR caveat: the maniac's loose chart's OWN re-raise mass is ~29–30%
+    #     combo-weighted (cap=0.0 floors 3-bet at 29.4), so the ~20–25 target is
+    #     NOT reachable via the cap alone — it would need a chart change, and the
+    #     loose chart is SHARED with spewy_fish/maniac_overbluff (DON'T touch it).
+    #     ~30 is the lowest cleanly-achievable baseline; the band is re-set to it.
+    #     Closing the last ~5pt to 25 is deferred (a maniac-only loose chart, #5).
+    #   - tilt_conditioning_cap 0.35 + the 6 aggressive Tendler-type rules: when
+    #     freshly tilted by a concrete CAUSE (bad_beat/got_sucked_out/big_loss/
+    #     losing_streak/nemesis_loss/crippled) the conditioner lifts re-raise-spot
+    #     aggression up to +0.35 logits, pushing 3-bet from the ~30 baseline into
+    #     the 30s/low-40s (a transient state that recovers as composure recovers).
+    #     GATED by TILT_CONDITIONING_ENABLED (off by default), so the flag-OFF
+    #     default = the new ~30 baseline above (byte-identical to flag-off + inert).
+    #     See poker/strategy/tilt_conditioning.py.
     'maniac': DeviationProfile(
         max_kl=1.2,
         max_per_action_shift=0.35,
@@ -255,14 +280,11 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.2,
         risk_scale=1.6,
         ego_fold_penalty=0.60,
-        # reraise split re-tuned against the opener-conditioned metric (#244):
-        # the contaminated metric read maniac's 4-bet as ~22 (in band); the clean
-        # metric was 48.5 (band 24-40, FAIL). Drop the CAP 0.18→0.08 (keep scale
-        # high to protect the 3-bet) → 6k mixed: 4-bet 48.5→39.0 (now in band) +
-        # 3-bet 47.2→37.3 (band 36-52). The loose chart is SHARED (spewy_fish /
-        # maniac_overbluff), so the cap — not a chart trim — is the maniac-only lever.
-        reraise_aggression_scale=0.8,
-        reraise_max_per_action_shift=0.08,
+        reraise_aggression_scale=0.4,
+        reraise_max_per_action_shift=0.01,
+        # tilt opt-in (#9 / Phase 3): cap + rules assigned at the bottom of the
+        # module (MANIAC_TILT_RULES) to avoid the deviation_profiles <-
+        # tilt_conditioning circular import. tilt_conditioning_cap is set there too.
     ),
     # Balanced defender (measurement only): the apex anti-aggression reg, to test
     # whether a competent DEFENSE neutralizes the maniac's edge (the field-overfold
@@ -316,6 +338,48 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         spot_tendencies=(('over_bluff', 0.55),),
     ),
 }
+
+
+# ── Maniac tilt opt-in (#9 / PERCEPTIBILITY_CONDITIONING.md Phase 3) ──────────
+# The maniac is the first (and only) archetype opted into the tilt_conditioning
+# layer. The import is deferred to HERE (the bottom of the module, after the
+# DeviationProfile class AND the DEVIATION_PROFILES dict are fully defined) to
+# break the circular import: tilt_conditioning imports DeviationProfile from this
+# module at its top, so we cannot import it at OUR top — but by the time this
+# line runs, DeviationProfile is bound, so tilt_conditioning loads cleanly.
+#
+# Rules: the 6 AGGRESSIVE Tendler-type rules (bad_beat, got_sucked_out, big_loss,
+# losing_streak, nemesis_loss, crippled). bluff_called is registered with
+# magnitude 0.0 (V1 conservative — telegraphable but no shift) so we EXCLUDE it
+# from the opt-in (a caught bluff shouldn't spike the maniac's 3-bet).
+#
+# Cap 0.35: sized so a forced EXTREME tilt (intensity 0.95 on every decision —
+# the worst case) lifts the ~30 baseline 3-bet/4-bet into the low-40s (probe:
+# 3-bet 30.6→41.4, 4-bet 29.0→41.9), a transient STATE that recovers as composure
+# recovers. Bounded (never absurd) — the per-rule max_magnitude (0.5–0.6) is
+# clamped down to this cap. Real tilt is intermittent (not every decision at 0.95),
+# so realized session spikes land in the 30s/low-40s. See
+# scripts/tilt_conditioning_probe.py. dataclasses.replace keeps every other field.
+import dataclasses as _dataclasses  # noqa: E402  (deferred import, see above)
+
+from .tilt_conditioning import TILT_TYPE_RULES as _TILT_TYPE_RULES  # noqa: E402
+
+_MANIAC_AGGRESSIVE_TILT_TYPES = (
+    'bad_beat',
+    'got_sucked_out',
+    'big_loss',
+    'losing_streak',
+    'nemesis_loss',
+    'crippled',
+)
+MANIAC_TILT_RULES: Tuple['TiltScenarioRule', ...] = tuple(
+    _TILT_TYPE_RULES[t] for t in _MANIAC_AGGRESSIVE_TILT_TYPES
+)
+DEVIATION_PROFILES['maniac'] = _dataclasses.replace(
+    DEVIATION_PROFILES['maniac'],
+    tilt_conditioning_cap=0.35,
+    tilt_scenario_rules=MANIAC_TILT_RULES,
+)
 
 
 # Width-tier preflop table per archetype profile (filename in

@@ -102,14 +102,43 @@ the perceptibility win the nudge-display was reaching for.
 
 ---
 
-## Phase 2 — Condition the aggression (the full Option-C `tilt_conditioning` layer) ✅ BUILT (infra; maniac opt-in pending Phase 3) (2026-06-10)
+## Phase 2 — Condition the aggression (the full Option-C `tilt_conditioning` layer) ✅ BUILT (infra) (2026-06-10)
 
-**Status: the layer + flag + all Tendler-type rule definitions are built, but
-INERT by default** — every shipped `DeviationProfile` keeps
-`tilt_conditioning_cap=0.0` and `tilt_scenario_rules=()`, so flag-off AND
-no-archetype-opted-in is **byte-identical** to current behaviour (probe
-confirmed, md5 identical before/after at 9k hands). Phase 3 (separate) opts
-maniac in + lowers its baseline.
+**Status: the layer + flag + all Tendler-type rule definitions are built**,
+INERT by default for every archetype EXCEPT the maniac (opted in by Phase 3
+below) — flag-off AND no-archetype-opted-in is **byte-identical** to pre-layer
+behaviour (probe confirmed, md5 identical before/after at 9k hands).
+
+### Phase 3 (#9) — maniac baseline + tilt opt-in ✅ BUILT (2026-06-10)
+
+The maniac is the **first (and only) archetype opted into the layer**, and its
+baseline 3-bet was lowered so 30+ reads as a tilt STATE not a constant (the
+believability thesis, applied):
+
+- **Baseline lowered** (`deviation_profiles.py['maniac']`):
+  `reraise_max_per_action_shift` 0.08→**0.01**, `reraise_aggression_scale`
+  0.8→**0.4**. 6k mixed-field: facing-open **3-bet 36.4→30.1, 4-bet 40.2→29.5**
+  (both back in the re-set bands; 4-bet was at the ceiling). VPIP/PFR/AF/all_in
+  unchanged (the split is isolated to facing-raise nodes) — maniac stays distinct
+  from lag.
+- **20–25 NOT reached — chart-floored at ~30, deferred.** The shared loose chart's
+  own re-raise mass is ~29–30% combo-weighted (cap=0.0 floors 3-bet at 29.4), so
+  the cap can't pull it below ~30; closing to 25 needs a maniac-only loose chart
+  (folds into backlog #5, out of scope — the loose chart is SHARED with
+  spewy_fish/maniac_overbluff).
+- **Tilt opt-in**: `tilt_conditioning_cap=0.35` + the 6 aggressive Tendler rules
+  (bad_beat/got_sucked_out/big_loss/losing_streak/nemesis_loss/crippled;
+  bluff_called excluded — V1 no-op). GATED by `TILT_CONDITIONING_ENABLED` (off
+  everywhere), so flag-OFF default = the ~30 baseline. Tilt-probe (flag on):
+  composed = baseline (3-bet 30.6, tilt_fired=0); EXTREME forced bad_beat tilt =
+  **3-bet 30.6→41.4 / 4-bet 29.0→41.9** (low-40s, cap-bounded, recovers).
+- **Re-band** (`archetype_targets.py['maniac']`): threebet 36-52→**26-34**, fourbet
+  24-40→**26-38**, fold_to_3bet 15-35→**15-40**. Bands describe the flag-OFF
+  default; tilt-state spikes exceed them by design (the conditioned tail, noted in
+  a code comment).
+- Tests: the inert/byte-identical invariant now excludes the maniac + 5 positive
+  maniac opt-in tests. Full suite 8276 passed; tsc clean. Probes (gitignored):
+  `scripts/maniac_reraise_sweep.py`, `scripts/tilt_conditioning_probe.py`.
 
 **Files:**
 - `poker/strategy/tilt_conditioning.py` (new) — `TiltScenarioRule` (frozen),

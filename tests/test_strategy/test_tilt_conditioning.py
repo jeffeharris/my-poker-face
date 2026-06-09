@@ -1,19 +1,21 @@
-"""Tests for the Phase-2 tilt_conditioning layer (PERCEPTIBILITY_CONDITIONING.md).
+"""Tests for the tilt_conditioning layer (PERCEPTIBILITY_CONDITIONING.md).
 
-Phase 2 is INFRASTRUCTURE that is inert by default — every shipped archetype
-keeps `tilt_conditioning_cap == 0.0`, so with the flag off OR no archetype opted
-in the layer is a byte-identical no-op. These tests lock:
+Phase 2 built the layer as INFRASTRUCTURE, inert by default. Phase 3 (#9) opts
+the MANIAC in (cap 0.35 + the 6 aggressive Tendler rules) and lowers its
+baseline; every OTHER archetype stays inert. These tests lock:
 
   - each Tendler tilt type selects the correct rule,
   - the cap clamp holds (offset never exceeds tilt_conditioning_cap),
   - composed state / flag-off / inert profile = no-op,
   - a synthetic opted-in profile + matching rule actually shifts the
-    distribution (proves the mechanism without opting a real archetype in),
+    distribution,
   - preflop vs postflop scenario gating,
   - the double-count guard (this layer is disjoint from compute_trait_offsets'
     poise-gated emotional term),
-  - the byte-identical invariant across all real archetypes with default
-    profiles.
+  - the byte-identical invariant across every STILL-INERT archetype (all but the
+    maniac), and
+  - the Phase-3 maniac opt-in: it spikes in re-raise spots when tilted, is
+    byte-identical when composed, and doesn't fire at an RFI node.
 """
 
 from types import SimpleNamespace
@@ -376,21 +378,30 @@ def test_double_count_guard_disjoint_from_emotional_shift_path():
     assert t_low.inputs['magnitude'] == t_high.inputs['magnitude'] == pytest.approx(0.05)
 
 
-# ── Phase-2 byte-identical invariant across real archetypes ──────────────────
+# ── Byte-identical invariant across the still-inert real archetypes ───────────
+#
+# Phase 3 (#9 / PERCEPTIBILITY_CONDITIONING.md) opts the MANIAC in
+# (tilt_conditioning_cap > 0 + the 6 aggressive Tendler rules), so the maniac is
+# DELIBERATELY excluded from the inert invariant below — its opt-in is locked by
+# the positive tests in the next block. EVERY OTHER archetype must stay inert
+# (byte-identical flag-off behavior — only the maniac profile moved).
+_OPTED_IN = {'maniac'}
+_STILL_INERT = sorted(name for name in DEVIATION_PROFILES if name not in _OPTED_IN)
 
 
-@pytest.mark.parametrize('name', sorted(DEVIATION_PROFILES))
-def test_every_real_archetype_profile_is_inert(name):
-    """Every shipped archetype keeps the layer inert (cap 0.0 / empty rules)."""
+@pytest.mark.parametrize('name', _STILL_INERT)
+def test_every_other_archetype_profile_is_inert(name):
+    """Every non-opted-in archetype keeps the layer inert (cap 0.0 / empty rules)."""
     profile = DEVIATION_PROFILES[name]
     assert profile.tilt_conditioning_cap == 0.0
     assert profile.tilt_scenario_rules == ()
 
 
-@pytest.mark.parametrize('name', sorted(DEVIATION_PROFILES))
-def test_real_archetype_is_byte_identical_under_tilt(name):
-    """With a default profile, the layer is a byte-identical no-op even on a
-    fully-tilted state at a re-raise node (the Phase-2 guarantee)."""
+@pytest.mark.parametrize('name', _STILL_INERT)
+def test_other_archetype_is_byte_identical_under_tilt(name):
+    """With a non-opted-in profile, the layer is a byte-identical no-op even on a
+    fully-tilted state at a re-raise node (the invariant Phase 3 preserves for
+    every archetype EXCEPT the maniac)."""
     profile = DEVIATION_PROFILES[name]
     emo, comp = _tilted()
     strat = _strat()
@@ -406,6 +417,91 @@ def test_real_archetype_is_byte_identical_under_tilt(name):
     assert new is strat
     assert not trace.fired
     assert new.action_probabilities == strat.action_probabilities
+
+
+# ── Phase-3 maniac opt-in (#9) ────────────────────────────────────────────────
+
+
+def test_maniac_is_opted_into_tilt_conditioning():
+    """The maniac carries a non-zero cap + the 6 aggressive Tendler rules."""
+    profile = DEVIATION_PROFILES['maniac']
+    assert profile.tilt_conditioning_cap == pytest.approx(0.35)
+    rule_types = {r.tilt_type for r in profile.tilt_scenario_rules}
+    assert rule_types == {
+        'bad_beat',
+        'got_sucked_out',
+        'big_loss',
+        'losing_streak',
+        'nemesis_loss',
+        'crippled',
+    }
+    # bluff_called (V1 conservative no-op) is intentionally NOT opted in.
+    assert 'bluff_called' not in rule_types
+
+
+@pytest.mark.parametrize(
+    'source',
+    ['bad_beat', 'got_sucked_out', 'big_loss', 'losing_streak', 'nemesis_loss', 'crippled'],
+)
+def test_maniac_tilt_spikes_aggression_in_reraise_spot(source):
+    """A freshly-tilted maniac amplifies aggression at a preflop re-raise node,
+    bounded by its cap (the conditioned tilt-STATE spike)."""
+    profile = DEVIATION_PROFILES['maniac']
+    emo, comp = _tilted(source=source)
+    strat = _strat()
+    new, trace = apply_tilt_conditioning(
+        strat,
+        ['fold', 'call', 'raise'],
+        emo,
+        comp,
+        _reraise_node(),
+        profile.tilt_scenario_rules,
+        profile,
+    )
+    assert trace.fired
+    assert trace.reason_code == f'tilt_{source}'
+    assert new.action_probabilities['raise_3x'] > strat.action_probabilities['raise_3x']
+    # bounded by the maniac's cap.
+    assert _max_moved(strat, new) <= profile.tilt_conditioning_cap + 1e-9
+
+
+def test_maniac_is_byte_identical_when_composed():
+    """A COMPOSED maniac (no tilt) is a byte-identical no-op — the flag-on,
+    no-tilt path must equal the flag-off baseline (the layer only fires on a
+    concrete tilt cause)."""
+    profile = DEVIATION_PROFILES['maniac']
+    strat = _strat()
+    new, trace = apply_tilt_conditioning(
+        strat,
+        ['fold', 'call', 'raise'],
+        SimpleNamespace(state='composed', intensity=0.0),
+        SimpleNamespace(pressure_source=''),
+        _reraise_node(),
+        profile.tilt_scenario_rules,
+        profile,
+    )
+    assert new is strat
+    assert not trace.fired
+    assert new.action_probabilities == strat.action_probabilities
+
+
+def test_maniac_tilt_does_not_fire_at_rfi_node():
+    """The maniac's rules gate on preflop_reraise; an RFI (open) node — not a
+    re-raise spot — is a no-op even when tilted."""
+    profile = DEVIATION_PROFILES['maniac']
+    emo, comp = _tilted()
+    strat = _strat()
+    new, trace = apply_tilt_conditioning(
+        strat,
+        ['fold', 'call', 'raise'],
+        emo,
+        comp,
+        _rfi_node(),
+        profile.tilt_scenario_rules,
+        profile,
+    )
+    assert new is strat
+    assert not trace.fired
 
 
 def test_trace_validates_against_schema():

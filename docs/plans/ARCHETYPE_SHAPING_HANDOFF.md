@@ -2,7 +2,7 @@
 purpose: Handover for the archetype-shaping workstream — what's shipped, how to measure/tune, and the prioritized backlog with file refs so a fresh context can execute
 type: guide
 created: 2026-06-08
-last_updated: 2026-06-09
+last_updated: 2026-06-10
 ---
 
 # Archetype Shaping — Handover
@@ -325,15 +325,43 @@ place**, so they can't be compared across versions at all without a version axis
 **Near-term stopgap (no schema):** `chart_label` + decision timestamps already
 let you eyeball before/after a known deploy date — coarse but zero-build.
 
-### 9. Maniac 3-bet: cap the baseline, make extremity conditional
-Source: [[../vision/poker_aggression_benchmarks_text_markdown]]. Realized maniac
-3-bet (facing-open ~37) is above the realistic *sustained* ceiling (live maniac
-~15–25% even by expert estimate). **Don't just lower the mean** — lower the
-*baseline* to ~20–25 and let conditioning/tilt push it transiently into the 30s
-(#12), so it reads as a *state* not a flat constant. Touches
-`ARCHETYPE_TARGETS['maniac']['threebet']` + the maniac reraise split in
-`deviation_profiles.py`. Re-validate with `scripts/archetype_mixedfield_probe.py`.
-Note: tag/lag are live-faithful — this correction is **maniac-specific**.
+### 9. ~~Maniac 3-bet: cap the baseline, make extremity conditional~~ ✅ DONE (2026-06-10) — floored at ~30 (not 20-25; chart-bound)
+Source: [[../vision/poker_aggression_benchmarks_text_markdown]]. The old realized
+maniac facing-open 3-bet (~37) was above the realistic *sustained* ceiling (live
+maniac ~15–25% by expert estimate) → read as a flat caricature. Implemented as
+PERCEPTIBILITY_CONDITIONING.md **Phase 3** (the two halves):
+
+- **Baseline lowered** (`deviation_profiles.py['maniac']`): `reraise_max_per_action_shift`
+  0.08→**0.01** + `reraise_aggression_scale` 0.8→**0.4** (the cap is the binding
+  lever). 6k mixed-field: **3-bet 36.4→30.1, 4-bet 40.2→29.5** (both in the re-set
+  bands; 4-bet was at the ceiling, now mid-band). VPIP 48.8 / PFR 36.1 / AF 4.71 /
+  all_in 4.7 — **UNCHANGED** (the split is isolated to facing-raise nodes), so the
+  maniac stays distinct from lag (VPIP 49 vs 36, PFR 36 vs 25, AF 4.7 vs 3.2).
+- **FLOOR caveat — 20-25 NOT reached, deferred.** The maniac's loose chart's OWN
+  re-raise mass is ~29–30% combo-weighted (cap=0.0 floors 3-bet at 29.4 in the
+  sweep), so ~30 is the lowest cleanly-achievable baseline via the cap. Closing the
+  last ~5pt to 25 needs a **chart change**, and the loose chart is SHARED with
+  spewy_fish/maniac_overbluff — so it's a maniac-only loose chart (folds into #5),
+  **out of scope** here. The band was re-set to the achieved baseline.
+- **Tilt opt-in** (the "make 30+ a *state*" half): the maniac is the first archetype
+  opted into the Phase-2 `tilt_conditioning` layer — `tilt_conditioning_cap=0.35` +
+  the 6 aggressive Tendler rules (bad_beat/got_sucked_out/big_loss/losing_streak/
+  nemesis_loss/crippled; bluff_called excluded — V1 no-op). GATED by
+  `TILT_CONDITIONING_ENABLED` (off everywhere by default), so the flag-OFF default
+  IS the ~30 baseline. `scripts/tilt_conditioning_probe.py` (flag on): composed
+  maniac = baseline (3-bet 30.6, tilt_fired=0); EXTREME forced bad_beat tilt =
+  **3-bet 30.6→41.4, 4-bet 29.0→41.9** (low-40s, bounded by the cap, recovers as
+  composure recovers). So 30+ now reads as a tilt STATE, not a constant.
+- **Re-band** (`ARCHETYPE_TARGETS['maniac']`): threebet 36-52→**26-34**, fourbet
+  24-40→**26-38**, fold_to_3bet 15-35→**15-40** (lowered facing-raise aggression
+  → folds-to-3bet a touch more as the opener — a correct consequence). The bands
+  describe the flag-OFF default; tilt-state spikes exceed them by design (noted in
+  a code comment). tag/lag were left untouched (live-faithful).
+- Tests: `test_tilt_conditioning.py` updated — the inert/byte-identical invariant
+  now excludes the maniac (`_STILL_INERT`), + 5 positive maniac opt-in tests
+  (spikes in re-raise spot per type, byte-identical when composed, no-fire at RFI).
+  Full suite **8276 passed, 0 failed**; tsc clean. Probes (gitignored):
+  `maniac_reraise_sweep.py`, `tilt_conditioning_probe.py`.
 
 ### 10. ~~Rock band inversion~~ ✅ DONE (2026-06-09, REVISED) — Option A (true tight-passive)
 **Decision:** Option A — make rock the classic TIGHT-PASSIVE archetype (not just a

@@ -145,12 +145,26 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'cbet': (60, 75),
         'fold_to_cbet': (40, 50),
     },
+    # Maniac 3-bet/4-bet bands re-set to the LOWERED Phase-3 baseline (#9 /
+    # PERCEPTIBILITY_CONDITIONING.md). The bands describe the DEFAULT (flag-OFF)
+    # behavior: a sustained ~30 facing-open 3-bet, NOT the old ~37 caricature.
+    # IMPORTANT: when TILT_CONDITIONING_ENABLED is on AND the maniac is freshly
+    # tilted, the tilt_conditioning layer lifts 3-bet into the 30s/low-40s — those
+    # transient tilt-STATE spikes are DESIGNED to exceed this band (the conditioned
+    # tail; a high frequency is realistic, a *constant* one is the caricature).
+    # The band is the calm baseline, not the ceiling. Floor caveat: ~30 is the
+    # lowest the cap can pull it (the shared loose chart's own re-raise mass is
+    # ~30%); the ~20-25 research target needs a maniac-only chart (deferred, #5).
     'maniac': {
         'vpip': (45, 70),
         'pfr': (35, 58),
-        'threebet': (36, 52),
-        'fourbet': (24, 40),
-        'fold_to_3bet': (15, 35),
+        'threebet': (26, 34),
+        'fourbet': (26, 38),
+        # fold_to_3bet ceiling 35→40: lowering the maniac's facing-raise
+        # aggression (the #9 cap drop) means it 4-bets less as the opener facing a
+        # 3-bet, so it folds-to-3bet a touch more (~37 at 6k) — a consistent,
+        # correct consequence of the de-caricatured baseline, not an over-fold.
+        'fold_to_3bet': (15, 40),
         'af': (5, 9),
         'all_in': (3, 14),
         'afq': (48, 65),
