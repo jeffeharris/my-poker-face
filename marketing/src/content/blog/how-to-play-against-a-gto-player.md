@@ -25,7 +25,7 @@ The practical consequence is blunt. You do not beat a perfectly balanced player.
 
 Against a balanced player the move is counterintuitive, and it is the most important lesson in this entire series.
 
-- **Play solid and break even.** Do not invent an edge that is not there. Tighten up, play straightforwardly, and accept that this particular pot is roughly a coin flip in the long run. Avoid spewing in an attempt to "outplay" balance, because there is nothing to outplay.
+- **Play solid and break even.** Do not invent an edge that is not there. Stick to sound, balanced ranges, avoid the ego deviations (the hero call, the big bluff) that a balanced player is built to punish, and accept that this particular pot is roughly a coin flip in the long run. The goal is not to tighten into a different exploitable shape, it is to give them nothing to exploit.
 - **Find the other player.** Poker is not a duel. At a full table you do not have to play the balanced player at all. Every chip you can take from the station or the maniac instead is a chip you did not have to fight a coin flip for. The skill is recognizing the unwinnable matchup and quietly avoiding it.
 - **Wait for them to come down to earth.** True GTO is exhausting to maintain and almost nobody does it perfectly. The moment a "balanced" player tilts, gets tired, or falls in love with a hand, they stop being balanced and become one of the other archetypes, and now you have your edge back.
 

@@ -24,7 +24,7 @@ What makes them dangerous is not their strategy, it is your reaction to it. Afte
 ## The core adjustment
 
 - **Steal relentlessly.** A nit folds to aggression, so take the pots they are not defending. Raise their blinds, continuation-bet when they check, and pick up the small pots uncontested. This is close to free money and it is most of your profit against them.
-- **Believe their aggression.** When a nit raises, re-raises, or fires a bet into you, give them credit and fold anything marginal. They are not capable of doing it light. Paying off a rock is the single most expensive mistake you can make against this type.
+- **Believe their aggression.** When a nit raises, re-raises, or fires a bet into you, give them credit and fold anything marginal. They almost never do it light, so weight their range heavily toward real hands. Paying off a rock is the single most expensive mistake you can make against this type.
 - **Fire a second barrel, but pick your spots.** Many nits fold too much on the turn, so a second bet on a scary card takes the pot. Use that. The exception is the nit who has already committed, who will not be moved no matter what comes.
 - **Do not value-bet thin.** This is the reverse of the station. A nit only calls with strong hands, so betting your mediocre top pair for value just gets you raised. Bet thin against the station; bet only your real hands against the nit.
 

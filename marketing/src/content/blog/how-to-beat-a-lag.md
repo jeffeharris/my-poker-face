@@ -29,7 +29,7 @@ Loose, aggressive, and skilled. They play a wide range, but a chosen wide range,
 
 ## How LAGs show up in My Poker Face
 
-Here is the trap, drawn straight from the opponent pages. A LAG shows the same tall **Looseness** bar and tall **Aggression** bar as a maniac. The thing that separates them is one line further down: the skill rating. A maniac is rated recreational. A LAG is rated **Shark**. Always check the tier, because two players with identical bars play completely differently when one of them is good.
+Here is the trap, drawn straight from the opponent pages. A LAG shows nearly the same tall **Looseness** and **Aggression** bars as a maniac. The thing that separates them is one line further down: the skill rating. The maniacs carry ratings like Recreational, Improving, or Regular. A LAG is rated **Shark**. None of the table's true maniacs wears that tag, and all three players below do. So the tell is simple: high looseness and high aggression, plus a Shark rating, is a different and far more dangerous animal than the same bars without it.
 
 [Alexander the Great](/opponents/alexander-the-great/) applies constant wide-range pressure and conquers the table, but he also gives up on turns when his story falls apart, which is a fold button a true maniac does not have. [Genghis Khan](/opponents/genghis-khan/) attacks every pot like a battlefield yet mixes in slow-plays, so you can never be sure the aggression means weakness. [King Midas](/opponents/king-midas/) is the bridge between the maniac and the LAG: bold and relentless like a maniac, sticky and overvaluing like a station, but with a shark's skill underneath. Against all three, the recreational-maniac plan of trap-and-call-light is how you go home early.
 
