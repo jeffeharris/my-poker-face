@@ -725,9 +725,14 @@ def _mk_controller(base=None, override=None, resolved=False, config=None):
 
 
 def test_no_override_returns_archetype_profile_unchanged():
-    c = _mk_controller(base=DEVIATION_PROFILES['tag'])
-    assert c.deviation_profile is DEVIATION_PROFILES['tag']
+    # nit carries no spot_tendencies → the no-override path passes through empty.
+    c = _mk_controller(base=DEVIATION_PROFILES['nit'])
+    assert c.deviation_profile is DEVIATION_PROFILES['nit']
     assert c.deviation_profile.spot_tendencies == ()
+    # tag now carries defend_3bet → the no-override path passes it through unchanged.
+    c_tag = _mk_controller(base=DEVIATION_PROFILES['tag'])
+    assert c_tag.deviation_profile is DEVIATION_PROFILES['tag']
+    assert c_tag.deviation_profile.spot_tendencies == (('defend_3bet', 0.24),)
 
 
 def test_explicit_override_merges_onto_profile():
@@ -766,3 +771,93 @@ def test_absent_config_inherits_profile_tendencies():
     base = dataclasses.replace(DEVIATION_PROFILES['tag'], spot_tendencies=(('slowplay', 0.5),))
     c = _mk_controller(base=base, config={})  # no 'spot_tendencies' key
     assert c.deviation_profile.spot_tendencies == (('slowplay', 0.5),)
+
+
+# ── defend_3bet (the only preflop-scoped tendency) ───────────────────────────
+# A polarized facing-3-bet distribution: fold-or-4-bet, little flatting.
+VS3BET = StrategyProfile(action_probabilities={'fold': 0.60, 'call': 0.16, 'raise_2.2x': 0.24})
+
+
+def _apply_pf(
+    strategy=VS3BET, *, tendencies=(('defend_3bet', 0.24),), scenario='vs_3bet', max_shift=0.30
+):
+    """Apply tendencies the way the PREFLOP call site does: street=None, the
+    preflop scenario threaded through, facing_raise context."""
+    return apply_spot_tendencies(
+        strategy,
+        spot_tendencies=tendencies,
+        max_per_action_shift=max_shift,
+        hand_class='strong',
+        action_context='facing_raise',
+        street=None,
+        has_initiative=False,
+        scenario=scenario,
+    )
+
+
+def test_defend_3bet_depolarizes_at_vs_3bet():
+    out, traces = _apply_pf()
+    p, b = out.action_probabilities, VS3BET.action_probabilities
+    assert p['fold'] < b['fold']  # defends more (less fold)
+    assert p['call'] > b['call']  # flats more
+    assert p['raise_2.2x'] < b['raise_2.2x']  # 4-bets a touch less
+    assert traces[0].fired and traces[0].rule_id == 'defend_3bet'
+    assert traces[0].reason_code == 'defend_3bet_depolarize'
+    assert abs(sum(p.values()) - 1.0) < 1e-9
+
+
+def test_defend_3bet_noop_off_vs_3bet():
+    for sc in ('rfi', 'vs_open', 'vs_4bet', None):
+        out, traces = _apply_pf(scenario=sc)
+        assert out is VS3BET, f'defend_3bet fired at scenario={sc}'
+        assert len(traces) == 1 and not traces[0].fired
+
+
+def test_defend_3bet_noop_without_fold_or_call():
+    # Pure jam (push/fold routed) — no fold→call to make.
+    jam = StrategyProfile(action_probabilities={'all_in': 1.0})
+    out, traces = _apply_pf(jam)
+    assert out is jam and not traces[0].fired
+
+
+def test_defend_3bet_respects_cap_across_both_steps():
+    """_defend_3bet runs TWO reshapes (dampen 4-bet, then dampen fold) that BOTH
+    feed `call`. Each step only caps against its own input, so without a final
+    re-bound against the original, call's cumulative shift could reach ~2×cap. An
+    extreme strength + a fold-and-4-bet-heavy distribution is where it would blow
+    past the cap; assert no single action moves more than max_shift from base."""
+    base = StrategyProfile(action_probabilities={'fold': 0.70, 'call': 0.05, 'raise_2.2x': 0.25})
+    cap = 0.30
+    out, traces = _apply_pf(base, tendencies=(('defend_3bet', 0.5),), max_shift=cap)
+    for a, p0 in base.action_probabilities.items():
+        shift = abs(out.action_probabilities[a] - p0)
+        assert shift <= cap + 1e-9, f'{a} moved {shift:.3f} > cap {cap}'
+    assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9
+    assert traces[0].fired
+
+
+def test_all_postflop_tendencies_noop_preflop():
+    """Blast-radius lock: the preflop spot-tendency call passes street=None, so
+    EVERY street-gated postflop tendency must no-op there. This keeps adding the
+    preflop call byte-identical for archetypes carrying those tendencies (e.g.
+    weak_fish's sticky/over_bluff). A future preflop-firing tendency must gate on
+    `scenario` (like defend_3bet) and be added to the exclusion below."""
+    from poker.strategy.spot_tendencies import REGISTERED_SPOT_TENDENCIES
+
+    preflop_scoped = {'defend_3bet'}
+    # A facing distribution with fold/call/raise so a reshape COULD move mass.
+    base = StrategyProfile(action_probabilities={'fold': 0.40, 'call': 0.40, 'raise_67': 0.20})
+    for name in sorted(REGISTERED_SPOT_TENDENCIES - preflop_scoped):
+        out, traces = apply_spot_tendencies(
+            base,
+            spot_tendencies=((name, 0.85),),
+            max_per_action_shift=0.40,
+            hand_class='weak_made',
+            action_context='facing_raise',
+            street=None,  # the preflop call site
+            has_initiative=True,
+            position='OOP',
+            scenario='vs_3bet',
+        )
+        assert out is base, f'{name} mutated the strategy on the PREFLOP (street=None) call!'
+        assert len(traces) == 1 and not traces[0].fired, f'{name} fired preflop!'

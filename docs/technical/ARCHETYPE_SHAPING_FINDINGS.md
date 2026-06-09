@@ -245,6 +245,24 @@ realized facing-open 3-bet, facing-3bet 4-bet, and postflop AF:
   0.61–0.71, 0% trash) — the "Q2o 4-bet-shove" symptom doesn't reproduce post-#240.
   Consistent with `SOLVER_CHART_SCOPE` (solver parked; shallow "collapse" was a
   Jeff_station artifact). Depth-aware *sizing* stays a feel/tell item, not a fix.
+- **tag over-fold to 3-bets — FIXED via `defend_3bet` spot tendency** (2026-06-09).
+  Once #2's metric fix cleaned the measurement, tag was a real residual: fold_to_3bet
+  68.3 (band 40–58) — over-*polarized* (4-bet-or-fold, flats too little). It's
+  CHART-driven (distortion-OFF Baseline folds 61% on the shared base chart), so the
+  fix can't be the shared chart. New `defend_3bet` tendency (`spot_tendencies.py`)
+  gates on `scenario=='vs_3bet'` and routes fold→call + a slice of 4-bet→call
+  (de-polarize). It's the first PREFLOP-scoped spot tendency — added a separate
+  preflop call to the layer (`tiered_bot_controller._layer_preflop_spot_tendencies`,
+  `street=None`; the postflop helper reads PostflopNode-only fields). Picked over a
+  scenario-scoped chart override after 2 architect blueprints + 2 adversarial reviews
+  + codex (chart override overshot its transform + missed 2 of 4 controller
+  construction paths; the tendency is lower blast radius). `('defend_3bet', 0.24)`
+  on tag → fold 68→**49.8**, 4-bet 16→**13.3** (6k mixed); every other archetype
+  byte-identical (the no-op-preflop invariant, test-locked). Range-quality A/B
+  (`scripts/tag_vs3bet_range.py`): newly-defended hands are textbook (AJo/AQo/KJo/
+  77/TT…, meanEq 0.59) not trash; 4-bet stays value-weighted. EV gate
+  (`champion_challenger --change tag_defend --archetype TAG`, 30k antithetic):
+  +1.1 bb/100, CI [−5,+7] — no harm.
 
 ## Prioritized plan
 

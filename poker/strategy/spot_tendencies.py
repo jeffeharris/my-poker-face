@@ -573,6 +573,49 @@ def _donk_when_weak(
     return new, f'donk_when_weak_{hand_class}'
 
 
+# ── defend 3-bet / de-polarize the vs_3bet response ──────────────────────────
+# The ONLY preflop-scoped tendency: it gates on `scenario == 'vs_3bet'`, not on a
+# postflop street, so it fires exactly at the spot where a tight-aggressive reg
+# (TAG) plays a too-polarized "4-bet-or-fold" defense facing a 3-bet — flatting
+# too little, which over-folds (exploitable by 3-bet bluffs) AND 4-bets a touch
+# wide. It de-polarizes by routing fold→call (defend more) and a slice of
+# 4-bet→call (flat the thinner 4-bets), shifting mass toward flatting. `call` is
+# the passive sink for both moves (no `check` exists facing a raise). Each move
+# is independently bounded by the per-action cap. No hand-class / initiative /
+# street gate — the over-fold is range-wide, and `street` is None preflop (so
+# every street-gated postflop tendency no-ops on the preflop call). See
+# docs/technical/ARCHETYPE_SHAPING_FINDINGS.md.
+def _defend_3bet(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    scenario: Optional[str] = None,
+    max_shift: float,
+    **_,
+) -> Tuple[StrategyProfile, str]:
+    """Defend-3-bet handler. Returns (new_strategy, reason_code).
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op". Fires
+    only at the preflop vs_3bet node; reused machinery (`_dampen_aggression` then
+    `_dampen_fold`) routes 4-bet and fold mass into call."""
+    if scenario != 'vs_3bet':
+        return strategy, 'gate_not_met'
+    # Trim the over-4-bet first (raise→call), then defend the over-fold
+    # (fold→call). _dampen_aggression's sink is `call` here (no `check` facing a
+    # raise).
+    new = _dampen_aggression(strategy, strength, max_shift)
+    new = _dampen_fold(new, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_fold_or_raise_mass'
+    # Both steps feed `call`, and each only bounds against ITS OWN input — so
+    # call's cumulative shift across the two could reach ~2×max_shift. Re-bound
+    # the combined result against the ORIGINAL so no single action exceeds the
+    # per-action cap (the EV budget every tendency must respect). A no-op at the
+    # shipped strength (call moves ~0.20 < cap); only binds at extreme strength.
+    new = _bound_to_cap(strategy, new, max_shift)
+    return new, 'defend_3bet_depolarize'
+
+
 # name -> handler. Add backlog tendencies (open-limp, position-blindness, ...) here.
 _TENDENCIES = {
     'slowplay': _slowplay,
@@ -584,6 +627,7 @@ _TENDENCIES = {
     'under_bluff': _under_bluff,
     'over_fold_2nd_barrel': _over_fold_2nd_barrel,
     'donk_when_weak': _donk_when_weak,
+    'defend_3bet': _defend_3bet,
 }
 
 # Public, read-only view of the registered tendency names. Consumers that need
@@ -647,6 +691,7 @@ def apply_spot_tendencies(
     has_initiative: bool,
     facing_double_barrel: bool = False,
     position: Optional[str] = None,
+    scenario: Optional[str] = None,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, List[InterventionTrace]]:
     """Apply a profile's configured spot tendencies, in config order.
@@ -663,6 +708,8 @@ def apply_spot_tendencies(
         facing_double_barrel: opp bet flop AND the prior street (multistreet's
             facing_double_barrel) — drives over-fold-to-2nd-barrel.
         position: 'IP'/'OOP' (node.position) — drives donk-when-weak.
+        scenario: preflop node scenario ('vs_3bet' etc.) or None postflop —
+            drives the preflop-scoped `defend_3bet`. Other handlers ignore it.
         disable_rules: ablation set; (LAYER, name) suppresses a tendency.
 
     Returns `(new_strategy, traces)`; `new_strategy is strategy` when nothing fired.
@@ -689,6 +736,7 @@ def apply_spot_tendencies(
             max_shift=max_per_action_shift,
             facing_double_barrel=facing_double_barrel,
             position=position,
+            scenario=scenario,
         )
         if new is not current:
             traces.append(

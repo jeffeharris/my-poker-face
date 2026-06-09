@@ -102,6 +102,15 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.6,
         risk_scale=0.9,
         ego_fold_penalty=0.20,
+        # De-polarize the facing-3-bet defense. The base/standard chart plays a
+        # too-polarized 4-bet-or-fold vs_3bet (fold ~61%/4-bet ~16% even
+        # distortion-OFF), so TAG over-folds (exploitable) and 4-bets a hair wide.
+        # `defend_3bet` (preflop-scoped spot tendency) routes fold→call + a slice
+        # of 4-bet→call so TAG flats more — fold ~68→~52, 4-bet ~16→~12. It's the
+        # only clean lever: the fold is chart-driven (can't touch the shared base
+        # chart) and the 4-bet is chart-driven too (so reraise_aggression_scale,
+        # which scales distortion, barely moves it). See ARCHETYPE_SHAPING_FINDINGS.
+        spot_tendencies=(('defend_3bet', 0.24),),
     ),
     # Calling Station: loose-passive. The station TABLE creates the high VPIP /
     # low PFR via wide flat-calling; this distortion reinforces passivity

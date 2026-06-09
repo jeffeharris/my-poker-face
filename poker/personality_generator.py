@@ -356,6 +356,9 @@ a tendency that contradicts the archetype (a tight nit shouldn't `over_bluff`).
         honest, transparent, principled, "my chips don't lie" types.
     - "donk_when_weak": leads out (donk-bets) into the aggressor with marginal
         hands on flop/turn. → erratic, unconventional, attention-seeking players.
+    - "defend_3bet": doesn't over-fold to a 3-bet preflop — flats more (and 4-bets
+        a touch less) instead of the tight 4-bet-or-fold. → disciplined, hard to
+        bluff, "I'm not folding to your re-raise" defenders.
 
 Consider {name}'s cultural/fictional associations. Make it authentic, visually distinctive, and interesting.
 

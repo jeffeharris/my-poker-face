@@ -867,6 +867,21 @@ class TieredBotController(AIPlayerController):
             )
         self._last_intervention_trace.append(personality_trace)
 
+        # Phase 6.b (preflop): scenario-scoped spot tendencies (e.g. tag's
+        # `defend_3bet`, which de-polarizes the 4-bet-or-fold vs_3bet response
+        # toward flatting). Separate from the postflop _layer_spot_tendencies
+        # helper because that reads PostflopNode-only fields (street/
+        # facing_action) a PreflopNode lacks; this passes street=None + the
+        # preflop scenario. Every street-gated postflop tendency no-ops here
+        # (street=None matches no street set), so profiles without a
+        # preflop-scoped tendency are byte-identical.
+        modified_strategy = self._layer_preflop_spot_tendencies(
+            modified_strategy,
+            node=node,
+            anchors=anchors,
+            hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
+        )
+
         if self.debug_logging:
             logger.info(
                 f"[TIERED_BOT] {self.player_name}: "
@@ -1507,6 +1522,49 @@ class TieredBotController(AIPlayerController):
                     f"[TIERED_BOT] {self.player_name}: "
                     f"spot_tendencies={modified_strategy.action_probabilities}"
                 )
+        return modified_strategy
+
+    def _layer_preflop_spot_tendencies(
+        self,
+        modified_strategy,
+        *,
+        node,
+        anchors,
+        hand_strength,
+    ):
+        """6.b (preflop) Scenario-scoped spot tendencies.
+
+        The postflop `_layer_spot_tendencies` reads PostflopNode fields
+        (`street`/`facing_action`) a `PreflopNode` lacks, so the preflop call is a
+        separate, narrower one: ``street=None`` (every street-gated postflop
+        tendency no-ops), ``action_context='facing_raise'``, and the preflop
+        ``scenario`` threaded through so a tendency can gate on it (e.g.
+        ``defend_3bet`` on ``'vs_3bet'``). OFF / no-preflop-tendency profiles are
+        byte-identical (the guard + the street gates).
+        """
+        if (
+            anchors
+            and not self.skip_personality_distortion
+            and self.deviation_profile.spot_tendencies
+        ):
+            from .strategy.spot_tendencies import apply_spot_tendencies
+
+            modified_strategy, spot_traces = apply_spot_tendencies(
+                modified_strategy,
+                spot_tendencies=self.deviation_profile.spot_tendencies,
+                max_per_action_shift=self.deviation_profile.max_per_action_shift,
+                hand_class=hand_strength,
+                action_context='facing_raise',
+                street=None,
+                has_initiative=False,
+                position=getattr(node, 'position', None),
+                scenario=getattr(node, 'scenario', None),
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            self._last_intervention_trace.extend(spot_traces)
+            self._last_pipeline_snapshot['preflop_spot_tendency_probs'] = dict(
+                modified_strategy.action_probabilities
+            )
         return modified_strategy
 
     def _layer_multistreet_context(
