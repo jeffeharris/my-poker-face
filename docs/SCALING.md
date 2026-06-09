@@ -2,15 +2,16 @@
 purpose: Compute/cost model for the backend and a staged, cheapest-first scaling blueprint that preserves the casual 1:1-sandbox-per-owner design
 type: architecture
 created: 2026-06-06
-last_updated: 2026-06-06
+last_updated: 2026-06-09
 ---
 
 # Scaling My Poker Face
 
 How the backend consumes compute, what binds first as concurrent users grow, and
 a staged path to scale — **without** compromising the casual "you are brought
-into your own lived-in world" design. Grounded in the code as of schema v151
-(launch, 2026-06-05). Update the stages as they land.
+into your own lived-in world" design. Grounded in the code as of schema v157
+(`schema_manager.py:351`, re-verified 2026-06-09; launch was v151, 2026-06-05).
+Update the stages as they land.
 
 ## The product constraint (do not violate)
 
@@ -36,7 +37,7 @@ on `owner_id`; see Stage 4).
 - **State:** in-memory resident caches (`flask_app/services/game_state_service.py`:
   `games`, `*_locks`, `game_last_access`, 2 h idle eviction). Persistence =
   **SQLite single-writer + WAL** (`poker/repositories/base_repository.py`),
-  saved after each action. All subsystems share one DB (`schema_manager.py`, v151).
+  saved after each action. All subsystems share one DB (`schema_manager.py`, v157).
 - **Per-process RAM baseline ≈ 550 MB** (measured steady-state RSS, flat over
   35 min — not a leak). It's the Python process + eval7 + imports; **the strategy
   lookup tables are lazy-loaded (~20–50 MB parsed), not the baseline.** Paid *per
@@ -203,10 +204,25 @@ concurrent.
 
 ### Stage 5 — SQLite → Postgres
 For true concurrent writes / multi-box. Per-`sandbox_id` Postgres schemas express
-the per-owner isolation cleanly. Migration surface is large: 151 SQLite-specific
-migrations in `schema_manager.py`, the `sqlite3` usage in `base_repository.py`.
-**Defer until Stage 3 is exhausted** — SQLite+WAL+`retry_on_lock` is robust well
-past current traffic.
+the per-owner isolation cleanly. Migration surface is still real even after the
+v157 chain was squashed to a generated baseline (PR #241): the baseline DDL +
+remaining `_migrate_vN_*` steps in `schema_manager.py`, and the SQLite-specific
+`sqlite3` usage in `base_repository.py`. **Defer until Stage 3 is exhausted** —
+SQLite+WAL+`retry_on_lock` is robust well past current traffic.
+
+**Triggers — migrate when any of these hold:** ~50–100 concurrent writers (SQLite
+is single-writer); DB file ~10–50 GB (large-file degradation); a genuine multi-box
+deployment (SQLite is file-based, can't share across servers); or write-heavy
+analytics runs (experiments hammer `api_usage` / `prompt_captures` /
+`decision_analysis`).
+
+**Early warning signs:** `SQLITE_BUSY` in logs, rising write latency, lock
+timeouts during experiments, slow queries on the big tables.
+
+**Migration shape:** stand up Postgres → add `psycopg2`/`asyncpg` → Alembic
+migration env → port the baseline schema → data-migration script → update
+`BaseRepository` connection handling → test hard (hand eval + experiments) →
+blue-green cutover with a rollback plan.
 
 ## Capacity checkpoints (estimates — not load-tested)
 
@@ -248,7 +264,15 @@ model. Validate before relying on any tier.
    at 5000+. Trim it (lazy-load/mmap the strategy tables, slim the image) before ~500.
 3. **LLM $ (not compute) is the dominant *variable* cost at 1000+** and a
    provider-rate-limit constraint; the budget caps + LLM-free `sharp` default need
-   deliberate tuning, not the launch defaults.
+   deliberate tuning, not the launch defaults. *Rate-limit headroom:* OpenAI's
+   ~10k RPM ceiling is comfortable for in-game play (~6 decisions/active-player/min
+   ≈ 600 RPM at 100 players) — **experiment bulk runs**, not gameplay, are what
+   spike toward the limit, so keep those throttled (they already pause/resume).
+4. **Full-state WebSocket fan-out** — every action emits the whole `game_state`
+   (~10–50 KB) to all room members (`game_handler.py:715`). Fine at casual table
+   sizes; bites with large spectator counts or rapid run-it-out deals on slow/mobile
+   links. **Deferred fix:** delta updates (emit only changed fields) — needs
+   frontend state reconciliation, so not worth it until spectating is a real load.
 
 **Journey shape:** ≤100 vertical-ish (one big box → extract ticker → Postgres);
 100→1000 horizontal app fleet + owner-sharded ticker (the 1:1 design *is* the shard
@@ -289,6 +313,16 @@ whole way; it just multiplies the write/RAM baseline you'll want to trim first.
 - **Don't deploy from a dev box** — manual `./deploy.sh` from a laptop has bitten
   prod (local DB sidecars clobbering prod's WAL, file-mode/perm drift). Use the CI
   pipeline (clean checkout + `chown` + `data/`-excluded rsync).
+
+## Observability — what to watch
+
+Tier the monitoring to the stage you're in; each row adds to the previous.
+
+| Phase (concurrent active) | Watch |
+|---|---|
+| **Now (≤20)** | SQLite write latency in logs; `api_usage` LLM spend; process RSS (~550 MB baseline — flag drift up); active count in `game_state_service.games`; ticker cycle time vs the 250 ms `CYCLE_BUDGET_MS`. |
+| **Growth (20–50)** | Add proper APM; **alert on `SQLITE_BUSY`**; alert on memory >80%; track p95 hand-response time; watch lobby-tick lag (the first single-worker symptom). |
+| **Scale (50+)** | Redis metrics (connections, pub/sub lag) once the MQ lands; per-container metrics; **per-tick DB write rate** (the real wall — see "What bites" #1); LLM provider rate-limit proximity. |
 
 ## Key files
 
