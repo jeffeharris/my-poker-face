@@ -240,10 +240,50 @@ legitimately 3-bets a polarized range facing opens). Recommend the latter.
 a live TAG 3-betting ~16% facing an open is faithful (live reg ~13%, recreational
 higher) — don't trim the chart toward online numbers; widen the band.
 
-### 6. Review-tool Phase 3 — c-bet / fold-to-cbet columns
-Currently empty. Architect's plan: source them from `opponent_observation_lifetime`
-(it has `cbet_attempt_count`, `fold_to_cbet_count`, etc.) via
-`reconstruct_tendencies_from_lifetime`. Add to the route + grid.
+### 6. Review-tool Phase 3 — c-bet / fold-to-cbet columns — ✅ DONE (2026-06-09)
+
+**Shipped** (branch `archetype-rock-and-stats`, not yet committed — user reviews;
+built on #11's infrastructure). **Data source CHANGED from the architect's plan:**
+`opponent_observation_lifetime` was rejected during recon (keyed per-observer →
+double-counts; no archetype column; never written by the LEAN sim). Instead:
+- **SIM path = authoritative** (clean counters): migration
+  `poker/repositories/migrations/20260609_1400_archetype_stat_cbet.py` adds 4
+  columns to `archetype_stat_counts` (`cbet_opportunity, cbet_made, cbet_faced,
+  fold_to_cbet`, per-column try/except OperationalError; applies on the fresh
+  schema build + idempotent). `COUNTER_COLUMNS` extended in
+  `archetype_stat_repository.py`. `cash_mode/full_sim.py` tracks a per-hand
+  `flop_bet_made` (any aggressive FLOP action → the aggressor acting after it is
+  NOT c-betting, it's facing a donk/raise-vs-donk) + `flop_cbet_made` (the
+  aggressor's first-in flop bet specifically → drives fold-to-c-bet for everyone
+  else), derives `is_cbet_opportunity` / `is_cbet` / `is_facing_cbet` at each FLOP
+  decision (state advanced AFTER recording, try/except like #11). `ArchetypeStat
+  Recorder.record_decision()` gains the 3 kw-defaulted flags and tallies the 4
+  counters. `_aggregate_sim` emits `cbet`=cbet_made/cbet_opportunity,
+  `fold_to_cbet`=fold_to_cbet/cbet_faced.
+- **LIVE path = best-effort** (fragile, documented — same status as #11's
+  WTSD/W$SD, human-present games only): `_aggregate` reconstructs the preflop
+  aggressor (last preflop raiser) per `(game_id, hand)` and replays ordered FLOP
+  rows (`ORDER BY rowid` — the only sequence signal, no sequence column).
+  **Robust to gaps**: non-tiered/human actors leave no rows, so fold-to-c-bet is
+  only counted once an aggressor's flop-bet row actually exists; never crashes on
+  a missing aggressor. The c-bet-first-vs-donk distinction is preserved (a prior
+  flop bet voids the aggressor's c-bet opportunity).
+- **Targets** (`archetype_targets.py`, research §1B 6-max): `STAT_LABELS` +=
+  `cbet`/`fold_to_cbet`; bands added to all 7 — nit 55-70/55-70, rock 45-60/55-70,
+  tag 55-70/45-55, lag 60-75/40-50, calling_station 25-45/20-35, maniac
+  75-95/25-40, weak_fish 40-60/30-45.
+- **Frontend**: zero structural change (`STAT_LABELS`→`stat_order`→columns); `tsc`
+  clean.
+- **Tests**: `tests/test_archetype_review_route.py` +5 (c-bet by aggressor,
+  opportunity-not-taken, donk-is-not-a-cbet, fold-to-cbet, graceful missing-
+  aggressor-row); `tests/test_cash_mode/test_archetype_stats.py` +3 (cbet
+  opportunity/made rollup, fold_to_cbet rollup, back-compat default-args). Full
+  suite **8279 passed, 0 failed**; `tsc` clean.
+
+**Caveats**: sim counters are **forward-only** (don't backfill — accrue only on
+new sim hands). Live c-bet/fold-to-cbet ARE retroactive on existing
+`player_decision_analysis` rows but BEST-EFFORT — accuracy degrades with logging
+gaps (non-tiered/human seats) and rowid is the only flop-ordering signal.
 
 ### 7. Preflop sizing VARIETY (the proper fix; jitter is the band-aid)
 Execute `docs/plans/PREFLOP_SIZING_VARIETY.md`: P1 emit multiple raise-size tokens

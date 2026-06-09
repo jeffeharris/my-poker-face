@@ -30,6 +30,14 @@ Stats are derived directly from the decision log:
   its own counters instead.
 * **Per-street AF** — flop/turn/river (bet+raise) ÷ call, split out (aggregate
   AF hides flop-maniac/turn-passive texture). No target band (renders no_target).
+* **C-bet / Fold-to-C-bet** — flop continuation betting (backlog #6). C-bet =
+  the preflop aggressor's first-in flop bet (no prior flop bet — NOT a donk or a
+  raise-vs-donk) ÷ times the aggressor saw an un-bet flop. Fold-to-C-bet = folds
+  facing a flop c-bet ÷ times facing one. LIVE path is BEST-EFFORT: it
+  reconstructs the aggressor (last preflop raiser) + flop order from the decision
+  rows (ORDER BY rowid, the only sequence signal) and is robust to gaps —
+  non-tiered/human actors leave no rows, so fold-to-c-bet is only counted once an
+  aggressor's flop-bet row actually exists. The SIM source uses clean counters.
 * **All-in %** — hand-instances with any all_in ÷ total hand-instances.
 
 Dedup: the analyzer double-logs some decisions, so each
@@ -154,6 +162,7 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
         FROM player_decision_analysis
         WHERE strategy_pipeline_snapshot_json IS NOT NULL
           AND {_mode_clause(mode)}
+        ORDER BY rowid
         """
     ).fetchall()
 
@@ -187,6 +196,11 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
             'saw_flop_hands': set(),  # (game,player,hand) that saw the flop
             'showdown_hands': set(),  # of those, reached showdown
             'showdown_won_hands': set(),  # of those, won
+            # C-bet family (backlog #6), reconstructed from ordered FLOP rows.
+            'cbet_opportunity': 0,
+            'cbet_made': 0,
+            'cbet_faced': 0,
+            'fold_to_cbet': 0,
         }
 
     acc: dict[str, dict] = defaultdict(_new_acc)
@@ -200,9 +214,17 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
     # preflop_node_key is the strategy node (can't be repurposed), so we
     # reconstruct opener-ness from the same rows. See ARCHETYPE_SHAPING_HANDOFF.
     rfi_raisers: set[tuple] = set()
+    # The PREFLOP AGGRESSOR per (game, hand) = the last preflop raiser — the
+    # player expected to continuation-bet the flop (backlog #6, c-bet). Rows are
+    # ORDER BY rowid, so the final aggressive preflop row wins. (The RFI opener is
+    # an acceptable proxy, but the last raiser is the standard PT4/HM3 c-bet
+    # attribution; with no in-process state we reconstruct it from the rows.)
+    last_pf_raiser: dict[tuple, str] = {}
     for game_id, player, hand, phase, action, node_key, _board, _arch in rows:
         if phase == 'PRE_FLOP' and action in _AGGRESSIVE and node_key.split('|', 1)[0] == 'rfi':
             rfi_raisers.add((game_id, player, hand))
+        if phase == 'PRE_FLOP' and action in _AGGRESSIVE:
+            last_pf_raiser[(game_id, hand)] = player
 
     # Hand-level OUTCOMES (showdown reached + winners) are NOT in
     # player_decision_analysis — pre-fetch them from hand_history keyed by
@@ -269,6 +291,46 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
                 if player in winners:
                     a['showdown_won_hands'].add(hand_key)
 
+    # C-bet reconstruction (backlog #6, best-effort live). Ordered FLOP rows per
+    # (game, hand): a c-bet = the preflop aggressor's first-in flop bet (no prior
+    # flop bet — distinguishes it from a donk / raise-vs-donk). Everyone else
+    # facing that c-bet drives fold-to-c-bet. LIMITATIONS: non-tiered/human actors
+    # have NO decision rows, so a flop with gaps can't see actions that weren't
+    # logged — we only count fold-to-c-bet once an aggressor flop-bet row actually
+    # exists, and never crash on a missing aggressor. The only ordering signal is
+    # rowid (no sequence column). See ARCHETYPE_SHAPING_HANDOFF #6.
+    flop_seen: set[tuple] = set()
+    flop_state: dict[tuple, dict] = {}  # (game,hand) -> {bet_made, cbet_made}
+    for game_id, player, hand, phase, action, node_key, board, archetype in rows:
+        if phase != 'FLOP':
+            continue
+        dedup_key = (game_id, player, hand, phase, node_key, board, action)
+        if dedup_key in flop_seen:
+            continue
+        flop_seen.add(dedup_key)
+        key = (game_id, hand)
+        st = flop_state.setdefault(key, {'bet_made': False, 'cbet_made': False})
+        aggressor = last_pf_raiser.get(key)
+        arch = archetype or 'unknown'
+        is_aggr = action in _AGGRESSIVE
+        if aggressor is not None and player == aggressor and not st['bet_made']:
+            # The preflop aggressor is first-in on an un-bet flop → a c-bet chance.
+            acc[arch]['cbet_opportunity'] += 1
+            if is_aggr:
+                acc[arch]['cbet_made'] += 1
+        if st['cbet_made'] and player != aggressor:
+            # A c-bet was already made this hand; this player is facing it.
+            acc[arch]['cbet_faced'] += 1
+            if action == 'fold':
+                acc[arch]['fold_to_cbet'] += 1
+        # Advance flop state AFTER scoring (so the actor is scored vs the state it
+        # faced). The aggressor's first-in bet is the c-bet; any aggressive flop
+        # action marks the flop as bet (a later aggressor row is no longer c-betting).
+        if is_aggr:
+            if aggressor is not None and player == aggressor and not st['bet_made']:
+                st['cbet_made'] = True
+            st['bet_made'] = True
+
     def _pct(num: int, den: int):
         return round(100.0 * num / den, 1) if den else None
 
@@ -312,6 +374,8 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
                     _af(a['river_agg'], a['river_call']),
                     a['river_agg'] + a['river_call'],
                 ),
+                'cbet': (_pct(a['cbet_made'], a['cbet_opportunity']), a['cbet_opportunity']),
+                'fold_to_cbet': (_pct(a['fold_to_cbet'], a['cbet_faced']), a['cbet_faced']),
                 'all_in': (_pct(len(a['allin_hands']), n_hands), n_hands),
             },
         }
@@ -368,6 +432,8 @@ def _aggregate_sim() -> dict:
                     _af(r['river_agg'], r['river_call']),
                     r['river_agg'] + r['river_call'],
                 ),
+                'cbet': (_pct(r['cbet_made'], r['cbet_opportunity']), r['cbet_opportunity']),
+                'fold_to_cbet': (_pct(r['fold_to_cbet'], r['cbet_faced']), r['cbet_faced']),
                 'all_in': (_pct(r['allin_hands'], hands), hands),
             },
         }

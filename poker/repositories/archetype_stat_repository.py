@@ -46,6 +46,12 @@ COUNTER_COLUMNS = (
     'river_agg',
     'river_call',
     'river_fold',
+    # Backlog #6 — flop continuation betting. cbet = the preflop aggressor's
+    # first-in flop bet; fold_to_cbet = a fold when facing one.
+    'cbet_opportunity',
+    'cbet_made',
+    'cbet_faced',
+    'fold_to_cbet',
 )
 
 

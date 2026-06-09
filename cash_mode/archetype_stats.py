@@ -3,9 +3,9 @@
 The lobby sim plays full AI-vs-AI hands but is LEAN — it never wires the
 decision-analysis repo, so its (perpetual) decision stream would otherwise be
 discarded. This recorder tallies the behavioral stats the Archetype Review tool
-needs (VPIP/PFR/3-bet/4-bet/fold-to-3bet/AF/AFq/WTSD/W$SD/per-street-AF/all-in)
-in memory, per archetype, and flushes them to `archetype_stat_counts` as deltas
-every N hands.
+needs (VPIP/PFR/3-bet/4-bet/fold-to-3bet/AF/AFq/WTSD/W$SD/per-street-AF/
+c-bet/fold-to-c-bet/all-in) in memory, per archetype, and flushes them to
+`archetype_stat_counts` as deltas every N hands.
 
 Bounded by design: memory is O(archetypes), the DB table is
 O(sandboxes × archetypes). It never grows per-hand, so it's safe for a process
@@ -56,6 +56,10 @@ class ArchetypeStatRecorder:
         node: str,
         action: str,
         is_opener: bool = True,
+        *,
+        is_cbet_opportunity: bool = False,
+        is_cbet: bool = False,
+        is_facing_cbet: bool = False,
     ) -> None:
         """Record one decision. ``node`` is '' for postflop or one of
         rfi/vs_open/vs_3bet/vs_4bet preflop. No-ops without an archetype.
@@ -67,7 +71,14 @@ class ArchetypeStatRecorder:
         ``vs_3bet`` node reached as a cold-caller is SQUEEZE defence (a different
         stat that folds ~100%); counting it crushed fold_to_3bet for the
         wide-flatting archetypes. vs_open (the 3-bet stat) is unaffected — every
-        actor at a vs_open node is facing an open, never the opener."""
+        actor at a vs_open node is facing an open, never the opener.
+
+        C-bet flags (backlog #6, FLOP-only, kw-defaulted for back-compat):
+        ``is_cbet_opportunity`` — the actor IS the preflop aggressor and is first
+        in on an un-bet flop (the chance to continuation-bet). ``is_cbet`` — that
+        opportunity was taken (a flop bet/raise). ``is_facing_cbet`` — a flop
+        c-bet has already been made this hand and this (non-aggressor) actor is
+        now facing it; ``fold_to_cbet`` is bumped when such an actor folds."""
         if not archetype:
             return
         t = self._totals[archetype]
@@ -107,6 +118,15 @@ class ArchetypeStatRecorder:
             elif action == 'fold':
                 # AFq denominator (folds count); per-street fold for street AFq.
                 t[f'{street}_fold'] += 1
+            # C-bet family (FLOP-only flags, set by the caller).
+            if is_cbet_opportunity:
+                t['cbet_opportunity'] += 1
+                if is_cbet:
+                    t['cbet_made'] += 1
+            if is_facing_cbet:
+                t['cbet_faced'] += 1
+                if action == 'fold':
+                    t['fold_to_cbet'] += 1
 
     def end_hand(
         self,

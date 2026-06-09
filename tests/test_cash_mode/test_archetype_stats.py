@@ -150,6 +150,52 @@ def test_end_hand_back_compat_default_args():
     assert tag.get('showdowns', 0) == 0
 
 
+def test_cbet_opportunity_made_rollup():
+    """The preflop aggressor's first-in flop bet rolls up cbet_opportunity +
+    cbet_made; a check (non-aggressive) on the opportunity counts the opportunity
+    only."""
+    r = ArchetypeStatRecorder('sb')
+    # Aggressor c-bets the flop.
+    r.record_decision('tag', 'T', 'FLOP', '', 'raise', is_cbet_opportunity=True, is_cbet=True)
+    # Different hand: aggressor has the chance but checks (call stands in for a
+    # non-aggressive continue) → opportunity, no c-bet.
+    r.record_decision('tag', 'T', 'FLOP', '', 'call', is_cbet_opportunity=True, is_cbet=False)
+    r.end_hand()
+
+    tag = r._totals['tag']
+    assert tag['cbet_opportunity'] == 2
+    assert tag['cbet_made'] == 1
+
+
+def test_fold_to_cbet_rollup():
+    """Facing a flop c-bet tallies cbet_faced; a fold there bumps fold_to_cbet,
+    a call does not."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('calling_station', 'S', 'FLOP', '', 'fold', is_facing_cbet=True)
+    r.record_decision('lag', 'L', 'FLOP', '', 'call', is_facing_cbet=True)
+    r.end_hand()
+
+    station = r._totals['calling_station']
+    assert station['cbet_faced'] == 1 and station['fold_to_cbet'] == 1
+    lag = r._totals['lag']
+    assert lag['cbet_faced'] == 1 and lag.get('fold_to_cbet', 0) == 0
+
+
+def test_cbet_flags_default_off_back_compat():
+    """A postflop decision without the c-bet kwargs touches no c-bet counters
+    (back-compat for callers that don't pass them)."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('tag', 'T', 'FLOP', '', 'raise')
+    r.end_hand()
+    tag = r._totals['tag']
+    assert tag.get('cbet_opportunity', 0) == 0
+    assert tag.get('cbet_made', 0) == 0
+    assert tag.get('cbet_faced', 0) == 0
+    assert tag.get('fold_to_cbet', 0) == 0
+    # …but the aggregate postflop aggression still moved (proves it ran).
+    assert tag['postflop_agg'] == 1
+
+
 def test_end_to_end_recording_via_play_one_hand():
     """Running a real sim hand populates the per-sandbox recorder."""
     sandbox = 'test-archetype-stats-e2e'

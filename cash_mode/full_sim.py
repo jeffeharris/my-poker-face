@@ -1238,6 +1238,13 @@ def _run_hand(
     # as the raiser) — a vs_3bet node reached as a cold-caller is SQUEEZE defence,
     # a different stat. See ArchetypeStatRecorder.record_decision.
     rfi_opener_name: Optional[str] = None
+    # C-bet tracking (backlog #6). ``flop_bet_made`` = ANY aggressive flop action
+    # has occurred this hand (so the preflop aggressor acting after it is NOT
+    # c-betting — it's facing a donk / raising vs a donk). ``flop_cbet_made`` =
+    # the preflop aggressor's first-in flop bet specifically (drives the
+    # fold-to-c-bet denominator for everyone else).
+    flop_bet_made = False
+    flop_cbet_made = False
     while actions < _MAX_ACTIONS_PER_HAND:
         sm.run_until([PokerPhase.EVALUATING_HAND])
         gs = sm.game_state
@@ -1322,6 +1329,18 @@ def _run_hand(
             # live `deviation_profile_name` snapshot uses, so sim/live agree.
             _arch_fn = getattr(ctrl, "_table_archetype_key", None)
             archetype = _arch_fn() if callable(_arch_fn) else getattr(ctrl, "archetype_name", None)
+            # C-bet flags (backlog #6, FLOP only). A c-bet is the preflop
+            # aggressor's first-in flop bet (no prior flop bet this hand) — this
+            # distinguishes it from a donk-bet or a raise-vs-donk. Everyone else
+            # facing that c-bet drives the fold-to-c-bet stat.
+            is_aggr = action in ("raise", "all_in")
+            is_cbet_opportunity = (
+                decision_phase == "FLOP" and actor_name == rfi_opener_name and not flop_bet_made
+            )
+            is_cbet = is_cbet_opportunity and is_aggr
+            is_facing_cbet = (
+                decision_phase == "FLOP" and flop_cbet_made and actor_name != rfi_opener_name
+            )
             try:
                 archetype_recorder.record_decision(
                     archetype,
@@ -1330,13 +1349,24 @@ def _run_hand(
                     node,
                     action,
                     is_opener=(actor_name == rfi_opener_name),
+                    is_cbet_opportunity=is_cbet_opportunity,
+                    is_cbet=is_cbet,
+                    is_facing_cbet=is_facing_cbet,
                 )
             except Exception as exc:  # noqa: BLE001 — observability, never fatal
                 logger.debug("[FULL_SIM] archetype record failed: %s", exc)
-            if decision_phase == "PRE_FLOP" and action in ("raise", "all_in"):
+            if decision_phase == "PRE_FLOP" and is_aggr:
                 if preflop_raises == 0 and rfi_opener_name is None:
                     rfi_opener_name = actor_name
                 preflop_raises += 1
+            # Advance c-bet state AFTER recording (so the acting player is scored
+            # vs the flop state it actually faced). A c-bet specifically marks the
+            # flop as c-bet (others now face it); any aggressive flop action marks
+            # the flop as bet (the aggressor acting later is no longer c-betting).
+            if decision_phase == "FLOP" and is_aggr:
+                if is_cbet:
+                    flop_cbet_made = True
+                flop_bet_made = True
 
         # Feed action into the memory manager so opponent_model
         # accumulates stats. The `phase` mapping mirrors what

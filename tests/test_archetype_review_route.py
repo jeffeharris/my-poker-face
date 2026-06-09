@@ -147,6 +147,87 @@ def test_wsd_loss_at_showdown():
     assert _stat(payload, 'calling_station', 'wsd')['actual'] == 0.0
 
 
+def test_cbet_made_by_preflop_aggressor():
+    """The preflop aggressor (last preflop raiser) betting the flop first-in is a
+    c-bet: 1 cbet_made / 1 cbet_opportunity = 100%."""
+    rows = [
+        ('cash-1', 'A', 1, 'PRE_FLOP', 'raise', 'rfi|CO||AKs', '', _snap('tag')),
+        ('cash-1', 'A', 1, 'FLOP', 'raise', '', 'Ah Kd 2c', _snap('tag')),
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    cbet = _stat(payload, 'tag', 'cbet')
+    assert cbet['sample'] == 1
+    assert cbet['actual'] == 100.0
+
+
+def test_cbet_opportunity_not_taken():
+    """Aggressor checks/calls the flop first-in → opportunity counted, no c-bet
+    (0%)."""
+    rows = [
+        ('cash-1', 'A', 1, 'PRE_FLOP', 'raise', 'rfi|CO||AKs', '', _snap('rock')),
+        ('cash-1', 'A', 1, 'FLOP', 'check', '', 'Ah Kd 2c', _snap('rock')),
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    cbet = _stat(payload, 'rock', 'cbet')
+    assert cbet['sample'] == 1
+    assert cbet['actual'] == 0.0
+
+
+def test_donk_bet_is_not_a_cbet():
+    """A NON-aggressor betting the flop first (a donk) means the aggressor acting
+    after is NOT c-betting (there was a prior flop bet). The aggressor's later
+    bet is not a c-bet opportunity; the donk bettor isn't the aggressor."""
+    rows = [
+        # B opens preflop (aggressor); D cold-calls.
+        ('cash-1', 'B', 1, 'PRE_FLOP', 'raise', 'rfi|CO||AKs', '', _snap('tag')),
+        ('cash-1', 'D', 1, 'PRE_FLOP', 'call', 'vs_open|BB|CO|T9s', '', _snap('calling_station')),
+        # FLOP: D donk-bets FIRST, then B raises.
+        ('cash-1', 'D', 1, 'FLOP', 'raise', '', 'Ah Kd 2c', _snap('calling_station')),
+        ('cash-1', 'B', 1, 'FLOP', 'raise', '', 'Ah Kd 2c', _snap('tag')),
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    # B (aggressor) acted on an ALREADY-bet flop → no c-bet opportunity for B.
+    assert _stat(payload, 'tag', 'cbet')['sample'] == 0
+    # D is not the aggressor → no c-bet opportunity for D either.
+    assert _stat(payload, 'calling_station', 'cbet')['sample'] == 0
+
+
+def test_fold_to_cbet_live():
+    """A non-aggressor folding to the aggressor's flop c-bet → fold_to_cbet 100%.
+    The aggressor itself never 'faces' a c-bet."""
+    rows = [
+        ('cash-1', 'A', 1, 'PRE_FLOP', 'raise', 'rfi|CO||AKs', '', _snap('tag')),
+        ('cash-1', 'V', 1, 'PRE_FLOP', 'call', 'vs_open|BB|CO|T9s', '', _snap('calling_station')),
+        # FLOP: aggressor c-bets, victim folds to it.
+        ('cash-1', 'A', 1, 'FLOP', 'raise', '', 'Ah Kd 2c', _snap('tag')),
+        ('cash-1', 'V', 1, 'FLOP', 'fold', '', 'Ah Kd 2c', _snap('calling_station')),
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    ftc = _stat(payload, 'calling_station', 'fold_to_cbet')
+    assert ftc['sample'] == 1
+    assert ftc['actual'] == 100.0
+    # The c-better never faces a c-bet.
+    assert _stat(payload, 'tag', 'fold_to_cbet')['sample'] == 0
+
+
+def test_cbet_graceful_with_no_flop_aggressor_row():
+    """Robust to gaps: a flop where the aggressor has NO logged row (non-tiered /
+    human seat) — no c-bet opportunity is fabricated and fold-to-c-bet is only
+    counted once an aggressor flop-bet row exists (here it doesn't), so a victim's
+    flop fold is NOT mis-counted as fold-to-c-bet."""
+    rows = [
+        ('cash-1', 'A', 1, 'PRE_FLOP', 'raise', 'rfi|CO||AKs', '', _snap('tag')),
+        ('cash-1', 'V', 1, 'PRE_FLOP', 'call', 'vs_open|BB|CO|T9s', '', _snap('calling_station')),
+        # FLOP: aggressor A has NO row (not logged); only the victim acts.
+        ('cash-1', 'V', 1, 'FLOP', 'fold', '', 'Ah Kd 2c', _snap('calling_station')),
+    ]
+    payload = rr._aggregate(_conn_with_rows(rows), 'cash')
+    # No c-bet was ever recorded, so the victim never 'faced' one.
+    assert _stat(payload, 'calling_station', 'fold_to_cbet')['sample'] == 0
+    assert _stat(payload, 'calling_station', 'cbet')['sample'] == 0
+    assert _stat(payload, 'tag', 'cbet')['sample'] == 0
+
+
 def test_wtsd_graceful_without_hand_history():
     """No hand_history table (or no matching rows) → WTSD/W$SD report no_data
     rather than erroring (the saw-flop hands have no outcome to join)."""
