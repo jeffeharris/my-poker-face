@@ -230,7 +230,7 @@ when a station opponent is detected, with no guard that the station is the
 `is_preflop_defend_spot`). Add a guard so the value-extraction rule doesn't push
 3-bets in a 3-bet-defend spot. Validate with the probe + the exploitation tests.
 
-### 5. tag's mild over-3bet (mixed-field 16.1, band 10–16, WARN)
+### 5. ~~tag's mild over-3bet~~ ✅ DONE (2026-06-09) — band widened 10–16 → 11–18 (chart untouched)
 Comes from the **standard chart** (~14.5% combo-weighted), shared as the base for
 the tight tier too. Now only a boundary WARN (was a FAIL earlier). Either trim it
 (lower `raise_share` on the standard chart's vs_open / base authoring — moves

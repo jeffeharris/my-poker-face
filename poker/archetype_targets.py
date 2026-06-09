@@ -115,7 +115,12 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'tag': {
         'vpip': (20, 28),
         'pfr': (16, 23),
-        'threebet': (10, 16),
+        # 3-bet widened 10-16 -> 11-18 (backlog #5). tag's measured ~16 facing-open
+        # is LIVE-faithful (live reg ~13%, recreational higher — research §1B in OUR
+        # opportunity denominator), not an over-3bet to trim toward online numbers.
+        # A TAG legitimately 3-bets a polarized range facing opens; the band (not
+        # the chart) was the fix — widening clears the boundary WARN.
+        'threebet': (11, 18),
         'fourbet': (5, 13),
         'fold_to_3bet': (40, 58),
         'af': (2.5, 3.8),
