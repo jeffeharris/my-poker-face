@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import menuBanner from '../../assets/menu-banner.webp';
 import tableShot from '../../assets/screenshots/mobile-table.png';
 import chatShot from '../../assets/screenshots/mobile-chat.png';
 import lobbyShot from '../../assets/screenshots/mobile-lobby.png';
 import dossierShot from '../../assets/screenshots/mobile-dossier.png';
+import rangeExplorerShot from '../../assets/screenshots/range-explorer.png';
+import leaksShot from '../../assets/screenshots/preflop-leaks.png';
+import coachTipShot from '../../assets/screenshots/coach-tip.png';
 import './LandingPage.css';
 
 /**
@@ -52,6 +55,162 @@ function PhoneShot({ src, alt, className = '' }: { src: string; alt: string; cla
     <figure className={`lp-phone lp-phone--solo ${className}`}>
       <img src={src} alt={alt} />
     </figure>
+  );
+}
+
+const GALLERY = [
+  {
+    src: tableShot,
+    caption: 'A live cash table — read the room, work the chat, and take the pot.',
+  },
+  {
+    src: chatShot,
+    caption: 'Table talk — needle, flatter, or trash-talk. Everyone reacts differently.',
+  },
+  {
+    src: leaksShot,
+    caption: 'Your preflop game, graded against the solver — every leak, with a drill to fix it.',
+  },
+  {
+    src: coachTipShot,
+    caption: 'A coach in the hand — flagging spots before you put the chips in.',
+  },
+  {
+    src: lobbyShot,
+    caption: 'The Circuit — build a bankroll and a reputation, and get staked into bigger rooms.',
+  },
+  {
+    src: dossierShot,
+    caption: 'Every opponent has a dossier — their style, their tells, and your history.',
+  },
+];
+
+/** Screenshot gallery with a full-screen, keyboard-navigable lightbox. */
+function Gallery() {
+  const [open, setOpen] = useState<number | null>(null);
+  const lightboxRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const close = useCallback(() => setOpen(null), []);
+  const step = useCallback(
+    (dir: number) =>
+      setOpen((cur) => (cur === null ? cur : (cur + dir + GALLERY.length) % GALLERY.length)),
+    []
+  );
+
+  // Keyboard: Escape closes, arrows navigate, Tab is trapped within the dialog.
+  useEffect(() => {
+    if (open === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowRight') step(1);
+      else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'Tab') {
+        const focusables = lightboxRef.current?.querySelectorAll<HTMLElement>('button');
+        if (!focusables || focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, close, step]);
+
+  // Move focus into the dialog on open; restore it to the opener on close.
+  useEffect(() => {
+    if (open === null) {
+      openerRef.current?.focus();
+      openerRef.current = null;
+      return;
+    }
+    const node = lightboxRef.current;
+    if (node && !node.contains(document.activeElement)) {
+      node.querySelector<HTMLButtonElement>('button')?.focus();
+    }
+  }, [open]);
+
+  return (
+    <section className="lp-section lp-section--gallery" id="gallery">
+      <div className="lp-section__head lp-section__head--center">
+        <p className="lp-eyebrow" data-reveal>
+          <span>05</span> Gallery
+        </p>
+        <h2 className="lp-h2" data-reveal>
+          See it in <em>action</em>.
+        </h2>
+      </div>
+
+      <div className="lp-gallery">
+        {GALLERY.map((shot, idx) => (
+          <figure className="lp-gallery__item" key={idx} data-reveal>
+            <button
+              className="lp-gallery__phone"
+              onClick={(e) => {
+                openerRef.current = e.currentTarget;
+                setOpen(idx);
+              }}
+              aria-label={`Enlarge: ${shot.caption}`}
+            >
+              <img src={shot.src} alt={shot.caption} loading="lazy" />
+              <span className="lp-gallery__zoom" aria-hidden="true">
+                ⤢
+              </span>
+            </button>
+            <figcaption className="lp-gallery__cap">{shot.caption}</figcaption>
+          </figure>
+        ))}
+      </div>
+
+      {open !== null && (
+        <div
+          className="lp-lightbox"
+          ref={lightboxRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Screenshot viewer"
+          onClick={close}
+        >
+          <button className="lp-lightbox__close" aria-label="Close" onClick={close}>
+            ✕
+          </button>
+          <button
+            className="lp-lightbox__nav lp-lightbox__nav--prev"
+            aria-label="Previous screenshot"
+            onClick={(e) => {
+              e.stopPropagation();
+              step(-1);
+            }}
+          >
+            ‹
+          </button>
+          <figure className="lp-lightbox__figure" onClick={(e) => e.stopPropagation()}>
+            <div className="lp-lightbox__phone">
+              <img src={GALLERY[open].src} alt={GALLERY[open].caption} />
+            </div>
+            <figcaption>{GALLERY[open].caption}</figcaption>
+          </figure>
+          <button
+            className="lp-lightbox__nav lp-lightbox__nav--next"
+            aria-label="Next screenshot"
+            onClick={(e) => {
+              e.stopPropagation();
+              step(1);
+            }}
+          >
+            ›
+          </button>
+          <span className="lp-lightbox__count">
+            {open + 1} / {GALLERY.length}
+          </span>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -149,6 +308,9 @@ export function LandingPage() {
           <button className="lp-link" onClick={scrollTo('modes')}>
             Modes
           </button>
+          <button className="lp-link" onClick={scrollTo('coach')}>
+            Coaching
+          </button>
           <button className="lp-link" onClick={scrollTo('climb')}>
             The Climb
           </button>
@@ -162,7 +324,8 @@ export function LandingPage() {
       <section className="lp-hero">
         <div className="lp-hero__copy">
           <p className="lp-kicker" data-reveal>
-            <span className="lp-kicker__dot" /> No&nbsp;limit · After&nbsp;hours · AI&nbsp;poker
+            <span className="lp-kicker__dot" /> No-Limit&nbsp;Hold&apos;em ·
+            100+&nbsp;AI&nbsp;characters · Any&nbsp;browser
           </p>
           <h1 className="lp-hero__title" data-reveal>
             You vs.
@@ -171,12 +334,15 @@ export function LandingPage() {
             <span className="lp-visually-hidden">somebody.</span>
           </h1>
           <p className="lp-hero__lead" data-reveal>
-            Poker is more than numbers — it&apos;s reads, tells, and drama. You&apos;re up against
-            AI personalities that feel the swings, remember how you play, and hold a grudge.
+            Poker is more than numbers — it&apos;s reads, tells, and drama.
+          </p>
+          <p className="lp-hero__clarifier" data-reveal>
+            Sit down with AI personalities who remember your bluffs, tilt after a bad beat, and talk
+            back — then a coach turns your real mistakes into drills.
           </p>
           <div className="lp-hero__actions" data-reveal>
             <button className="lp-btn lp-btn--primary" onClick={() => navigate('/login')}>
-              Play now — it&apos;s free
+              Play now — free to start
             </button>
             <button className="lp-btn lp-btn--ghost" onClick={scrollTo('players')}>
               See how it plays
@@ -206,10 +372,10 @@ export function LandingPage() {
       <section className="lp-section" id="players">
         <div className="lp-section__head">
           <p className="lp-eyebrow" data-reveal>
-            <span>01</span> Opponents with a pulse
+            <span>01</span> The Players
           </p>
           <h2 className="lp-h2" data-reveal>
-            The table is full of <em>people</em>.
+            The table is full of <em>personality</em>.
           </h2>
           <p className="lp-section__lead" data-reveal>
             Most poker AI plays a chart. Ours plays a person — with an ego, a mood, and a memory of
@@ -299,7 +465,7 @@ export function LandingPage() {
       <section className="lp-section lp-section--modes" id="modes">
         <div className="lp-section__head lp-section__head--center">
           <p className="lp-eyebrow" data-reveal>
-            <span>02</span> Three ways to play
+            <span>02</span> Modes
           </p>
           <h2 className="lp-h2" data-reveal>
             Pick your <em>door</em>.
@@ -350,7 +516,7 @@ export function LandingPage() {
       <section className="lp-section lp-section--coach" id="coach">
         <div className="lp-coach__intro">
           <p className="lp-eyebrow" data-reveal>
-            <span>03</span> Your corner
+            <span>03</span> Coaching
           </p>
           <h2 className="lp-h2" data-reveal>
             A coach who&apos;s read <em>every hand</em> you&apos;ve played.
@@ -380,55 +546,33 @@ export function LandingPage() {
           </ul>
         </div>
 
-        <aside className="lp-dossier" data-reveal>
-          <div className="lp-dossier__head">
-            <span className="lp-dossier__tag">Coaching dossier</span>
-            <span className="lp-dossier__dot" />
-          </div>
-
-          <div className="lp-dossier__block">
-            <div className="lp-dossier__row">
-              <span className="lp-dossier__k">Top leak</span>
-              <span className="lp-dossier__v">Over-folding the river</span>
-            </div>
-            <div className="lp-meter">
-              <i style={{ width: '72%' }} />
-            </div>
-          </div>
-
-          <div className="lp-dossier__block">
-            <div className="lp-dossier__row">
-              <span className="lp-dossier__k">Active drill</span>
-              <span className="lp-dossier__v">River defense</span>
-            </div>
-            <div className="lp-dossier__row lp-dossier__row--muted">
-              <span>12 / 20 spots cleared</span>
-              <span>this week</span>
-            </div>
-          </div>
-
-          <div className="lp-dossier__block">
-            <div className="lp-dossier__row">
-              <span className="lp-dossier__k">Improvement</span>
-              <span className="lp-dossier__up">↑ 18%</span>
-            </div>
-            <svg
-              className="lp-spark"
-              viewBox="0 0 120 32"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <polyline points="0,28 20,26 40,27 60,20 80,16 100,9 120,5" />
-            </svg>
-          </div>
-        </aside>
+        <div className="lp-coach__stack" data-reveal>
+          <figure className="lp-coach__range">
+            <img
+              src={rangeExplorerShot}
+              alt="The Range Explorer — a 13×13 grid of every starting hand showing how often you actually play it, so you can see exactly which hands you over- or under-play."
+            />
+          </figure>
+          <figure className="lp-phone lp-coach__phone lp-coach__phone--b">
+            <img
+              src={leaksShot}
+              alt="Your preflop game graded against the solver, with a drill to fix each leak."
+            />
+          </figure>
+          <figure className="lp-phone lp-coach__phone lp-coach__phone--a">
+            <img
+              src={coachTipShot}
+              alt="In-hand coaching — flagging spots before you commit chips."
+            />
+          </figure>
+        </div>
       </section>
 
       {/* ===================== THE CLIMB (staircase) ===================== */}
       <section className="lp-section lp-section--climb" id="climb">
         <div className="lp-climb__intro">
           <p className="lp-eyebrow" data-reveal>
-            <span>04</span> The long game
+            <span>04</span> The Climb
           </p>
           <h2 className="lp-h2" data-reveal>
             Start a nobody.
@@ -436,8 +580,8 @@ export function LandingPage() {
             <em>Become a fixture.</em>
           </h2>
           <p className="lp-section__lead" data-reveal>
-            The Circuit isn&apos;t a lobby of price tags — it&apos;s a world you earn your way into.
-            Most doors start invisible. You open them by being someone worth knowing.
+            The Circuit isn&apos;t a lobby of price tags — it&apos;s a world you climb your way
+            into. Most doors start invisible. You open them by being someone worth knowing.
           </p>
           <PhoneShot
             src={lobbyShot}
@@ -490,6 +634,9 @@ export function LandingPage() {
         </ol>
       </section>
 
+      {/* ===================== GALLERY ===================== */}
+      <Gallery />
+
       {/* ===================== FINAL CTA ===================== */}
       <section className="lp-closer">
         <span className="lp-closer__suit lp-closer__suit--a" aria-hidden="true">
@@ -503,7 +650,7 @@ export function LandingPage() {
             Pull up a <em>chair</em>.
           </h2>
           <p className="lp-closer__lead">
-            Free to play in your browser. Your opponents are already waiting — and they remember
+            Free to start, in any browser. Your opponents are already waiting — and they remember
             where you left off.
           </p>
           <button className="lp-btn lp-btn--primary lp-btn--lg" onClick={() => navigate('/login')}>

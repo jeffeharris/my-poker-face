@@ -148,6 +148,9 @@
 .lp-hero__copy [data-reveal]:nth-child(4) {
   transition-delay: 0.3s;
 }
+.lp-hero__copy [data-reveal]:nth-child(5) {
+  transition-delay: 0.4s;
+}
 .lp-bento [data-reveal]:nth-child(2) {
   transition-delay: 0.06s;
 }
@@ -183,9 +186,9 @@
 .lp-kicker,
 .lp-eyebrow {
   font-family: var(--font-mono);
-  font-size: clamp(11px, 1vw, 13px);
+  font-size: clamp(12.5px, 1.05vw, 15px);
   font-weight: 500;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--color-gold);
   display: inline-flex;
@@ -239,8 +242,8 @@
 
 .lp-section__lead {
   margin: 0;
-  font-size: clamp(16px, 1.5vw, 19px);
-  line-height: 1.62;
+  font-size: clamp(17px, 1.55vw, 21px);
+  line-height: 1.6;
   color: var(--color-text-secondary);
   max-width: 50ch;
 }
@@ -325,12 +328,17 @@
 
 /* ===================== TOP BAR ===================== */
 .lp-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  padding: clamp(16px, 2.4vw, 26px) var(--gutter);
+  padding: clamp(12px, 1.8vw, 20px) var(--gutter);
   border-bottom: 1px solid var(--hair);
+  background: rgba(6, 6, 8, 0.82);
+  backdrop-filter: blur(14px);
 }
 
 .lp-topbar__logo {
@@ -384,11 +392,19 @@
 }
 
 .lp-hero__lead {
-  margin: 0 0 clamp(26px, 3vw, 38px);
-  font-size: clamp(16px, 1.5vw, 20px);
-  line-height: 1.6;
+  margin: 0 0 14px;
+  font-size: clamp(18px, 1.6vw, 23px);
+  line-height: 1.55;
   color: var(--color-text-secondary);
   max-width: 50ch;
+}
+
+.lp-hero__clarifier {
+  margin: 0 0 clamp(26px, 3vw, 38px);
+  font-size: clamp(15px, 1.4vw, 18px);
+  line-height: 1.6;
+  color: var(--color-text-tertiary);
+  max-width: 52ch;
 }
 
 .lp-hero__actions {
@@ -408,14 +424,14 @@
 .lp-phones {
   position: relative;
   width: fit-content;
-  margin: clamp(20px, 3vw, 40px) clamp(40px, 8vw, 80px);
+  margin: clamp(20px, 3vw, 40px) 0 clamp(20px, 3vw, 40px) clamp(60px, 9vw, 130px);
 }
 
 .lp-phone {
   margin: 0;
-  width: clamp(168px, 21vw, 230px);
-  padding: 7px;
-  border-radius: 30px;
+  width: clamp(240px, 30vw, 420px);
+  padding: 9px;
+  border-radius: 38px;
   background: linear-gradient(160deg, #20232c, #0a0b10);
   border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow:
@@ -439,10 +455,10 @@
 
 .lp-phone--back {
   position: absolute;
-  top: 7%;
-  right: 56%;
+  top: 8%;
+  right: 42%;
   z-index: 1;
-  transform: rotate(-7deg) scale(0.9);
+  transform: rotate(-7deg) scale(0.88);
   filter: brightness(0.82) saturate(0.95);
 }
 
@@ -453,10 +469,30 @@
   width: clamp(180px, 20vw, 230px);
 }
 
+/* Dossier in the feature tile: a wide phone whose bottom is cropped by the tile,
+   so the readable top of the file is shown large. */
 .lp-tile__phone {
-  width: clamp(158px, 16vw, 206px);
-  margin-top: clamp(22px, 2.6vw, 34px);
-  transform: rotate(-2deg);
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  max-width: 320px;
+  align-self: center;
+  margin: clamp(20px, 2.4vw, 30px) auto 0;
+  padding: 7px 7px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: 26px 26px 0 0;
+  background: linear-gradient(160deg, #20232c, #0a0b10);
+  box-shadow: 0 -18px 50px -34px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+  transform: none;
+}
+
+.lp-tile__phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 20px 20px 0 0;
 }
 
 .lp-climb__phone {
@@ -595,9 +631,17 @@
   max-width: 46ch;
 }
 
-/* Feature tile spans two rows + holds a phone mockup */
+/* Feature tile spans two rows + holds the cropped dossier */
 .lp-tile--feature {
   grid-row: span 2;
+}
+
+.lp-tile--feature .lp-tile__glyph {
+  margin-bottom: 18px;
+}
+
+.lp-tile--feature .lp-tile__body {
+  margin-top: 0;
 }
 
 /* ===================== MODES (triptych of doors) ===================== */
@@ -746,120 +790,59 @@
   font-weight: 600;
 }
 
-/* Coaching dossier card (designed mock — swap for a real screenshot later) */
-.lp-dossier {
+/* Coach section — real Range Explorer with coaching phones overlapping it */
+.lp-coach__stack {
   justify-self: end;
+  position: relative;
   width: 100%;
-  max-width: 440px;
-  background: linear-gradient(165deg, var(--ink-3), var(--ink-2));
-  border: 1px solid var(--hair-soft);
+  max-width: 460px;
+  margin: clamp(20px, 4vw, 50px) clamp(20px, 4vw, 48px) clamp(70px, 8vw, 110px) 0;
+}
+
+.lp-coach__range {
+  margin: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.lp-coach__range img {
+  display: block;
+  width: 100%;
+  height: auto;
   border-radius: 12px;
-  padding: clamp(22px, 2.4vw, 30px);
+  border: 1px solid var(--hair);
   box-shadow:
-    0 36px 80px -44px rgba(0, 0, 0, 0.9),
-    0 0 0 1px rgba(59, 130, 246, 0.12);
+    0 40px 80px -40px rgba(0, 0, 0, 0.9),
+    0 0 60px -30px rgba(212, 165, 116, 0.45);
+  transform: rotate(-2deg);
 }
 
-.lp-dossier__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 22px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--hair-soft);
+.lp-coach__phone {
+  position: absolute;
+  width: clamp(118px, 14vw, 158px);
+  margin: 0;
 }
 
-.lp-dossier__tag {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-}
-
-.lp-dossier__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--color-emerald);
-  box-shadow: 0 0 10px var(--color-emerald);
-}
-
-.lp-dossier__block {
-  margin-bottom: 20px;
-}
-
-.lp-dossier__block:last-child {
-  margin-bottom: 0;
-}
-
-.lp-dossier__row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.lp-dossier__k {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.lp-dossier__v {
-  font-family: var(--font-serif);
-  font-size: clamp(17px, 1.6vw, 20px);
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.lp-dossier__row--muted {
-  margin-top: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.lp-meter {
-  margin-top: 12px;
-  height: 6px;
-  border-radius: 99px;
-  background: rgba(255, 255, 255, 0.07);
-  overflow: hidden;
-}
-
-.lp-meter i {
+.lp-coach__phone img {
   display: block;
-  height: 100%;
-  border-radius: 99px;
-  background: linear-gradient(90deg, var(--color-amber), var(--color-ruby));
-}
-
-.lp-dossier__up {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-emerald);
-}
-
-.lp-spark {
-  margin-top: 12px;
   width: 100%;
-  height: 32px;
-  display: block;
+  height: auto;
+  border-radius: 18px;
 }
 
-.lp-spark polyline {
-  fill: none;
-  stroke: var(--color-emerald);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+.lp-coach__phone--a {
+  right: clamp(-44px, -4vw, -24px);
+  bottom: clamp(-86px, -8vw, -56px);
+  z-index: 3;
+  transform: rotate(6deg);
+}
+
+.lp-coach__phone--b {
+  left: clamp(-40px, -3.5vw, -20px);
+  bottom: clamp(-60px, -6vw, -40px);
+  z-index: 2;
+  transform: rotate(-8deg);
+  filter: brightness(0.92);
 }
 
 /* ===================== THE CLIMB (staircase) ===================== */
@@ -1055,6 +1038,229 @@
   color: var(--color-gold);
 }
 
+/* ===================== GALLERY (phone screens) ===================== */
+.lp-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(18px, 2.4vw, 40px);
+  align-items: start;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.lp-gallery__item {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.lp-gallery__phone {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 7px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(160deg, #20232c, #0a0b10);
+  box-shadow:
+    0 40px 80px -34px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  cursor: zoom-in;
+  transition:
+    transform 0.4s var(--ease-out-expo),
+    border-color 0.4s ease,
+    box-shadow 0.4s ease;
+}
+
+.lp-gallery__phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 20px;
+}
+
+.lp-gallery__phone:hover {
+  transform: translateY(-6px);
+  border-color: var(--color-border-gold);
+  box-shadow:
+    0 50px 90px -34px rgba(0, 0, 0, 0.95),
+    0 0 50px -22px rgba(13, 59, 46, 0.8);
+}
+
+.lp-gallery__cap {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  max-width: 30ch;
+}
+
+.lp-gallery__zoom {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(5, 5, 8, 0.78);
+  border: 1px solid var(--hair);
+  color: var(--color-gold);
+  font-size: 14px;
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s var(--ease-out-back);
+}
+
+.lp-gallery__phone:hover .lp-gallery__zoom {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ===================== LIGHTBOX ===================== */
+.lp-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 56px);
+  background: rgba(3, 3, 5, 0.92);
+  backdrop-filter: blur(10px);
+  cursor: zoom-out;
+  animation: lpFade 0.25s ease;
+}
+
+@keyframes lpFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lp-lightbox__figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: default;
+  animation: lpZoomIn 0.32s var(--ease-out-back);
+}
+
+@keyframes lpZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lp-lightbox__phone {
+  padding: clamp(7px, 0.8vw, 11px);
+  border-radius: clamp(28px, 3vw, 40px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(160deg, #20232c, #0a0b10);
+  box-shadow:
+    0 50px 110px -30px rgba(0, 0, 0, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.lp-lightbox__phone img {
+  display: block;
+  width: auto;
+  height: min(82vh, 880px);
+  max-width: 88vw;
+  border-radius: clamp(22px, 2.4vw, 32px);
+}
+
+.lp-lightbox__figure figcaption {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 14.5px;
+  color: var(--color-text-secondary);
+  max-width: 42ch;
+}
+
+.lp-lightbox__close {
+  position: absolute;
+  top: clamp(14px, 2.5vw, 28px);
+  right: clamp(14px, 2.5vw, 28px);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--hair);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition: var(--transition-all-base);
+}
+
+.lp-lightbox__close:hover {
+  border-color: var(--color-gold);
+  color: var(--color-text-primary);
+  background: rgba(212, 165, 116, 0.1);
+}
+
+.lp-lightbox__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--hair);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-primary);
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+  transition: var(--transition-all-base);
+}
+
+.lp-lightbox__nav:hover {
+  border-color: var(--color-gold);
+  background: rgba(212, 165, 116, 0.12);
+}
+
+.lp-lightbox__nav--prev {
+  left: clamp(10px, 3vw, 36px);
+}
+
+.lp-lightbox__nav--next {
+  right: clamp(10px, 3vw, 36px);
+}
+
+.lp-lightbox__count {
+  position: absolute;
+  bottom: clamp(16px, 3vw, 32px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  color: var(--color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-lightbox,
+  .lp-lightbox__figure {
+    animation: none;
+  }
+}
+
 /* =============================================================================
    RESPONSIVE
    ============================================================================= */
@@ -1088,14 +1294,25 @@
     margin-top: 24px;
   }
 
+  /* Single-row feature tile: give the dossier a fixed height so it crops to its top. */
+  .lp-tile__phone {
+    flex: none;
+    height: clamp(240px, 44vw, 340px);
+  }
+
+  .lp-gallery {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .lp-section--coach {
     grid-template-columns: 1fr;
     gap: clamp(32px, 6vw, 56px);
   }
 
-  .lp-dossier {
-    justify-self: stretch;
-    max-width: none;
+  .lp-coach__stack {
+    justify-self: center;
+    max-width: 420px;
+    margin-right: 0;
   }
 
   .lp-section--climb {
@@ -1120,6 +1337,21 @@
     display: none;
   }
 
+  .lp-gallery {
+    grid-template-columns: repeat(2, 1fr);
+    gap: clamp(14px, 4vw, 22px);
+  }
+
+  .lp-gallery__cap {
+    font-size: 12.5px;
+  }
+
+  .lp-lightbox__nav {
+    width: 40px;
+    height: 40px;
+    font-size: 24px;
+  }
+
   .lp-hero {
     padding-top: clamp(36px, 12vw, 56px);
   }
@@ -1138,13 +1370,13 @@
   }
 
   .lp-phone {
-    width: clamp(150px, 43vw, 180px);
+    width: clamp(200px, 56vw, 270px);
   }
 
   .lp-phone--back {
-    right: 46%;
+    right: 44%;
     top: 9%;
-    transform: rotate(-7deg) scale(0.82);
+    transform: rotate(-7deg) scale(0.8);
   }
 
   .lp-bento {
