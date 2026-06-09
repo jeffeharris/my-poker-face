@@ -1,0 +1,151 @@
+---
+purpose: Narrative log of the afq-wtsd-tuning arc — a reported "AFq too high" that turned out to be a measurement timeline bug plus miscalibrated bands, and the 6-max instrument that separated artifact from real behavior
+type: guide
+created: 2026-06-09
+last_updated: 2026-06-09
+---
+
+# Measuring before tuning
+
+## How it started
+
+Jeff: *"When I look at the Archetype review in production, I see some really
+high numbers for AFq% and WTSD%, C-bet is low, and fold-to-cbet is a mix. I also
+think we're still seeing really high fold-to-3bet for TAG, LAG, and Calling
+Station."*
+
+A feel, again, off the admin review tool. No repro. And like last time it was
+partly right and partly a measurement mirage. The interesting part was telling
+the two apart.
+
+## The first tell: AF was fine but AFq was not
+
+The live (human-cash) numbers were too sparse to judge (the "unknown" archetype
+had more postflop rows than all seven real archetypes combined), so I pulled the
+background-sim counter table, which has tens of thousands of hands per archetype.
+
+AFq was high for everyone. A nit at 62%, a calling station at 49%. But the plain
+aggression factor (AF, the bet+raise over call ratio) was sitting comfortably in
+band for the same archetypes. The only thing that separates AF from AFq is folds
+in the denominator. If AF looks right and AFq looks high, folds are being
+undercounted. That was the whole diagnosis in one observation.
+
+## The timeline bug
+
+The counter table has `postflop_agg` / `postflop_call` columns and, separately,
+per-street `flop_fold` / `turn_fold` / `river_fold` columns. The review tool
+computed AFq as agg over (agg + call + folds). Looked correct on paper.
+
+The trap was in the migrations. `postflop_agg` / `postflop_call` were created in
+the 20260608_1600 migration. The per-street fold columns landed in 20260609_1200,
+about twenty hours later. The dominant prod sandbox had been accumulating the
+whole time, so the numerator and the call count carried a full day more history
+than the fold term. Folds were weighted roughly eight times too light. Proof was
+blunt: the same nit row had `postflop_agg` = 523 against a per-street agg sum of
+69.
+
+Fix: make the per-street columns the single source of truth for AF and AFq, so
+all three terms share one accumulation timeline. The recorder stopped writing the
+redundant aggregate counters and the repo dropped them from its column list. No
+backfill needed, because the per-street data was already correct; the read just
+had to stop mixing the two clocks. The orphaned physical columns stay (a
+destructive migration on a live counter table is not worth the risk, and this
+project has been bitten by that before).
+
+## WTSD was a different animal
+
+WTSD's two inputs landed in the same migration, so its ratio was internally
+consistent. Not the timeline bug. The reason it read high was the lobby sim's
+table sizes: thirteen tables, all six-seat capacity, but actual occupancy was
+three heads-up tables, a few three- and four-handed, and the rest five. The
+targets are written for six-max. Short-handed play inflates WTSD structurally.
+Apples to oranges, not over-sticky play.
+
+## The wrong turn
+
+I told Jeff the fold-to-3bet readings (TAG 76, LAG 62, station 52) were a real
+over-fold, citing them as a known backlog item. That was wrong, and I corrected
+it the next step.
+
+The lobby-sim numbers are off in ways we had already agreed to tolerate (the
+short-handed regime, and any remaining squeeze-defence contamination). What we
+did not have was an instrument that asks the actual question: under expected
+six-max conditions, do the archetypes hit their targets? Jeff asked for exactly
+that.
+
+## Building the instrument
+
+There was a mixed-field probe already (`archetype_mixedfield_probe.py`): seven
+archetypes, six seats, one rotating out each hand, the realistic six-max field
+the bands were written for. But it only measured the preflop stats and AF. AFq,
+WTSD, W$SD, c-bet, and fold-to-c-bet had no controlled six-max instrument at all.
+They only ever appeared through the lobby-sim counters.
+
+So I extended the probe to compute the full postflop family from the ordered
+decision stream (which makes AFq and AF share one timeline by construction, the
+exact thing the counter table got wrong) and from the end-of-hand state for
+WTSD/W$SD.
+
+The first clean six-max run settled the fold-to-3bet question immediately: in
+band for nit, tag, lag, and station. My earlier claim was a regime artifact. Off
+the list.
+
+## What the instrument actually found
+
+Preflop: healthy. The real problems were all postflop and regime-independent:
+
+- WTSD too high for everyone (nit 47, station 50, fish 57 against bands in the
+  20s to mid-40s). The bots are too sticky and call down too light.
+- C-bet too low for everyone (nit 17, tag 33, maniac 46 against bands of 55 to
+  95). The preflop aggressor checks away most flops.
+- W$SD slightly low for several, which is the downstream consequence of going to
+  showdown too often with weak holdings.
+
+AFq stayed high, but that one needed a second look.
+
+## The postflop trace
+
+The tiered bots play from a single hand-authored chart,
+`postflop_strategies.json`, 2,160 single-raised-pot entries. Measured straight
+off the file: unopened-flop bet frequency averaged 39.7% (nuts bet only 59%), and
+facing a flop bet, medium-made hands called 71% and folded 13%. Too passive both
+ways, and it is the source of truth for every tiered bot.
+
+One important caveat for the c-bet side: the node has no aggressor flag. The
+"unopened" node conflates "I am the preflop aggressor continuation-betting" (want
+a high bet frequency) with "I am the caller first to act and should check to the
+raiser" (want a low one). So you cannot simply crank c-bet frequency without
+turning callers into donk-bettors. A clean c-bet fix needs a new aggressor-aware
+node dimension. The calling-discipline side has no such wrinkle.
+
+## Re-baseline before tuning
+
+I was ready to start editing the chart. Jeff's call was to re-baseline the bands
+first, so we would not tune behavior toward a possibly-wrong number. Right
+instinct.
+
+Hard population numbers at this granularity do not exist, so this was an honest
+gut-check, not a citation. The finding: the AFq bands ran about ten to fifteen
+points low for the tight and aggressive types. AFq excludes checks, so even a
+"tight" player's non-check actions skew aggressive (a nit value-bets and folds,
+rarely calls), which lifts AFq above where the old bands assumed. The WTSD bands
+were roughly right, with a couple too narrow to survive sampling noise.
+
+Re-scoring the same correctly-measured six-max behavior against the revised bands
+gave the clean split we were after:
+
+- AFq fell out of the fail list entirely. Only tag is a marginal warn now. So AFq
+  was almost all band plus the timeline measurement bug, not behavior.
+- WTSD and c-bet stayed far outside even the widened bands. Those are the real
+  behavior problems, and they are exactly the two postflop levers: calling
+  discipline (tighten the wide medium-made calls) and c-bet (the aggressor-aware
+  node).
+
+## Where it stands
+
+Shipped on this branch: the AFq timeline fix, the extended six-max probe, and the
+re-baselined AFq/WTSD bands. The remaining work is the genuine postflop tuning,
+now aimed at targets we trust: raise c-bet frequency for the aggressor, and stop
+calling down so light. The order of operations mattered. Measuring before tuning
+turned a vague "the numbers look high" into a precise, two-item list, and threw
+out one of my own wrong answers along the way.
