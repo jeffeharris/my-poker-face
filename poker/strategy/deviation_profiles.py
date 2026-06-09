@@ -5,10 +5,16 @@ Each profile controls how far a player archetype can deviate from the
 solver baseline in logit space.
 """
 
-from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from ..archetypes import classify_from_anchors
+
+if TYPE_CHECKING:
+    # Type-only import to avoid a circular import: tilt_conditioning imports
+    # DeviationProfile from this module. The runtime default is an empty tuple,
+    # so no concrete TiltScenarioRule is needed at import time.
+    from .tilt_conditioning import TiltScenarioRule
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,16 @@ class DeviationProfile:
     # docs/technical/ARCHETYPE_SHAPING_FINDINGS.md (the pre/postflop split).
     reraise_aggression_scale: Optional[float] = None
     reraise_max_per_action_shift: Optional[float] = None
+    # Tilt-conditioning reach (PERCEPTIBILITY_CONDITIONING.md Phase 2, the
+    # Option-C `tilt_conditioning` layer). `tilt_conditioning_cap` is the binding
+    # lever — the max logit-space offset the conditioner may apply when a tilt
+    # rule fires (0.0 = the layer is a byte-identical no-op for this archetype).
+    # `tilt_scenario_rules` are the per-tilt-type rules this archetype has opted
+    # into. BOTH default inert — every shipped profile keeps cap=0.0 / rules=()
+    # in Phase 2 (no archetype opted in until Phase 3 opts maniac in), so the
+    # no-op invariant holds (test-locked). See poker/strategy/tilt_conditioning.py.
+    tilt_conditioning_cap: float = 0.0
+    tilt_scenario_rules: Tuple['TiltScenarioRule', ...] = field(default_factory=tuple)
 
 
 # Predefined profiles from architecture doc:

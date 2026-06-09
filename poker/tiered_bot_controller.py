@@ -66,6 +66,7 @@ from .strategy.sizing_tendencies import (
 )
 from .strategy.strategy_profile import StrategyProfile
 from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
+from .strategy.tilt_conditioning import apply_tilt_conditioning
 from .strategy.value_override import (
     BLUFF_CATCH_TRIGGER_CLASSES,
     HandStrengthClass,
@@ -612,7 +613,7 @@ class TieredBotController(AIPlayerController):
         already-intuition-framed line (no raw numbers/stats), and the arc
         tier is the certainty bucket.
         """
-        from .strategy.narration_facts import NarrationContext, NarrationFact, NarrationFacts
+        from .strategy.narration_facts import NarrationFact, NarrationFacts
 
         read_fact = NarrationFact(
             observation=spoken_read.observation,
@@ -1011,6 +1012,16 @@ class TieredBotController(AIPlayerController):
             hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
         )
 
+        # Phase 2 (PERCEPTIBILITY_CONDITIONING.md): tilt_conditioning runs
+        # between spot-tendencies and exploitation. Inert (no-op, byte-identical)
+        # unless the flag is on AND the profile opts in (cap > 0.0).
+        modified_strategy = self._layer_tilt_conditioning(
+            modified_strategy,
+            node=node,
+            valid_actions=valid_actions,
+            emotional_state=emotional_state,
+        )
+
         if self.debug_logging:
             logger.info(
                 f"[TIERED_BOT] {self.player_name}: "
@@ -1327,6 +1338,16 @@ class TieredBotController(AIPlayerController):
             node=node,
             anchors=anchors,
             hand_strength=hand_strength,
+        )
+
+        # 6.c Phase 2 (PERCEPTIBILITY_CONDITIONING.md): tilt_conditioning runs
+        # between spot-tendencies and exploitation. Inert (no-op, byte-identical)
+        # unless the flag is on AND the profile opts in (cap > 0.0).
+        modified_strategy = self._layer_tilt_conditioning(
+            modified_strategy,
+            node=node,
+            valid_actions=valid_actions,
+            emotional_state=emotional_state,
         )
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
@@ -1711,6 +1732,54 @@ class TieredBotController(AIPlayerController):
             self._last_pipeline_snapshot['preflop_spot_tendency_probs'] = dict(
                 modified_strategy.action_probabilities
             )
+        return modified_strategy
+
+    def _layer_tilt_conditioning(
+        self,
+        modified_strategy,
+        *,
+        node,
+        valid_actions,
+        emotional_state,
+    ):
+        """Phase 2 (PERCEPTIBILITY_CONDITIONING.md): state-conditioned aggression.
+
+        Runs between the spot-tendencies layer and exploitation (a conditioner,
+        not an override — the math floor still runs after it). Double-gated for
+        zero overhead AND zero effect when off/inert:
+          - the TILT_CONDITIONING_ENABLED feature flag, AND
+          - the profile's `tilt_conditioning_cap > 0.0` (the Phase-2 default for
+            EVERY shipped archetype is 0.0, so this is byte-identical until an
+            archetype opts in — Phase 3).
+        Appends the layer's trace to `self._last_intervention_trace`. Shared by
+        the preflop and postflop decision paths. `composure_state` read via
+        getattr for sim/__new__ safety.
+        """
+        profile = getattr(self, 'deviation_profile', None)
+        if profile is None or float(getattr(profile, 'tilt_conditioning_cap', 0.0) or 0.0) <= 0.0:
+            return modified_strategy
+        try:
+            from core.feature_flags import is_enabled
+
+            if not is_enabled('TILT_CONDITIONING_ENABLED'):
+                return modified_strategy
+        except Exception:
+            # Flag registry unavailable (sim/test isolation) → treat as off.
+            return modified_strategy
+
+        psychology = getattr(self, 'psychology', None)
+        composure_state = getattr(psychology, 'composure_state', None) if psychology else None
+        modified_strategy, tilt_trace = apply_tilt_conditioning(
+            modified_strategy,
+            legal_actions=valid_actions,
+            emotional_state=emotional_state,
+            composure_state=composure_state,
+            node=node,
+            archetype_rules=getattr(profile, 'tilt_scenario_rules', ()),
+            profile=profile,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+        self._last_intervention_trace.append(tilt_trace)
         return modified_strategy
 
     def _layer_multistreet_context(

@@ -2,7 +2,7 @@
 purpose: The full 5-phase plan to make the SHARP/TIERED bot's opponent adaptation perceptible (surface the read) and conditioned (vary aggression by state), with the locked design decisions and per-phase contracts
 type: design
 created: 2026-06-09
-last_updated: 2026-06-09
+last_updated: 2026-06-10
 ---
 
 # Perceptibility & Conditioning (backlog #12)
@@ -102,7 +102,61 @@ the perceptibility win the nudge-display was reaching for.
 
 ---
 
-## Phase 2 — Condition the aggression (the full Option-C `tilt_conditioning` layer)
+## Phase 2 — Condition the aggression (the full Option-C `tilt_conditioning` layer) ✅ BUILT (infra; maniac opt-in pending Phase 3) (2026-06-10)
+
+**Status: the layer + flag + all Tendler-type rule definitions are built, but
+INERT by default** — every shipped `DeviationProfile` keeps
+`tilt_conditioning_cap=0.0` and `tilt_scenario_rules=()`, so flag-off AND
+no-archetype-opted-in is **byte-identical** to current behaviour (probe
+confirmed, md5 identical before/after at 9k hands). Phase 3 (separate) opts
+maniac in + lowers its baseline.
+
+**Files:**
+- `poker/strategy/tilt_conditioning.py` (new) — `TiltScenarioRule` (frozen),
+  `TILT_TYPE_RULES` (the 7 Tendler types mapped from
+  `composure_state.pressure_source`: bad_beat/got_sucked_out/big_loss/
+  losing_streak/nemesis_loss/crippled → aggression UP in re-raise spots;
+  bluff_called = conservative no-op for V1, registered + telegraphable),
+  `_resolve_tilt_type` / `_resolve_scenario` / `_resolve_position`, and
+  `apply_tilt_conditioning(...) -> (StrategyProfile, InterventionTrace)` (logit
+  offset → clip → renormalize bounded by `profile.tilt_conditioning_cap`;
+  identity + `fired=False` on cap==0.0 / composed / no-match).
+- `poker/strategy/deviation_profiles.py` — `DeviationProfile` gains
+  `tilt_conditioning_cap: float = 0.0` and
+  `tilt_scenario_rules: Tuple[TiltScenarioRule, ...] = ()` (TYPE_CHECKING import
+  to avoid the circular import). All profiles default inert.
+- `poker/strategy/intervention_trace.py` — `'tilt_conditioning'` added to
+  `_LAYER_NAMES`, `_RULE_IDS_BY_LAYER` (the `tilt_<type>` codes + `default`),
+  and `_LAYER_ORDER` at **tier 1** (shares exploitation's coarse tier rather
+  than a NEW ordinal — deliberately avoids the layer-order bump that would
+  shift exploitation→2 and break the per-layer golden ordinals; runs in the
+  pipeline before exploitation, monotonicity holds).
+- `poker/tiered_bot_controller.py` — `_layer_tilt_conditioning` helper called in
+  BOTH the preflop and postflop paths between spot-tendencies and
+  `_apply_exploitation`. Double-gated: `is_enabled('TILT_CONDITIONING_ENABLED')`
+  AND `profile.tilt_conditioning_cap > 0.0` (zero overhead + zero effect when
+  off/inert). `composure_state` read via `getattr` (sim/`__new__` safety).
+- `core/feature_flags.py` — `TILT_CONDITIONING_ENABLED` (EXPERIMENTAL,
+  db_overridable, off by default everywhere).
+- `poker/strategy/narration_facts.py` — the `tilt_<type>` reason codes added to
+  `NARRATION_ALLOWLIST` + `REASON_CODE_TO_OBSERVATION` (+ fallbacks, narrative
+  weight, action intent) with intuition-framed observations (bad_beat → "still
+  stinging from that last one") so a fired spike is telegraphed (both channels).
+- `tests/test_strategy/test_tilt_conditioning.py` (new, 48 tests) — per-type
+  rule selection, cap clamp, composed/flag-off/inert no-ops, scenario+position
+  gating, the double-count guard, and the byte-identical invariant across all
+  real archetypes.
+
+**Double-count guard:** `compute_trait_offsets` already applies the generic,
+spot-blind, poise-gated emotional offset (`intensity*(1-poise)` for
+tilted/overconfident). This layer is disjoint: it keys on
+`composure_state.pressure_source` (the CAUSE, never read by the personality
+term), its magnitude is the fixed profile cap (NOT re-multiplied by
+`intensity*(1-poise)`), it only fires in re-raise/postflop-aggressor spots, and
+it leaves the PASSIVE direction (shaken/dissociated) entirely to the poise-gate.
+
+### (original Phase-2 contract, retained)
+
 
 Modulate 3-bet/aggression by **opponent memory > position > tilt/emotional state >
 table image/recent history > stack depth/straddle** (priority per the aggression
