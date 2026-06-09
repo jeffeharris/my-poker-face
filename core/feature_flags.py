@@ -564,3 +564,14 @@ register(
         db_overridable=True,
     )
 )
+register(
+    FeatureFlag(
+        "TILT_PERSISTENCE_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt-excursion persistence (TILT_EXCURSION_DESIGN.md): slow-recovery-while-tilted + second-wind escape in PlayerPsychology.recover() so tilt lasts long enough to be felt without going chronic. Inert (byte-identical recover) when off.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)

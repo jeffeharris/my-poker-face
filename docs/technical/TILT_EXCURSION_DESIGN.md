@@ -209,6 +209,22 @@ median episode length, and supports a recovery-policy knob. The build/tune loop:
 4. Absolute %time is event-model-dependent (needs real-play data to trust as a
    point); episode length + per-band spread are the robust signals to tune on.
 
+## Implementation status
+
+**Persistence is ported to production** (`poker/player_psychology.py:recover()`),
+gated by `TILT_PERSISTENCE_ENABLED` (EXPERIMENTAL, off in dev+prod):
+- Constants `TILT_LINE=0.40`, `TILT_DRAG_FLOOR=0.30`, `TILT_DRAG_EXP=2.0`,
+  `TILT_SECOND_WIND_K=15`, `TILT_SECOND_WIND_ACCEL=0.45`.
+- While below the line: composure recovery scaled by the poise drag; after `K`
+  consecutive tilted hands the second wind jumps to the brisk rate. A
+  `_tilt_streak` counter (not serialized) drives the escape.
+- **Off => byte-identical** (`comp_rate == rate`, no streak state) — 415 existing
+  psychology tests pass unchanged; new `tests/test_tilt_persistence.py` pins the
+  mechanism + the inert-when-off guarantee.
+
+Not yet done: validate %time against real play (turn the flag on in dev, run
+games, re-measure), then the §4 signature/coupling/telegraph layer.
+
 ## Open parameters / decisions
 
 - `TILT_DRAG_FLOOR` and the drag curve shape (linear in poise vs steeper) — fit,

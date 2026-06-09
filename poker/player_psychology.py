@@ -35,6 +35,29 @@ from .range_guidance import get_player_archetype
 logger = logging.getLogger(__name__)
 
 
+# === Tilt-excursion persistence (docs/technical/TILT_EXCURSION_DESIGN.md) ===
+# Flag-gated in recover(); INERT (byte-identical recovery) when the flag is off.
+# Parameters fitted via experiments/measure_zone_distribution.py: at play_rate
+# 0.30 these give hothead ~18% time tilted in ~10-hand episodes (felt, exploitable)
+# with a bounded tail, stoics ~0 (only a cooler run tilts them).
+TILT_LINE = 0.40              # 'tilted' threshold (the episode boundary; matches emotional_state)
+TILT_DRAG_FLOOR = 0.30        # recovery drag at poise->0 while tilted (slower climb-out = longer episode)
+TILT_DRAG_EXP = 2.0           # poise exponent for the drag (shapes the per-temperament spread)
+TILT_SECOND_WIND_K = 15       # consecutive tilted hands before the second-wind escape fires
+TILT_SECOND_WIND_ACCEL = 0.45  # brisk recovery rate once second wind triggers (caps the tail)
+
+
+def _tilt_persistence_enabled() -> bool:
+    """Live read of TILT_PERSISTENCE_ENABLED; False if the registry is unavailable
+    (sim/test isolation) so the off-path stays byte-identical to the old recover()."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('TILT_PERSISTENCE_ENABLED')
+    except Exception:
+        return False
+
+
 # === RE-EXPORTS ===
 # All existing `from poker.player_psychology import X` statements continue working.
 
@@ -951,7 +974,22 @@ class PlayerPsychology:
         else:
             comp_modifier = get_zone_param('RECOVERY_ABOVE_BASELINE')
 
-        new_comp = pre_comp + (comp_baseline - pre_comp) * rate * comp_modifier
+        # Tilt-excursion persistence (TILT_EXCURSION_DESIGN.md), flag-gated.
+        # WHILE below the tilt line, scale composure recovery by a poise-scaled
+        # drag (slower climb-out -> longer, felt episode); after the persona has
+        # been stuck below the line for TILT_SECOND_WIND_K hands, a second wind
+        # jumps recovery to a brisk rate so the episode resolves (caps the tail,
+        # keeps it non-chronic). Off => comp_rate == rate => byte-identical.
+        comp_rate = rate
+        tilt_persist = _tilt_persistence_enabled()
+        if tilt_persist and pre_comp < TILT_LINE:
+            if getattr(self, '_tilt_streak', 0) >= TILT_SECOND_WIND_K:
+                comp_rate = TILT_SECOND_WIND_ACCEL
+            else:
+                drag = TILT_DRAG_FLOOR + (1.0 - TILT_DRAG_FLOOR) * (self.anchors.poise ** TILT_DRAG_EXP)
+                comp_rate = rate * drag
+
+        new_comp = pre_comp + (comp_baseline - pre_comp) * comp_rate * comp_modifier
 
         # Energy (edge springs)
         energy_rate = rate
@@ -971,6 +1009,13 @@ class PlayerPsychology:
             composure=new_comp,
             energy=new_energy,
         )
+
+        # Tilt-streak counter for the second-wind escape: consecutive hands ended
+        # below the tilt line. Only tracked when the feature is on (off => no new
+        # state, byte-identical). Not serialized — a cold-loaded persona just
+        # restarts the counter, at most lengthening one episode after a reload.
+        if tilt_persist:
+            self._tilt_streak = (getattr(self, '_tilt_streak', 0) + 1) if new_comp < TILT_LINE else 0
 
         self._mark_updated()
 
