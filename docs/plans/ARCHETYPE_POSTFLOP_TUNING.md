@@ -145,9 +145,17 @@ item, not part of this fix.
    (the `unopened` node has no aggressor flag, so the raised c-bet also lifts
    donk-betting for callers — bounded by keeping made-hand bets the bulk of the
    lift; the clean structural fix remains future work).
-5. **NEXT — SNG champion-challenger gate.** The chart feeds every tiered bot; the
-   6-max probe shows behavior-in-band but not win-rate. Run the SNG gate before
-   any prod merge. Then re-check the live Archetype Review (sim source).
+5. **(done) Win-rate gate — PASSED.** Added a `postflop_rebalance` change to the
+   champion-challenger harness (champion = pristine authored chart, challenger =
+   rebalanced; same profiles both arms, isolating the chart's win-rate effect).
+   Results: cash bb/100 **heads-up +10.6, 95% CI [+4.3, +16.9] — CI-clear POSITIVE**
+   (a genuine strategy improvement, station-immune); cash 6-max neutral (−1.3, CI
+   spans 0); WTA SNG 6-max neutral (50.0%, CI [46.0, 53.8]). No regression in any
+   lens; the folding-more risk did not materialize. (Caveat: isolates the CHART;
+   the profile changes — sticky/auto_cbet — were not A/B'd, but they're
+   identity-restoring and the chart carried the win-rate risk.)
+6. **NEXT.** Re-check the live Archetype Review (sim source) after the sim has
+   re-accumulated on the new chart; and the optional aggressor-aware c-bet node.
 
 ## Validation gate
 
@@ -163,5 +171,7 @@ re-baselined bands, captain's log
 rebalance (Levers 1 + pragmatic 2)**. 6-max probe: 0 hard FAILs (was nearly all
 FAIL); WTSD 24-36, c-bet mostly in band, W$SD recovered; 16 residual WARNs are
 boundary noise / architecture-capped / the documented maniac fold-to-3bet preflop
-item. Remaining work: the **SNG win-rate gate** (required before prod) and the
-**aggressor-aware c-bet node** (the clean structural version of Lever 2).
+item. **Win-rate gate PASSED** (cash bb/100 HU +10.6 CI-clear positive; 6-max and
+WTA SNG neutral; no regression). Remaining: re-check the live Archetype Review
+once the sim re-accumulates, and the optional **aggressor-aware c-bet node** (the
+clean structural version of Lever 2).
