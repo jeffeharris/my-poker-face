@@ -8,7 +8,9 @@ import { useState } from 'react';
 
 type Status = 'idle' | 'submitting' | 'done' | 'error';
 
-// Same-origin in production (nginx proxies /api -> Flask). Override for local dev.
+// Same-origin in production: Caddy routes /api/* to the Flask backend at the
+// edge (see hetzner-infra/Caddyfile), before requests reach this static site.
+// Override PUBLIC_API_BASE for local dev (Astro dev server != Flask port).
 const API_BASE = (import.meta.env.PUBLIC_API_BASE as string) || '/api';
 
 export default function RequestCharacter() {
