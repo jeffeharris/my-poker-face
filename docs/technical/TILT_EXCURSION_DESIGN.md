@@ -178,10 +178,33 @@ immune — the deliberate "unrattlable" read.
 ### 4. Signature + telegraph — the NEXT layer (design intent recorded here)
 
 Once episodes last long enough to matter, make them *legible and exploitable*:
-- **Behavioral signature by `risk_identity`** (already partly in
-  `compute_modifiers`): aggressive characters **spew** (over-aggression — the
-  maniac case), passive characters **collapse** (over-fold / call-station). The
-  signature is what an opponent learns to punish.
+- **Behavioral signature by `risk_identity`** — ✅ BUILT (2026-06-09), flag
+  `TILT_SIGNATURE_ENABLED` (EXPERIMENTAL, off). Makes the tiered bot's emotional
+  distortion under a TILT state (`tilted`/`shaken`/`dissociated`) **character-driven
+  by `risk_identity`** instead of state-driven: risk-seekers (≥0.5) **spew**
+  (aggressive), risk-averse (<0.5) **collapse** (passive). Surgical change to the
+  direction selection in `personality_modifier.compute_trait_offsets` (magnitude
+  `intensity·(1-poise)` unchanged, only the direction flips) — brings the tiered
+  bot to parity with the standard bot's `compute_modifiers` shaken-gate split, and
+  adds no new term, so no new double-count with `tilt_conditioning`. Overconfident
+  (a confidence state, not tilt) stays on the legacy state map. User call: the
+  *direction* is character-driven by `risk_identity` (vs the random choice used for
+  the erratic-reads coupling). Off => state-driven legacy direction.
+  `tests/test_strategy/test_tilt_signature.py`.
+
+  > **Validation status — mechanism unit-tested, behavioral sim INCONCLUSIVE.** The
+  > offset-direction flip is proven by unit tests. A quick on-vs-off aggregate sim
+  > (1,200 hands) did **not** cleanly confirm the behavioral effect and is not
+  > trustworthy: (a) the flag changes decisions so the two arms diverge into
+  > different game trajectories (the *composed*-state aggression differed across
+  > arms — proof the spots aren't comparable); (b) tilt correlates with losing →
+  > short stacks → forced all-ins (counted as "aggression"), which swamps the
+  > modest logit offset; (c) the penalty-zone tilt threshold (0.35) ≠ the
+  > emotional-state line (0.40) used in the ad-hoc query. A trustworthy behavioral
+  > check needs a **within-run paired probe** (toggle the offset on the *same*
+  > spot, measure the decision delta — see `reference_cash_sim_ab_paired`) plus an
+  > EV sim to confirm it doesn't harm/over-expose the bot. TODO before any
+  > default-on.
 - **Coupling: cliff → erratic taper** — ✅ BUILT (2026-06-09), flag
   `TILT_ERRATIC_READS_ENABLED` (EXPERIMENTAL, off). The old `_zone_to_tilt_factor`
   was a deterministic cliff (composed 1.0 / tilted 0.5 / shaken 0.0 — a shaken bot

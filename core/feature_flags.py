@@ -597,3 +597,14 @@ register(
         db_overridable=True,
     )
 )
+register(
+    FeatureFlag(
+        "TILT_SIGNATURE_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt behavioral signature (TILT_EXCURSION_DESIGN.md §4): make the tiered bot's emotional distortion under tilt CHARACTER-driven by risk_identity — risk-seekers SPEW (more aggressive), risk-averse COLLAPSE (more passive) — instead of the state-driven default (tilted=aggressive for all). Brings the tiered bot to parity with the standard bot's compute_modifiers split. Changes decisions; off => state-driven direction.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
