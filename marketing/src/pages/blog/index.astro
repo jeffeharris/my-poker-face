@@ -2,9 +2,12 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
 
-const posts = (await getCollection('blog')).sort(
-  (a, b) => a.data.order - b.data.order,
-);
+// Drafts are visible in `astro dev` for previewing but excluded from the
+// production build (and therefore the sitemap), so unfinished posts aren't
+// public or indexable until draft:false.
+const posts = (
+  await getCollection('blog', ({ data }) => (import.meta.env.PROD ? !data.draft : true))
+).sort((a, b) => a.data.order - b.data.order);
 
 const title = 'Devlog & Notes: Building My Poker Face';
 const description =

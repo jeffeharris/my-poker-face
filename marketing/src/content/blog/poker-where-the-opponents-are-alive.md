@@ -7,12 +7,12 @@ order: 1
 hero: /blog/cash-table-the-garage.jpeg
 heroAlt: A cash table of public-domain characters (Louis XIV, Alexander the Great, Cleopatra, Santa Claus), each with a live emotional state.
 excerpt: Most poker apps give you a difficulty slider with a name attached. This one gives you characters with a mood the game actually keeps track of.
-draft: true
+draft: false
 ---
 
 Most poker apps give you opponents that are really just a difficulty slider with a name bolted on. "Hard mode" doesn't have a bad day. It doesn't get rattled when you bluff it off the best hand, and it definitely isn't still rattled twenty minutes later when you sit back down.
 
-This game started from a different place. The opponents are characters first and a difficulty setting almost never. You play against Sherlock Holmes, or Blackbeard, or Cleopatra, and the thing that makes them worth playing against isn't how good they are at poker. It's that they have a mood, and the mood is real: a number the game keeps track of, that moves when things happen to them, and that you can read on their face if you're paying attention.
+This game started from a different place. The opponents are characters first and a difficulty setting almost never. You play against [Sherlock Holmes](/opponents/sherlock-holmes/), or [Blackbeard](/opponents/blackbeard/), or [Cleopatra](/opponents/cleopatra/), and the thing that makes them worth playing against isn't how good they are at poker. It's that they have a mood, and the mood is real: a number the game keeps track of, that moves when things happen to them, and that you can read on their face if you're paying attention.
 
 That premise is older than almost everything else in the project. Three years ago, one of the very first changes was a tiny commit titled *"Added some confidence and attitude,"* which let each character carry an emotional state instead of a fixed one. Everything since has been about making that real enough to play against.
 
@@ -74,3 +74,5 @@ The point of the whole stack, the moods and the stickiness and the persistence a
 ![A finished hand narrated back to you as a story, from the High Roller Pit session recap.](/blog/tell-your-story.png)
 
 That's the bet the whole game makes: that the best hand doesn't always win, sometimes the best read does, and that an opponent worth reading is one that's actually alive.
+
+Meet the [full cast of opponents](/opponents/), or [pull up a chair](/login) and start reading faces.
