@@ -149,3 +149,30 @@ now aimed at targets we trust: raise c-bet frequency for the aggressor, and stop
 calling down so light. The order of operations mattered. Measuring before tuning
 turned a vague "the numbers look high" into a precise, two-item list, and threw
 out one of my own wrong answers along the way.
+
+## The tuning pass
+
+Four probe iterations to balance the rest. The base chart was the easy half: a
+reproducible transform that moves check->bet on unopened flops and call->fold
+facing bets. The first pass over-corrected the calling. WTSD fell from the high
+forties to the mid twenties everywhere, which looked like a win until you noticed
+the calling station had dropped to a 28% WTSD and was folding flop c-bets half the
+time. A calling station that folds is not a calling station. I had tightened the
+base globally and forgotten that the per-archetype spread has to come from the
+deviation profiles, not the shared chart.
+
+The fix was to put the identity back where it belongs. The `sticky` tendency only
+fired on the river, so a station had nothing making it call flop and turn bets once
+the base tightened. Broadening sticky across all three streets and handing it to
+the station restored the float-call; its WTSD and fold-to-c-bet came back without
+touching the tight archetypes. Same story in reverse for the nit: it was drifting
+tight-PASSIVE when it is supposed to be the tight-AGGRESSIVE seat, so it got
+`auto_cbet` and a small aggression bump. Its c-bet is still a touch capped by the
+per-action-shift architecture, which is an honest WARN, not a thing to crank the
+band around.
+
+End state: zero hard fails on the six-max probe, WTSD down from 41-57 to 24-36,
+c-bet mostly in band, archetypes still readable as themselves. The real gate is
+still ahead: this chart feeds every tiered bot, so a calling-discipline change has
+to clear the SNG win-rate runner before it goes near prod. Behavior-in-band is
+necessary, not sufficient.
