@@ -155,6 +155,7 @@ export function MobilePokerTable({
   const bettingContext = useGameStore((state) => state.bettingContext);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
+  const runoutDirectorActive = useGameStore((state) => state.runoutDirectorActive);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
@@ -348,6 +349,19 @@ export function MobilePokerTable({
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
 
+  // Run-out "stage" mode: during an all-in run-out (the board-dealing director is
+  // active) or a multiway showdown reveal, the table reconfigures to open a clear
+  // band in the middle for table banter — the top nav hides, the avatars crop up,
+  // and the pot / community / hero slide down so the cards aren't buried under
+  // chat. Driven entirely by CSS off `data-stage` (transforms, no reflow).
+  // Dev-only `?stagePreview` forces it on against a normal table so the
+  // choreography can be tuned without dealing a live all-in.
+  const stagePreview = useMemo(
+    () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('stagePreview'),
+    []
+  );
+  const stageMode = stagePreview || runoutDirectorActive || !!isInShowdown;
+
   // Run-out reveal cascade order: each revealed opponent reveals after the
   // previous one finishes (and within an opponent, card 2 after card 1). The
   // index is the opponent's position among revealed opponents in render order;
@@ -429,6 +443,7 @@ export function MobilePokerTable({
       className="mobile-poker-table"
       data-testid="mobile-poker-table"
       data-connected={isConnected ? 'true' : 'false'}
+      data-stage={stageMode ? 'true' : 'false'}
     >
       {/* Initial loading overlay - slides off screen when game data arrives */}
       <ShuffleLoading
