@@ -602,11 +602,17 @@ def _defend_3bet(
         return strategy, 'gate_not_met'
     # Trim the over-4-bet first (raise→call), then defend the over-fold
     # (fold→call). _dampen_aggression's sink is `call` here (no `check` facing a
-    # raise); each step independently respects `max_shift`.
+    # raise).
     new = _dampen_aggression(strategy, strength, max_shift)
     new = _dampen_fold(new, strength, max_shift)
     if new is strategy:
         return strategy, 'no_fold_or_raise_mass'
+    # Both steps feed `call`, and each only bounds against ITS OWN input — so
+    # call's cumulative shift across the two could reach ~2×max_shift. Re-bound
+    # the combined result against the ORIGINAL so no single action exceeds the
+    # per-action cap (the EV budget every tendency must respect). A no-op at the
+    # shipped strength (call moves ~0.20 < cap); only binds at extreme strength.
+    new = _bound_to_cap(strategy, new, max_shift)
     return new, 'defend_3bet_depolarize'
 
 

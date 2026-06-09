@@ -820,6 +820,22 @@ def test_defend_3bet_noop_without_fold_or_call():
     assert out is jam and not traces[0].fired
 
 
+def test_defend_3bet_respects_cap_across_both_steps():
+    """_defend_3bet runs TWO reshapes (dampen 4-bet, then dampen fold) that BOTH
+    feed `call`. Each step only caps against its own input, so without a final
+    re-bound against the original, call's cumulative shift could reach ~2×cap. An
+    extreme strength + a fold-and-4-bet-heavy distribution is where it would blow
+    past the cap; assert no single action moves more than max_shift from base."""
+    base = StrategyProfile(action_probabilities={'fold': 0.70, 'call': 0.05, 'raise_2.2x': 0.25})
+    cap = 0.30
+    out, traces = _apply_pf(base, tendencies=(('defend_3bet', 0.5),), max_shift=cap)
+    for a, p0 in base.action_probabilities.items():
+        shift = abs(out.action_probabilities[a] - p0)
+        assert shift <= cap + 1e-9, f'{a} moved {shift:.3f} > cap {cap}'
+    assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9
+    assert traces[0].fired
+
+
 def test_all_postflop_tendencies_noop_preflop():
     """Blast-radius lock: the preflop spot-tendency call passes street=None, so
     EVERY street-gated postflop tendency must no-op there. This keeps adding the
