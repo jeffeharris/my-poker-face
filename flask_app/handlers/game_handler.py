@@ -4707,8 +4707,18 @@ def _get_or_build_ff_controller(
     if cached is not None:
         return cached
 
+    from flask_app import extensions
     from flask_app.handlers.tiered_factory import build_tiered_controller
 
+    # Wire the LIVE decision-analysis repo so the FF controller self-saves its
+    # per-decision PDA rows. With the old `None`, FF decisions silently vanished
+    # from `player_decision_analysis`: the controller's self-save no-ops on a null
+    # repo, AND the handler-level fallback (`analyze_player_decision`) defers
+    # because it inspects the ORIGINAL `ai_controllers` entry (which DOES have a
+    # repo) — so neither path wrote a row while `hand_history` still did. That was
+    # the one-directional postflop PDA gap on hands where the human folds and FF
+    # resolves the rest. Read `extensions` live (not the import-time copy) so we
+    # get the repo set during init_app, not a stale None.
     controller = build_tiered_controller(
         player_name=player_name,
         state_machine=state_machine,
@@ -4716,7 +4726,7 @@ def _get_or_build_ff_controller(
         game_id=game_id,
         owner_id=current_game_data.get('owner_id'),
         capture_label_repo=None,
-        decision_analysis_repo=None,
+        decision_analysis_repo=extensions.decision_analysis_repo,
         expression_enabled=False,
     )
     ff_controllers[player_name] = controller
