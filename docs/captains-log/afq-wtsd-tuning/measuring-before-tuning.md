@@ -246,3 +246,30 @@ a measurement bug, a set of miscalibrated bands, a buy-in red herring, and final
 two real postflop levers, each one verified against an instrument that cannot be
 fooled by the fish. Behavior in band, and an edge that holds up with the station
 removed.
+
+## A toggle, and the shape of the data
+
+One small feature rode along at the end: a time-window toggle on the admin review
+(last hour, day, week, month, all time). It looked trivial, and for one of the two
+data sources it was. The live source is a per-decision event log with a timestamp,
+so a window is just a `created_at >=` filter. The sim source is not. Those counters
+are cumulative totals, one running number per archetype that only ever goes up, so
+there is no "last hour" hiding in them to filter out. You cannot window a number
+that only knows its lifetime sum. That is the same lesson the whole project kept
+teaching from a different angle: the shape of the measurement decides what you can
+ask of it. So the sim side is honestly locked to all-time, the toggle disables
+itself there, and the reply carries a flag saying so rather than quietly returning
+a number that does not mean what the label claims. Windowing the sim would take a
+snapshot table, which is a real feature, not a toggle, and it was not what was asked
+for.
+
+## Shipping it
+
+It went out as one PR, squash-merged after the backend suite, the lint, the
+frontend build, and the independent code review all came back green (the E2E and
+deploy jobs skip by design). I waited on the actual check results rather than a
+watch command's exit code, because a green that is really a race is worse than no
+green at all. The branch is on main now. The chart feeds every tiered bot, so the
+proof of the pudding is still ahead, in the live numbers once the background sim
+re-accumulates on the new chart. But the gate said the change is sound, and the
+gate is the part that does not lie.
