@@ -81,14 +81,45 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=0.3,
         ego_fold_penalty=0.05,
     ),
-    # Rock: tight, mildly passive — a touch looser + more willing than nit.
+    # Rock: the classic TIGHT-PASSIVE archetype (backlog #10, Option A) — the
+    # tightest entry in the field, plays those few hands PASSIVELY (checks/calls
+    # rather than bets/raises). Distinct read from nit (tight-AGGRESSIVE: few
+    # hands, played hard). The fix has two halves (see HANDOFF #10):
+    #   1. Postflop passivity is carried by the `passive_postflop` SPOT TENDENCY
+    #      (not a distortion scale). A tight range value-bets a LOT on the shared
+    #      solver chart, and `aggression_scale` is near-inert on postflop AF
+    #      (chart/floor-pinned ~1.5 at both 0.5 and 1.9), so the only lever that
+    #      gets rock's AF genuinely BELOW nit's is routing bet/raise→check/call on
+    #      every postflop street. strength 0.30 lands rock AF ~0.95 (< nit ~1.31,
+    #      comfortably above the 0.8 station floor). The existing slowplay/
+    #      under_bluff are too narrow (nuts-only / river-air) to move whole-range
+    #      AF — hence a dedicated tendency.
+    #   2. Preflop tightness + the wider VPIP−PFR gap via MODERATED knobs (the
+    #      first pass leaned on field-EXTREME values — looseness 2.9, cap 0.55 — to
+    #      brute-force VPIP below nit; pulled back now that AF moved to the tendency):
+    #   - looseness_scale 2.4: for a TIGHT character a HIGHER looseness_scale =
+    #     STRONGER fold boost (loose_dev<0, fold offset is -loose_dev*scale = +) →
+    #     LOWER VPIP. 2.4 (below the old 2.9) keeps rock VPIP just under nit's.
+    #   - max_per_action_shift 0.45: the binding lever (the fold boost saturates
+    #     it). Must exceed nit's 0.30 for rock's fold to surpass nit's; 0.45 lands
+    #     rock as the tightest entry (below the old field-extreme 0.55).
+    #   - aggression_scale 2.4: for a low-agg char (agg_dev<0) HIGHER scale = MORE
+    #     preflop raise→call → LOWER PFR relative to VPIP. This is what makes rock
+    #     raise a SMALLER fraction of its range than nit (PFR/VPIP 0.53 < nit 0.54)
+    #     — the tight-PASSIVE gap. Postflop AF is carried by the tendency, not this.
+    #   - risk_scale 0.2: low-jam passivity (below nit's 0.3) → all_in ~1%.
+    #   - ego_fold_penalty 0.08: kept LOW. Raising it un-folds (RAISES VPIP),
+    #     fighting the tightest-in-field goal. See
+    #     docs/technical/ARCHETYPE_SHAPING_FINDINGS.md (rock band inversion) and
+    #     docs/plans/ARCHETYPE_SHAPING_HANDOFF.md #10.
     'rock': DeviationProfile(
         max_kl=0.6,
-        max_per_action_shift=0.30,
-        aggression_scale=0.9,
-        looseness_scale=0.7,
-        risk_scale=0.5,
-        ego_fold_penalty=0.15,
+        max_per_action_shift=0.45,
+        aggression_scale=2.4,
+        looseness_scale=2.4,
+        risk_scale=0.2,
+        ego_fold_penalty=0.08,
+        spot_tendencies=(('passive_postflop', 0.30),),
     ),
     # TAG: tight-aggressive — the competent-reg anchor, so it sits at the LOWER
     # edge of the TAG band (~22/19), not over the ceiling. High aggression_scale

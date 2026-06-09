@@ -97,6 +97,8 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
             'under_bluff',
             'over_fold_2nd_barrel',
             'donk_when_weak',
+            'defend_3bet',
+            'passive_postflop',
         }
     ),
     'exploitation': frozenset(

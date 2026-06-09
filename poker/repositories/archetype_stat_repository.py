@@ -32,6 +32,26 @@ COUNTER_COLUMNS = (
     'postflop_agg',
     'postflop_call',
     'allin_hands',
+    # Backlog #11 — showdown reach/win + per-street aggression. Aggregate
+    # postflop fold = flop_fold + turn_fold + river_fold (not stored separately).
+    'saw_flop',
+    'showdowns',
+    'showdowns_won',
+    'flop_agg',
+    'flop_call',
+    'flop_fold',
+    'turn_agg',
+    'turn_call',
+    'turn_fold',
+    'river_agg',
+    'river_call',
+    'river_fold',
+    # Backlog #6 — flop continuation betting. cbet = the preflop aggressor's
+    # first-in flop bet; fold_to_cbet = a fold when facing one.
+    'cbet_opportunity',
+    'cbet_made',
+    'cbet_faced',
+    'fold_to_cbet',
 )
 
 

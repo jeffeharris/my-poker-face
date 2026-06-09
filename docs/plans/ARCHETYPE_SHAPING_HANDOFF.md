@@ -223,14 +223,21 @@ Exposed once #2 cleaned the metric: tag/lag/maniac were over-*polarized* facing
   (~15% vs_3bet mass) — a loose_mid-only trim (backlog #5) would close the last
   ~1pt; not worth a chart change for a minor WARN.
 
-### 4. Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots
-`poker/strategy/exploitation.py:1077` adds `+0.3×scale` to raise unconditionally
-when a station opponent is detected, with no guard that the station is the
-*opener* — so a bot 3-bets MORE vs a passive opener (gate `:1424`,
-`is_preflop_defend_spot`). Add a guard so the value-extraction rule doesn't push
-3-bets in a 3-bet-defend spot. Validate with the probe + the exploitation tests.
+### 4. ~~Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots~~ ✅ DONE (2026-06-09)
+`_apply_hyper_passive` added `+0.3×scale` to raise unconditionally vs a detected
+station → a bot 3-bet MORE vs a passive opener (a station just flats the 3-bet).
+FIXED: passed `is_preflop_defend_spot` into `_apply_hyper_passive` and gated the
+value-extraction raise-push behind `if not is_preflop_defend_spot` (mirrors
+`_apply_hyper_aggressive`'s defend-spot gating). The polarization-gated
+fold-reduction half is left intact (flatting wider vs a station's open is correct
+defense — it just shouldn't come as a 3-bet). Added trace diag
+`inputs['is_preflop_defend_spot']`. Tests: `TestHyperPassiveDefendSpotGuard` in
+`test_polarization.py` (raise suppressed + fold-reduction still fires in defend;
+raise still pushed in an open/iso spot; trace flag). exploitation suite 434 +
+test_strategy 1538 green. (Probe skipped — hyper_passive fires ~2% of decisions,
+so the aggregate-3-bet delta is noise-level; the unit tests pin the behavior.)
 
-### 5. tag's mild over-3bet (mixed-field 16.1, band 10–16, WARN)
+### 5. ~~tag's mild over-3bet~~ ✅ DONE (2026-06-09) — band widened 10–16 → 11–18 (chart untouched)
 Comes from the **standard chart** (~14.5% combo-weighted), shared as the base for
 the tight tier too. Now only a boundary WARN (was a FAIL earlier). Either trim it
 (lower `raise_share` on the standard chart's vs_open / base authoring — moves
@@ -240,10 +247,50 @@ legitimately 3-bets a polarized range facing opens). Recommend the latter.
 a live TAG 3-betting ~16% facing an open is faithful (live reg ~13%, recreational
 higher) — don't trim the chart toward online numbers; widen the band.
 
-### 6. Review-tool Phase 3 — c-bet / fold-to-cbet columns
-Currently empty. Architect's plan: source them from `opponent_observation_lifetime`
-(it has `cbet_attempt_count`, `fold_to_cbet_count`, etc.) via
-`reconstruct_tendencies_from_lifetime`. Add to the route + grid.
+### 6. Review-tool Phase 3 — c-bet / fold-to-cbet columns — ✅ DONE (2026-06-09)
+
+**Shipped** (branch `archetype-rock-and-stats`, not yet committed — user reviews;
+built on #11's infrastructure). **Data source CHANGED from the architect's plan:**
+`opponent_observation_lifetime` was rejected during recon (keyed per-observer →
+double-counts; no archetype column; never written by the LEAN sim). Instead:
+- **SIM path = authoritative** (clean counters): migration
+  `poker/repositories/migrations/20260609_1400_archetype_stat_cbet.py` adds 4
+  columns to `archetype_stat_counts` (`cbet_opportunity, cbet_made, cbet_faced,
+  fold_to_cbet`, per-column try/except OperationalError; applies on the fresh
+  schema build + idempotent). `COUNTER_COLUMNS` extended in
+  `archetype_stat_repository.py`. `cash_mode/full_sim.py` tracks a per-hand
+  `flop_bet_made` (any aggressive FLOP action → the aggressor acting after it is
+  NOT c-betting, it's facing a donk/raise-vs-donk) + `flop_cbet_made` (the
+  aggressor's first-in flop bet specifically → drives fold-to-c-bet for everyone
+  else), derives `is_cbet_opportunity` / `is_cbet` / `is_facing_cbet` at each FLOP
+  decision (state advanced AFTER recording, try/except like #11). `ArchetypeStat
+  Recorder.record_decision()` gains the 3 kw-defaulted flags and tallies the 4
+  counters. `_aggregate_sim` emits `cbet`=cbet_made/cbet_opportunity,
+  `fold_to_cbet`=fold_to_cbet/cbet_faced.
+- **LIVE path = best-effort** (fragile, documented — same status as #11's
+  WTSD/W$SD, human-present games only): `_aggregate` reconstructs the preflop
+  aggressor (last preflop raiser) per `(game_id, hand)` and replays ordered FLOP
+  rows (`ORDER BY rowid` — the only sequence signal, no sequence column).
+  **Robust to gaps**: non-tiered/human actors leave no rows, so fold-to-c-bet is
+  only counted once an aggressor's flop-bet row actually exists; never crashes on
+  a missing aggressor. The c-bet-first-vs-donk distinction is preserved (a prior
+  flop bet voids the aggressor's c-bet opportunity).
+- **Targets** (`archetype_targets.py`, research §1B 6-max): `STAT_LABELS` +=
+  `cbet`/`fold_to_cbet`; bands added to all 7 — nit 55-70/55-70, rock 45-60/55-70,
+  tag 55-70/45-55, lag 60-75/40-50, calling_station 25-45/20-35, maniac
+  75-95/25-40, weak_fish 40-60/30-45.
+- **Frontend**: zero structural change (`STAT_LABELS`→`stat_order`→columns); `tsc`
+  clean.
+- **Tests**: `tests/test_archetype_review_route.py` +5 (c-bet by aggressor,
+  opportunity-not-taken, donk-is-not-a-cbet, fold-to-cbet, graceful missing-
+  aggressor-row); `tests/test_cash_mode/test_archetype_stats.py` +3 (cbet
+  opportunity/made rollup, fold_to_cbet rollup, back-compat default-args). Full
+  suite **8279 passed, 0 failed**; `tsc` clean.
+
+**Caveats**: sim counters are **forward-only** (don't backfill — accrue only on
+new sim hands). Live c-bet/fold-to-cbet ARE retroactive on existing
+`player_decision_analysis` rows but BEST-EFFORT — accuracy degrades with logging
+gaps (non-tiered/human seats) and rowid is the only flop-ordering signal.
 
 ### 7. Preflop sizing VARIETY (the proper fix; jitter is the band-aid)
 Execute `docs/plans/PREFLOP_SIZING_VARIETY.md`: P1 emit multiple raise-size tokens
@@ -288,22 +335,109 @@ Source: [[../vision/poker_aggression_benchmarks_text_markdown]]. Realized maniac
 `deviation_profiles.py`. Re-validate with `scripts/archetype_mixedfield_probe.py`.
 Note: tag/lag are live-faithful — this correction is **maniac-specific**.
 
-### 10. Rock band inversion
-`ARCHETYPE_TARGETS['rock']` (VPIP 15–22 / PFR 11–17) is looser + more aggressive
-than `nit` (10–16 / 8–13), but `deviation_profiles` makes rock *tighter* (looseness
-0.7 < nit 1.2, both on `tight_rfi`). The targets predict the opposite VPIP ordering
-from what the strategy produces → mis-flag.
+### 10. ~~Rock band inversion~~ ✅ DONE (2026-06-09, REVISED) — Option A (true tight-passive)
+**Decision:** Option A — make rock the classic TIGHT-PASSIVE archetype (not just a
+band fix). nit = tight-AGGRESSIVE (few hands, played hard); rock = tight-PASSIVE
+(tightest entry in the field, plays passively — checks/calls its made hands) → two
+distinct reads. Band-only Option B rejected.
 
-**DECISION (2026-06-09): Option A — make rock the classic TIGHT-PASSIVE archetype**
-(not just a band fix). nit = tight-AGGRESSIVE (few hands, played hard); rock =
-tight-PASSIVE (few hands, limps/calls, rarely raises) → two genuinely distinct
-reads, serving the readable-archetypes goal. Work: in `deviation_profiles.py` lower
-rock's `aggression_scale` BELOW nit's and widen the VPIP−PFR gap; then re-band
-`ARCHETYPE_TARGETS['rock']` to ~VPIP 10–14 / low PFR / high fold_to_3bet / low AF.
-Confirm rock-vs-nit VPIP/PFR/AF ordering with `scripts/archetype_mixedfield_probe.py`
-before finalizing the band. (Band-only Option B rejected — would make rock ≈ nit.)
+**The first pass made rock "a tighter nit," not tight-PASSIVE:** rock AF 1.54 > nit
+1.31 and the VPIP−PFR gap wasn't wider. Root cause: a tight range value-bets MORE on
+the SHARED postflop solver chart, and `aggression_scale` is near-inert on postflop AF
+(tested 0.5 and 1.9 → AF moved <0.1, chart/floor-pinned). The first pass also leaned
+on field-EXTREME preflop knobs (looseness 2.9, cap 0.55) to brute-force VPIP < nit.
 
-### 11. Methodology: AFq + WTSD/W$SD + per-street AF
+**The fix = a postflop aggression-damping SPOT TENDENCY (the AF lever) + moderated knobs.**
+
+**Mechanism — a NEW dedicated tendency, `passive_postflop` (`spot_tendencies.py`):**
+routes bet/raise → check (else call) across ALL postflop streets and ALL hand classes,
+built on the existing `_dampen_aggression` helper, bounded by the per-action cap.
+*Why new, not reuse:* the existing `slowplay` (nuts/strong only, flop/turn) +
+`under_bluff` (river air only) are too NARROW to move whole-range AF — composing them
+left the bulk of the value-betting range (medium/weak made on flop/river, strong made
+on river) untouched. `passive_postflop` is range-wide, which is exactly the rock's
+calls-down character. Attached only to rock: `spot_tendencies=(('passive_postflop',
+0.30),)`. Registered in `_TENDENCIES` + `_RULE_IDS_BY_LAYER` (also backfilled the
+missing `defend_3bet` there). Inert for every other archetype (no-op-invariant test).
+
+**Knobs (`deviation_profiles.py['rock']`):**
+
+| knob | first-pass | FINAL | why |
+|---|---|---|---|
+| `max_per_action_shift` | 0.55 | **0.45** | binding lever; still > nit's 0.30 so rock's fold exceeds nit's, but below the field-extreme 0.55 |
+| `aggression_scale` | 1.9 | **2.4** | for a low-agg char HIGHER scale = MORE preflop raise→call → LOWER PFR vs VPIP. This is what makes rock raise a SMALLER fraction of its range than nit (the gap gate) |
+| `looseness_scale` | 2.9 | **2.4** | strong fold boost (loose_dev<0) → rock VPIP just under nit's; below the old extreme |
+| `risk_scale` | 0.2 | **0.2** | low-jam passivity → all_in ~1% |
+| `ego_fold_penalty` | 0.08 | **0.08** | kept LOW — raising it un-folds (raises VPIP) |
+| `spot_tendencies` | — | **`(('passive_postflop', 0.30),)`** | the AF lever — pulls postflop AF below nit's |
+
+**Band (`archetype_targets.py['rock']`):** vpip **(8,15)** (ceiling 14→15: rock VPIP
+14.5 sits just over 14) / pfr (5,10) / threebet (1,5) / fourbet (1,9) / fold_to_3bet
+(65,85) / af (0.8,1.8) / all_in (0,2). Only the rock entry was touched (no stat KEYS,
+no other archetype — #11 adds new columns next).
+
+**Validation — `scripts/archetype_mixedfield_probe.py` @ 9k hands (first-pass → REVISED):**
+
+| stat | rock FIRST-PASS | rock REVISED | nit | gate |
+|---|---|---|---|---|
+| VPIP | 13.3 | 14.5 | 15.6 | ✅ rock tightest (< nit) |
+| PFR | 7.7 | 7.7 | 8.5 | — |
+| PFR/VPIP ratio | 0.58 | **0.53** | 0.54 | ✅ rock raises SMALLER fraction (gap wider) |
+| 3-bet | 3.3 | 3.0 | 4.6 | ✅ in band |
+| 4-bet | 7.7 | 7.2 | 7.2 | ✅ in band |
+| fold_to_3bet | 67.8 | 66.1 | 59.6 | ✅ rock > nit |
+| **AF** | **1.54** | **0.95** | 1.31 | ✅ **rock AF < nit (headline gate now met)** |
+| all_in | 1.0 | 1.0 | 1.2 | ✅ in band |
+
+**All 6 gates met:** (1) rock AF 0.95 < nit 1.31 ✅ (2) PFR/VPIP 0.53 < nit 0.54 ✅
+(3) VPIP 14.5 < nit 15.6 ✅ (4) fold_to_3bet 66.1 > nit 59.6 ✅ (5) every rock stat
+`pass`, no hard fails anywhere ✅ (6) AF 0.95 ≥ 0.8 (not a station) ✅. The new tendency
+is inert for all non-rock archetypes (locked by `test_rock_carries_passive_postflop`
++ the preflop no-op-invariant lock). `test_strategy`: **1529 passed, 0 failed**.
+
+The passivity is an intended, realistic slight −EV (a readable, exploitable rock —
+exploiter: "value-bet thin and barrel, it won't punish you"); not forced to EV-neutral.
+
+### 11. Methodology: AFq + WTSD/W$SD + per-street AF — ✅ DONE (2026-06-09)
+
+**Shipped** (branch `archetype-rock-and-stats`, not yet committed — user reviews):
+- **Migration** `poker/repositories/migrations/20260609_1200_archetype_stat_showdown.py`
+  adds 12 columns to `archetype_stat_counts` (per-column try/except OperationalError):
+  `saw_flop, showdowns, showdowns_won, {flop,turn,river}_{agg,call,fold}`. Aggregate
+  postflop fold = sum of the three street folds (not stored). `COUNTER_COLUMNS`
+  extended in `archetype_stat_repository.py` (upsert/read are column-driven).
+- **Sim path** (`cash_mode/archetype_stats.py`): `record_decision()` postflop branch
+  dispatches per-street agg/call/fold + sets a `saw_flop` scratch bool;
+  `end_hand(was_showdown=False, winner_names=None)` (kw-defaulted, back-compat) rolls
+  up saw_flop and credits showdowns/showdowns_won. `full_sim.py` derives
+  `was_showdown` (≥2 live players) + `winner_names` (from `winner_info.pot_breakdown`)
+  best-effort and passes them.
+- **Live path** (`archetype_review_routes.py`): `_aggregate` now counts postflop folds
+  (AFq denom) + per-street agg/call/fold, and `_fetch_showdown_map()` pre-fetches
+  `hand_history` (`showdown`, `winners_json`) keyed `(game_id, hand_number)` scoped by
+  the same `_mode_clause`; a second pass over saw-flop hands joins outcomes for
+  WTSD/W$SD. `_aggregate_sim` mirrors from the new counter columns. Emits `afq`,
+  `wtsd`, `wsd`, `flop_af`, `turn_af`, `river_af`.
+- **Targets** (`archetype_targets.py`): added `afq`/`wtsd`/`wsd` to `STAT_LABELS` +
+  bands for all 7 archetypes (WTSD/W$SD from research §1B; AFq derived, **nit/rock
+  provisional**). Per-street AF has NO band → renders `no_target` (like c-bet).
+- **Frontend**: zero structural change (iterates `stat_order`); `tsc` clean.
+- **Tests**: `tests/test_archetype_review_route.py` +6 (AFq fold-in-denom, per-street
+  split, WTSD/W$SD hand_history join, W$SD loss, graceful no-hand_history);
+  `tests/test_cash_mode/test_archetype_stats.py` +6 (per-street dispatch, saw_flop,
+  showdown/won rollup, no-showdown, back-compat default-args); updated the
+  `test_archetype_targets` invariant to allow the band-less per-street AF stats.
+
+**Forward-only caveat**: sim counters do NOT backfill (only accrue on new sim hands);
+WTSD/W$SD are retroactive **only for live human-present games** (the LEAN sim never
+wrote `hand_history` or `player_decision_analysis`); AFq and per-street AF ARE
+retroactive on existing `player_decision_analysis` rows (the postflop folds were
+always logged, just discarded). AFq nit/rock bands are provisional — tune from probe.
+
+---
+
+(Original spec retained below for reference.)
+
 Add to `archetype_review_routes._aggregate` + `cash_mode/archetype_stats` +
 `ARCHETYPE_TARGETS`:
 - **AFq** = (bet+raise)/(bet+raise+call+fold) — fixes the AF discriminator (AF

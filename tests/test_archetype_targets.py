@@ -11,12 +11,19 @@ from poker.archetype_targets import (
     score_stat,
 )
 
+# Stats that intentionally ship with NO target band (render as no_target in the
+# review tool, like c-bet) until sim data sets bands — per-street AF (backlog #11).
+NO_TARGET_STATS = {'flop_af', 'turn_af', 'river_af'}
+
 
 def test_every_production_archetype_has_every_stat():
     for arch in PRODUCTION_ARCHETYPES:
         assert arch in ARCHETYPE_TARGETS, f'missing targets for {arch}'
         for stat in STAT_LABELS:
             band = ARCHETYPE_TARGETS[arch].get(stat)
+            if stat in NO_TARGET_STATS:
+                assert band is None, f'{arch}.{stat} should have no target band'
+                continue
             assert band is not None, f'{arch} missing {stat}'
             lo, hi = band
             assert lo <= hi, f'{arch}.{stat} band inverted: {band}'
