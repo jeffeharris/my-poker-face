@@ -223,12 +223,19 @@ Exposed once #2 cleaned the metric: tag/lag/maniac were over-*polarized* facing
   (~15% vs_3bet mass) — a loose_mid-only trim (backlog #5) would close the last
   ~1pt; not worth a chart change for a minor WARN.
 
-### 4. Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots
-`poker/strategy/exploitation.py:1077` adds `+0.3×scale` to raise unconditionally
-when a station opponent is detected, with no guard that the station is the
-*opener* — so a bot 3-bets MORE vs a passive opener (gate `:1424`,
-`is_preflop_defend_spot`). Add a guard so the value-extraction rule doesn't push
-3-bets in a 3-bet-defend spot. Validate with the probe + the exploitation tests.
+### 4. ~~Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots~~ ✅ DONE (2026-06-09)
+`_apply_hyper_passive` added `+0.3×scale` to raise unconditionally vs a detected
+station → a bot 3-bet MORE vs a passive opener (a station just flats the 3-bet).
+FIXED: passed `is_preflop_defend_spot` into `_apply_hyper_passive` and gated the
+value-extraction raise-push behind `if not is_preflop_defend_spot` (mirrors
+`_apply_hyper_aggressive`'s defend-spot gating). The polarization-gated
+fold-reduction half is left intact (flatting wider vs a station's open is correct
+defense — it just shouldn't come as a 3-bet). Added trace diag
+`inputs['is_preflop_defend_spot']`. Tests: `TestHyperPassiveDefendSpotGuard` in
+`test_polarization.py` (raise suppressed + fold-reduction still fires in defend;
+raise still pushed in an open/iso spot; trace flag). exploitation suite 434 +
+test_strategy 1538 green. (Probe skipped — hyper_passive fires ~2% of decisions,
+so the aggregate-3-bet delta is noise-level; the unit tests pin the behavior.)
 
 ### 5. ~~tag's mild over-3bet~~ ✅ DONE (2026-06-09) — band widened 10–16 → 11–18 (chart untouched)
 Comes from the **standard chart** (~14.5% combo-weighted), shared as the base for
