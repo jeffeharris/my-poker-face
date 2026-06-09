@@ -7,167 +7,126 @@ last_updated: 2026-06-08
 
 # Native (iOS / Android) Setup
 
-This guide covers the remaining, machine-specific steps to ship the existing
-React frontend as a native app. The **backend and frontend auth plumbing are
-already done** (see "What's already in place"); everything below requires a Mac
-with Xcode (iOS) / Android Studio and access to the Google Cloud Console, which
-is why it lives in a guide rather than being pre-wired in the repo.
+The app is wired for a native build end-to-end **in code** — backend auth,
+frontend transport, Capacitor config, secure token storage, and the native
+Google sign-in button are all committed. What remains are the steps that need a
+Mac (Xcode), the Google Cloud Console, and on-device run.
 
 ## What's already in place
 
 | Layer | Status |
 |---|---|
-| `POST /api/auth/google/native` — verify a Google ID token → JWT pair | ✅ `poker/auth.py` |
+| `POST /api/auth/google/native` — verify Google ID token → JWT pair | ✅ `poker/auth.py` |
 | `POST /api/auth/token/refresh` — rotating refresh → access token | ✅ `poker/auth.py` |
 | Bearer accepted by `get_current_user` + Socket.IO `authenticate_socket` | ✅ |
 | Multi-platform audience allowlist (`GOOGLE_ALLOWED_AUDIENCES`) | ✅ `flask_app/config.py` |
-| Frontend bearer injection on every API call + 401 refresh-retry | ✅ `src/utils/csrf.ts`, `src/utils/nativeAuth.ts` |
-| Socket.IO `auth` payload on native | ✅ `src/utils/socket.ts` (`createAuthedSocket`) |
-| `useAuth.loginWithGoogleNative(idToken)` + token load/clear | ✅ `src/hooks/useAuth.tsx` |
+| Bearer injection on every API call + 401 refresh-retry | ✅ `src/utils/csrf.ts`, `src/utils/nativeAuth.ts` |
+| Socket.IO `auth` payload on native | ✅ `src/utils/socket.ts` |
+| `useAuth.loginWithGoogleNative()` + token load/clear | ✅ `src/hooks/useAuth.tsx` |
+| Capacitor deps + `capacitor.config.ts` (appId `com.mypokerface.app`) | ✅ `react/react/` |
+| Secure token storage (Preferences) + Google init bootstrap | ✅ `src/native/bootstrap.ts` |
+| Native Google sign-in wired into the login button | ✅ `src/components/auth/LoginForm.tsx` |
 
-The frontend pieces are **inert on web** — they only activate once a token is
-held, so the cookie flow is unchanged.
+All native code is dynamically imported and gated on `isNativePlatform()`, so the
+web build is unchanged (verified: `tsc`, `vitest`, `vite build` all green).
 
-## Remaining steps
+## Remaining steps (Mac)
 
-### 1. Register per-platform OAuth clients (Google Cloud Console)
+### 1. OAuth clients (Google Cloud Console)
 
-Each platform needs its own OAuth client ID; the ID token's `aud` claim differs
-per platform, which is why the backend checks an allowlist.
+- **iOS client** — already created (Application type "iOS", bundle id
+  `com.mypokerface.app`). ✅
+- **Android** — optional; add later (Application type "Android", package
+  `com.mypokerface.app` + debug/release SHA-1). Not needed for the iOS build.
 
-1. Console → APIs & Services → Credentials → Create OAuth client ID.
-2. Create an **iOS** client (bundle id e.g. `com.mypokerface.app`) and an
-   **Android** client (package name + SHA-1 of your signing key).
-3. Set the backend env vars (see `.env.example`):
-   ```bash
-   GOOGLE_IOS_CLIENT_ID=...apps.googleusercontent.com
-   GOOGLE_ANDROID_CLIENT_ID=...apps.googleusercontent.com
-   ```
-   These flow into `GOOGLE_ALLOWED_AUDIENCES` automatically.
+Set the **backend** env vars (your `.env` + prod env) so the token audience is
+accepted:
+```bash
+GOOGLE_IOS_CLIENT_ID=<your iOS client>.apps.googleusercontent.com
+# GOOGLE_ANDROID_CLIENT_ID=...   # when you add Android
+```
+(`GOOGLE_CLIENT_ID`, the existing web client, is already in the allowlist and is
+the `aud` on Android.)
 
-### 2. Add Capacitor + generate native projects
+### 2. Frontend build-time env (`react/react/.env` or shell)
+
+The native WebView's origin is `capacitor://localhost`, **not** the API — so pin
+the API origin and the Google client at build time:
+```bash
+VITE_API_URL=https://mypokerfacegame.com
+VITE_SOCKET_URL=https://mypokerfacegame.com
+VITE_GOOGLE_CLIENT_ID=<your web/server client>.apps.googleusercontent.com
+```
+
+### 3. Generate the iOS project
 
 From `react/react/`:
-
 ```bash
-npm install --save @capacitor/core @capacitor/preferences
-npm install --save-dev @capacitor/cli
-npx cap init "My Poker Face" com.mypokerface.app --web-dir=dist
-npm run build                 # produce dist/
-npm install --save @capacitor/ios @capacitor/android
+npm install            # picks up the Capacitor deps already in package.json
+npm run build          # produce dist/ (with the env vars from step 2 set)
 npx cap add ios
-npx cap add android
 npx cap sync
 ```
 
-Create `react/react/capacitor.config.ts`:
+### 4. iOS native config (Xcode / Info.plist)
 
-```ts
-import type { CapacitorConfig } from '@capacitor/cli';
+The Google sign-in plugin needs two Info.plist entries (in `ios/App/App/Info.plist`):
 
-const config: CapacitorConfig = {
-  appId: 'com.mypokerface.app',
-  appName: 'My Poker Face',
-  webDir: 'dist',
-  server: {
-    // Point the WebView at the deployed API origin so cookies/sockets resolve.
-    // (The app calls config.API_URL; set VITE_API_URL at build time instead if
-    // you prefer to keep the WebView on the bundled origin.)
-    androidScheme: 'https',
-  },
-};
+1. **`GIDClientID`** = your **iOS** client ID:
+   ```xml
+   <key>GIDClientID</key>
+   <string>YOUR_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+   ```
+2. **URL scheme** = the *reversed* iOS client ID, so Google can redirect back:
+   ```xml
+   <key>CFBundleURLTypes</key>
+   <array>
+     <dict>
+       <key>CFBundleURLSchemes</key>
+       <array>
+         <string>com.googleusercontent.apps.YOUR_IOS_CLIENT_ID</string>
+       </array>
+     </dict>
+   </array>
+   ```
+   (Use the `com.googleusercontent.apps.NNN-xxx` form — it's the client ID with
+   the two dot-segments reversed.)
 
-export default config;
-```
+Confirm the Xcode target's **Bundle Identifier** is `com.mypokerface.app`.
 
-> Set `VITE_API_URL=https://mypokerfacegame.com` (and `VITE_SOCKET_URL`) for the
-> native build so the WebView talks to production rather than a dev origin.
-
-### 3. Wire native Google sign-in
-
-Pick a plugin (either works with the existing backend):
-
-```bash
-npm install --save @codetrix-studio/capacitor-google-auth
-# or: npm install --save @capacitor-firebase/authentication firebase
-```
-
-Call it from the login screen and hand the ID token to the existing hook:
-
-```ts
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
-import { useAuth } from '../hooks/useAuth';
-
-// once at startup: GoogleAuth.initialize({ clientId: IOS_OR_WEB_CLIENT_ID, scopes: ['email'] })
-
-const { loginWithGoogleNative } = useAuth();
-
-async function onTapGoogle() {
-  const result = await GoogleAuth.signIn();
-  const idToken = result.authentication.idToken;
-  const res = await loginWithGoogleNative(idToken); // → /api/auth/google/native
-  if (!res.success) showError(res.error);
-}
-```
-
-`loginWithGoogleNative` stores the returned access + refresh tokens; from then on
-every `fetch` and Socket.IO connection is authenticated automatically.
-
-### 4. Wire secure token storage (Keychain / Keystore)
-
-By default tokens live in memory (cold start = re-login). Install a secure-storage
-adapter at startup so the session survives restarts. Add to `src/main.tsx` (before
-`createRoot`), using `@capacitor/preferences` (encrypted on device):
-
-```ts
-import { Preferences } from '@capacitor/preferences';
-import { configureTokenStorage, isNativePlatform } from './utils/nativeAuth';
-
-if (isNativePlatform()) {
-  configureTokenStorage({
-    async load() {
-      const [a, r] = await Promise.all([
-        Preferences.get({ key: 'mpf_access' }),
-        Preferences.get({ key: 'mpf_refresh' }),
-      ]);
-      return { accessToken: a.value ?? undefined, refreshToken: r.value ?? undefined };
-    },
-    async save({ accessToken, refreshToken }) {
-      await Preferences.set({ key: 'mpf_access', value: accessToken });
-      await Preferences.set({ key: 'mpf_refresh', value: refreshToken });
-    },
-    async clear() {
-      await Preferences.remove({ key: 'mpf_access' });
-      await Preferences.remove({ key: 'mpf_refresh' });
-    },
-  });
-}
-```
-
-> For stronger at-rest protection than Preferences, swap in a Keychain/Keystore
-> plugin (e.g. `capacitor-secure-storage-plugin`) behind the same `TokenStorage`
-> interface — `configureTokenStorage` is the only integration point.
-
-### 5. Build & run
+### 5. Run
 
 ```bash
-npm run build && npx cap sync
-npx cap open ios       # → run from Xcode on a simulator/device
-npx cap open android   # → run from Android Studio
+npm run ios     # build + cap sync ios + cap open ios → run from Xcode
 ```
 
-## Notes & gotchas
+Sign in with Google on a simulator/device → the plugin returns an ID token →
+`loginWithGoogleNative` posts it to `/api/auth/google/native` → tokens are stored
+in Preferences and every API/socket call is authenticated automatically.
+
+## Troubleshooting
+
+- **Sign-in fails before hitting the backend** (no `Native Google ID token
+  rejected` log on the server): it's a client-side Google config issue —
+  Info.plist `GIDClientID` / URL scheme / bundle id mismatch.
+- **401 from `/api/auth/google/native`** with a server log
+  `Native Google ID token rejected: ...`: an `aud`/issuer mismatch. Decode the
+  ID token (paste into jwt.io or log `user.authentication.idToken`) and confirm
+  its `aud` is in `GOOGLE_ALLOWED_AUDIENCES` (`GOOGLE_CLIENT_ID` /
+  `GOOGLE_IOS_CLIENT_ID`).
+- **API/socket calls fail cross-origin**: ensure the API's `CORS_ORIGINS`
+  allows the WebView origin (`capacitor://localhost`). Auth is bearer (not
+  cookies), so credentialed CORS isn't required.
+
+## Notes
 
 - **Sign in with Apple**: iOS App Store review requires it when you offer Google
   sign-in. The backend pattern is identical — add an Apple-token-verifying
-  endpoint mirroring `/api/auth/google/native` and a second
-  `loginWithApple(...)` hook method. Not required to run the app.
-- **Access token lifetime**: 1h access / 30d refresh (`poker/auth.py`
-  `ACCESS_TOKEN_EXPIRATION` / `REFRESH_TOKEN_EXPIRATION`). The frontend refreshes
-  on 401 automatically (single-flight). Tune as needed.
-- **Refresh revocation**: refresh is currently stateless (rotated, not tracked
-  server-side). If you need server-side revoke/lockout, persist issued refresh
-  token ids and check them in `/api/auth/token/refresh`.
-- **CORS / cookies**: native runs cross-origin to the API. Auth rides the bearer
-  header (not cookies), so this is fine; just ensure the API's CORS allows the
-  WebView origin if you keep the app on the bundled origin.
+  endpoint mirroring `/api/auth/google/native` plus a `loginWithApple()` hook.
+  Not required to run the app.
+- **Token lifetimes**: 1h access / 30d refresh (`poker/auth.py`). The frontend
+  refreshes on 401 automatically (single-flight). Refresh is stateless/rotated;
+  add server-side tracking if you need revocation.
+- **Stronger at-rest storage**: swap `@capacitor/preferences` in
+  `src/native/bootstrap.ts` for a Keychain/Keystore plugin behind the same
+  `TokenStorage` interface — `configureTokenStorage` is the only touch-point.

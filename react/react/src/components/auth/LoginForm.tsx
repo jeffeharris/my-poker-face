@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { PageLayout } from '../shared';
 import { config } from '../../config';
+import { useAuth } from '../../hooks/useAuth';
+import { isNativePlatform } from '../../utils/nativeAuth';
+import { signInWithGoogleNative } from '../../native/googleSignIn';
 import menuBanner from '../../assets/menu-banner.webp';
 import './LoginForm.css';
 
@@ -10,6 +13,7 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
+  const { loginWithGoogleNative } = useAuth();
   const [playerName, setPlayerName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -40,10 +44,29 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
     }
   };
 
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     setError('');
-    // Redirect to backend Google OAuth endpoint
+
+    // Native: Google blocks OAuth in embedded WebViews, so use the platform
+    // sign-in SDK → ID token → /api/auth/google/native (bearer). On success the
+    // auth context updates and the app routes past the login screen.
+    if (isNativePlatform()) {
+      try {
+        const idToken = await signInWithGoogleNative();
+        const result = await loginWithGoogleNative(idToken);
+        if (!result.success) {
+          setError(result.error || 'Google sign-in failed.');
+          setIsGoogleLoading(false);
+        }
+      } catch {
+        setError('Google sign-in was cancelled or failed.');
+        setIsGoogleLoading(false);
+      }
+      return;
+    }
+
+    // Web: redirect to the backend's server-side OAuth flow.
     window.location.href = `${config.API_URL}/api/auth/google/login`;
   };
 

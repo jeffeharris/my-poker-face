@@ -5,6 +5,7 @@ import { AuthProvider } from './hooks/useAuth';
 import { DeckPackProvider } from './hooks/useDeckPack';
 import { UsageStatsProvider } from './hooks/UsageStatsProvider';
 import { installCsrfFetch } from './utils/csrf';
+import { isNativePlatform } from './utils/nativeAuth';
 import './styles/fonts.css';
 import './index.css';
 import App from './App.tsx';
@@ -30,16 +31,32 @@ window.addEventListener('vite:preloadError', () => {
   // rather than loop — a persistent failure is a real bug, not a stale cache.
 });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <UsageStatsProvider>
-          <DeckPackProvider>
-            <App />
-          </DeckPackProvider>
-        </UsageStatsProvider>
-      </AuthProvider>
-    </BrowserRouter>
-  </StrictMode>
-);
+function render() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <BrowserRouter>
+        <AuthProvider>
+          <UsageStatsProvider>
+            <DeckPackProvider>
+              <App />
+            </DeckPackProvider>
+          </UsageStatsProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </StrictMode>
+  );
+}
+
+// On native, wire token storage + Google sign-in before rendering so the auth
+// bootstrap (which loads persisted tokens) finds them. On web this is a no-op
+// and renders immediately — the dynamic import is never reached.
+if (isNativePlatform()) {
+  import('./native/bootstrap')
+    .then(({ initNative }) => initNative())
+    .catch(() => {
+      // Native init failure shouldn't block the app — render logged-out.
+    })
+    .finally(render);
+} else {
+  render();
+}
