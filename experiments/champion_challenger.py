@@ -121,7 +121,37 @@ _WIDER_RFI_PREFLOP_PATH = os.path.abspath(
 )
 
 
+# The pristine pre-rebalance authored postflop chart (snapshot taken before the
+# afq-wtsd-tuning rebalance). Champion loads it directly; challenger uses the live
+# (rebalanced) postflop_strategies.json. Absolute path for the same
+# ProcessPool-worker reason as _WIDER_RFI_PREFLOP_PATH.
+_AUTHORED_POSTFLOP_PATH = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir,
+        'poker',
+        'strategy',
+        'data',
+        'postflop_strategies.authored.json',
+    )
+)
+
+
 CHANGES: Dict[str, ChangeSpec] = {
+    # ── Chart flavor: the afq-wtsd-tuning postflop rebalance. Challenger = the
+    # live rebalanced chart (more c-betting on unopened + tighter facing-bet
+    # calls); champion = the pristine pre-rebalance authored chart. SAME deviation
+    # profiles on BOTH arms, so this isolates the CHART rebalance's win-rate effect
+    # (the highest-risk piece: folding more facing bets). The profile changes
+    # (sticky broadening, nit auto_cbet) are not A/B'd here. Gate: challenger net
+    # bb/100 >= ~0 within CI ⇒ the tighter/more-aggressive chart costs no chips
+    # head-to-head vs the old passive chart. ──
+    'postflop_rebalance': ChangeSpec(
+        description='rebalanced postflop chart (more c-bet + calling discipline) '
+        'vs the pristine authored chart (chart flavor; same profiles both arms)',
+        champion_table=lambda: load_strategy_table(postflop_path=_AUTHORED_POSTFLOP_PATH),
+        challenger_table=load_strategy_table,
+    ),
     # ── Flag flavor: the only genuinely flag-gated shipped change ──
     'multistreet': ChangeSpec(
         description='enable_multistreet_context = H1 barrel-continuation + H2 '
