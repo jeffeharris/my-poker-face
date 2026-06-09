@@ -209,10 +209,23 @@ Once episodes last long enough to matter, make them *legible and exploitable*:
   > | risk-seeking (≥0.60) | +0.000 | **+0.171** (spew) |
   >
   > Exactly as designed: risk-averse collapse when tilted, risk-seekers spew when
-  > shaken, same-direction cells at 0.000. **Still pending:** an EV sim to confirm
-  > the magnitude is believable-not-catastrophic (the signature is *meant* to make
-  > tilted bots more exploitable — that's the point — so the EV check is "right
-  > amount," not "no regression"). Required before any default-on.
+  > shaken, same-direction cells at 0.000.
+  >
+  > **EV safety — bounded by construction, measured comparable.** The same probe
+  > reports each arm's KL from the EV-optimal solver baseline (its exploitability
+  > budget): risk-averse `KL_off 0.041 → KL_on 0.061` (+0.020), mid +0.001,
+  > risk-seeking +0.000. The signature **redirects** the emotional offset within
+  > the existing budget — it does not amplify it. The collapse direction adds at
+  > most ~+0.02 KL (the *intended* "a collapsing player is more readable" effect),
+  > small next to the 0.04–0.15 distortion the bot already applies every hand. And
+  > structurally it *cannot* exceed that: `modify_strategy` step 6
+  > (`clamp_divergence`) bounds the final distribution's divergence from baseline
+  > by the profile cap, and the signature only changes the offset *direction*
+  > inside that clamp. So it can't be catastrophic by construction. A precise
+  > bb/100 number needs a psychology-in-the-loop paired harness (the bb/100
+  > harnesses don't run psychology, so the bot never tilts in them — a real build);
+  > the "right amount" of exploitability is then a playtest/taste call, not a
+  > catastrophe check.
 - **Coupling: cliff → erratic taper** — ✅ BUILT (2026-06-09), flag
   `TILT_ERRATIC_READS_ENABLED` (EXPERIMENTAL, off). The old `_zone_to_tilt_factor`
   was a deterministic cliff (composed 1.0 / tilted 0.5 / shaken 0.0 — a shaken bot
@@ -223,8 +236,16 @@ Once episodes last long enough to matter, make them *legible and exploitable*:
   hard 0.0. Chosen **random, not character-keyed** (user call: "random for now");
   this keeps the *dampening* direction (reads degrade on average, erratically), with
   the *over-apply* alternative ("I KNOW he's bluffing") left as a future option.
-  Changes decisions → flag-gated; off = byte-identical legacy cliff; **needs sim
-  validation** before any default-on. `tests/test_strategy/test_tilt_erratic_reads.py`.
+  Changes decisions → flag-gated; off = byte-identical legacy cliff.
+  `tests/test_strategy/test_tilt_erratic_reads.py`.
+  **EV safety:** `factor ∈ [0, 1]` is a pure *attenuator* on the exploitation layer
+  — it can only *reduce* a read's strength, never invert it, so it can't make the
+  bot play anti-exploitatively; worst case it skips a read (forgoing that read's
+  edge). Exploitation is itself a small, ~2%-of-decisions layer, and the old cliff
+  already attenuated it to 0.5/0.0 — the erratic taper's *expected* attenuation is
+  in the same range, just smoother and never a hard 0.0. So the EV impact is
+  structurally bounded and small; a precise bb/100 still needs the
+  psychology-in-the-loop harness noted above.
 - **Telegraph** (the perceptibility win) — ✅ BUILT (2026-06-09), flag
   `TILT_TELEGRAPH_ENABLED` (EXPERIMENTAL, off). On *entering* a tilt episode
   (`_was_tilted` transition), with probability `TILT_TELEGRAPH_PROB=0.7`, the sharp

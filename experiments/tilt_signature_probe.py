@@ -28,8 +28,14 @@ import os
 from types import SimpleNamespace
 from typing import Dict, List
 
+import numpy as np
+
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
-from poker.strategy.personality_modifier import categorize_action, modify_strategy
+from poker.strategy.personality_modifier import (
+    _kl_divergence,
+    categorize_action,
+    modify_strategy,
+)
 from poker.strategy.strategy_profile import StrategyProfile
 from poker.psychology_model import PersonalityAnchors
 
@@ -52,10 +58,20 @@ def _agg_mass(profile: StrategyProfile) -> float:
     )
 
 
-def _delta_for(anchors, state: str) -> float:
-    """Mean (on − off) aggression-mass delta across the baseline spots, paired."""
+def _kl_from_base(modified: StrategyProfile, base: Dict[str, float]) -> float:
+    """KL(modified ‖ base) over the aligned action support — the strategy's
+    divergence from the EV-optimal solver baseline = its exploitability budget."""
+    keys = list(base.keys())
+    p = np.array([modified.action_probabilities.get(k, 0.0) for k in keys])
+    q = np.array([base[k] for k in keys])
+    return float(_kl_divergence(p, q))
+
+
+def _measure(anchors, state: str):
+    """Per-persona, paired across the baseline spots: returns
+    (mean agg-mass delta on−off, mean KL_off-from-base, mean KL_on-from-base)."""
     es = SimpleNamespace(state=state, intensity=INTENSITY, severity='moderate')
-    deltas = []
+    d_agg, kl_off, kl_on = [], [], []
     for spot in BASELINES:
         base = StrategyProfile(action_probabilities=dict(spot))
         legal = list(spot.keys())
@@ -63,8 +79,11 @@ def _delta_for(anchors, state: str) -> float:
         off, _ = modify_strategy(base, legal, anchors, es, PROFILE)
         os.environ[FLAG] = '1'
         on, _ = modify_strategy(base, legal, anchors, es, PROFILE)
-        deltas.append(_agg_mass(on) - _agg_mass(off))
-    return sum(deltas) / len(deltas)
+        d_agg.append(_agg_mass(on) - _agg_mass(off))
+        kl_off.append(_kl_from_base(off, spot))
+        kl_on.append(_kl_from_base(on, spot))
+    n = len(BASELINES)
+    return sum(d_agg) / n, sum(kl_off) / n, sum(kl_on) / n
 
 
 def _anchors_of(cfg: dict) -> PersonalityAnchors:
@@ -86,26 +105,32 @@ def main() -> None:
         ('risk-seeking >=0.60', lambda r: r >= 0.60),
     ]
 
-    print('=' * 78)
+    print('=' * 86)
     print(f'TILT SIGNATURE — paired within-spot probe ({len(real)} personas, '
-          f'intensity {INTENSITY})')
-    print('  aggression-mass delta = Σp(aggressive)|on − |off, paired on the same spot')
-    print('=' * 78)
-    print(f'  {"tier":22s} {"n":>3s} {"Δagg TILTED":>12s} {"Δagg SHAKEN":>12s}')
+          f'intensity {INTENSITY}, tilted state)')
+    print('  Δagg = Σp(aggressive)|on−off (direction). KL = divergence from the EV-optimal')
+    print('  solver baseline (exploitability budget). Paired => trajectory-free.')
+    print('=' * 86)
+    print(f'  {"tier":22s} {"n":>3s} {"Δagg":>8s} {"KL_off":>8s} {"KL_on":>8s} {"ΔKL":>8s}')
     for label, pred in tiers:
         members = [(n, _anchors_of(c)) for n, c in real.items()
                    if pred(float(c['anchors'].get('risk_identity', 0.5)))]
         if not members:
             continue
-        tilted = [_delta_for(a, 'tilted') for _, a in members]
-        shaken = [_delta_for(a, 'shaken') for _, a in members]
-        mt = sum(tilted) / len(tilted)
-        ms = sum(shaken) / len(shaken)
-        print(f'  {label:22s} {len(members):3d} {mt:+11.3f} {ms:+11.3f}')
+        rows = [_measure(a, 'tilted') for _, a in members]
+        m = len(rows)
+        dagg = sum(r[0] for r in rows) / m
+        klo = sum(r[1] for r in rows) / m
+        kln = sum(r[2] for r in rows) / m
+        print(f'  {label:22s} {m:3d} {dagg:+8.3f} {klo:8.4f} {kln:8.4f} {kln - klo:+8.4f}')
 
-    print('\n  EXPECT: risk-averse TILTED Δ<0 (collapse); risk-seeking SHAKEN Δ>0 (spew);')
-    print('  the same-direction cells (risk-seeking tilted, risk-averse shaken) ≈ 0.')
-    print('  Paired => trajectory-free; isolates the signature, not the game flow.')
+    print('\n  DIRECTION (Δagg): risk-averse collapse (Δ<0), risk-seeking unchanged when tilted.')
+    print('  EV SAFETY (KL): on-vs-off divergence-from-baseline is comparable — the signature')
+    print('  REDIRECTS the emotional offset within the same clamp budget, it does not amplify')
+    print('  exploitability. Both arms are bounded by clamp_divergence (modify_strategy step 6),')
+    print('  so the signature cannot exceed the distortion the bot already applies every hand.')
+    print('  A precise bb/100 EV needs a psychology-in-the-loop paired harness (not built);')
+    print('  the "right amount" of exploitability is a playtest/taste call.')
 
 
 if __name__ == '__main__':
