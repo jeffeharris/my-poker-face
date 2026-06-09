@@ -662,6 +662,13 @@
   position: relative;
 }
 
+/* While the cards slide into place (non-run-out dealing), lift the board above
+   the chat so the deal is visible over table talk; once settled the class is
+   removed and the board drops back below the chat (z auto). */
+.mobile-community--dealing {
+  z-index: calc(var(--z-interhand-hud) + 5);
+}
+
 .community-cards-row {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

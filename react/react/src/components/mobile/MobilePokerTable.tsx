@@ -146,6 +146,7 @@ export function MobilePokerTable({
   const phase = useGameStore((state) => state.phase);
   const pot = useGameStore((state) => state.pot);
   const communityCards = useGameStore((state) => state.communityCards);
+  const cardDeal = useGameStore((state) => state.cardDeal);
   const currentPlayerIdx = useGameStore((state) => state.currentPlayerIdx);
   const dealerIdx = useGameStore((state) => state.dealerIdx);
   const highestBet = useGameStore((state) => state.highestBet);
@@ -307,6 +308,23 @@ export function MobilePokerTable({
 
   // Community card animation hook - handles slide-in with cascade delays
   const communityCardAnimations = useCommunityCardAnimation(communityCards?.length ?? 0);
+
+  // Non-run-out dealing: lift the community ABOVE the chat while the cards slide
+  // into place (so the deal is visible over table talk), then drop it back BELOW
+  // the chat once settled. Run-out dealing has its own stage z-handling, so this
+  // is gated to !stageMode. Driven by the one-shot cardDeal token (per street).
+  const [communityDealElevated, setCommunityDealElevated] = useState(false);
+  const cardDealToken = cardDeal?.token;
+  useEffect(() => {
+    if (cardDealToken === undefined || stageMode) return undefined;
+    setCommunityDealElevated(true);
+    // Cover the slide cascade (flop is longer than a single turn/river card).
+    const ms = (cardDeal?.count ?? 1) >= 3 ? 3000 : 1300;
+    const t = window.setTimeout(() => setCommunityDealElevated(false), ms);
+    return () => window.clearTimeout(t);
+    // Fires only on a new deal; stageMode is read at fire time (not a trigger).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardDealToken]);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -564,6 +582,7 @@ export function MobilePokerTable({
           <MobileCommunityCards
             communityCards={communityCards}
             animations={communityCardAnimations}
+            elevated={communityDealElevated && !stageMode}
           />
 
           {/* Floating AI Message. Sal "The Clock" gets special treatment — his
