@@ -107,6 +107,23 @@ class TestFFControllerBuilder(unittest.TestCase):
         # Cache lives on game_data so it dies with the session, not globally.
         assert set(game_data['ff_controllers'].keys()) == {'A', 'B'}
 
+    def test_wires_live_decision_analysis_repo(self):
+        """Regression: the FF controller must carry the LIVE decision-analysis
+        repo so its per-decision PDA rows self-save. With the old `None`, FF
+        decisions silently vanished from `player_decision_analysis` (the
+        one-directional postflop gap on human-fold hands): the null-repo
+        self-save no-oped AND the handler fallback deferred to the original
+        controller. Read live (not the import-time copy) so the repo set at
+        init_app is what's wired."""
+        state_machine = MagicMock()
+        game_data: dict = {'owner_id': 'u1'}
+        sentinel = object()
+        with patch('flask_app.extensions.decision_analysis_repo', sentinel):
+            controller = _get_or_build_ff_controller(
+                game_data, 'Villain', state_machine, 'g-ff-repo'
+            )
+        assert getattr(controller, '_decision_analysis_repo', None) is sentinel
+
 
 class TestFFAwareSleep(unittest.TestCase):
     """`_ff_aware_sleep` compresses pacing to ~10% when FF is on."""
