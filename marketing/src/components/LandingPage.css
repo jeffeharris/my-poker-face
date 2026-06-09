@@ -589,16 +589,23 @@
   gap: clamp(14px, 1.6vw, 22px);
 }
 
-/* Section heading lives in the top-left of the grid */
+/* Section heading lives in the top-left of the grid, filling both columns */
 .lp-bento__head {
   grid-column: 1 / 3;
   grid-row: 1;
   align-self: center;
-  max-width: 46ch;
 }
 
+/* Sized so the intended two lines ("The table is full" / "of personality.")
+   each sit comfortably within the two-column cell across desktop widths,
+   rather than the global hero size that overflows and wraps into 3 lines. */
 .lp-bento__head .lp-h2 {
   margin: 18px 0;
+  font-size: clamp(2.2rem, 4.6vw, 3.6rem);
+}
+
+.lp-bento__head .lp-section__lead {
+  max-width: 44ch;
 }
 
 .lp-tile {
