@@ -135,9 +135,19 @@ item, not part of this fix.
 
 1. **(done)** AFq measurement fix + 6-max probe extension (`395063ef`).
 2. **(done)** AFq/WTSD band re-baseline + captain's log (`d5b64a0b`).
-3. **Lever 1** — calling-discipline transform → regenerate → 6-max probe + SNG gate.
-4. **Lever 2** — aggressor-aware c-bet node → author/transform → probe + SNG gate.
-5. Re-check the live Archetype Review (sim source) after each lands.
+3. **(done)** Lever 1 — calling-discipline transform (`rebalance_postflop.py`) +
+   per-archetype `sticky` (broadened to flop/turn/river, given to calling_station)
+   → WTSD 41-57 → 24-36, all in/near band (`e936feee`).
+4. **(done, pragmatic)** Lever 2 — c-bet raised via the base-chart check→bet shift
+   + nit `auto_cbet` + nit aggression bump. c-bet 11-46 → in band for
+   tag/lag/maniac/station; nit/rock/weak_fish are WARN (capped by the per-action
+   shift / passive identity). The full **aggressor-aware node** is still deferred
+   (the `unopened` node has no aggressor flag, so the raised c-bet also lifts
+   donk-betting for callers — bounded by keeping made-hand bets the bulk of the
+   lift; the clean structural fix remains future work).
+5. **NEXT — SNG champion-challenger gate.** The chart feeds every tiered bot; the
+   6-max probe shows behavior-in-band but not win-rate. Run the SNG gate before
+   any prod merge. Then re-check the live Archetype Review (sim source).
 
 ## Validation gate
 
@@ -149,5 +159,9 @@ win-rate neutrality/benefit before merging. See `SNG_RUNNER_HARDENING.md`.
 
 Shipped on `afq-wtsd-tuning` (local, not pushed): measurement fix, extended probe,
 re-baselined bands, captain's log
-(`docs/captains-log/afq-wtsd-tuning/measuring-before-tuning.md`). Levers 1-2 are
-the remaining work.
+(`docs/captains-log/afq-wtsd-tuning/measuring-before-tuning.md`), **and the postflop
+rebalance (Levers 1 + pragmatic 2)**. 6-max probe: 0 hard FAILs (was nearly all
+FAIL); WTSD 24-36, c-bet mostly in band, W$SD recovered; 16 residual WARNs are
+boundary noise / architecture-capped / the documented maniac fold-to-3bet preflop
+item. Remaining work: the **SNG win-rate gate** (required before prod) and the
+**aggressor-aware c-bet node** (the clean structural version of Lever 2).
