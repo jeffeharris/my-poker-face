@@ -5,7 +5,8 @@ import { glob } from 'astro/loaders';
 // from /public/blog/ (referenced by absolute path), so `hero` is a string path,
 // not an Astro image asset.
 const blog = defineCollection({
-  loader: glob({ pattern: '**/*.md', base: './src/content/blog' }),
+  // Exclude CLAUDE.md (authoring conventions, not a post) from the post glob.
+  loader: glob({ pattern: ['**/*.md', '!**/CLAUDE.md'], base: './src/content/blog' }),
   schema: z.object({
     title: z.string(),
     description: z.string(),
