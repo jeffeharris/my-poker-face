@@ -1,5 +1,5 @@
 ---
-purpose: Narrative log of the afq-wtsd-tuning arc — a reported "AFq too high" that was a measurement timeline bug plus miscalibrated bands, the 6-max instrument that separated artifact from real behavior, a buy-in lever ruled out by stack-depth data, and the postflop rebalance that pulled WTSD/c-bet into band
+purpose: Narrative log of the afq-wtsd-tuning arc — a reported "AFq too high" that was a measurement timeline bug plus miscalibrated bands, the 6-max instrument that separated artifact from real behavior, a buy-in lever ruled out by stack-depth data, the postflop rebalance that pulled WTSD/c-bet into band, and the station-immune win-rate gate that confirmed it
 type: guide
 created: 2026-06-09
 last_updated: 2026-06-09
@@ -210,3 +210,39 @@ c-bet mostly in band, archetypes still readable as themselves. The real gate is
 still ahead: this chart feeds every tiered bot, so a calling-discipline change has
 to clear the SNG win-rate runner before it goes near prod. Behavior-in-band is
 necessary, not sufficient.
+
+## The gate
+
+Here is the trap the whole project was built to avoid. Every postflop win this bot
+ever measured came against exploitable opponents, a calling station or a folding
+rule bot, so a chip gain could mean "the change is correct" or just "the change
+farms the fish harder." You cannot tell which. The champion-challenger harness
+removes the fish. It seats the old bot against the new bot, same archetype, same
+profiles, differing only by the chart, and lets the better strategy take chips off
+the worse one. There is no station to inflate the number.
+
+I had a real worry going in. Tightening the calls means folding more, and folding
+more against a loose field is exactly how you leave money on the table. If the
+calling discipline was an over-correction, this is where it would show as a
+negative number.
+
+It showed the opposite. Heads-up, eighty thousand hands, the rebalanced chart won
++10.6 bb/100 with a confidence interval clear of zero. Not farming a fish, because
+there was no fish, just the old version of itself. The tighter, more-aggressive
+chart is simply better poker. Six-max came back neutral, and the WTA tournament
+gate came back neutral too, which is the expected shape: tournament win-rate is a
+coarse ruler that hides a ten-bb/100 cash edge under elimination variance. Neutral
+in the coarse lens, clearly positive in the sensitive one, regressing in neither.
+
+One honest limit. The gate A/Bs the chart, not the per-archetype profile changes,
+so the broadened stickiness and the nit's c-bet boost rode along untested. I am
+comfortable with that, because the chart is where the win-rate risk lived (the
+folding), and the profile changes are identity-restoring rather than edge-seeking
+(a calling station's stickiness is a deliberate losing leak, not an attempt to
+win). The thing that could have cost chips was measured, and it did not.
+
+So the chain closed the way it should have. A vague "the numbers look high" became
+a measurement bug, a set of miscalibrated bands, a buy-in red herring, and finally
+two real postflop levers, each one verified against an instrument that cannot be
+fooled by the fish. Behavior in band, and an edge that holds up with the station
+removed.
