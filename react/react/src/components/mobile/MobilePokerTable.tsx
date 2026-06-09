@@ -38,6 +38,7 @@ import { useMobileCoach } from '../../hooks/useMobileCoach';
 import { useInterhandMessaging } from '../../hooks/useInterhandMessaging';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
+import { deriveTier, scale, STAGE_SPLASH_MS } from '../../constants/presentationTiming';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -364,7 +365,11 @@ export function MobilePokerTable({
   const stageMode = stagePreview || runoutDirectorActive || !!isInShowdown;
   // The splash label reflects what kicked off the stage: an all-in board run-out
   // ("All In") vs. a plain river showdown reveal ("Showdown").
-  const stageSplashLabel = runoutDirectorActive ? 'All In' : 'Showdown';
+  const stageSplashLabel = runItOut ? 'All In' : 'Showdown';
+  // Splash duration scales with the pacing tier (fastest → 0 → no splash), and
+  // the sequencer holds the reveal/run-out behind it by the matching tier-scaled
+  // BEAT.stageSplashHold (see handSequencer.planReveal).
+  const stageSplashMs = scale(STAGE_SPLASH_MS, deriveTier(fastForward, alwaysFastForward, aiInstant));
 
   // Run-out reveal cascade order: each revealed opponent reveals after the
   // previous one finishes (and within an opponent, card 2 after card 1). The
@@ -573,7 +578,11 @@ export function MobilePokerTable({
 
           {/* Run-out / showdown splash — drops over the table on the rising edge
               of stage mode, masking the layout reconfigure behind it. */}
-          <RunoutStageSplash stageActive={stageMode} label={stageSplashLabel} />
+          <RunoutStageSplash
+            stageActive={stageMode}
+            label={stageSplashLabel}
+            durationMs={stageSplashMs}
+          />
 
           {/* Hero Section - Your Cards */}
           <MobileHero
