@@ -58,13 +58,13 @@ services:
     networks:
       - poker-network
 
-  # Out-of-band decision-analysis worker (opt-in: `--profile analytics`).
-  # Drains the Redis decision-analysis queue so the heavy per-decision equity-MC
-  # runs off the gameplay worker. Only does work when the backend is started with
-  # DECISION_ANALYSIS_QUEUE_ENABLED=1 (otherwise the backend analyzes inline and
-  # this idles on an empty queue). See docs/SCALING.md.
+  # Out-of-band decision-analysis worker. Drains the Redis decision-analysis
+  # queue so the heavy per-decision equity-MC runs off the gameplay worker.
+  # Starts with the stack. In dev it idles on an empty queue unless the backend
+  # is run with DECISION_ANALYSIS_QUEUE_ENABLED=1 (left off here so pytest in the
+  # backend container keeps inline-analysis behavior). Prod activates it — see
+  # docs/SCALING.md + OPS_RUNBOOK §9.
   analytics-worker:
-    profiles: ["analytics"]
     build:
       context: .
       dockerfile: Dockerfile

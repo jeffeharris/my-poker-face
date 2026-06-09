@@ -67,10 +67,12 @@ services:
       # Route the per-decision equity-MC analytics to the out-of-band
       # analytics-worker (separate container, idle 2nd core) instead of running
       # it inline on the single gevent gameplay worker — the 2026-06-09 load test
-      # showed it's ~70% of gameplay-worker CPU and nothing live reads its output.
-      # Default off (inline) until the worker is rolled out + watched; set to 1 to
-      # activate. DECISION_ANALYSIS_ENABLED=0 turns analytics off entirely later.
-      - DECISION_ANALYSIS_QUEUE_ENABLED=${DECISION_ANALYSIS_QUEUE_ENABLED:-0}
+      # showed it dominates gameplay-worker CPU and nothing live reads its output
+      # (lifts the per-box ceiling ~8 -> ~12-16 players). Active by default; set to
+      # 0 to revert to inline. Gameplay-safe: fire-and-forget enqueue, and enqueue
+      # failures fall back to inline. Watch queue depth post-deploy (OPS_RUNBOOK §9).
+      # DECISION_ANALYSIS_ENABLED=0 turns analytics off entirely later.
+      - DECISION_ANALYSIS_QUEUE_ENABLED=${DECISION_ANALYSIS_QUEUE_ENABLED:-1}
       - DECISION_ANALYSIS_ENABLED=${DECISION_ANALYSIS_ENABLED:-1}
       # WebSocket transport: gevent is the standards-aligned async_mode under the
       # gevent-websocket gunicorn worker. Prod evidence (2026-06-08) showed

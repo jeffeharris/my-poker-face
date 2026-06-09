@@ -80,7 +80,7 @@ These are armed in `docker-compose.prod.yml`; override via host env only with re
 | `API_USAGE_RETENTION_DAYS` | `90` | Daily sweep purges older `api_usage` | 32 |
 | `DECISION_ANALYSIS_ITERATIONS` | `100` | Per-decision equity MC iterations — drives the in-game analyzer **and** the coach (analytics; linear CPU lever post-cache; 2000→…→100, see §9 / SCALING.md) | 30 |
 | `DECISION_ANALYSIS_ENABLED` | `1` | Master switch for per-decision analytics; `0` skips it entirely (§9) | — |
-| `DECISION_ANALYSIS_QUEUE_ENABLED` | `0` | Route the analyzer equity to the out-of-band `analytics-worker` (off the gameplay core) instead of inline. Activation per **§9** | — |
+| `DECISION_ANALYSIS_QUEUE_ENABLED` | `1` | Route the analyzer equity to the out-of-band `analytics-worker` (off the gameplay core); `0` = inline. See **§9** | — |
 | `LLM_INGAME_TIMEOUT` | `30` | Per-call timeout (s) for in-game decision/narration | 18 |
 | `LLM_TICKER_TIMEOUT` | `10` | Tighter per-call timeout (s) for world-ticker narration | 21 |
 | `LOG_FORMAT` | `json` | Structured logs (set empty for human-readable) | 35 |
@@ -210,21 +210,24 @@ Redis queue and runs that equity off the gameplay core, on the box's otherwise-*
 players. It's **fire-and-forget + async**: the gameplay worker `LPUSH`es a small job and
 returns immediately; the worker `BRPOP`s and processes (delayed-OK, lossy by design).
 
-**Wiring (already in `docker-compose.prod.yml`).** The `analytics-worker` service ships
-with the deploy (own container, `mem_limit 768m`, shared `./data` SQLite via WAL,
-`REDIS_URL`). It is **inert until activated**: the backend only enqueues when
-`DECISION_ANALYSIS_QUEUE_ENABLED=1`; otherwise it analyzes inline (today's behavior) and
-the worker idles on an empty queue. So deploying this change is a **no-op** by default.
+**Wiring (in `docker-compose.prod.yml`).** The `analytics-worker` service ships and
+**starts with the stack** (own container, `mem_limit 768m`, shared `./data` SQLite via
+WAL, `REDIS_URL`, waits for backend-healthy so the seed has run). It reuses the **backend
+GHCR image** — no separate image to build — so the normal deploy (`pull` + `up -d
+--no-build`, or `./deploy.sh`'s `up -d --build`) brings it up automatically. The offload
+is **active by default** (`DECISION_ANALYSIS_QUEUE_ENABLED=1`): the backend enqueues and
+the worker drains on the 2nd core.
 
-**Staged activation (recommended):**
-1. **Deploy** as normal (`./deploy.sh`). The worker container starts and idles
-   (`depth=0`); backend still inline. Confirm the worker booted:
-   `docker logs poker-analytics-worker-1 2>&1 | grep "worker started"`.
-2. **Flip the flag** — set `DECISION_ANALYSIS_QUEUE_ENABLED=1` in the prod env
-   (`.env.prod` → re-encrypt, or host env) and redeploy/recreate the **backend** (the
-   flag is read at process start, so a restart is required — it is *not* a hot toggle).
-   Jobs now flow to the worker.
-3. **Watch** for ~10–15 min under real traffic (see signals below).
+**On deploy:** activation happens when you deploy. It's gameplay-safe — enqueue is
+fire-and-forget, and an enqueue failure falls back to inline, so a Redis/worker problem
+degrades to today's behavior rather than dropping analytics or blocking play. Verify
+right after deploy (see signals below); the worker boot line:
+`docker logs poker-analytics-worker-1 2>&1 | grep "worker started"`.
+
+**Observe-first option (optional staging):** if you'd rather watch the worker boot idle
+before sending it traffic, deploy once with `DECISION_ANALYSIS_QUEUE_ENABLED=0` (backend
+analyzes inline, worker idles on an empty queue), confirm it's healthy, then set `=1` and
+recreate the **backend** (the flag is read at process start — not a hot toggle).
 
 **Monitoring — the backpressure signal is queue depth:**
 ```bash
