@@ -139,8 +139,14 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.0,
         risk_scale=1.2,
         ego_fold_penalty=0.40,
-        reraise_aggression_scale=0.6,
-        reraise_max_per_action_shift=0.20,
+        # reraise split re-tuned against the opener-conditioned metric (#244):
+        # the contaminated metric understated 4-bet, so the old 0.6/0.20 left it
+        # over band. Tightening the CAP (the binding lever) → 6k mixed: 4-bet
+        # 24.6→21.2 (band 10-20, minor WARN) and 3-bet 26.7→25.3 (now in band).
+        # 4-bet floors at ~21 on the loose_mid chart's vs_3bet mass (~15%); fully
+        # closing the WARN needs a loose_mid chart trim (lag-only — backlog #5).
+        reraise_aggression_scale=0.45,
+        reraise_max_per_action_shift=0.10,
     ),
     # Weak fish: the weakest realistic player (the $2-tier trickle). Same passive
     # caller shape as calling_station but pushed to the believable floor — the
@@ -202,8 +208,14 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.2,
         risk_scale=1.6,
         ego_fold_penalty=0.60,
-        reraise_aggression_scale=0.9,
-        reraise_max_per_action_shift=0.18,
+        # reraise split re-tuned against the opener-conditioned metric (#244):
+        # the contaminated metric read maniac's 4-bet as ~22 (in band); the clean
+        # metric was 48.5 (band 24-40, FAIL). Drop the CAP 0.18→0.08 (keep scale
+        # high to protect the 3-bet) → 6k mixed: 4-bet 48.5→39.0 (now in band) +
+        # 3-bet 47.2→37.3 (band 36-52). The loose chart is SHARED (spewy_fish /
+        # maniac_overbluff), so the cap — not a chart trim — is the maniac-only lever.
+        reraise_aggression_scale=0.8,
+        reraise_max_per_action_shift=0.08,
     ),
     # Balanced defender (measurement only): the apex anti-aggression reg, to test
     # whether a competent DEFENSE neutralizes the maniac's edge (the field-overfold

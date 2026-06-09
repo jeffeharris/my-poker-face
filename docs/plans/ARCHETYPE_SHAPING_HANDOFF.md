@@ -171,9 +171,9 @@ numbers in older notes are wrong for fold_to_3bet & 4-bet; re-measure.** sim
 counters (`archetype_stat_counts`) are forward-only — old rows mixed squeeze in;
 reset a sandbox's counters for a clean source=sim read.
 
-### 3. 3-bet DEFENCE: ✅ tag FIXED (2026-06-09) — lag/maniac 4-bet remains
+### 3. 3-bet DEFENCE: ✅ tag + lag/maniac 4-bet DONE (2026-06-09)
 Exposed once #2 cleaned the metric: tag/lag/maniac were over-*polarized* facing
-3-bets (4-bet-or-fold, flats too little).
+3-bets (4-bet-or-fold, flats too little). All addressed.
 - **tag — FIXED.** fold_to_3bet 68.3→**49.8** (band 40–58), 4-bet 16.3→**13.3**
   via a new **`defend_3bet` spot tendency** (`poker/strategy/spot_tendencies.py`):
   gates on `scenario=='vs_3bet'`, routes fold→call + a slice of 4-bet→call
@@ -190,11 +190,17 @@ Exposed once #2 cleaned the metric: tag/lag/maniac were over-*polarized* facing
   4-bet range stays value-weighted; EV gate `champion_challenger.py --change
   tag_defend --archetype TAG`. Tests: `test_spot_tendencies.py` (handler +
   **the no-op-preflop invariant lock** across all postflop tendencies).
-- **lag/maniac 4-bet still over** (maniac 48.5 / band 24–40, lag 24.6 / 10–20).
-  Their excess 4-bet is **distortion-driven** (vs tag's chart-driven), so the
-  clean lever is their `reraise_aggression_scale` (already set 0.9/0.6, but tuned
-  against the *contaminated* metric → too loose). Lower them and re-validate.
-  Open question still: are the 4-bet bands a touch tight for our extreme archetypes?
+- **lag/maniac 4-bet — FIXED via the reraise split.** The old splits were tuned
+  against the *contaminated* metric so they were too loose. The per-action CAP is
+  the binding lever (not the scale): lag `reraise_max_per_action_shift` 0.20→0.10
+  (+scale 0.6→0.45), maniac 0.18→0.08. 6k mixed: **maniac 4-bet 48.5→39.0 (now in
+  band)**, lag 4-bet 24.6→21.2 (minor WARN), and a bonus — lag 3-bet 26.7→25.3 and
+  maniac 3-bet 47.2→37.3 both pulled into band. Isolated to the two profiles (the
+  loose chart is SHARED with spewy_fish/maniac_overbluff — the cap is the
+  archetype-only lever; don't trim the chart). Tuned via `scripts/reraise_tune.py`
+  (multi-arm sweep). Residual: lag 4-bet floors at ~21 on the loose_mid chart
+  (~15% vs_3bet mass) — a loose_mid-only trim (backlog #5) would close the last
+  ~1pt; not worth a chart change for a minor WARN.
 
 ### 4. Knob 3 — `_apply_hyper_passive` fires in `vs_open` defend spots
 `poker/strategy/exploitation.py:1077` adds `+0.3×scale` to raise unconditionally
