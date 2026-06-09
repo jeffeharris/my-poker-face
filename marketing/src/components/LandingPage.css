@@ -585,7 +585,9 @@
 .lp-bento {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1.2fr;
-  grid-template-rows: auto auto;
+  /* Equal-height rows so the top row (head + Emotions) matches the taller
+     bottom row instead of shrink-wrapping to its own shorter content. */
+  grid-template-rows: 1fr 1fr;
   gap: clamp(14px, 1.6vw, 22px);
 }
 
@@ -1326,6 +1328,7 @@
 @media (max-width: 1024px) {
   .lp-bento {
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
   }
 
   .lp-bento__head {
@@ -1429,6 +1432,7 @@
 
   .lp-bento {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
   }
 
   .lp-bento__head {
