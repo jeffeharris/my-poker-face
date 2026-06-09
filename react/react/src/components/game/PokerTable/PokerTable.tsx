@@ -119,6 +119,7 @@ export function PokerTable({
     revealedCards,
     heroCommitted,
     heroRetreating,
+    isPlaying,
     tournamentResult,
     socketRef,
     isConnected,
@@ -436,8 +437,12 @@ export function PokerTable({
         variant="interhand"
       />
 
-      {/* Tournament Complete */}
-      {!winnerInfo?.is_final_hand && (
+      {/* Tournament Complete — held until the hand presentation is fully done:
+          the run-out sequencer has drained (`!isPlaying`) AND the winner overlay
+          has been dismissed (`!winnerInfo`). Otherwise the backend's synchronous
+          `tournament_complete` (emitted at the hand boundary) would flash the
+          results over a still-animating final hand. */}
+      {!winnerInfo && !isPlaying && (
         <TournamentComplete result={tournamentResult} onComplete={handleTournamentComplete} />
       )}
     </>

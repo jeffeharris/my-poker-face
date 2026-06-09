@@ -171,6 +171,7 @@ export function MobilePokerTable({
     revealedCards,
     heroCommitted,
     heroRetreating,
+    isPlaying,
     tournamentResult,
     socketRef,
     isConnected,
@@ -617,9 +618,13 @@ export function MobilePokerTable({
             />
           )}
 
-          {/* Tournament Complete - only show when winner announcement is dismissed */}
-          {/* This ensures winner announcement is ALWAYS shown first, then tournament complete after */}
-          {!winnerInfo && (
+          {/* Tournament Complete — shown only after the hand presentation is
+              fully done: the run-out sequencer has drained (`!isPlaying`) AND the
+              winner overlay has been dismissed (`!winnerInfo`). Without the
+              `isPlaying` guard the backend's synchronous `tournament_complete`
+              (emitted at the hand boundary) flashes results over a still-
+              animating final hand. */}
+          {!winnerInfo && !isPlaying && (
             <TournamentComplete
               result={tournamentResult}
               onComplete={handleTournamentComplete}
