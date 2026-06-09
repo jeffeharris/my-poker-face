@@ -7,7 +7,7 @@ order: 3
 hero: /blog/dossier-edgar-allan-poe.png
 heroAlt: An opponent dossier, a CLASSIFIED case file with behavioral reads that unlock as you log hands.
 excerpt: A lifetime table, a tally that's safe to run twice, and a dossier you earn. How opponents grew a memory that survives the game ending.
-draft: true
+draft: false
 ---
 
 For almost three years, the AI characters in this game had no memory of you.

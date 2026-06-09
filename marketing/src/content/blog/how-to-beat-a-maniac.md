@@ -8,7 +8,7 @@ order: 5
 hero: /blog/cash-table-the-garage.jpeg
 heroAlt: A loud, loose table in My Poker Face, the kind a maniac turns into a pile of chips in the middle in about four hands.
 excerpt: The maniac is the calling station's violent cousin. Just as sticky, except they bet. You beat them by getting out of the way and letting them hang themselves.
-draft: true
+draft: false
 ---
 
 If the [calling station](/blog/how-to-beat-a-calling-station/) is the player who will not fold, the maniac is the player who will not stop betting. They raise preflop with anything, fire the flop, barrel the turn, and jam the river, and a worrying amount of the time they have nothing. They turn a quiet table into a pile of chips in the middle in about four hands, and they make calm players feel like they are being mugged.

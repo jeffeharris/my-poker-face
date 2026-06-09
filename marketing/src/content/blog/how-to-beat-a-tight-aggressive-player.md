@@ -8,7 +8,7 @@ order: 7
 hero: /blog/characters-trio.png
 heroAlt: Sherlock Holmes and two other sharp, calculating opponents, the tight-aggressive players you cannot bluff on autopilot.
 excerpt: The TAG is the hardest seat at the table and the most honest mirror. Against the others you exploit a flaw. Against a TAG, the flaw it finds is usually yours.
-draft: true
+draft: false
 ---
 
 Every other post in this series ends with a flaw you can attack. The [station](/blog/how-to-beat-a-calling-station/) calls too much, the [maniac](/blog/how-to-beat-a-maniac/) bets too much, the [nit](/blog/how-to-play-against-a-nit/) folds too much. The tight-aggressive player, the TAG, is the one who does not hand you an obvious flaw. They play strong hands, they bet them hard, they mix in enough deception that you cannot pin them down, and they watch how you play and adjust to it.

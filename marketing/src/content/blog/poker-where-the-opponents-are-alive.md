@@ -7,7 +7,7 @@ order: 1
 hero: /blog/cash-table-the-garage.jpeg
 heroAlt: A cash table of public-domain characters (Louis XIV, Alexander the Great, Cleopatra, Santa Claus), each with a live emotional state.
 excerpt: Most poker apps give you a difficulty slider with a name attached. This one gives you characters with a mood the game actually keeps track of.
-draft: true
+draft: false
 ---
 
 Most poker apps give you opponents that are really just a difficulty slider with a name bolted on. "Hard mode" doesn't have a bad day. It doesn't get rattled when you bluff it off the best hand, and it definitely isn't still rattled twenty minutes later when you sit back down.

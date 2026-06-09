@@ -7,7 +7,7 @@ order: 11
 hero: /blog/characters-trio.png
 heroAlt: Three of My Poker Face's AI opponents. The spiritual descendants of a roster of eight that shipped in 2006.
 excerpt: A 2006 game licensed the best poker AI in the world and still got read in 40 hands. Its one fatal flaw shaped everything about how we built our opponents.
-draft: true
+draft: false
 ---
 
 Most people building an AI poker game quietly assume they are first. They are not. In 2006, a game called *Stacked with Daniel Negreanu* shipped with poker AI more sophisticated than most poker apps carry today, and twenty years later it is still the benchmark everyone in this niche gets measured against. It also flopped commercially and got taken apart by serious players for one very specific reason. That reason turned out to be the most important design lesson in our entire game, so this one is an homage and a confession at the same time.

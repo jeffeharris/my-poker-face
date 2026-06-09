@@ -8,7 +8,7 @@ order: 10
 hero: /blog/cash-table-flop.jpeg
 heroAlt: A cash table mid-hand. The old line says if you can't spot the fish, it's you.
 excerpt: You've spent six posts learning to beat every type at the table. This one is about making sure you aren't the type getting beaten.
-draft: true
+draft: false
 ---
 
 There is an old line about poker: if you sit down and you cannot spot the fish at the table, the fish is you. This whole series has been about spotting them. The [station](/blog/how-to-beat-a-calling-station/), the [maniac](/blog/how-to-beat-a-maniac/), the [nit](/blog/how-to-play-against-a-nit/), the [shark](/blog/how-to-beat-a-tight-aggressive-player/), the [LAG](/blog/how-to-beat-a-lag/), the [balanced player](/blog/how-to-play-against-a-gto-player/). This last post turns the lens around, because the most useful question in poker is not "what type are they," it is "what type am I, and who is exploiting it right now."

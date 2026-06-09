@@ -8,7 +8,7 @@ order: 4
 hero: /blog/cash-table-flop.jpeg
 heroAlt: A cash-game flop in My Poker Face, the moment a calling station decides it likes its hand and will not be leaving.
 excerpt: The calling station is the player who will not fold. You beat it with a plan you can write on a napkin, and the roster is full of them to practice on.
-draft: true
+draft: false
 ---
 
 A calling station is the player who will not fold. You bet, they call. You bet bigger, they call. You fire the river with a busted draw and a prayer, and they look you up with second pair and a guilty smile. If you have ever felt like an opponent was personally insulting your bluffs, you have met one.

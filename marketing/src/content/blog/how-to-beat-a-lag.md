@@ -8,7 +8,7 @@ order: 8
 hero: /blog/cash-table-the-garage.jpeg
 heroAlt: A loose, aggressive table where the dangerous player isn't the loudest one, it's the skilled one applying constant pressure.
 excerpt: The LAG is the maniac with a license. Same relentless aggression, except now it's earned. You beat them with position, patience, and a willingness to play back.
-draft: true
+draft: false
 ---
 
 At the end of the [maniac post](/blog/how-to-beat-a-maniac/) I left a warning: not everyone who plays loose and aggressive is a maniac. This is that wrinkle, and it is the one that costs good-but-not-great players the most money. The loose-aggressive winner, the LAG, looks exactly like a maniac at a glance. They are in every pot, they bet every street, they put you to constant decisions. The difference is that none of it is random. Their aggression is controlled, their wide range actually has equity, and they are applying pressure on purpose.

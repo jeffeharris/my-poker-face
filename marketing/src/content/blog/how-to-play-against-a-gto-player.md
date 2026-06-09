@@ -8,7 +8,7 @@ order: 9
 hero: /blog/tell-your-story.png
 heroAlt: A hand told back as a story. Against a balanced player the story is rarely dramatic, which is exactly the point.
 excerpt: A perfectly balanced opponent has no leak to attack. You don't beat them, you break even. The real skill is recognizing that and spending your chips elsewhere.
-draft: true
+draft: false
 ---
 
 This is the strange one in the series, because it is the matchup you cannot win, and saying so out loud is more useful than pretending you can.

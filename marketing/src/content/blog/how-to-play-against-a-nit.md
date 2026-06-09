@@ -8,7 +8,7 @@ order: 6
 hero: /blog/dossier-edgar-allan-poe.png
 heroAlt: A dossier for Edgar Allan Poe, one of the game's tightest players, who only commits with a premium hand.
 excerpt: The nit is the calling station's opposite. They fold too much. You beat them by stealing every pot they don't want and believing them every single time they do.
-draft: true
+draft: false
 ---
 
 The [calling station](/blog/how-to-beat-a-calling-station/) loses by calling too much. The nit loses the other way: by folding too much. A nit, sometimes called a rock, plays almost no hands, almost never bluffs, and only commits chips when they have something real. Playing against one feels like trying to mug a statue. Most pots they simply hand you, and then once an hour they wake up with the nuts and take your whole stack because you stopped believing they could have it.
