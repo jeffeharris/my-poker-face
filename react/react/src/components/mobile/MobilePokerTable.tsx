@@ -10,6 +10,7 @@ import { MobileHero } from './MobileHero';
 import { MobileActionArea } from './MobileActionArea';
 import { FloatingChat } from './FloatingChat';
 import { SalFloater } from './SalFloater';
+import { RunoutStageSplash } from './RunoutStageSplash';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
@@ -37,6 +38,7 @@ import { useMobileCoach } from '../../hooks/useMobileCoach';
 import { useInterhandMessaging } from '../../hooks/useInterhandMessaging';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
+import { deriveTier, scale, STAGE_SPLASH_MS } from '../../constants/presentationTiming';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -144,6 +146,7 @@ export function MobilePokerTable({
   const phase = useGameStore((state) => state.phase);
   const pot = useGameStore((state) => state.pot);
   const communityCards = useGameStore((state) => state.communityCards);
+  const cardDeal = useGameStore((state) => state.cardDeal);
   const currentPlayerIdx = useGameStore((state) => state.currentPlayerIdx);
   const dealerIdx = useGameStore((state) => state.dealerIdx);
   const highestBet = useGameStore((state) => state.highestBet);
@@ -155,6 +158,7 @@ export function MobilePokerTable({
   const bettingContext = useGameStore((state) => state.bettingContext);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
+  const runoutDirectorActive = useGameStore((state) => state.runoutDirectorActive);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
@@ -306,6 +310,23 @@ export function MobilePokerTable({
   // Community card animation hook - handles slide-in with cascade delays
   const communityCardAnimations = useCommunityCardAnimation(communityCards?.length ?? 0);
 
+  // Non-run-out dealing: lift the community ABOVE the chat while the cards slide
+  // into place (so the deal is visible over table talk), then drop it back BELOW
+  // the chat once settled. Run-out dealing has its own stage z-handling, so this
+  // is gated to !stageMode. Driven by the one-shot cardDeal token (per street).
+  const [communityDealElevated, setCommunityDealElevated] = useState(false);
+  const cardDealToken = cardDeal?.token;
+  useEffect(() => {
+    if (cardDealToken === undefined || stageMode) return undefined;
+    setCommunityDealElevated(true);
+    // Cover the slide cascade (flop is longer than a single turn/river card).
+    const ms = (cardDeal?.count ?? 1) >= 3 ? 3000 : 1300;
+    const t = window.setTimeout(() => setCommunityDealElevated(false), ms);
+    return () => window.clearTimeout(t);
+    // Fires only on a new deal; stageMode is read at fire time (not a trigger).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardDealToken]);
+
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
     if (!storePlayers || !currentPlayer || currentPlayer.is_human) return;
@@ -348,6 +369,29 @@ export function MobilePokerTable({
   // During showdown, move folded players to the ghost rail so active players have more room in the main row
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
+
+  // Run-out "stage" mode: during an all-in run-out (the board-dealing director is
+  // active) or a multiway showdown reveal, the table reconfigures to open a clear
+  // band in the middle for table banter — the top nav hides, the avatars crop up,
+  // and the pot / community / hero slide down so the cards aren't buried under
+  // chat. Driven entirely by CSS off `data-stage` (transforms, no reflow).
+  // Dev-only `?stagePreview` forces it on against a normal table so the
+  // choreography can be tuned without dealing a live all-in.
+  const stagePreview = useMemo(
+    () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('stagePreview'),
+    []
+  );
+  const stageMode = stagePreview || runoutDirectorActive || !!isInShowdown;
+  // The splash label reflects what kicked off the stage: an all-in board run-out
+  // ("All In") vs. a plain river showdown reveal ("Showdown").
+  const stageSplashLabel = runItOut ? 'All In' : 'Showdown';
+  // Splash duration scales with the pacing tier (fastest → 0 → no splash), and
+  // the sequencer holds the reveal/run-out behind it by the matching tier-scaled
+  // BEAT.stageSplashHold (see handSequencer.planReveal).
+  const stageSplashMs = scale(
+    STAGE_SPLASH_MS,
+    deriveTier(fastForward, alwaysFastForward, aiInstant)
+  );
 
   // Run-out reveal cascade order: each revealed opponent reveals after the
   // previous one finishes (and within an opponent, card 2 after card 1). The
@@ -430,6 +474,7 @@ export function MobilePokerTable({
       className="mobile-poker-table"
       data-testid="mobile-poker-table"
       data-connected={isConnected ? 'true' : 'false'}
+      data-stage={stageMode ? 'true' : 'false'}
     >
       {/* Initial loading overlay - slides off screen when game data arrives */}
       <ShuffleLoading
@@ -541,6 +586,7 @@ export function MobilePokerTable({
           <MobileCommunityCards
             communityCards={communityCards}
             animations={communityCardAnimations}
+            elevated={communityDealElevated && !stageMode}
           />
 
           {/* Floating AI Message. Sal "The Clock" gets special treatment — his
@@ -552,6 +598,14 @@ export function MobilePokerTable({
             playerAvatars={playerAvatars}
           />
           <SalFloater queue={salQueue} onShown={dismissSalMessage} />
+
+          {/* Run-out / showdown splash — drops over the table on the rising edge
+              of stage mode, masking the layout reconfigure behind it. */}
+          <RunoutStageSplash
+            stageActive={stageMode}
+            label={stageSplashLabel}
+            durationMs={stageSplashMs}
+          />
 
           {/* Hero Section - Your Cards */}
           <MobileHero

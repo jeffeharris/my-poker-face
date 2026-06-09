@@ -59,7 +59,7 @@ export interface PotDisplayProps {
 export const PotDisplay = memo(function PotDisplay({ total }: PotDisplayProps) {
   return (
     <div className="mobile-pot">
-      <span className="mobile-pot__label">POT:</span>
+      <span className="mobile-pot__label">POT</span>
       <span className="mobile-pot__amount">${total}</span>
     </div>
   );

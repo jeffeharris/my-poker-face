@@ -79,9 +79,22 @@ export function actionBeatMs(lastAction: string | null | undefined): number {
   return ACTION_BEAT_MS[lastAction.toLowerCase()] ?? DEFAULT_ACTION_BEAT_MS;
 }
 
+/**
+ * Run-out "stage" splash (the "ALL IN" / "SHOWDOWN" beat that masks the mobile
+ * layout reconfigure). Watchable-tier total duration; scaled per tier — `fastest`
+ * → 0 skips it so a flushed hand stays instant. The splash component reads the
+ * scaled value; `BEAT.stageSplashHold` (below) keeps the reveal/run-out beats
+ * behind it so the hole cards + board don't appear until the splash clears.
+ */
+export const STAGE_SPLASH_MS = 2000;
+
 export const BEAT = {
   /** Flat post-action hold for the fast/fastest tiers (watchable uses ACTION_BEAT_MS). */
   action: 1000,
+  /** Hold the reveal beat (hole-card mount + hero commit + matchup read) behind the
+   *  run-out splash so the hands don't reveal until it clears. Slightly less than
+   *  STAGE_SPLASH_MS so the cards land as the splash fades out. */
+  stageSplashHold: 1500,
   /** Flop (3 cards): 2×1.0s stagger + 0.825s slide ≈ 2.825s settle. */
   flopGate: 2825,
   /** Turn / river (1 card): ~0.825s slide. */

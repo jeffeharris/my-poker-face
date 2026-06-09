@@ -184,21 +184,35 @@ describe('planEvent — community deal', () => {
 // --- reveal beat ----------------------------------------------------------
 
 describe('planEvent — reveal (all-in matchup)', () => {
-  it('reveals, claims reaction ownership, presents the hero hand, schedules INITIAL', () => {
+  // The stage goes active immediately (drives the "ALL IN" splash + the layout
+  // reconfigure), but the actual reveal — hole-card mount, hero commit, INITIAL
+  // reactions — is held behind it by BEAT.stageSplashHold (1500ms watchable) so
+  // the hands don't pop while the splash is still up.
+  it('claims reaction ownership immediately, then holds the reveal behind the splash', () => {
     const plan = planEvent(
       { ...initialEngineState, handNumber: 1 },
       { kind: 'reveal', revealed },
       'watchable'
     );
-    expect(offsets(plan, 'setReveal')).toEqual([0]);
-    expect(
-      plan.timeline.some((t) => t.effect.kind === 'setActive' && t.effect.active === true)
-    ).toBe(true);
-    expect(offsets(plan, 'hero')).toEqual([0]); // commit
-    expect(offsets(plan, 'reactions')).toEqual([700]); // INITIAL
-    expect(plan.durationMs).toBe(1500);
+    expect(offsets(plan, 'setActive')).toEqual([0]); // stage on at once
+    expect(offsets(plan, 'setReveal')).toEqual([1500]); // held behind the splash
+    expect(offsets(plan, 'hero')).toEqual([1500]); // commit, after the splash
+    expect(offsets(plan, 'reactions')).toEqual([2200]); // INITIAL: 1500 + 700
+    expect(plan.durationMs).toBe(3000); // 1500 splash hold + 1500 matchup hold
     expect(plan.next.revealed).toBe(true);
     expect(plan.next.inRunout).toBe(true);
+  });
+
+  it('scales the splash hold with the tier (fast)', () => {
+    const plan = planEvent(
+      { ...initialEngineState, handNumber: 1 },
+      { kind: 'reveal', revealed },
+      'fast'
+    );
+    expect(offsets(plan, 'setActive')).toEqual([0]);
+    expect(offsets(plan, 'setReveal')).toEqual([600]); // 1500 × 0.4
+    expect(offsets(plan, 'reactions')).toEqual([880]); // 600 + 700 × 0.4
+    expect(plan.durationMs).toBe(1200); // (1500 + 1500) × 0.4
   });
 
   it('a folded human does not present a hand (no hero commit)', () => {
@@ -208,7 +222,7 @@ describe('planEvent — reveal (all-in matchup)', () => {
       'watchable'
     );
     expect(offsets(plan, 'hero')).toEqual([]);
-    expect(offsets(plan, 'reactions')).toEqual([700]); // INITIAL still fires
+    expect(offsets(plan, 'reactions')).toEqual([2200]); // INITIAL still fires, held
   });
 });
 

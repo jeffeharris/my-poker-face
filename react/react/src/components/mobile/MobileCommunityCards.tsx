@@ -15,12 +15,19 @@ interface CommunityCardAnim {
 export function MobileCommunityCards({
   communityCards,
   animations,
+  elevated = false,
 }: {
   communityCards: string[];
   animations: CommunityCardAnim[];
+  /** Lift above the chat while the cards slide in (non-run-out dealing), so the
+   *  deal is visible over table talk; drops back below once settled. */
+  elevated?: boolean;
 }) {
   return (
-    <div className="mobile-community" data-testid="mobile-community">
+    <div
+      className={`mobile-community${elevated ? ' mobile-community--dealing' : ''}`}
+      data-testid="mobile-community"
+    >
       <div className="community-cards-row">
         {Array.from({ length: 5 }).map((_, i) => {
           const card = communityCards[i];
