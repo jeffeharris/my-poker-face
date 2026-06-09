@@ -2,7 +2,7 @@
 purpose: The full 5-phase plan to make the SHARP/TIERED bot's opponent adaptation perceptible (surface the read) and conditioned (vary aggression by state), with the locked design decisions and per-phase contracts
 type: design
 created: 2026-06-09
-last_updated: 2026-06-10
+last_updated: 2026-06-11
 ---
 
 # Perceptibility & Conditioning (backlog #12)
@@ -222,31 +222,112 @@ table image / recent history (the bot adjusts to how IT has been playing and how
 the table perceives it). Lower-leverage than tilt; sequenced after Phase 2 so the
 conditioner machinery exists.
 
-## Phase 4 — Sizing tells (the per-archetype sizing character)
+## Phase 4 — Surface the sizing tell ✅ BUILT (2026-06-11)
+
+The "surface a sizing tell" slice of this phase is built: the two sizing reads
+(`sizing_polarization_score`, `fold_to_big_bet`) — deliberately excluded from
+Phase 1 — now plug into the Phase-1 `READ_PRIORITY` table so the SHARP/TIERED bot
+*voices* a sizing tell ("when you bet big, you've got it"; "put a big enough bet
+out there and you fold every time"). Expression-layer only, frequency-NEUTRAL.
+
+**Priority placement:** below the three action-frequency reads, above the coarse
+global all-in rate:
+`fold_to_cbet > cbet_attempt_rate > barrel_frequency > sizing_polarization_score >
+fold_to_big_bet > all_in_frequency`. Rationale: sizing tells mature slower
+(showdown-gated equity bins / big-bets-faced) so they shouldn't pre-empt the
+faster reads, but a matured sizing tell is far more evocative than the coarse
+all-in rate, so it outranks it. `sizing_polarization` outranks `fold_to_big_bet`
+("big bet, big hand" is the more vivid line).
+
+**Files:**
+- `poker/strategy/spoken_reads.py` — two new `_ReadSpec`s in `READ_PRIORITY`;
+  `_ReadSpec` gains an optional `second_sample_attr` (sizing_polarization is
+  dual-gated on BOTH equity bins, so its effective sample = `min(big, small)` —
+  the weaker bin drives both the min_samples gate and the arc tier).
+  `_read_sample_count(tendencies, spec)` now takes the spec and returns the min
+  when a second attr is set. `min_samples` mirrors the deep_reads gates
+  (`SIZING_MIN_BIN_SAMPLE=4` / `SIZING_MIN_BIG_BET_FACED=6`); arc floors (≥5)
+  apply on top, so a read can be deep_reads-eligible yet still sub-tentative.
+- `tests/test_strategy/test_spoken_reads.py` — `_tendencies` helper extended
+  with sizing-bin params; +8 tests (fire-at-maturity, suppressed-below-sample,
+  weaker-bin drives tier, deep_reads-None guard, priority ordering vs the action
+  reads + all_in, end-to-end through `select_spoken_reads`); leak test extended
+  to ban the sizing stat-name jargon (polarization/sizing_/fold_to_big/score).
+
+**Wiring (confirmed, no new wiring needed):** the controller's
+`_select_opponent_observations` → `select_spoken_reads` path already calls
+`deep_reads_from_tendencies(tendencies)`, which already exposes both sizing
+fields (sample-gated to None until mature). Adding the specs to the table was
+sufficient — the surfacing path receives the sizing fields with no controller
+change.
+
+**Frequency-neutral proof:** `scripts/archetype_mixedfield_probe.py` @ 9k hands
+is byte-identical (md5 match) before/after — the change is expression-layer only.
+
+### Remaining Phase-4 substrate (not in this slice)
 
 Fold in `docs/plans/PREFLOP_SIZING_VARIETY.md` (backlog #7): a maniac who overbets
 and a nit who min-3-bets *telegraph* their archetype through size. P1 emit multiple
 raise-size tokens in the preflop charts, P2 engage the `SIZING_PERSONALITY` size
-gradient, P3 add a "3-bet size" read to the review tool. **Sizing reads slot into
-the Phase-1 `READ_PRIORITY` table** (`sizing_polarization_score`, `fold_to_big_bet`
-— deliberately excluded from Phase 1) so the bot can *also voice* a sizing tell
-("you only bet big when you've got it").
+gradient, P3 add a "3-bet size" read to the review tool. (The "voice the sizing
+read" piece above is now done; the chart/gradient/review-tool pieces remain.)
 
-## Phase 5 — Measurement: a 2AFC perceptibility harness
+## Phase 5 — Measurement: a 2AFC perceptibility harness ✅ BUILT (scaffolding) (2026-06-09)
 
-A forced-choice harness (lives in `tests/personality_tester/`) that measures
-whether the read is actually *perceptible*, not just present:
+A forced-choice harness that measures whether the read is actually *perceptible*,
+not just present:
 - **archetype-ID** — given N hands of a hidden archetype, can a rater classify it?
+  Scored vs `1/n` chance (1/7) with an exact binomial test + confusion matrix
   (the "readable in <40 hands" / ">200 hands no exploit" gates, quantified).
 - **tilt-detection d-prime** — signal-detection d′ for "is this bot on tilt right
-  now?" given the telegraphing.
-- **adaptation 2AFC** — two-alternative forced choice: "did the bot adjust to you?"
-  vs a non-adapting control.
+  now?" given the telegraphing (+ Cohen's dz for the paired design).
+- **adaptation 2AFC** — "did the bot adjust to you?" vs a non-adapting control,
+  PLUS an **automatable** KL-divergence check so the arm yields a number with no
+  humans.
 
-**Open question:** whether `USES_EMOTIONAL_NARRATION` (the emotional-narration flag)
-should gate tilt-visibility — i.e. is the tilt spike telegraphed through the
-emotional-narration path or a dedicated tell channel? Resolve before Phase 2 ships
-the telegraphing.
+**Files (all NEW — no production code changed):**
+- `experiments/generate_2afc_sessions.py` — seeded, reproducible LABELED session
+  generator (duplicate-hand pairs à la duplicate bridge). Reuses
+  `simulate_bb100.make_controller/make_game_state/drive_hand`. Tilt arm flips the
+  in-process `TILT_CONDITIONING_ENABLED` env var (OFF in prod) for generation +
+  injects `ComposureState(pressure_source='bad_beat')` and a `tilted` emotional
+  zone onto the sim psychology namespace (the documented sim hooks). Adaptation
+  arm flips `exploitation_strength` 1.0↔0.0. CLI, never pytest-collected.
+- `experiments/score_2afc.py` — binomial-vs-chance (a), d′ + Cohen's dz (b),
+  automatable KL(ON ‖ OFF) on matched (street, facing) spots (c). Dependency-light
+  (probit via Acklam; scipy used only if present).
+- `tests/personality_tester/perceptibility/2afc_viewer.html` — server-free rater
+  UI (side-by-side anonymized sessions, forced choice + 1–5 confidence, labels +
+  hole cards hidden until a choice is recorded, downloads a responses JSON).
+- `tests/personality_tester/perceptibility/README.md` — the full study protocol
+  (within-subjects, counterbalanced, duplicate hands, neutral phrasing, the 5
+  ablation conditions, decision thresholds), the automatable-vs-human split, and
+  the open question below.
+
+**Automatable vs needs-humans:** generation, labeling, the adaptation-KL number,
+and all d′/binomial/dz math are AUTOMATABLE; the archetype-ID and tilt
+forced-choice *judgments* need human raters. The adaptation-KL is necessary but
+not sufficient for perceptibility (it confirms the layer changed behavior on
+identical cards; a human 2AFC still confirms a player can *feel* it).
+
+**Smoke-run finding (not a study):** against the exploitable rule-bot backdrop
+(`exploit_bb100` recipe) TAG ON-vs-OFF at 250 hands produced a real but SMALL
+KL (pooled ≈ 1.8e-4, below the 0.02 threshold) — consistent with the thesis that
+the current adaptation footprint is likely imperceptible without surfacing. The
+personality-archetype `Calling Station` (VPIP ≈ 0.36 in-sim) does NOT trip the
+hyper_passive exploitation rule (a genuine null) — hence the adaptation arm uses
+the rule-bot station backdrop. The tilt layer fires (maniac w/ injected bad_beat
+is ~+2pp more aggressive than the calm twin on the same cards).
+
+**Open question (flagged in the README, NOT resolved here):** whether
+`USES_EMOTIONAL_NARRATION` (the emotional-narration flag) should gate
+tilt-visibility. Sharp bots set it `False` outside heads-up, so 6-max tilt is
+near-invisible to raters except via the 3-bet/aggression spike — the telegraphing
+(table-talk / tells) is off. The tilt study likely needs **heads-up sessions** OR
+a **study-only narration override** to be a fair test. The harness does NOT change
+that flag (it only flips `TILT_CONDITIONING_ENABLED` in-process for generation);
+left for the user to decide before the human tilt study (and before Phase 2 ships
+the telegraphing).
 
 ---
 
