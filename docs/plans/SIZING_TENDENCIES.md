@@ -2,7 +2,7 @@
 purpose: Design for per-PLAYER preflop bet-sizing personalities — sampled, archetype-weighted sizing habits with within-player variance, so size is a read you EARN over many hands rather than a one-shot archetype tell
 type: design
 created: 2026-06-09
-last_updated: 2026-06-09
+last_updated: 2026-06-11
 ---
 
 > **Status: P2 (first learnable tell) SHIPPED — 2026-06-09.** Adds the
@@ -26,8 +26,19 @@ last_updated: 2026-06-09
 > it) unaffected. Tests: `tests/test_strategy/test_sizing_tendencies.py` extended
 > (regs-never-carry, reg-invariant-to-strength, recreational-carries-with-prob,
 > strong-up/weak-down, center-preserved, clamp, override-pins); strategy suite green.
-> **P3 (polarized_size, position_blind, tilt_escalation, anchor_number) + P4
-> (surfacing / review-tool column) NOT yet started.**
+> **P3 (polarized_size, position_blind, tilt_escalation, anchor_number) NOT yet
+> started.**
+> **P4 — surface the size tell: DONE (2026-06-11), surfaced via #12's
+> `spoken_reads`.** The two sizing reads (`sizing_polarization_score`,
+> `fold_to_big_bet`) now slot into the Perceptibility-Conditioning Phase-1
+> `READ_PRIORITY` table (`poker/strategy/spoken_reads.py`), so the SHARP/TIERED
+> bot *voices* an intuition-framed sizing tell ("when you bet big, you've got
+> it" / "put a big enough bet out there and you fold every time"). Placed below
+> the action-frequency reads, above the global all-in rate; dual-gated
+> polarization matures off its weaker equity bin. Expression-layer only,
+> frequency-neutral (mixed-field probe byte-identical). The review-tool "3-bet
+> size" column piece (#7 P3) is separate and still pending. Detail:
+> `docs/plans/PERCEPTIBILITY_CONDITIONING.md` Phase 4.
 
 # Sizing tendencies — per-player sizing personalities (the learnable size tell)
 
@@ -203,9 +214,12 @@ visible "learning"). The sizing tell pays off most when it's *felt*:
    See the status block at the top.
 3. **P3 — palette.** `polarized_size`, `position_blind`, `tilt_escalation`
    (psychology-coupled), `anchor_number`.
-4. **P4 — surface it.** Opponent-model / table-talk / coach callbacks + a
-   review-tool "3-bet size" column (so size is a first-class, tunable stat like
-   frequency).
+4. **P4 — surface it.** ✅ **the size-tell voicing DONE (2026-06-11)** via #12's
+   `spoken_reads` (`sizing_polarization_score` + `fold_to_big_bet` added to
+   `READ_PRIORITY`; the bot voices an intuition-framed sizing tell). The
+   review-tool "3-bet size" column (size as a first-class tunable stat) is
+   separate and still pending. See the top status block +
+   `docs/plans/PERCEPTIBILITY_CONDITIONING.md` Phase 4.
 
 ## Interactions / cross-links
 

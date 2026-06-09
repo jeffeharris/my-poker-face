@@ -35,6 +35,14 @@ def _tendencies(
     barrel_count=0,
     hands_dealt=0,
     all_in_count=0,
+    # Sizing-tell bins (Phase 4). Polarization needs BOTH equity bins; the
+    # equity *means* must be set before _recalculate_stats derives the score.
+    equity_big_count=0,
+    equity_small_count=0,
+    equity_big_mean=0.5,
+    equity_small_mean=0.5,
+    big_bet_faced=0,
+    fold_to_big_bet_count=0,
 ) -> OpponentTendencies:
     """Build a tendency with the sample counters that gate the spoken reads."""
     t = OpponentTendencies()
@@ -47,6 +55,18 @@ def _tendencies(
     t.hands_dealt = hands_dealt
     t.hands_observed = hands_dealt
     t._all_in_count = all_in_count
+    # Sizing polarization: bin counts + means feed _recalculate_stats, which
+    # derives sizing_polarization_score = big_mean − small_mean when both bins
+    # clear SIZING_MIN_BIN_SAMPLE.
+    t._equity_betting_big_count = equity_big_count
+    t._equity_betting_small_count = equity_small_count
+    t.equity_when_betting_big = equity_big_mean
+    t.equity_when_betting_small = equity_small_mean
+    # fold_to_big_bet is updated incrementally live (not by _recalculate_stats).
+    t._big_bet_faced_count = big_bet_faced
+    t._fold_to_big_bet_count = fold_to_big_bet_count
+    if big_bet_faced:
+        t.fold_to_big_bet = fold_to_big_bet_count / big_bet_faced
     t._recalculate_stats()
     return t
 
@@ -106,15 +126,16 @@ def test_none_when_deep_read_value_is_none():
 
 def test_priority_table_order():
     keys = [spec.read_key for spec in READ_PRIORITY]
+    # Phase 4: sizing tells slot in below the action-frequency reads but above
+    # the coarse global all-in rate.
     assert keys == [
         'fold_to_cbet',
         'cbet_attempt_rate',
         'barrel_frequency',
+        'sizing_polarization_score',
+        'fold_to_big_bet',
         'all_in_frequency',
     ]
-    # Sizing tells (Phase 4) must NOT be present yet.
-    assert 'sizing_polarization_score' not in keys
-    assert 'fold_to_big_bet' not in keys
 
 
 def test_priority_prefers_fold_to_cbet_over_cbet_attempt():
@@ -144,6 +165,136 @@ def test_falls_through_to_lower_priority_when_top_unmatured():
     assert reads[0] == 'cbet_attempt_rate'
 
 
+# ── Phase 4: sizing tells ───────────────────────────────────────────────────
+
+
+def _matured_polarization(samples=30, gap=0.3):
+    """A tendency whose sizing_polarization_score is matured + positive (bets
+    big with strong hands). Both equity bins carry `samples` observations."""
+    return _tendencies(
+        equity_big_count=samples,
+        equity_small_count=samples,
+        equity_big_mean=0.5 + gap / 2,
+        equity_small_mean=0.5 - gap / 2,
+    )
+
+
+def test_sizing_polarization_fires_at_maturity():
+    t = _matured_polarization(samples=30)
+    deep = {'sizing_polarization_score': 0.3}
+    reads = _select_best_read(t, deep, CONFIG)
+    assert reads is not None
+    assert reads[0] == 'sizing_polarization_score'
+    assert reads[1] == ARC_CONFIDENT  # 30 samples per bin → confident
+
+
+def test_sizing_polarization_tier_scales_with_weaker_bin():
+    # The WEAKER bin drives the tier: small bin only 6 → tentative even though
+    # the big bin is deep.
+    t = _tendencies(
+        equity_big_count=80,
+        equity_small_count=6,
+        equity_big_mean=0.65,
+        equity_small_mean=0.35,
+    )
+    deep = {'sizing_polarization_score': 0.3}
+    reads = _select_best_read(t, deep, CONFIG)
+    assert reads is not None
+    assert reads[1] == ARC_TENTATIVE
+
+
+def test_sizing_polarization_suppressed_below_bin_sample():
+    # Both bins at 4 (== SIZING_MIN_BIN_SAMPLE, the deep_reads gate) is below
+    # the tentative arc floor (5) → no read even though deep_reads would expose
+    # it. And the bins below 4 → deep_reads itself is None.
+    t = _tendencies(
+        equity_big_count=4,
+        equity_small_count=4,
+        equity_big_mean=0.65,
+        equity_small_mean=0.35,
+    )
+    reads = _select_best_read(t, {'sizing_polarization_score': 0.3}, CONFIG)
+    assert reads is None  # below tentative arc floor
+
+
+def test_sizing_polarization_none_when_deep_read_value_none():
+    # Mature bins but deep_reads value None (e.g. one bin under the gate) →
+    # don't surface.
+    t = _matured_polarization(samples=30)
+    reads = _select_best_read(t, {'sizing_polarization_score': None}, CONFIG)
+    assert reads is None
+
+
+def test_fold_to_big_bet_fires_at_maturity():
+    t = _tendencies(big_bet_faced=30, fold_to_big_bet_count=24)
+    deep = {'fold_to_big_bet': 0.8}
+    reads = _select_best_read(t, deep, CONFIG)
+    assert reads is not None
+    assert reads[0] == 'fold_to_big_bet'
+    assert reads[1] == ARC_CONFIDENT
+
+
+def test_fold_to_big_bet_suppressed_below_sample():
+    # 5 big bets faced is below this read's min_samples (6).
+    t = _tendencies(big_bet_faced=5, fold_to_big_bet_count=4)
+    reads = _select_best_read(t, {'fold_to_big_bet': 0.8}, CONFIG)
+    assert reads is None
+
+
+def test_sizing_outranks_all_in_but_yields_to_action_reads():
+    # All four lower-half reads matured. fold_to_cbet (top) still wins.
+    t = _tendencies(
+        cbet_faced=30,
+        fold_to_cbet_count=20,
+        big_bet_faced=30,
+        fold_to_big_bet_count=24,
+        equity_big_count=30,
+        equity_small_count=30,
+        equity_big_mean=0.65,
+        equity_small_mean=0.35,
+        hands_dealt=80,
+        all_in_count=10,
+    )
+    deep = {
+        'fold_to_cbet': 0.67,
+        'sizing_polarization_score': 0.3,
+        'fold_to_big_bet': 0.8,
+        'all_in_frequency': 0.12,
+    }
+    assert _select_best_read(t, deep, CONFIG)[0] == 'fold_to_cbet'
+
+    # With the action reads gone, sizing_polarization outranks fold_to_big_bet,
+    # which outranks all_in_frequency.
+    deep_sizing = {
+        'sizing_polarization_score': 0.3,
+        'fold_to_big_bet': 0.8,
+        'all_in_frequency': 0.12,
+    }
+    assert _select_best_read(t, deep_sizing, CONFIG)[0] == 'sizing_polarization_score'
+
+    deep_fold_big = {'fold_to_big_bet': 0.8, 'all_in_frequency': 0.12}
+    assert _select_best_read(t, deep_fold_big, CONFIG)[0] == 'fold_to_big_bet'
+
+
+def test_sizing_reads_integration_over_manager():
+    # End-to-end through select_spoken_reads: a matured fold_to_big_bet read
+    # surfaces as number-free intuition text.
+    t = _tendencies(big_bet_faced=70, fold_to_big_bet_count=56)
+    mgr = _manager_with('Hero', {'Villain': t})
+    obs, _state, reads = select_spoken_reads(
+        observer_name='Hero',
+        active_opponents=['Villain'],
+        facing_opponent='Villain',
+        opponent_model_manager=mgr,
+        state=SpokenReadState(),
+        config=CONFIG,
+    )
+    assert len(obs) == 1
+    assert reads[0].read_key == 'fold_to_big_bet'
+    assert reads[0].arc_tier == ARC_SURE
+    assert not re.search(r'\d', obs[0][1])
+
+
 # ── No raw-stat / number leakage ────────────────────────────────────────────
 
 
@@ -163,6 +314,13 @@ def test_no_number_or_stat_name_leak_in_text():
                 'all_in',
                 'all-in',
                 '%',
+                # Phase 4 sizing-tell stat-name jargon (the natural words
+                # "bet", "big", "size" are fine intuition framing; the raw
+                # stat identifiers are not).
+                'polarization',
+                'sizing_',
+                'fold_to_big',
+                'score',
             ):
                 assert banned not in lowered, (
                     f"stat name '{banned}' leaked in {spec.read_key}/{tier}: {text}"

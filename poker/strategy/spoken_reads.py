@@ -54,11 +54,21 @@ class _ReadSpec:
     # Phrasings keyed by arc tier. Each is a complete intuition-framed line the
     # LLM is handed to voice (it may rephrase, but must keep it number-free).
     phrasings: Dict[str, str]
+    # Optional SECOND sample counter for reads whose deep_reads gate is a dual
+    # constraint (e.g. sizing_polarization needs BOTH equity bins matured). When
+    # set, the read's effective sample count = min(sample_attr, second_sample_attr)
+    # — the binding bin drives both the min_samples gate and the arc tier, so the
+    # read is only as mature as its weaker bin.
+    second_sample_attr: Optional[str] = None
 
 
 # Priority order = legibility + maturation. fold_to_cbet is the most
-# player-legible, fastest-maturing read; sizing tells are EXCLUDED here (Phase 4
-# — they plug into this same table later but do not ship now).
+# player-legible, fastest-maturing read. The Phase-4 sizing tells
+# (sizing_polarization_score, fold_to_big_bet) slot in BELOW the three
+# action-frequency reads but ABOVE all_in_frequency: they mature slower
+# (showdown-gated equity bins / big-bets-faced) so they shouldn't pre-empt the
+# faster reads, but a matured sizing tell ("big bet, big hand") is far more
+# evocative than the coarse global all-in rate, so it outranks it.
 #
 # NOTE on ordering: the list order IS the priority. _select_best_read walks it
 # top-down and returns the first matured read, so put the most legible first.
@@ -93,6 +103,36 @@ READ_PRIORITY: Tuple[_ReadSpec, ...] = (
             ARC_SURE: "I know when you'll keep firing and when you're out of bullets.",
         },
     ),
+    # ── Phase 4 sizing tells ──────────────────────────────────────────────
+    # sizing_polarization_score: high ⇒ the opponent bets big with strong hands
+    # and small with weak ones — their size is face-up. Gated on BOTH equity
+    # bins (showdown-derived) maturing, so its effective sample = the weaker
+    # bin (second_sample_attr). The deep_reads value is already None until both
+    # bins clear SIZING_MIN_BIN_SAMPLE; min_samples mirrors that gate.
+    _ReadSpec(
+        read_key='sizing_polarization_score',
+        sample_attr='_equity_betting_big_count',
+        second_sample_attr='_equity_betting_small_count',
+        min_samples=4,  # == SIZING_MIN_BIN_SAMPLE (the deep_reads gate)
+        phrasings={
+            ARC_TENTATIVE: "I'm starting to think your bet size gives away how strong you are.",
+            ARC_CONFIDENT: "The way you size your bets is telling me something — big means big.",
+            ARC_SURE: "Your sizing tells me everything — when you bet big, you've got it.",
+        },
+    ),
+    # fold_to_big_bet: high ⇒ the opponent over-folds to large bets / overbets.
+    # Lives on a live all-hands counter (not showdown-gated), so it matures off
+    # _big_bet_faced_count; min_samples mirrors SIZING_MIN_BIG_BET_FACED.
+    _ReadSpec(
+        read_key='fold_to_big_bet',
+        sample_attr='_big_bet_faced_count',
+        min_samples=6,  # == SIZING_MIN_BIG_BET_FACED (the deep_reads gate)
+        phrasings={
+            ARC_TENTATIVE: "I'm starting to notice you back down when the bet gets big.",
+            ARC_CONFIDENT: "You don't like it when I really lean on the bet — you tend to let it go.",
+            ARC_SURE: "Put a big enough bet out there and you fold every time.",
+        },
+    ),
     _ReadSpec(
         read_key='all_in_frequency',
         # all_in_frequency is denominated on hands_dealt, so its sample is the
@@ -105,9 +145,6 @@ READ_PRIORITY: Tuple[_ReadSpec, ...] = (
             ARC_SURE: "I've got your shoving pattern down cold by now.",
         },
     ),
-    # Phase 4 sizing tells slot in HERE (sizing_polarization_score,
-    # fold_to_big_bet) — same _ReadSpec shape, gated on their bin samples. Left
-    # out deliberately: they are not in scope for Phase 1.
 )
 
 
@@ -162,8 +199,15 @@ class SpokenReadState:
     last_spoken: Dict[str, int] = field(default_factory=dict)
 
 
-def _read_sample_count(tendencies, sample_attr: str) -> int:
-    return int(getattr(tendencies, sample_attr, 0) or 0)
+def _read_sample_count(tendencies, spec: _ReadSpec) -> int:
+    """The read's effective sample count = its gating counter, or — for a
+    dual-gated read (sizing_polarization) — the MIN of both bin counters, so the
+    weaker bin drives both the min_samples gate and the arc tier."""
+    primary = int(getattr(tendencies, spec.sample_attr, 0) or 0)
+    if spec.second_sample_attr is None:
+        return primary
+    secondary = int(getattr(tendencies, spec.second_sample_attr, 0) or 0)
+    return min(primary, secondary)
 
 
 def _select_best_read(
@@ -176,7 +220,8 @@ def _select_best_read(
     Returns (read_key, arc_tier, observation_text), or None when no read has
     matured past its sample floor. Priority is the READ_PRIORITY order
     (legibility + maturation): fold_to_cbet > cbet_attempt_rate >
-    barrel_frequency > all_in_frequency.
+    barrel_frequency > sizing_polarization_score > fold_to_big_bet >
+    all_in_frequency.
     """
     if tendencies is None or not deep_reads:
         return None
@@ -195,7 +240,7 @@ def _select_best_read(
         # all_in_frequency is never None, so we additionally require samples.
         if deep_reads.get(spec.read_key) is None:
             continue
-        samples = _read_sample_count(tendencies, spec.sample_attr)
+        samples = _read_sample_count(tendencies, spec)
         if samples < spec.min_samples:
             continue
         tier = tier_for(samples)
