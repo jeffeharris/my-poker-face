@@ -7,6 +7,16 @@ last_updated: 2026-06-09
 
 # Emotional System Analysis (reachability, tilt scarcity, coupling)
 
+> **MEASUREMENT UPDATE (corrects §2–§3 below).** A faithful harness driving the
+> real psychology over all 104 personas (`experiments/measure_zone_distribution.py`)
+> shows the original "tilt is nearly unreachable / the edges are dead" framing was
+> **overstated** — an artifact of the narrow dev sample (`P02/P03/P04` = default-poise
+> *placeholder* players) and a pessimistic single-median hand-calc. The corrected
+> picture is in **§7**; read it before acting on §2–§3. Short version: tilt **is**
+> reachable (a single bad_beat tilts 56/104 personas; a cooler run tilts all 104),
+> steady-state sits ~2–5% (≈ the PRD target), and the real levers are **recovery
+> speed / persistence** and the **maniac's own anchors**, not a blanket "no tilt."
+
 ## Why this doc
 
 The believability push (`docs/plans/PERCEPTIBILITY_CONDITIONING.md`,
@@ -207,6 +217,51 @@ Two items for the "reconsider the coupling" lens:
 5. **Coupling cleanup** (#3, #4).
 
 ---
+
+## 7. Measured — faithful harness (corrects §2–§3)
+
+`experiments/measure_zone_distribution.py` builds a **real** `PlayerPsychology`
+per persona from `personalities.json` anchors and calls the real
+`apply_pressure_event` + `recover` (no re-derived formulas — that's what made the
+old `psychology_balance_simulator.py` drift). Eval bots (`recovery_rate==0`:
+BaselineSolver/GTO-Lite/CaseBot — they never recover, composure→0) are excluded.
+104 real personas.
+
+**(A) Response function — robust, event-model-independent:**
+- A **single `bad_beat` tilts 56/104** personas (composure < 0.40).
+- A **sustained cooler run (bad_beat/big_loss every played hand) tilts all 104** —
+  even Buddha (poise 0.92) floors at 0.054 with 80% of the run in tilt.
+- Median baseline composure **0.627**; median **~16 hands to recover** from one
+  bad_beat. So tilt, once entered, **persists** — good for "felt" tilt.
+
+**(B) Steady-state %time-tilted — event-model-dependent (indicative band):**
+- balanced (zero-sum-ish) mix → roster avg **2.1% @ play_rate 0.20 → 5.0% @ 0.35**;
+  worst personas 33–63%; 71–88/104 reach tilt. **This is in/near the PRD 2–7% band.**
+- Absolute % is only as good as the assumed event frequency; trust it as a band,
+  not a point. A real number needs real-play data (prod / broad game-sim).
+
+**What this corrects:**
+1. **Tilt is NOT structurally unreachable.** Over half the roster tilts on one bad
+   beat; the lower-poise characters (Fyodor 0.25, Poe 0.40, …) tilt readily.
+2. **"tilt_fired=0 at baseline" is not a tilt drought** — that probe ran with *no
+   negative events*, so no tilt is expected. With real bad beats a low-poise
+   maniac-carrier crosses 0.40.
+3. **The 0.40 clamp is real but only floors the RESTING point** — events push below
+   it freely; recovery climbs back. The clamp shapes the *resting* distribution,
+   not reachability.
+
+**What still holds:** the coupling map (§4) — the exploitation cliff and the dead
+`SizeContext` wire are unaffected by this. And the system behaving ~at target means
+the believability question is narrower than "make tilt happen": it's **(a)** do the
+*maniac-carrying* personas' anchors reach tilt in real play (poise-dependent),
+**(b)** is ~2–5% + ~16-hand persistence the right *felt* cadence, and **(c)** the
+lever for "more felt tilt" is **recovery speed / persistence**, not the clamp.
+
+**Revised target framing:** "Full Tilt 0–2%" looks roughly met already; the
+decision is less "raise the rate" and more "is the per-archetype *spread* right
+(volatile chars tilting visibly more than stoics) and does tilt *persist* long
+enough to be read and exploited." Measure per-archetype spread next, ideally
+against real-play data.
 
 ## Cross-references
 
