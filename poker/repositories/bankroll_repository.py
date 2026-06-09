@@ -661,9 +661,17 @@ class BankrollRepository(BaseRepository):
 
     # --- Player bankroll ---
 
-    def _derived_or_cached_player_chips(self, player_id: str, stored_chips: int) -> int:
+    def _derived_or_cached_player_chips(
+        self, player_id: str, stored_chips: int, *, conn=None
+    ) -> int:
         """Player read value: ledger-derived (summed ACROSS sandboxes — player
-        bankroll is global) when derive-reads is on, else the stored int."""
+        bankroll is global) when derive-reads is on, else the stored int.
+
+        The `chips` column is a denormalized copy of the authoritative ledger
+        balance. When the two drift, heal the cache in place (on the caller's
+        open connection) so the read converges — otherwise every subsequent
+        read re-derives and re-warns for the same stale row indefinitely.
+        """
         from cash_mode import economy_flags
 
         if not economy_flags.CHIP_CUSTODY_DERIVE_READS or self.chip_ledger_repo is None:
@@ -674,14 +682,33 @@ class BankrollRepository(BaseRepository):
         if derived is None:
             return stored_chips
         if derived != stored_chips:
+            self._reconcile_player_cache(player_id, derived, conn=conn)
+            # Present-tense: the write-back rides the caller's read transaction
+            # and is not durable until that block commits. Claiming a completed
+            # "reconciled" here would misreport if the commit later rolls back;
+            # a rolled-back heal simply re-fires on the next read.
             logger.warning(
-                "[CHIP_CUSTODY] player bankroll cache divergence player=%s "
-                "stored=%d derived=%d (ledger authoritative)",
+                "[CHIP_CUSTODY] player bankroll cache drift player=%s "
+                "stored=%d derived=%d — healing on read transaction (ledger authoritative)",
                 player_id,
                 stored_chips,
                 derived,
             )
         return derived
+
+    def _reconcile_player_cache(self, player_id: str, derived: int, *, conn=None) -> None:
+        """Write the ledger-derived balance back into the denormalized
+        `player_bankroll_state.chips` cache, leaving `starting_bankroll`
+        untouched. Idempotent — a cache already equal to `derived` is a
+        no-op UPDATE. Reuses the caller's connection when passed so the
+        write-back joins the in-flight read transaction rather than opening
+        (and lock-contending on) a second one."""
+        ctx = nullcontext(conn) if conn is not None else self._get_connection()
+        with ctx as c:
+            c.execute(
+                "UPDATE player_bankroll_state SET chips = ? WHERE player_id = ?",
+                (derived, player_id),
+            )
 
     def save_player_bankroll(self, state: PlayerBankrollState, *, conn=None) -> None:
         """Upsert the player bankroll row.
@@ -735,7 +762,7 @@ class BankrollRepository(BaseRepository):
                 return None
             return PlayerBankrollState(
                 player_id=player_id,
-                chips=self._derived_or_cached_player_chips(player_id, int(row["chips"])),
+                chips=self._derived_or_cached_player_chips(player_id, int(row["chips"]), conn=conn),
                 starting_bankroll=row["starting_bankroll"],
             )
 

@@ -7,6 +7,8 @@ derived-read path on `BankrollRepository` (ledger as authority, int as cache).
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
@@ -174,3 +176,29 @@ class TestDerivedReads:
         )
         # Global derivation = 7000 (across both sandboxes), overriding the 12345 cache.
         assert bankroll_repo.load_player_bankroll(OID).chips == 7_000
+
+    def test_divergent_read_heals_the_cache_row(
+        self, bankroll_repo, ledger_repo, db_path, derive_on
+    ):
+        # Stored cache (12345) drifts from the ledger-derived balance (7000).
+        bankroll_repo.save_player_bankroll(PlayerBankrollState(OID, 12_345, 10_000))
+        L.record(
+            ledger_repo,
+            source=L.bank(),
+            sink=L.player(OID),
+            amount=7_000,
+            reason="player_seed",
+            sandbox_id=SB1,
+        )
+
+        def stored_chips() -> int:
+            with sqlite3.connect(db_path) as c:
+                return c.execute(
+                    "SELECT chips FROM player_bankroll_state WHERE player_id = ?", (OID,)
+                ).fetchone()[0]
+
+        # One divergent read writes the derived value back into the cache row …
+        assert bankroll_repo.load_player_bankroll(OID).chips == 7_000
+        assert stored_chips() == 7_000
+        # … and starting_bankroll is left untouched by the heal.
+        assert bankroll_repo.load_player_bankroll(OID).starting_bankroll == 10_000
