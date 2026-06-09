@@ -116,6 +116,29 @@ descriptor use — so "in a tilt episode" means the same thing to the dynamics, 
 strategy spike, and the avatar/telegraph. (The penalty-zone 0.35 line stays as-is
 for the zone-penalty effects.)
 
+> **FIT RESULT (2026-06-09) — and a correction.** Sweeping `(floor, exp)` in
+> `experiments/measure_zone_distribution.py` shows the drag **can hit the median
+> episode-length targets** (best: `floor=0.20, exp=2.0` → stoic 2 / volatile 6 /
+> hothead 15 hd, 3/4 bands), **but it FAILS the never-chronic invariant**: at that
+> config the hothead band sits at **~35% time tilted with a 95th-percentile
+> episode of 70 hands** (every swept config tripped the chronic flag). The earlier
+> claim that "slows-but-never-blocks ⇒ never-chronic *automatically*" was **wrong**
+> — the drag knob couples the median and the tail (a slow-recovering hothead gets
+> re-tilted by fresh bad events before climbing out, so episodes chain). "Never
+> latches" is not the same as "bounded tail."
+>
+> **Required addition: a tail bound.** Slow-recovery alone is insufficient; pair it
+> with one of:
+> - **Second-wind escape (keeps the gentle mechanism):** after `K` consecutive
+>   hands below the line, recovery reverts to normal/accelerated, hard-capping
+>   episode length at ~`K`. Tune `K` per band (stoic small, hothead larger).
+> - **Latch-until-a-win (the declined variant, but it self-bounds):** a positive
+>   event forces exit, so the tail is capped by win frequency rather than running
+>   open.
+>
+> The harness's `--fit` path now reports the hothead 95th-percentile so the
+> never-chronic check is explicit. Re-fit once a tail bound is added.
+
 ### 3. Monk exceptions — designate 1–2 explicitly
 
 Today exactly one persona sits at 0% by emergence. Pick 1–2 (e.g. a Buddha / Zen

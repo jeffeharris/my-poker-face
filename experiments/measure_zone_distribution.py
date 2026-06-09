@@ -65,16 +65,33 @@ WIN_MIX = {'win': 0.80, 'big_win': 0.15, 'successful_bluff': 0.05}
 LOSS_MIX = {'loss': 0.55, 'big_loss': 0.20, 'bluff_called': 0.10,
             'bad_beat': 0.07, 'got_sucked_out': 0.05, 'crippled': 0.03}
 
-# Recovery-policy prototypes (the Q1 fork). Each maps poise -> a recovery_rate
-# override passed to recover(); None = use the persona's own anchor.
+# Recovery policies. Each is a per-hand fn(psy) -> recovery_rate override for the
+# upcoming recover() call (None = use the persona's anchor rate). Evaluated each
+# hand so a policy can be composure-aware (the drag below).
 #   current        : anchor recovery_rate as shipped
 #   short_steam    : brisk recovery for everyone -> short episodes
-#   poise_lingering: recovery scales with poise -> stoics shake it fast, hotheads simmer
+#   poise_lingering: recovery scales with poise (composure-blind)
 POLICIES = {
-    'current': lambda poise: None,
-    'short_steam': lambda poise: 0.30,
-    'poise_lingering': lambda poise: 0.06 + 0.30 * poise,
+    'current': lambda psy: None,
+    'short_steam': lambda psy: 0.30,
+    'poise_lingering': lambda psy: 0.06 + 0.30 * psy.anchors.poise,
 }
+
+
+def make_drag(floor: float, exp: float = 1.0):
+    """TILT_EXCURSION_DESIGN.md slow-recovery-while-tilted: WHILE composure is
+    below the tilt line, scale the anchor recovery rate by a poise-scaled drag
+    `floor + (1-floor)*poise**exp` (in (0,1] -> slower climb-out, episode lasts
+    longer); above the line, normal anchor recovery. Lower floor / higher exp =>
+    bigger stoic-vs-hothead episode-length spread. Never latches (drag>0, and a
+    win lifts composure directly), so the never-chronic invariant holds."""
+    def rate_fn(psy):
+        if psy.axes.composure < TILT_EMO:
+            poise = psy.anchors.poise
+            drag = floor + (1.0 - floor) * (poise ** exp)
+            return psy.anchors.recovery_rate * drag
+        return None
+    return rate_fn
 
 BANDS = [  # (label, poise_low_inclusive, poise_high_exclusive)
     ('monk   >=0.90', 0.90, 1.01),
@@ -98,10 +115,9 @@ def _pick(rng: random.Random, mix: Dict[str, float]) -> str:
 
 def steady_state_series(name: str, cfg: dict, *, hands: int, play_rate: float, seed: int,
                         policy) -> List[float]:
-    """Composure series over `hands`, under a recovery-rate `policy(poise)`."""
+    """Composure series over `hands`. `policy` is a per-hand fn(psy)->rate|None."""
     rng = random.Random(seed)
     psy = PlayerPsychology.from_personality_config(name, cfg)
-    rate = policy(psy.anchors.poise)
     consec = 0
     out: List[float] = []
     for _ in range(hands):
@@ -114,7 +130,7 @@ def steady_state_series(name: str, cfg: dict, *, hands: int, play_rate: float, s
                     psy.apply_pressure_event('losing_streak')
         else:
             psy.apply_pressure_event('not_in_hand'); consec = 0
-        psy.recover(rate)
+        psy.recover(policy(psy))
         out.append(psy.axes.composure)
     return out
 
@@ -139,6 +155,23 @@ def _median(xs: List[float]) -> float:
     s = sorted(xs)
     m = len(s) // 2
     return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
+
+
+def _pctile(xs: List[float], p: float) -> float:
+    if not xs:
+        return 0.0
+    s = sorted(xs)
+    return s[min(len(s) - 1, int(p * len(s)))]
+
+
+# Per-band target median tilt-episode length (hands) from TILT_EXCURSION_DESIGN.md §2.
+TARGET_EPLEN = {
+    'monk   >=0.90': (0, 0),
+    'stoic  0.78-90': (2, 4),
+    'composd 0.60-78': (4, 7),
+    'volatil 0.45-60': (6, 10),
+    'hothead <0.45': (12, 20),
+}
 
 
 def main() -> None:
@@ -187,28 +220,58 @@ def main() -> None:
         eplen = _median(band_eplen[b])
         print(f'  {b:16s} {m:3d} {pct:10.2f}% {epk:18.1f} {eplen:13.0f} hd')
 
-    # ---- (2) PERSISTENCE PROTOTYPE: episode length under each recovery policy ----
-    print('\n(2) PERSISTENCE prototype — median tilt-episode length (hands) per policy:')
-    print(f'  {"band":16s} ' + ' '.join(f'{p:>16s}' for p in POLICIES))
-    # reuse one series per (persona, policy)
-    for b, lo, hi in BANDS:
-        members = [(nm, c) for nm, c in personas if lo <= float(c['anchors'].get('poise', 0.7)) < hi]
-        if not members:
-            continue
-        cells = []
-        for pol in POLICIES:
-            lens: List[float] = []
-            for i, (nm, c) in enumerate(members):
-                series = steady_state_series(nm, c, hands=args.hands, play_rate=args.play_rate,
-                                             seed=args.seed + i, policy=POLICIES[pol])
-                lens.extend(episodes(series))
-            cells.append(f'{_median(lens):13.0f} hd')
-        print(f'  {b:16s} ' + ' '.join(f'{x:>16s}' for x in cells))
+    # ---- (2) FIT the slow-recovery-while-tilted drag to the episode-len targets ----
+    members_by_band = {
+        b: [(nm, c) for nm, c in personas if lo <= float(c['anchors'].get('poise', 0.7)) < hi]
+        for b, lo, hi in BANDS
+    }
+    target_bands = [b for b, _, _ in BANDS if b != 'monk   >=0.90']
 
-    print('\n  current = anchors as shipped; short_steam = rate 0.30 for all;')
-    print('  poise_lingering = rate 0.06+0.30*poise (stoics fast, hotheads simmer).')
-    print('  NOTE: absolute %time is event-model-dependent (needs real-play data to')
-    print('  trust as a point); episode LENGTH + per-band SPREAD are the robust signal.')
+    def eval_config(floor: float, exp: float):
+        """Return {band: (median_eplen, pct_time_tilt, p95_eplen)} for a drag config."""
+        pol = make_drag(floor, exp)
+        res = {}
+        for b in target_bands:
+            lens: List[float] = []
+            pcts: List[float] = []
+            for i, (nm, c) in enumerate(members_by_band[b]):
+                series = steady_state_series(nm, c, hands=args.hands, play_rate=args.play_rate,
+                                             seed=args.seed + i, policy=pol)
+                eps = episodes(series)
+                lens.extend(eps)
+                pcts.append(100.0 * sum(1 for x in series if x < TILT_EMO) / len(series))
+            res[b] = (_median(lens), _median(pcts), _pctile(lens, 0.95))
+        return res
+
+    print('\n(2) FIT slow-recovery-while-tilted — median episode length (hd) per (floor, exp):')
+    print('    target medians: stoic 2-4, composed 4-7, volatile 6-10, hothead 12-20')
+    hdr = '  '.join(f'{b.split()[0]:>8s}' for b in target_bands)
+    print(f'  {"floor":>5s} {"exp":>4s}   {hdr}   {"hits":>4s} {"hot95p":>6s}')
+    grid = [(f, e) for e in (1.0, 2.0) for f in (0.20, 0.10, 0.05, 0.0)]
+    best = None
+    for floor, exp in grid:
+        res = eval_config(floor, exp)
+        hits = sum(1 for b in target_bands
+                   if TARGET_EPLEN[b][0] <= res[b][0] <= TARGET_EPLEN[b][1])
+        hot95 = res['hothead <0.45'][2]
+        cells = '  '.join(f'{res[b][0]:8.0f}' for b in target_bands)
+        flag = ' chronic?' if hot95 > 30 else ''
+        print(f'  {floor:5.2f} {exp:4.1f}   {cells}   {hits:>2d}/4 {hot95:5.0f}{flag}')
+        score = (hits, -hot95)
+        if best is None or score > best[0]:
+            best = (score, floor, exp, res)
+
+    assert best is not None
+    _, bf, be, bres = best
+    print(f'\n  BEST FIT: floor={bf}, exp={be}  (TILT_DRAG_FLOOR={bf}, drag=floor+(1-floor)*poise**{be})')
+    print(f'  {"band":16s} {"med eplen":>9s} {"target":>9s} {"%time":>7s} {"95p len":>8s}')
+    for b in target_bands:
+        med, pct, p95 = bres[b]
+        lo, hi = TARGET_EPLEN[b]
+        ok = '✓' if lo <= med <= hi else '✗'
+        print(f'  {b:16s} {med:7.0f}hd {f"{lo}-{hi}":>9s} {pct:6.2f}% {p95:6.0f}hd {ok}')
+    print('\n  never-chronic check: hothead 95th-pctile episode length stays bounded (≤~30).')
+    print('  NOTE: absolute %time is event-model-dependent; episode LENGTH + spread are robust.')
 
 
 if __name__ == '__main__':
