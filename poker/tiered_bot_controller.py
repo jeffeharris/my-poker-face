@@ -66,6 +66,7 @@ from .strategy.sizing_tendencies import (
 )
 from .strategy.strategy_profile import StrategyProfile
 from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
+from .strategy.tilt_conditioning import apply_tilt_conditioning
 from .strategy.value_override import (
     BLUFF_CATCH_TRIGGER_CLASSES,
     HandStrengthClass,
@@ -557,7 +558,7 @@ class TieredBotController(AIPlayerController):
         except Exception:
             pass
 
-    def _build_narration_facts(self, phase: str):
+    def _build_narration_facts(self, phase: str, spoken_read=None):
         """Phase 7.6 Step 5: build a NarrationFacts payload from the
         controller's per-decision intervention trace.
 
@@ -568,9 +569,17 @@ class TieredBotController(AIPlayerController):
         `phase` here is the controller's narrow string (e.g. 'flop',
         'pre_flop'); we normalize to the NarrationContext.street
         convention.
+
+        Backlog #12 Phase 1 (both-channels surfacing): when a `spoken_read`
+        (a `strategy.spoken_reads.SpokenRead`) is supplied, it is folded in
+        as an always-in-context NarrationFact so the earned "figuring you
+        out" arc reaches the LLM even on hands the speech channel is gated.
+        The arc tier maps straight onto NarrationFact.certainty_bucket
+        (tentative/confident/sure), the same escalation cue narration_facts
+        already uses.
         """
         traces = getattr(self, '_last_intervention_trace', None)
-        if not traces:
+        if not traces and spoken_read is None:
             return None
         try:
             from .strategy.narration_facts import (
@@ -584,12 +593,49 @@ class TieredBotController(AIPlayerController):
                 position_context='',  # not yet captured per-decision
                 risk_posture='',  # ditto
             )
-            return traces_to_narration_facts(traces, ctx)
+            facts = traces_to_narration_facts(traces or [], ctx)
+            if spoken_read is not None:
+                facts = self._inject_spoken_read_fact(facts, spoken_read, ctx)
+            return facts
         except Exception as e:  # noqa: BLE001 — narration is observability
             logger.warning(
                 f"[TIERED_BOT] {self.player_name}: " f"narration_facts build failed: {e}"
             )
             return None
+
+    def _inject_spoken_read_fact(self, facts, spoken_read, ctx):
+        """Fold a SpokenRead into a NarrationFacts as an always-in-context
+        fact (the second of the two surfacing channels).
+
+        The spoken read becomes the LEAD fact (primary_factor) — it is the
+        earned, perceptible read the believability work is about. Mechanical
+        trace facts stay in the list below it. The observation text is the
+        already-intuition-framed line (no raw numbers/stats), and the arc
+        tier is the certainty bucket.
+        """
+        from .strategy.narration_facts import NarrationFact, NarrationFacts
+
+        read_fact = NarrationFact(
+            observation=spoken_read.observation,
+            why_it_matters="I've watched them long enough to trust this read.",
+            decision_taken="Playing into the read I've built on them",
+            action_intent='bluff_catch',
+            intensity_bucket='noticeable',
+            certainty_bucket=spoken_read.arc_tier,
+            importance=1.0,  # the read leads
+            layer='spoken_read',
+            rule_id=spoken_read.read_key,
+        )
+        existing = list(getattr(facts, 'facts', []) or [])
+        merged = [read_fact] + existing
+        context = getattr(facts, 'context', None) or ctx
+        return NarrationFacts(
+            facts=merged,
+            primary_factor=read_fact,
+            context=context,
+            summary_intensity=getattr(facts, 'summary_intensity', 'subtle'),
+            suppressed_facts_count=getattr(facts, 'suppressed_facts_count', 0),
+        )
 
     def _snapshot_math_floor_inputs(self, game_state, player_idx: int) -> None:
         """Phase 7.6 Step 6: record math-floor inputs for replay."""
@@ -966,6 +1012,16 @@ class TieredBotController(AIPlayerController):
             hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
         )
 
+        # Phase 2 (PERCEPTIBILITY_CONDITIONING.md): tilt_conditioning runs
+        # between spot-tendencies and exploitation. Inert (no-op, byte-identical)
+        # unless the flag is on AND the profile opts in (cap > 0.0).
+        modified_strategy = self._layer_tilt_conditioning(
+            modified_strategy,
+            node=node,
+            valid_actions=valid_actions,
+            emotional_state=emotional_state,
+        )
+
         if self.debug_logging:
             logger.info(
                 f"[TIERED_BOT] {self.player_name}: "
@@ -1282,6 +1338,16 @@ class TieredBotController(AIPlayerController):
             node=node,
             anchors=anchors,
             hand_strength=hand_strength,
+        )
+
+        # 6.c Phase 2 (PERCEPTIBILITY_CONDITIONING.md): tilt_conditioning runs
+        # between spot-tendencies and exploitation. Inert (no-op, byte-identical)
+        # unless the flag is on AND the profile opts in (cap > 0.0).
+        modified_strategy = self._layer_tilt_conditioning(
+            modified_strategy,
+            node=node,
+            valid_actions=valid_actions,
+            emotional_state=emotional_state,
         )
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
@@ -1666,6 +1732,54 @@ class TieredBotController(AIPlayerController):
             self._last_pipeline_snapshot['preflop_spot_tendency_probs'] = dict(
                 modified_strategy.action_probabilities
             )
+        return modified_strategy
+
+    def _layer_tilt_conditioning(
+        self,
+        modified_strategy,
+        *,
+        node,
+        valid_actions,
+        emotional_state,
+    ):
+        """Phase 2 (PERCEPTIBILITY_CONDITIONING.md): state-conditioned aggression.
+
+        Runs between the spot-tendencies layer and exploitation (a conditioner,
+        not an override — the math floor still runs after it). Double-gated for
+        zero overhead AND zero effect when off/inert:
+          - the TILT_CONDITIONING_ENABLED feature flag, AND
+          - the profile's `tilt_conditioning_cap > 0.0` (the Phase-2 default for
+            EVERY shipped archetype is 0.0, so this is byte-identical until an
+            archetype opts in — Phase 3).
+        Appends the layer's trace to `self._last_intervention_trace`. Shared by
+        the preflop and postflop decision paths. `composure_state` read via
+        getattr for sim/__new__ safety.
+        """
+        profile = getattr(self, 'deviation_profile', None)
+        if profile is None or float(getattr(profile, 'tilt_conditioning_cap', 0.0) or 0.0) <= 0.0:
+            return modified_strategy
+        try:
+            from core.feature_flags import is_enabled
+
+            if not is_enabled('TILT_CONDITIONING_ENABLED'):
+                return modified_strategy
+        except Exception:
+            # Flag registry unavailable (sim/test isolation) → treat as off.
+            return modified_strategy
+
+        psychology = getattr(self, 'psychology', None)
+        composure_state = getattr(psychology, 'composure_state', None) if psychology else None
+        modified_strategy, tilt_trace = apply_tilt_conditioning(
+            modified_strategy,
+            legal_actions=valid_actions,
+            emotional_state=emotional_state,
+            composure_state=composure_state,
+            node=node,
+            archetype_rules=getattr(profile, 'tilt_scenario_rules', ()),
+            profile=profile,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+        self._last_intervention_trace.append(tilt_trace)
         return modified_strategy
 
     def _layer_multistreet_context(
@@ -4141,19 +4255,27 @@ class TieredBotController(AIPlayerController):
             if gate.fully_silent:
                 return None
 
-            # Phase 7.6 Step 5: build NarrationFacts from the per-decision
-            # intervention trace. Best-effort — failure here logs WARN and
-            # leaves narration_facts as None (LLM falls back to the
-            # standard prompt template).
-            narration_facts = self._build_narration_facts(phase)
-
             # Opponent narrative observations — surfaced so Layer 3
             # narration can riff on accumulated reads from prior hands.
             # Best-effort: any failure produces an empty list and the
             # generator's prompt template skips the corresponding block.
+            # Runs BEFORE _build_narration_facts so the spoken-read it
+            # selects (backlog #12 Phase 1) can also feed the
+            # narration_facts channel — both channels carry the read.
             opponent_observations = self._select_opponent_observations(
                 game_state,
                 player,
+            )
+
+            # Phase 7.6 Step 5: build NarrationFacts from the per-decision
+            # intervention trace. Best-effort — failure here logs WARN and
+            # leaves narration_facts as None (LLM falls back to the
+            # standard prompt template). Backlog #12 Phase 1: the chosen
+            # spoken read is folded in as an always-in-context fact so the
+            # "figuring you out" arc persists even on silent hands.
+            narration_facts = self._build_narration_facts(
+                phase,
+                spoken_read=getattr(self, '_last_spoken_read', None),
             )
 
             # Relationship-context block — shared with chaos and
@@ -4317,7 +4439,25 @@ class TieredBotController(AIPlayerController):
         weighted toward the opponent hero is facing and any nemesis.
         Empty list when the controller has no opponent_model_manager,
         no active opponents, or no stored observations.
+
+        Backlog #12 Phase 1 (perceptibility): the EARNED *spoken read* —
+        an intuition-framed "I'm figuring you out" line grounded in the
+        opponent model's matured stats — is preferred over the model's
+        generic narrative observations, then we backfill from the generic
+        observations up to the 2-slot cap. The chosen spoken read is also
+        stashed on `self._last_spoken_read` so the narration_facts
+        (always-in-context) channel can carry the same arc even on hands
+        the bot stays silent. Frequency-neutral: this is post-decision
+        Layer-3 narration only.
         """
+        # The lead spoken read feeds the narration_facts channel, which —
+        # unlike the cooldown-gated speech channel — must PERSIST across the
+        # cooldown so the "figuring you out" arc stays in context on gated
+        # hands. Capture the prior read; below we keep it only while its
+        # opponent is still in the hand, so a stale read can't leak into a
+        # table that opponent has left.
+        prev_read = getattr(self, '_last_spoken_read', None)
+        self._last_spoken_read = None
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None:
             return []
@@ -4341,11 +4481,64 @@ class TieredBotController(AIPlayerController):
                 best_name, best_bet = max(opp_bets, key=lambda nb: nb[1])
                 if best_bet > 0:
                     facing_opponent = best_name
-            return manager.select_opponent_observations(
+
+            spoken: List[Tuple[str, str]] = []
+            try:
+                from .strategy.spoken_reads import (
+                    SpokenReadConfig,
+                    SpokenReadState,
+                    select_spoken_reads,
+                )
+
+                if getattr(self, '_spoken_read_state', None) is None:
+                    self._spoken_read_state = SpokenReadState()
+                if getattr(self, '_spoken_read_config', None) is None:
+                    self._spoken_read_config = SpokenReadConfig()
+                spoken, self._spoken_read_state, spoken_reads = select_spoken_reads(
+                    observer_name=player.name,
+                    active_opponents=active_opponents,
+                    facing_opponent=facing_opponent,
+                    opponent_model_manager=manager,
+                    state=self._spoken_read_state,
+                    config=self._spoken_read_config,
+                )
+            except Exception as e:  # noqa: BLE001 — narration is observability
+                logger.warning(f"[TIERED_BOT] {self.player_name}: spoken_reads failed: {e}")
+                spoken = []
+                spoken_reads = []
+
+            if spoken_reads:
+                # Fresh voiced read this hand → it leads both channels.
+                self._last_spoken_read = spoken_reads[0]
+            elif prev_read is not None and prev_read.opponent in active_opponents:
+                # Speech channel cooled down, but the opponent is still in
+                # the hand — keep the prior read so narration_facts carries
+                # the arc across the gate (the always-in-context channel).
+                self._last_spoken_read = prev_read
+            # else: no fresh read and the prior read's opponent is gone →
+            # leave it None so a stale read can't leak into an unrelated hand.
+
+            cap = getattr(self, '_spoken_read_config', None)
+            max_obs = cap.max_observations_per_decision if cap else 2
+
+            generic = manager.select_opponent_observations(
                 player.name,
                 active_opponents=active_opponents,
                 facing_opponent=facing_opponent,
             )
+
+            # Spoken reads take priority; backfill from generic observations
+            # for opponents not already covered, up to the cap.
+            merged: List[Tuple[str, str]] = list(spoken[:max_obs])
+            covered = {opp for opp, _ in merged}
+            for opp, obs in generic:
+                if len(merged) >= max_obs:
+                    break
+                if opp in covered:
+                    continue
+                merged.append((opp, obs))
+                covered.add(opp)
+            return merged
         except Exception:
             return []
 

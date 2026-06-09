@@ -66,6 +66,7 @@ _LAYER_NAMES = frozenset(
     {
         'personality',
         'spot_tendencies',  # PERSONALITY_PRICING_AND_VARIETY.md item 3: spot/line-specific variety
+        'tilt_conditioning',  # PERCEPTIBILITY_CONDITIONING.md Phase 2: state-conditioned aggression
         'exploitation',
         'induce_override',  # Phase A / Phase B (Items 2-5)
         'strong_hand_override',
@@ -99,6 +100,20 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
             'donk_when_weak',
             'defend_3bet',
             'passive_postflop',
+        }
+    ),
+    # tilt_conditioning: 'default' for no-op traces; one rule_id per Tendler
+    # tilt type (must match tilt_conditioning.TILT_TYPE_RULES, prefixed 'tilt_').
+    'tilt_conditioning': frozenset(
+        {
+            'default',
+            'tilt_bad_beat',
+            'tilt_got_sucked_out',
+            'tilt_big_loss',
+            'tilt_losing_streak',
+            'tilt_nemesis_loss',
+            'tilt_crippled',
+            'tilt_bluff_called',
         }
     ),
     'exploitation': frozenset(
@@ -138,6 +153,16 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
 _LAYER_ORDER: Dict[str, int] = {
     'personality': 0,
     'spot_tendencies': 0,  # item 3: spot-specific reshapes, applied right after the global-scalar personality distortion
+    # tilt_conditioning runs in the pipeline AFTER spot_tendencies and BEFORE
+    # exploitation, but shares exploitation's coarse tier=1 (it is a
+    # confidence/state-gated conditioner like exploitation, value_vs_station and
+    # bluff_reduction which also share tier 1). Assigning tier 1 rather than a
+    # NEW ordinal deliberately AVOIDS the layer-order bump: a fresh slot would
+    # shift exploitation→2 and every downstream layer by 1, breaking the
+    # hardcoded ordinal assertions in the per-layer trace golden tests. The only
+    # cross-trace invariant is non-decreasing monotonicity (test_intervention
+    # _trace_e2e), and 0 (spot) → 1 (tilt) → 1 (exploitation) is monotonic.
+    'tilt_conditioning': 1,  # PERCEPTIBILITY_CONDITIONING.md Phase 2
     'exploitation': 1,
     'value_vs_station': 1,  # Phase 8: feeds exploitation
     'bluff_reduction': 1,  # Plan §5: air-vs-station mirror of value_vs_station

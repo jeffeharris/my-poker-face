@@ -113,14 +113,15 @@ def test_saw_flop_boolean_rolls_up():
 
 
 def test_showdown_and_won_rollup():
-    """end_hand(was_showdown, winner_names) increments showdowns for flop-seers
-    and showdowns_won for those in winner_names. A non-flop-seer is ignored even
-    if it (somehow) appears in winners."""
+    """end_hand(showdown_players, winner_names) increments showdowns for the
+    flop-seers who actually went to showdown and showdowns_won for those in
+    winner_names. A non-flop-seer is ignored even if it (somehow) appears in
+    winners."""
     r = ArchetypeStatRecorder('sb')
     r.record_decision('tag', 'T', 'FLOP', '', 'call')  # saw flop, will win
     r.record_decision('lag', 'L', 'FLOP', '', 'call')  # saw flop, will lose
     r.record_decision('nit', 'N', 'PRE_FLOP', 'rfi', 'fold')  # no flop
-    r.end_hand(was_showdown=True, winner_names={'T', 'N'})
+    r.end_hand(showdown_players={'T', 'L'}, winner_names={'T', 'N'})
 
     assert r._totals['tag']['showdowns'] == 1 and r._totals['tag']['showdowns_won'] == 1
     assert r._totals['lag']['showdowns'] == 1 and r._totals['lag']['showdowns_won'] == 0
@@ -128,12 +129,29 @@ def test_showdown_and_won_rollup():
     assert r._totals['nit'].get('showdowns', 0) == 0
 
 
+def test_flop_seer_who_folded_postflop_gets_no_showdown_credit():
+    """A player who saw the flop but FOLDED before showdown is not in
+    showdown_players, so it gets saw_flop but no showdown credit — even though
+    the hand showdown'd. This is the WTSD = went-to-showdown fix (backlog #11):
+    counting flop-seers who later folded inflates WTSD and blurs the
+    station-vs-nit spread."""
+    r = ArchetypeStatRecorder('sb')
+    r.record_decision('tag', 'T', 'FLOP', '', 'call')  # saw flop, went to SD
+    r.record_decision('nit', 'F', 'FLOP', '', 'fold')  # saw flop, folded postflop
+    # Hand showdown'd between T and someone else; F is NOT among showdown_players.
+    r.end_hand(showdown_players={'T'}, winner_names={'T'})
+
+    assert r._totals['tag']['showdowns'] == 1 and r._totals['tag']['showdowns_won'] == 1
+    assert r._totals['nit']['saw_flop'] == 1
+    assert r._totals['nit'].get('showdowns', 0) == 0
+
+
 def test_no_showdown_does_not_count_showdowns():
-    """When the hand did not reach showdown, flop-seers get saw_flop but no
-    showdown."""
+    """When the hand did not reach showdown (empty showdown_players), flop-seers
+    get saw_flop but no showdown."""
     r = ArchetypeStatRecorder('sb')
     r.record_decision('tag', 'T', 'FLOP', '', 'raise')
-    r.end_hand(was_showdown=False, winner_names={'T'})
+    r.end_hand(showdown_players=set(), winner_names={'T'})
     assert r._totals['tag']['saw_flop'] == 1
     assert r._totals['tag'].get('showdowns', 0) == 0
 

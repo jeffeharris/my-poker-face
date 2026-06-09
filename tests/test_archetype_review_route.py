@@ -147,6 +147,24 @@ def test_wsd_loss_at_showdown():
     assert _stat(payload, 'calling_station', 'wsd')['actual'] == 0.0
 
 
+def test_wtsd_excludes_flop_seer_who_folded_postflop():
+    """A flop-seer who FOLDS the turn/river did not go to showdown, even if the
+    hand showdown'd among the others. It stays in the saw-flop denominator but is
+    excluded from the WTSD numerator (backlog #11: WTSD = the PLAYER went to
+    showdown, not the hand). F sees the flop then folds the turn → WTSD 0/1 = 0%,
+    W$SD has no showdowns → no_data."""
+    rows = [
+        ('cash-1', 'F', 1, 'FLOP', 'call', '', 'Ah Kd Qs', _snap('calling_station')),
+        ('cash-1', 'F', 1, 'TURN', 'fold', '', 'Ah Kd Qs 2c', _snap('calling_station')),
+    ]
+    hh = [('cash-1', 1, 1, '[{"name": "SomeoneElse"}]')]  # hand showdown'd, F not in it
+    payload = rr._aggregate(_conn_with_rows(rows, hand_history=hh), 'cash')
+    wtsd = _stat(payload, 'calling_station', 'wtsd')
+    assert wtsd['sample'] == 1  # saw the flop
+    assert wtsd['actual'] == 0.0  # but folded before showdown
+    assert _stat(payload, 'calling_station', 'wsd')['status'] == 'no_data'
+
+
 def test_cbet_made_by_preflop_aggressor():
     """The preflop aggressor (last preflop raiser) betting the flop first-in is a
     c-bet: 1 cbet_made / 1 cbet_opportunity = 100%."""
