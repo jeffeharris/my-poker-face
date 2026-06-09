@@ -325,6 +325,10 @@ sample if a precise per-archetype %time is wanted).
 
 ## Cross-references
 
+- `docs/plans/TILT_EV_HARNESS.md` — scope for the psychology-in-the-loop paired EV
+  harness needed to put a believable bb/100 on the signature / erratic-reads pieces
+  before default-on (the precise number the structural clamp bound + KL measure
+  here can't give).
 - `docs/technical/EMOTIONAL_SYSTEM_ANALYSIS.md` — the diagnosis + measured spread (§7).
 - `experiments/measure_zone_distribution.py` — the validation harness.
 - `docs/plans/PERCEPTIBILITY_CONDITIONING.md` — the tilt_conditioning feature + telegraph.
