@@ -34,7 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from poker.player_psychology import PlayerPsychology
 from poker.zone_config import get_zone_param
@@ -59,60 +59,54 @@ def _load_real_personas() -> Dict[str, dict]:
 
 # ── (A) response-function reachability ───────────────────────────────────────
 
-def reachability(name: str, cfg: dict) -> Dict[str, float]:
-    psy = PlayerPsychology.from_personality_config(name, cfg)
-    baseline = float(psy._baseline_composure if psy._baseline_composure is not None else psy.axes.composure)
-
-    # single worst shock
-    psy.apply_pressure_event('bad_beat')
-    after_shock = psy.axes.composure
-    # hands to recover back within 0.02 of baseline (no further events)
-    hands_to_recover = 0
-    for _ in range(60):
-        psy.recover()
-        hands_to_recover += 1
-        if psy.axes.composure >= baseline - 0.02:
-            break
-
-    # sustained cooler run: a brutal downswing — bad_beat then big_loss each hand
-    psy2 = PlayerPsychology.from_personality_config(name, cfg)
-    run_comps: List[float] = []
-    for i in range(20):
-        psy2.apply_pressure_event('bad_beat' if i % 2 == 0 else 'big_loss')
-        psy2.recover()
-        run_comps.append(psy2.axes.composure)
-    return {
-        'poise': psy.anchors.poise,
-        'recovery_rate': psy.anchors.recovery_rate,
-        'baseline': baseline,
-        'shock_drop': baseline - after_shock,
-        'shock_floor': after_shock,
-        'shock_tilts': 1.0 if after_shock < TILT_EMO else 0.0,
-        'recover_hands': float(hands_to_recover),
-        'cooler_floor': min(run_comps),
-        'cooler_pct_tilt': 100.0 * sum(1 for c in run_comps if c < TILT_EMO) / len(run_comps),
-    }
-
-
-# ── (B) steady-state under a balanced event mix (event-model-dependent) ───────
+# ── steady-state episodes under a balanced mix + recovery-policy prototypes ────
 
 WIN_MIX = {'win': 0.80, 'big_win': 0.15, 'successful_bluff': 0.05}
 LOSS_MIX = {'loss': 0.55, 'big_loss': 0.20, 'bluff_called': 0.10,
             'bad_beat': 0.07, 'got_sucked_out': 0.05, 'crippled': 0.03}
+
+# Recovery-policy prototypes (the Q1 fork). Each maps poise -> a recovery_rate
+# override passed to recover(); None = use the persona's own anchor.
+#   current        : anchor recovery_rate as shipped
+#   short_steam    : brisk recovery for everyone -> short episodes
+#   poise_lingering: recovery scales with poise -> stoics shake it fast, hotheads simmer
+POLICIES = {
+    'current': lambda poise: None,
+    'short_steam': lambda poise: 0.30,
+    'poise_lingering': lambda poise: 0.06 + 0.30 * poise,
+}
+
+BANDS = [  # (label, poise_low_inclusive, poise_high_exclusive)
+    ('monk   >=0.90', 0.90, 1.01),
+    ('stoic  0.78-90', 0.78, 0.90),
+    ('composd 0.60-78', 0.60, 0.78),
+    ('volatil 0.45-60', 0.45, 0.60),
+    ('hothead <0.45', 0.00, 0.45),
+]
+
+
+def _band(poise: float) -> str:
+    for label, lo, hi in BANDS:
+        if lo <= poise < hi:
+            return label
+    return BANDS[-1][0]
 
 
 def _pick(rng: random.Random, mix: Dict[str, float]) -> str:
     return rng.choices(list(mix), weights=list(mix.values()), k=1)[0]
 
 
-def steady_state_pct_tilt(name: str, cfg: dict, *, hands: int, play_rate: float, seed: int) -> float:
+def steady_state_series(name: str, cfg: dict, *, hands: int, play_rate: float, seed: int,
+                        policy) -> List[float]:
+    """Composure series over `hands`, under a recovery-rate `policy(poise)`."""
     rng = random.Random(seed)
     psy = PlayerPsychology.from_personality_config(name, cfg)
+    rate = policy(psy.anchors.poise)
     consec = 0
-    tilt = 0
+    out: List[float] = []
     for _ in range(hands):
         if rng.random() < play_rate:
-            if rng.random() < 0.5:  # zero-sum-ish: win or lose ~50/50
+            if rng.random() < 0.5:
                 psy.apply_pressure_event(_pick(rng, WIN_MIX)); consec = 0
             else:
                 psy.apply_pressure_event(_pick(rng, LOSS_MIX)); consec += 1
@@ -120,54 +114,101 @@ def steady_state_pct_tilt(name: str, cfg: dict, *, hands: int, play_rate: float,
                     psy.apply_pressure_event('losing_streak')
         else:
             psy.apply_pressure_event('not_in_hand'); consec = 0
-        psy.recover()
-        if psy.axes.composure < TILT_EMO:
-            tilt += 1
-    return 100.0 * tilt / hands
+        psy.recover(rate)
+        out.append(psy.axes.composure)
+    return out
+
+
+def episodes(series: List[float], thresh: float = TILT_EMO) -> List[int]:
+    """Lengths (in hands) of contiguous runs below `thresh`."""
+    runs: List[int] = []
+    cur = 0
+    for c in series:
+        if c < thresh:
+            cur += 1
+        elif cur:
+            runs.append(cur); cur = 0
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def _median(xs: List[float]) -> float:
+    if not xs:
+        return 0.0
+    s = sorted(xs)
+    m = len(s) // 2
+    return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument('--hands', type=int, default=1000)
+    ap.add_argument('--hands', type=int, default=3000)
+    ap.add_argument('--play-rate', type=float, default=0.30)
     ap.add_argument('--seed', type=int, default=42)
-    ap.add_argument('--top', type=int, default=14)
     args = ap.parse_args()
 
-    personas = _load_real_personas()
-    reach: List[Tuple[str, Dict[str, float]]] = [
-        (n, reachability(n, cfg)) for n, cfg in sorted(personas.items())
-    ]
-    n = len(reach)
+    personas = sorted(_load_real_personas().items())
+    n = len(personas)
     tilt_pen = get_zone_param('PENALTY_TILTED_THRESHOLD')
 
-    print('=' * 86)
-    print(f'EMOTIONAL REACHABILITY — REAL psychology, {n} personas (eval bots excluded)')
-    print(f'  tilt = composure < {TILT_EMO} (emo / tilt_conditioning gate); penalty zone < {tilt_pen}')
-    print('=' * 86)
+    print('=' * 90)
+    print(f'TILT EXCURSION MODEL — REAL psychology, {n} personas (eval bots excluded)')
+    print(f'  tilt = composure < {TILT_EMO};  penalty zone < {tilt_pen};  '
+          f'play_rate={args.play_rate}, {args.hands} hands')
+    print('=' * 90)
 
-    can_shock_tilt = sum(1 for _, r in reach if r['shock_tilts'])
-    can_cooler_tilt = sum(1 for _, r in reach if r['cooler_pct_tilt'] > 0)
-    print('\n(A) RESPONSE FUNCTION (robust, event-model-independent):')
-    print(f'  personas a SINGLE bad_beat pushes into tilt:        {can_shock_tilt}/{n}')
-    print(f'  personas a SUSTAINED cooler run can hold in tilt:   {can_cooler_tilt}/{n}')
-    print(f'  median baseline composure: {sorted(r["baseline"] for _, r in reach)[n//2]:.3f}')
-    print(f'  median hands-to-recover from one bad_beat: {sorted(r["recover_hands"] for _, r in reach)[n//2]:.0f}')
-    print()
-    print(f'  {"persona":26s} {"poise":>5s} {"rec":>4s} {"base":>5s} {"1shock→":>7s} {"recovHd":>7s} {"coolerFloor":>11s} {"cooler%tilt":>11s}')
-    for name, r in sorted(reach, key=lambda kv: kv[1]['cooler_floor'])[:args.top]:
-        print(f'  {name[:26]:26s} {r["poise"]:5.2f} {r["recovery_rate"]:4.2f} {r["baseline"]:5.2f}'
-              f' {r["shock_floor"]:7.3f} {r["recover_hands"]:7.0f} {r["cooler_floor"]:11.3f} {r["cooler_pct_tilt"]:10.1f}%')
+    # ---- (1) CURRENT per-band spread: frequency AND episode length ----
+    # band -> aggregated lists across its personas
+    band_pct: Dict[str, List[float]] = {b[0]: [] for b in BANDS}
+    band_eplen: Dict[str, List[float]] = {b[0]: [] for b in BANDS}
+    band_epcount: Dict[str, List[float]] = {b[0]: [] for b in BANDS}
+    band_members: Dict[str, int] = {b[0]: 0 for b in BANDS}
+    for i, (name, cfg) in enumerate(personas):
+        poise = float(cfg['anchors'].get('poise', 0.7))
+        b = _band(poise)
+        band_members[b] += 1
+        series = steady_state_series(name, cfg, hands=args.hands, play_rate=args.play_rate,
+                                     seed=args.seed + i, policy=POLICIES['current'])
+        eps = episodes(series)
+        band_pct[b].append(100.0 * sum(1 for c in series if c < TILT_EMO) / len(series))
+        band_epcount[b].append(len(eps))
+        band_eplen[b].extend(eps)
 
-    print('\n(B) STEADY-STATE %time-tilted (event-model-DEPENDENT — indicative band):')
-    for pr in (0.20, 0.35):
-        vals = [steady_state_pct_tilt(name, cfg, hands=args.hands, play_rate=pr, seed=args.seed + i)
-                for i, (name, cfg) in enumerate(sorted(personas.items()))]
-        roster = sum(vals) / n
-        worst = max(vals)
-        nonzero = sum(1 for v in vals if v > 0)
-        print(f'  play_rate={pr:.2f}: roster avg %tilt={roster:5.2f}%  worst persona={worst:5.1f}%  reach-tilt={nonzero}/{n}')
-    print('  (steady-state needs real-play data to trust the absolute %; use (A) + relative')
-    print('   sweeps for balancing decisions.)')
+    print('\n(1) CURRENT per-temperament spread (as shipped):')
+    print(f'  {"band":16s} {"n":>3s} {"%time tilt":>11s} {"tilt episodes/1k h":>19s} {"med episode len":>16s}')
+    for b, _, _ in BANDS:
+        m = band_members[b]
+        if not m:
+            print(f'  {b:16s} {m:3d}   (no personas in band)')
+            continue
+        pct = _median(band_pct[b])
+        epk = _median([c / (args.hands / 1000) for c in band_epcount[b]])
+        eplen = _median(band_eplen[b])
+        print(f'  {b:16s} {m:3d} {pct:10.2f}% {epk:18.1f} {eplen:13.0f} hd')
+
+    # ---- (2) PERSISTENCE PROTOTYPE: episode length under each recovery policy ----
+    print('\n(2) PERSISTENCE prototype — median tilt-episode length (hands) per policy:')
+    print(f'  {"band":16s} ' + ' '.join(f'{p:>16s}' for p in POLICIES))
+    # reuse one series per (persona, policy)
+    for b, lo, hi in BANDS:
+        members = [(nm, c) for nm, c in personas if lo <= float(c['anchors'].get('poise', 0.7)) < hi]
+        if not members:
+            continue
+        cells = []
+        for pol in POLICIES:
+            lens: List[float] = []
+            for i, (nm, c) in enumerate(members):
+                series = steady_state_series(nm, c, hands=args.hands, play_rate=args.play_rate,
+                                             seed=args.seed + i, policy=POLICIES[pol])
+                lens.extend(episodes(series))
+            cells.append(f'{_median(lens):13.0f} hd')
+        print(f'  {b:16s} ' + ' '.join(f'{x:>16s}' for x in cells))
+
+    print('\n  current = anchors as shipped; short_steam = rate 0.30 for all;')
+    print('  poise_lingering = rate 0.06+0.30*poise (stoics fast, hotheads simmer).')
+    print('  NOTE: absolute %time is event-model-dependent (needs real-play data to')
+    print('  trust as a point); episode LENGTH + per-band SPREAD are the robust signal.')
 
 
 if __name__ == '__main__':
