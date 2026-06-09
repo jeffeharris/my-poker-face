@@ -4450,7 +4450,13 @@ class TieredBotController(AIPlayerController):
         the bot stays silent. Frequency-neutral: this is post-decision
         Layer-3 narration only.
         """
-        # Reset per-decision so a stale read can't leak into the next turn.
+        # The lead spoken read feeds the narration_facts channel, which —
+        # unlike the cooldown-gated speech channel — must PERSIST across the
+        # cooldown so the "figuring you out" arc stays in context on gated
+        # hands. Capture the prior read; below we keep it only while its
+        # opponent is still in the hand, so a stale read can't leak into a
+        # table that opponent has left.
+        prev_read = getattr(self, '_last_spoken_read', None)
         self._last_spoken_read = None
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None:
@@ -4502,9 +4508,15 @@ class TieredBotController(AIPlayerController):
                 spoken_reads = []
 
             if spoken_reads:
-                # The lead spoken read feeds the narration_facts channel
-                # (always-in-context), so the arc persists on silent hands.
+                # Fresh voiced read this hand → it leads both channels.
                 self._last_spoken_read = spoken_reads[0]
+            elif prev_read is not None and prev_read.opponent in active_opponents:
+                # Speech channel cooled down, but the opponent is still in
+                # the hand — keep the prior read so narration_facts carries
+                # the arc across the gate (the always-in-context channel).
+                self._last_spoken_read = prev_read
+            # else: no fresh read and the prior read's opponent is gone →
+            # leave it None so a stale read can't leak into an unrelated hand.
 
             cap = getattr(self, '_spoken_read_config', None)
             max_obs = cap.max_observations_per_decision if cap else 2
