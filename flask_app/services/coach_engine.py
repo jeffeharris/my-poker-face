@@ -9,6 +9,7 @@ enriches coaching data with skill-aware progression context.
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from poker.card_utils import card_to_string
@@ -30,7 +31,14 @@ from .skill_definitions import ALL_SKILLS
 
 logger = logging.getLogger(__name__)
 
-_decision_analyzer = DecisionAnalyzer(iterations=2000)
+# Honor the same DECISION_ANALYSIS_ITERATIONS knob the in-game analyzer uses
+# (PRH-30). Previously hardcoded 2000 — so prod's lowered setting (250) never
+# applied to the coach, and a single coach equity call (~258ms at 2000) was ~6x
+# an in-game decision analysis (~44ms at 250) and dominated gameplay-worker CPU
+# (2026-06-09 load test). The coaching verdict is coarse (correct/incorrect/
+# marginal), so the lower count is ample.
+_COACH_EQUITY_ITERATIONS = int(os.environ.get("DECISION_ANALYSIS_ITERATIONS", "2000"))
+_decision_analyzer = DecisionAnalyzer(iterations=_COACH_EQUITY_ITERATIONS)
 
 
 def _get_position_label(game_state, player_idx: int) -> str:
