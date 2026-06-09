@@ -11,8 +11,10 @@ const blog = defineCollection({
     description: z.string(),
     track: z.enum(['Devlog', 'Inside the Table']),
     date: z.coerce.date(),
-    /** Lower sorts first within the series. */
+    /** Lower sorts first within the blog (and within a series). */
     order: z.number(),
+    /** Optional multi-part series; posts sharing the name cross-link by `order`. */
+    series: z.string().optional(),
     /** Public path, e.g. /blog/hero.png */
     hero: z.string().optional(),
     heroAlt: z.string().optional(),

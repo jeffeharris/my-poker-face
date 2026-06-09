@@ -12,7 +12,7 @@ draft: true
 
 For almost three years, the AI characters in this game had no memory of you.
 
-They had moods and attitudes. That part has been there since 2023. But the moment a game ended, everything they'd learned about how *you* played evaporated. Sit down at a new table against the same Blackbeard and his read of you reset to zero, every time. You could three-bet him off three pots in a row on Monday and he'd have no idea who you were on Tuesday.
+They had moods and attitudes. That part has been there since 2023. But the moment a game ended, everything they'd learned about how *you* played evaporated. Sit down at a new table against the same [Blackbeard](/opponents/blackbeard/) and his read of you reset to zero, every time. You could three-bet him off three pots in a row on Monday and he'd have no idea who you were on Tuesday.
 
 The strange part, when I finally dug into it, was that the data wasn't being thrown away. The per-game stats (how often you played a hand, how often you raised, how aggressive you were) persisted fine and reloaded fine. They just never added up across games. Each table was its own little island. Naming the problem that precisely mattered: the characters weren't forgetting you, the counts simply never carried from one game to the next.
 
@@ -65,3 +65,5 @@ I'll be honest about the path, too. It didn't arrive fully formed. My own note o
 The characters in this game have had a mood since the very beginning, a confidence and an attitude that shift while you play them. Cross-session memory is that same instinct, stretched across time. An opponent isn't only a strategy you're up against. It's a record of the history the two of you have. The Blackbeard who's seen you bluff him a dozen times is, in a small but real way, a different opponent than the one you just met.
 
 And the work that made it real was ordinary. A lifetime table, a tally that's safe to run twice, and charging chips in the right order. Memory, it turns out, is mostly bookkeeping you can trust.
+
+Sit down, log some hands, and earn a read of your own. [Take a seat](/login), or scout the [opponents you'll be playing](/opponents/) first.

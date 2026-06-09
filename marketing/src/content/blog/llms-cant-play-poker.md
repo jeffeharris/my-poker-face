@@ -1,18 +1,18 @@
 ---
-title: Why I gave up on the LLM playing poker
-description: I spent years trying to get a language model to play poker as a character. It made a great demo and a terrible player. Here's the change of mind that fixed it.
+title: "No, LLMs can't play poker"
+description: People online keep claiming they can. So I measured it. Stripped of all character and emotion, the model still had no strategy, no consistent range, and would bet into nothing and fold the nuts a beat later.
 track: Devlog
 date: 2026-06-09
 order: 2
 hero: /blog/characters-trio.png
 heroAlt: "Three of the game's public-domain AI opponents: Sherlock Holmes, Blackbeard, and Cleopatra."
-excerpt: The model made a great demo and a statistically terrible player. The fix wasn't a better prompt. It was taking the model out of the decision entirely.
-draft: true
+excerpt: Strip a language model down to its most mechanical poker player and the strategy never shows up. No range, no plan for a hand, just confident bets into nothing.
+draft: false
 ---
 
 The first version of my poker AI was a single prompt. One big block of text: the player's cards, the board, the pot, who'd done what, a description of the character it was supposed to be, and instructions to respond as JSON with its action, a line of table talk, and an updated read on its own mood. I called it ChaosBot, though not at first. At first I called it the whole product.
 
-And as a demo, it was genuinely great. You'd sit down against Sherlock Holmes, or Blackbeard, or Cleopatra, and they'd banter, fold, shove, and needle you, and it felt alive. That feeling is the entire reason this project exists. I built the poker engine myself, in plain Python, years ago, and the part that hooked me was watching a language model put a personality on top of it.
+And as a demo, it was genuinely great. You'd sit down against [Sherlock Holmes](/opponents/sherlock-holmes/), or [Blackbeard](/opponents/blackbeard/), or [Cleopatra](/opponents/cleopatra/), and they'd banter, fold, shove, and needle you, and it felt alive. That feeling is the entire reason this project exists. I built the poker engine myself, in plain Python, years ago, and the part that hooked me was watching a language model put a personality on top of it.
 
 The problem is that poker is measurable, and I couldn't stop myself from measuring.
 
@@ -32,6 +32,8 @@ They played everything. Not loosely, but with no discrimination at all. Every pl
 And it didn't transfer. A prompt I'd tuned until it behaved on one model fell apart on the next. Swap GPT for Gemini and the same instructions produced wildly different play; one of my range-guidance runs went from an 8-point VPIP spread to a 48-point one, in the wrong shape, just by changing the model underneath. That killed a dream I'd been quietly holding: pit the models against each other and find out which one is the better poker strategist. There was no stable strategist to find. The models were emotional and dramatic and great at *being a character*, but as strategists they were, no offense, awful.
 
 In hindsight the ask was unfair. I was handing one model a full personality to perform, a character voice to stay in, multi-street poker strategy to plan, and the job of noticing how everyone else at the table was playing, all at once, every decision. It did the first two beautifully and the last two not at all.
+
+I wasn't the only one finding this. When two researchers ran a [preflop analysis of ChatGPT and GPT-4](https://arxiv.org/abs/2308.12466), they landed where I did: neither plays anything close to game-theory-optimal, GPT-4 raises far too many hands, and instructing it to play GTO only made it looser. A [2025 benchmark built with trained poker players](https://arxiv.org/abs/2501.08328) put every major model through the same wringer and found all of them well short of solid play until they were fine-tuned on solver data. And when a poker outlet [sat the current models down at a real table in 2025](https://www.poker.org/latest-news/2025-wrapped-openai-wins-the-battle-of-the-llms-acYWh1M2exZC/), the recap read like my own logs: the models played too many pots, called too much, and couldn't find a fold.
 
 ## HybridBot: I'll just narrow its choices
 
@@ -74,6 +76,8 @@ And here's the part that still feels like vindication: the deterministic bot is 
 There was one more temptation. If I wanted truly strong poker, the textbook answer is a GTO solver: game-theory-optimal play, computed. I got close enough to scope it that there's still a plan doc in the repo, just in case. Then I looked at the compute bill: on the order of **$50,000** by my rough estimate at the time, to solve the spots I'd need.
 
 I'm glad the number was absurd, because it stopped me long enough to see that the solver was the same mistake in a more expensive hat. A GTO bot is, by construction, unbeatable, and an unbeatable opponent is not fun. People don't come to a poker table to admire perfect play. They come to find the leak, make the read, and take the pot they weren't supposed to get. The whole appeal is exploitability. I'd been trying to build the one thing my players would least enjoy losing to.
+
+One clarification, because someone always raises it: the top of poker has essentially been solved, just not by language models. The programs that beat the professionals, Libratus and Pluribus, are counterfactual-regret and search engines, not models you can ask to stay in character. The strong poker player and the convincing opponent have always been two different kinds of software. Trying to force one model to be both was the mistake underneath all the others.
 
 ## What I'd tell anyone building with an LLM
 
