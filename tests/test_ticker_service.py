@@ -218,6 +218,195 @@ def test_subtle_pace_skips_off_cycles(monkeypatch):
     assert sio.emitted("lobby_tick")
 
 
+# --- Career M2: emergent vouch firing on the tick ----------------------------
+
+
+def _vouch_stubs(
+    monkeypatch,
+    *,
+    career_active=True,
+    tutorial_complete=True,
+    inbound=None,
+    seated=None,
+    hands=0,
+    last_vouch_at_hands=0,
+):
+    """Wire stub repos onto extensions for the vouch-evaluation tests.
+
+    `inbound`: {ai_id: (respect, likability)}; `seated`: {ai_id: table_id} (which
+    cardroom each AI sits at). `hands` = the player's cumulative cash hands (the
+    trickle clock); `last_vouch_at_hands` seeds the cooldown mark. Returns the
+    dict of saved CareerProgress by key."""
+    from cash_mode.tables import CashTableState, ai_slot
+    from flask_app import extensions
+    from poker.memory.opponent_model import RelationshipState
+    from poker.repositories.career_progress_repository import CareerProgress
+
+    saved = {}
+
+    class Repo:
+        def load(self, sb, owner):
+            return saved.get((sb, owner)) or CareerProgress(
+                sandbox_id=sb,
+                owner_id=owner,
+                career_active=career_active,
+                tutorial_complete=tutorial_complete,
+                last_vouch_at_hands=last_vouch_at_hands,
+            )
+
+        def save(self, prog, now=None):
+            saved[(prog.sandbox_id, prog.owner_id)] = prog
+
+    class SessionRepo:
+        def sum_hands_for_owner(self, owner_id, *, sandbox_id=None):
+            return hands
+
+    class RelRepo:
+        def load_inbound_relationships(self, opp, now=None):
+            return {
+                ai: RelationshipState(respect=r, likability=lk)
+                for ai, (r, lk) in (inbound or {}).items()
+            }
+
+        def resolve_home_table(self, ai_id, *, sandbox_id, eligible_table_ids, min_hands=50):
+            # Stub: an AI's home table is where it's seated (the home-table
+            # *counter* itself is covered by tests/test_cash_mode/test_ai_home_table.py;
+            # here we only exercise _maybe_fire_vouches' ranking/gating). Returns
+            # None when between rooms / not an eligible lobby table.
+            tid = (seated or {}).get(ai_id)
+            return tid if tid in eligible_table_ids else None
+
+    class TableRepo:
+        def list_all_tables(self, sandbox_id=None):
+            tables = {}
+            for ai, tid in (seated or {}).items():
+                t = tables.get(tid) or CashTableState(
+                    table_id=tid, stake_label="$2", table_type="lobby", name=tid
+                )
+                t.seats = (t.seats or []) + [ai_slot(ai, 100)]
+                tables[tid] = t
+            return list(tables.values())
+
+    monkeypatch.setattr(extensions, "career_progress_repo", Repo(), raising=False)
+    monkeypatch.setattr(extensions, "relationship_repo", RelRepo(), raising=False)
+    monkeypatch.setattr(extensions, "cash_table_repo", TableRepo(), raising=False)
+    monkeypatch.setattr(extensions, "cash_session_repo", SessionRepo(), raising=False)
+    return saved
+
+
+def test_vouch_fires_for_warmest_ready_ai(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={
+            "cleopatra": (0.9, 0.95),  # ready, warmest
+            "shakespeare": (0.9, 0.75),  # ready, cooler
+            "loose_larry": (0.0, 0.0),  # played but cold → not ready
+        },
+        seated={"cleopatra": "cash-table-2-007", "shakespeare": "cash-table-2-003"},
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    prog = saved[("sb1", "owner1")]
+    assert "cleopatra" in prog.vouched_by  # warmest fired
+    assert "cash-table-2-007" in prog.revealed_table_ids  # its room revealed
+    assert "shakespeare" not in prog.vouched_by  # only one vouch per tick
+
+
+def test_vouch_no_op_when_flag_off(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", False)
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    assert saved == {}  # nothing evaluated, nothing saved
+
+
+def test_vouch_no_op_before_graduation(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    saved = _vouch_stubs(
+        monkeypatch,
+        tutorial_complete=False,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    assert saved == {}  # mid-tutorial → no emergent vouches
+
+
+def test_vouch_skips_unseated_voucher(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={},  # not at any table
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    # Ready but between rooms → no reveal this tick (retry next tick).
+    assert saved == {} or "cleopatra" not in saved[("sb1", "owner1")].vouched_by
+
+
+def test_vouch_cooldown_blocks_within_hand_window(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    # A vouch fired at 50 hands; only 120 now → 70 < 100 cooldown → no fire.
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+        hands=120,
+        last_vouch_at_hands=50,
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    assert saved == {} or "cleopatra" not in saved[("sb1", "owner1")].vouched_by
+
+
+def test_vouch_cooldown_allows_after_hand_window(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    # Last vouch at 50, now 200 → 150 ≥ 100 → fires + re-stamps the mark.
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+        hands=200,
+        last_vouch_at_hands=50,
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    prog = saved[("sb1", "owner1")]
+    assert "cleopatra" in prog.vouched_by
+    assert prog.last_vouch_at_hands == 200  # mark advanced to the current count
+
+
+def test_first_vouch_is_uncapped_by_cooldown(monkeypatch):
+    from cash_mode import economy_flags
+
+    monkeypatch.setattr(economy_flags, "CAREER_VOUCH_ENABLED", True)
+    # No prior vouch (mark 0) → fires even with few hands, then stamps the mark.
+    saved = _vouch_stubs(
+        monkeypatch,
+        inbound={"cleopatra": (0.9, 0.95)},
+        seated={"cleopatra": "cash-table-2-007"},
+        hands=12,
+        last_vouch_at_hands=0,
+    )
+    ticker_service._maybe_fire_vouches("owner1", "sb1")
+    prog = saved[("sb1", "owner1")]
+    assert "cleopatra" in prog.vouched_by
+    assert prog.last_vouch_at_hands == 12
+
+
 # --- tournament world-tick hook (P3.7) ---------------------------------
 
 

@@ -1,0 +1,70 @@
+/* Full-screen beat that masks the run-out "stage" reconfigure. Near-opaque dark
+   so the table rearranging behind it isn't visible; self-fades over ~1s, by which
+   point the underlying transforms (0.45s) have long settled. */
+.runout-stage-splash {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(8, 9, 13, 0.95) 0%, rgba(8, 9, 13, 0.99) 70%);
+  animation: runoutSplashFade 1s ease forwards;
+}
+
+.runout-stage-splash__label {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 13vw, 88px);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--color-gold-light);
+  text-shadow:
+    0 0 28px rgba(212, 165, 116, 0.6),
+    0 4px 16px rgba(0, 0, 0, 0.7);
+  animation: runoutSplashLabel 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes runoutSplashFade {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes runoutSplashLabel {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+    filter: blur(6px);
+  }
+  18% {
+    transform: scale(1.06);
+    opacity: 1;
+    filter: blur(0);
+  }
+  60% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.14);
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: keep the masking fade (it's functional) but drop the scale pop. */
+@media (prefers-reduced-motion: reduce) {
+  .runout-stage-splash__label {
+    animation: none;
+  }
+}

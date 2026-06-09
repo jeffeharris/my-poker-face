@@ -204,6 +204,9 @@ RESET_ECONOMY_FLAGS = (
     "RENOWN_V2_ENABLED",
     "RENOWN_V2_PERSIST_AI",
     "PRESTIGE_SEEKING_ENABLED",
+    "CAREER_PROGRESSION_ENABLED",
+    "CAREER_VOUCH_ENABLED",
+    "INTAKE_WORLD_WARMUP_ENABLED",
 )
 
 # Economy flags intentionally left ON in the test baseline — the long-shipped

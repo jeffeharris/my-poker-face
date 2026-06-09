@@ -13,6 +13,7 @@ import {
   Radar,
   Grid3x3,
   GraduationCap,
+  Target,
 } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
@@ -94,6 +95,12 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Range Explorer',
     icon: <Grid3x3 size={24} />,
     description: 'VPIP starting-hand ranges by player, archetype, and bot',
+  },
+  {
+    id: 'archetype-review',
+    label: 'Archetype Review',
+    icon: <Target size={24} />,
+    description: 'Actual vs target behavioral stats per archetype — tune AI reads',
   },
   {
     id: 'coach-metrics',

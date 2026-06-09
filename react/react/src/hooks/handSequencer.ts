@@ -194,22 +194,28 @@ function planState(state: EngineState, g: GameState, tier: PacingTier, commentar
 }
 
 function planReveal(state: EngineState, revealed: RevealedCardsInfo, tier: PacingTier): Plan {
+  // Go to "stage" immediately (this drives the run-out splash + the layout
+  // reconfigure behind it), but hold the actual reveal — hole-card mount, hero
+  // commit, matchup reactions — until the splash has cleared, so the hands don't
+  // pop while the "ALL IN" beat is still up. `lead` scales with the tier, so
+  // fast/fastest hands don't wait.
+  const lead = scale(BEAT.stageSplashHold, tier);
   const timeline: TimedEffect[] = [
-    { at: 0, effect: { kind: 'setReveal', revealed } },
     { at: 0, effect: { kind: 'setActive', active: true } },
+    { at: lead, effect: { kind: 'setReveal', revealed } },
   ];
   // A folded human is only spectating the AIs' showdown — no hand to present.
   if (!state.heroFolded) {
-    timeline.push({ at: 0, effect: { kind: 'hero', mode: 'commit' } });
+    timeline.push({ at: lead, effect: { kind: 'hero', mode: 'commit' } });
   }
   timeline.push({
-    at: scale(BEAT.initialReactionDelay, tier),
+    at: lead + scale(BEAT.initialReactionDelay, tier),
     effect: { kind: 'reactions', phase: 'INITIAL', cardIndex: 0 },
   });
 
   return {
     timeline,
-    durationMs: scale(BEAT.revealHold, tier),
+    durationMs: lead + scale(BEAT.revealHold, tier),
     next: { ...state, revealed: true, inRunout: true },
   };
 }

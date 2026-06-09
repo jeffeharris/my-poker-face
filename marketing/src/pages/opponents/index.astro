@@ -1,0 +1,162 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import OpponentCard from '../../components/OpponentCard.astro';
+import RequestCharacter from '../../components/RequestCharacter.tsx';
+import opponents from '../../data/opponents.json';
+
+const site = 'https://mypokerfacegame.com';
+const title = 'Play Poker Against AI Personalities — 70+ Characters | My Poker Face';
+const description =
+  'Sit down with Sherlock Holmes, Napoleon, Cleopatra and 70+ other AI poker characters. Each has its own playing style, table talk, and memory of you. Play Texas Hold’em free, in your browser.';
+
+// ItemList structured data so the roster can show as a rich list in search.
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: 'AI Poker Opponents',
+    description,
+    url: `${site}/opponents/`,
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'AI Poker Opponents',
+    numberOfItems: opponents.length,
+    itemListElement: opponents.map((o, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      url: `${site}/opponents/${o.slug}/`,
+      name: o.name,
+    })),
+  },
+];
+---
+
+<BaseLayout title={title} description={description} path="/opponents/" jsonLd={jsonLd}>
+  <section class="shell hub-hero">
+    <p class="kicker">The Roster</p>
+    <h1 class="display hub-hero__title">
+      Play poker against opponents<br />who are actually <em>someone</em>.
+    </h1>
+    <p class="hub-hero__lead">
+      Most poker apps give you a difficulty slider. We give you {opponents.length} characters — each
+      with a real playing style, its own table talk, and a memory of how you’ve played them before.
+      Free, in your browser, no download.
+    </p>
+    <div class="hub-hero__cta">
+      <a class="btn btn--gold" href="/login">Start a table free</a>
+      <a class="btn btn--ghost" href="#roster">Meet the roster ↓</a>
+    </div>
+  </section>
+
+  <section class="shell" id="roster">
+    <div class="grid">
+      {
+        opponents.map((o) => (
+          <OpponentCard slug={o.slug} name={o.name} blurb={o.blurb} skill={o.skill} avatar={o.avatar} />
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="shell suggest">
+    <div class="suggest__card">
+      <p class="kicker">Missing someone?</p>
+      <h2 class="display suggest__title">Tell us who should sit at the table.</h2>
+      <p class="suggest__lead">
+        Adding a new character is easy on our end — the hard part is deciding who. Suggest one, leave
+        an email, and we’ll let you know the moment they’re dealt in.
+      </p>
+      <RequestCharacter client:visible />
+    </div>
+  </section>
+
+  <!-- Sticky CTA: appears once the hero scrolls out of view, so a "play" button
+       stays in reach the whole time you're browsing the roster. -->
+  <div class="stickycta" id="stickycta">
+    <span class="stickycta__label">{opponents.length} opponents are waiting for a seat.</span>
+    <a class="btn btn--gold" href="/login">Start a table free</a>
+  </div>
+</BaseLayout>
+
+<script is:inline>
+  (function () {
+    var bar = document.getElementById('stickycta');
+    var hero = document.querySelector('.hub-hero');
+    var suggest = document.querySelector('.suggest');
+    if (!bar || !hero || !('IntersectionObserver' in window)) return;
+
+    // Show the bar once we're past the hero, but hide it again at the suggest
+    // form / footer so it never covers that section's own controls.
+    var pastHero = false;
+    var atBottom = false;
+    function update() {
+      bar.classList.toggle('is-shown', pastHero && !atBottom);
+    }
+    new IntersectionObserver(
+      function (e) {
+        pastHero = !e[0].isIntersecting;
+        update();
+      },
+      { rootMargin: '-20% 0px 0px 0px' }
+    ).observe(hero);
+    if (suggest) {
+      new IntersectionObserver(function (e) {
+        atBottom = e[0].isIntersecting;
+        update();
+      }).observe(suggest);
+    }
+  })();
+</script>
+
+<style>
+  .hub-hero {
+    padding-top: clamp(40px, 8vw, 96px);
+    max-width: 880px;
+  }
+  .hub-hero__title {
+    font-size: clamp(36px, 6vw, 68px);
+    margin: 18px 0 0;
+  }
+  .hub-hero__title em {
+    color: var(--gold-bright);
+    font-style: italic;
+  }
+  .hub-hero__lead {
+    margin: 22px 0 0;
+    font-size: clamp(17px, 2.2vw, 21px);
+    color: var(--text-dim);
+    max-width: 64ch;
+  }
+  .hub-hero__cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 32px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    margin-top: 56px;
+  }
+  .suggest {
+    margin-top: 80px;
+  }
+  .suggest__card {
+    border: 1px solid var(--hair);
+    border-radius: 20px;
+    padding: clamp(28px, 5vw, 56px);
+    background: radial-gradient(120% 140% at 0% 0%, rgba(212, 165, 116, 0.07), transparent 60%);
+  }
+  .suggest__title {
+    font-size: clamp(26px, 4vw, 40px);
+    margin: 14px 0 0;
+  }
+  .suggest__lead {
+    margin: 16px 0 28px;
+    color: var(--text-dim);
+    max-width: 60ch;
+  }
+</style>

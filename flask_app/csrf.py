@@ -45,7 +45,14 @@ _MUTATING_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
 # Sentry tunnel relay (the browser Sentry SDK's transport posts envelopes here
 # and cannot carry our CSRF token; the route is an allowlisted forward-only
 # proxy to Sentry ingest — see routes/sentry_relay_routes.py).
-_EXEMPT_EXACT = frozenset({'/api/auth/login', '/api/event-relay'})
+_EXEMPT_EXACT = frozenset(
+    {
+        '/api/auth/login',
+        '/api/event-relay',
+        # Public marketing form (static Astro site, no CSRF cookie/SPA wrapper).
+        '/api/character-requests',
+    }
+)
 _EXEMPT_PREFIXES = ('/api/auth/google/',)
 
 

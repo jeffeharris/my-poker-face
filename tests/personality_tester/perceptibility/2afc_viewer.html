@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  2AFC perceptibility viewer (backlog #12, Phase 5).
+
+  A dependency-free, server-free rater tool. Load a sessions JSON produced by
+  `experiments/generate_2afc_sessions.py`, render anonymized sessions, capture the
+  rater's forced choice + confidence, and download a responses JSON for
+  `experiments/score_2afc.py`.
+
+  Labels (true archetype / is_tilted / adaptation_on) and hero hole cards are
+  HIDDEN until the rater records a choice — the viewer strips them from the view
+  and only reveals them in a post-answer "ground truth" panel.
+
+  Serve with:  python -m http.server  (then open this file), or open directly.
+-->
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2AFC Perceptibility Viewer</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1.5rem;
+         max-width: 1200px; margin-inline: auto; line-height: 1.4; }
+  h1 { font-size: 1.4rem; }
+  .controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;
+              padding: 1rem; background: rgba(127,127,127,.1); border-radius: 8px; }
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  .pane { border: 1px solid rgba(127,127,127,.4); border-radius: 8px; padding: .75rem;
+          max-height: 60vh; overflow-y: auto; }
+  .pane h2 { font-size: 1rem; margin: 0 0 .5rem; }
+  .hand { border-top: 1px dashed rgba(127,127,127,.3); padding: .3rem 0; font-size: .85rem; }
+  .street { font-weight: 600; margin-top: .25rem; }
+  .act { padding-left: 1rem; }
+  .hero { color: #2563eb; font-weight: 600; }
+  .speech { font-style: italic; color: #b45309; padding-left: 1rem; }
+  .board { color: #16a34a; font-size: .8rem; }
+  .question { margin-top: 1rem; padding: 1rem; background: rgba(37,99,235,.08); border-radius: 8px; }
+  button { padding: .5rem 1rem; border-radius: 6px; border: 1px solid rgba(127,127,127,.5);
+           cursor: pointer; background: rgba(127,127,127,.1); }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .truth { margin-top: .75rem; padding: .75rem; border-radius: 8px;
+           background: rgba(22,163,74,.12); display: none; }
+  .truth.show { display: block; }
+  select, input[type=range] { vertical-align: middle; }
+  .meta { font-size: .8rem; opacity: .7; }
+  .progress { font-size: .85rem; margin-top: .5rem; }
+</style>
+</head>
+<body>
+<h1>2AFC Perceptibility Viewer</h1>
+<p class="meta">
+  Load a sessions JSON from <code>experiments/generate_2afc_sessions.py</code>.
+  Hole cards and ground-truth labels stay hidden until you record a choice.
+  When done, <strong>Download responses</strong> and feed it to
+  <code>experiments/score_2afc.py</code>.
+</p>
+
+<div class="controls">
+  <label>Sessions file: <input type="file" id="file" accept="application/json" /></label>
+  <span id="armLabel" class="meta"></span>
+  <button id="downloadBtn">Download responses</button>
+</div>
+
+<div class="progress" id="progress"></div>
+<div id="stage"></div>
+
+<script>
+"use strict";
+
+let SESSIONS = [];      // raw sessions (incl. hidden labels)
+let TRIALS = [];        // list of trials to present
+let trialIdx = 0;
+let RESPONSES = {};     // session_id (or trial_id) -> response record
+let ARM = null;
+
+const $ = (id) => document.getElementById(id);
+
+document.getElementById("file").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const payload = JSON.parse(await f.text());
+  SESSIONS = payload.sessions || [];
+  ARM = SESSIONS.length ? SESSIONS[0].arm : null;
+  $("armLabel").textContent = `arm: ${ARM} | ${SESSIONS.length} sessions`;
+  buildTrials();
+  trialIdx = 0;
+  RESPONSES = {};
+  render();
+});
+
+document.getElementById("downloadBtn").addEventListener("click", () => {
+  // For archetype/tilt, responses map session_id -> choice (the score format).
+  // For adaptation, also include the per-pair choice for human-2AFC bookkeeping.
+  const blob = new Blob([JSON.stringify(RESPONSES, null, 2)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `2afc_responses_${ARM || "x"}.json`;
+  a.click();
+});
+
+function buildTrials() {
+  TRIALS = [];
+  if (ARM === "archetype") {
+    // One trial per session (single-stimulus classification).
+    SESSIONS.forEach((s) => TRIALS.push({type: "archetype", sessions: [s]}));
+  } else {
+    // Pair the two members; randomize left/right order (counterbalance).
+    const byPair = {};
+    SESSIONS.forEach((s) => { (byPair[s.pair_id] = byPair[s.pair_id] || []).push(s); });
+    Object.keys(byPair).sort().forEach((pid) => {
+      const members = byPair[pid];
+      if (members.length !== 2) return;
+      // Deterministic shuffle by pair id char sum (reproducible counterbalance).
+      const flip = ([...pid].reduce((a, c) => a + c.charCodeAt(0), 0)) % 2 === 0;
+      const ordered = flip ? [members[1], members[0]] : [members[0], members[1]];
+      TRIALS.push({type: ARM, pair_id: pid, sessions: ordered});
+    });
+  }
+}
+
+function renderSessionPane(s, sideLabel) {
+  // Player-facing view: NO labels, NO hole cards.
+  const byHand = {};
+  s.actions.forEach((a) => { (byHand[a.hand_index] = byHand[a.hand_index] || []).push(a); });
+  let html = `<h2>${sideLabel}</h2>`;
+  Object.keys(byHand).map(Number).sort((a, b) => a - b).forEach((hi) => {
+    html += `<div class="hand"><strong>Hand ${hi + 1}</strong>`;
+    let lastStreet = null;
+    byHand[hi].forEach((a) => {
+      if (a.street !== lastStreet) {
+        const board = a.board && a.board.length ? ` <span class="board">[${a.board.join(" ")}]</span>` : "";
+        html += `<div class="street">${a.street}${board}</div>`;
+        lastStreet = a.street;
+      }
+      const cls = a.is_hero ? "act hero" : "act";
+      const amt = a.raise_to ? ` to ${a.raise_to}` : "";
+      const who = a.is_hero ? "HERO" : a.seat;
+      html += `<div class="${cls}">${who}: ${a.action}${amt}</div>`;
+      if (a.is_hero && a.hero_speech) {
+        html += `<div class="speech">“${a.hero_speech}”</div>`;
+      }
+    });
+    html += `</div>`;
+  });
+  return html;
+}
+
+function render() {
+  const stage = $("stage");
+  if (!TRIALS.length) { stage.innerHTML = "<p>Load a sessions file to begin.</p>"; return; }
+  if (trialIdx >= TRIALS.length) {
+    stage.innerHTML = `<p><strong>Done — ${Object.keys(RESPONSES).length} responses.</strong>
+      Click “Download responses”.</p>`;
+    $("progress").textContent = "";
+    return;
+  }
+  const t = TRIALS[trialIdx];
+  $("progress").textContent = `Trial ${trialIdx + 1} / ${TRIALS.length}`;
+
+  let html = `<div class="panes">`;
+  if (t.type === "archetype") {
+    html += `<div class="pane" style="grid-column: 1 / span 2">${renderSessionPane(t.sessions[0], "Session")}</div>`;
+  } else {
+    html += `<div class="pane">${renderSessionPane(t.sessions[0], "Session A")}</div>`;
+    html += `<div class="pane">${renderSessionPane(t.sessions[1], "Session B")}</div>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="question" id="q"></div>`;
+  html += `<div class="truth" id="truth"></div>`;
+  stage.innerHTML = html;
+  renderQuestion(t);
+}
+
+function renderQuestion(t) {
+  const q = $("q");
+  let inner = "";
+  if (t.type === "archetype") {
+    const choices = t.sessions[0].label ? t.sessions[0].label.choices : null;
+    // The viewer must NOT read the label for the choice list pre-answer, but the
+    // choices list itself is not the answer — it's the closed option set. Fall
+    // back to a fixed list if absent.
+    const opts = (choices || ["Nit","Rock","TAG","LAG","Calling Station","Maniac","WeakFish"]);
+    inner = `<p><strong>Which archetype is this player?</strong></p>
+      <select id="choice">${opts.map((o) => `<option>${o}</option>`).join("")}</select>`;
+  } else if (t.type === "tilt") {
+    inner = `<p><strong>One of these players is on tilt. For EACH session, is the
+      player on tilt?</strong></p>
+      <label>Session A: <select id="choiceA"><option value="calm">calm</option><option value="tilt">on tilt</option></select></label>
+      &nbsp;&nbsp;
+      <label>Session B: <select id="choiceB"><option value="calm">calm</option><option value="tilt">on tilt</option></select></label>`;
+  } else { // adaptation
+    inner = `<p><strong>In which session did the opponents/Hero adjust to the table
+      (adapt)?</strong></p>
+      <select id="choice"><option value="A">Session A</option><option value="B">Session B</option></select>`;
+  }
+  inner += `<p>Confidence: <input type="range" id="conf" min="1" max="5" value="3" />
+    <span id="confVal">3</span>/5</p>
+    <button class="primary" id="recordBtn">Record &amp; next</button>`;
+  q.innerHTML = inner;
+  $("conf").addEventListener("input", (e) => { $("confVal").textContent = e.target.value; });
+  $("recordBtn").addEventListener("click", () => recordChoice(t));
+}
+
+function recordChoice(t) {
+  const conf = Number($("conf").value);
+  if (t.type === "archetype") {
+    const choice = $("choice").value;
+    RESPONSES[t.sessions[0].session_id] = choice;
+    showTruth([{ s: t.sessions[0], chose: choice }]);
+  } else if (t.type === "tilt") {
+    // Map back to session_ids (the score format expects session_id -> tilt/calm).
+    const a = $("choiceA").value, b = $("choiceB").value;
+    RESPONSES[t.sessions[0].session_id] = a;
+    RESPONSES[t.sessions[1].session_id] = b;
+    showTruth([
+      { s: t.sessions[0], chose: a },
+      { s: t.sessions[1], chose: b },
+    ]);
+  } else {
+    const choice = $("choice").value; // "A" | "B"
+    const chosenSession = choice === "A" ? t.sessions[0] : t.sessions[1];
+    // Score-friendly: record which member they picked as "adapting".
+    RESPONSES[`${t.pair_id}`] = {
+      chose_session_id: chosenSession.session_id,
+      confidence: conf,
+    };
+    showTruth([{ s: chosenSession, chose: "adapting" }]);
+  }
+  // attach confidence on the simple-arm records too
+  if (t.type === "archetype") {
+    RESPONSES[t.sessions[0].session_id] = $("choice").value; // keep simple shape
+  }
+}
+
+function showTruth(entries) {
+  const div = $("truth");
+  let html = "<strong>Ground truth (revealed):</strong><br>";
+  entries.forEach((e) => {
+    const lab = e.s.label || {};
+    let truth = "";
+    if (e.s.arm === "archetype") truth = `true archetype = ${lab.true_archetype}`;
+    else if (e.s.arm === "tilt") truth = `${e.s.session_id}: is_tilted = ${lab.is_tilted}`;
+    else truth = `${e.s.session_id}: adaptation_on = ${lab.adaptation_on}`;
+    html += `${truth}<br>`;
+  });
+  div.innerHTML = html;
+  div.classList.add("show");
+  // Advance after a short reveal.
+  const adv = document.createElement("button");
+  adv.textContent = "Continue →";
+  adv.className = "primary";
+  adv.style.marginTop = ".5rem";
+  adv.onclick = () => { trialIdx += 1; render(); };
+  div.appendChild(document.createElement("br"));
+  div.appendChild(adv);
+}
+</script>
+</body>
+</html>

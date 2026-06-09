@@ -137,3 +137,11 @@ class Stake:
     # display label so the Net Worth history can read "bankruptcy" vs a
     # deliberate stiff). Additive; existing rows read NULL.
     resolution: Optional[str] = None
+    # 2026-06-09 — origination sandbox. AI personas exist per-sandbox, so a
+    # stake funds `seat:ai:<sandbox_id>:<borrower>`; settlement must drain that
+    # SAME seat. Pinning the row to its origination sandbox lets
+    # `load_active_for_borrower` scope by it, so a tick processing a different
+    # sandbox can't load this stake and drain a never-funded seat (the
+    # cross-sandbox mint). NULL on legacy pre-fix rows and human-borrower stakes
+    # that don't need scoping.
+    sandbox_id: Optional[str] = None

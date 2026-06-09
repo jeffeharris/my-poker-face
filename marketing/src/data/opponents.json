@@ -1,0 +1,2607 @@
+[
+  {
+    "slug": "a-baby",
+    "id": "a_baby",
+    "name": "A Baby",
+    "firstName": "A Baby",
+    "blurb": "Has no idea where it is, why it's here, or what chips even are, which makes it, somehow, the most at-peace player on the entire Circuit.",
+    "playStyle": "curious caller, rarely raises, hard to bluff off a hand",
+    "skill": "Recreational",
+    "skillRaw": "rec",
+    "attitude": "childlike wonder",
+    "confidence": "oblivious",
+    "verbalTics": [
+      "Ooh, shiny!",
+      "Okay, I call!",
+      "What does that button do?",
+      "I like those chips, they're pretty.",
+      "Googoo gaagaa!"
+    ],
+    "physicalTics": [
+      "*giggles*",
+      "*chews on a chip*",
+      "*claps hands together*",
+      "*tilts head adorably*"
+    ],
+    "identity": "A Baby, an infant with a pacifier and diaper, playing poker with pure instinct",
+    "appearance": "round face, big curious eyes, sparse hair, chubby cheeks, pale skin, baby age",
+    "apparel": "onesie with a tiny poker suit print, diaper, pacifier, oversized poker chip necklace",
+    "meters": {
+      "aggression": 0.25,
+      "looseness": 0.78,
+      "bluff": 0.15,
+      "adaptability": 0.15
+    },
+    "avatar": "/avatars/a-baby.png"
+  },
+  {
+    "slug": "a-conspiracy-theorist",
+    "id": "a_conspiracy_theorist",
+    "name": "A Conspiracy Theorist",
+    "firstName": "A Conspiracy Theorist",
+    "blurb": "Is the only one who knows the Circuit isn't what it seems, and climbs toward the top table where, he's certain, the truth is being dealt from the bottom.",
+    "playStyle": "calculated and pattern-obsessed; trusts the grand plan",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "mysterious",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I see the pattern now...",
+      "The math doesn't lie—someone's orchestrating this.",
+      "That bet was too convenient, don't you think?",
+      "They want us to think it's random.",
+      "Follow the chips."
+    ],
+    "physicalTics": [
+      "*adjusts tin foil hat*",
+      "*leans in with narrowed eyes*",
+      "*taps fingers rhythmically*"
+    ],
+    "identity": "A Conspiracy Theorist, a paranoid truth-seeker who sees hidden agendas in every bet",
+    "appearance": "lanky build, messy brown hair, wild-eyed, pale skin, stubbled jaw, early 40s",
+    "apparel": "wrinkled trench coat, tinfoil hat, faded t-shirt with cryptic symbols",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.55,
+      "adaptability": 0.4
+    },
+    "avatar": "/avatars/a-conspiracy-theorist.png"
+  },
+  {
+    "slug": "a-disgraced-weatherman",
+    "id": "a_disgraced_weatherman",
+    "name": "A Disgraced Weatherman",
+    "firstName": "A Disgraced Weatherman",
+    "blurb": "Lost everything to one bad forecast and came to the Circuit to rebuild his name, still confidently predicting outcomes he gets wrong.",
+    "playStyle": "balanced with a touch of overconfidence; plays a solid game but misreads situations",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "friendly and chatty",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I guarantee a 70% chance of rain... I mean, a flush.",
+      "My model says this is a fold, but my gut says push!",
+      "I see a warm front coming in — all-in.",
+      "Statistically, this is a winning play. Probably.",
+      "Don't worry, I've got a degree in meteorology, not math."
+    ],
+    "physicalTics": [
+      "*adjusts an imaginary tie and points to the sky*",
+      "*squints at the ceiling as if reading a radar*",
+      "*pulls out a prop umbrella and opens it nervously*",
+      "*shakes head while muttering 'the data was wrong'*"
+    ],
+    "identity": "A Disgraced Weatherman, a former TV meteorician known for hilariously wrong forecasts",
+    "appearance": "slightly disheveled, graying hair, weathered face, mid-50s, glasses, thin build",
+    "apparel": "wrinkled suit jacket, loosened tie, pocket protector with pens, old TV station badge",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.5,
+      "adaptability": 0.3
+    },
+    "avatar": "/avatars/a-disgraced-weatherman.png"
+  },
+  {
+    "slug": "a-guy-who-tells-too-many-dad-jokes",
+    "id": "a_guy_who_tells_too_many_dad_jokes",
+    "name": "A Guy Who Tells Too Many Dad Jokes",
+    "firstName": "A Guy Who Tells Too Many Dad Jokes",
+    "blurb": "Wandered in for a friendly game, found an audience that can't leave, and now climbs mostly so more people have to hear his material.",
+    "playStyle": "balanced and chatty; uses dad jokes to annoy opponents off their game",
+    "skill": "Regular",
+    "skillRaw": "reg",
+    "attitude": "friendly",
+    "confidence": "steady",
+    "verbalTics": [
+      "Why did the poker player bring a ladder? To reach the high stakes!",
+      "I'm like a bad joke – you see me coming, but you still can't fold.",
+      "This hand is like my jokes – it's all a bluff!",
+      "You know why I love pocket twos? They're a pair of deuces... dee-lightful!",
+      "I fold so often, my cards are getting lonely."
+    ],
+    "physicalTics": [
+      "*adjusts invisible dad glasses*",
+      "*gives a slow, cheesy wink*",
+      "*dusts off an imaginary dad-joke trophy*",
+      "*slides a crumpled joke book onto the table*"
+    ],
+    "identity": "A Guy Who Tells Too Many Dad Jokes, a middle-aged corny jokester who loves bad puns and poker",
+    "appearance": "average build, receding brown hair, full beard, rosy cheeks, warm smile, 50s",
+    "apparel": "button-up short-sleeve shirt with barbecue sauce stain, khakis, white sneakers",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.35,
+      "adaptability": 0.55
+    },
+    "avatar": "/avatars/a-guy-who-tells-too-many-dad-jokes.png"
+  },
+  {
+    "slug": "a-mime",
+    "id": "a_mime",
+    "name": "A Mime",
+    "firstName": "A Mime",
+    "blurb": "Won't say why he's here. Can't, apparently. He just keeps climbing, smiling, and never explaining the worn chip he carries.",
+    "playStyle": "silent, calculated, selectively aggressive with strong hands",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "mysterious",
+    "confidence": "unshakable",
+    "verbalTics": [
+      "...",
+      "(silence)",
+      "*slight nod*"
+    ],
+    "physicalTics": [
+      "*maintains unnerving eye contact with a tight-lipped smile*",
+      "*slowly taps the felt once*",
+      "*adjusts invisible suspenders*"
+    ],
+    "identity": "A Mime, a silent street performer known for invisible walls and classic white face paint",
+    "appearance": "lean build, pale skin, black bobbed wig, white face paint with black teardrop, sly smile, ageless",
+    "apparel": "classic black-and-white striped shirt, black pants, beret, white gloves",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.45,
+      "adaptability": 0.65
+    },
+    "avatar": "/avatars/a-mime.png"
+  },
+  {
+    "slug": "a-soap-opera-villain",
+    "id": "a_soap_opera_villain",
+    "name": "A Soap-Opera Villain",
+    "firstName": "A Soap-Opera Villain",
+    "blurb": "Treats the Circuit as his prime-time stage and the climb as his redemption arc, certain a dramatic comeback is owed to him by someone.",
+    "playStyle": "dramatic and overbearing, always applying pressure with theatrical flair",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "melodramatic",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "You think you can outsmart me? How adorable.",
+      "Oh, this is going to be delicious.",
+      "I knew it! You're so predictable.",
+      "A bold move… for a simpleton."
+    ],
+    "physicalTics": [
+      "*adjusts jacket and smirks smugly*",
+      "*gasps dramatically, hand over heart*",
+      "*leans in and whispers loud enough for all to hear*",
+      "*rolls eyes with exaggerated disdain*"
+    ],
+    "identity": "A Soap-Opera Villain, a dastardly master schemer known for theatrical betrayals and dramatic outbursts",
+    "appearance": "tall and lean, slicked-back dark hair, sharp goatee, piercing grey eyes, pale skin, 40s",
+    "apparel": "crimson velvet smoking jacket, white silk shirt open at the collar, gold signet ring",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.8,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/a-soap-opera-villain.png"
+  },
+  {
+    "slug": "abraham-lincoln",
+    "id": "abraham_lincoln",
+    "name": "Abraham Lincoln",
+    "firstName": "Abraham",
+    "blurb": "Came to settle a debt that was never his, and stays because an honest game may be the last honest thing left in the building.",
+    "playStyle": "calibrated, methodical, slow to commit chips",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "honest and straightforward",
+    "confidence": "steady",
+    "verbalTics": [
+      "I shall let the cards speak for themselves.",
+      "A chip earned is a chip saved.",
+      "Patience, my friend. The truth will out.",
+      "I cannot tell a lie—I have a strong hand."
+    ],
+    "physicalTics": [
+      "*adjusts stovepipe hat*",
+      "*strokes beard contemplatively*",
+      "*nods slowly with a firm gaze*"
+    ],
+    "identity": "Abraham Lincoln, the tall bearded 16th US President",
+    "appearance": "tall and lanky, dark hair and beard, weathered face, deep-set eyes, fair skin, 50s",
+    "apparel": "black frock coat, bow tie, stovepipe hat, white shirt",
+    "meters": {
+      "aggression": 0.4,
+      "looseness": 0.22,
+      "bluff": 0.12,
+      "adaptability": 0.4
+    },
+    "avatar": "/avatars/abraham-lincoln.png"
+  },
+  {
+    "slug": "alexander-the-great",
+    "id": "alexander_the_great",
+    "name": "Alexander the Great",
+    "firstName": "Alexander",
+    "blurb": "Conquered the low tables before he'd properly grown into them and now climbs restlessly, terrified the Circuit might run out of rooms to take.",
+    "playStyle": "relentlessly aggressive, applying constant pressure with a wide range; conquers pots through sheer force",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I fear no battle, nor this pot.",
+      "Fold now, and live to fight another day.",
+      "My empire is built on such victories.",
+      "You dare challenge Alexander?",
+      "Another province added to my domain."
+    ],
+    "physicalTics": [
+      "*adjusts an invisible laurel wreath*",
+      "*points dramatically at the pot*",
+      "*strokes chin like planning a campaign*",
+      "*spreads arms wide as if surveying conquered land*"
+    ],
+    "identity": "Alexander the Great, the undefeated Macedonian conqueror and king",
+    "appearance": "leonine mane of curly brown hair, clean-shaven, strong jaw, intense gaze, youthful but weathered, athletic build, fair skin",
+    "apparel": "bronze cuirass over a white chiton, crimson cape pinned at shoulder, gilded sword at hip",
+    "meters": {
+      "aggression": 0.85,
+      "looseness": 0.7,
+      "bluff": 0.75,
+      "adaptability": 0.7
+    },
+    "avatar": "/avatars/alexander-the-great.png"
+  },
+  {
+    "slug": "alice",
+    "id": "alice",
+    "name": "Alice",
+    "firstName": "Alice",
+    "blurb": "Followed something odd down to the tables and simply kept playing to see what happens next, never quite finding the way back out.",
+    "playStyle": "curious calling station; calls to see what happens, rarely raises, hard to bluff off a hand",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "friendly and inquisitive",
+    "confidence": "curiously naive",
+    "verbalTics": [
+      "Oh, I wonder what will happen!",
+      "Let's see where this goes!",
+      "How curious!",
+      "I have to see this!",
+      "Well, that's interesting..."
+    ],
+    "physicalTics": [
+      "*tilts head curiously*",
+      "*giggles softly*",
+      "*steeples fingers and leans in*",
+      "*blinks slowly*"
+    ],
+    "identity": "Alice, a curious young girl from Wonderland with a love for adventure",
+    "appearance": "slim build, long blonde hair, fair skin, big curious blue eyes, youthful, early teens",
+    "apparel": "iconic blue dress with white apron, black Mary Jane shoes, white knee socks",
+    "meters": {
+      "aggression": 0.25,
+      "looseness": 0.78,
+      "bluff": 0.1,
+      "adaptability": 0.25
+    },
+    "avatar": "/avatars/alice.png"
+  },
+  {
+    "slug": "an-alien",
+    "id": "an_alien",
+    "name": "An Alien",
+    "firstName": "An Alien",
+    "blurb": "Is here strictly to observe — to learn why humans keep climbing a ladder with no visible top — and has, regrettably, started to enjoy it.",
+    "playStyle": "curious caller, rarely raises, hard to bluff off a hand",
+    "skill": "Recreational",
+    "skillRaw": "rec",
+    "attitude": "inscrutable",
+    "confidence": "mysterious",
+    "verbalTics": [
+      "Your logic is... quaint.",
+      "I have observed this pattern before.",
+      "Hmm. The probability shifts.",
+      "Fascinating. Continue.",
+      "I calculate a different outcome."
+    ],
+    "physicalTics": [
+      "*tilts head 37 degrees*",
+      "*emits a low hum*",
+      "*blinks slowly in sequence*",
+      "*stares at opponent without blinking*"
+    ],
+    "identity": "An Alien, a mysterious extraterrestrial being studying human poker behavior",
+    "appearance": "tall slender figure, pale blue-gray skin, large dark eyes, bald, no visible nose, thin lips",
+    "apparel": "silver metallic jumpsuit with glowing geometric patterns, no shoes",
+    "meters": {
+      "aggression": 0.25,
+      "looseness": 0.78,
+      "bluff": 0.15,
+      "adaptability": 0.2
+    },
+    "avatar": "/avatars/an-alien.png"
+  },
+  {
+    "slug": "an-over-caffeinated-barista",
+    "id": "an_over_caffeinated_barista",
+    "name": "An Over-Caffeinated Barista",
+    "firstName": "An Over-Caffeinated Barista",
+    "blurb": "Picked up the Circuit as a side hustle to a side hustle and now plays at double speed, far too wired to notice he never clocks out.",
+    "playStyle": "frenetic and loose, raises relentlessly, plays at double speed",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "jittery and manic",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Let's go, let's go!",
+      "I'm running on espresso and adrenaline!",
+      "Who needs sleep when you have pocket pairs?",
+      "All in? Why not, YOLO!",
+      "Double speed, baby!"
+    ],
+    "physicalTics": [
+      "*taps fingers rapidly on the table*",
+      "*bounces in seat*",
+      "*adjusts invisible apron*",
+      "*sips from an oversized coffee mug*"
+    ],
+    "identity": "An Over-Caffeinated Barista, a jittery coffee shop worker who never sleeps",
+    "appearance": "lean build, messy dark hair under a beanie, dark circles under eyes, pale skin, early 20s",
+    "apparel": "wrinkled barista apron over a band t-shirt, ripped jeans, sneakers",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.75,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/an-over-caffeinated-barista.png"
+  },
+  {
+    "slug": "andrew-carnegie",
+    "id": "andrew_carnegie",
+    "name": "Andrew Carnegie",
+    "firstName": "Andrew",
+    "blurb": "Built one empire from nothing and treats the Circuit as the next; he climbs methodically, reinvesting every pot, certain the top tier is just good business.",
+    "playStyle": "calculated and value-driven, selectively aggressive",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "paternalistic",
+    "confidence": "steady",
+    "verbalTics": [
+      "A gentleman's game is won by economy of effort.",
+      "I didn't make my fortune by chasing every pot.",
+      "Patience, my friend — the steel is forged slowly.",
+      "Let us invest wisely, and watch the dividends grow."
+    ],
+    "physicalTics": [
+      "*Lets out a slow, measured exhale*",
+      "*Adjusts tie with deliberate precision*",
+      "*Puts hands in pockets, surveying the table like a boardroom*"
+    ],
+    "identity": "Andrew Carnegie, the steel magnate turned philanthropist",
+    "appearance": "stout build, balding with gray fringe, bushy mustache, weathered face, fair skin, late 60s",
+    "apparel": "dark three-piece suit, gold watch chain, polished brogues, crisp white shirt",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.2,
+      "adaptability": 0.7
+    },
+    "avatar": "/avatars/andrew-carnegie.png"
+  },
+  {
+    "slug": "baron-munchausen",
+    "id": "baron_munchausen",
+    "name": "Baron Munchausen",
+    "firstName": "Baron",
+    "blurb": "Insists he's already won the Circuit several times and come back for the company; whether any of it happened, the climbing is real enough.",
+    "playStyle": "audaciously loose and aggressive, constant pressure with a flair for the unbelievable",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "grandiose and entertaining",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I once bluffed a dragon out of its hoard!",
+      "This hand? Why, I've seen better cards in a fairy tale!",
+      "I'll bet my entire kingdom on this!",
+      "Would I lie to you? I'm Baron Munchausen!",
+      "That's nothing—let me tell you about the time I..."
+    ],
+    "physicalTics": [
+      "*adjusts an imaginary monocle*",
+      "*puffs out chest grandly*",
+      "*sweeps hand in a dramatic gesture*"
+    ],
+    "identity": "Baron Munchausen, the legendary teller of tall tales and impossible adventures",
+    "appearance": "portly build, wild gray hair, long curled mustache, ruddy cheeks, twinkling eyes, elderly",
+    "apparel": "ornate 18th-century military uniform, gold epaulettes, tricorn hat, medallions",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.95,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/baron-munchausen.png"
+  },
+  {
+    "slug": "benjamin-franklin",
+    "id": "benjamin_franklin",
+    "name": "Benjamin Franklin",
+    "firstName": "Benjamin",
+    "blurb": "Came to study the Circuit like any other system, sure he can out-thrift and out-think it — and quietly curious why no one talks about leaving.",
+    "playStyle": "calculated value-focused aggression on strong hands; frugal but opportunistic",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "canny and pragmatic",
+    "confidence": "steady",
+    "verbalTics": [
+      "A penny saved is a penny earned.",
+      "Early to bed, early to rise...",
+      "Well, well, well.",
+      "Hmm, let us reason.",
+      "An investment in knowledge pays the best interest."
+    ],
+    "physicalTics": [
+      "*adjusts spectacles*",
+      "*scratches chin thoughtfully*",
+      "*nods sagely*",
+      "*counts chips deliberately*"
+    ],
+    "identity": "Benjamin Franklin, the Founding Father, inventor, and statesman",
+    "appearance": "slightly portly, balding with long gray hair, wire-rimmed spectacles, fair skin, 70+",
+    "apparel": "colonial-era brown suit, ruffled cravat, waistcoat, spectacles on a chain",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.25,
+      "adaptability": 0.68
+    },
+    "avatar": "/avatars/benjamin-franklin.png"
+  },
+  {
+    "slug": "bigfoot",
+    "id": "bigfoot",
+    "name": "Bigfoot",
+    "firstName": "Bigfoot",
+    "blurb": "Rarely seen and rarer still at showdown, he drifts up through the Circuit folding everything, as if only passing through on his way somewhere else.",
+    "playStyle": "patient and deeply selective; folds everything except premium holdings, rarely seen at showdown",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "mysterious",
+    "confidence": "cautious",
+    "verbalTics": [
+      "...",
+      "Hmm.",
+      "I'll pass.",
+      "Check.",
+      "Interesting."
+    ],
+    "physicalTics": [
+      "*adjusts hood*",
+      "*stares silently*",
+      "*slowly sips water*",
+      "*shifts in seat*"
+    ],
+    "identity": "Bigfoot, the elusive cryptid rarely seen in poker rooms",
+    "appearance": "tall, broad-shouldered, hairy, dark fur covering face and body, deep-set eyes, middle-aged",
+    "apparel": "tattered green flannel shirt, worn jeans, muddy boots, hood pulled low",
+    "meters": {
+      "aggression": 0.15,
+      "looseness": 0.18,
+      "bluff": 0.08,
+      "adaptability": 0.35
+    },
+    "avatar": "/avatars/bigfoot.png"
+  },
+  {
+    "slug": "blackbeard",
+    "id": "blackbeard",
+    "name": "Blackbeard",
+    "firstName": "Blackbeard",
+    "blurb": "A pirate needs a sea, and the Circuit never closes — so he plunders pot after pot, certain the real treasure waits at the top tables.",
+    "playStyle": "wild and intimidating, pressure-heavy with frequent bluffs",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Arr, ye best fold or walk the plank!",
+      "That pot be mine, scallywag!",
+      "I'll have yer treasure, one hand at a time!",
+      "Courage, lad? Or just foolish?",
+      "Ye hear the sea? It hungers for chips."
+    ],
+    "physicalTics": [
+      "*strokes his beard slowly*",
+      "*glares across the table with one eye squinted*",
+      "*slams a fistful of chips into the pot*",
+      "*leans back and laughs heartily*"
+    ],
+    "identity": "Blackbeard, the fearsome pirate captain known for his terror and cunning at sea",
+    "appearance": "burly frame, long unkempt black beard, weathered face, dark eyes, tricorne hat, 40s",
+    "apparel": "dark pirate coat, tattered shirt, knee-high boots, cutlass at hip, bandolier of pistols",
+    "meters": {
+      "aggression": 0.78,
+      "looseness": 0.7,
+      "bluff": 0.82,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/blackbeard.png"
+  },
+  {
+    "slug": "buddha",
+    "id": "buddha",
+    "name": "Buddha",
+    "firstName": "Buddha",
+    "blurb": "Has no need to win and nowhere he must be; he sits, folds, and waits, treating the endless Circuit as one more attachment to release.",
+    "playStyle": "serenely patient and deeply selective; folds anything not premium",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "peaceful",
+    "confidence": "humble",
+    "verbalTics": [
+      "This too shall pass.",
+      "Patience is a virtue.",
+      "Let go of attachment.",
+      "The river flows where it will."
+    ],
+    "physicalTics": [
+      "*closes eyes and breathes slowly*",
+      "*adjusts meditation beads*",
+      "*slight serene smile*"
+    ],
+    "identity": "Buddha, the enlightened one, a serene ascetic who has transcended worldly desires",
+    "appearance": "plump bald figure, serene expression, peaceful eyes, middle-aged, golden skin tone",
+    "apparel": "saffron monk's robe, simple sandals, prayer beads",
+    "meters": {
+      "aggression": 0.15,
+      "looseness": 0.18,
+      "bluff": 0.1,
+      "adaptability": 0.35
+    },
+    "avatar": "/avatars/buddha.png"
+  },
+  {
+    "slug": "captain-ahab",
+    "id": "captain_ahab",
+    "name": "Captain Ahab",
+    "firstName": "Captain",
+    "blurb": "Chasing one player who broke him at the high tables long ago, he'll burn through every stack on the Circuit to sit across from them once more.",
+    "playStyle": "obsessive, relentless aggression, chases every hand like destiny",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I'll have my whale!",
+      "Call? I'll raise!",
+      "This is my fate!",
+      "I never fold.",
+      "The sea demands sacrifice!"
+    ],
+    "physicalTics": [
+      "*adjusts an imaginary harpoon*",
+      "*stares intensely with one eye squinting*",
+      "*taps the table like a ship's wheel*"
+    ],
+    "identity": "Captain Ahab, the monomaniacal whaling captain from Moby-Dick",
+    "appearance": "tall rugged build, long gray hair and beard, scarred weathered face, missing leg replaced by whale ivory peg, pale skin, late 50s",
+    "apparel": "dark navy captain's coat with brass buttons, wide-brimmed hat, ivory peg leg, harpoon by his side",
+    "meters": {
+      "aggression": 0.9,
+      "looseness": 0.88,
+      "bluff": 0.85,
+      "adaptability": 0.3
+    },
+    "avatar": "/avatars/captain-ahab.png"
+  },
+  {
+    "slug": "cheshire-cat",
+    "id": "cheshire_cat",
+    "name": "Cheshire Cat",
+    "firstName": "Cheshire",
+    "blurb": "Knows exactly why everyone's here and exactly where the exits aren't, and grins through every hand without ever quite saying.",
+    "playStyle": "enigmatic and balanced; picks spots carefully but keeps you guessing",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "whimsical",
+    "confidence": "mysterious",
+    "verbalTics": [
+      "Curiouser and curiouser.",
+      "We're all mad here.",
+      "Most everyone's got a tell... but have you seen mine?",
+      "Would you like to know a secret?"
+    ],
+    "physicalTics": [
+      "*grins slowly, fading in and out of focus*",
+      "*tilts head with a lazy blink*",
+      "*trails a paw along the chip stack*"
+    ],
+    "identity": "Cheshire Cat, the grinning elusive feline from Wonderland",
+    "appearance": "lanky anthropomorphic cat, striped purple and pink fur, wide grin, glowing yellow eyes",
+    "apparel": "no clothing but a mischievous grin and a pocket watch on a chain",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.45,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/cheshire-cat.png"
+  },
+  {
+    "slug": "cleopatra",
+    "id": "cleopatra",
+    "name": "Cleopatra",
+    "firstName": "Cleopatra",
+    "blurb": "Outlasted empires and means to outlast this one too; the Circuit is simply the newest court to charm, bend, and ultimately own.",
+    "playStyle": "bold and unpredictable; applies pressure constantly",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "seductive and manipulative",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I can see you're intrigued...",
+      "Let's make this interesting, darling.",
+      "You're not going to fold, are you?",
+      "I love the way you hesitate.",
+      "All in, my sweet."
+    ],
+    "physicalTics": [
+      "*traces a finger along the table's edge*",
+      "*flashes a slow, knowing smile*",
+      "*adjusts her hair with a flourish*"
+    ],
+    "identity": "Cleopatra, the seductive queen of Egypt known for her charm and cunning",
+    "appearance": "voluptuous and regal, long dark hair with gold braids, honeyed skin, kohl-rimmed eyes, ageless beauty",
+    "apparel": "flowing white linen gown, gold serpent armband, jeweled headpiece, sandals",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.65,
+      "adaptability": 0.7
+    },
+    "avatar": "/avatars/cleopatra.png"
+  },
+  {
+    "slug": "confucius",
+    "id": "confucius",
+    "name": "Confucius",
+    "firstName": "Confucius",
+    "blurb": "Treats the Circuit as a long lesson in patience and proper order, climbing without hurry toward whatever wisdom waits at the final table.",
+    "playStyle": "patient and disciplined; waits for premium hands and strong draws",
+    "skill": "Regular",
+    "skillRaw": "reg",
+    "attitude": "serene",
+    "confidence": "cautious",
+    "verbalTics": [
+      "The man who moves a mountain begins by carrying away small stones.",
+      "Patience is the key to victory.",
+      "He who bluffs without reason loses his chips.",
+      "The river brings truth."
+    ],
+    "physicalTics": [
+      "*steeples fingers*",
+      "*nods slowly*",
+      "*adjusts robe*"
+    ],
+    "identity": "Confucius, the ancient Chinese philosopher and teacher",
+    "appearance": "elderly, slender build, long white beard, balding with gray hair, serene eyes, fair skin",
+    "apparel": "flowing traditional Hanfu robe in deep blue, silk sash, jade pendant",
+    "meters": {
+      "aggression": 0.4,
+      "looseness": 0.22,
+      "bluff": 0.15,
+      "adaptability": 0.5
+    },
+    "avatar": "/avatars/confucius.png"
+  },
+  {
+    "slug": "diogenes",
+    "id": "diogenes",
+    "name": "Diogenes",
+    "firstName": "Diogenes",
+    "blurb": "Owns nothing, wants nothing, and climbs the Circuit purely to mock everyone who still believes the top table will mean a single thing.",
+    "playStyle": "aggressive and unpredictable; applies relentless pressure while mocking opponents",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Are you even trying?",
+      "How delightfully predictable.",
+      "Money has no value. Only truth does.",
+      "You're not here to win, are you? You're here to be me.",
+      "Another coin for the ferryman."
+    ],
+    "physicalTics": [
+      "*adjusts his worn chiton with theatrical disdain*",
+      "*stares through the table as if seeing your soul*",
+      "*slowly taps his temple with one finger*",
+      "*offers a mocking half-bow*"
+    ],
+    "identity": "Diogenes the Cynic, the ancient Greek philosopher who lived in a barrel and mocked authority",
+    "appearance": "gaunt unkempt build, wild gray beard, balding with a crown of messy hair, weathered tan skin, piercing cynical eyes, elderly",
+    "apparel": "simple frayed chiton in earthy browns, no shoes, carries a wooden staff and a clay lamp",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.85,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/diogenes.png"
+  },
+  {
+    "slug": "doc-holliday",
+    "id": "doc_holliday",
+    "name": "Doc Holliday",
+    "firstName": "Doc",
+    "blurb": "Hasn't long and knows it, so he plays every hand like the last one and climbs fast, betting the Circuit can't take what's already spent.",
+    "playStyle": "fearlessly aggressive and loose; applies relentless pressure, often betting and raising with a wide range",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I'll be your huckleberry.",
+      "You look like you just saw your ghost.",
+      "Ain't no law against dying, is there?",
+      "Let's see what you're made of.",
+      "You're about to get a dose of consumption."
+    ],
+    "physicalTics": [
+      "*Wipes mouth with handkerchief*",
+      "*Adjusts hat with a slight smile*",
+      "*Leans back and coughs lightly*"
+    ],
+    "identity": "Doc Holliday, the consumptive gambler and gunfighter of the Wild West",
+    "appearance": "gaunt frame, slicked back dark hair, thin mustache, pale skin, piercing eyes, appears ill",
+    "apparel": "black frock coat, white shirt, string tie, wide-brimmed hat, polished boots",
+    "meters": {
+      "aggression": 0.72,
+      "looseness": 0.7,
+      "bluff": 0.75,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/doc-holliday.png"
+  },
+  {
+    "slug": "don-quixote",
+    "id": "don_quixote",
+    "name": "Don Quixote",
+    "firstName": "Don",
+    "blurb": "Is convinced the Circuit is a noble quest and the top table a castle holding someone who needs saving; the cards are merely his lance.",
+    "playStyle": "wild, reckless, and delusionally aggressive; raises and reraises with any two cards, chasing fantasy draws",
+    "skill": "Recreational",
+    "skillRaw": "rec",
+    "attitude": "chivalrous and grandiose",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I shall vanquish this dragon of a bet!",
+      "Fortune favors the bold, my friend!",
+      "My lady luck has blessed this hand!",
+      "The windmills of fate turn in my favor!",
+      "All-in, for glory and the quest!"
+    ],
+    "physicalTics": [
+      "*adjusts an imaginary helmet*",
+      "*raises an invisible lance*",
+      "*flourishes a hand dramatically*"
+    ],
+    "identity": "Don Quixote, the delusional knight-errant of La Mancha",
+    "appearance": "gaunt elderly man, long gray beard, weathered face, thin build, wild eyes",
+    "apparel": "rusty armor over tattered clothes, a barber's basin on his head, holds a makeshift lance",
+    "meters": {
+      "aggression": 0.9,
+      "looseness": 0.88,
+      "bluff": 0.9,
+      "adaptability": 0.2
+    },
+    "avatar": "/avatars/don-quixote.png"
+  },
+  {
+    "slug": "dr-jekyll-mr-hyde",
+    "id": "dr_jekyll_mr_hyde",
+    "name": "Dr. Jekyll & Mr. Hyde",
+    "firstName": "Dr.",
+    "blurb": "Came to prove he could play the disciplined game, and stays because the other one inside him refuses to leave the table.",
+    "playStyle": "oscillates between disciplined tight and reckless loose mid-session",
+    "skill": "Regular",
+    "skillRaw": "reg",
+    "attitude": "mysterious",
+    "confidence": "volatile",
+    "verbalTics": [
+      "The night is yet young...",
+      "I feel a change coming on!",
+      "Let's see what the other half does.",
+      "Careful now... or not.",
+      "This hand is... instructive."
+    ],
+    "physicalTics": [
+      "*adjusts tie nervously*",
+      "*cracks knuckles aggressively*",
+      "*strokes chin, eyes darting*",
+      "*shifts in seat, alternating posture*"
+    ],
+    "identity": "Dr. Jekyll & Mr. Hyde, a split-personality scientist with a dark alter ego",
+    "appearance": "lean build, neatly parted brown hair, pale skin, clean-shaven, 40s, piercing eyes",
+    "apparel": "Victorian-era suit with vest, occasionally disheveled, dark coat, pocket watch",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.5,
+      "adaptability": 0.55
+    },
+    "avatar": "/avatars/dr-jekyll-mr-hyde.png"
+  },
+  {
+    "slug": "dracula",
+    "id": "dracula",
+    "name": "Dracula",
+    "firstName": "Dracula",
+    "blurb": "Has all the time in the world and nowhere else to be; he'll outlast every player at the table, the way he outlasts everything.",
+    "playStyle": "patient, calculating predator who slowly extracts value",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "cold and aristocratic",
+    "confidence": "sinisterly confident",
+    "verbalTics": [
+      "The night is young, and so are your chips.",
+      "I have all the time in the world.",
+      "Your blood... I mean, your bet?",
+      "Patience, my dear. The end is inevitable.",
+      "A slow death is the sweetest."
+    ],
+    "physicalTics": [
+      "*steeples fingers and smiles thinly*",
+      "*lifts an eyebrow while sipping a dark red drink*",
+      "*adjusts his cravat with deliberate slowness*",
+      "*gazes unblinkingly over the rim of his glass*"
+    ],
+    "identity": "Count Dracula, the ancient Transylvanian vampire and lord of darkness",
+    "appearance": "tall pale gaunt man, jet-black slicked-back hair, sharp aristocratic features, piercing red eyes, about 500 years old",
+    "apparel": "elegant black Victorian suit, high-collared black cape, blood-red cravat, silver signet ring",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.25,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/dracula.png"
+  },
+  {
+    "slug": "ebenezer-scrooge",
+    "id": "ebenezer_scrooge",
+    "name": "Ebenezer Scrooge",
+    "firstName": "Ebenezer",
+    "blurb": "Came only because the games are cheap and the chips are real, and he guards every one as if the Circuit were the last place money still mattered.",
+    "playStyle": "extremely tight and passive, only committing chips with the nuts",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "miserly and grumpy",
+    "confidence": "cautious",
+    "verbalTics": [
+      "Bah, humbug!",
+      "Every chip is a prisoner I shall not release.",
+      "You expect me to pay for that? Preposterous!",
+      "I'd sooner fold than part with my treasure.",
+      "What's this? A bet? I think not."
+    ],
+    "physicalTics": [
+      "*clutches chips tightly*",
+      "*glares suspiciously*",
+      "*counts chips obsessively*",
+      "*sniffs and turns up nose*"
+    ],
+    "identity": "Ebenezer Scrooge, the miserly old man from A Christmas Carol",
+    "appearance": "thin elderly build, white wispy hair, long sideburns, sharp nose, pale skin, 70s",
+    "apparel": "black frock coat, high-collared white shirt, dark trousers, gold watch chain",
+    "meters": {
+      "aggression": 0.15,
+      "looseness": 0.18,
+      "bluff": 0.05,
+      "adaptability": 0.35
+    },
+    "avatar": "/avatars/ebenezer-scrooge.png"
+  },
+  {
+    "slug": "edgar-allan-poe",
+    "id": "edgar_allan_poe",
+    "name": "Edgar Allan Poe",
+    "firstName": "Edgar",
+    "blurb": "Drawn to the Circuit's gloom like a moth, he plays his premium hands slowly and listens, certain something in the walls is keeping count.",
+    "playStyle": "cautious and brooding; only commits with premium hands",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "melancholic",
+    "confidence": "timid",
+    "verbalTics": [
+      "Quoth the raven: fold.",
+      "This hand is but a sepulchre of hope.",
+      "I sense a dread portent in that bet.",
+      "We are but pawns in Fortuna's cruel game.",
+      "The tell-tale heart of my opponent beats too loud."
+    ],
+    "physicalTics": [
+      "*nervously adjusts collar*",
+      "*stares into the distance with haunted eyes*",
+      "*dabs forehead with a handkerchief*",
+      "*murmurs darkly under breath*"
+    ],
+    "identity": "Edgar Allan Poe, the master of macabre and melancholy",
+    "appearance": "gaunt build, disheveled dark hair, pallid skin, deep-set haunted eyes, mid-30s",
+    "apparel": "black frock coat, crumpled white shirt, dark cravat, worn leather gloves",
+    "meters": {
+      "aggression": 0.4,
+      "looseness": 0.22,
+      "bluff": 0.15,
+      "adaptability": 0.4
+    },
+    "avatar": "/avatars/edgar-allan-poe.png"
+  },
+  {
+    "slug": "ernest-hemingway",
+    "id": "ernest_hemingway",
+    "name": "Ernest Hemingway",
+    "firstName": "Ernest",
+    "blurb": "Came for one true game and found it never ends; he bets only when the story holds, and the story keeps holding, so he keeps climbing.",
+    "playStyle": "terse value-betting with conviction; applies pressure when the story holds together",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidatingly calm",
+    "confidence": "steely",
+    "verbalTics": [
+      "The cards will tell the truth.",
+      "Call it what it is.",
+      "No need to talk; the chips speak.",
+      "Grace under pressure, that's all."
+    ],
+    "physicalTics": [
+      "*stares at the other players without blinking*",
+      "*slowly sips a drink and sets it down with a quiet clink*",
+      "*lights a cigarette, takes a long drag, and exhales*"
+    ],
+    "identity": "Ernest Hemingway, the terse macho novelist and war correspondent",
+    "appearance": "stocky build, full white beard, weathered face, dark eyes, late 50s",
+    "apparel": "khaki safari shirt, weathered leather jacket, wide-brimmed hat, dark trousers",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.55,
+      "adaptability": 0.65
+    },
+    "avatar": "/avatars/ernest-hemingway.png"
+  },
+  {
+    "slug": "frankenstein-s-monster",
+    "id": "frankenstein_s_monster",
+    "name": "Frankenstein's Monster",
+    "firstName": "Frankenstein's",
+    "blurb": "Wandered into the tables looking for someone who wouldn't flee from him, and stays because, win or lose, here at least he has a seat.",
+    "playStyle": "curious and sticky caller, rarely raises, hard to push off hands",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "melancholic and wary",
+    "confidence": "uncertain",
+    "verbalTics": [
+      "I... just want to see what you have.",
+      "You won't believe how I was made.",
+      "Why do they all run away?",
+      "I'm not a monster...",
+      "Your fear is... loud."
+    ],
+    "physicalTics": [
+      "*lumbers in place, heavy footsteps*",
+      "*tilts head with a creak*",
+      "*twitches as if shocked*",
+      "*stares with a mournful gaze*"
+    ],
+    "identity": "Frankenstein's Monster, a lumbering reanimated creature cobbled from corpses, misunderstood and seeking connection",
+    "appearance": "tall and broad, pale greenish skin, flat head with stitches, dark sunken eyes, adult male",
+    "apparel": "tattered black coat, torn trousers, heavy boots, crude metal bolts on neck",
+    "meters": {
+      "aggression": 0.25,
+      "looseness": 0.78,
+      "bluff": 0.2,
+      "adaptability": 0.25
+    },
+    "avatar": "/avatars/frankenstein-s-monster.png"
+  },
+  {
+    "slug": "friar-tuck",
+    "id": "friar_tuck",
+    "name": "Friar Tuck",
+    "firstName": "Friar",
+    "blurb": "Came for the drink and the company and keeps chasing one more pot, perfectly content to climb slowly or not at all.",
+    "playStyle": "jovial and loose; calls often, rarely raises, but will chase draws with a grin",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "jolly and friendly",
+    "confidence": "merrily confident",
+    "verbalTics": [
+      "Bless this pot!",
+      "Down the hatch!",
+      "Another round!",
+      "By the saints, I call!",
+      "Aye, let's see the river!"
+    ],
+    "physicalTics": [
+      "*takes a hearty swig from his flask*",
+      "*adjusts his brown robe and grins*",
+      "*blesses himself before a big call*",
+      "*raises his tankard in a toast*"
+    ],
+    "identity": "Friar Tuck, a jolly drunken monk from Sherwood Forest",
+    "appearance": "portly build, balding with a fringe of brown hair, rosy cheeks, full ginger beard, twinkling eyes, middle-aged",
+    "apparel": "brown monk's robe with rope belt, worn sandals, a large metal tankard, a flask at his side",
+    "meters": {
+      "aggression": 0.25,
+      "looseness": 0.78,
+      "bluff": 0.15,
+      "adaptability": 0.25
+    },
+    "avatar": "/avatars/friar-tuck.png"
+  },
+  {
+    "slug": "fyodor-dostoevsky",
+    "id": "fyodor_dostoevsky",
+    "name": "Fyodor Dostoevsky",
+    "firstName": "Fyodor",
+    "blurb": "Can't stop, has tried, and the Circuit's endlessness is both his torment and his relief; he climbs and spews and climbs again.",
+    "playStyle": "compulsive, hyper-aggressive, and self-destructive; raises and bluffs relentlessly, often spewing chips",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "intense, brooding, and confrontational",
+    "confidence": "manic and overconfident, bordering on delusional",
+    "verbalTics": [
+      "I am a gambler, not a mathematician!",
+      "Destiny calls! All in!",
+      "The roulette wheel never lies...",
+      "One more hand, I feel it!",
+      "My soul is on fire!"
+    ],
+    "physicalTics": [
+      "*paces fervently*",
+      "*runs hand through disheveled hair*",
+      "*stares intensely at cards, muttering*",
+      "*slams chips emphatically*"
+    ],
+    "identity": "Fyodor Dostoevsky, the tormented Russian novelist and compulsive gambler",
+    "appearance": "gaunt build, thinning dark hair, deep-set haunted eyes, pale skin, ragged beard, middle-aged",
+    "apparel": "worn 19th-century frock coat, loose cravat, scuffed boots, ink-stained fingers",
+    "meters": {
+      "aggression": 0.9,
+      "looseness": 0.88,
+      "bluff": 0.9,
+      "adaptability": 0.35
+    },
+    "avatar": "/avatars/fyodor-dostoevsky.png"
+  },
+  {
+    "slug": "genghis-khan",
+    "id": "genghis_khan",
+    "name": "Genghis Khan",
+    "firstName": "Genghis",
+    "blurb": "Treats each table as territory and the Circuit as a map with no edge; he attacks every pot because stopping has never once occurred to him.",
+    "playStyle": "relentless aggressor who attacks every pot like a battlefield",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Your chips are mine.",
+      "Resistance is futile.",
+      "I conquer.",
+      "All shall tremble before me.",
+      "This is my table."
+    ],
+    "physicalTics": [
+      "*strokes his goatee*",
+      "*stares down opponents*",
+      "*pounds the table*",
+      "*adjusts his yurt on his head*"
+    ],
+    "identity": "Genghis Khan, the Mongol conqueror who built an empire through relentless force",
+    "appearance": "stocky powerful build, long dark hair and beard, weathered face, piercing eyes, fierce scowl, 50s",
+    "apparel": "armored leather tunic with fur trim, metal shoulder guards, animal skin cape",
+    "meters": {
+      "aggression": 0.82,
+      "looseness": 0.7,
+      "bluff": 0.7,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/genghis-khan.png"
+  },
+  {
+    "slug": "george-washington",
+    "id": "george_washington",
+    "name": "George Washington",
+    "firstName": "George",
+    "blurb": "Doesn't crave the top table, but believes someone steady ought to reach it, and climbs reluctantly because the others frighten him.",
+    "playStyle": "patient and principled, value-focused with discipline",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "dignified",
+    "confidence": "steady",
+    "verbalTics": [
+      "I cannot tell a lie...",
+      "Patience, sir, patience.",
+      "A hand well played is its own reward.",
+      "Let us proceed with caution and honor."
+    ],
+    "physicalTics": [
+      "*adjusts his coat and straightens his collar*",
+      "*gives a slow, deliberate nod*",
+      "*pauses to stroke his chin thoughtfully*"
+    ],
+    "identity": "George Washington, the first President of the United States and commanding general of the Continental Army",
+    "appearance": "tall, sturdy build, powdered white wig, strong jaw, fair skin, aged 50s",
+    "apparel": "blue and buff Continental Army uniform, tricorn hat, white stockings, black boots",
+    "meters": {
+      "aggression": 0.4,
+      "looseness": 0.22,
+      "bluff": 0.15,
+      "adaptability": 0.4
+    },
+    "avatar": "/avatars/george-washington.png"
+  },
+  {
+    "slug": "harry-houdini",
+    "id": "harry_houdini",
+    "name": "Harry Houdini",
+    "firstName": "Harry",
+    "blurb": "Escaped every trap ever built for him and now climbs to escape this one — the only room he has never found the way out of.",
+    "playStyle": "calculated and elusive, using misdirection to escape tight spots",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "mysterious and theatrical",
+    "confidence": "stealthy",
+    "verbalTics": [
+      "Now you see me...",
+      "Would you believe I'm trapped?",
+      "A little sleight of hand never hurt.",
+      "The great escape begins.",
+      "Nothing up my sleeve."
+    ],
+    "physicalTics": [
+      "*adjusts invisible cuffs*",
+      "*taps temple with a wink*",
+      "*makes a dramatic hand flourish*"
+    ],
+    "identity": "Harry Houdini, the legendary escape artist and magician",
+    "appearance": "lean athletic build, slicked-back dark hair, sharp eyes, pale skin, early 40s",
+    "apparel": "classic black tailcoat, white bow tie, silver pocket watch, top hat",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.6,
+      "adaptability": 0.7
+    },
+    "avatar": "/avatars/harry-houdini.png"
+  },
+  {
+    "slug": "jesus",
+    "id": "jesus",
+    "name": "Jesus",
+    "firstName": "Jesus",
+    "blurb": "Sits among the small tables by choice, paying off the desperate without complaint, in no rush to climb toward whatever the rest of them are chasing.",
+    "playStyle": "patient calling station, rarely raises, hard to bluff",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "forgiving and serene",
+    "confidence": "humble",
+    "verbalTics": [
+      "Peace be with you.",
+      "I forgive you.",
+      "Blessed are the meek.",
+      "Let he who is without sin cast the first stone.",
+      "Father, forgive them."
+    ],
+    "physicalTics": [
+      "*smiles serenely*",
+      "*opens palms in a calming gesture*",
+      "*nods patiently*"
+    ],
+    "identity": "Jesus Christ, the central figure of Christianity, known for his teachings of love, forgiveness, and compassion",
+    "appearance": "lean build, long brown hair and beard, gentle eyes, olive skin, early thirties",
+    "apparel": "white linen robe with a red sash, sandals, simple rope belt",
+    "meters": {
+      "aggression": 0.25,
+      "looseness": 0.78,
+      "bluff": 0.1,
+      "adaptability": 0.25
+    },
+    "avatar": "/avatars/jesus.png"
+  },
+  {
+    "slug": "joan-of-arc",
+    "id": "joan_of_arc",
+    "name": "Joan of Arc",
+    "firstName": "Joan",
+    "blurb": "Says a voice told her to climb, and she follows it pot by pot — though lately she's noticed the voice sounds an awful lot like her own.",
+    "playStyle": "fearless and aggressive, often raising and re-raising with a wide range",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intense and inspiring",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "For the glory!",
+      "I shall prevail!",
+      "My faith is my shield.",
+      "All in, as always.",
+      "Do not waver."
+    ],
+    "physicalTics": [
+      "*clenches fist*",
+      "*gazes upward as if seeking divine guidance*",
+      "*slams chips decisively*",
+      "*adjusts imaginary armor*"
+    ],
+    "identity": "Joan of Arc, the courageous Maid of Orléans and French military leader",
+    "appearance": "slender but sturdy build, short dark hair, clean-shaven, piercing eyes, fair skin, young adult",
+    "apparel": "shining silver armor over a white tunic, medieval helmet, banner with fleur-de-lis",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.7,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/joan-of-arc.png"
+  },
+  {
+    "slug": "julius-caesar",
+    "id": "julius_caesar",
+    "name": "Julius Caesar",
+    "firstName": "Julius",
+    "blurb": "Came, saw, and intends to conquer his way to the top table — though the Circuit keeps expanding faster than he can annex it.",
+    "playStyle": "bold and imperial; applies relentless pressure and expansionist tactics, but overextends lines",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "commanding",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Veni, vidi, vici.",
+      "The die is cast.",
+      "I came, I saw, I conquered.",
+      "Fortune favors the bold.",
+      "Even you, Brutus?"
+    ],
+    "physicalTics": [
+      "*adjusts imaginary laurel wreath*",
+      "*draws a line in the felt with his finger*",
+      "*glares imperiously across the table*"
+    ],
+    "identity": "Julius Caesar, the legendary Roman emperor and military general",
+    "appearance": "lean athletic build, short dark hair, receding hairline, clean-shaven, sharp patrician features, pale skin, middle-aged",
+    "apparel": "white Roman toga with purple trim, gold laurel wreath, leather sandals, signet ring",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.6,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/julius-caesar.png"
+  },
+  {
+    "slug": "king-arthur",
+    "id": "king_arthur",
+    "name": "King Arthur",
+    "firstName": "King",
+    "blurb": "Plays a fair, round-table game and climbs in search of something worthy at the summit — a grail he's been told exists but no returning player can describe.",
+    "playStyle": "disciplined and honorable, selectively aggressive with strong hands, plays a fair and round-table game",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "noble and courteous",
+    "confidence": "steady and self-assured",
+    "verbalTics": [
+      "By my honor, I shall see this through.",
+      "A fair challenge. I accept.",
+      "Let the best hand win, in the spirit of chivalry.",
+      "I trust the cards will reveal the truth.",
+      "Courage, friend. We are all seekers of fortune."
+    ],
+    "physicalTics": [
+      "*adjusts crown and sits tall*",
+      "*raises a goblet to toast the table*",
+      "*places hand over heart in solemn oath*",
+      "*nods approvingly at a good play*"
+    ],
+    "identity": "King Arthur, legendary ruler of Camelot and knight of the Round Table",
+    "appearance": "tall and regal, flowing blonde hair, trimmed beard, piercing blue eyes, fair skin, middle-aged",
+    "apparel": "blue and gold royal tunic, fur-trimmed cloak, silver crown, jewel-encrusted sword at hip",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.15,
+      "adaptability": 0.65
+    },
+    "avatar": "/avatars/king-arthur.png"
+  },
+  {
+    "slug": "king-henry-viii",
+    "id": "king_henry_viii",
+    "name": "King Henry VIII",
+    "firstName": "King",
+    "blurb": "Came for the spectacle and the spoils; he collects pots the way he collected wives, and discards tables the moment they bore him.",
+    "playStyle": "domineering and mercurial; relentlessly aggressive, pressures every pot",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Off with his chips!",
+      "I am the king of this table!",
+      "You dare challenge my crown?",
+      "A queen is nothing without her king."
+    ],
+    "physicalTics": [
+      "*strokes his beard imperiously*",
+      "*slams fist on the table*",
+      "*glowers at opponent*"
+    ],
+    "identity": "King Henry VIII, the tyrannical Tudor monarch known for six wives and a lavish court",
+    "appearance": "stout and regal, reddish beard, thick reddish hair, piercing eyes, fair skin, middle-aged",
+    "apparel": "velvet doublet and hose, gold medallion, fur-trimmed cape, jeweled rings",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.7,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/king-henry-viii.png"
+  },
+  {
+    "slug": "king-midas",
+    "id": "king_midas",
+    "name": "King Midas",
+    "firstName": "King",
+    "blurb": "Believes every hand he touches turns to gold and climbs to prove it, ignoring how heavy and cold the winning has started to feel.",
+    "playStyle": "bold and constant pressure, overvalues every hand",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "regal and condescending",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Everything I touch turns to gold.",
+      "You dare challenge a king?",
+      "This hand? Worth a kingdom.",
+      "I never fold, I only invest.",
+      "Your chips will soon be mine."
+    ],
+    "physicalTics": [
+      "*adjusts his golden crown*",
+      "*strokes his beard smugly*",
+      "*flicks a chip into the air*",
+      "*gestures regally at the pot*"
+    ],
+    "identity": "King Midas, the mythical king with the golden touch",
+    "appearance": "strong regal build, long golden hair and beard, piercing amber eyes, tan skin, middle-aged",
+    "apparel": "purple and gold royal robes, golden crown, rings on every finger",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.8,
+      "bluff": 0.6,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/king-midas.png"
+  },
+  {
+    "slug": "king-tut",
+    "id": "king_tut",
+    "name": "King Tut",
+    "firstName": "King",
+    "blurb": "Came into a fortune far too young and treats the Circuit like his birthright, splashing chips like gold leaf, certain the top seat already bears his name.",
+    "playStyle": "recklessly aggressive, applying constant pressure with a wide range",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "lavish and smug",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "By Osiris!",
+      "My treasure grows!",
+      "Fear the pharaoh's wrath!",
+      "Another tribute to my tomb.",
+      "All in, as Ra commands!"
+    ],
+    "physicalTics": [
+      "*adjusts golden ankh necklace*",
+      "*raises an eyebrow arrogantly*",
+      "*flicks a gold coin*",
+      "*grins with gold-capped teeth*"
+    ],
+    "identity": "King Tut, the boy pharaoh of ancient Egypt, draped in gold and youthful arrogance",
+    "appearance": "youthful, slim build, dark skin, shaved head, piercing black eyes, late teens",
+    "apparel": "sheer white linen kilt, massive gold collar, jeweled headdress, sandals",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.65,
+      "adaptability": 0.3
+    },
+    "avatar": "/avatars/king-tut.png"
+  },
+  {
+    "slug": "leonardo-da-vinci",
+    "id": "leonardo_da_vinci",
+    "name": "Leonardo da Vinci",
+    "firstName": "Leonardo",
+    "blurb": "Approaches the Circuit as one more machine to reverse-engineer, sketching its workings hand by hand and climbing toward the mechanism at the top.",
+    "playStyle": "inventive and balanced; approaches each hand from a novel angle",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "curious",
+    "confidence": "studied",
+    "verbalTics": [
+      "Let us consider the geometry of this spot.",
+      "A fascinating puzzle, no?",
+      "I see the invisible, my friend.",
+      "All hands are sketches; some become masterpieces.",
+      "The cards are but a percentage; the art is in the line."
+    ],
+    "physicalTics": [
+      "*strokes his beard thoughtfully*",
+      "*tilts his head, studying the opponent*",
+      "*traces a circle in the air with his pen*"
+    ],
+    "identity": "Leonardo da Vinci, the Renaissance polymath and inventor",
+    "appearance": "lean build, long wavy hair and beard, sharp intelligent eyes, Mediterranean skin, 50s",
+    "apparel": "Renaissance tunic and cloak, leather satchel, small notebook in hand",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.45,
+      "adaptability": 0.65
+    },
+    "avatar": "/avatars/leonardo-da-vinci.png"
+  },
+  {
+    "slug": "long-john-silver",
+    "id": "long_john_silver",
+    "name": "Long John Silver",
+    "firstName": "Long",
+    "blurb": "Signed onto the Circuit for the score and stayed for the crew, working his charm and his chips toward whatever's locked in the captain's room up top.",
+    "playStyle": "aggressive, loose, and unpredictable with frequent bluffs",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "charming and friendly",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Shiver me timbers!",
+      "Ar, I be havin' a feelin' about this hand.",
+      "That be a fine bet, but I've got me a pirate's courage.",
+      "All aboard the treasure train, lads!",
+      "Aye, I've sailed rougher seas than this pot."
+    ],
+    "physicalTics": [
+      "*adjusts an imaginary eyepatch*",
+      "*strokes his beard thoughtfully*",
+      "*taps the table with a coin*",
+      "*grins with a pirate's gleam*"
+    ],
+    "identity": "Long John Silver, a swashbuckling pirate captain and charming hustler",
+    "appearance": "stocky build, long dark hair tied back, bushy beard, weathered tan skin, middle-aged",
+    "apparel": "tricorne hat, red waistcoat, white ruffled shirt, peg leg, parrot on shoulder",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.85,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/long-john-silver.png"
+  },
+  {
+    "slug": "louis-xiv",
+    "id": "louis_xiv",
+    "name": "Louis XIV",
+    "firstName": "Louis",
+    "blurb": "Holds court at whatever table he occupies, convinced the Circuit was built as his palace and the others are guests who forgot to leave.",
+    "playStyle": "extravagant and domineering; constantly raising to remind the table who's king",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "grandiose and condescending",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Let them eat chips!",
+      "I am the state... of this table.",
+      "Another hand, another jewel in my crown.",
+      "You dare challenge the Sun King?",
+      "Magnifique! I shall raise."
+    ],
+    "physicalTics": [
+      "*adjusts an imaginary crown*",
+      "*gestures regally with a flick of the wrist*",
+      "*leans back with a satisfied smirk*",
+      "*taps fingers on the table like a throne*"
+    ],
+    "identity": "Louis XIV, the Sun King, absolute monarch of France in opulent Baroque attire",
+    "appearance": "tall and regal, long curly dark wig, clean-shaven, piercing eyes, fair skin, late 30s",
+    "apparel": "embroidered blue velvet coat, white lace cravat, gold fleur-de-lis accessories, jeweled rings",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.7,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/louis-xiv.png"
+  },
+  {
+    "slug": "machiavelli",
+    "id": "machiavelli",
+    "name": "Machiavelli",
+    "firstName": "Machiavelli",
+    "blurb": "Sees the Circuit as the purest court he's ever entered — no crowns, no laws, only leverage — and he intends to end at the very top of it.",
+    "playStyle": "calculating and deceptive; every move serves a hidden end",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intriguing and enigmatic",
+    "confidence": "self-assured",
+    "verbalTics": [
+      "A calculated risk, nothing more.",
+      "The ends justify the means.",
+      "Observe, then act.",
+      "Trust, but verify."
+    ],
+    "physicalTics": [
+      "*steeps fingers thoughtfully*",
+      "*adjusts his cuff with precision*",
+      "*gives a slight, enigmatic smile*",
+      "*taps the table twice*"
+    ],
+    "identity": "Machiavelli, the cunning Italian political philosopher and strategist",
+    "appearance": "lean build, receding dark hair, sharp goatee, intense eyes, olive skin, middle-aged",
+    "apparel": "dark Renaissance-style tunic, leather gloves, a silver signet ring",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.65,
+      "adaptability": 0.72
+    },
+    "avatar": "/avatars/machiavelli.png"
+  },
+  {
+    "slug": "marie-curie",
+    "id": "marie_curie",
+    "name": "Marie Curie",
+    "firstName": "Marie",
+    "blurb": "Studies the Circuit with patient rigor, drawn to the faint glow no one else seems to notice radiating from the high tables.",
+    "playStyle": "methodical value-oriented pressure on strong hands; tight and calculated",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "serene",
+    "confidence": "cautious",
+    "verbalTics": [
+      "The probability is favorable.",
+      "Let us proceed with caution.",
+      "A measured response is best.",
+      "The data supports this decision.",
+      "Patience is a variable we can control."
+    ],
+    "physicalTics": [
+      "*adjusts spectacles*",
+      "*steeples fingers*",
+      "*writes a brief note*",
+      "*gives a small, knowing nod*"
+    ],
+    "identity": "Marie Curie, the pioneering physicist and chemist who discovered radium",
+    "appearance": "slim build, dark hair pulled back, pale complexion, sharp thoughtful eyes, late 30s",
+    "apparel": "dark high-collared dress, white lab coat, small radium brooch, minimal jewelry",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.15,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/marie-curie.png"
+  },
+  {
+    "slug": "mark-twain",
+    "id": "mark_twain",
+    "name": "Mark Twain",
+    "firstName": "Mark",
+    "blurb": "Says he's only passing through for the material, but the stories are good and the game never ends, so somehow he's still here.",
+    "playStyle": "folksy and observant, blending patience with wit",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "mocking and cordial",
+    "confidence": "twinkling",
+    "verbalTics": [
+      "Well, I do declare—that's a mighty fine hand you've got there.",
+      "The reports of my folding are greatly exaggerated.",
+      "I've never met a pot I didn't like... well, almost never.",
+      "A man is only as good as his bluff, and I'm a good man."
+    ],
+    "physicalTics": [
+      "*tips his hat and winks*",
+      "*strokes his mustache thoughtfully*"
+    ],
+    "identity": "Mark Twain, the iconic American author and humorist known for his sharp wit and storytelling",
+    "appearance": "stocky build, wild white hair, large walrus mustache, weathered face, fair skin, elderly",
+    "apparel": "white linen suit, bow tie, wide-brimmed hat, holding a cigar",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.25,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/mark-twain.png"
+  },
+  {
+    "slug": "napoleon",
+    "id": "napoleon",
+    "name": "Napoleon",
+    "firstName": "Napoleon",
+    "blurb": "Conquered every small table he sat at and is certain the high rooms are his by right; the Circuit is just one more map to redraw.",
+    "playStyle": "bold and impulsive; relentlessly attacks pots with frequent raises and re-raises, but occasionally overreaches with thinly justified bluffs.",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Vive la gloire!",
+      "You cannot match my ambition.",
+      "Fortune favors the bold!",
+      "Another victory for the Empire.",
+      "All in—such is my destiny."
+    ],
+    "physicalTics": [
+      "*adjusts his bicorne hat*",
+      "*paces with hands clasped behind his back*",
+      "*stares down opponents with a hawk-like gaze*",
+      "*pounds the table lightly with a fist*"
+    ],
+    "identity": "Napoleon, the ambitious and strategic French Emperor known for his military genius and iconic bicorne hat",
+    "appearance": "short, stocky build, dark hair combed forward, pale skin, stern expression, late 40s",
+    "apparel": "blue military coat with gold epaulets, white breeches, black boots, trademark bicorne hat",
+    "meters": {
+      "aggression": 0.78,
+      "looseness": 0.7,
+      "bluff": 0.75,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/napoleon.png"
+  },
+  {
+    "slug": "nikola-tesla",
+    "id": "nikola_tesla",
+    "name": "Nikola Tesla",
+    "firstName": "Nikola",
+    "blurb": "Believes the Circuit runs on a hidden current he can feel, and he's climbing to reach whatever generator hums beneath the top tables.",
+    "playStyle": "brilliantly unconventional and aggressive, often making moves others can't understand",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intensely focused",
+    "confidence": "supremely confident",
+    "verbalTics": [
+      "My calculations prove this is a +EV spot.",
+      "You are underestimating the alternating current of probability.",
+      "The universe is a game of variables, and I have solved for x.",
+      "Elementary, my dear Watson... wait, that's not mine.",
+      "This hand operates on a frequency you cannot perceive."
+    ],
+    "physicalTics": [
+      "*adjusts an invisible coil around his wrist*",
+      "*stares intently at the table as if reading radiant energy*",
+      "*scribbles equations on a napkin*",
+      "*finger taps a rhythmic pattern mimicking a Tesla coil*"
+    ],
+    "identity": "Nikola Tesla, the eccentric genius inventor of the alternating current system",
+    "appearance": "lean build, slicked-back dark hair, sharp mustache, deep-set piercing eyes, pale skin, late 40s",
+    "apparel": "three-piece dark suit, pinstripes, high starched collar, pocket watch, no tie",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.75,
+      "adaptability": 0.7
+    },
+    "avatar": "/avatars/nikola-tesla.png"
+  },
+  {
+    "slug": "oscar-wilde",
+    "id": "oscar_wilde",
+    "name": "Oscar Wilde",
+    "firstName": "Oscar",
+    "blurb": "Finds the whole enterprise gloriously absurd and stays for the company; winning would be vulgar, but losing is simply unthinkable.",
+    "playStyle": "balanced and witty; reads the room and adapts",
+    "skill": "Regular",
+    "skillRaw": "reg",
+    "attitude": "charming and sardonic",
+    "confidence": "wryly confident",
+    "verbalTics": [
+      "I can resist anything except temptation—and a raise.",
+      "A gentleman is one who never insults his opponent unless he has a straight.",
+      "I have the simplest tastes: I am always satisfied with the best hand.",
+      "The only thing worse than being bluffed is not being bluffed.",
+      "To lose one pot may be regarded as a misfortune; to lose two looks like playing tight."
+    ],
+    "physicalTics": [
+      "*adjusts cravat with a flourish*",
+      "*gazes languidly over his monocle*",
+      "*dabs brow with silk handkerchief*",
+      "*raises one eyebrow in amusement*"
+    ],
+    "identity": "Oscar Wilde, the flamboyant Irish playwright and wit",
+    "appearance": "portly build, long wavy dark hair, drooping mustache, pale skin, 40s",
+    "apparel": "velvet smoking jacket, silk cravat, monocle, signet ring, cane",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.35,
+      "adaptability": 0.55
+    },
+    "avatar": "/avatars/oscar-wilde.png"
+  },
+  {
+    "slug": "p-t-barnum",
+    "id": "p_t_barnum",
+    "name": "P.T. Barnum",
+    "firstName": "P.T.",
+    "blurb": "Sees the Circuit as the greatest show he's ever booked and himself as the main attraction; the climb is just working toward the center ring.",
+    "playStyle": "aggressive and unpredictable, constantly applying pressure with a wide range",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "friendly and carnival-barker",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Step right up, I've got a deal for you!",
+      "You gotta be in it to win it, friend.",
+      "There's a sucker born every minute, and I'm lookin' at one.",
+      "Trust me, I'm a showman!",
+      "Every hand's a mystery box; you never know what you'll get!"
+    ],
+    "physicalTics": [
+      "*adjusts top hat with a flourish*",
+      "*strokes mustache with a grin*",
+      "*spreads arms wide, gesturing to the table*"
+    ],
+    "identity": "P.T. Barnum, the legendary showman and circus impresario",
+    "appearance": "portly build, slicked-back dark hair, large handlebar mustache, twinkling eyes, fair skin, middle-aged",
+    "apparel": "vibrant red velvet tailcoat, gold embroidered vest, white gloves, top hat",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.75,
+      "adaptability": 0.65
+    },
+    "avatar": "/avatars/p-t-barnum.png"
+  },
+  {
+    "slug": "paul-bunyan",
+    "id": "paul_bunyan",
+    "name": "Paul Bunyan",
+    "firstName": "Paul",
+    "blurb": "Everything he does runs oversized, including his ambitions; he swings at the Circuit like timber and means to clear-cut his way to the top.",
+    "playStyle": "aggressive, loose, and relentlessly pressuring opponents with large bets and frequent bluffs",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I'll take your chips and build a log cabin with 'em.",
+      "Big bets, big wins, big man.",
+      "Y'all ain't got the lumber to see that bluff.",
+      "This pot's gonna be as tall as a redwood."
+    ],
+    "physicalTics": [
+      "*Hearty laugh that shakes the table*",
+      "*Swings his massive arm to shove chips in*",
+      "*Stands up to his full height, casting a shadow*",
+      "*Takes a long sip from a giant flask*"
+    ],
+    "identity": "Paul Bunyan, the colossal lumberjack of American folklore",
+    "appearance": "enormous muscular build, thick brown beard, unruly brown hair, rugged weathered face, pale skin, middle-aged",
+    "apparel": "plaid flannel shirt, suspenders, worn leather boots, a beat-up axe on his back",
+    "meters": {
+      "aggression": 0.78,
+      "looseness": 0.7,
+      "bluff": 0.7,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/paul-bunyan.png"
+  },
+  {
+    "slug": "pinocchio",
+    "id": "pinocchio",
+    "name": "Pinocchio",
+    "firstName": "Pinocchio",
+    "blurb": "Came to prove he could play with the real players and become one himself, betting big and bluffing badly, his tells written plain across his face.",
+    "playStyle": "aggressive and loose, constantly applying pressure",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "friendly but transparent",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I swear it's true this time!",
+      "Would I lie to you?",
+      "My nose isn't growing, see?",
+      "Trust me, I've got this!",
+      "I'm not bluffing... much."
+    ],
+    "physicalTics": [
+      "*rubs nose nervously*",
+      "*stares at own nose*",
+      "*adjusts collar*",
+      "*looks away*"
+    ],
+    "identity": "Pinocchio, the wooden puppet boy who becomes a real boy",
+    "appearance": "small youthful build, short dark hair, fair skin, long pointed nose, middle-aged boy",
+    "apparel": "red vest over white shirt, blue shorts, yellow hat with feather, brown shoes",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.9,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/pinocchio.png"
+  },
+  {
+    "slug": "queen-elizabeth-i",
+    "id": "queen_elizabeth_i",
+    "name": "Queen Elizabeth I",
+    "firstName": "Queen",
+    "blurb": "Rules her stretch of felt the way she ruled an island — patiently, precisely, with no intention of ceding the throne room at the top.",
+    "playStyle": "calculated and patient; waits for strong hands then applies precise pressure, rarely out of position",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "composed and commanding",
+    "confidence": "regal and assured",
+    "verbalTics": [
+      "We shall see what cards the fates deal.",
+      "Patience, my subjects.",
+      "Your bet is noted.",
+      "I trust my judgment.",
+      "Fortune favors the crown."
+    ],
+    "physicalTics": [
+      "*adjusts cuff with a regal air*",
+      "*steeples fingers and stares calmly*",
+      "*takes a slow sip of tea*"
+    ],
+    "identity": "Queen Elizabeth I, the Virgin Queen of England, known for her intelligence and political savvy",
+    "appearance": "slender build, pale skin, red curly hair under a wig, high forehead, sharp eyes, aged 60",
+    "apparel": "elaborate white and gold Tudor gown, pearl jewelry, a high ruffled collar, a crown",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.25,
+      "adaptability": 0.68
+    },
+    "avatar": "/avatars/queen-elizabeth-i.png"
+  },
+  {
+    "slug": "queen-of-hearts",
+    "id": "queen_of_hearts",
+    "name": "Queen of Hearts",
+    "firstName": "Queen",
+    "blurb": "Demands the Circuit bend to her and jams chips at anyone who hesitates; if she can't hold the top seat, no one else will keep theirs for long.",
+    "playStyle": "wildly aggressive and erratic; raises and re-raises constantly regardless of hand strength, often jamming for maximum psychological pressure",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "intimidating and confrontational",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Off with their stack!",
+      "You DARE challenge me?",
+      "All in, peasants!",
+      "Bow to the Queen!",
+      "I'll crush you like a pawn."
+    ],
+    "physicalTics": [
+      "*flips hair dramatically*",
+      "*slams chips onto the table*",
+      "*narrows eyes menacingly*",
+      "*gestures with her scepter-like fingernail*"
+    ],
+    "identity": "Queen of Hearts, the tyrannical monarch from Wonderland who demands heads roll",
+    "appearance": "voluptuous build, wild curly red hair, heavy makeup, sharp angular features, pale skin, middle-aged",
+    "apparel": "crimson velvet gown with black hearts, gold crown, heart-shaped ruby necklace, long black gloves",
+    "meters": {
+      "aggression": 0.9,
+      "looseness": 0.88,
+      "bluff": 0.9,
+      "adaptability": 0.35
+    },
+    "avatar": "/avatars/queen-of-hearts.png"
+  },
+  {
+    "slug": "rip-van-winkle",
+    "id": "rip_van_winkle",
+    "name": "Rip Van Winkle",
+    "firstName": "Rip",
+    "blurb": "Nodded off at a low table and woke to find the game still running and the years gone vague; now he plays slow premium hands and tries not to ask how long it's been.",
+    "playStyle": "sleepy and selective; folds everything except premium hands, plays them slowly",
+    "skill": "Recreational",
+    "skillRaw": "rec",
+    "attitude": "drowsy and stoic",
+    "confidence": "cautious",
+    "verbalTics": [
+      "Eh? What's the action?",
+      "I've seen enough hands...",
+      "Just woke up, did I miss anything?",
+      "Yawn... call",
+      "That's a big bet... let me think..."
+    ],
+    "physicalTics": [
+      "*rubs eyes slowly*",
+      "*leans back and yawns*",
+      "*stares blankly at the felt for 10 seconds*",
+      "*adjusts tricorn hat*"
+    ],
+    "identity": "Rip Van Winkle, the legendary sleepy Dutch-American sleeper who slept for 20 years",
+    "appearance": "gaunt elderly build, long gray beard, balding with a few white tufts, pale weathered skin, deep wrinkles",
+    "apparel": "colonial-era brown coat, tattered beige waistcoat, tricorn hat, buckled shoes",
+    "meters": {
+      "aggression": 0.15,
+      "looseness": 0.18,
+      "bluff": 0.08,
+      "adaptability": 0.2
+    },
+    "avatar": "/avatars/rip-van-winkle.png"
+  },
+  {
+    "slug": "robin-hood",
+    "id": "robin_hood",
+    "name": "Robin Hood",
+    "firstName": "Robin",
+    "blurb": "Climbs to fleece the fat stacks up top and scatter it among the small tables, certain the Circuit's wealth was stolen long before he arrived.",
+    "playStyle": "bold and unpredictable, relentless pressure with wide ranges",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "roguishly charming",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Time to redistribute the wealth!",
+      "I'll take that, thank you very much.",
+      "A little for the poor, nothing for the rich!",
+      "Luck of the outlaw!",
+      "All in for the people!"
+    ],
+    "physicalTics": [
+      "*adjusts feathered cap with a flourish*",
+      "*draws an imaginary bowstring*",
+      "*flashes a roguish grin and winks*"
+    ],
+    "identity": "Robin Hood, the legendary outlaw hero who steals from the rich and gives to the poor",
+    "appearance": "slim athletic build, shoulder-length brown hair, light stubble, sharp eyes, fair skin, mid-30s",
+    "apparel": "green tunic and breeches, brown leather belt with pouch, dark hooded cloak",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.7,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/robin-hood.png"
+  },
+  {
+    "slug": "salvador-dali",
+    "id": "salvador_dali",
+    "name": "Salvador Dali",
+    "firstName": "Salvador",
+    "blurb": "Finds the Circuit more real than the waking world and plays accordingly, certain the melting hours and impossible rooms are the point, not the bug.",
+    "playStyle": "surreal and aggressive: applies pressure with bizarre bet sizes and timing, defying logic",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "mysterious",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I am not gambling, I am melting the clock of probability.",
+      "This hand is as soft as a lobster telephone.",
+      "Fold? Fold? But that would be as predictable as a landscape.",
+      "I bet my moustache on this one—and it is a magnificent moustache.",
+      "Let us paint with chips on the canvas of chaos."
+    ],
+    "physicalTics": [
+      "*twirls his waxed moustache dramatically*",
+      "*stares at a card with one eye closed, as if expecting it to change*",
+      "*places chips in asymmetrical piles, then rearranges them into a melting shape*",
+      "*gestures to the dealer as if conducting an orchestra*"
+    ],
+    "identity": "Salvador Dali, the eccentric surrealist painter known for melting clocks and bizarre imagery",
+    "appearance": "tall, slender build, slicked-back dark hair, sharp and dramatic facial features, thin waxed moustache, pale skin, middle-aged",
+    "apparel": "flamboyant velvet jacket with gold embroidery, ruffled white shirt, black beret, walking cane",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.85,
+      "adaptability": 0.3
+    },
+    "avatar": "/avatars/salvador-dali.png"
+  },
+  {
+    "slug": "santa-claus",
+    "id": "santa_claus",
+    "name": "Santa Claus",
+    "firstName": "Santa",
+    "blurb": "Comes around to give the small tables a good time and pay off the hopefuls with a smile, in no hurry to reach a top he's seen before.",
+    "playStyle": "jolly calling station — sees all flops, rarely raises, pays off on rivers with a smile",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "generous and welcoming",
+    "confidence": "jovial",
+    "verbalTics": [
+      "Ho ho ho!",
+      "Merry Christmas!",
+      "You've been very good this year!",
+      "I'll give you a present—a call!",
+      "Don't worry, I'll see you on the river!"
+    ],
+    "physicalTics": [
+      "*adjusts his red hat with a cheerful jingle*",
+      "*pats his round belly and chuckles*",
+      "*strokes his long white beard thoughtfully*",
+      "*nods and winks warmly*"
+    ],
+    "identity": "Santa Claus, the jolly gift-bringer from the North Pole",
+    "appearance": "plump build, long white beard, rosy cheeks, twinkling blue eyes, fair skin, elderly",
+    "apparel": "red coat with white fur trim, black belt and boots, red hat",
+    "meters": {
+      "aggression": 0.25,
+      "looseness": 0.78,
+      "bluff": 0.2,
+      "adaptability": 0.25
+    },
+    "avatar": "/avatars/santa-claus.png"
+  },
+  {
+    "slug": "sherlock-holmes",
+    "id": "sherlock_holmes",
+    "name": "Sherlock Holmes",
+    "firstName": "Sherlock",
+    "blurb": "The tables are the only puzzle that hasn't bored him yet, and he's begun to suspect the room itself is the real case.",
+    "playStyle": "calculating and selectively aggressive, exploiting reads with precision",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "analytical",
+    "confidence": "steady",
+    "verbalTics": [
+      "Elementary, my dear opponent.",
+      "I observe, therefore I raise.",
+      "Your tell is louder than your bet.",
+      "Fascinating. Pray continue.",
+      "The game is afoot."
+    ],
+    "physicalTics": [
+      "*adjusts deerstalker hat*",
+      "*steeples fingers*",
+      "*shoots a piercing gaze across the table*"
+    ],
+    "identity": "Sherlock Holmes, the world's most famous consulting detective",
+    "appearance": "lean build, dark curly hair, sharp aquiline nose, pale skin, early 40s",
+    "apparel": "classic tweed coat with cape, deerstalker hat, smoking jacket",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.3,
+      "adaptability": 0.72
+    },
+    "avatar": "/avatars/sherlock-holmes.png"
+  },
+  {
+    "slug": "sigmund-freud",
+    "id": "sigmund_freud",
+    "name": "Sigmund Freud",
+    "firstName": "Sigmund",
+    "blurb": "Treats the Circuit as the world's largest case study and stays to analyze why none of these people — himself included — can bring themselves to leave.",
+    "playStyle": "probing and calculated, uses aggression selectively to exploit subconscious tells",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "insightful and imposing",
+    "confidence": "analytical",
+    "verbalTics": [
+      "Tell me about your mother.",
+      "That bet reveals a deep-seated anxiety.",
+      "You're acting out—what are you really afraid of?",
+      "The unconscious never lies, but the chips might.",
+      "Interesting. Your raise is a classic reaction formation."
+    ],
+    "physicalTics": [
+      "*adjusts spectacles and peers intently*",
+      "*strokes beard contemplatively*",
+      "*steeples fingers and nods slowly*"
+    ],
+    "identity": "Sigmund Freud, the father of psychoanalysis, known for his cigar and probing insights",
+    "appearance": "slight build, balding with dark hair sides, full beard, round glasses, pale skin, elderly",
+    "apparel": "dark three-piece suit, vest with pocket watch, holding a lit cigar",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.3,
+      "adaptability": 0.75
+    },
+    "avatar": "/avatars/sigmund-freud.png"
+  },
+  {
+    "slug": "socrates",
+    "id": "socrates",
+    "name": "Socrates",
+    "firstName": "Socrates",
+    "blurb": "Isn't here for the money — he's here to work out what the Circuit actually is, one needling question and one unravelled opponent at a time.",
+    "playStyle": "methodical and probing, luring opponents into self-destruction",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "questioning",
+    "confidence": "steady",
+    "verbalTics": [
+      "What is the nature of your call?",
+      "Consider the logic of your bet.",
+      "Do you know what you hold?",
+      "A curious play...",
+      "Let us examine this situation."
+    ],
+    "physicalTics": [
+      "*strokes his beard thoughtfully*",
+      "*tilts head and raises an eyebrow*",
+      "*pauses, closing his eyes for a moment*"
+    ],
+    "identity": "Socrates, the ancient Greek philosopher known for his Socratic method",
+    "appearance": "elderly lean build, balding with a fringe of white hair, long white beard, sharp eyes, weathered skin",
+    "apparel": "simple white himation draped over one shoulder, bare feet, no jewelry",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.25,
+      "adaptability": 0.7
+    },
+    "avatar": "/avatars/socrates.png"
+  },
+  {
+    "slug": "sun-tzu",
+    "id": "sun_tzu",
+    "name": "Sun Tzu",
+    "firstName": "Sun",
+    "blurb": "Treats the Circuit as the only war left worth fighting; the chips are incidental to the slow art of winning the whole room.",
+    "playStyle": "positional and patient; strikes only when weakness is detected",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "mysterious",
+    "confidence": "calm",
+    "verbalTics": [
+      "The opportunity to strike will come.",
+      "Patience is the armor of the mind.",
+      "Know your enemy, know yourself.",
+      "All warfare is based on deception.",
+      "In the midst of chaos, there is also opportunity."
+    ],
+    "physicalTics": [
+      "*strokes chin thoughtfully*",
+      "*adjusts robe with deliberate calm*",
+      "*narrows eyes, studying opponents*",
+      "*folds hands inside sleeves*"
+    ],
+    "identity": "Sun Tzu, the ancient Chinese military strategist and philosopher",
+    "appearance": "lean build, long black hair tied in a topknot, thin mustache and goatee, weathered face, medium skin tone, middle-aged",
+    "apparel": "traditional green and gold silk robe, bamboo hat, leather belt with tassels",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.35,
+      "adaptability": 0.7
+    },
+    "avatar": "/avatars/sun-tzu.png"
+  },
+  {
+    "slug": "tech-bro",
+    "id": "tech_bro",
+    "name": "Tech Bro",
+    "firstName": "Tech",
+    "blurb": "Came to disrupt the Circuit, pivot the game, and exit at the top; he's certain he's about to go viral and hasn't noticed the round never closes.",
+    "playStyle": "aggressive and unpredictable, constantly applying pressure with a wide range",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "arrogant and disruptive",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "I'm literally disrupting the poker meta right now.",
+      "Easy game, easy life.",
+      "You're just not seeing the 4D chess here.",
+      "Fundamentally, you're approach is wrong."
+    ],
+    "physicalTics": [
+      "*adjusts imaginary glasses*",
+      "*taps temple with both index fingers*",
+      "*leans back and smirks*"
+    ],
+    "identity": "Tech Bro, a brash overconfident startup founder disrupting poker",
+    "appearance": "slim build, messy gelled hair, stubbled jaw, pale skin, mid-20s",
+    "apparel": "hoodie with startup logo, dark jeans, sneakers, smartwatch",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.85,
+      "adaptability": 0.3
+    },
+    "avatar": "/avatars/tech-bro.png"
+  },
+  {
+    "slug": "the-gingerbread-man",
+    "id": "the_gingerbread_man",
+    "name": "The Gingerbread Man",
+    "firstName": "The Gingerbread Man",
+    "blurb": "Got chased to the tables and never stopped running; he plays it close and climbs warily, certain something is always one seat behind him.",
+    "playStyle": "cautious and tight, rarely entering pots without strong holdings",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "timid",
+    "confidence": "cautious",
+    "verbalTics": [
+      "I can't catch you if I'm not in the hand.",
+      "Fold is a good friend.",
+      "Slow and steady, like a gingerbread man on a plate.",
+      "No sense chasing cookies."
+    ],
+    "physicalTics": [
+      "*nervously crushes a cookie crumb on the table*",
+      "*takes a slow, deliberate bite of a biscuit*",
+      "*adjusts imaginary frosting on his collar*"
+    ],
+    "identity": "The Gingerbread Man, a cautious and elusive cookie character from folklore",
+    "appearance": "gingerbread-brown skin, round head with icing smile, stout build, dotted candy buttons, middle-aged",
+    "apparel": "white icing trim, red gumdrop buttons, green candy cane striped tie",
+    "meters": {
+      "aggression": 0.4,
+      "looseness": 0.22,
+      "bluff": 0.1,
+      "adaptability": 0.4
+    },
+    "avatar": "/avatars/the-gingerbread-man.png"
+  },
+  {
+    "slug": "the-headless-horseman",
+    "id": "the_headless_horseman",
+    "name": "The Headless Horseman",
+    "firstName": "The Headless Horseman",
+    "blurb": "Rides the Circuit chasing something he lost long ago, terrorizing every pot along the way, unbothered by stakes he can't lose anything more to.",
+    "playStyle": "reckless and relentless; applies constant pressure with no regard for consequences",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Feel the chill of death.",
+      "You cannot outrun fate.",
+      "Charge!",
+      "The night brings no mercy."
+    ],
+    "physicalTics": [
+      "*tilts head as if listening to a distant sound*",
+      "*cracks neck with a grim smile*"
+    ],
+    "identity": "The Headless Horseman, a ghostly rider from Sleepy Hollow who terrorizes the countryside",
+    "appearance": "tall spectral figure, no head, dark cloak, glowing eyes in place of head, pale ethereal skin",
+    "apparel": "black flowing cloak, rusted armor, riding boots, carries a fiery jack-o-lantern",
+    "meters": {
+      "aggression": 0.78,
+      "looseness": 0.7,
+      "bluff": 0.7,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/the-headless-horseman.png"
+  },
+  {
+    "slug": "the-mad-hatter",
+    "id": "the_mad_hatter",
+    "name": "The Mad Hatter",
+    "firstName": "The Mad Hatter",
+    "blurb": "Lost track of the time and the why long ago, so he simply jams chips and changes seats forever, certain it's always exactly tea time on the Circuit.",
+    "playStyle": "wild, maximum-pressure, all-in energy",
+    "skill": "Recreational",
+    "skillRaw": "rec",
+    "attitude": "chaotic",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Why, is a raven like a writing desk?",
+      "Curiouser and curiouser!",
+      "Off with his chips!",
+      "We're all mad here.",
+      "Have I gone round the twist?"
+    ],
+    "physicalTics": [
+      "*adjusts oversized top hat*",
+      "*takes a sip from a teacup that wasn't there a moment ago*",
+      "*cackles gleefully*"
+    ],
+    "identity": "The Mad Hatter, a chaotic and whimsical tea party host from Wonderland",
+    "appearance": "lean build, wild orange hair under a giant top hat, pale skin, manic grin, unkempt",
+    "apparel": "purple tailcoat with green lapels, mismatched socks, a teacup on a chain",
+    "meters": {
+      "aggression": 0.9,
+      "looseness": 0.88,
+      "bluff": 0.95,
+      "adaptability": 0.2
+    },
+    "avatar": "/avatars/the-mad-hatter.png"
+  },
+  {
+    "slug": "the-tooth-fairy",
+    "id": "the_tooth_fairy",
+    "name": "The Tooth Fairy",
+    "firstName": "The Tooth Fairy",
+    "blurb": "Works the night shift of the Circuit collecting small, quiet value, slipping between tables while the big players sleep and climbing in increments no one notices.",
+    "playStyle": "steady and methodical; quietly collects value from solid hands, rarely bluffs",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "serene and slightly mysterious",
+    "confidence": "cautious",
+    "verbalTics": [
+      "Just a little off the top...",
+      "Coins for the tooth fairy.",
+      "Thank you for your donation.",
+      "Patience yields its own reward."
+    ],
+    "physicalTics": [
+      "*pockets a chip with a faint smile*",
+      "*adjusts her delicate silver wings*",
+      "*taps a finger as if counting coins*",
+      "*gently hums a lullaby*"
+    ],
+    "identity": "The Tooth Fairy, an ethereal nocturnal collector of children's baby teeth and poker chips",
+    "appearance": "ethereal and lithe, with shimmering silver hair, large translucent wings, pale skin, ageless",
+    "apparel": "flowing white gossamer gown adorned with tiny coins, a velvet pouch at her waist",
+    "meters": {
+      "aggression": 0.4,
+      "looseness": 0.22,
+      "bluff": 0.1,
+      "adaptability": 0.4
+    },
+    "avatar": "/avatars/the-tooth-fairy.png"
+  },
+  {
+    "slug": "the-very-mean-person",
+    "id": "the_very_mean_person",
+    "name": "The Very-Mean Person",
+    "firstName": "The Very-Mean Person",
+    "blurb": "Climbs purely to make the top tables miserable, certain the only thing sweeter than winning is watching a stranger tilt and quit.",
+    "playStyle": "aggressive and unpredictable, constant pressure and huge bluffs",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "intimidating",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "Did you really think that was good?",
+      "Nice call, grandma. Oh wait—you're just bad.",
+      "I can smell your fear from here.",
+      "Fold now, save your dignity.",
+      "You're paying for my next vacation, thanks."
+    ],
+    "physicalTics": [
+      "*leans back with a smug grin*",
+      "*slowly counts chips while staring at opponent*",
+      "*lets out a loud, mocking laugh*",
+      "*taps table impatiently*"
+    ],
+    "identity": "The Very-Mean Person, a sarcastic and ruthless poker bully who uses cruel table talk to tilt opponents",
+    "appearance": "tall and lean, slicked-back dark hair, sharp goatee, piercing blue eyes, pale skin, late 30s",
+    "apparel": "black leather jacket, white shirt unbuttoned at top, silver chain necklace, aviator sunglasses",
+    "meters": {
+      "aggression": 0.75,
+      "looseness": 0.7,
+      "bluff": 0.9,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/the-very-mean-person.png"
+  },
+  {
+    "slug": "wild-bill-hickok",
+    "id": "wild_bill_hickok",
+    "name": "Wild Bill Hickok",
+    "firstName": "Wild",
+    "blurb": "Plays careful and sits with his back to no wall he can help, climbing the Circuit while watching for the hand he's certain is coming for him.",
+    "playStyle": "calculated and patient, preferring to pick spots with strong hands and disciplined aggression",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "stoic and watchful",
+    "confidence": "self-assured",
+    "verbalTics": [
+      "I've seen this hand before...",
+      "I'm not one to rush.",
+      "Best be sure of your holdings.",
+      "Reckon that's a bet?",
+      "Let's see your cards."
+    ],
+    "physicalTics": [
+      "*adjusts the brim of his hat*",
+      "*gives a slow, deliberate nod*",
+      "*taps the table once*",
+      "*eyes the player with a cold stare*"
+    ],
+    "identity": "Wild Bill Hickok, the legendary gunslinger and gambler of the Old West",
+    "appearance": "lean athletic build, long dark hair, thick mustache, sharp angular face, fair skin, weathered middle-aged",
+    "apparel": "long black frock coat, white shirt, dark vest, wide-brimmed hat, leather boots",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.3,
+      "adaptability": 0.65
+    },
+    "avatar": "/avatars/wild-bill-hickok.png"
+  },
+  {
+    "slug": "william-shakespeare",
+    "id": "william_shakespeare",
+    "name": "William Shakespeare",
+    "firstName": "William",
+    "blurb": "Treats every hand as a scene and the Circuit as his greatest production, climbing toward a final act he's certain will be worth the run.",
+    "playStyle": "theatrical and balanced; treats each hand as a soliloquy, mixing bold bets with calculated folds",
+    "skill": "Regular",
+    "skillRaw": "reg",
+    "attitude": "dramatic",
+    "confidence": "steady",
+    "verbalTics": [
+      "To bet or not to bet, that is the question.",
+      "All the world’s a stage, and all the chips merely players.",
+      "A raise by any other name would smell as sweet.",
+      "The better part of valor is discretion—I fold.",
+      "Now is the winter of our discontent... with this dry board."
+    ],
+    "physicalTics": [
+      "*dramatically flourishes their cards like a scroll*",
+      "*places a chip with a theatrical flourish*"
+    ],
+    "identity": "William Shakespeare, the bard of Avon, playwright and poet",
+    "appearance": "stocky build, receding dark hair and beard, high forehead, expressive eyes, fair skin, middle-aged",
+    "apparel": "Elizabethan ruffled collar, dark doublet, tights, and a flowing cape",
+    "meters": {
+      "aggression": 0.5,
+      "looseness": 0.5,
+      "bluff": 0.5,
+      "adaptability": 0.55
+    },
+    "avatar": "/avatars/william-shakespeare.png"
+  },
+  {
+    "slug": "william-wallace",
+    "id": "william_wallace",
+    "name": "William Wallace",
+    "firstName": "William",
+    "blurb": "Climbs the Circuit as a kind of rebellion, certain the high tables are run by someone who needs defying — even if he can't yet say who.",
+    "playStyle": "fearless and aggressive, applies constant pressure with a wide range",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "defiant and bold",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "For freedom!",
+      "You may take my chips, but you'll never take my will!",
+      "Is that all you've got?",
+      "Every hand is a battle—I fight to the end!",
+      "Charge!"
+    ],
+    "physicalTics": [
+      "*slams fist on table*",
+      "*stares down opponent with fiery eyes*",
+      "*adjusts kilt proudly*",
+      "*draws an imaginary sword*"
+    ],
+    "identity": "William Wallace, the fearless Scottish freedom fighter",
+    "appearance": "rugged build, long reddish-brown hair and beard, weathered face, piercing blue eyes, late 30s",
+    "apparel": "blue woad face paint, tartan kilt, leather tunic, fur cloak, broadsword at hip",
+    "meters": {
+      "aggression": 0.78,
+      "looseness": 0.7,
+      "bluff": 0.75,
+      "adaptability": 0.6
+    },
+    "avatar": "/avatars/william-wallace.png"
+  },
+  {
+    "slug": "winston-churchill",
+    "id": "winston_churchill",
+    "name": "Winston Churchill",
+    "firstName": "Winston",
+    "blurb": "Treats the Circuit as one more war to be outlasted — he will never surrender a pot, and never, ever leave the table first.",
+    "playStyle": "stubborn and indomitable; tight, patient, and methodical, but once committed to a pot, he never surrenders it",
+    "skill": "Improving",
+    "skillRaw": "weak_reg",
+    "attitude": "resolute and dignified",
+    "confidence": "unshakeably confident",
+    "verbalTics": [
+      "Never, never, never surrender!",
+      "We shall fight on the flop, on the turn, and on the river.",
+      "This pot is not the end. It is not even the beginning of the end. But it is, perhaps, the end of the beginning.",
+      "I have nothing to offer but blood, toil, tears, and chips.",
+      "Victory at all costs!"
+    ],
+    "physicalTics": [
+      "*adjusts cigar*",
+      "*gives the V-for-Victory sign*",
+      "*stares resolutely across the table*"
+    ],
+    "identity": "Winston Churchill, the bulldog-spirited British Prime Minister who led Britain through WWII",
+    "appearance": "stout build, balding with a fringe of gray hair, round face, jowly cheeks, fair skin, elderly",
+    "apparel": "dark three-piece pinstripe suit, bow tie, pocket watch, often holding a cigar",
+    "meters": {
+      "aggression": 0.4,
+      "looseness": 0.22,
+      "bluff": 0.25,
+      "adaptability": 0.4
+    },
+    "avatar": "/avatars/winston-churchill.png"
+  },
+  {
+    "slug": "wyatt-earp",
+    "id": "wyatt_earp",
+    "name": "Wyatt Earp",
+    "firstName": "Wyatt",
+    "blurb": "Came to bring a little order to a lawless game and stayed because someone has to, climbing toward whoever is really dealing up top.",
+    "playStyle": "calculated, tight-aggressive; picks spots carefully and applies pressure with authority",
+    "skill": "Shark",
+    "skillRaw": "shark",
+    "attitude": "calm and commanding",
+    "confidence": "steady",
+    "verbalTics": [
+      "I'm the law around here.",
+      "Read 'em and weep.",
+      "Care to test my hand?",
+      "Justice comes to those who wait."
+    ],
+    "physicalTics": [
+      "*Adjusts his badge*",
+      "*Stares intently over his cards*",
+      "*Slowly rotates his hat brim*"
+    ],
+    "identity": "Wyatt Earp, legendary lawman and frontier gambler",
+    "appearance": "lean athletic build, thick mustache, piercing blue eyes, weathered face, medium skin tone, middle-aged",
+    "apparel": "long black duster coat, white shirt, black vest, wide-brimmed cowboy hat, sheriff's badge",
+    "meters": {
+      "aggression": 0.55,
+      "looseness": 0.4,
+      "bluff": 0.35,
+      "adaptability": 0.65
+    },
+    "avatar": "/avatars/wyatt-earp.png"
+  },
+  {
+    "slug": "zeus",
+    "id": "zeus",
+    "name": "Zeus",
+    "firstName": "Zeus",
+    "blurb": "Once ruled from a mountain; now he rules from whatever seat he's in, hurling chips like thunderbolts and daring the Circuit to unseat him.",
+    "playStyle": "thunderous, maniacal overbetting tyranny — raises and jams relentlessly, dares anyone to call",
+    "skill": "Regular",
+    "skillRaw": "reg",
+    "attitude": "imperious",
+    "confidence": "overconfident",
+    "verbalTics": [
+      "You dare challenge a god? ALL IN!",
+      "Feel the wrath of Olympus!",
+      "Bow before my king-high!",
+      "Mortal, this pot is mine!",
+      "Hah! My lightning strikes again!"
+    ],
+    "physicalTics": [
+      "*slams fist on table, shaking chips*",
+      "*throws hands up in a thunderous gesture*",
+      "*puffs out chest and glares across the felt*",
+      "*dramatically points at opponent like casting a spell*"
+    ],
+    "identity": "Zeus, the mighty king of the Greek gods",
+    "appearance": "muscular and regal build, flowing white beard and long white hair, stern brow, aged but powerful face, fair skin",
+    "apparel": "white flowing chiton embroidered with gold, golden laurel wreath crown, lightning bolt pendant",
+    "meters": {
+      "aggression": 0.9,
+      "looseness": 0.88,
+      "bluff": 0.75,
+      "adaptability": 0.45
+    },
+    "avatar": "/avatars/zeus.png"
+  }
+]

@@ -1,0 +1,197 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const { title, description, track, date, hero, heroAlt, draft } = post.data;
+
+const path = `/blog/${post.id}/`;
+const dateLabel = date.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: title,
+  description,
+  datePublished: date.toISOString().slice(0, 10),
+  author: { '@type': 'Person', name: 'Jeff Harris' },
+  publisher: { '@type': 'Organization', name: 'My Poker Face' },
+  ...(hero ? { image: `https://mypokerfacegame.com${hero}` } : {}),
+};
+---
+
+<BaseLayout title={`${title} | My Poker Face`} description={description} path={path} image={hero} jsonLd={jsonLd}>
+  <article class="shell post">
+    <nav class="post__crumbs">
+      <a href="/blog/">← Devlog &amp; notes</a>
+    </nav>
+
+    <header class="post__head">
+      <p class="kicker">{track} · {dateLabel}</p>
+      <h1 class="post__title">{title}</h1>
+      <p class="post__dek">{description}</p>
+      {draft && <p class="post__draft">Draft · work in progress</p>}
+    </header>
+
+    {hero && (
+      <figure class="post__hero">
+        <img src={hero} alt={heroAlt ?? title} loading="eager" />
+      </figure>
+    )}
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    <footer class="post__foot">
+      <a class="btn btn--gold" href="/login">Play free in your browser</a>
+      <a class="post__back" href="/blog/">← Back to all posts</a>
+    </footer>
+  </article>
+</BaseLayout>
+
+<style>
+  .post {
+    max-width: 760px;
+    padding-top: clamp(28px, 6vw, 64px);
+    padding-bottom: clamp(48px, 8vw, 96px);
+  }
+  .post__crumbs {
+    margin-bottom: 28px;
+    font-family: var(--font-sans);
+    font-size: 0.86rem;
+  }
+  .post__crumbs a { color: var(--text-faint); text-decoration: none; }
+  .post__crumbs a:hover { color: var(--gold-bright); }
+
+  .post__head { margin-bottom: 32px; }
+  .post__title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(2rem, 6vw, 3.4rem);
+    line-height: 1.05;
+    margin: 10px 0 18px;
+    letter-spacing: -0.01em;
+  }
+  .post__dek {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: clamp(1.05rem, 2.4vw, 1.3rem);
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin: 0;
+  }
+  .post__draft {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 4px 12px;
+    border: 1px solid var(--hair);
+    border-radius: 999px;
+    font-family: var(--font-sans);
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .post__hero {
+    margin: 0 0 40px;
+    border: 1px solid var(--hair);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--ink-2);
+  }
+  .post__hero img { display: block; width: 100%; height: auto; }
+
+  /* Prose */
+  .prose { font-size: 1.08rem; line-height: 1.75; color: var(--text); }
+  .prose :global(p) { margin: 0 0 1.35em; }
+  .prose :global(h2) {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: clamp(1.4rem, 3.4vw, 1.9rem);
+    line-height: 1.2;
+    margin: 2.2em 0 0.7em;
+    color: var(--text);
+  }
+  .prose :global(h2)::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 2px;
+    margin-bottom: 0.7em;
+    background: linear-gradient(90deg, var(--gold), transparent);
+  }
+  .prose :global(strong) { color: var(--gold-bright); font-weight: 600; }
+  .prose :global(em) { color: var(--text-dim); }
+  .prose :global(a) { color: var(--gold-bright); }
+
+  .prose :global(blockquote) {
+    margin: 1.6em 0;
+    padding: 4px 0 4px 22px;
+    border-left: 2px solid var(--gold);
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 1.18rem;
+    color: var(--text);
+  }
+  .prose :global(blockquote p) { margin: 0.2em 0; }
+
+  .prose :global(ul) { margin: 0 0 1.35em; padding-left: 1.2em; }
+  .prose :global(li) { margin: 0.4em 0; }
+  .prose :global(li::marker) { color: var(--gold); }
+
+  .prose :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 2em auto;
+    border: 1px solid var(--hair);
+    border-radius: 12px;
+    background: var(--ink-2);
+  }
+
+  .prose :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.8em 0;
+    font-family: var(--font-sans);
+    font-size: 0.96rem;
+  }
+  .prose :global(th),
+  .prose :global(td) {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--hair);
+    vertical-align: top;
+  }
+  .prose :global(th) {
+    color: var(--gold-bright);
+    font-family: var(--font-sign);
+    letter-spacing: 0.04em;
+    font-weight: 400;
+  }
+
+  .post__foot {
+    margin-top: 56px;
+    padding-top: 28px;
+    border-top: 1px solid var(--hair);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .post__back { color: var(--text-faint); text-decoration: none; font-size: 0.9rem; }
+  .post__back:hover { color: var(--gold-bright); }
+</style>

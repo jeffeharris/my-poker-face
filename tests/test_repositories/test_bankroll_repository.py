@@ -35,6 +35,7 @@ from cash_mode.staker_profile import (
     StakerProfile,
 )
 from poker.repositories.bankroll_repository import BankrollRepository
+from poker.repositories.legacy_migrations import LegacyMigrations
 from poker.repositories.schema_manager import SchemaManager
 
 SANDBOX_ID = "test-sandbox-1"
@@ -164,7 +165,7 @@ class TestSchemaMigrationV88:
     def test_idempotent_on_rerun(self, db_path):
         # Running v88 twice must be a no-op (CREATE TABLE IF NOT EXISTS
         # + PRAGMA-guarded ALTERs).
-        sm = SchemaManager.__new__(SchemaManager)
+        sm = LegacyMigrations()
         with sqlite3.connect(db_path) as conn:
             sm._migrate_v88_add_bankroll_tables(conn)
             sm._migrate_v88_add_bankroll_tables(conn)
@@ -182,7 +183,11 @@ class TestSchemaMigrationV88:
         with sqlite3.connect(path) as conn:
             conn.execute("DROP TABLE IF EXISTS ai_bankroll_state")
             conn.execute("DROP TABLE IF EXISTS player_bankroll_state")
-            conn.execute("DELETE FROM schema_version WHERE version >= 88")
+            # Post-squash a fresh DB is stamped only at the baseline, so set an
+            # explicit pre-v88 version: ensure_schema then routes through the legacy
+            # chain (which re-creates the v88 tables and stamps the v88 row).
+            conn.execute("DELETE FROM schema_version")
+            conn.execute("INSERT INTO schema_version (version, description) VALUES (87, 'pre-v88')")
             conn.commit()
         # Re-run ensure_schema → should re-apply v88
         SchemaManager(path).ensure_schema()

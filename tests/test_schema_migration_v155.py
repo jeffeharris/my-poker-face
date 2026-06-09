@@ -37,7 +37,11 @@ def _seed_pre155(path: str, rows):
     0.5 baseline — simulating a DB that predates the rebaseline."""
     SchemaManager(path).ensure_schema()
     with sqlite3.connect(path) as conn:
-        conn.execute("DELETE FROM schema_version WHERE version >= 155")
+        # Post-squash a fresh DB is stamped only at the baseline; set an explicit
+        # pre-v155 version so ensure_schema routes through the legacy chain (which
+        # runs the v155 regard rebaseline over the inserted rows).
+        conn.execute("DELETE FROM schema_version")
+        conn.execute("INSERT INTO schema_version (version, description) VALUES (154, 'pre-v155')")
         conn.executemany(
             "INSERT INTO relationship_states "
             "(observer_id, opponent_id, heat, respect, likability) "

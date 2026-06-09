@@ -148,6 +148,74 @@ def assert_stake_funding_reached_borrower_seat(
     return False
 
 
+def assert_stake_obligation_closed(
+    *,
+    stake_id: str,
+    expected_residual: int,
+    sandbox_id: Optional[str],
+    chip_ledger_repo,
+    enforce: Optional[bool] = None,
+    already_originated: bool = False,
+) -> bool:
+    """P2 invariant: after a stake reaches a terminal, its `oblig:<id>` balance
+    must equal `expected_residual` — the per-contract conservation check the
+    chip layer can't express (CASH_MODE_STAKING_OBLIGATION_LEDGER.md).
+
+    `expected_residual` is 0 for a clean settle / forgiveness / default (the debt
+    fully closed) and the `carry_amount` for a carry (the unrecovered principal
+    that rolls forward). A mismatch means a flow was dropped, double-applied, or
+    the settle math diverged from the obligation — exactly the silent class the
+    obligation ledger exists to catch.
+
+    Legacy stakes that predate the obligation ledger (no `stake_originate` row)
+    return `None` from `obligation_balance` and are SKIPPED — they have no
+    obligation history to check, and forcing one would false-alarm on every
+    pre-existing carry. Enforce (dev/sim/tests) raises `StakeConservationError`;
+    prod alarms (`logger.error`) and proceeds. No-op without a ledger / sandbox.
+
+    `already_originated=True` skips the origination re-check (a `context_json LIKE`
+    table scan) when the caller has just confirmed the stake is originated — i.e.
+    `apply_close_flows` returned True for it. The close → assert sequence then runs
+    one scan, not two.
+    """
+    if chip_ledger_repo is None or sandbox_id is None:
+        return True
+    if enforce is None:
+        from cash_mode import economy_flags
+
+        enforce = economy_flags.STAKE_SETTLE_GUARD_ENFORCE
+
+    from cash_mode.stake_obligations import obligation_balance
+
+    try:
+        balance = obligation_balance(
+            chip_ledger_repo,
+            stake_id,
+            sandbox_id=sandbox_id,
+            assume_originated=already_originated,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[STAKE GUARD] obligation_balance(%r) failed — skipping check: %s",
+            stake_id,
+            exc,
+        )
+        return True
+    if balance is None:  # legacy stake — never originated, nothing to assert
+        return True
+    if balance == int(expected_residual):
+        return True
+
+    msg = (
+        f"[STAKE GUARD] obligation not closed: stake={stake_id} sandbox={sandbox_id} "
+        f"oblig_balance={balance} expected_residual={expected_residual}"
+    )
+    if enforce:
+        raise StakeConservationError(msg)
+    logger.error(msg)
+    return False
+
+
 def fund_climb_stake(
     *,
     staker_id: str,
@@ -187,6 +255,7 @@ def fund_climb_stake(
         chip_unit_of_work,
         project_bankroll,
     )
+    from cash_mode.stake_obligations import apply_obligation_flows, flows_on_originate
     from core.economy.ledger import (
         ai,
         ai_seat,
@@ -295,6 +364,18 @@ def fund_climb_stake(
                 sandbox_id=sandbox_id,
                 conn=conn,
             )
+            # Obligation dimension: the principal debt is born on the borrower
+            # (climber). Emit the flow purely, apply via the one interpreter in
+            # the SAME `conn` as the chip-side stake_fund so debt and chips commit
+            # atomically (a partial write would desync the two axes). Bank-neutral
+            # → invisible to chip drift. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            apply_obligation_flows(
+                flows_on_originate(stake_id, principal),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'site': 'ai_aspire_grubstake', 'sandbox_id': sandbox_id},
+                conn=conn,
+            )
         return new_state
 
 
@@ -360,6 +441,7 @@ def unwind_climb_funding(
         and sandbox_id is not None
         and economy_flags.CHIP_CUSTODY_ENABLED
     ):
+        from cash_mode.stake_obligations import apply_obligation_flows, flows_on_cancel
         from core.economy.ledger import ai, ai_seat, record_stake_payoff
 
         try:
@@ -374,6 +456,16 @@ def unwind_climb_funding(
                     'sandbox_id': sandbox_id,
                 },
                 sandbox_id=sandbox_id,
+            )
+            # Reverse the obligation dimension too — the stake never came to
+            # exist, so cancel (not forgive) the originated debt back to genesis,
+            # else `oblig:<stake_id>` orphans at the full principal for a stake
+            # that was rolled back. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            apply_obligation_flows(
+                flows_on_cancel(stake_id, principal),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'site': 'ai_aspire_grubstake_unwind', 'sandbox_id': sandbox_id},
             )
         except Exception as exc:
             logger.warning(

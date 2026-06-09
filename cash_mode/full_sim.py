@@ -859,7 +859,56 @@ def _play_one_hand_inner(
         except Exception as exc:
             logger.debug("[FULL_SIM] on_hand_start failed: %s", exc)
 
-    winner_info = _run_hand(sm, controllers, memory_manager=memory_manager)
+    # Per-archetype behavioral stat capture for the Archetype Review tool. Lean:
+    # in-memory tallies, flushed to archetype_stat_counts every N hands. None for
+    # callers without a sandbox (tests/eval). Best-effort — never break the hand.
+    archetype_recorder = None
+    if sandbox_id:
+        try:
+            from cash_mode.archetype_stats import get_recorder
+
+            archetype_recorder = get_recorder(sandbox_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[FULL_SIM] archetype recorder init failed: %s", exc)
+
+    winner_info = _run_hand(
+        sm,
+        controllers,
+        memory_manager=memory_manager,
+        archetype_recorder=archetype_recorder,
+    )
+
+    if archetype_recorder is not None:
+        try:
+            # Derive hand outcome for WTSD/W$SD (backlog #11). The players who
+            # WENT TO SHOWDOWN are the ones still live (not folded) at hand end
+            # when ≥2 remain — NOT every flop-seeing player. A player who saw the
+            # flop but folded the turn/river did not reach showdown, so crediting
+            # them inflates WTSD (and compresses the station-vs-nit spread WTSD
+            # exists to measure). winners = names that won chips. Best-effort.
+            showdown_players: set[str] = set()
+            winner_names: set[str] = set()
+            try:
+                live = [p.name for p in sm.game_state.players if not p.is_folded]
+                if len(live) >= 2:
+                    showdown_players = set(live)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                for pot in (winner_info or {}).get('pot_breakdown', []) or []:
+                    for w in pot.get('winners', []) or []:
+                        name = w.get('name')
+                        if name:
+                            winner_names.add(name)
+            except Exception:  # noqa: BLE001
+                pass
+            archetype_recorder.end_hand(
+                db_path_for_memory,
+                showdown_players=showdown_players,
+                winner_names=winner_names,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[FULL_SIM] archetype end_hand failed: %s", exc)
 
     # Phase 3 relationships: run hand-outcome detection + dispatch so this
     # hand's AI<->AI axes (and cash_pair_stats PnL) evolve. No-op unless the
@@ -977,11 +1026,13 @@ def _play_one_hand_inner(
         new_seats[idx] = {**new_seats[idx], "chips": int(final_chips.get(pid, 0))}
 
     # Per-table hand/net counter: record each seated AI's hand + net chip
-    # result at this table, feeding the success-weighted table-affinity lever
-    # (AIs drift back to rooms they win at). ONE increment per AI per hand —
+    # result at this table. Serves TWO consumers: (1) the success-weighted
+    # table-affinity lever — AIs drift back to rooms they win at; and (2) the
+    # Career-M2 vouch evaluator — resolves an AI's home court (the lobby table
+    # where it has played the most hands). ONE increment per AI per hand —
     # not bilateral. Best-effort; a counter write never breaks the ~227
     # hand/sec loop. Most AI hands happen here off-screen, so this is where
-    # per-room records mostly accrue.
+    # per-room records (and home tables) mostly accrue.
     if table_id and sandbox_id and memory_manager is not None:
         _rel_repo = getattr(memory_manager, "_relationship_repo", None)
         if _rel_repo is not None:
@@ -1159,6 +1210,7 @@ def _run_hand(
     controllers: Dict[str, object],
     *,
     memory_manager: Optional[Any] = None,
+    archetype_recorder: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """Drive the state machine from PRE_FLOP to pot award.
 
@@ -1181,6 +1233,28 @@ def _run_hand(
 
     actions = 0
     blinds_recorded = False
+    # Preflop raise depth so far this hand → node classification for the
+    # archetype recorder: 0 raises = rfi (open), 1 = vs_open (a raise here is a
+    # 3-bet), 2 = vs_3bet (a 4-bet), 3+ = vs_4bet. Controller-independent.
+    preflop_raises = 0
+    # The hand's RFI opener (first preflop raiser). fourbet / fold_to_3bet are
+    # scored only when the actor at a vs_3bet node IS the opener (facing a 3-bet
+    # as the raiser) — a vs_3bet node reached as a cold-caller is SQUEEZE defence,
+    # a different stat. See ArchetypeStatRecorder.record_decision.
+    rfi_opener_name: Optional[str] = None
+    # The hand's LAST preflop raiser = the preflop aggressor expected to
+    # continuation-bet the flop (PT4/HM3 c-bet attribution). In a 3-bet pot this
+    # is the 3-bettor, NOT the RFI opener — so c-bet flags key on this, not
+    # rfi_opener_name (which stays the fold-to-3bet/4bet opener gate). Matches the
+    # live route's `last_pf_raiser`.
+    last_pf_raiser_name: Optional[str] = None
+    # C-bet tracking (backlog #6). ``flop_bet_made`` = ANY aggressive flop action
+    # has occurred this hand (so the preflop aggressor acting after it is NOT
+    # c-betting — it's facing a donk / raising vs a donk). ``flop_cbet_made`` =
+    # the preflop aggressor's first-in flop bet specifically (drives the
+    # fold-to-c-bet denominator for everyone else).
+    flop_bet_made = False
+    flop_cbet_made = False
     while actions < _MAX_ACTIONS_PER_HAND:
         sm.run_until([PokerPhase.EVALUATING_HAND])
         gs = sm.game_state
@@ -1220,6 +1294,9 @@ def _run_hand(
         pre_highest_bet = getattr(gs, "highest_bet", 0)
         pre_player_bet = cp.bet if cp is not None else 0
         pre_player_stack = cp.stack if cp is not None else 0
+        # Capture the phase the decision is made IN (play_turn below can close
+        # the street and advance sm.current_phase) for the archetype recorder.
+        decision_phase = sm.current_phase.name if sm.current_phase is not None else "PRE_FLOP"
         ctrl = controllers.get(actor_name) if actor_name else None
         if ctrl is None:
             gs = play_turn(gs, "fold", 0)
@@ -1236,6 +1313,71 @@ def _run_hand(
                 )
                 action, amount = "fold", 0
             gs = play_turn(gs, action, amount)
+
+        # Archetype stat capture (lean: in-memory tally, no per-decision DB
+        # write). Classify the preflop node from the running raise depth, then
+        # bump it AFTER recording so the acting player is scored vs the spot
+        # they actually faced. Postflop passes an empty node.
+        if archetype_recorder is not None and actor_name is not None:
+            if decision_phase == "PRE_FLOP":
+                node = (
+                    "rfi"
+                    if preflop_raises == 0
+                    else "vs_open"
+                    if preflop_raises == 1
+                    else "vs_3bet"
+                    if preflop_raises == 2
+                    else "vs_4bet"
+                )
+            else:
+                node = ""
+            # Use the deviation-profile key (handles explicit loadouts like
+            # weak_fish, which share loose-passive anchors with calling_station
+            # and so are indistinguishable via anchor-based `archetype_name`).
+            # Falls back to archetype_name internally when no profile is bound,
+            # and to None for non-tiered controllers. Matches the identity the
+            # live `deviation_profile_name` snapshot uses, so sim/live agree.
+            _arch_fn = getattr(ctrl, "_table_archetype_key", None)
+            archetype = _arch_fn() if callable(_arch_fn) else getattr(ctrl, "archetype_name", None)
+            # C-bet flags (backlog #6, FLOP only). A c-bet is the preflop
+            # aggressor's first-in flop bet (no prior flop bet this hand) — this
+            # distinguishes it from a donk-bet or a raise-vs-donk. Everyone else
+            # facing that c-bet drives the fold-to-c-bet stat.
+            is_aggr = action in ("raise", "all_in")
+            is_cbet_opportunity = (
+                decision_phase == "FLOP" and actor_name == last_pf_raiser_name and not flop_bet_made
+            )
+            is_cbet = is_cbet_opportunity and is_aggr
+            is_facing_cbet = (
+                decision_phase == "FLOP" and flop_cbet_made and actor_name != last_pf_raiser_name
+            )
+            try:
+                archetype_recorder.record_decision(
+                    archetype,
+                    actor_name,
+                    decision_phase,
+                    node,
+                    action,
+                    is_opener=(actor_name == rfi_opener_name),
+                    is_cbet_opportunity=is_cbet_opportunity,
+                    is_cbet=is_cbet,
+                    is_facing_cbet=is_facing_cbet,
+                )
+            except Exception as exc:  # noqa: BLE001 — observability, never fatal
+                logger.debug("[FULL_SIM] archetype record failed: %s", exc)
+            if decision_phase == "PRE_FLOP" and is_aggr:
+                if preflop_raises == 0 and rfi_opener_name is None:
+                    rfi_opener_name = actor_name
+                last_pf_raiser_name = actor_name  # c-bet aggressor = LAST raiser
+                preflop_raises += 1
+            # Advance c-bet state AFTER recording (so the acting player is scored
+            # vs the flop state it actually faced). A c-bet specifically marks the
+            # flop as c-bet (others now face it); any aggressive flop action marks
+            # the flop as bet (the aggressor acting later is no longer c-betting).
+            if decision_phase == "FLOP" and is_aggr:
+                if is_cbet:
+                    flop_cbet_made = True
+                flop_bet_made = True
 
         # Feed action into the memory manager so opponent_model
         # accumulates stats. The `phase` mapping mirrors what

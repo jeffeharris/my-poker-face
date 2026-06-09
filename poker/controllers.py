@@ -893,41 +893,46 @@ class AIPlayerController:
             ctx = self._build_game_context(game_state, game_messages) or {}
         except Exception:
             ctx = {}
-        if drama_level == 'climactic':
-            ctx['big_pot'] = True
+
+        # Unified drama→speak/gesture model (poker.speak_gate), shared with the
+        # post-hand commentary gate. Drama comes from the MomentAnalyzer level;
+        # `weight` is the live in-hand dial (app_settings, tunable without a
+        # restart). Routine spots sit low so quiet folds/checks stay silent.
+        from core.llm.settings import get_midgame_speak_weight
+
+        from . import speak_gate
+
+        drama = speak_gate.level_to_drama(drama_level)
+        weight = get_midgame_speak_weight()
+        # Direct callout → an addressed/needled player may respond even on a
+        # routine spot (social realism); otherwise routine = quiet.
+        try:
+            callout_bonus = (
+                speak_gate.CALLOUT_SPEAK_BONUS if self.find_callouts(game_messages or []) else 0.0
+            )
+        except Exception:
+            callout_bonus = 0.0
+        ctx['drama'] = drama
+        ctx['speak_weight'] = weight
+        ctx['callout_bonus'] = callout_bonus
 
         try:
             should_speak = bool(
-                self.chattiness_manager.should_speak(
-                    self.player_name,
-                    chattiness,
-                    ctx,
-                )
+                self.chattiness_manager.should_speak(self.player_name, chattiness, ctx)
             )
         except Exception as e:
             logger.debug(f"[NARRATION] {self.player_name}: speech roll failed safely: {e}")
             should_speak = True
 
-        # Gesture roll — psychology.energy × drama-level boost. Independent
-        # of speech so a silent character can still slam chips when the
-        # pot blows up. Floor lowered so reserved characters are actually
-        # reserved — the prior 40% floor meant a poker_face personality
-        # still gestured nearly every turn, which gated a separate LLM
-        # call on the tiered-bot path.
-        #   energy 0.0 → 15%
-        #   energy 0.5 → 33%
-        #   energy 1.0 → 65%
-        # Plus +30% on climactic moments, +15% on high-stakes.
+        # Gesture roll — now drama-gated the same way speech is (energy is the
+        # trait term instead of chattiness). Independent of speech so a quiet
+        # character can still slam chips on a big pot, but a routine fold/check
+        # no longer triggers a wasted *mucks* / *taps chips* beat (and on the
+        # tiered path, speak+gesture both False skips the expression LLM call).
         try:
             psy = getattr(self, 'psychology', None)
             energy = float(getattr(psy, 'energy', 0.5)) if psy else 0.5
-            probability = 0.15 + (energy**1.5) * 0.50
-            if drama_level == 'climactic':
-                probability += 0.30
-            elif drama_level == 'high_stakes':
-                probability += 0.15
-            probability = max(0.0, min(1.0, probability))
-            should_gesture = random.random() < probability
+            should_gesture = random.random() < speak_gate.gesture_probability(drama, energy, weight)
         except Exception as e:
             logger.debug(f"[NARRATION] {self.player_name}: gesture roll failed safely: {e}")
             should_gesture = True

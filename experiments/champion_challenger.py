@@ -257,6 +257,22 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'enable_overbet_context': True, 'adaptive_overbet': False},
         challenger_flags={'enable_overbet_context': True, 'adaptive_overbet': True},
     ),
+    # ── tag's defend_3bet spot tendency: challenger ON vs champion OFF (disabled
+    # via the spot-tendency ablation seam). Measures the bb/100 of de-polarizing
+    # tag's facing-3-bet response (fold→call + a slice of 4-bet→call) — the fix
+    # for tag over-folding to 3-bets (fold_to_3bet 68→50). Over-folding to 3-bets
+    # is exploitable, so vs a 3-betting field this should read ≥0; a clear
+    # negative would mean the de-polarization flats too much trash. Use
+    # --archetype TAG (the tendency only lives on tag); the default Baseline
+    # backdrop 3-bets ~15%, enough to exercise it. ──
+    'tag_defend': ChangeSpec(
+        description="tag defend_3bet ON (challenger) vs OFF (champion, disabled) — "
+        "does de-polarizing tag's vs_3bet response add bb/100 vs a 3-betting field?",
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        champion_flags={'disable_rules': frozenset({('spot_tendencies', 'defend_3bet')})},
+        challenger_flags={'disable_rules': frozenset()},
+    ),
     # ── Calibration changes (EVAL_HARNESS_PLAN §P3/§P4): not real product
     # changes — they validate the *gate itself*. `null` proves the harness is
     # unbiased (A == A → win-rate covers the null); the cripple pair proves it

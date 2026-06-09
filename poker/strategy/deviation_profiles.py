@@ -5,10 +5,16 @@ Each profile controls how far a player archetype can deviate from the
 solver baseline in logit space.
 """
 
-from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from ..archetypes import classify_from_anchors
+
+if TYPE_CHECKING:
+    # Type-only import to avoid a circular import: tilt_conditioning imports
+    # DeviationProfile from this module. The runtime default is an empty tuple,
+    # so no concrete TiltScenarioRule is needed at import time.
+    from .tilt_conditioning import TiltScenarioRule
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,26 @@ class DeviationProfile:
     # Applied at the node-lookup level in TieredBotController (the chart cell it
     # reads), so distortion + floors still layer on top. See FISH_AS_CALLING_STATION.md.
     position_blind: float = 0.0
+    # Facing-a-raise (3-bet/4-bet) aggression split. The global aggression_scale /
+    # max_per_action_shift drive ALL streets, so taming preflop 3-bet wars with
+    # them also nerfs postflop aggression (the maniac's defining wildness). These
+    # OPTIONAL overrides are applied ONLY at preflop vs_open/vs_3bet/vs_4bet nodes
+    # (TieredBotController swaps them in via dataclasses.replace) — so opening
+    # width (VPIP/PFR) and postflop AF are untouched, only re-raise FREQUENCY is
+    # dampened. None = inherit the global value (no split, byte-identical). See
+    # docs/technical/ARCHETYPE_SHAPING_FINDINGS.md (the pre/postflop split).
+    reraise_aggression_scale: Optional[float] = None
+    reraise_max_per_action_shift: Optional[float] = None
+    # Tilt-conditioning reach (PERCEPTIBILITY_CONDITIONING.md Phase 2, the
+    # Option-C `tilt_conditioning` layer). `tilt_conditioning_cap` is the binding
+    # lever — the max logit-space offset the conditioner may apply when a tilt
+    # rule fires (0.0 = the layer is a byte-identical no-op for this archetype).
+    # `tilt_scenario_rules` are the per-tilt-type rules this archetype has opted
+    # into. BOTH default inert — every shipped profile keeps cap=0.0 / rules=()
+    # in Phase 2 (no archetype opted in until Phase 3 opts maniac in), so the
+    # no-op invariant holds (test-locked). See poker/strategy/tilt_conditioning.py.
+    tilt_conditioning_cap: float = 0.0
+    tilt_scenario_rules: Tuple['TiltScenarioRule', ...] = field(default_factory=tuple)
 
 
 # Predefined profiles from architecture doc:
@@ -71,14 +97,45 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=0.3,
         ego_fold_penalty=0.05,
     ),
-    # Rock: tight, mildly passive — a touch looser + more willing than nit.
+    # Rock: the classic TIGHT-PASSIVE archetype (backlog #10, Option A) — the
+    # tightest entry in the field, plays those few hands PASSIVELY (checks/calls
+    # rather than bets/raises). Distinct read from nit (tight-AGGRESSIVE: few
+    # hands, played hard). The fix has two halves (see HANDOFF #10):
+    #   1. Postflop passivity is carried by the `passive_postflop` SPOT TENDENCY
+    #      (not a distortion scale). A tight range value-bets a LOT on the shared
+    #      solver chart, and `aggression_scale` is near-inert on postflop AF
+    #      (chart/floor-pinned ~1.5 at both 0.5 and 1.9), so the only lever that
+    #      gets rock's AF genuinely BELOW nit's is routing bet/raise→check/call on
+    #      every postflop street. strength 0.30 lands rock AF ~0.95 (< nit ~1.31,
+    #      comfortably above the 0.8 station floor). The existing slowplay/
+    #      under_bluff are too narrow (nuts-only / river-air) to move whole-range
+    #      AF — hence a dedicated tendency.
+    #   2. Preflop tightness + the wider VPIP−PFR gap via MODERATED knobs (the
+    #      first pass leaned on field-EXTREME values — looseness 2.9, cap 0.55 — to
+    #      brute-force VPIP below nit; pulled back now that AF moved to the tendency):
+    #   - looseness_scale 2.4: for a TIGHT character a HIGHER looseness_scale =
+    #     STRONGER fold boost (loose_dev<0, fold offset is -loose_dev*scale = +) →
+    #     LOWER VPIP. 2.4 (below the old 2.9) keeps rock VPIP just under nit's.
+    #   - max_per_action_shift 0.45: the binding lever (the fold boost saturates
+    #     it). Must exceed nit's 0.30 for rock's fold to surpass nit's; 0.45 lands
+    #     rock as the tightest entry (below the old field-extreme 0.55).
+    #   - aggression_scale 2.4: for a low-agg char (agg_dev<0) HIGHER scale = MORE
+    #     preflop raise→call → LOWER PFR relative to VPIP. This is what makes rock
+    #     raise a SMALLER fraction of its range than nit (PFR/VPIP 0.53 < nit 0.54)
+    #     — the tight-PASSIVE gap. Postflop AF is carried by the tendency, not this.
+    #   - risk_scale 0.2: low-jam passivity (below nit's 0.3) → all_in ~1%.
+    #   - ego_fold_penalty 0.08: kept LOW. Raising it un-folds (RAISES VPIP),
+    #     fighting the tightest-in-field goal. See
+    #     docs/technical/ARCHETYPE_SHAPING_FINDINGS.md (rock band inversion) and
+    #     docs/plans/ARCHETYPE_SHAPING_HANDOFF.md #10.
     'rock': DeviationProfile(
         max_kl=0.6,
-        max_per_action_shift=0.30,
-        aggression_scale=0.9,
-        looseness_scale=0.7,
-        risk_scale=0.5,
-        ego_fold_penalty=0.15,
+        max_per_action_shift=0.45,
+        aggression_scale=2.4,
+        looseness_scale=2.4,
+        risk_scale=0.2,
+        ego_fold_penalty=0.08,
+        spot_tendencies=(('passive_postflop', 0.30),),
     ),
     # TAG: tight-aggressive — the competent-reg anchor, so it sits at the LOWER
     # edge of the TAG band (~22/19), not over the ceiling. High aggression_scale
@@ -92,6 +149,15 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.6,
         risk_scale=0.9,
         ego_fold_penalty=0.20,
+        # De-polarize the facing-3-bet defense. The base/standard chart plays a
+        # too-polarized 4-bet-or-fold vs_3bet (fold ~61%/4-bet ~16% even
+        # distortion-OFF), so TAG over-folds (exploitable) and 4-bets a hair wide.
+        # `defend_3bet` (preflop-scoped spot tendency) routes fold→call + a slice
+        # of 4-bet→call so TAG flats more — fold ~68→~52, 4-bet ~16→~12. It's the
+        # only clean lever: the fold is chart-driven (can't touch the shared base
+        # chart) and the 4-bet is chart-driven too (so reraise_aggression_scale,
+        # which scales distortion, barely moves it). See ARCHETYPE_SHAPING_FINDINGS.
+        spot_tendencies=(('defend_3bet', 0.24),),
     ),
     # Calling Station: loose-passive. The station TABLE creates the high VPIP /
     # low PFR via wide flat-calling; this distortion reinforces passivity
@@ -105,7 +171,14 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=0.4,
         ego_fold_penalty=0.55,
     ),
-    # LAG: loose-aggressive. Loose table + strong aggression.
+    # LAG: loose-aggressive. Loose table + strong aggression. Global aggression
+    # stays high (postflop AF is LAG's identity); the facing-raise SPLIT
+    # (reraise_*) tames 3-bet/4-bet frequency without touching postflop. At the
+    # old global 1.8 the realized facing-open 3-bet hit ~44% (target 16–26); the
+    # reraise scale pulls the distortion's contribution off. NOTE: LAG's base
+    # loose_mid chart already 3-bets ~30%, so the split lands it at the chart
+    # floor — getting fully into band also needs the chart trim (Knob 2). See
+    # docs/technical/ARCHETYPE_SHAPING_FINDINGS.md.
     'lag': DeviationProfile(
         max_kl=1.0,
         max_per_action_shift=0.50,
@@ -113,6 +186,14 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.0,
         risk_scale=1.2,
         ego_fold_penalty=0.40,
+        # reraise split re-tuned against the opener-conditioned metric (#244):
+        # the contaminated metric understated 4-bet, so the old 0.6/0.20 left it
+        # over band. Tightening the CAP (the binding lever) → 6k mixed: 4-bet
+        # 24.6→21.2 (band 10-20, minor WARN) and 3-bet 26.7→25.3 (now in band).
+        # 4-bet floors at ~21 on the loose_mid chart's vs_3bet mass (~15%); fully
+        # closing the WARN needs a loose_mid chart trim (lag-only — backlog #5).
+        reraise_aggression_scale=0.45,
+        reraise_max_per_action_shift=0.10,
     ),
     # Weak fish: the weakest realistic player (the $2-tier trickle). Same passive
     # caller shape as calling_station but pushed to the believable floor — the
@@ -161,8 +242,37 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
     ),
     # Maniac: the wildest — loose table + the highest aggression so its AF tops
     # the field (its VPIP shares the loose envelope with LAG; the wildness shows
-    # in aggression). Cap held at 0.35 (the priced ceiling); aggression_scale
-    # does the work.
+    # in aggression). Global aggression stays at the priced ceiling (postflop AF
+    # is the maniac's whole identity — the field's wildest). The facing-raise
+    # SPLIT (reraise_*) pulls the preflop 3-bet/4-bet wars down toward the chart
+    # floor without touching that postflop wildness. Looseness no longer boosts
+    # raise (Knob 1b). See ARCHETYPE_SHAPING_FINDINGS.md.
+    #
+    # #9 / PERCEPTIBILITY_CONDITIONING.md Phase 3 — BASELINE LOWERED + tilt opt-in.
+    # The believability thesis: a high frequency is realistic; a *constant* high
+    # frequency is a caricature. Research puts a live maniac's *sustained* facing-
+    # open 3-bet at ~15–25% (expert estimate), so the old ~37 baseline read as a
+    # flat caricature. We lower the baseline as far as the cap can pull it and let
+    # the tilt_conditioning layer push it transiently into the 30s/low-40s, so
+    # 30+ reads as a *state* (a fresh bad-beat / loss), not a constant.
+    #   - reraise_max_per_action_shift 0.08→0.01 (the binding lever) + scale
+    #     0.8→0.4. 4k mixed: 3-bet 36.4→30.0, 4-bet 40.2→31.8 (both still in band;
+    #     4-bet was at the ceiling, now mid-band). VPIP/PFR/AF/all_in unchanged
+    #     (the split is isolated to facing-raise nodes).
+    #   - FLOOR caveat: the maniac's loose chart's OWN re-raise mass is ~29–30%
+    #     combo-weighted (cap=0.0 floors 3-bet at 29.4), so the ~20–25 target is
+    #     NOT reachable via the cap alone — it would need a chart change, and the
+    #     loose chart is SHARED with spewy_fish/maniac_overbluff (DON'T touch it).
+    #     ~30 is the lowest cleanly-achievable baseline; the band is re-set to it.
+    #     Closing the last ~5pt to 25 is deferred (a maniac-only loose chart, #5).
+    #   - tilt_conditioning_cap 0.35 + the 6 aggressive Tendler-type rules: when
+    #     freshly tilted by a concrete CAUSE (bad_beat/got_sucked_out/big_loss/
+    #     losing_streak/nemesis_loss/crippled) the conditioner lifts re-raise-spot
+    #     aggression up to +0.35 logits, pushing 3-bet from the ~30 baseline into
+    #     the 30s/low-40s (a transient state that recovers as composure recovers).
+    #     GATED by TILT_CONDITIONING_ENABLED (off by default), so the flag-OFF
+    #     default = the new ~30 baseline above (byte-identical to flag-off + inert).
+    #     See poker/strategy/tilt_conditioning.py.
     'maniac': DeviationProfile(
         max_kl=1.2,
         max_per_action_shift=0.35,
@@ -170,6 +280,11 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         looseness_scale=1.2,
         risk_scale=1.6,
         ego_fold_penalty=0.60,
+        reraise_aggression_scale=0.4,
+        reraise_max_per_action_shift=0.01,
+        # tilt opt-in (#9 / Phase 3): cap + rules assigned at the bottom of the
+        # module (MANIAC_TILT_RULES) to avoid the deviation_profiles <-
+        # tilt_conditioning circular import. tilt_conditioning_cap is set there too.
     ),
     # Balanced defender (measurement only): the apex anti-aggression reg, to test
     # whether a competent DEFENSE neutralizes the maniac's edge (the field-overfold
@@ -223,6 +338,48 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         spot_tendencies=(('over_bluff', 0.55),),
     ),
 }
+
+
+# ── Maniac tilt opt-in (#9 / PERCEPTIBILITY_CONDITIONING.md Phase 3) ──────────
+# The maniac is the first (and only) archetype opted into the tilt_conditioning
+# layer. The import is deferred to HERE (the bottom of the module, after the
+# DeviationProfile class AND the DEVIATION_PROFILES dict are fully defined) to
+# break the circular import: tilt_conditioning imports DeviationProfile from this
+# module at its top, so we cannot import it at OUR top — but by the time this
+# line runs, DeviationProfile is bound, so tilt_conditioning loads cleanly.
+#
+# Rules: the 6 AGGRESSIVE Tendler-type rules (bad_beat, got_sucked_out, big_loss,
+# losing_streak, nemesis_loss, crippled). bluff_called is registered with
+# magnitude 0.0 (V1 conservative — telegraphable but no shift) so we EXCLUDE it
+# from the opt-in (a caught bluff shouldn't spike the maniac's 3-bet).
+#
+# Cap 0.35: sized so a forced EXTREME tilt (intensity 0.95 on every decision —
+# the worst case) lifts the ~30 baseline 3-bet/4-bet into the low-40s (probe:
+# 3-bet 30.6→41.4, 4-bet 29.0→41.9), a transient STATE that recovers as composure
+# recovers. Bounded (never absurd) — the per-rule max_magnitude (0.5–0.6) is
+# clamped down to this cap. Real tilt is intermittent (not every decision at 0.95),
+# so realized session spikes land in the 30s/low-40s. See
+# scripts/tilt_conditioning_probe.py. dataclasses.replace keeps every other field.
+import dataclasses as _dataclasses  # noqa: E402  (deferred import, see above)
+
+from .tilt_conditioning import TILT_TYPE_RULES as _TILT_TYPE_RULES  # noqa: E402
+
+_MANIAC_AGGRESSIVE_TILT_TYPES = (
+    'bad_beat',
+    'got_sucked_out',
+    'big_loss',
+    'losing_streak',
+    'nemesis_loss',
+    'crippled',
+)
+MANIAC_TILT_RULES: Tuple['TiltScenarioRule', ...] = tuple(
+    _TILT_TYPE_RULES[t] for t in _MANIAC_AGGRESSIVE_TILT_TYPES
+)
+DEVIATION_PROFILES['maniac'] = _dataclasses.replace(
+    DEVIATION_PROFILES['maniac'],
+    tilt_conditioning_cap=0.35,
+    tilt_scenario_rules=MANIAC_TILT_RULES,
+)
 
 
 # Width-tier preflop table per archetype profile (filename in

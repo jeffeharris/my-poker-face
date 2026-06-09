@@ -1399,6 +1399,7 @@ def refresh_unseated_tables(
             existing = stake_repo.load_active_for_borrower(
                 pid,
                 "personality",
+                sandbox_id=sandbox_id,
             )
             if existing is not None:
                 return BorrowerProfile(willing=False)
@@ -1599,6 +1600,14 @@ def refresh_unseated_tables(
     for table in tables:
         if table.human_seat_index() is not None:
             # Active session table; the hand-boundary hook handles it.
+            continue
+
+        if table.table_type == 'scripted':
+            # Scene-0 / scripted tutorial tables are PINNED: the authored cast
+            # (e.g. Sal + the fish) must stay put so the scripted graduation
+            # beat is reliable. Skip movement, live-fill, and the global greedy
+            # fill entirely — never add them to fill_ctx. See
+            # `cash_mode/career_progression.py` and CASH_MODE_CAREER_PROGRESSION.md.
             continue
 
         big_blind, table_min_buy_in, table_max_buy_in = table_buy_in_window(table.stake_label)
@@ -2639,6 +2648,7 @@ def settle_departed_ai_stake(
     active_stake = stake_repo.load_active_for_borrower(
         pid,
         BORROWER_KIND_PERSONALITY,
+        sandbox_id=sandbox_id,
     )
     if active_stake is None:
         return None
@@ -2675,6 +2685,52 @@ def settle_departed_ai_stake(
     )
     if settlement is None:
         return None
+
+    # Obligation dimension (P1 shadow): mirror the chip settlement in the debt
+    # axis. Extinguish the principal RECOVERED (`min(staker_total, principal)`) —
+    # never `staker_total`, whose excess is the staker's profit share, a
+    # chip-only flow that is not debt repayment. A clean settle zeroes
+    # `oblig:<id>`; a CARRY leaves the unrecovered principal as the live balance;
+    # a forgive/default writes the residual off so the debt still closes. Rows
+    # are bank-neutral best-effort (the existing settle path is not a single
+    # transaction — full atomicity is a P2 concern when the invariant is
+    # enforced). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags
+
+    if (
+        chip_ledger_repo is not None
+        and sandbox_id is not None
+        and economy_flags.CHIP_CUSTODY_ENABLED
+    ):
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
+
+        # Gated on origination: a legacy stake (no originate row) is skipped so
+        # the close doesn't drive oblig:<id> negative. The bool return says
+        # whether it was originated — reused to skip the assert's redundant
+        # origination re-scan (and skip the assert entirely for legacy).
+        if apply_close_flows(
+            flows_on_settle(
+                active_stake.stake_id,
+                principal=int(active_stake.principal),
+                staker_total=int(settlement.staker_total),
+                is_carry=settlement.new_status == STAKE_STATUS_CARRY,
+            ),
+            chip_ledger_repo,
+            active_stake.stake_id,
+            sandbox_id=sandbox_id,
+            context={"site": "ai_session_end", "sandbox_id": sandbox_id},
+        ):
+            # P2: the debt must now equal its residual (0 on a clean/forgiven
+            # settle, carry_amount on a carry). Enforced in dev/sim; alarm in prod.
+            assert_stake_obligation_closed(
+                stake_id=active_stake.stake_id,
+                expected_residual=int(settlement.carry_amount),
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                already_originated=True,
+            )
+
     # Apply the settlement flows. For AI-staker / AI-borrower
     # personality stakes the flows are pure bankroll→bankroll
     # transfers — no ledger entry, mirror the route's leave
@@ -3044,6 +3100,9 @@ def _apply_stake_creations(
                 carry_amount=0,
                 stake_tier=sc.stake_label,
                 created_at=now,
+                # Pin to the origination sandbox so settlement can only ever
+                # drain THIS sandbox's borrower seat (see load_active_for_borrower).
+                sandbox_id=sandbox_id,
             )
             if stake_repo is not None:
                 try:
@@ -4859,6 +4918,7 @@ def _process_aspiration_asks(
             existing = stake_repo.load_active_for_borrower(
                 asker_pid,
                 BORROWER_KIND_PERSONALITY,
+                sandbox_id=sandbox_id,
             )
         except Exception as exc:
             logger.debug(
@@ -5151,6 +5211,9 @@ def _process_aspiration_asks(
             carry_amount=0,
             stake_tier=target_tier,
             created_at=now,
+            # Pin to the origination sandbox so settlement can only ever
+            # drain THIS sandbox's borrower seat (see load_active_for_borrower).
+            sandbox_id=sandbox_id,
         )
         try:
             stake_repo.create_stake(stake)

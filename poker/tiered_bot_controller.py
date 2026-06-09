@@ -57,8 +57,16 @@ from .strategy.postflop_commit import apply_postflop_commit
 from .strategy.preflop_classifier import build_preflop_node
 from .strategy.push_fold import PUSH_FOLD_THRESHOLD_BB, lookup_push_fold_action
 from .strategy.short_stack import apply_short_stack_heuristics
+from .strategy.sizing_tendencies import (
+    SizeContext,
+    SizingPersonality,
+    parse_sizing_tendencies,
+    resolve_size_multiplier,
+    sample_sizing_personality,
+)
 from .strategy.strategy_profile import StrategyProfile
 from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
+from .strategy.tilt_conditioning import apply_tilt_conditioning
 from .strategy.value_override import (
     BLUFF_CATCH_TRIGGER_CLASSES,
     HandStrengthClass,
@@ -303,6 +311,17 @@ class TieredBotController(AIPlayerController):
         # one-time config read (and lets an explicit () mean "override to none").
         self._spot_tendencies_override: Optional[Tuple[Tuple[str, float], ...]] = None
         self._spot_tendencies_resolved: bool = False
+        # Per-PLAYER preflop sizing personality (sizing_tendencies P1,
+        # docs/plans/SIZING_TENDENCIES.md). Deterministically SAMPLED per persona
+        # (persona-seeded RNG) so a character's go-to raise size is stable but
+        # same-archetype players size differently — a read you EARN, not a one-shot
+        # tell. None until lazily resolved on first preflop sizing (mirrors the
+        # deviation_profile lazy-resolve). An explicit override (sims/tests) wins.
+        # The per-personality `sizing_tendencies` config key is the P2+ override
+        # lane (parsed here, carried onto the sampled struct's `behaviors`).
+        self._sizing_personality: Optional[SizingPersonality] = None
+        self._sizing_personality_override: Optional[SizingPersonality] = None
+        self._sizing_tendencies_override: Optional[Tuple[Tuple[str, float], ...]] = None
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
         # Phase 7.6: per-decision intervention trace accumulator. Reset
@@ -531,18 +550,15 @@ class TieredBotController(AIPlayerController):
                 'severity': getattr(emotional_state, 'severity', 'none'),
                 'intensity': float(getattr(emotional_state, 'intensity', 0.0) or 0.0),
             }
-        # Deviation profile name (reverse-lookup against DEVIATION_PROFILES).
+        # Deviation profile name — via the robust reverse-lookup (handles
+        # explicit loadouts like weak_fish AND the spot_tendencies `replace()`
+        # copy that an `is` check against the property would miss → 'unknown').
         try:
-            from .strategy.deviation_profiles import DEVIATION_PROFILES
-
-            for name, candidate in DEVIATION_PROFILES.items():
-                if candidate is self.deviation_profile:
-                    snap['deviation_profile_name'] = name
-                    break
+            snap['deviation_profile_name'] = self._table_archetype_key()
         except Exception:
             pass
 
-    def _build_narration_facts(self, phase: str):
+    def _build_narration_facts(self, phase: str, spoken_read=None):
         """Phase 7.6 Step 5: build a NarrationFacts payload from the
         controller's per-decision intervention trace.
 
@@ -553,9 +569,17 @@ class TieredBotController(AIPlayerController):
         `phase` here is the controller's narrow string (e.g. 'flop',
         'pre_flop'); we normalize to the NarrationContext.street
         convention.
+
+        Backlog #12 Phase 1 (both-channels surfacing): when a `spoken_read`
+        (a `strategy.spoken_reads.SpokenRead`) is supplied, it is folded in
+        as an always-in-context NarrationFact so the earned "figuring you
+        out" arc reaches the LLM even on hands the speech channel is gated.
+        The arc tier maps straight onto NarrationFact.certainty_bucket
+        (tentative/confident/sure), the same escalation cue narration_facts
+        already uses.
         """
         traces = getattr(self, '_last_intervention_trace', None)
-        if not traces:
+        if not traces and spoken_read is None:
             return None
         try:
             from .strategy.narration_facts import (
@@ -569,12 +593,49 @@ class TieredBotController(AIPlayerController):
                 position_context='',  # not yet captured per-decision
                 risk_posture='',  # ditto
             )
-            return traces_to_narration_facts(traces, ctx)
+            facts = traces_to_narration_facts(traces or [], ctx)
+            if spoken_read is not None:
+                facts = self._inject_spoken_read_fact(facts, spoken_read, ctx)
+            return facts
         except Exception as e:  # noqa: BLE001 — narration is observability
             logger.warning(
                 f"[TIERED_BOT] {self.player_name}: " f"narration_facts build failed: {e}"
             )
             return None
+
+    def _inject_spoken_read_fact(self, facts, spoken_read, ctx):
+        """Fold a SpokenRead into a NarrationFacts as an always-in-context
+        fact (the second of the two surfacing channels).
+
+        The spoken read becomes the LEAD fact (primary_factor) — it is the
+        earned, perceptible read the believability work is about. Mechanical
+        trace facts stay in the list below it. The observation text is the
+        already-intuition-framed line (no raw numbers/stats), and the arc
+        tier is the certainty bucket.
+        """
+        from .strategy.narration_facts import NarrationFact, NarrationFacts
+
+        read_fact = NarrationFact(
+            observation=spoken_read.observation,
+            why_it_matters="I've watched them long enough to trust this read.",
+            decision_taken="Playing into the read I've built on them",
+            action_intent='bluff_catch',
+            intensity_bucket='noticeable',
+            certainty_bucket=spoken_read.arc_tier,
+            importance=1.0,  # the read leads
+            layer='spoken_read',
+            rule_id=spoken_read.read_key,
+        )
+        existing = list(getattr(facts, 'facts', []) or [])
+        merged = [read_fact] + existing
+        context = getattr(facts, 'context', None) or ctx
+        return NarrationFacts(
+            facts=merged,
+            primary_factor=read_fact,
+            context=context,
+            summary_intensity=getattr(facts, 'summary_intensity', 'subtle'),
+            suppressed_facts_count=getattr(facts, 'suppressed_facts_count', 0),
+        )
 
     def _snapshot_math_floor_inputs(self, game_state, player_idx: int) -> None:
         """Phase 7.6 Step 6: record math-floor inputs for replay."""
@@ -687,6 +748,72 @@ class TieredBotController(AIPlayerController):
             return self._spot_tendencies_override
         return None
 
+    def _effective_sizing_tendencies(self) -> Tuple[Tuple[str, float], ...]:
+        """Per-personality `sizing_tendencies` override lane (P2+ behaviors).
+
+        Mirrors `_effective_spot_tendencies`: an explicit
+        `_sizing_tendencies_override` (set by sims/tests) wins; otherwise the
+        personality config's `sizing_tendencies` key is read once and cached.
+        In P1 stock personas carry no key, so this returns `()` (the sampled
+        `base_size_bias` is the whole personality). The behaviors it returns ride
+        along on the sampled SizingPersonality's `behaviors` for P2+ to consult.
+        """
+        override = getattr(self, '_sizing_tendencies_override', None)
+        if override is not None:
+            return override
+        config = getattr(self.psychology, 'personality_config', None)
+        raw = config.get('sizing_tendencies') if isinstance(config, dict) else None
+        return parse_sizing_tendencies(raw)
+
+    @property
+    def sizing_personality(self) -> SizingPersonality:
+        """The per-player preflop sizing personality (sizing_tendencies P1).
+
+        Deterministically SAMPLED once per persona (persona-seeded RNG keyed on
+        the player name), then cached — so a character's go-to raise size is
+        stable across calls/sessions while same-archetype players differ. The
+        Baseline-GTO reference (`skip_personality_distortion`) and any controller
+        without anchors get the NEUTRAL personality (multiplier always 1.0), so
+        the deterministic sim stays byte-identical.
+
+        An explicit `_sizing_personality_override` (sims/tests) wins. Lazy-resolve
+        mirrors `deviation_profile`; getattr guards controllers built via __new__.
+        """
+        override = getattr(self, '_sizing_personality_override', None)
+        if override is not None:
+            return override
+        cached = getattr(self, '_sizing_personality', None)
+        if cached is not None:
+            return cached
+        # Resolve once and cache. Any failure (e.g. a malformed `sizing_tendencies`
+        # persona config) degrades to the neutral no-op personality (multiplier
+        # 1.0) rather than crashing the decision or re-raising every hand — sizing
+        # is a frequency-neutral cosmetic layer, so neutral is the safe default.
+        try:
+            if getattr(self, 'skip_personality_distortion', False):
+                resolved = SizingPersonality.neutral()
+            else:
+                psych = getattr(self, 'psychology', None)
+                anchors = psych.anchors if psych else None
+                if anchors is None:
+                    resolved = SizingPersonality.neutral()
+                else:
+                    resolved = sample_sizing_personality(
+                        anchors,
+                        persona_seed=self.player_name,
+                        archetype_key=self._table_archetype_key(),
+                        sizing_tendencies=self._effective_sizing_tendencies(),
+                    )
+        except Exception:
+            logger.warning(
+                'sizing_personality resolution failed for %s; using neutral',
+                getattr(self, 'player_name', '?'),
+                exc_info=True,
+            )
+            resolved = SizingPersonality.neutral()
+        self._sizing_personality = resolved
+        return resolved
+
     @property
     def archetype_name(self) -> str:
         """Get personality archetype name from anchors."""
@@ -780,6 +907,9 @@ class TieredBotController(AIPlayerController):
         # step below) because the base ranges themselves are depth-dependent.
         effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
         preflop_table, chart_label = self._select_preflop_table(num_seated, effective_stack_bb)
+        # Record WHICH base chart fed this decision (e.g. '6max:loose_mid', '50bb',
+        # 'HU') so decision analysis can show the chart the line started from.
+        self._last_pipeline_snapshot['chart_label'] = chart_label
 
         if self.debug_logging:
             logger.info(
@@ -830,12 +960,31 @@ class TieredBotController(AIPlayerController):
         self._snapshot_personality_inputs(anchors, emotional_state)
 
         if anchors and not self.skip_personality_distortion:
+            # Pre/postflop aggression split: at facing-a-raise preflop nodes
+            # (3-bet / 4-bet spots) swap in the archetype's reraise-scoped
+            # aggression knob when set, so we tame re-raise FREQUENCY without
+            # touching opening width or postflop aggression. RFI (opening) and
+            # postflop keep the full profile.
+            distortion_profile = self.deviation_profile
+            if (
+                getattr(node, 'scenario', '') in ('vs_open', 'vs_3bet', 'vs_4bet')
+                and distortion_profile.reraise_aggression_scale is not None
+            ):
+                distortion_profile = dataclasses.replace(
+                    distortion_profile,
+                    aggression_scale=distortion_profile.reraise_aggression_scale,
+                    max_per_action_shift=(
+                        distortion_profile.reraise_max_per_action_shift
+                        if distortion_profile.reraise_max_per_action_shift is not None
+                        else distortion_profile.max_per_action_shift
+                    ),
+                )
             modified_strategy, personality_trace = modify_strategy(
                 base=base_strategy,
                 legal_actions=valid_actions,
                 anchors=anchors,
                 emotional_state=emotional_state,
-                deviation_profile=self.deviation_profile,
+                deviation_profile=distortion_profile,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
         else:
@@ -847,6 +996,31 @@ class TieredBotController(AIPlayerController):
                 reason_code='distortion_skipped',
             )
         self._last_intervention_trace.append(personality_trace)
+
+        # Phase 6.b (preflop): scenario-scoped spot tendencies (e.g. tag's
+        # `defend_3bet`, which de-polarizes the 4-bet-or-fold vs_3bet response
+        # toward flatting). Separate from the postflop _layer_spot_tendencies
+        # helper because that reads PostflopNode-only fields (street/
+        # facing_action) a PreflopNode lacks; this passes street=None + the
+        # preflop scenario. Every street-gated postflop tendency no-ops here
+        # (street=None matches no street set), so profiles without a
+        # preflop-scoped tendency are byte-identical.
+        modified_strategy = self._layer_preflop_spot_tendencies(
+            modified_strategy,
+            node=node,
+            anchors=anchors,
+            hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
+        )
+
+        # Phase 2 (PERCEPTIBILITY_CONDITIONING.md): tilt_conditioning runs
+        # between spot-tendencies and exploitation. Inert (no-op, byte-identical)
+        # unless the flag is on AND the profile opts in (cap > 0.0).
+        modified_strategy = self._layer_tilt_conditioning(
+            modified_strategy,
+            node=node,
+            valid_actions=valid_actions,
+            emotional_state=emotional_state,
+        )
 
         if self.debug_logging:
             logger.info(
@@ -926,12 +1100,29 @@ class TieredBotController(AIPlayerController):
                 f"sampled={abstract_action} emotional={emotional_state.state}"
             )
 
+        # Per-player sizing personality (sizing_tendencies P1). Center the raise
+        # size on this player's sampled `base_size_bias` BEFORE jitter+rounding,
+        # so same-archetype players visibly size differently (a read you earn).
+        # Frequency-neutral: only the magnitude is scaled, never which action
+        # fires. The multiplier is 1.0 for Baseline-GTO / no-anchor controllers,
+        # keeping the deterministic sim byte-identical. P1 ignores the context;
+        # it's built so P2+ palette behaviors plug in without changing this seam.
+        size_context = SizeContext(
+            scenario=getattr(node, 'scenario', None),
+            hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
+            position=getattr(node, 'position', None),
+            emotional_state=getattr(emotional_state, 'state', None),
+            big_blind=getattr(game_state, 'current_ante', 0),
+        )
+        size_multiplier = resolve_size_multiplier(self.sizing_personality, size_context)
+
         game_action, raise_to = resolve_preflop_sizing(
             abstract_action,
             game_state,
             player_idx,
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
+            size_multiplier=size_multiplier,
         )
 
         if game_action not in valid_actions:
@@ -1147,6 +1338,16 @@ class TieredBotController(AIPlayerController):
             node=node,
             anchors=anchors,
             hand_strength=hand_strength,
+        )
+
+        # 6.c Phase 2 (PERCEPTIBILITY_CONDITIONING.md): tilt_conditioning runs
+        # between spot-tendencies and exploitation. Inert (no-op, byte-identical)
+        # unless the flag is on AND the profile opts in (cap > 0.0).
+        modified_strategy = self._layer_tilt_conditioning(
+            modified_strategy,
+            node=node,
+            valid_actions=valid_actions,
+            emotional_state=emotional_state,
         )
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
@@ -1488,6 +1689,97 @@ class TieredBotController(AIPlayerController):
                     f"[TIERED_BOT] {self.player_name}: "
                     f"spot_tendencies={modified_strategy.action_probabilities}"
                 )
+        return modified_strategy
+
+    def _layer_preflop_spot_tendencies(
+        self,
+        modified_strategy,
+        *,
+        node,
+        anchors,
+        hand_strength,
+    ):
+        """6.b (preflop) Scenario-scoped spot tendencies.
+
+        The postflop `_layer_spot_tendencies` reads PostflopNode fields
+        (`street`/`facing_action`) a `PreflopNode` lacks, so the preflop call is a
+        separate, narrower one: ``street=None`` (every street-gated postflop
+        tendency no-ops), ``action_context='facing_raise'``, and the preflop
+        ``scenario`` threaded through so a tendency can gate on it (e.g.
+        ``defend_3bet`` on ``'vs_3bet'``). OFF / no-preflop-tendency profiles are
+        byte-identical (the guard + the street gates).
+        """
+        if (
+            anchors
+            and not self.skip_personality_distortion
+            and self.deviation_profile.spot_tendencies
+        ):
+            from .strategy.spot_tendencies import apply_spot_tendencies
+
+            modified_strategy, spot_traces = apply_spot_tendencies(
+                modified_strategy,
+                spot_tendencies=self.deviation_profile.spot_tendencies,
+                max_per_action_shift=self.deviation_profile.max_per_action_shift,
+                hand_class=hand_strength,
+                action_context='facing_raise',
+                street=None,
+                has_initiative=False,
+                position=getattr(node, 'position', None),
+                scenario=getattr(node, 'scenario', None),
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            self._last_intervention_trace.extend(spot_traces)
+            self._last_pipeline_snapshot['preflop_spot_tendency_probs'] = dict(
+                modified_strategy.action_probabilities
+            )
+        return modified_strategy
+
+    def _layer_tilt_conditioning(
+        self,
+        modified_strategy,
+        *,
+        node,
+        valid_actions,
+        emotional_state,
+    ):
+        """Phase 2 (PERCEPTIBILITY_CONDITIONING.md): state-conditioned aggression.
+
+        Runs between the spot-tendencies layer and exploitation (a conditioner,
+        not an override — the math floor still runs after it). Double-gated for
+        zero overhead AND zero effect when off/inert:
+          - the TILT_CONDITIONING_ENABLED feature flag, AND
+          - the profile's `tilt_conditioning_cap > 0.0` (the Phase-2 default for
+            EVERY shipped archetype is 0.0, so this is byte-identical until an
+            archetype opts in — Phase 3).
+        Appends the layer's trace to `self._last_intervention_trace`. Shared by
+        the preflop and postflop decision paths. `composure_state` read via
+        getattr for sim/__new__ safety.
+        """
+        profile = getattr(self, 'deviation_profile', None)
+        if profile is None or float(getattr(profile, 'tilt_conditioning_cap', 0.0) or 0.0) <= 0.0:
+            return modified_strategy
+        try:
+            from core.feature_flags import is_enabled
+
+            if not is_enabled('TILT_CONDITIONING_ENABLED'):
+                return modified_strategy
+        except Exception:
+            # Flag registry unavailable (sim/test isolation) → treat as off.
+            return modified_strategy
+
+        psychology = getattr(self, 'psychology', None)
+        composure_state = getattr(psychology, 'composure_state', None) if psychology else None
+        modified_strategy, tilt_trace = apply_tilt_conditioning(
+            modified_strategy,
+            legal_actions=valid_actions,
+            emotional_state=emotional_state,
+            composure_state=composure_state,
+            node=node,
+            archetype_rules=getattr(profile, 'tilt_scenario_rules', ()),
+            profile=profile,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+        self._last_intervention_trace.append(tilt_trace)
         return modified_strategy
 
     def _layer_multistreet_context(
@@ -2480,6 +2772,17 @@ class TieredBotController(AIPlayerController):
         bound yet (the 6 anchor-derived archetypes, where the two agree).
         """
         prof = getattr(self, '_deviation_profile', None)
+        if prof is None:
+            # Trigger lazy resolution — the `deviation_profile` property populates
+            # `_deviation_profile` with the BASE archetype object (the property
+            # itself may return a spot_tendencies `replace()` copy, which is why
+            # we reverse-look-up the raw base, not the property: an `is` check
+            # against a copy is the bug that mislabels personas as 'unknown').
+            try:
+                _ = self.deviation_profile
+                prof = getattr(self, '_deviation_profile', None)
+            except Exception:
+                prof = None
         if prof is not None:
             from .strategy.deviation_profiles import DEVIATION_PROFILES
 
@@ -3952,19 +4255,27 @@ class TieredBotController(AIPlayerController):
             if gate.fully_silent:
                 return None
 
-            # Phase 7.6 Step 5: build NarrationFacts from the per-decision
-            # intervention trace. Best-effort — failure here logs WARN and
-            # leaves narration_facts as None (LLM falls back to the
-            # standard prompt template).
-            narration_facts = self._build_narration_facts(phase)
-
             # Opponent narrative observations — surfaced so Layer 3
             # narration can riff on accumulated reads from prior hands.
             # Best-effort: any failure produces an empty list and the
             # generator's prompt template skips the corresponding block.
+            # Runs BEFORE _build_narration_facts so the spoken-read it
+            # selects (backlog #12 Phase 1) can also feed the
+            # narration_facts channel — both channels carry the read.
             opponent_observations = self._select_opponent_observations(
                 game_state,
                 player,
+            )
+
+            # Phase 7.6 Step 5: build NarrationFacts from the per-decision
+            # intervention trace. Best-effort — failure here logs WARN and
+            # leaves narration_facts as None (LLM falls back to the
+            # standard prompt template). Backlog #12 Phase 1: the chosen
+            # spoken read is folded in as an always-in-context fact so the
+            # "figuring you out" arc persists even on silent hands.
+            narration_facts = self._build_narration_facts(
+                phase,
+                spoken_read=getattr(self, '_last_spoken_read', None),
             )
 
             # Relationship-context block — shared with chaos and
@@ -4128,7 +4439,25 @@ class TieredBotController(AIPlayerController):
         weighted toward the opponent hero is facing and any nemesis.
         Empty list when the controller has no opponent_model_manager,
         no active opponents, or no stored observations.
+
+        Backlog #12 Phase 1 (perceptibility): the EARNED *spoken read* —
+        an intuition-framed "I'm figuring you out" line grounded in the
+        opponent model's matured stats — is preferred over the model's
+        generic narrative observations, then we backfill from the generic
+        observations up to the 2-slot cap. The chosen spoken read is also
+        stashed on `self._last_spoken_read` so the narration_facts
+        (always-in-context) channel can carry the same arc even on hands
+        the bot stays silent. Frequency-neutral: this is post-decision
+        Layer-3 narration only.
         """
+        # The lead spoken read feeds the narration_facts channel, which —
+        # unlike the cooldown-gated speech channel — must PERSIST across the
+        # cooldown so the "figuring you out" arc stays in context on gated
+        # hands. Capture the prior read; below we keep it only while its
+        # opponent is still in the hand, so a stale read can't leak into a
+        # table that opponent has left.
+        prev_read = getattr(self, '_last_spoken_read', None)
+        self._last_spoken_read = None
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None:
             return []
@@ -4152,11 +4481,64 @@ class TieredBotController(AIPlayerController):
                 best_name, best_bet = max(opp_bets, key=lambda nb: nb[1])
                 if best_bet > 0:
                     facing_opponent = best_name
-            return manager.select_opponent_observations(
+
+            spoken: List[Tuple[str, str]] = []
+            try:
+                from .strategy.spoken_reads import (
+                    SpokenReadConfig,
+                    SpokenReadState,
+                    select_spoken_reads,
+                )
+
+                if getattr(self, '_spoken_read_state', None) is None:
+                    self._spoken_read_state = SpokenReadState()
+                if getattr(self, '_spoken_read_config', None) is None:
+                    self._spoken_read_config = SpokenReadConfig()
+                spoken, self._spoken_read_state, spoken_reads = select_spoken_reads(
+                    observer_name=player.name,
+                    active_opponents=active_opponents,
+                    facing_opponent=facing_opponent,
+                    opponent_model_manager=manager,
+                    state=self._spoken_read_state,
+                    config=self._spoken_read_config,
+                )
+            except Exception as e:  # noqa: BLE001 — narration is observability
+                logger.warning(f"[TIERED_BOT] {self.player_name}: spoken_reads failed: {e}")
+                spoken = []
+                spoken_reads = []
+
+            if spoken_reads:
+                # Fresh voiced read this hand → it leads both channels.
+                self._last_spoken_read = spoken_reads[0]
+            elif prev_read is not None and prev_read.opponent in active_opponents:
+                # Speech channel cooled down, but the opponent is still in
+                # the hand — keep the prior read so narration_facts carries
+                # the arc across the gate (the always-in-context channel).
+                self._last_spoken_read = prev_read
+            # else: no fresh read and the prior read's opponent is gone →
+            # leave it None so a stale read can't leak into an unrelated hand.
+
+            cap = getattr(self, '_spoken_read_config', None)
+            max_obs = cap.max_observations_per_decision if cap else 2
+
+            generic = manager.select_opponent_observations(
                 player.name,
                 active_opponents=active_opponents,
                 facing_opponent=facing_opponent,
             )
+
+            # Spoken reads take priority; backfill from generic observations
+            # for opponents not already covered, up to the cap.
+            merged: List[Tuple[str, str]] = list(spoken[:max_obs])
+            covered = {opp for opp, _ in merged}
+            for opp, obs in generic:
+                if len(merged) >= max_obs:
+                    break
+                if opp in covered:
+                    continue
+                merged.append((opp, obs))
+                covered.add(opp)
+            return merged
         except Exception:
             return []
 

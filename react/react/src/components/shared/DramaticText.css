@@ -1,0 +1,13 @@
+/* DramaticReserve — reserve the final text height so typing doesn't reflow the
+   layout. The ghost (full text, hidden) sets the box height; the live animation
+   sits on top of it. Beat styling is inherited from each consumer's bubble. */
+.dramatic-reserve {
+  position: relative;
+}
+.dramatic-reserve__ghost {
+  visibility: hidden;
+}
+.dramatic-reserve__live {
+  position: absolute;
+  inset: 0;
+}

@@ -184,9 +184,10 @@ export interface LobbyTable {
    *  tables (future) will source their own. */
   table_name?: string | null;
   /** v111: table-type discriminator. `'lobby'` = the Cardroom career
-   *  ladder; `'casino'` = the ephemeral $2 fish floor (own tab). `'private'`
-   *  stays reserved for a future invite-only feature. */
-  table_type?: 'lobby' | 'private' | 'casino';
+   *  ladder; `'casino'` = the ephemeral $2 fish floor (own tab); `'scripted'` =
+   *  a pinned tutorial table (Scene 0). `'private'` stays reserved for a future
+   *  invite-only feature. */
+  table_type?: 'lobby' | 'private' | 'casino' | 'scripted';
   /** v113: hands left before this (casino) table tears down. Present →
    *  the table is in its closing countdown; `null`/absent → active. Drives
    *  the "closing" tag on the card and the Casino tab's closing indicator. */
@@ -229,6 +230,10 @@ export interface LobbyEvent {
     // v121 — the human's reputation quadrant changed (read-only scoreboard
     // beat; `reason` carries the new quadrant label).
     | 'reputation_shift'
+    // v152 — an AI vouched the player into a new cardroom (Act-1 career spine).
+    // A door opens: the revealed room is `table_id`/`stake_label`, the voucher
+    // is `personality_id`/`name`, `message` is the pre-formatted line.
+    | 'vouch'
     // P3.7 — circuit Main Event lifecycle beats from an autonomous run:
     // a field-collapse milestone (`reason` = final_table|heads_up|down_to),
     // the bubble bursting, and the champion.
@@ -359,6 +364,15 @@ export interface ReputationData {
   renown_v2_components?: ReputationV2Components;
 }
 
+/** One of the three authored intake backgrounds (Q2). `id` is the stable
+ *  callback key; `title` labels the card; `text` is the chosen background, also
+ *  stored verbatim as the player's bio. */
+export interface IntakeBackstory {
+  id: string;
+  title: string;
+  text: string;
+}
+
 export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
@@ -412,6 +426,39 @@ export interface LobbyResponse {
    *  Null until the world ticker's first prestige capture; the panel renders
    *  nothing while absent. Read-only — no AI behaviour reads it (yet). */
   reputation?: ReputationData | null;
+  /** v124 — true for a brand-new career player who hasn't been through the
+   *  Lucky Stack intake (cold open) yet; the frontend shows the intake beat
+   *  before the lobby. `fish_name` is the tourist handle once christened. */
+  intake_needed?: boolean;
+  /** The three authored backgrounds the newcomer picks from (intake Q2).
+   *  Server-sent single source of truth; present only while `intake_needed`. */
+  intake_backstories?: IntakeBackstory[];
+  fish_name?: string | null;
+  /** One-shot, right after Scene-0 graduation: Sal escorts the player to the
+   *  revealed home court. The lobby shows his portrait + bubble (`line`) and
+   *  spotlights the `table_id` card. Served once then cleared server-side, so
+   *  it's present on exactly one load. Null when there's no handoff pending. */
+  mentor_intro?: MentorIntro | null;
+  /** Sal's STANDING mentor-stake offer (the comp-return's other half): after
+   *  graduation, broke at 0, Sal backs the player's first real seat at their
+   *  home court. Unlike the one-shot `mentor_intro` walk-over, this persists in
+   *  the lobby until taken. When present, the frontend sits the home-court seat
+   *  via `sponsor-and-sit(lender_id)` instead of the generic SponsorModal. Null
+   *  once spent (or when not graduated / not broke / no home court). */
+  mentor_stake?: MentorStake | null;
+}
+
+export interface MentorIntro {
+  table_id: string;
+  name: string;
+  line: string;
+}
+
+export interface MentorStake {
+  table_id: string;
+  lender_id: string;
+  lender_name: string;
+  stake_label: StakeLabel;
 }
 
 /** How fast the background world ticks for unseated tables. */

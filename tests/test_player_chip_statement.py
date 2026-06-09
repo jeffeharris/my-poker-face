@@ -127,6 +127,10 @@ def test_transfer_reasons_excluded_from_bank_reason_sets():
     # (The tournament overlay is a pool DRAW and the return a pool DEPOSIT, so
     # they are NOT transfers — they belong in the bank reason sets, asserted
     # disjoint below.)
+    # The obligation-dimension reasons (stake_originate/extinguish/forgive/cancel)
+    # are also bank-neutral transfers — they live entirely in the `oblig*`
+    # namespace, so they must stay out of the bank-pool sets too. See
+    # CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
     assert TRANSFER_REASONS == {
         "player_buy_in",
         "player_cash_out",
@@ -137,6 +141,10 @@ def test_transfer_reasons_excluded_from_bank_reason_sets():
         "tournament_buy_in",
         "tournament_payout",
         "ledger_reconciliation",
+        "stake_originate",
+        "stake_extinguish",
+        "stake_forgive",
+        "stake_cancel",
     }
     assert TRANSFER_REASONS.isdisjoint(BANK_POOL_DEPOSIT_REASONS)
     assert TRANSFER_REASONS.isdisjoint(BANK_POOL_DRAW_REASONS)

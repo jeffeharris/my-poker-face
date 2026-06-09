@@ -65,7 +65,7 @@ class _FakeStakeRepo:
         self.created = []
         self.fail_create = fail_create
 
-    def load_active_for_borrower(self, borrower_id, borrower_kind):
+    def load_active_for_borrower(self, borrower_id, borrower_kind, *, sandbox_id=None):
         return None
 
     def list_carries_for_borrower(self, borrower_id, borrower_kind):

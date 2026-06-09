@@ -126,10 +126,29 @@ def _resolve_sandbox_id(owner_id: str) -> str:
 
 
 def _resolve_player_name() -> str:
-    """Display name for the human player at the cash table."""
-    from flask_app.extensions import auth_manager
+    """Display name for the human player at the cash table.
+
+    In the Act-1 career flow the room knows you by your **fish-name** ("Juke
+    Joint Jeff") until you're vouched out of Scene 0 — then it's shed for the
+    name you chose at intake ("Jeff"). Outside the flow it's the account name.
+    """
+    from flask_app.extensions import auth_manager, career_progress_repo
 
     user = auth_manager.get_current_user() if auth_manager else None
+    owner_id = user.get("id") if user else None
+
+    if owner_id and career_progress_repo is not None:
+        try:
+            sandbox_id = _resolve_sandbox_id(owner_id)
+            prog = career_progress_repo.load(sandbox_id, owner_id)
+            if prog.career_active:
+                if not prog.tutorial_complete and prog.fish_name:
+                    return prog.fish_name  # still a fish — wear the handle
+                if prog.player_name:
+                    return prog.player_name  # graduated — just your name
+        except Exception as exc:
+            logger.debug("[CAREER] player-name resolve failed: %s", exc)
+
     if user and user.get("name"):
         return user["name"]
     return "You"
@@ -1911,6 +1930,167 @@ def _materialize_personality_offer(
     return offers[0] if offers else None
 
 
+def _maybe_mentor_offer(
+    *,
+    lender_id: str,
+    owner_id: str,
+    sandbox_id: str,
+    stake_label: str,
+    table_id: Optional[str],
+    max_buy_in: int,
+) -> Optional[PersonalitySponsorOffer]:
+    """Build Sal's pre-arranged mentor-stake offer, or None if not applicable.
+
+    The Circuit's comp-return drops the graduate to 0 chips, and the design's
+    other half is Sal staking them into their FIRST real seat (their revealed
+    home court). Non-circulating Sal Monroe (`sal_moretti`) is filtered out of
+    `list_eligible_for_cash_mode` (`visibility=public AND circulating=1`), so the
+    generic `_materialize_personality_offer` returns None for him. This branch
+    builds his offer directly on friendly terms, gated tightly on the player's
+    `career_progress` so it's the ONLY way Sal lends and fires exactly once:
+
+      - the lender is Sal,
+      - career is active and the tutorial was graduated,
+      - the seat is the player's revealed home court ($2), and
+      - the one-shot `mentor_stake_used` hasn't been spent.
+
+    Friendly terms: a full max buy-in, no cut (`rate=0`), full forgiveness floor
+    (`floor=1.0`). Conservation of the principal is handled downstream by the
+    same `_debit_personality_lender_principal` path every personality stake uses
+    (Sal's bankroll funds it — never minted).
+    """
+    from cash_mode.career_progression import HOME_COURT_STAKE, SAL_ID, SAL_NAME
+    from flask_app.extensions import career_progress_repo
+
+    if lender_id != SAL_ID or career_progress_repo is None:
+        return None
+    if table_id is None or stake_label != HOME_COURT_STAKE:
+        return None
+    progress = career_progress_repo.load(sandbox_id, owner_id)
+    if not (
+        progress.career_active
+        and progress.tutorial_complete
+        and not progress.mentor_stake_used
+        and progress.home_court_table_id is not None
+        and progress.home_court_table_id == table_id
+    ):
+        return None
+
+    amount = int(max_buy_in)
+    return PersonalitySponsorOffer(
+        lender_id=SAL_ID,
+        lender_name=SAL_NAME,
+        amount=amount,
+        floor=1.0,
+        rate=0.0,
+        flavor=(
+            "Sal slides a full rack across the felt. “This one’s on me, "
+            "kid — your room now. Win it back when you’re flush.”"
+        ),
+        relationship_hint="Your mentor fronts your first real seat.",
+        capacity=amount,
+    )
+
+
+def _debit_personality_lender_principal(
+    *,
+    lender_id: str,
+    principal: int,
+    sandbox_id: str,
+    game_id: str,
+    stake_label: str,
+    now: datetime,
+) -> None:
+    """Fund a personality stake's principal OUT of the lender's bankroll.
+
+    A personality stake puts `principal` chips on the player's table stack
+    (`_build_cash_game` sets the human's starting stack = principal). Nothing
+    else debits that, so without this the principal is MINTED — and at settlement
+    `staker_total` is credited back into the lender's bankroll, turning the mint
+    into permanent real chips (the round-trip never conserves). Here we debit the
+    lender's projected bankroll by the principal: a pure non-bank transfer
+    (lender bankroll → the player's table stack) that keeps the chip-ledger audit
+    drift flat. Mirrors the seated-AI buy-in debit in `_build_cash_game`
+    (project → debit → ledger the regen mint), and is ADDITIVE to any seat
+    buy-in a seated lender also paid (they fund both their own stack and the loan).
+
+    Best-effort: a failure logs and leaves the (pre-existing) mint in place
+    rather than failing an already-built game; the audit drift is the backstop.
+    """
+    from flask_app.extensions import bankroll_repo, chip_ledger_repo
+
+    try:
+        knobs = bankroll_repo.load_personality_knobs(lender_id)
+        stored = bankroll_repo.load_ai_bankroll(lender_id, sandbox_id=sandbox_id)
+        if stored is None:
+            # No bankroll row yet (e.g. non-circulating Sal, never seeded into
+            # this sandbox). Seed the full starting bankroll FIRST — passing
+            # `chip_ledger_repo` fires the `ai_seed` entry that gives the chips an
+            # audit source — then debit the principal as a pure transfer below.
+            seed_amount = int(knobs.starting_bankroll)
+            bankroll_repo.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=lender_id,
+                    chips=seed_amount,
+                    last_regen_tick=now,
+                ),
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+            )
+            projected = seed_amount
+            stored_chips = seed_amount  # already ledgered via ai_seed; no regen
+        else:
+            projected = project_bankroll(
+                stored,
+                knobs.starting_bankroll,
+                knobs.bankroll_rate,
+                now,
+            )
+            stored_chips = stored.chips
+
+        if projected < int(principal):
+            # Shouldn't happen — the offer amount is bounded by the lender's
+            # capacity (projected bankroll). Log loudly rather than drive the
+            # bankroll negative; the audit drift surfaces the residual mint.
+            logger.warning(
+                "[CASH][SPONSOR] lender %r bankroll %d < principal %d; "
+                "principal funding incomplete",
+                lender_id,
+                projected,
+                principal,
+            )
+
+        debited = AIBankrollState(
+            personality_id=lender_id,
+            chips=projected - int(principal),
+            last_regen_tick=now,
+        )
+        bankroll_repo.save_ai_bankroll(debited, sandbox_id=sandbox_id)
+        # The regen portion (projected - stored) is a bank mint; ledger it so the
+        # audit nets out. The principal debit itself is a pure non-bank transfer
+        # to the table stack and intentionally writes no ledger row.
+        chip_ledger.record_ai_regen(
+            chip_ledger_repo,
+            personality_id=lender_id,
+            stored_chips=stored_chips,
+            projected_chips=projected,
+            context={
+                'game_id': game_id,
+                'stake_label': stake_label,
+                'site': 'personality_stake_principal_debit',
+                'sandbox_id': sandbox_id,
+            },
+            sandbox_id=sandbox_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[CASH][SPONSOR] failed to debit lender %r principal=%d: %s",
+            lender_id,
+            principal,
+            exc,
+        )
+
+
 @cash_bp.route("/api/cash/sponsor-and-sit", methods=["POST"])
 def sponsor_and_sit():
     """POST /api/cash/sponsor-and-sit
@@ -2053,23 +2233,37 @@ def sponsor_and_sit():
     # state, no client trust. Pass stake_repo + stake_label so the
     # re-materialized terms include the Phase 2 tier bump + per-staker
     # garnishment that the sponsor-offers route applied.
+    is_mentor_stake = False
     if lender_id:
-        personality_offer = _materialize_personality_offer(
+        # The Circuit's mentor stake: non-circulating Sal can't be surfaced by
+        # the generic eligible pool, so check the career-gated direct offer first
+        # and fall through to the generic materialization for every other lender.
+        personality_offer = _maybe_mentor_offer(
             lender_id=lender_id,
-            player_owner_id=owner_id,
+            owner_id=owner_id,
             sandbox_id=sandbox_id,
-            min_buy_in=min_buy_in,
-            max_buy_in=max_buy_in,
-            bankroll_repo=bankroll_repo,
-            personality_repo=personality_repo,
-            relationship_repo=relationship_repo,
-            stake_repo=stake_repo,
             stake_label=stake_label,
-            # Player-prestige hook 2: enforce the same villain-closure here so a
-            # reviled player can't sit with a personality lender the closed pool
-            # would never have surfaced (anti-tamper parity with sponsor-offers).
-            human_regard=_resolve_human_regard(sandbox_id, owner_id),
+            table_id=table_id,
+            max_buy_in=max_buy_in,
         )
+        is_mentor_stake = personality_offer is not None
+        if personality_offer is None:
+            personality_offer = _materialize_personality_offer(
+                lender_id=lender_id,
+                player_owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                min_buy_in=min_buy_in,
+                max_buy_in=max_buy_in,
+                bankroll_repo=bankroll_repo,
+                personality_repo=personality_repo,
+                relationship_repo=relationship_repo,
+                stake_repo=stake_repo,
+                stake_label=stake_label,
+                # Player-prestige hook 2: enforce the same villain-closure here so a
+                # reviled player can't sit with a personality lender the closed pool
+                # would never have surfaced (anti-tamper parity with sponsor-offers).
+                human_regard=_resolve_human_regard(sandbox_id, owner_id),
+            )
         if personality_offer is None:
             return jsonify(
                 {
@@ -2277,8 +2471,28 @@ def sponsor_and_sit():
             # the seat-targeted sponsor-and-sit path; the auto-sit fallback
             # (no table_id in payload) leaves it NULL.
             table_id=table_id,
+            sandbox_id=sandbox_id,
         )
     )
+
+    # Obligation dimension: the human borrower owes the lender (house or AI
+    # sponsor) the principal, regardless of which chip path funded the seat
+    # (central_bank house-issue vs AI debit). Emit the originate once here; the
+    # matching extinguish/forgive fires for HUMAN borrowers on the leave_table
+    # path (_leave_table_locked) and via the carry-resolution / staker-forgive
+    # routes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags as _eflags_oblig
+    from flask_app.extensions import chip_ledger_repo as _clr_oblig
+
+    if _clr_oblig is not None and sandbox_id is not None and _eflags_oblig.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_obligations import apply_obligation_flows, flows_on_originate
+
+        apply_obligation_flows(
+            flows_on_originate(stake_id, offer_amount),
+            _clr_oblig,
+            sandbox_id=sandbox_id,
+            context={'site': 'sponsor_sit_principal', 'stake_id': stake_id},
+        )
 
     # The player put up no own chips — `sponsor_principal` carries the
     # full table stack, `initial_buy_in` stays 0. The leave-time summary
@@ -2304,10 +2518,14 @@ def sponsor_and_sit():
         cash_seat_index=seat_index,
     )
 
-    # House-archetype loans create chips out of central_bank. Personality
-    # loans are pure transfers (AI lender's bankroll → player's table
-    # stack via the AI debit step in _build_cash_game) and aren't routed
-    # through here.
+    # Fund the principal. House-archetype loans create chips out of central_bank
+    # (the `house_stake_issue` mint). Personality loans are pure transfers — the
+    # principal comes OUT of the lender's bankroll into the player's table stack;
+    # `_build_cash_game` only ever debited SEATED AIs for their OWN buy-ins, never
+    # the loan principal, so this debit is what actually conserves the personality
+    # stake (without it the principal is minted and becomes permanent chips in the
+    # lender's bankroll at settlement). Covers the Sal mentor stake too — he funds
+    # the graduate's first seat from his own roll.
     if offer_lender_id is None:
         from flask_app.extensions import chip_ledger_repo
 
@@ -2326,6 +2544,56 @@ def sponsor_and_sit():
             },
             sandbox_id=sandbox_id,
         )
+    else:
+        _debit_personality_lender_principal(
+            lender_id=offer_lender_id,
+            principal=offer_amount,
+            sandbox_id=sandbox_id,
+            game_id=game_id,
+            stake_label=stake_label,
+            now=datetime.utcnow(),
+        )
+
+    # The Circuit: Sal just fronted the graduate their first real seat. Burn the
+    # one-shot so the mentor offer never re-surfaces (the generic eligible pool
+    # never lists non-circulating Sal, so this flag is the only re-offer guard).
+    if is_mentor_stake:
+        from flask_app.extensions import career_progress_repo
+
+        if career_progress_repo is not None:
+            try:
+                mp = career_progress_repo.load(sandbox_id, owner_id)
+                mp.mentor_stake_used = True
+                career_progress_repo.save(mp)
+            except Exception as exc:
+                logger.warning("[CASH][SPONSOR] failed to set mentor_stake_used: %s", exc)
+
+        # Mentors start WARM. Seed a strong Sal↔player relationship so that if the
+        # player busts this stake, the EXISTING relationship-driven forgiveness
+        # handles the carry — no bespoke mentor-settlement code. `request_forgiveness`
+        # grants when Sal's view of the player scores
+        #   likability*0.5 + respect*0.4 − heat*0.3 > FORGIVENESS_THRESHOLD (0.55);
+        # a neutral pair (0.5/0.5/0) sits at 0.45 (refused), so the seed is what
+        # makes Sal forgive. 0.85/0.85/0 → ~0.77, with headroom even if a bad beat
+        # later nudges heat up. Seeded both directions for a mutual mentor bond
+        # (Sal→player is the load-bearing one the forgiveness route reads).
+        # Best-effort: a relationship-write failure never fails the sit.
+        if relationship_repo is not None:
+            try:
+                from poker.memory.opponent_model import RelationshipState
+
+                _seed_now = datetime.utcnow()
+                warm = RelationshipState(
+                    respect=0.85,
+                    likability=0.85,
+                    heat=0.0,
+                    last_seen=_seed_now,
+                    last_decay_tick=_seed_now,
+                )
+                relationship_repo.save_relationship_state(offer_lender_id, owner_id, warm)
+                relationship_repo.save_relationship_state(owner_id, offer_lender_id, warm)
+            except Exception as exc:
+                logger.warning("[CASH][SPONSOR] mentor relationship seed failed: %s", exc)
 
     if lender_id:
         logger.info(
@@ -2760,6 +3028,32 @@ def default_stake(stake_id: str):
         settled_at=datetime.utcnow(),
     )
 
+    # Obligation dimension: an explicit default writes off the carried principal
+    # as bad debt so oblig:<id> closes. No chips move (the reputation hit is the
+    # cost). Gated on origination. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    from cash_mode import economy_flags as _eflags_default
+    from flask_app.extensions import chip_ledger_repo as _clr_default
+
+    if _clr_default is not None and _eflags_default.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
+
+        _default_sandbox = _resolve_sandbox_id(owner_id)
+        if apply_close_flows(
+            flows_on_forgive(stake_id, int(former_carry)),
+            _clr_default,
+            stake_id,
+            sandbox_id=_default_sandbox,
+            context={'stake_id': stake_id, 'site': 'human_default'},
+        ):
+            assert_stake_obligation_closed(
+                stake_id=stake_id,
+                expected_residual=0,
+                sandbox_id=_default_sandbox,
+                chip_ledger_repo=_clr_default,
+                already_originated=True,
+            )
+
     # Fire the reputation hit. The dispatch table's STAKE_DEFAULTED
     # entry is the sharpest negative axis shift in the calibration —
     # the spec calls this "the worst thing a borrower can do to a
@@ -2940,6 +3234,28 @@ def payoff_stake(stake_id: str):
         )
 
     stake_repo.update_carry_amount(stake_id, 0)
+
+    # Obligation dimension: the carry is repaid in full → extinguish that much
+    # principal so oblig:<id> closes to 0. Gated on origination (legacy stakes
+    # skip). See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+    if chip_ledger_repo is not None and _economy_flags_payoff.CHIP_CUSTODY_ENABLED:
+        from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+        from cash_mode.stake_obligations import apply_close_flows, flows_on_carry_payment
+
+        if apply_close_flows(
+            flows_on_carry_payment(stake_id, carry_amount),
+            chip_ledger_repo,
+            stake_id,
+            sandbox_id=sandbox_id,
+            context={'stake_id': stake_id, 'site': 'voluntary_payoff'},
+        ):
+            assert_stake_obligation_closed(
+                stake_id=stake_id,
+                expected_residual=0,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                already_originated=True,
+            )
 
     # v106 payout accounting on voluntary payoff:
     #   staker_payout  += carry_amount  (staker received the deferred chips)
@@ -3298,6 +3614,31 @@ def staker_forgive(stake_id: str):
         stake_repo.update_carry_amount(stake_id, 0)
         stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
         stake_repo.update_pending_forgiveness_ask(stake_id, None)
+        # Obligation dimension: write off the forgiven carry as bad debt so
+        # oblig:<id> closes (the borrower no longer owes it). The forgiven amount
+        # is the carry being cleared. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        from cash_mode import economy_flags as _eflags_forgive
+        from flask_app.extensions import chip_ledger_repo as _clr_forgive
+
+        if _clr_forgive is not None and _eflags_forgive.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_forgive
+
+            _forgive_sandbox = _resolve_sandbox_id(owner_id)
+            if apply_close_flows(
+                flows_on_forgive(stake_id, int(stake.carry_amount or 0)),
+                _clr_forgive,
+                stake_id,
+                sandbox_id=_forgive_sandbox,
+                context={'stake_id': stake_id, 'site': 'staker_forgive'},
+            ):
+                assert_stake_obligation_closed(
+                    stake_id=stake_id,
+                    expected_residual=0,
+                    sandbox_id=_forgive_sandbox,
+                    chip_ledger_repo=_clr_forgive,
+                    already_originated=True,
+                )
         _record_relationship_event(
             actor_id=owner_id,
             target_id=stake.borrower_id,
@@ -3661,6 +4002,7 @@ def offer_stake_to_ai():
     existing_active = stake_repo.load_active_for_borrower(
         target_pid,
         BORROWER_KIND_PERSONALITY,
+        sandbox_id=sandbox_id,
     )
     if existing_active is not None:
         return jsonify(
@@ -3981,6 +4323,21 @@ def offer_stake_to_ai():
                 context={'site': 'player_stake_principal', 'stake_id': stake_id},
                 sandbox_id=sandbox_id,
             )
+            # Obligation dimension: the AI borrower owes the human staker the
+            # principal. Settles via settle_departed_ai_stake (AI borrower),
+            # which emits the matching extinguish/forgive. The origination fee
+            # is NOT debt (settled at origination), so only principal originates.
+            from cash_mode.stake_obligations import (
+                apply_obligation_flows,
+                flows_on_originate,
+            )
+
+            apply_obligation_flows(
+                flows_on_originate(stake_id, principal),
+                chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                context={'site': 'player_stake_principal', 'stake_id': stake_id},
+            )
             if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
                 _chip_ledger_fund.record_stake_fund(
                     chip_ledger_repo,
@@ -4054,6 +4411,7 @@ def offer_stake_to_ai():
                     stake_tier=stake_label,
                     created_at=now,
                     table_id=target_table_id,
+                    sandbox_id=sandbox_id,
                 )
             )
         except Exception:
@@ -4131,6 +4489,29 @@ def offer_stake_to_ai():
                     "[STAKE][PLAYER_OFFER] ROLLBACK AI fee/match reversal "
                     "FAILED for %r; chip-ledger audit is the backstop",
                     target_pid,
+                )
+            # 4) Reverse the obligation originate — the principal debt was born
+            #    (player_stake_principal above) before this failed create_stake,
+            #    so cancel it or oblig:<id> orphans at +principal for a stake
+            #    that never existed. Mirrors unwind_climb_funding on the
+            #    take_stake path. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+            try:
+                if chip_ledger_repo is not None and _economy_flags_fund.CHIP_CUSTODY_ENABLED:
+                    from cash_mode.stake_obligations import (
+                        apply_obligation_flows,
+                        flows_on_cancel,
+                    )
+
+                    apply_obligation_flows(
+                        flows_on_cancel(stake_id, principal),
+                        chip_ledger_repo,
+                        sandbox_id=sandbox_id,
+                        context={'site': 'player_stake_offer_rollback', 'stake_id': stake_id},
+                    )
+            except Exception:
+                logger.exception(
+                    "[STAKE][PLAYER_OFFER] ROLLBACK obligation cancel FAILED for %r",
+                    stake_id,
                 )
             return jsonify({"error": "Failed to record the stake — your chips were refunded."}), 500
 
@@ -4767,6 +5148,38 @@ def _leave_table_locked(owner_id: str, game_id: str):
         flows = build_stake_settlement_flows(stake_settlement)
         borrower_credit = 0
         from cash_mode import economy_flags as _economy_flags_leave
+
+        # Obligation dimension: close the HUMAN borrower's debt — the pair to the
+        # sponsor_sit_principal / player_stake_principal originate. Mirrors the
+        # AI-borrower settle (settle_departed_ai_stake): extinguish the principal
+        # RECOVERED (min(staker_total, principal)); on a non-carry terminal
+        # (incl. house forgive, which never carries) write off the residual so
+        # the debt fully closes. See CASH_MODE_STAKING_OBLIGATION_LEDGER.md.
+        if chip_ledger_repo is not None and _economy_flags_leave.CHIP_CUSTODY_ENABLED:
+            from cash_mode.stake_lifecycle import assert_stake_obligation_closed
+            from cash_mode.stake_obligations import apply_close_flows, flows_on_settle
+
+            if apply_close_flows(
+                flows_on_settle(
+                    active_stake.stake_id,
+                    principal=int(active_stake.principal),
+                    staker_total=int(stake_settlement.staker_total),
+                    is_carry=stake_settlement.new_status == STAKE_STATUS_CARRY,
+                ),
+                chip_ledger_repo,
+                active_stake.stake_id,
+                sandbox_id=sandbox_id,
+                context={'game_id': game_id, 'site': 'leave_table'},
+            ):
+                # P2: the debt must now equal its residual (0 clean/forgiven,
+                # carry_amount on a carry). Enforced in dev/sim; alarm in prod.
+                assert_stake_obligation_closed(
+                    stake_id=active_stake.stake_id,
+                    expected_residual=int(stake_settlement.carry_amount),
+                    sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    already_originated=True,
+                )
 
         for flow in flows:
             if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
@@ -5453,6 +5866,41 @@ def get_lobby():
         sandbox_id=sandbox_id,
         seed_actions=_seed_actions,
     )
+
+    # Career progression (schema v152): decide new-vs-legacy BEFORE
+    # ensure_lobby_seeded creates the cardrooms. A truly brand-new sandbox (no
+    # cash_tables rows yet) enters the Act-1 keyring flow — Scene 0 is seeded
+    # below and the lobby filters to revealed rooms. An existing sandbox is
+    # grandfathered to the full lobby (keyring stays off; `career_active` False).
+    # The safe default of a missing/legacy row is "show everything", so this can
+    # never blank an existing playtester's lobby. See `cash_mode/career_progression.py`.
+    from cash_mode import career_progression, economy_flags
+    from flask_app.extensions import career_progress_repo
+
+    career_progress = None
+    seed_scene0 = False
+    if career_progress_repo is not None:
+        try:
+            career_progress = career_progress_repo.load(sandbox_id, owner_id)
+            # Read the pre-seed table set so "no tables yet" can flag a brand-new
+            # sandbox; classify only does work when the sandbox is undecided.
+            pre_seed_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+            decision = career_progression.classify_new_player(career_progress, pre_seed_tables)
+            # The Act-1 narrative + intake is behind a master flag. While it's OFF,
+            # a brand-new sandbox is treated exactly like a grandfathered one (full
+            # lobby, no Scene-0 seed, keyring off) so the whole intro ships dark.
+            if decision == "seed" and economy_flags.CAREER_PROGRESSION_ENABLED:
+                seed_scene0 = True  # brand-new sandbox → run the tutorial below
+            elif decision in ("grandfather", "seed"):
+                # Existing playtester (or a brand-new sandbox while the narrative
+                # is flag-OFF): keep the full lobby (keyring stays off) and mark so
+                # we don't re-check every load.
+                career_progress.tutorial_complete = True
+                career_progress_repo.save(career_progress)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] career progress load failed: %s", exc)
+            career_progress = None
+
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
         personality_repo=personality_repo,
@@ -5463,6 +5911,19 @@ def get_lobby():
         vice_repo=_vice_state_repo,
         side_hustle_repo=_side_hustle_state_repo,
     )
+
+    if seed_scene0 and career_progress_repo is not None:
+        try:
+            career_progress = career_progression.ensure_scene0_seeded(
+                career_progress_repo=career_progress_repo,
+                cash_table_repo=cash_table_repo,
+                bankroll_repo=bankroll_repo,
+                sandbox_id=sandbox_id,
+                owner_id=owner_id,
+                chip_ledger_repo=_chip_ledger_repo,
+            )
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] scene0 seed failed: %s", exc)
 
     # Mark this sandbox active so the realtime world ticker advances it.
     # `touch` also keeps the world alive for an HTTP-only client whose
@@ -5583,7 +6044,96 @@ def get_lobby():
             seated_table_id = persisted_session.cash_table_id
             seated_stake_label = persisted_session.stake_label
 
+    # Self-heal a finished tutorial: a graduated player whose ONLY active session
+    # is still their Scene-0 table means the scene's teardown never landed — the
+    # frontend leave is best-effort (queue-gated + silently caught), and a cold-
+    # load or manual nav back to /cash bypasses it entirely. That lingering
+    # session wedges the ENTIRE post-graduation handoff, since both the comp-
+    # return and Sal's mentor stake gate on `not has_active_session`. Settle +
+    # close it here (reuses the leave path: the comped stack returns to bankroll,
+    # which the comp-return below then sweeps to the pool). Gated tightly on the
+    # player's OWN Scene-0 table + `tutorial_complete`, so it can never close a
+    # session that's still mid-tutorial or any other live cash game.
+    if (
+        has_active_session
+        and career_progress is not None
+        and career_progress.career_active
+        and career_progress.tutorial_complete
+        and seated_table_id == career_progression.SCENE0_TABLE_ID
+    ):
+        stuck_game_id = active_game_id
+        try:
+            lock = game_state_service.get_game_lock(stuck_game_id)
+            with lock:
+                _leave_table_locked(owner_id, stuck_game_id)
+            has_active_session = False
+            active_game_id = None
+            seated_table_id = None
+            seated_stake_label = None
+            seated_since = None
+            # The leave settled the comped table stack back into the bankroll;
+            # re-read it so the comp-return below sees those chips (and sweeps
+            # them to the pool) rather than the stale pre-leave value.
+            bankroll = _load_or_seed_player_bankroll(owner_id)
+            logger.info(
+                "[CASH][LOBBY] auto-closed finished Scene-0 session %r for %r "
+                "(unwedging the graduation handoff)",
+                stuck_game_id,
+                owner_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] Scene-0 session auto-close failed for %r: %s",
+                stuck_game_id,
+                exc,
+            )
+
+    # Comp-return (the Circuit): you were comped as a fish, so on graduation the
+    # house takes its stake back — you walk into the lobby with nothing and Sal
+    # stakes your first real seat. One-shot (`comp_returned`), and only once
+    # you've fully left Scene-0 (no active session), so we never strip chips
+    # mid-game. Conservation-safe: the chips move player → bank pool via the
+    # ledger, mirroring `_drain_fish_bankroll_to_pool`. MUST run before the
+    # affordability pass below so the home court reads as sponsor-eligible at 0.
+    if (
+        career_progress is not None
+        and career_progress.career_active
+        and career_progress.tutorial_complete
+        and not career_progress.comp_returned
+        and not has_active_session
+        and career_progress_repo is not None
+        and bankroll.chips > 0
+    ):
+        try:
+            from core.economy.ledger import player as _player_entity, record_bank_pool_deposit
+
+            record_bank_pool_deposit(
+                _chip_ledger_repo,
+                source=_player_entity(owner_id),
+                amount=bankroll.chips,
+                context={'reason_detail': 'scene0_comp_return', 'sandbox_id': sandbox_id},
+                sandbox_id=sandbox_id,
+            )
+            bankroll.chips = 0
+            bankroll_repo.save_player_bankroll(bankroll)
+            career_progress.comp_returned = True
+            career_progress_repo.save(career_progress)
+            logger.info("[CASH][LOBBY] comp returned to pool for %r (graduated)", owner_id)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] comp-return failed: %s", exc)
+
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+
+    # Career keyring (v141): a player in the Act-1 flow sees only their scripted
+    # Scene-0 table + cardrooms they've been vouched into. Off (the default for
+    # legacy/grandfathered sandboxes) this is a no-op and the full lobby shows.
+    # The world economy still ran across ALL tables above (refresh/seed) — this
+    # only filters what's RENDERED.
+    if career_progress is not None:
+        try:
+            tables = career_progression.visible_tables(tables, career_progress)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] keyring filter failed: %s", exc)
 
     # Resolve emotions for AIs at unseated tables from the persisted
     # emotional_state_json column (schema v97). Without this, every
@@ -5930,7 +6480,24 @@ def get_lobby():
     # with real scroll-back history; the client merges these into its
     # rolling feed (it accumulates further over the session). Bounded by
     # the activity ring buffer's own cap.
-    events_payload = [serialize_event(e) for e in recent_events(limit=30, sandbox_id=sandbox_id)]
+    # Awareness-gate the feed snapshot for a Circuit player (keyring rooms +
+    # global beats); full feed for non-career sandboxes. Mirrors the ticker's
+    # live push. Best-effort — any hiccup falls back to the full slice.
+    _feed_events = recent_events(limit=30, sandbox_id=sandbox_id)
+    try:
+        from cash_mode.activity import filter_events_for_player
+        from flask_app.extensions import career_progress_repo
+
+        if career_progress_repo is not None:
+            _prog = career_progress_repo.load(sandbox_id, owner_id)
+            _feed_events = filter_events_for_player(
+                _feed_events,
+                career_active=_prog.career_active,
+                revealed_table_ids=_prog.revealed_table_ids,
+            )
+    except Exception as exc:
+        logger.debug("[CASH][LOBBY] feed awareness-gate failed: %s", exc)
+    events_payload = [serialize_event(e) for e in _feed_events]
 
     # The player's own last-stand line — bankroll is $0 and they have a
     # stack in play, so their entire net worth is on a single table. The
@@ -6042,6 +6609,65 @@ def get_lobby():
         logger.warning("[CASH][LOBBY] reputation load failed: %s", exc)
         reputation_payload = None
 
+    # Sal's one-shot lobby handoff: right after graduation he walks the player
+    # over to the revealed home court (portrait + bubble pointing at the table).
+    # Served once here, then cleared so it doesn't replay on later loads.
+    mentor_intro = None
+    if (
+        career_progress is not None
+        and career_progress.mentor_intro_table_id
+        and career_progress_repo is not None
+    ):
+        from cash_mode.career_progression import SAL_NAME
+
+        mentor_intro = {
+            "table_id": career_progress.mentor_intro_table_id,
+            "name": SAL_NAME,
+            "line": (
+                "Come on, kid — let me walk ya over to a real room. That one right "
+                "there's yours now. Tell 'em Sal sent ya, and don't make me look bad."
+            ),
+        }
+        try:
+            career_progress.mentor_intro_table_id = None
+            career_progress_repo.save(career_progress)
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] failed to clear mentor_intro: %s", exc)
+
+    # Sal's standing mentor-stake offer: persists in the lobby (unlike the
+    # one-shot `mentor_intro` walk-over) until the graduate takes it. It's the
+    # comp-return's other half — broke at 0 after graduation, Sal backs your
+    # first real seat at the home court. The frontend routes that seat's sit to
+    # `sponsor-and-sit(lender_id=sal_moretti)` instead of the generic stake modal.
+    # Gated identically to the route's `_maybe_mentor_offer` carve-out so the
+    # surfaced offer and the honoured one can't diverge.
+    from cash_mode.career_progression import HOME_COURT_STAKE, SAL_ID, SAL_NAME
+
+    mentor_stake = None
+    if (
+        career_progress is not None
+        and career_progress.career_active
+        and career_progress.tutorial_complete
+        and not career_progress.mentor_stake_used
+        and career_progress.home_court_table_id is not None
+        and not has_active_session
+        and is_sponsor_eligible(bankroll.chips, HOME_COURT_STAKE)
+    ):
+        mentor_stake = {
+            "table_id": career_progress.home_court_table_id,
+            "lender_id": SAL_ID,
+            "lender_name": SAL_NAME,
+            "stake_label": HOME_COURT_STAKE,
+        }
+
+    # Brand-new career player who hasn't been christened yet → the frontend shows
+    # the Lucky Stack intake (cold open) before the lobby.
+    _intake_needed = bool(
+        career_progress is not None
+        and career_progress.career_active
+        and not career_progress.intake_complete
+    )
+
     return jsonify(
         {
             "bankroll": bankroll.chips,
@@ -6059,6 +6685,99 @@ def get_lobby():
             "bankroll_history": bankroll_history,
             "last_session_delta": last_session_delta,
             "reputation": reputation_payload,
+            # Lucky Stack intake (the cold open): true for a brand-new career
+            # player who hasn't been christened yet → the frontend shows the
+            # intake beat before the lobby. `fish_name` is their tourist handle
+            # once set (shown until they're vouched out of Scene 0).
+            "intake_needed": _intake_needed,
+            # The three authored backgrounds the newcomer picks from (Q2). Sent
+            # only when intake is pending so the frontend renders the server's
+            # single source of truth (no client-side copy to drift). Empty
+            # otherwise to keep the polled lobby payload lean.
+            "intake_backstories": (career_progression.INTAKE_BACKSTORIES if _intake_needed else []),
+            "fish_name": (career_progress.fish_name if career_progress is not None else None),
+            # Sal's one-shot post-graduation handoff (portrait + bubble + which
+            # table to spotlight), or null when there's nothing to show.
+            "mentor_intro": mentor_intro,
+            # Sal's standing mentor-stake offer (lender_id + home-court table), or
+            # null. When present the frontend sits the home court via
+            # sponsor-and-sit(lender_id) rather than the generic stake modal.
+            "mentor_stake": mentor_stake,
+        }
+    )
+
+
+@cash_bp.route("/api/cash/intake", methods=["POST"])
+def cash_intake_route():
+    """POST /api/cash/intake — the Lucky Stack cold open.
+
+    Body: `{"name": str, "bio"?: str}`. Christens the player a fish-name from the
+    name they give, records it (+ the chosen name) on `career_progress`, stores
+    the tidbit as their AI-visible bio, and marks intake complete. Returns the
+    fish-name so the frontend can play the reveal. Idempotent — a second call
+    just re-reads the existing handle.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from cash_mode.career_progression import intake_avatar_prompt, intake_persona
+    from flask_app.extensions import career_progress_repo, user_prefs_repo
+
+    if career_progress_repo is None:
+        return jsonify({"error": "career progression unavailable"}), 503
+
+    body = request.get_json(silent=True) or {}
+    # Empty name → fall back to the player's account name (what the box pre-fills
+    # with) rather than a jarring "Stranger", so a one-tap submit still works.
+    name = (body.get("name") or "").strip()[:40] or _resolve_player_name() or "Stranger"
+    # The backstory the player picked (`reply_id`). The text is resolved
+    # SERVER-SIDE by id from the authored set (the client can't spoof the bio);
+    # `reply_id` is also the stable key for later narrative callbacks.
+    reply_id = (body.get("reply_id") or "").strip()[:40]
+
+    progress = career_progress_repo.load(sandbox_id, owner_id)
+    if not progress.intake_complete:
+        # Deterministic christening: a rule-based fish-name + the chosen
+        # pre-authored backstory as the bio (no per-user LLM call).
+        persona = intake_persona(name, reply_id)
+        progress.player_name = name
+        progress.fish_name = persona["fish_name"]
+        progress.intake_reply = persona["backstory_text"]
+        progress.intake_reply_id = persona["backstory_id"]
+        progress.intake_complete = True
+        career_progress_repo.save(progress)
+        # The generated one-liner becomes the AI-visible bio (Sal/Larry rib it).
+        if persona.get("bio") and user_prefs_repo is not None:
+            try:
+                user_prefs_repo.set_bio(owner_id, persona["bio"])
+            except Exception as exc:
+                logger.warning("[CAREER] intake bio set failed: %s", exc)
+        bio = persona.get("bio", "")
+        # Pre-warm the hidden world in the background (one-shot, flag-gated) so the
+        # lobby the player graduates Scene 0 into feels lived-in rather than cold.
+        # Fired here — intake done, the Scene-0 sit is the very next beat — so the
+        # burst runs through the whole tutorial session. Best-effort; never blocks
+        # or fails intake. See flask_app/services/world_warmup.py.
+        try:
+            from flask_app.services.world_warmup import schedule_warm_up
+
+            schedule_warm_up(sandbox_id, owner_id)
+        except Exception as exc:
+            logger.warning("[CAREER] world warm-up schedule failed: %s", exc)
+    else:
+        bio = user_prefs_repo.get_bio(owner_id) if user_prefs_repo else ""
+
+    return jsonify(
+        {
+            "player_name": progress.player_name,
+            "fish_name": progress.fish_name,
+            "bio": bio,
+            # Avatar generation seam — the prompt is ready; the client can fire
+            # image gen on demand (it's slow, so intake doesn't block on it).
+            "avatar_prompt": intake_avatar_prompt(progress.fish_name or "", bio),
         }
     )
 

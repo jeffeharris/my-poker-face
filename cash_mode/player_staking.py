@@ -443,10 +443,12 @@ def list_stakeable_ai(
         if pid in seated:
             continue
 
-        # Gate 7: no active stake as borrower.
+        # Gate 7: no active stake as borrower (scoped to this sandbox —
+        # the same persona may be staked in another player's sandbox).
         active = stake_repo.load_active_for_borrower(
             pid,
             BORROWER_KIND_PERSONALITY,
+            sandbox_id=sandbox_id,
         )
         if active is not None:
             continue
