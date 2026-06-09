@@ -1399,6 +1399,7 @@ def refresh_unseated_tables(
             existing = stake_repo.load_active_for_borrower(
                 pid,
                 "personality",
+                sandbox_id=sandbox_id,
             )
             if existing is not None:
                 return BorrowerProfile(willing=False)
@@ -2647,6 +2648,7 @@ def settle_departed_ai_stake(
     active_stake = stake_repo.load_active_for_borrower(
         pid,
         BORROWER_KIND_PERSONALITY,
+        sandbox_id=sandbox_id,
     )
     if active_stake is None:
         return None
@@ -3098,6 +3100,9 @@ def _apply_stake_creations(
                 carry_amount=0,
                 stake_tier=sc.stake_label,
                 created_at=now,
+                # Pin to the origination sandbox so settlement can only ever
+                # drain THIS sandbox's borrower seat (see load_active_for_borrower).
+                sandbox_id=sandbox_id,
             )
             if stake_repo is not None:
                 try:
@@ -4913,6 +4918,7 @@ def _process_aspiration_asks(
             existing = stake_repo.load_active_for_borrower(
                 asker_pid,
                 BORROWER_KIND_PERSONALITY,
+                sandbox_id=sandbox_id,
             )
         except Exception as exc:
             logger.debug(
@@ -5205,6 +5211,9 @@ def _process_aspiration_asks(
             carry_amount=0,
             stake_tier=target_tier,
             created_at=now,
+            # Pin to the origination sandbox so settlement can only ever
+            # drain THIS sandbox's borrower seat (see load_active_for_borrower).
+            sandbox_id=sandbox_id,
         )
         try:
             stake_repo.create_stake(stake)

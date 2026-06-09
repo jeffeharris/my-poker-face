@@ -812,7 +812,7 @@ BASELINE_STATEMENTS = [
                 -- active rows and legacy settled-pre-v106 rows.
                 staker_payout INTEGER,
                 borrower_payout INTEGER
-            , pending_forgiveness_ask TIMESTAMP, table_id TEXT, resolution TEXT)""",
+            , pending_forgiveness_ask TIMESTAMP, table_id TEXT, resolution TEXT, sandbox_id TEXT)""",
     """CREATE INDEX IF NOT EXISTS idx_stakes_borrower_carry
                 ON stakes(borrower_id, borrower_kind, status)
                 WHERE status = 'carry'

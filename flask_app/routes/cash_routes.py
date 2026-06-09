@@ -2471,6 +2471,7 @@ def sponsor_and_sit():
             # the seat-targeted sponsor-and-sit path; the auto-sit fallback
             # (no table_id in payload) leaves it NULL.
             table_id=table_id,
+            sandbox_id=sandbox_id,
         )
     )
 
@@ -4001,6 +4002,7 @@ def offer_stake_to_ai():
     existing_active = stake_repo.load_active_for_borrower(
         target_pid,
         BORROWER_KIND_PERSONALITY,
+        sandbox_id=sandbox_id,
     )
     if existing_active is not None:
         return jsonify(
@@ -4409,6 +4411,7 @@ def offer_stake_to_ai():
                     stake_tier=stake_label,
                     created_at=now,
                     table_id=target_table_id,
+                    sandbox_id=sandbox_id,
                 )
             )
         except Exception:

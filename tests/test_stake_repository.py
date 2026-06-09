@@ -59,6 +59,7 @@ def _make_stake(
     stake_tier: str = "$10",
     created_at: datetime = ANCHOR,
     settled_at=None,
+    sandbox_id=None,
 ) -> Stake:
     return Stake(
         stake_id=stake_id,
@@ -77,6 +78,7 @@ def _make_stake(
         stake_tier=stake_tier,
         created_at=created_at,
         settled_at=settled_at,
+        sandbox_id=sandbox_id,
     )
 
 
@@ -247,6 +249,115 @@ class TestLoadActiveForBorrower:
             BORROWER_KIND_HUMAN,
         )
         assert loaded.stake_id == "stk-new"
+
+
+class TestSandboxScoping:
+    """2026-06-09 cross-sandbox mint guard. AI personas exist in every
+    sandbox, so a stake funds `seat:ai:<sandbox>:<borrower>` and must
+    settle against that SAME seat. `load_active_for_borrower(sandbox_id=...)`
+    must only return a stake originated in that sandbox (or a legacy NULL
+    row), so a world-tick processing sandbox B can't load — and drain — a
+    stake originated in sandbox A.
+    """
+
+    def test_round_trips_sandbox_id(self, repo):
+        stake = _make_stake(borrower_kind=BORROWER_KIND_PERSONALITY, sandbox_id="sb-A")
+        repo.create_stake(stake)
+        assert repo.load_stake("stk-1").sandbox_id == "sb-A"
+
+    def test_scoped_lookup_finds_same_sandbox(self, repo):
+        repo.create_stake(
+            _make_stake(
+                stake_id="stk-A",
+                borrower_id="honey_badger",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                sandbox_id="sb-A",
+            )
+        )
+        loaded = repo.load_active_for_borrower(
+            "honey_badger", BORROWER_KIND_PERSONALITY, sandbox_id="sb-A"
+        )
+        assert loaded is not None
+        assert loaded.stake_id == "stk-A"
+
+    def test_scoped_lookup_excludes_other_sandbox(self, repo):
+        # The leak: stake originated in sb-A; a tick in sb-B must NOT find it
+        # (settling it would drain sb-B's never-funded seat → mint).
+        repo.create_stake(
+            _make_stake(
+                stake_id="stk-A",
+                borrower_id="honey_badger",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                sandbox_id="sb-A",
+            )
+        )
+        assert (
+            repo.load_active_for_borrower(
+                "honey_badger", BORROWER_KIND_PERSONALITY, sandbox_id="sb-B"
+            )
+            is None
+        )
+
+    def test_each_sandbox_settles_its_own_stake(self, repo):
+        # Same persona staked in two sandboxes simultaneously (the per-sandbox
+        # model). Each scoped lookup returns its own row, never the other's.
+        repo.create_stake(
+            _make_stake(
+                stake_id="stk-A",
+                session_id="sess-A",
+                borrower_id="honey_badger",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                sandbox_id="sb-A",
+            )
+        )
+        repo.create_stake(
+            _make_stake(
+                stake_id="stk-B",
+                session_id="sess-B",
+                borrower_id="honey_badger",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                sandbox_id="sb-B",
+            )
+        )
+        a = repo.load_active_for_borrower(
+            "honey_badger", BORROWER_KIND_PERSONALITY, sandbox_id="sb-A"
+        )
+        b = repo.load_active_for_borrower(
+            "honey_badger", BORROWER_KIND_PERSONALITY, sandbox_id="sb-B"
+        )
+        assert a.stake_id == "stk-A"
+        assert b.stake_id == "stk-B"
+
+    def test_legacy_null_row_still_findable_from_any_sandbox(self, repo):
+        # Pre-fix rows have sandbox_id NULL — they stay findable so they
+        # settle out under the old global behavior rather than orphaning.
+        repo.create_stake(
+            _make_stake(
+                stake_id="stk-legacy",
+                borrower_id="honey_badger",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                sandbox_id=None,
+            )
+        )
+        loaded = repo.load_active_for_borrower(
+            "honey_badger", BORROWER_KIND_PERSONALITY, sandbox_id="sb-anything"
+        )
+        assert loaded is not None
+        assert loaded.stake_id == "stk-legacy"
+
+    def test_unscoped_lookup_is_global(self, repo):
+        # No sandbox_id → original global behavior (human-borrower paths).
+        repo.create_stake(
+            _make_stake(
+                stake_id="stk-A",
+                borrower_id="honey_badger",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                sandbox_id="sb-A",
+            )
+        )
+        loaded = repo.load_active_for_borrower("honey_badger", BORROWER_KIND_PERSONALITY)
+        assert loaded is not None
+        assert loaded.stake_id == "stk-A"
 
 
 class TestListCarriesForBorrower:
