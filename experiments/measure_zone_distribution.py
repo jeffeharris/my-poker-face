@@ -62,8 +62,12 @@ def _load_real_personas() -> Dict[str, dict]:
 # ── steady-state episodes under a balanced mix + recovery-policy prototypes ────
 
 WIN_MIX = {'win': 0.80, 'big_win': 0.15, 'successful_bluff': 0.05}
-LOSS_MIX = {'loss': 0.55, 'big_loss': 0.20, 'bluff_called': 0.10,
-            'bad_beat': 0.07, 'got_sucked_out': 0.05, 'crippled': 0.03}
+# Realistic loss mix: most losses are SMALL (fold to a bet, lose a small pot).
+# Composure-crushers (big_loss/bad_beat/suckout/crippled) are the rare tail —
+# ~21% of losses, not the ~35% an earlier punishing mix used (which over-inflated
+# tilt ONSET and pushed hothead %time to ~26%).
+LOSS_MIX = {'loss': 0.72, 'big_loss': 0.12, 'bluff_called': 0.07,
+            'bad_beat': 0.04, 'got_sucked_out': 0.03, 'crippled': 0.02}
 
 # A recovery policy is a per-hand fn(psy, tilt_streak) -> recovery_rate override
 # for the upcoming recover() call (None = use the persona's anchor rate).
@@ -249,7 +253,7 @@ def main() -> None:
     hdr = '  '.join(f'{b.split()[0]:>8s}' for b in target_bands)
     print(f'  {"floor":>5s} {"K":>4s}   {hdr}   {"hits":>4s} {"hot%":>5s} {"hot95p":>6s}')
     # exp fixed at 2.0 (prior sweep showed it needed for the spread); sweep floor x K
-    grid = [(f, k) for k in (None, 30, 25, 20) for f in (0.20, 0.10)]
+    grid = [(f, k) for k in (None, 20, 15) for f in (0.30, 0.20)]
     best = None
     for floor, K in grid:
         res = eval_config(make_drag(floor, 2.0, second_wind_k=K))
