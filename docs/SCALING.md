@@ -271,15 +271,41 @@ disabled — those *yield*, so they don't change the CPU ceiling, only add laten
   confirms RAM binds last. Note baseline RSS here (~265 MiB) is well under the ~550 MB
   cited above; that figure may be stale or include more subsystems.
 
-**Highest-leverage fixes (new, supersede the iteration-count lever):**
-1. **Take decision-analysis off the synchronous action hot path** — it's analytics,
-   not the bot's move. Sample it (analyze 1-in-N decisions), run it in a background
-   greenlet, or gate it off in prod. This is the single biggest ceiling-raiser.
-2. **Memoize `_get_all_combos_for_hand`** — only 169 canonical-hand inputs, constant
-   outputs, currently rebuilt every call. A trivial `@lru_cache`; near-free.
-Until one of these lands, **a single cpx11 worker realistically serves ~2–3 concurrent
-active cash players before actions feel sluggish** — so the Stage 1B/2 horizontal work,
-or the analytics fix above, matters far sooner than the 15–25 estimate implied.
+### Fixes shipped + their measured effect (2026-06-09, same rig)
+
+Four changes, in order, each re-measured on the same cpx11. Headline = throughput at
+16 concurrent active players (the saturation metric) and the "playable" ceiling
+(action p50 < ~3 s):
+
+| Step | Change | 16-player throughput | Playable ceiling |
+|---|---|---|---|
+| baseline | (the table above) | ~1.18 h/s | ~3 players |
+| 1 | **`@lru_cache` `_get_all_combos_for_hand`** (169 fixed inputs, was rebuilt every call) | ~1.18 → still ~1.18*; **action p50 halved** | ~3 → ~5 |
+| 2 | **Coach honors `DECISION_ANALYSIS_ITERATIONS`** — `coach_engine.py` had it hardcoded at **2000** (~6× the in-game 250), so prod's lowered setting never reached the coach; it was the single biggest equity consumer | 1.18 → **1.98** (+68%) | ~5 → ~8 |
+| 3 | **`DECISION_ANALYSIS_ITERATIONS` 250 → 100** — the cache made it a *linear* lever (it was a flat fixed cost before, dominated by the combo build); ~1 pp equity error, immaterial for the coarse correct/incorrect/marginal verdicts (50 was too noisy, ~8 pp) | 1.98 → **2.98** | ~8 |
+| 4 | **Offload the per-decision analyzer to an out-of-band worker** on the box's idle 2nd vCPU (Redis queue, fire-and-forget; nothing live reads its output) | **3.45–3.6 h/s**, polls stay sub-500 ms | **~12–16 players** |
+
+\* The combo-build cost was a fixed per-call overhead, so caching it cut latency but
+not the iteration-bound throughput — its real payoff was **unlocking step 3** (iterations
+only became a linear lever once the fixed cost was gone).
+
+**Net: ~3 → ~12–16 concurrent active cash players per box (~5× throughput)** from four
+small changes, no new hardware. Key reframe: **the gameplay core's heavy CPU was almost
+entirely analytics/coaching — the bot's *actual* decision is only ~3%.** So the box was
+never equity-bound by *poker*; it was bound by *measuring* poker.
+
+**On the offload specifically (step 4):** it frees the gameplay core by putting the
+otherwise-**idle 2nd vCPU** to work (the worker is a separate process because `-w 1` +
+Flask-SocketIO can't multi-worker). It does **not** create CPU from nothing — it's bounded
+by the box's **2 cores**. Same-box needs **no Postgres** (worker shares the SQLite via WAL
++ retry; validated, `depth=0` under load). A *multi-box* eval fleet would need the
+analytics tables on Postgres (SQLite is file-based). The **coach stays inline** (now ~6%
+after step 2; its training-mode feedback is consumed synchronously). Rollout/ops:
+`docs/guides/OPS_RUNBOOK.md` §9.
+
+**Next bottleneck past ~16/box:** not equity — the **synchronous hand-pump orchestration**
+(one human action pumps ~15 AI decisions, each with a state-save + socket emit). That's
+why action p50 still climbs while polls stay fast.
 
 *Caveats:* driver folds every hand (each action pumps a full hand — representative of
 AI-decision volume; a *playing* human spreads the same work across more actions, so
