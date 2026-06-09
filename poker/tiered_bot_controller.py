@@ -320,7 +320,6 @@ class TieredBotController(AIPlayerController):
         # lane (parsed here, carried onto the sampled struct's `behaviors`).
         self._sizing_personality: Optional[SizingPersonality] = None
         self._sizing_personality_override: Optional[SizingPersonality] = None
-        self._sizing_personality_resolved: bool = False
         self._sizing_tendencies_override: Optional[Tuple[Tuple[str, float], ...]] = None
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
@@ -737,27 +736,37 @@ class TieredBotController(AIPlayerController):
         override = getattr(self, '_sizing_personality_override', None)
         if override is not None:
             return override
-        if (
-            getattr(self, '_sizing_personality_resolved', False)
-            and self._sizing_personality is not None
-        ):
-            return self._sizing_personality
-        self._sizing_personality_resolved = True
-        # Baseline-GTO / no-anchor controllers stay exact (no-op multiplier).
-        if getattr(self, 'skip_personality_distortion', False):
-            self._sizing_personality = SizingPersonality.neutral()
-            return self._sizing_personality
-        anchors = self.psychology.anchors if getattr(self, 'psychology', None) else None
-        if anchors is None:
-            self._sizing_personality = SizingPersonality.neutral()
-            return self._sizing_personality
-        self._sizing_personality = sample_sizing_personality(
-            anchors,
-            persona_seed=self.player_name,
-            archetype_key=self._table_archetype_key(),
-            sizing_tendencies=self._effective_sizing_tendencies(),
-        )
-        return self._sizing_personality
+        cached = getattr(self, '_sizing_personality', None)
+        if cached is not None:
+            return cached
+        # Resolve once and cache. Any failure (e.g. a malformed `sizing_tendencies`
+        # persona config) degrades to the neutral no-op personality (multiplier
+        # 1.0) rather than crashing the decision or re-raising every hand — sizing
+        # is a frequency-neutral cosmetic layer, so neutral is the safe default.
+        try:
+            if getattr(self, 'skip_personality_distortion', False):
+                resolved = SizingPersonality.neutral()
+            else:
+                psych = getattr(self, 'psychology', None)
+                anchors = psych.anchors if psych else None
+                if anchors is None:
+                    resolved = SizingPersonality.neutral()
+                else:
+                    resolved = sample_sizing_personality(
+                        anchors,
+                        persona_seed=self.player_name,
+                        archetype_key=self._table_archetype_key(),
+                        sizing_tendencies=self._effective_sizing_tendencies(),
+                    )
+        except Exception:
+            logger.warning(
+                'sizing_personality resolution failed for %s; using neutral',
+                getattr(self, 'player_name', '?'),
+                exc_info=True,
+            )
+            resolved = SizingPersonality.neutral()
+        self._sizing_personality = resolved
+        return resolved
 
     @property
     def archetype_name(self) -> str:
