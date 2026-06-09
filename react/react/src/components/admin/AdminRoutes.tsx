@@ -440,6 +440,7 @@ const VALID_SETTINGS_CATEGORIES: SettingsCategory[] = [
   'pricing',
   'appearance',
   'alerting',
+  'gameplay',
 ];
 
 function SettingsWrapper() {
