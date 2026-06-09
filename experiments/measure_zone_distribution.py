@@ -65,30 +65,30 @@ WIN_MIX = {'win': 0.80, 'big_win': 0.15, 'successful_bluff': 0.05}
 LOSS_MIX = {'loss': 0.55, 'big_loss': 0.20, 'bluff_called': 0.10,
             'bad_beat': 0.07, 'got_sucked_out': 0.05, 'crippled': 0.03}
 
-# Recovery policies. Each is a per-hand fn(psy) -> recovery_rate override for the
-# upcoming recover() call (None = use the persona's anchor rate). Evaluated each
-# hand so a policy can be composure-aware (the drag below).
-#   current        : anchor recovery_rate as shipped
-#   short_steam    : brisk recovery for everyone -> short episodes
-#   poise_lingering: recovery scales with poise (composure-blind)
-POLICIES = {
-    'current': lambda psy: None,
-    'short_steam': lambda psy: 0.30,
-    'poise_lingering': lambda psy: 0.06 + 0.30 * psy.anchors.poise,
-}
+# A recovery policy is a per-hand fn(psy, tilt_streak) -> recovery_rate override
+# for the upcoming recover() call (None = use the persona's anchor rate).
+# tilt_streak = consecutive prior hands ended below the tilt line (for second wind).
+CURRENT_POLICY = lambda psy, ts: None  # anchors as shipped
 
 
-def make_drag(floor: float, exp: float = 1.0):
-    """TILT_EXCURSION_DESIGN.md slow-recovery-while-tilted: WHILE composure is
-    below the tilt line, scale the anchor recovery rate by a poise-scaled drag
-    `floor + (1-floor)*poise**exp` (in (0,1] -> slower climb-out, episode lasts
-    longer); above the line, normal anchor recovery. Lower floor / higher exp =>
-    bigger stoic-vs-hothead episode-length spread. Never latches (drag>0, and a
-    win lifts composure directly), so the never-chronic invariant holds."""
-    def rate_fn(psy):
+def make_drag(floor: float, exp: float = 2.0, second_wind_k=None, accel: float = 0.45):
+    """TILT_EXCURSION_DESIGN.md persistence model.
+
+    slow-recovery-while-tilted: WHILE composure is below the tilt line, scale the
+    anchor recovery rate by a poise-scaled drag `floor + (1-floor)*poise**exp`
+    (in (0,1] -> slower climb-out -> longer episode). Lower floor / higher exp =>
+    bigger stoic-vs-hothead episode-length spread. This sets the per-band MEDIAN.
+
+    second-wind escape: after `second_wind_k` consecutive hands stuck below the
+    line, recovery jumps to `accel` (brisk) so the episode resolves — caps the
+    TAIL without moving the median. This is the tail bound the fit proved the drag
+    alone needs (slow-recovery couples median and tail). None = no escape.
+    """
+    def rate_fn(psy, tilt_streak):
         if psy.axes.composure < TILT_EMO:
-            poise = psy.anchors.poise
-            drag = floor + (1.0 - floor) * (poise ** exp)
+            if second_wind_k is not None and tilt_streak >= second_wind_k:
+                return accel
+            drag = floor + (1.0 - floor) * (psy.anchors.poise ** exp)
             return psy.anchors.recovery_rate * drag
         return None
     return rate_fn
@@ -118,7 +118,8 @@ def steady_state_series(name: str, cfg: dict, *, hands: int, play_rate: float, s
     """Composure series over `hands`. `policy` is a per-hand fn(psy)->rate|None."""
     rng = random.Random(seed)
     psy = PlayerPsychology.from_personality_config(name, cfg)
-    consec = 0
+    consec = 0          # consecutive losses (for losing_streak)
+    tilt_streak = 0     # consecutive hands below the tilt line (for second wind)
     out: List[float] = []
     for _ in range(hands):
         if rng.random() < play_rate:
@@ -130,8 +131,10 @@ def steady_state_series(name: str, cfg: dict, *, hands: int, play_rate: float, s
                     psy.apply_pressure_event('losing_streak')
         else:
             psy.apply_pressure_event('not_in_hand'); consec = 0
-        psy.recover(policy(psy))
-        out.append(psy.axes.composure)
+        psy.recover(policy(psy, tilt_streak))
+        comp = psy.axes.composure
+        tilt_streak = tilt_streak + 1 if comp < TILT_EMO else 0
+        out.append(comp)
     return out
 
 
@@ -202,7 +205,7 @@ def main() -> None:
         b = _band(poise)
         band_members[b] += 1
         series = steady_state_series(name, cfg, hands=args.hands, play_rate=args.play_rate,
-                                     seed=args.seed + i, policy=POLICIES['current'])
+                                     seed=args.seed + i, policy=CURRENT_POLICY)
         eps = episodes(series)
         band_pct[b].append(100.0 * sum(1 for c in series if c < TILT_EMO) / len(series))
         band_epcount[b].append(len(eps))
@@ -227,50 +230,50 @@ def main() -> None:
     }
     target_bands = [b for b, _, _ in BANDS if b != 'monk   >=0.90']
 
-    def eval_config(floor: float, exp: float):
-        """Return {band: (median_eplen, pct_time_tilt, p95_eplen)} for a drag config."""
-        pol = make_drag(floor, exp)
+    def eval_config(policy):
+        """Return {band: (median_eplen, pct_time_tilt, p95_eplen)} for a policy."""
         res = {}
         for b in target_bands:
             lens: List[float] = []
             pcts: List[float] = []
             for i, (nm, c) in enumerate(members_by_band[b]):
                 series = steady_state_series(nm, c, hands=args.hands, play_rate=args.play_rate,
-                                             seed=args.seed + i, policy=pol)
-                eps = episodes(series)
-                lens.extend(eps)
+                                             seed=args.seed + i, policy=policy)
+                lens.extend(episodes(series))
                 pcts.append(100.0 * sum(1 for x in series if x < TILT_EMO) / len(series))
             res[b] = (_median(lens), _median(pcts), _pctile(lens, 0.95))
         return res
 
-    print('\n(2) FIT slow-recovery-while-tilted — median episode length (hd) per (floor, exp):')
-    print('    target medians: stoic 2-4, composed 4-7, volatile 6-10, hothead 12-20')
+    print('\n(2) FIT slow-recovery + second-wind — median episode length (hd) per (floor, K):')
+    print('    targets: stoic 2-4, composed 4-7, volatile 6-10, hothead 12-20; never-chronic = hot95p <=30')
     hdr = '  '.join(f'{b.split()[0]:>8s}' for b in target_bands)
-    print(f'  {"floor":>5s} {"exp":>4s}   {hdr}   {"hits":>4s} {"hot95p":>6s}')
-    grid = [(f, e) for e in (1.0, 2.0) for f in (0.20, 0.10, 0.05, 0.0)]
+    print(f'  {"floor":>5s} {"K":>4s}   {hdr}   {"hits":>4s} {"hot%":>5s} {"hot95p":>6s}')
+    # exp fixed at 2.0 (prior sweep showed it needed for the spread); sweep floor x K
+    grid = [(f, k) for k in (None, 30, 25, 20) for f in (0.20, 0.10)]
     best = None
-    for floor, exp in grid:
-        res = eval_config(floor, exp)
+    for floor, K in grid:
+        res = eval_config(make_drag(floor, 2.0, second_wind_k=K))
         hits = sum(1 for b in target_bands
                    if TARGET_EPLEN[b][0] <= res[b][0] <= TARGET_EPLEN[b][1])
-        hot95 = res['hothead <0.45'][2]
+        hotpct, hot95 = res['hothead <0.45'][1], res['hothead <0.45'][2]
+        chronic = hot95 > 30
         cells = '  '.join(f'{res[b][0]:8.0f}' for b in target_bands)
-        flag = ' chronic?' if hot95 > 30 else ''
-        print(f'  {floor:5.2f} {exp:4.1f}   {cells}   {hits:>2d}/4 {hot95:5.0f}{flag}')
-        score = (hits, -hot95)
+        print(f'  {floor:5.2f} {str(K):>4s}   {cells}   {hits:>2d}/4 {hotpct:4.0f}% {hot95:5.0f}'
+              f'{" chronic?" if chronic else ""}')
+        score = (not chronic, hits, -hot95)  # prefer non-chronic, then more hits, then shorter tail
         if best is None or score > best[0]:
-            best = (score, floor, exp, res)
+            best = (score, floor, K, res)
 
     assert best is not None
-    _, bf, be, bres = best
-    print(f'\n  BEST FIT: floor={bf}, exp={be}  (TILT_DRAG_FLOOR={bf}, drag=floor+(1-floor)*poise**{be})')
+    _, bf, bk, bres = best
+    print(f'\n  BEST FIT: floor={bf}, exp=2.0, second_wind_K={bk}')
     print(f'  {"band":16s} {"med eplen":>9s} {"target":>9s} {"%time":>7s} {"95p len":>8s}')
     for b in target_bands:
         med, pct, p95 = bres[b]
         lo, hi = TARGET_EPLEN[b]
         ok = '✓' if lo <= med <= hi else '✗'
         print(f'  {b:16s} {med:7.0f}hd {f"{lo}-{hi}":>9s} {pct:6.2f}% {p95:6.0f}hd {ok}')
-    print('\n  never-chronic check: hothead 95th-pctile episode length stays bounded (≤~30).')
+    print('\n  never-chronic check: hothead 95th-pctile episode length <=~30 (second wind caps the tail).')
     print('  NOTE: absolute %time is event-model-dependent; episode LENGTH + spread are robust.')
 
 

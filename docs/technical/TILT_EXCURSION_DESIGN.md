@@ -116,28 +116,40 @@ descriptor use — so "in a tilt episode" means the same thing to the dynamics, 
 strategy spike, and the avatar/telegraph. (The penalty-zone 0.35 line stays as-is
 for the zone-penalty effects.)
 
-> **FIT RESULT (2026-06-09) — and a correction.** Sweeping `(floor, exp)` in
-> `experiments/measure_zone_distribution.py` shows the drag **can hit the median
-> episode-length targets** (best: `floor=0.20, exp=2.0` → stoic 2 / volatile 6 /
-> hothead 15 hd, 3/4 bands), **but it FAILS the never-chronic invariant**: at that
-> config the hothead band sits at **~35% time tilted with a 95th-percentile
-> episode of 70 hands** (every swept config tripped the chronic flag). The earlier
-> claim that "slows-but-never-blocks ⇒ never-chronic *automatically*" was **wrong**
-> — the drag knob couples the median and the tail (a slow-recovering hothead gets
-> re-tilted by fresh bad events before climbing out, so episodes chain). "Never
-> latches" is not the same as "bounded tail."
->
-> **Required addition: a tail bound.** Slow-recovery alone is insufficient; pair it
-> with one of:
-> - **Second-wind escape (keeps the gentle mechanism):** after `K` consecutive
->   hands below the line, recovery reverts to normal/accelerated, hard-capping
->   episode length at ~`K`. Tune `K` per band (stoic small, hothead larger).
-> - **Latch-until-a-win (the declined variant, but it self-bounds):** a positive
->   event forces exit, so the tail is capped by win frequency rather than running
->   open.
->
-> The harness's `--fit` path now reports the hothead 95th-percentile so the
-> never-chronic check is explicit. Re-fit once a tail bound is added.
+**Tail bound — second-wind escape (REQUIRED; the drag alone is not enough).**
+The fit proved slow-recovery couples the median and the tail: tuned to make
+episodes *felt*, a slow-recovering hothead gets re-tilted by fresh bad events
+before climbing out, so episodes *chain* (hothead 95th-pctile reached 70 hands,
+~35% time). "Slows but never blocks" is **not** "bounded." So pair the drag with:
+
+> **second-wind escape:** after `K` consecutive hands stuck below the tilt line,
+> recovery jumps to a brisk rate (`accel`) and the episode resolves — capping the
+> *tail* without moving the *median* (most episodes resolve before `K`). Hook: a
+> per-episode "hands-tilted" counter in the recovery path; reset on climb-out.
+
+**FIT CONVERGED (2026-06-09, `experiments/measure_zone_distribution.py`):**
+`TILT_DRAG_FLOOR=0.20`, `exp=2.0`, `second_wind_K=20`, `accel≈0.45`:
+
+| Band | median episode | target | %time tilt | 95p (tail) |
+|---|---|---|---|---|
+| stoic | 2 hd | 2–4 | ~0% | 9 ✓ |
+| composed | 3 hd | 4–7 | ~2% | 14 ✗ (just short) |
+| volatile | 6 hd | 6–10 | ~9% | 22 ✓ |
+| hothead | 16 hd | 12–20 | ~26% | 23 ✓ |
+
+Second wind pulled the hothead tail 70→23 (never-chronic passes); 3/4 median
+targets hit. Two residuals:
+- **composed sits at 3 hd** (target 4–7). Minor — arguably fine (composed *should*
+  shake it fast); close by lowering `exp` toward ~1.7 if we want it longer.
+- **hothead ~26% time tilted** exceeds the §1 frequency target (6–12%). This is an
+  inherent tension, not a bug: lengthening episodes to be *felt* necessarily raises
+  cumulative %time at a fixed onset rate. 26% is "tilts a lot but recovers" — far
+  from "entire time," and arguably right for the most volatile band. If 26% is too
+  high, the lever is **onset** (raise hotheads' baseline/threshold so they tilt
+  less *often*), not persistence. (%time is also event-model-dependent — play_rate
+  0.30; the robust signals are episode length + bounded tail + spread.)
+
+Open decision: accept ~26% hothead %time, or also dial onset down.
 
 ### 3. Monk exceptions — designate 1–2 explicitly
 
