@@ -2,7 +2,7 @@
 purpose: Scope for a psychology-in-the-loop paired EV harness — the missing instrument to put a believable bb/100 number on tilt-state decision changes before they go default-on
 type: design
 created: 2026-06-09
-last_updated: 2026-06-09
+last_updated: 2026-06-10
 ---
 
 # Tilt EV harness (scope)
@@ -17,9 +17,10 @@ so they can't be catastrophic. What's missing before either could go default-on 
 a **believable bb/100 number in live play** — and the existing eval harnesses
 can't produce it. This doc scopes the harness that could.
 
-## Current measurement (2026-06-09)
+## Current measurement (2026-06-09 → 2026-06-10)
 
-A first pass against this scope produced three results worth recording:
+A first pass against this scope produced three results worth recording, plus a
+Phase-2 follow-up (point 4) that wired in the range-aware equity point 3 demanded:
 
 1. **Loss-mix recalibration (distribution harness).** `measure_zone_distribution.py`'s
    synthetic event model ran hot. A 5-seed live sweep (`experiments/tilt_live_sweep.py`,
@@ -51,6 +52,31 @@ A first pass against this scope produced three results worth recording:
    is −EV only against the villain's *continue* range — so **range-aware
    eq-when-called is required (not a refinement)** before the aggression-direction
    bb/100 can be trusted. The collapse sign/magnitude is usable now.
+
+4. **Phase-2 range-aware equity is now wired in (2026-06-10)** — `tilt_ev_probe.py`
+   replaces eq-vs-random with two range-conditioned equities: `eq_call` (vs the
+   villain's *betting* range) and `eq_called` (vs the villain's *continue-vs-raise*
+   range, the strong top of range). Each backdrop now defines its continue range,
+   not just its fold-to-raise frequency (fish = wide/sticky `LATE` ~32%; competent =
+   tight `STANDARD_3BET` ~8%). A trash `J4o`-shove spot was added as the
+   discriminator the point-3 artifact was about. **Result: the fix worked but did
+   not flip the spew sign — and that turned out to be a finding, not a
+   shortcoming.** The range-aware model correctly prices the all-in/trash branches
+   −EV (COLLAPSE now reads −0.02/−0.06 bb/spot, properly negative; the isolated J4o
+   jam prices ~−0.5 bb), but **SPEW (risk-seeking, shaken) still reads +EV** (~+0.22
+   vs fish, +0.25 vs competent). A per-spot breakdown shows why: the softmax +
+   divergence clamp make the signature express as **`call` → small `raise_2.5bb` on
+   PLAYABLE hands** — a legitimately +EV shift given fold-equity — **not** as the
+   trash all-in jams it is feared to be. On the J4o spot the signature actually
+   *jams less* (all-in 0.113 → 0.088). So the structural clamp bound holds: **the
+   signature cannot manufacture a catastrophic trash-shove** (that pathology lives
+   in the preflop charts, not here). Two consequences: (a) the **catastrophe gate is
+   effectively answered** — the signature is structurally non-catastrophic; (b) the
+   spew **sign is dominated by the spot MIX** (how often the bot is in a small-raise
+   spot vs a big-jam spot), so a trustworthy bb/100 still needs the **real recorded
+   corpus + frequencies** — hand-picked spots cannot settle the sign. Range-aware
+   equity was the prerequisite; the corpus is now the single binding step. (Open:
+   erratic-reads still has *no* EV probe — `tilt_ev_probe.py` is signature-only.)
 
 ## Why the existing harnesses can't measure this
 
@@ -130,13 +156,14 @@ tilted." A is a good cross-check if C's EV model is doubted.
   `experiments/configs/tilt_persistence_check.json`); add spot-capture (the
   `decision_analysis_repo` already records zone state per decision — extend it to
   dump the full decision context, or capture in a sidecar).
-- **Paired evaluation + EV estimator:** `experiments/tilt_ev_probe.py` (Phase-1,
-  BUILT) is `tilt_signature_probe.py` plus an eval7-priced EV estimator. It already
-  toggles the flag per arm, prices each arm's strategy in bb (fold-equity model,
-  fish vs competent backdrop), and reports paired ΔEV. Phase-2 = (a) swap its
-  synthetic spots for the recorded corpus, (b) replace `eq`-vs-random with
-  **range-aware eq-when-called** (`decision_analyzer.calculate_equity_vs_ranges`
-  already exists) — the hard requirement the Phase-1 run surfaced.
+- **Paired evaluation + EV estimator:** `experiments/tilt_ev_probe.py` is
+  `tilt_signature_probe.py` plus an eval7-priced EV estimator. It toggles the flag
+  per arm, prices each arm's strategy in bb, and reports paired ΔEV. Phase-2 part
+  (b) is **DONE (2026-06-10)** — `eq`-vs-random is replaced with **range-aware
+  eq-when-called** (an in-probe eval7 MC over the villain's continue-range combos;
+  see point 4 above). The remaining Phase-2 step is part (a): **swap the synthetic
+  `SPOTS` for the recorded corpus** — now the single binding step, since part 4
+  showed the spew sign is mix-dominated.
 - **EV estimator components:** `decision_analyzer.calculate_equity_vs_random` /
   `calculate_equity_vs_ranges` (eval7 Monte-Carlo) are the equity core;
   `bounded_options.calculate_required_equity` for pot odds. (`bounded_options`'s
