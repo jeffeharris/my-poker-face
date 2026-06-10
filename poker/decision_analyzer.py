@@ -983,9 +983,7 @@ def get_analyzer(iterations: Optional[int] = None) -> DecisionAnalyzer:
     return _analyzer_instance
 
 
-def run_decision_analysis_job(
-    job: dict, analysis_repo, capture_label_repo=None
-) -> Optional[int]:
+def run_decision_analysis_job(job: dict, analysis_repo, capture_label_repo=None) -> Optional[int]:
     """Run one decision-analysis job: the heavy equity Monte Carlo + persistence.
 
     This is the single compute chokepoint shared by the inline path
@@ -1001,9 +999,7 @@ def run_decision_analysis_job(
     from poker.hand_ranges import OpponentInfo
 
     kwargs = dict(job["analyze_kwargs"])
-    kwargs["opponent_infos"] = [
-        OpponentInfo(**d) for d in (kwargs.get("opponent_infos") or [])
-    ]
+    kwargs["opponent_infos"] = [OpponentInfo(**d) for d in (kwargs.get("opponent_infos") or [])]
 
     analyzer = get_analyzer()
     analysis = analyzer.analyze(**kwargs)

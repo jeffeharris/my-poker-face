@@ -1,6 +1,7 @@
 """Decision-analysis offload: the serializable job round-trips through JSON
 (the queue contract) and run_decision_analysis_job persists a row — whether it
 runs inline or on the out-of-band worker."""
+
 import json
 
 import pytest
