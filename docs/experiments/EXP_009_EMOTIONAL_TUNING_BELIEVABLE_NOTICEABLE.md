@@ -278,9 +278,39 @@ fires for the first time). **But slice 1 is not yet at target on two axes:**
    globally): we now need to turn UP overall emotional sensitivity/frequency to hit
    the PRD bands, separately from the reachability fix.
 
-Next slices: (2) recovery asymmetry + epistemic-down strength to lift `shaken` toward
-5–8%; (3) global sensitivity / `EMOTIONAL_MAGNITUDE` to refill the PRD bands; re-measure
-each against `tilt_reachability.py` + the corpus EV probes.
+### Phase B — slice 2 + the event-generation wall (2026-06-10)
+
+Tried to lift `shaken` frequency by deepening the epistemic-down magnitudes
+(`bluff_called` −0.22→−0.30, `losing_streak` −0.10→−0.16, +`nemesis_loss` −0.24) and
+widening the corner (`PENALTY_SHAKEN_*` 0.35→0.40, exp 7). Result was **noisier and
+not better** (`shaken` 17→7, Fyodor →0%) — single 2000-hand sims can't resolve a
+<0.2% event; the knob is below the trajectory-noise floor. **Reverted** (unvalidated).
+
+Tested a hypothesis (user): does **busting / leave-table pressure** cap tilt — a
+tilting hothead spews → busts → sits out frozen before spiraling? Deep-stack sim (4×
+stacks so tilters survive longer, exp 8): **refuted.** Deeper stacks made the system
+*tamer* — Fyodor penalty-time **6.9% → 3.8%**, `shaken` → 1 (penalty-time is high-N,
+so this is robust, not noise). **Why:** emotional events fire on swing severity
+*relative to stack* (big_loss / bad_beat / all-in); deep stacks shrink every pot's
+stack-fraction → fewer severe events → calmer bots. So tilt is not capped by players
+removing themselves — it is capped by **event generation**: these tiered bots in a
+calm 6-max structure simply don't experience enough severe swings.
+
+**The redirect (the real frequency lever):** to make tilt NOTICEABLE-by-frequency,
+the lever is **how often/severely pressure events fire** (the detector thresholds +
+structure variance), NOT the axis magnitudes (slice 1 already made the axes
+sufficient) and NOT stack depth. Candidate next probes: (a) pressure-event detector
+sensitivity (are `big_loss`/`bad_beat` thresholds too conservative for these
+stacks?); (b) a multi-seed / higher-N harness so <1% events are measurable; (c) the
+production note below.
+
+**Production note (user, valid independent of the sim):** the cash **leave/movement
+decision is tilt-blind** — it weighs bankroll/energy/respect, not composure/tilt. So
+a tilting cash AI can walk away mid-spiral and the meltdown happens off-screen.
+Realism ("losing → leave") fights the goal ("stay → melt down"). Fix = **tilt →
+table-stickiness** (low composure reduces leave-pressure / biases re-buy — true to
+how tilt actually works: chasing). Added as a new lever to
+`EMOTIONAL_SYSTEM_BALANCE.md`.
 
 ## Conclusion
 

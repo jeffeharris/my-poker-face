@@ -1,0 +1,57 @@
+{
+  "name": "tilt_deepstack",
+  "description": "EXP_009: deep-stack test of the bust-interruption hypothesis (user). 4x starting stack so tilting hotheads survive longer instead of spewing->busting->sitting out frozen. If shaken frequency rises, busting (the sim analogue of leave-table pressure) is what caps tilt.",
+  "tags": [
+    "tilt",
+    "psychology",
+    "corpus",
+    "breadth"
+  ],
+  "num_tournaments": 8,
+  "hands_per_tournament": 250,
+  "num_players": 6,
+  "starting_stack": 40000,
+  "big_blind": 100,
+  "capture_prompts": false,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 1,
+  "personalities": [
+    "Fyodor Dostoevsky",
+    "Freddie Fratboy",
+    "Calamity Jane",
+    "Winston Churchill",
+    "Edgar Allan Poe",
+    "Ebenezer Scrooge"
+  ],
+  "player_types": {
+    "Fyodor Dostoevsky": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Freddie Fratboy": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Calamity Jane": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Winston Churchill": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Edgar Allan Poe": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Ebenezer Scrooge": {
+      "type": "tiered",
+      "expression": false
+    }
+  },
+  "control": {
+    "label": "tilt-corpus-wide",
+    "enable_psychology": true
+  },
+  "random_seed": 42
+}

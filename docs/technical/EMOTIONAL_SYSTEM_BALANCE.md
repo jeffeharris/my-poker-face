@@ -141,6 +141,32 @@ Design rules for the knob:
   variance (and more human exploit edge). The validation (§8) runs at ≥2 magnitude
   points so the guarantee is a *curve*, not a single point.
 
+### 4.2 Tilt → table-stickiness (the stay/leave coupling)
+
+A noticeable meltdown requires the tilting player to **stay at the table**. Today the
+cash leave/movement decision is **tilt-blind** — it weighs bankroll/energy/respect,
+not composure (verified in `cash_mode`). So a losing, tilting AI is subject to normal
+(and bankroll-drowning) leave-pressure and can **walk away mid-spiral** — the
+meltdown happens off-screen. Realism ("I'm losing, I'll quit") fights the goal
+("stay and melt down"). (In the EXP_009 *tournament* sims the analogue is busting →
+sitting out frozen; the deep-stack test showed busting is **not** the dominant cap —
+event-generation is — but the production leave path is a separate, real risk.)
+
+The fix aligns realism *with* the goal: **tilt makes you chase, not leave.** Couple
+the leave decision to composure —
+
+- Low composure (tilt/heated/shaken) → **reduce** leave-pressure and bias toward
+  **re-buy / top-up** ("one more, I'll win it back"). Strength scales with how deep
+  the tilt is and with `risk_identity` (a gambler chases harder than a nit).
+- High composure / a booked win → leave-pressure unchanged (a regulated player books
+  the win and goes, as today).
+
+This keeps the spiral on-screen *and* is psychologically truer than the current
+tilt-blind model. It is a distinct lever from the axes/signatures — a coupling from
+the emotional state INTO the cash movement layer — and should ship flag-gated
+alongside the rest. (Guardrail: it must not create un-bustable zombies; the
+stickiness reduces *voluntary* leaving, not the bankroll/bust floor.)
+
 ## 5. Reachability is the headline requirement
 
 Every state must be **reachable for the archetypes that should feel it**, at the
