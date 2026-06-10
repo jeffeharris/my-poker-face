@@ -67,11 +67,27 @@ immediately, bypassing the distortion/exploitation layers — never a *voluntary
 (jam only when calling already commits the whole stack, where jam == call). Equity is a
 fixed-seed local Monte-Carlo (`_preflop_allin_equity`, 600 iters) so it's deterministic and
 never perturbs `self.rng`. Tests: `tests/test_strategy/test_facing_all_in_veto.py` (reproduces
-h38 — 47o/89o/72o fold, AA calls). This stops the trust-killing shoves; the **proper fix
-(regenerate `vs_4bet`/`vs_3bet` from the existing `push_fold_equity_matrix.json` with a real
-hand-strength gradient — "Option A") is the follow-up** (blueprint in the code-explorer
-handoff; touches all 9 chart files + `build_archetype_charts.py`, needs the
-`champion_challenger` EV gate).
+h38 — 47o/89o/72o fold, AA calls). This stops the trust-killing shoves at runtime.
+
+**Option A — `vs_4bet` regenerated as an equity gradient (SHIPPED, separate PR).**
+`poker/strategy/data/build_vs4bet_defense.py` rebuilds the base chart's `vs_4bet` section
+from the precomputed all-in equity matrix (`push_fold_equity_matrix.json`): each of the 169
+hands gets equity vs an assumed opener 4-bet range (`VILLAIN_4BET` = QQ+/AK + A5s/A4s
+bluffs), mapped to a `{fold,call,jam}` distribution — AA/KK value-jam, AKs/QQ/AKo call+jam,
+JJ–44 light continue, A5s/A4s/A3s blocker bluff-jams, **everything else exactly
+`{fold:1.0}`**. The pure-fold floor is load-bearing: `_loosen_facing`/`_station_facing`
+(build_archetype_charts) and `t_vs_4bet` (generate_depth_charts) all skip rows with
+`fold >= 0.999`, so trash stays folded across all 9 derived charts while the continue range
+widens per archetype (maniac jams JJ ~12%, station flats, nit damps). Result: base `vs_4bet`
+went from a **3-bucket stub (165/169 hands jam 13%)** to a **real gradient (16 continue
+hands, 1.5% base jam)**; every trash hand is `{fold:1.0}` in all 9 charts. Regression test
+`tests/test_strategy/test_vs4bet_gradient.py`. **EV gate** (champion_challenger TAG, gradient
+vs stub, 96k hands / 6 seeds): challenger **−0.8 bb/100, CI [−4.4, +2.8] — inconclusive, no
+detectable regression** (the gradient costs a competent archetype nothing head-to-head; TAG
+rarely reaches a 4-bet pot with trash so the fix mostly bites looser/multiway prod spots).
+**Still TODO: regenerate `vs_3bet`** (wider villain range; entangled with the
+archetype fold-to-3bet / 4-bet calibration below, so it needs its own re-validation) + the
+`stack_utils` fix.
 
 **Adjacent bug found, NOT fixed here:** `stack_utils.effective_stack_chips` omits committed
 `bet`, so when all live opponents are all-in (stack 0) it returns **0.0** effective stack
