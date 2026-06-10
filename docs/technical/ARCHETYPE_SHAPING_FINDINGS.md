@@ -2,7 +2,7 @@
 purpose: Data-grounded diagnosis of AI over-aggression, the committed-fold exploit, and the aggression-nudge calibration, plus the design for a per-archetype target-range review tool
 type: design
 created: 2026-06-08
-last_updated: 2026-06-09
+last_updated: 2026-06-10
 ---
 
 # Archetype Shaping — Findings & Plan
@@ -44,6 +44,41 @@ Two structural drivers:
 Caveat: the human (Jeff Harris) is the #1 3-bettor (28 3-bets, 19 all-ins), so part of the
 *felt* frequency is the human's own aggression drawing re-raises — but the AI trash-shoves
 above are independent and real.
+
+### Finding 1a — the trash-shove root cause is the `vs_4bet` stub chart (2026-06-10)
+
+Pinned the exact mechanism on a fresh prod report (`cash-SDNe_35V--6Ndgr8WnUS7A` h38:
+Alexander jams **47o**, King Midas jams **89o**, both into Hemingway's AA 4-bet shove).
+The decision snapshots gave **identical** `base_strategy_probs {fold:0.645, call:0.223,
+jam:0.132}` for both hands — a tell that the chart row is hand-independent. Confirmed in
+`poker/strategy/data/preflop_*6max*.json`: every `vs_4bet` matchup has 169 hands but only
+**3 distinct distributions** — KK/AA jam ~0.75, two hands (AKs/QQ) call ~0.67, and **all
+other 165 hands share one blob**. So 72o/47o/89o get the same line as AKo/JJ facing a
+4-bet: continue 35%, **jam 13%**. The lag personality distortion then bumps jam → ~0.22,
+and it's sampled. `vs_3bet` is also coarse (5 distinct distributions / 169). The charts
+were hand-authored with no per-hand equity source (base-chart README, Feb-2026). Nothing
+downstream vetoes it: `math_floor` only *forces* a committed call, never *blocks* a −EV
+call/jam (the analyzer's post-hoc `optimal=fold, ev_call=−25,640` is not in the decision path).
+
+**Shipped (guardrail, this branch — PR):** a **facing-an-all-in equity veto** in
+`tiered_bot_controller._get_preflop_decision`. Facing a cold all-in preflop the controller
+decides **call/fold on pot odds** (eval7 equity vs `required_equity`) and returns
+immediately, bypassing the distortion/exploitation layers — never a *voluntary* re-jam
+(jam only when calling already commits the whole stack, where jam == call). Equity is a
+fixed-seed local Monte-Carlo (`_preflop_allin_equity`, 600 iters) so it's deterministic and
+never perturbs `self.rng`. Tests: `tests/test_strategy/test_facing_all_in_veto.py` (reproduces
+h38 — 47o/89o/72o fold, AA calls). This stops the trust-killing shoves; the **proper fix
+(regenerate `vs_4bet`/`vs_3bet` from the existing `push_fold_equity_matrix.json` with a real
+hand-strength gradient — "Option A") is the follow-up** (blueprint in the code-explorer
+handoff; touches all 9 chart files + `build_archetype_charts.py`, needs the
+`champion_challenger` EV gate).
+
+**Adjacent bug found, NOT fixed here:** `stack_utils.effective_stack_chips` omits committed
+`bet`, so when all live opponents are all-in (stack 0) it returns **0.0** effective stack
+(snapshot showed `effective_stack_bb: 0.0` for Alexander at ~78bb). Fix = use `stack + bet`
+(mirrors `_try_push_fold_lookup`). Deferred: it has broad blast radius (SPR/depth for *every*
+decision) so it wants its own paired-EV sim, and the veto already supersedes the only spot
+where it bit a live decision.
 
 ### AI-only control (the human is NOT the cause)
 
