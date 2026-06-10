@@ -212,53 +212,6 @@
   border-color: var(--color-amber-muted);
 }
 
-/* Control slot — fixed height so the layout doesn't jump as the buttons swap
-   to the verdict flash and back. */
-.swd-control {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 4.4rem;
-}
-
-/* Action buttons — desktop / a11y parity with the swipe. */
-.swd-actions {
-  display: flex;
-  gap: var(--space-3);
-  width: 100%;
-  max-width: 22rem;
-}
-.swd-btn {
-  flex: 1 1 0;
-  padding: var(--space-4) var(--space-2);
-  border: none;
-  border-radius: var(--radius-lg);
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-extrabold);
-  cursor: pointer;
-  transition: var(--transition-all-fast);
-}
-.swd-btn:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-.swd-btn:active:not(:disabled) {
-  transform: translateY(1px);
-}
-.swd-btn:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-.swd-btn--fold {
-  background: var(--color-bg-surface-active);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-hover);
-}
-.swd-btn--raise {
-  background: var(--color-emerald);
-  color: var(--color-bg-void);
-}
-
 .swd-feedback {
   width: 100%;
   max-width: 22rem;
@@ -330,7 +283,7 @@
 }
 
 /* vs-open control area — holds the game action bar (variable height) or verdict. */
-.vsd-control {
+.pf-control {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -338,7 +291,7 @@
   width: 100%;
   min-height: 4.4rem;
 }
-.vsd-control .action-panel,
-.vsd-control .action-buttons {
+.pf-control .action-panel,
+.pf-control .action-buttons {
   width: 100%;
 }

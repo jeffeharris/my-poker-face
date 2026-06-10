@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { SlidersHorizontal, Shuffle } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
+import { ActionButtons } from '../game/ActionButtons';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
@@ -23,6 +24,20 @@ type Mode = 'random' | (typeof RFI_POS)[number];
 // How long the verdict flashes before the next card deals. Wrong answers linger
 // so you actually read the correction; tapping the flash skips the wait.
 const HOLD_MS: Record<Grade['verdict'], number> = { good: 700, thin: 1050, leak: 1800 };
+
+// Folded to you, 100bb, facing only the big blind — drives the game action bar
+// (fold / open). The drill grades the action, not sizing (noSizing), so a fixed
+// context is fine.
+const BIG_BLIND = 100;
+const RFI_BETTING = {
+  playerOptions: ['fold', 'raise'],
+  currentPlayerStack: 100 * BIG_BLIND,
+  highestBet: BIG_BLIND,
+  currentPlayerBet: 0,
+  minRaise: BIG_BLIND,
+  bigBlind: BIG_BLIND,
+  potSize: BIG_BLIND + BIG_BLIND / 2, // BB + SB
+};
 
 interface SwipeDrillProps {
   onBack: () => void;
@@ -135,22 +150,24 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
     return () => clearTimeout(t);
   }, [grade, next]);
 
-  const triggerFront = useCallback(
-    (dir: SwipeDir) => {
+  // Action bar + keyboard feed the deck: fold → left, open (raise) → right.
+  const onBarAction = useCallback(
+    (action: string) => {
       if (grade || grading) return;
-      deckRef.current?.swipe(dir);
+      deckRef.current?.swipe(action === 'fold' ? 'left' : 'right');
     },
     [grade, grading]
   );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') triggerFront('right');
-      if (e.key === 'ArrowLeft') triggerFront('left');
+      if (grade || grading) return;
+      if (e.key === 'ArrowRight') deckRef.current?.swipe('right');
+      if (e.key === 'ArrowLeft') deckRef.current?.swipe('left');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [triggerFront]);
+  }, [grade, grading]);
 
   const ready = !loading && !error && pool.length > 0;
 
@@ -219,7 +236,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
               {solid}/{answered} solid · swipe or use ← →
             </p>
 
-            <div className="swd-control">
+            <div className="pf-control">
               {grade ? (
                 <button
                   type="button"
@@ -237,22 +254,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
                   </div>
                 </button>
               ) : (
-                <div className="swd-actions">
-                  <button
-                    className="swd-btn swd-btn--fold"
-                    onClick={() => triggerFront('left')}
-                    disabled={!interactive}
-                  >
-                    ← Fold
-                  </button>
-                  <button
-                    className="swd-btn swd-btn--raise"
-                    onClick={() => triggerFront('right')}
-                    disabled={!interactive}
-                  >
-                    Open →
-                  </button>
-                </div>
+                <ActionButtons {...RFI_BETTING} onAction={onBarAction} inline noSizing />
               )}
             </div>
           </div>

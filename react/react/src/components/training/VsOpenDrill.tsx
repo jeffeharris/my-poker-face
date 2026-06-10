@@ -244,7 +244,7 @@ export function VsOpenDrill({ onBack }: VsOpenDrillProps) {
               {solid}/{answered} solid · swipe ← ↑ → or use the bar
             </p>
 
-            <div className="vsd-control">
+            <div className="pf-control">
               {grade ? (
                 <button
                   type="button"
@@ -263,7 +263,7 @@ export function VsOpenDrill({ onBack }: VsOpenDrillProps) {
                   </div>
                 </button>
               ) : (
-                <ActionButtons {...bp} onAction={onBarAction} inline />
+                <ActionButtons {...bp} onAction={onBarAction} inline noSizing />
               )}
             </div>
           </div>
