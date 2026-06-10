@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
 import { rememberAdminOrigin } from './components/admin/adminOrigin';
 import { useAuth } from './hooks/useAuth';
+import { isNativePlatform } from './utils/nativeAuth';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useUsageStats } from './hooks/useUsageStats';
 import { useNicknameOverridesStore } from './stores/nicknameOverridesStore';
@@ -704,10 +705,21 @@ function App() {
               }
             />
 
-            {/* Landing page and fallback */}
+            {/* Landing page and fallback. The native (Capacitor) app skips the
+                marketing landing page and opens straight at /login — there's no
+                "learn more / sign up" funnel inside an installed app. Web keeps
+                the landing page. */}
             <Route
               path="/"
-              element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />}
+              element={
+                isAuthenticated ? (
+                  <Navigate to="/menu" replace />
+                ) : isNativePlatform() ? (
+                  <Navigate to="/login" replace />
+                ) : (
+                  <LandingPage />
+                )
+              }
             />
             <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
           </Routes>

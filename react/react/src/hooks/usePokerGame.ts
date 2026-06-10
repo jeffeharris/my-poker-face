@@ -14,7 +14,7 @@ import type { CashBustEvent, LobbyEvent } from '../components/cash/types';
 import type { RunoutSchedule } from '../types/runout';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { hapticImpact } from '../utils/haptics';
+import { HAPTICS } from '../utils/haptics';
 import { onAppResume } from '../utils/nativeApp';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -403,9 +403,9 @@ export function usePokerGame({
             return; // Action will trigger new state update
           }
 
-          // It's the human's turn to act — a medium tap to draw attention back to
-          // the table after the AIs have been thinking. Native-only no-op on web.
-          hapticImpact('medium');
+          // It's the human's turn to act — a rising two-tap "you're up" cue to
+          // draw attention back to the table. Native-only no-op on web.
+          HAPTICS.turn();
 
           updateStorePlayerOptions(data.current_player_options);
         }

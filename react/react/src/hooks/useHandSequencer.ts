@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import { avatarUrlForEmotion } from '../utils/avatarUrl';
-import { hapticImpact } from '../utils/haptics';
+import { HAPTICS, startHeartbeat, stopHeartbeat } from '../utils/haptics';
 import { deriveTier } from '../constants/presentationTiming';
 import {
   planEvent,
@@ -135,7 +135,9 @@ export function useHandSequencer({
       const sig = `${action}@${p.stack}`;
       if (oppActionSigRef.current.get(p.name) === sig) continue;
       oppActionSigRef.current.set(p.name, sig);
-      hapticImpact(action === 'all_in' ? 'heavy' : 'light');
+      // all-in → the tightening crescendo; a plain raise → one firm tap.
+      if (action === 'all_in') HAPTICS.allIn();
+      else HAPTICS.opponentRaise();
     }
   }, []);
 
@@ -148,8 +150,20 @@ export function useHandSequencer({
           break;
         case 'setReveal':
           setRevealRef.current(effect.revealed);
+          // All-in showdown: the board is about to run out with chips committed.
+          // If YOU'RE in it (your cards are among those revealed), start a
+          // heartbeat that beats through the sweat until the winner lands.
+          {
+            const humanName = useGameStore
+              .getState()
+              .players?.find((p) => p.is_human)?.name;
+            if (humanName && effect.revealed?.players_cards?.[humanName]) {
+              startHeartbeat();
+            }
+          }
           break;
         case 'setWinner':
+          stopHeartbeat(); // the sweat is over — kill the heartbeat before the verdict
           setWinnerRef.current(effect.winner);
           break;
         case 'setActive':
@@ -157,9 +171,9 @@ export function useHandSequencer({
           break;
         case 'dealCards':
           signalCardDeal(effect.count, effect.total);
-          // A light tap as the board advances (flop/turn/river) so you can feel
+          // A soft tick as the board advances (flop/turn/river) so you can feel
           // the street change without watching. Native-only no-op on web.
-          hapticImpact('light');
+          HAPTICS.boardCard();
           break;
         case 'hero':
           if (effect.mode === 'commit') {
@@ -249,6 +263,7 @@ export function useHandSequencer({
     engineRef.current = initialEngineState;
     oppActionSigRef.current.clear();
     handNoRef.current = null;
+    stopHeartbeat(); // never let a heartbeat outlive a dropped/replayed hand
     scheduleRef.current = null;
     processingRef.current = false;
     setIsPlaying(false);

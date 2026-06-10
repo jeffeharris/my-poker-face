@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { hapticImpact, hapticNotify } from '../../utils/haptics';
+import { HAPTICS } from '../../utils/haptics';
 import { ArrowLeft, Check } from 'lucide-react';
 import { Card } from '../cards';
 import { INTERHAND_TIMING } from '../../constants/interhandTiming';
@@ -133,7 +133,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const isShowdown = !!winnerInfo?.showdown;
   const humanAtShowdown = !!winnerInfo?.players_showdown?.[humanName];
 
-  // Haptic on the result landing: a success buzz on a win, a soft tap otherwise.
+  // Haptic on the result landing: a rising "ascend" on a win, a "collapse" thud otherwise.
   // Guarded by a ref so it fires once per hand result, not on every re-render.
   // Native-only no-op on web.
   const lastHapticKeyRef = useRef<string | null>(null);
@@ -145,8 +145,8 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
     const key = `${winnerInfo.winners.join(',')}|${isShowdown}`;
     if (lastHapticKeyRef.current === key) return;
     lastHapticKeyRef.current = key;
-    if (playerWon) hapticNotify('success');
-    else hapticImpact('light');
+    if (playerWon) HAPTICS.win();
+    else HAPTICS.loss();
   }, [winnerInfo, isShowdown, playerWon]);
 
   // A fellow loser to commiserate with: someone OTHER than you who lost at
