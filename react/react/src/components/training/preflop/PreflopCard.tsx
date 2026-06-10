@@ -1,53 +1,9 @@
 import { Card } from '../../cards';
+import { POSITION_NAME, type Spot } from './preflopUtils';
 import './preflop.css';
 
-// Shared building blocks for preflop swipe drills (the card face + helpers).
-// Drills (SwipeDrill = RFI, VsOpenDrill = facing a raise) provide their own load
-// + grade flow and pass each spot to PreflopCardFace.
-
-export interface Spot {
-  scenario: string;
-  position: string;
-  hand: string;
-  depth_bb: number;
-  num_players: number;
-  archetype?: string | null; // set by "what would <archetype> do" read drills
-}
-
-export interface Grade {
-  verdict: 'good' | 'thin' | 'leak';
-  action: string;
-  your_freq: number;
-  chart_freq: { fold: number; call: number; raise: number };
-  primary_action: string;
-}
-
-export const pct = (x: number) => Math.round(x * 100);
-
-// Long-form position names for the situation header.
-export const POSITION_NAME: Record<string, string> = {
-  UTG: 'Under the gun',
-  HJ: 'Hijack',
-  CO: 'Cutoff',
-  BTN: 'Button',
-  SB: 'Small blind',
-  BB: 'Big blind',
-};
-
-// RFI-openable seats (BB never opens — no rfi chart). Drills facing a raise use
-// their own seat list.
-export const RFI_POS = ['UTG', 'HJ', 'CO', 'BTN', 'SB'];
-
-const sameSpot = (a: Spot, b: Spot) => a.position === b.position && a.hand === b.hand;
-
-// Draw a random spot from the pool, avoiding an immediate repeat.
-export function drawNext(pool: Spot[], avoid?: Spot | null): Spot | null {
-  if (pool.length === 0) return null;
-  if (pool.length === 1) return pool[0];
-  let pick = pool[Math.floor(Math.random() * pool.length)];
-  while (avoid && sameSpot(pick, avoid)) pick = pool[Math.floor(Math.random() * pool.length)];
-  return pick;
-}
+// Card-face components for preflop swipe drills. Shared types + helpers live in
+// preflopUtils. Drills provide their own load/grade flow and pass each spot here.
 
 // A 169-hand shorthand → two concrete cards for display. Suited = same suit;
 // offsuit / pair = two different suits (black + red reads clearest). 'T' → '10'.

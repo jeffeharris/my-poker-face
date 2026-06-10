@@ -6,7 +6,8 @@ import { ActionButtons } from '../game/ActionButtons';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
-import { PreflopCardFace, drawNext, pct, type Spot, type Grade } from './preflop/PreflopCard';
+import { PreflopCardFace } from './preflop/PreflopCard';
+import { drawNext, pct, type Spot, type Grade } from './preflop/preflopUtils';
 
 // Facing-a-raise drill: a player opened to ~2.5bb and it's on you — fold, call,
 // or 3-bet. Swipe left = fold, right = raise, up = call; the game's action bar

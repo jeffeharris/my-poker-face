@@ -6,14 +6,8 @@ import { ActionButtons } from '../game/ActionButtons';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
-import {
-  PreflopCardFace,
-  drawNext,
-  pct,
-  RFI_POS,
-  type Spot,
-  type Grade,
-} from './preflop/PreflopCard';
+import { PreflopCardFace } from './preflop/PreflopCard';
+import { drawNext, pct, RFI_POS, type Spot, type Grade } from './preflop/preflopUtils';
 
 // Opening (RFI) drill: folded to you — open or fold. Binary swipe (left = fold,
 // right = open), graded against the solver chart. Built on the shared SwipeDeck
