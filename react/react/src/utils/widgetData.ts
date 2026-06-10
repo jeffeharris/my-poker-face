@@ -57,8 +57,10 @@ export function publishWidgetData(input: {
   void (async () => {
     try {
       await WidgetBridge.publish({ payload: JSON.stringify(snapshot) });
-    } catch {
-      // Bridge not registered yet (e.g. pre-widget build) — ignore.
+    } catch (e) {
+      // Bridge missing (e.g. pre-widget build / web) or App Group write failed —
+      // best-effort, the widget just keeps its last snapshot.
+      console.warn('[widget] publish failed:', e);
     }
   })();
 }
