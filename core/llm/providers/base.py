@@ -120,6 +120,15 @@ class LLMProvider(ABC):
         """
         ...
 
+    def extract_image_cost(self, raw_response: Any) -> Optional[float]:
+        """Extract the provider-reported USD cost for an image generation.
+
+        Returns None when the provider doesn't report a cost (the tracker then
+        falls back to SKU-based pricing). Override in image providers that
+        return a real per-generation cost (e.g. Runware with includeCost).
+        """
+        return None
+
     def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
         """Check if an exception is retryable and suggest a wait time.
 

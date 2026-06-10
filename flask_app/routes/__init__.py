@@ -8,6 +8,7 @@ from .character_request_routes import character_request_bp
 from .character_routes import character_bp
 from .chip_ledger_routes import chip_ledger_bp
 from .coach_routes import coach_bp
+from .cost_analytics_routes import cost_analytics_bp
 from .debug_routes import debug_bp
 from .experiment_routes import experiment_bp
 from .game_routes import game_bp, register_socket_events
@@ -42,6 +43,7 @@ __all__ = [
     'sentry_relay_bp',
     'user_bp',
     'coach_bp',
+    'cost_analytics_bp',
     'cash_bp',
     'chip_ledger_bp',
     'character_bp',

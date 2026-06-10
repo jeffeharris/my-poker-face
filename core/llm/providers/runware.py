@@ -43,6 +43,7 @@ class RunwareImageResponse:
     id: str  # Task UUID
     model: str
     size: str
+    cost: Optional[float] = None  # Runware-reported USD cost (with includeCost)
 
 
 class RunwareProvider(LLMProvider):
@@ -164,6 +165,7 @@ class RunwareProvider(LLMProvider):
                 "height": height,
                 "model": self._model,
                 "numberResults": 1,
+                "includeCost": True,  # ask Runware to return the actual USD cost
             }
         ]
 
@@ -218,13 +220,23 @@ class RunwareProvider(LLMProvider):
                 if not image_url:
                     raise Exception("Runware API response missing imageURL")
 
-                logger.debug("Generated image: url=%s", image_url[:80] + "...")
+                # Runware returns the real per-image USD cost when includeCost is
+                # set. Coerce defensively — treat a missing/non-numeric value as
+                # "unreported" so the tracker falls back to SKU pricing.
+                raw_cost = image_data.get("cost")
+                try:
+                    cost = float(raw_cost) if raw_cost is not None else None
+                except (TypeError, ValueError):
+                    cost = None
+
+                logger.debug("Generated image: url=%s cost=%s", image_url[:80] + "...", cost)
 
                 return RunwareImageResponse(
                     url=image_url,
                     id=task_uuid,
                     model=self._model,
                     size=f"{width}x{height}",
+                    cost=cost,
                 )
 
             except requests.exceptions.Timeout as e:
@@ -290,6 +302,10 @@ class RunwareProvider(LLMProvider):
             "cached_tokens": 0,
             "reasoning_tokens": 0,
         }
+
+    def extract_image_cost(self, raw_response: Any) -> Optional[float]:
+        """Return the Runware-reported USD cost (None if not present)."""
+        return getattr(raw_response, "cost", None)
 
     def extract_content(self, raw_response: Any) -> str:
         """Extract text content from Runware response.

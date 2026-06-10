@@ -1,6 +1,7 @@
 """LLM model management repository — enabled models and provider queries."""
 
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -126,6 +127,321 @@ class LLMRepository(BaseRepository):
                 (date_modifier,),
             )
             return dict(cursor.fetchone())
+
+    # -------------------------------------------------------------------------
+    # Cost analytics — owner / call-type / model / time-series breakdowns
+    # -------------------------------------------------------------------------
+    #
+    # All methods read the pre-computed `estimated_cost` (USD) written at
+    # insert time by UsageTracker. NULL costs (missing pricing SKU) collapse
+    # to 0 via COALESCE — same convention as the budget gate. `owner_id` may
+    # be NULL for system-initiated calls; we surface those as '(system)' so
+    # they never silently vanish from the rollup.
+
+    def get_cost_by_owner(self, date_modifier: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Cost + volume aggregated per owner for a time range.
+
+        Args:
+            date_modifier: SQLite date modifier, e.g. '-7 days'.
+            limit: Max owners returned (highest spend first).
+
+        Returns:
+            List of dicts: owner_id, total_cost, total_calls, image_calls,
+            error_calls, input_tokens, output_tokens.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    COALESCE(NULLIF(owner_id, ''), '(system)') as owner_id,
+                    COALESCE(SUM(estimated_cost), 0) as total_cost,
+                    COUNT(*) as total_calls,
+                    COALESCE(SUM(CASE WHEN call_type = 'image_generation' THEN 1 ELSE 0 END), 0) as image_calls,
+                    COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) as error_calls,
+                    COALESCE(SUM(input_tokens), 0) as input_tokens,
+                    COALESCE(SUM(output_tokens), 0) as output_tokens
+                FROM api_usage
+                WHERE created_at >= datetime('now', ?)
+                GROUP BY COALESCE(NULLIF(owner_id, ''), '(system)')
+                ORDER BY total_cost DESC
+                LIMIT ?
+                """,
+                (date_modifier, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_cost_by_call_type(
+        self, date_modifier: str, owner_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Cost + volume aggregated per call_type, optionally scoped to one owner.
+
+        Returns:
+            List of dicts: call_type, total_cost, total_calls, avg_latency,
+            input_tokens, output_tokens, cached_tokens, reasoning_tokens,
+            image_count. Sorted by total_cost desc.
+        """
+        params: List[Any] = [date_modifier]
+        owner_clause = ""
+        if owner_id is not None:
+            owner_clause = " AND COALESCE(NULLIF(owner_id, ''), '(system)') = ?"
+            params.append(owner_id)
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    call_type,
+                    COALESCE(SUM(estimated_cost), 0) as total_cost,
+                    COUNT(*) as total_calls,
+                    COALESCE(AVG(latency_ms), 0) as avg_latency,
+                    COALESCE(SUM(input_tokens), 0) as input_tokens,
+                    COALESCE(SUM(output_tokens), 0) as output_tokens,
+                    COALESCE(SUM(cached_tokens), 0) as cached_tokens,
+                    COALESCE(SUM(reasoning_tokens), 0) as reasoning_tokens,
+                    COALESCE(SUM(image_count), 0) as image_count
+                FROM api_usage
+                WHERE created_at >= datetime('now', ?){owner_clause}
+                GROUP BY call_type
+                ORDER BY total_cost DESC
+                """,
+                params,
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_cost_by_model(
+        self, date_modifier: str, owner_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Cost + volume aggregated per provider/model, optionally scoped to one owner.
+
+        Returns:
+            List of dicts: provider, model, total_cost, total_calls,
+            input_tokens, output_tokens. Sorted by total_cost desc.
+        """
+        params: List[Any] = [date_modifier]
+        owner_clause = ""
+        if owner_id is not None:
+            owner_clause = " AND COALESCE(NULLIF(owner_id, ''), '(system)') = ?"
+            params.append(owner_id)
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    provider,
+                    model,
+                    COALESCE(SUM(estimated_cost), 0) as total_cost,
+                    COUNT(*) as total_calls,
+                    COALESCE(SUM(input_tokens), 0) as input_tokens,
+                    COALESCE(SUM(output_tokens), 0) as output_tokens
+                FROM api_usage
+                WHERE created_at >= datetime('now', ?){owner_clause}
+                GROUP BY provider, model
+                ORDER BY total_cost DESC
+                """,
+                params,
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_cost_by_game(
+        self, date_modifier: str, owner_id: Optional[str] = None, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Cost + volume aggregated per game, optionally scoped to one owner.
+
+        Only rows tied to a game (`game_id IS NOT NULL`) — non-game work like
+        personality generation has no game to attribute to. `owner_id` is the
+        representative (non-system) owner for the game, so the all-owners view
+        can show whose game it is.
+
+        Returns:
+            List of dicts: game_id, owner_id, total_cost, total_calls,
+            max_hand (highest hand_number seen). Sorted by total_cost desc.
+        """
+        params: List[Any] = [date_modifier]
+        owner_clause = ""
+        if owner_id is not None:
+            owner_clause = " AND COALESCE(NULLIF(owner_id, ''), '(system)') = ?"
+            params.append(owner_id)
+        params.append(limit)
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    game_id,
+                    COALESCE(MAX(NULLIF(owner_id, '')), '(system)') as owner_id,
+                    COALESCE(SUM(estimated_cost), 0) as total_cost,
+                    COUNT(*) as total_calls,
+                    MAX(hand_number) as max_hand
+                FROM api_usage
+                WHERE created_at >= datetime('now', ?)
+                  AND game_id IS NOT NULL{owner_clause}
+                GROUP BY game_id
+                ORDER BY total_cost DESC
+                LIMIT ?
+                """,
+                params,
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_uncosted_calls(self, date_modifier: str) -> Dict[str, Any]:
+        """Successful calls with NULL estimated_cost — i.e. silent pricing gaps.
+
+        A non-error call with no cost means the model had no matching pricing
+        SKU at insert time, so it counts as $0 in every rollup. Surfacing these
+        lets a new/unpriced model be caught instead of silently undercounting.
+
+        Returns:
+            {'total': int, 'by_model': [{provider, model, calls, last_seen}]}.
+        """
+        with self._get_connection() as conn:
+            total = conn.execute(
+                """SELECT COUNT(*) FROM api_usage
+                   WHERE status != 'error' AND estimated_cost IS NULL
+                     AND created_at >= datetime('now', ?)""",
+                (date_modifier,),
+            ).fetchone()[0]
+            by_model = conn.execute(
+                """SELECT provider, model, COUNT(*) as calls,
+                          MAX(date(created_at)) as last_seen
+                   FROM api_usage
+                   WHERE status != 'error' AND estimated_cost IS NULL
+                     AND created_at >= datetime('now', ?)
+                   GROUP BY provider, model ORDER BY calls DESC LIMIT 20""",
+                (date_modifier,),
+            ).fetchall()
+            return {'total': total, 'by_model': [dict(r) for r in by_model]}
+
+    # Upper bound on gap-filled buckets, so an 'all'-range query over a very
+    # old dataset can't return a pathological time-series. Daily over ~5 years
+    # or hourly over ~80 days both stay under this.
+    _MAX_TIMESERIES_BUCKETS = 2000
+
+    def get_cost_timeseries(
+        self, date_modifier: str, owner_id: Optional[str] = None, bucket: str = "day"
+    ) -> List[Dict[str, Any]]:
+        """Cost + call volume bucketed over time for a trend chart.
+
+        Empty buckets are gap-filled with zeros so the chart reads as a true
+        timeline (no day with zero calls silently collapses, which otherwise
+        makes the area chart connect across the gap and misstate the trend).
+
+        Args:
+            date_modifier: SQLite date modifier, e.g. '-7 days'.
+            owner_id: Optional owner scope.
+            bucket: 'hour' or 'day' — controls the strftime grouping.
+
+        Returns:
+            List of dicts: period (ISO-ish string), total_cost, total_calls.
+            Ordered chronologically, with a row per bucket in the window.
+        """
+        fmt = "%Y-%m-%d %H:00" if bucket == "hour" else "%Y-%m-%d"
+        params: List[Any] = [fmt, date_modifier]
+        owner_clause = ""
+        if owner_id is not None:
+            owner_clause = " AND COALESCE(NULLIF(owner_id, ''), '(system)') = ?"
+            params.append(owner_id)
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    strftime(?, created_at) as period,
+                    COALESCE(SUM(estimated_cost), 0) as total_cost,
+                    COUNT(*) as total_calls
+                FROM api_usage
+                WHERE created_at >= datetime('now', ?){owner_clause}
+                GROUP BY period
+                ORDER BY period ASC
+                """,
+                params,
+            )
+            agg = {row['period']: dict(row) for row in cursor.fetchall()}
+            if not agg:
+                return []
+
+            # Resolve the window bounds from SQLite itself so 'now' matches the
+            # UTC clock the rows were stamped with — no Python-side timezone gap.
+            bounds = conn.execute(
+                "SELECT strftime(?, datetime('now', ?)) AS start, strftime(?, 'now') AS end",
+                (fmt, date_modifier, fmt),
+            ).fetchone()
+
+        periods = self._fill_periods(bounds['start'], bounds['end'], min(agg), fmt, bucket)
+        return [
+            {
+                'period': p,
+                'total_cost': agg[p]['total_cost'] if p in agg else 0.0,
+                'total_calls': agg[p]['total_calls'] if p in agg else 0,
+            }
+            for p in periods
+        ]
+
+    @classmethod
+    def _fill_periods(
+        cls, start_str: str, end_str: str, earliest: str, fmt: str, bucket: str
+    ) -> List[str]:
+        """Every bucket label from the window start to end, inclusive.
+
+        Fixed windows (24h/7d/30d) are filled edge-to-edge so leading/trailing
+        idle buckets show as zeros. The unbounded 'all' window (-100 years)
+        would overflow the bucket cap, so in that case the start is pulled
+        forward to the earliest real data point instead of filling a century of
+        empties. Lexical compares are chronological (zero-padded ISO format).
+        """
+        step = timedelta(hours=1) if bucket == "hour" else timedelta(days=1)
+        start = datetime.strptime(start_str, fmt)
+        end = datetime.strptime(end_str, fmt)
+        if start > end:
+            return []
+        # Only clamp to the first data point when the full window won't fit —
+        # i.e. the 'all' case. Fixed windows keep their full span (with zeros).
+        if int((end - start) / step) + 1 > cls._MAX_TIMESERIES_BUCKETS:
+            start = max(start, datetime.strptime(earliest, fmt))
+        out: List[str] = []
+        cur = start
+        while cur <= end and len(out) < cls._MAX_TIMESERIES_BUCKETS:
+            out.append(cur.strftime(fmt))
+            cur += step
+        return out
+
+    def get_recent_calls(
+        self,
+        date_modifier: str,
+        owner_id: Optional[str] = None,
+        call_type: Optional[str] = None,
+        game_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Raw individual api_usage rows for drill-down detail.
+
+        Filters by time range and optional owner_id / call_type / game_id.
+        Returns the most recent rows first, capped at `limit`.
+        """
+        params: List[Any] = [date_modifier]
+        clauses = ""
+        if owner_id is not None:
+            clauses += " AND COALESCE(NULLIF(owner_id, ''), '(system)') = ?"
+            params.append(owner_id)
+        if call_type is not None:
+            clauses += " AND call_type = ?"
+            params.append(call_type)
+        if game_id is not None:
+            clauses += " AND game_id = ?"
+            params.append(game_id)
+        params.append(limit)
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    id, created_at, owner_id, player_name, game_id, hand_number,
+                    call_type, provider, model, reasoning_effort,
+                    input_tokens, output_tokens, cached_tokens, reasoning_tokens,
+                    image_count, image_size, latency_ms, status, finish_reason,
+                    error_code, estimated_cost
+                FROM api_usage
+                WHERE created_at >= datetime('now', ?){clauses}
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                params,
+            )
+            return [dict(row) for row in cursor.fetchall()]
 
     # -------------------------------------------------------------------------
     # Model toggle with cascade

@@ -200,9 +200,16 @@ class XAIProvider(LLMProvider):
             if details:
                 reasoning_tokens = getattr(details, 'reasoning_tokens', 0) or 0
 
+        # xAI reports reasoning_tokens SEPARATELY from completion_tokens for grok
+        # reasoning models — completion_tokens is the visible output only, NOT
+        # inclusive of reasoning the way the OpenAI spec defines it. Subtracting
+        # reasoning here drove output_tokens negative (observed completion=24 vs
+        # reasoning=820 → -796) and understated cost. Treat completion_tokens as
+        # the output count; reasoning is tracked (and billed) additively. The
+        # max() is a defensive floor against any future negative report.
         return {
             "input_tokens": usage.prompt_tokens,
-            "output_tokens": usage.completion_tokens - reasoning_tokens,
+            "output_tokens": max(usage.completion_tokens, 0),
             "cached_tokens": 0,  # xAI doesn't report cached tokens
             "reasoning_tokens": reasoning_tokens,
         }

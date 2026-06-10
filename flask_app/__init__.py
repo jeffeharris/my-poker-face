@@ -394,6 +394,7 @@ def register_blueprints(app: Flask) -> None:
         character_request_bp,
         chip_ledger_bp,
         coach_bp,
+        cost_analytics_bp,
         debug_bp,
         experiment_bp,
         game_bp,
@@ -428,6 +429,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(sentry_relay_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(coach_bp)
+    app.register_blueprint(cost_analytics_bp)
     app.register_blueprint(cash_bp)
     app.register_blueprint(chip_ledger_bp)
     app.register_blueprint(character_bp)
