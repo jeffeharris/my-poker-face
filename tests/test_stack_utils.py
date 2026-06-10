@@ -13,8 +13,8 @@ from poker.stack_utils import (
 )
 
 
-def _player(name: str, stack: int, is_folded: bool = False):
-    return SimpleNamespace(name=name, stack=stack, is_folded=is_folded)
+def _player(name: str, stack: int, is_folded: bool = False, bet: int = 0):
+    return SimpleNamespace(name=name, stack=stack, is_folded=is_folded, bet=bet)
 
 
 def _state(players, current_ante: int = 50, pot_total: int = 0):
@@ -69,6 +69,34 @@ class TestEffectiveStackChips:
         hero = _player("hero", 5000)
         state = _state([hero, _player("opp", 8000, is_folded=True)])
         assert effective_stack_chips(state, hero) == 5000
+
+    def test_counts_committed_bet_of_all_in_opponent(self):
+        # Regression: facing a lone all-in opponent (stack 0, bet = at-risk
+        # chips), effective stack must be that bet, not 0. The old formula
+        # ignored `bet` and collapsed to 0 when every live opponent was all-in.
+        hero = _player("hero", 9000, bet=700)  # invested 700 this street
+        shover = _player("shover", 0, bet=4740)  # all-in for 4,740
+        state = _state([hero, shover])
+        # hero total 9700 vs shover total 4740 → effective = 4740 (NOT 0).
+        assert effective_stack_chips(state, hero) == 4740
+
+    def test_table_of_all_ins_does_not_collapse_to_zero(self):
+        hero = _player("hero", 9000, bet=700)
+        state = _state(
+            [
+                hero,
+                _player("allin_a", 0, bet=4740),
+                _player("allin_b", 0, bet=7800),
+            ]
+        )
+        # max opponent total = 7800; hero total 9700 → effective 7800, not 0.
+        assert effective_stack_chips(state, hero) == 7800
+
+    def test_hero_committed_bet_counts_toward_hero_total(self):
+        # Hero is the short stack after committing: total = stack + bet.
+        hero = _player("hero", 300, bet=700)  # total 1000
+        state = _state([hero, _player("opp", 8000, bet=0)])
+        assert effective_stack_chips(state, hero) == 1000
 
 
 class TestEffectiveStackBB:

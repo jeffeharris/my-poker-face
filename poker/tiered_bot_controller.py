@@ -4183,27 +4183,26 @@ class TieredBotController(AIPlayerController):
         if num_seated != 2:
             return None
 
-        # Compute effective stack in big blinds
+        # Effective stack in big blinds. Routed through the shared stack_utils
+        # helper (total = stack + committed bet) — previously an inline copy
+        # that was the *correct* version while stack_utils omitted `bet`; the
+        # two are now one path so they cannot drift.
         try:
             big_blind = game_state.current_ante or 0
             if big_blind <= 0:
                 return None
             player = game_state.players[player_idx]
-            hero_stack = player.stack + player.bet
-            # Effective stack: smaller of hero and the single opponent
-            opp_stacks = [
-                p.stack + p.bet
+            if not any(
+                not getattr(p, 'is_folded', False)
                 for i, p in enumerate(game_state.players)
-                if i != player_idx and not getattr(p, 'is_folded', False)
-            ]
-            if not opp_stacks:
-                return None
-            effective_stack = min(hero_stack, max(opp_stacks))
-            effective_stack_bb = effective_stack / big_blind
+                if i != player_idx
+            ):
+                return None  # no active opponent → not a push/fold spot
+            eff_bb = effective_stack_bb(game_state, player, big_blind=big_blind)
         except (AttributeError, ZeroDivisionError, TypeError):
             return None
 
-        if effective_stack_bb > PUSH_FOLD_THRESHOLD_BB:
+        if eff_bb > PUSH_FOLD_THRESHOLD_BB:
             return None
 
         # Determine hero position (SB or BB only for HU)
@@ -4234,7 +4233,7 @@ class TieredBotController(AIPlayerController):
         return lookup_push_fold_action(
             hand=canonical_hand,
             position=position,
-            effective_stack_bb=effective_stack_bb,
+            effective_stack_bb=eff_bb,
             num_opponents=1,
             facing_jam=facing_jam,
         )
