@@ -85,9 +85,41 @@ hands, 1.5% base jam)**; every trash hand is `{fold:1.0}` in all 9 charts. Regre
 vs stub, 96k hands / 6 seeds): challenger **−0.8 bb/100, CI [−4.4, +2.8] — inconclusive, no
 detectable regression** (the gradient costs a competent archetype nothing head-to-head; TAG
 rarely reaches a 4-bet pot with trash so the fix mostly bites looser/multiway prod spots).
-**Still TODO: regenerate `vs_3bet`** (wider villain range; entangled with the
-archetype fold-to-3bet / 4-bet calibration below, so it needs its own re-validation) + the
-`stack_utils` fix.
+**Option A2 — `vs_3bet` regenerated as a POLARIZED gradient (SHIPPED, separate PR).**
+`poker/strategy/data/build_vs3bet_defense.py` rebuilds base `vs_3bet` (hero opened, faces a
+3-bet, decides fold/call/4-bet) from the equity matrix vs a wider villain 3-bet range. Two
+rules differ from vs_4bet: (1) **the 4-bet is polarized** — value hands + *suited* blocker
+bluffs carry `raise_2.2x`; **offsuit non-value hands get call/fold only (no raise key)**, so
+no archetype or distortion can 4-bet offsuit trash (kills the stub's universal 10%
+trash-4-bet). (2) **junk is NOT pure-folded** (unlike vs_4bet) — it keeps a small `call` so
+the station/fish `_station_facing` transform widens it (a station defends 3-bets wide);
+pure-folding would collapse that. The stub (5 distinct dists / 169 hands) → real gradient
+(10 dists). Test `tests/test_strategy/test_vs3bet_gradient.py` locks "offsuit junk never
+4-bets" across all 9 charts.
+
+Validated on `scripts/archetype_mixedfield_probe.py` (9000-hand mixed field, the harness the
+bands were written for): **0 hard fails**; 6/7 archetypes hit `fourbet` + `fold_to_3bet`;
+3 minor residual WARNs (rock 60.4 vs 65 floor, station 18.5 vs 20, lag 48.1 vs 48 — all the
+"passive types defend a touch wider than the stub" signal, ≤5 pts / noise). **Maniac band
+lowered per § B** (`fourbet` 26-38 → **10-24**, `fold_to_3bet` 15-40 → **15-48** in
+`archetype_targets.py`): the old band was only reachable by 4-betting offsuit trash; a
+polarized (suited-only) 4-bet caps at ~15% — the believable maniac the research § B calls
+for. `build_loose` vs_3bet `raise_share` bumped to 0.70 (maniac amplifies the suited bluff
+pool); `build_station`/`build_weak_station` vs_3bet `keep_fold` raised (0.55→0.63 / 0.35→0.45)
+to hold their fold-to-3bet floor against the wider-calling gradient.
+
+**EV tradeoff (accepted, documented).** The champion_challenger gate (TAG, gradient vs stub,
+96k hands / 6 seeds) is **CI-clear NEGATIVE: −3.8 bb/100, CI [−7.3, −0.4]** — the gradient
+*loses* head-to-head to the stub. Cause: the stub 4-bet-bluffs offsuit trash ~10%, and vs a
+clone that over-folds to 4-bets, *more* bluffing extracts more — so removing the trash 4-bets
+sacrifices fold-equity EV. This is the exact confound `champion_challenger.py`'s docstring
+flags ("a bb/100 gain can mean the change is correct OR that it extracts more from a passive
+opponent"); the champion here **is** the known-bad spewy stub. We ship the gradient anyway:
+the believability/bands gate passes cleanly and the readable-archetype thesis (§ C) values a
+non-spewy, polarized 3-bet defense over max-EV extraction from an over-folding bot. Unlike
+vs_4bet (EV-neutral), this is a deliberate believability-over-EV trade, not a free win.
+
+**Still TODO:** the `stack_utils` committed-`bet` fix.
 
 **Adjacent bug found, NOT fixed here:** `stack_utils.effective_stack_chips` omits committed
 `bet`, so when all live opponents are all-in (stack 0) it returns **0.0** effective stack

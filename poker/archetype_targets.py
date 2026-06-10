@@ -177,12 +177,19 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
         'vpip': (45, 70),
         'pfr': (35, 58),
         'threebet': (26, 34),
-        'fourbet': (26, 38),
-        # fold_to_3bet ceiling 35→40: lowering the maniac's facing-raise
-        # aggression (the #9 cap drop) means it 4-bets less as the opener facing a
-        # 3-bet, so it folds-to-3bet a touch more (~37 at 6k) — a consistent,
-        # correct consequence of the de-caricatured baseline, not an over-fold.
-        'fold_to_3bet': (15, 40),
+        # fourbet 26-38 → 10-24 (2026-06-10, the vs_3bet equity-gradient regen).
+        # The old band was only reachable by 4-betting OFFSUIT trash (the stub's
+        # universal ~10% trash-4-bet, amplified). The regen polarizes the 4-bet
+        # — value + SUITED blocker bluffs, never offsuit junk — and suited combos
+        # cap a polarized 4-bet at ~15%. This is the believable maniac the
+        # research §B calls for ("a *constant* high frequency is a caricature";
+        # live maniacs 4-bet far less than the old caricature band). See
+        # ARCHETYPE_SHAPING_FINDINGS.md § Finding 1a / § B.
+        'fourbet': (10, 24),
+        # fold_to_3bet ceiling 40→48: a polarized maniac that 4-bets less (no
+        # offsuit trash) flats fewer junk hands too, so it folds-to-3bet a touch
+        # more — the correct consequence of de-caricaturing, not an over-fold.
+        'fold_to_3bet': (15, 48),
         'af': (5, 9),
         'all_in': (3, 14),
         'afq': (55, 72),  # was 48-65; maniac is the most aggressive type (gut-check)
