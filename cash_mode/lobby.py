@@ -969,6 +969,25 @@ def _process_global_greedy_fills(
         )
 
 
+def _available_buyin_capacity(current: int, committed: int) -> int:
+    """Bankroll still spendable on buy-ins after `committed` chips have already
+    been planned (but not yet debited) this sweep.
+
+    A table refresh simulates a whole burst of hands before any bankroll debit is
+    applied, so an AI that rebuys repeatedly (a fish reloading until dry, or a
+    grinder rebuying on bust) — or the same AI seated at more than one table —
+    would have EVERY reload sized against its FULL bankroll. The accumulated
+    buy-ins then over-commit one bankroll: at apply time the first debit drains
+    it and the rest refuse, but their seats were already topped up → minted chips.
+
+    Subtracting what's already committed (floored at 0) caps the total planned
+    buy-ins at the real bankroll, so the over-commit — and the mint — can't
+    happen. NOT fish-specific: keyed by personality, it covers every rebuying AI;
+    fish merely trigger it most often.
+    """
+    return max(0, current - committed)
+
+
 def refresh_unseated_tables(
     *,
     cash_table_repo,
@@ -1296,19 +1315,26 @@ def refresh_unseated_tables(
             fish_ids=_fish_ids,
         )
 
+    # Buy-ins planned during the CURRENT table's burst but not yet debited
+    # (cleared per table, since each table's debits are applied to the DB before
+    # the next table's burst). `_bankroll_lookup` subtracts these so a burst
+    # can't plan more reloads than the bankroll can fund — see
+    # `_available_buyin_capacity`.
+    _committed_buyins: Dict[str, int] = {}
+
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
             pid,
             sandbox_id=sandbox_id,
             now=now,
         )
-        if current is not None:
-            return current
-        # No row yet — mirror the seed-path fallback so a personality
-        # added between boot and the first lobby refresh isn't locked
-        # out of live-fill. `ensure_ai_bankrolls_seeded` should have
-        # written the row already; this is the defensive shim.
-        return bankroll_repo.load_personality_knobs(pid).starting_bankroll
+        if current is None:
+            # No row yet — mirror the seed-path fallback so a personality
+            # added between boot and the first lobby refresh isn't locked
+            # out of live-fill. `ensure_ai_bankrolls_seeded` should have
+            # written the row already; this is the defensive shim.
+            current = bankroll_repo.load_personality_knobs(pid).starting_bankroll
+        return _available_buyin_capacity(current, _committed_buyins.get(pid, 0))
 
     # Phase 4 take_stake callbacks. Wired only when both stake_repo
     # and relationship_repo are provided. The borrower/lender profile
@@ -1614,6 +1640,11 @@ def refresh_unseated_tables(
             # Active session table; the hand-boundary hook handles it.
             continue
 
+        # Reset per table: this table's burst debits are applied to the DB below
+        # before the next table runs, so committed buy-ins only need to span one
+        # table's burst (where no debit has landed yet).
+        _committed_buyins.clear()
+
         big_blind, table_min_buy_in, table_max_buy_in = table_buy_in_window(table.stake_label)
         try:
             stake_idx = STAKES_ORDER.index(table.stake_label)
@@ -1918,6 +1949,14 @@ def refresh_unseated_tables(
             # freshly_seated is empty here — the global greedy pass below
             # owns fills and the reseat-recovery persistence for them.
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
+            # Tally this hand's buy-ins so the next burst hand's bankroll lookup
+            # reflects what's already committed — capping total planned reloads at
+            # the real bankroll (no over-commit → no minted seat chips on refusal).
+            for _bc in per_hand.bankroll_changes:
+                if _bc.direction == "to_seat":
+                    _committed_buyins[_bc.personality_id] = (
+                        _committed_buyins.get(_bc.personality_id, 0) + int(_bc.amount)
+                    )
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)

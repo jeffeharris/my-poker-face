@@ -512,3 +512,55 @@ class TestStakeCreationRefusal:
         assert st.principal == 1_500
         # Staker debited exactly the principal (20_000 − 1_500).
         assert bankroll_repo.load_ai_bankroll(self.STAKER, sandbox_id=SB).chips == 18_500
+
+
+class TestRebuyOverCommitGuard:
+    """Regression for the seat-chip mint: a table refresh simulates a burst of
+    hands BEFORE any bankroll debit applies, so a repeatedly-rebuying AI (a fish
+    reloading until dry, or a grinder rebuying on bust) had every reload sized
+    against its FULL bankroll. The accumulated buy-ins over-committed one
+    bankroll; at apply time the first debit drained it and the rest refused while
+    their seats were already topped up → minted chips. `_available_buyin_capacity`
+    caps planned buy-ins at the real bankroll. NOT fish-specific — it's keyed by
+    personality and covers every rebuying AI."""
+
+    def _plan_burst(self, bankroll: int, requests: list[int], *, capped: bool) -> int:
+        """Mirror the planner's per-hand clamp `rebuy = min(requested, available)`
+        across a burst. `capped=True` uses the committed-aware capacity (the fix);
+        `capped=False` is the old behaviour where every reload saw the full
+        bankroll. Returns the total buy-in chips planned."""
+        from cash_mode.lobby import _available_buyin_capacity
+
+        committed = 0
+        total = 0
+        for req in requests:
+            available = _available_buyin_capacity(bankroll, committed) if capped else bankroll
+            granted = min(req, available)
+            if granted <= 0:
+                continue
+            total += granted
+            committed += granted
+        return total
+
+    def test_capped_planning_never_over_commits(self):
+        # A fish tries to reload 140 every hand across a 5-hand burst on a 200
+        # bankroll. With the cap, total planned buy-ins never exceed the bankroll,
+        # so every debit is funded and nothing is minted.
+        granted = self._plan_burst(200, [140, 140, 140, 140, 140], capped=True)
+        assert granted <= 200
+        assert granted == 200
+
+    def test_uncapped_would_over_commit(self):
+        # Without the cap the same burst plans 5×140 = 700 against a 200 bankroll;
+        # the 500 surplus is exactly what got minted onto seats when the
+        # over-committed debits refused. This guards that the test is meaningful.
+        granted = self._plan_burst(200, [140, 140, 140, 140, 140], capped=False)
+        assert granted > 200
+
+    def test_capacity_floors_at_zero_and_subtracts(self):
+        from cash_mode.lobby import _available_buyin_capacity
+
+        assert _available_buyin_capacity(200, 0) == 200
+        assert _available_buyin_capacity(200, 140) == 60
+        assert _available_buyin_capacity(200, 200) == 0
+        assert _available_buyin_capacity(200, 500) == 0  # never negative
