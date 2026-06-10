@@ -6743,9 +6743,11 @@ def cash_intake_route():
 
     progress = career_progress_repo.load(sandbox_id, owner_id)
     if not progress.intake_complete:
-        # Deterministic christening: a rule-based fish-name + the chosen
-        # pre-authored backstory as the bio (no per-user LLM call).
-        persona = intake_persona(name, reply_id, fallback_text=reply_text)
+        # Christening: a rule-based fish-name + an LLM-generated snarky bio
+        # (grok-4-fast) riffing on the fish-name + the chosen backstory. owner_id
+        # is passed through for usage tracking; the call falls back to the
+        # verbatim backstory if the LLM fails, so intake never blocks.
+        persona = intake_persona(name, reply_id, fallback_text=reply_text, owner_id=owner_id)
         progress.player_name = name
         progress.fish_name = persona["fish_name"]
         progress.intake_reply = persona["backstory_text"]
