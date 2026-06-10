@@ -210,8 +210,22 @@ who could get scared (low ego/aggression/self_belief) play tight and don't tilt.
 zone-params — only recovery/threshold/radii are config-tunable. So the one lever that
 could make confidence actually *fall* is **not reachable by config**.
 
-**A1 · Always-on emotional EV magnitude (the "noticeable today" number):** *(probe
-running — `tilt_corpus_ev.py --mode emotional` on the exp-5 corpus; pending)*.
+**A1 · Always-on emotional EV magnitude (the "noticeable today" number):** the
+emotional shift vs the raw pre-emotion baseline is **+14.4 (fish) / +16.9
+(competent) bb/100, mean Δagg +0.128** (`tilt_corpus_ev.py --mode emotional`, exp 5).
+So emotions are **already highly noticeable in behavior** — a +12.8pp aggression-mass
+swing on the spots where they fire — concentrated in the hotheads (Fyodor +9.5/+12.5,
+Calamity +4.5; Poe −0.1; the flat personas ≈ 0). **But it is MONOTONE:** the shift is
+almost entirely "more aggressive" (overconfident/tilted → aggressive); the protective
+pole (shaken → passive collapse) never fires, so emotions push play in essentially
+one direction. (Caveat: the +bb/100 magnitude rides the same range-aware-EV property
+that prices fold-equity aggression as +EV — the trustworthy signal is the **Δagg**
+behavioral swing, which is large and real.)
+
+**Reframe:** the problem was never "emotions don't move play" — they move it a lot.
+It is that the movement is **one-dimensional (only the aggression pole), mis-frequent
+(under-PRD, flat for risk-averse personas), and character-undifferentiated** — the
+fear/collapse half of the design is dead due to the confidence catch-22.
 
 ### Falsifier triggered → tuning redirect
 
@@ -235,9 +249,24 @@ design decision, not a parameter sweep. Phase B is re-scoped around L1+L2.
 
 ## Conclusion
 
-*Phase A complete (modulo the A1 EV magnitude). Phase B re-scoped to the confidence
-axis pending the design decision on how far to push L1 (event magnitudes) vs L2
-(anchors/cast). To be finalised after A1 lands + user sign-off on the L1/L2 split.*
+**Phase A complete.** It converted "emotions feel weak" into three measured facts:
+(1) emotions are already a **large, monotone** behavioral force (+0.128 Δagg, the
+aggression pole only); (2) the **fear pole is structurally dead** (confidence pinned
+≈0.96 for the personas who tilt — the catch-22); (3) the system **under-fires vs its
+own PRD** and is flat for risk-averse personas. The binding constraints
+(confidence-axis coupling, event-magnitude balance, per-archetype baselines) are
+**not config-tunable**, so a parameter sweep (the original Phase-B plan) is the wrong
+instrument.
+
+**Decision (user, 2026-06-10): treat this as a first-principles game-balance
+redesign of the emotional/psychology system, not a tune.** EXP_009 is therefore the
+**diagnostic baseline** that motivates that redesign; the design work + its own
+validated tuning experiments supersede the Phase-B sweep scoped above. See the
+follow-on design doc (to be created): the axes (decouple confidence-in-reads from
+winning-high), the four-quadrant behavioral signatures + intended magnitudes, the
+event→axis driver balance that makes all quadrants reachable per archetype, and the
+per-archetype frequency/volatility targets — all measured against
+`tilt_reachability.py` + the corpus EV probes built here.
 
 ## Decisions made / next steps
 
