@@ -41,6 +41,8 @@ const PROMPTS = {
     `a lively high-stakes poker table surrounded by a diverse cast of vivid expressive characters in dramatic rim lighting, green felt, gold chips, painterly, ${STYLE}`,
   'your-opponents-remember-you':
     `a sharp-eyed opponent studying the viewer intently across a green felt poker table, stacks of chips, smoke haze, intense psychological mood, ${STYLE}`,
+  'the-circuit':
+    `a moody after-hours cash poker room, a green felt table with neat stacks of chips and scattered cards under a warm overhead lamp, a characterful back room of dark wood and brass, the sense of a long night still going, ${STYLE}`,
 };
 
 mkdirSync(join(marketing, 'public/blog/art'), { recursive: true });

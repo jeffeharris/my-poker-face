@@ -201,7 +201,7 @@ R-D3 / R-D4 / R-B3 as fill.
 
 ### Inside the Table (roadmap-derived)
 
-**R-B1. The Circuit: a cash world that remembers you between sessions.** *Priority: HIGH. NOT in the current plan.*
+**R-B1. The Circuit: a cash world that remembers you between sessions.** *Priority: HIGH. ✅ Drafted 2026-06-10 (`the-circuit.md`, draft:true) with a Runware cover.*
 - **Source:** Bucket 5 (cash mode v1, **shipped**).
 - **Angle:** The big missing player post. A persistent bankroll, sit down / leave / top-up between hands, AI opponents with their *own* bankrolls that regenerate over real time, and busting then climbing back. The hook is "something to lose": a poker world that keeps going whether you're at the table or not. Strong SEO target ("single-player poker career / cash game").
 - **Dedup:** B5 is tournaments (the Main Event); this is the cash-game/career world. Cross-link them.
