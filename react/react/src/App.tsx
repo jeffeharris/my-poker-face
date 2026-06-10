@@ -7,6 +7,7 @@ import { LoginForm } from './components/auth/LoginForm';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
 import { getLobby } from './components/cash/api';
+import { DevResetIntakeButton } from './components/cash/DevResetIntakeButton';
 import { rememberAdminOrigin } from './components/admin/adminOrigin';
 import { setTournamentOrigin } from './utils/tournamentOrigin';
 import { useAuth, hasPermission } from './hooks/useAuth';
@@ -544,6 +545,10 @@ function App() {
           duration: 4000,
         }}
       />
+
+      {/* DEV-only: wipe career & replay the Lucky Stack intake (self-gates on
+          ENABLE_DEBUG; the server route 404s in prod). */}
+      {isAuthenticated && <DevResetIntakeButton />}
 
       {/* Routes */}
       <ErrorBoundary>
