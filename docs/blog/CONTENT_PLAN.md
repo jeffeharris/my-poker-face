@@ -2,7 +2,7 @@
 purpose: Blog content plan for mypokerfacegame.com — two tracks (Devlog + Inside the Table) mined from the captain's logs, analysis reports, technical docs, and game vision
 type: vision
 created: 2026-06-09
-last_updated: 2026-06-09
+last_updated: 2026-06-10
 ---
 
 # Blog content plan
@@ -15,7 +15,7 @@ of ~12 posts (a publishable backlog), alternating tracks.
 - `docs/captains-log/**` — honest build narratives ("wrong turns kept in"). The voice and the story spine.
 - `docs/analysis/**` — sim/eval reports. The *numbers* that make claims credible.
 - `docs/technical/**` — as-built system references. The diagrams and mechanics.
-- `docs/vision/**` — `GAME_VISION.md`, `FEATURE_IDEAS.md`. The positioning and north star.
+- `docs/vision/**` — `GAME_VISION.md` (north star / positioning), `NEXT_PHASE_VISION.md` (the *current* technical roadmap: what shipped and the open solver decision), `FEATURE_IDEAS.md`.
 
 **The two tracks** *(audiences confirmed with founder, 2026-06-09)*
 - **Devlog → career + creator-community.** This is primarily a **credibility play** — show judgment and range, not just war stories. Honest, measured, evidence-backed.
@@ -161,6 +161,59 @@ wealth levers.
 
 ### B7. (backlog) The personalities, up close
 - Character-spotlight format using `technical/PERSONALITY_ANCHORS.md` + `personalities.json`. Evergreen, repeatable, low-effort once templated.
+
+---
+
+## Backlog mined from the roadmap (`NEXT_PHASE_VISION.md`)
+
+Added 2026-06-10. The original plan mined `GAME_VISION.md` (the soul) but not the
+current technical roadmap. These topics come from there. Most describe features
+that **have already shipped** (cash mode v1, the relationship layer, polarization
+detection), so they are writeable now, not speculative. Caution: `NEXT_PHASE_VISION.md`
+is dense implementation detail. Keep it in the **Devlog** track; never let buckets,
+exploitation offsets, or solver internals leak into an Inside-the-Table post.
+
+**Priority order to slot into the biweekly rotation:** R-B1, R-D1, R-B2, R-D2, then
+R-D3 / R-D4 / R-B3 as fill.
+
+### Devlog (roadmap-derived)
+
+**R-D1. The $50k question: when *not* to build the solver.** *Priority: HIGH. Sequel to A0.*
+- **Source:** `NEXT_PHASE_VISION.md` Bucket 6 + Gates 1/2/3.
+- **Angle:** A0's kicker ("an unbeatable bot isn't fun") becomes its own decision post. The real engineering judgment: how do you decide whether to spend ~$5K to $50K of compute on a CFR solver *before* spending it? You validate cheaply first (Kuhn Poker, then Leduc, then heads-up Limit against the published Cepheus equilibrium), and you ask the honest question: is the remaining gap a strategy-frequency problem (a solver helps) or a tactical-decision problem (it doesn't)?
+- **Why it lands:** build-vs-buy judgment with real dollar figures. Credibility, not war story.
+- **Dedup:** A0 only name-checks the $50k line; this is the dedicated decision piece.
+
+**R-D2. Teaching a bot to tell a value-raiser from a noisy caller.** *Priority: HIGH. Chapter/sequel to A2.*
+- **Source:** Bucket 1 (polarization detection); `analysis/` bb/100 tables.
+- **Angle:** The bot was bleeding chips by folding strong made hands to value-heavy aggression while paying off marginal bets. The fix tracks each opponent's *equity at the moment they act*, so it can tell a polarized value-caller from a station whose aggression is random. Real result: Rock recovered from −82 to −55 bb/100; the all-in-station edge case; the phased, measure-first rollout.
+- **Dedup:** distinct from A2 (the calling-station baseline) and A3 (readability). This is the opponent-modeling-depth piece.
+
+**R-D3. Making a bot unpredictable with no human to test against (and the feature I refused to ship).** *Priority: MEDIUM. Overlaps A3.*
+- **Source:** Bucket 2 (competitive feel).
+- **Angle:** Sizing jitter, action ties (mixed frequencies on borderline hands), per-session drift, and a smooth cold-start that replaced a hard 15-hand "no-adaptation" window. The honesty hook: *creative-play injection was deliberately deferred* because doing it right needs a multi-street story-tracking layer the bot doesn't have, and doing it wrong is just EV bleed.
+- **Dedup:** fold into A3 or sequence A3 → this. Don't ship both as peers without differentiating.
+
+**R-D4. The boring migration that unblocked everything.** *Priority: LOW. Possible section of A6.*
+- **Source:** Track B step 1 (personality_id migration).
+- **Angle:** Giving every character a stable ID sounds like nothing, but it's the quiet prerequisite for cross-session memory, relationships, and cash mode. The risk was higher than the line count: re-keying live opponent models mid-session. Short, practical.
+- **Dedup:** adjacent to A6 (schema migration). Likely a sidebar there, not a standalone.
+
+### Inside the Table (roadmap-derived)
+
+**R-B1. The Circuit: a cash world that remembers you between sessions.** *Priority: HIGH. NOT in the current plan.*
+- **Source:** Bucket 5 (cash mode v1, **shipped**).
+- **Angle:** The big missing player post. A persistent bankroll, sit down / leave / top-up between hands, AI opponents with their *own* bankrolls that regenerate over real time, and busting then climbing back. The hook is "something to lose": a poker world that keeps going whether you're at the table or not. Strong SEO target ("single-player poker career / cash game").
+- **Dedup:** B5 is tournaments (the Main Event); this is the cash-game/career world. Cross-link them.
+
+**R-B2. Rivalries that carry: heat, respect, and a grudge that survives the session.** *Priority: HIGH.*
+- **Source:** Bucket 4 (relationship layer, **shipped**).
+- **Angle:** Three relationship axes (heat, respect, likability) that build from real play and persist. A character who's eaten your bluffs holds heat and comes after you; one who's seen you make big folds gives you respect and stops bluffing into you. With the cash world, rivals will even seek your table.
+- **Dedup:** B3 (trash talk) and B4 (reputation) are adjacent. This is specifically the *cross-session affinity axes + rivalry-seek seating* angle. Cross-link, do not duplicate. Pairs with R-D2 (here's how those reads are computed).
+
+**R-B3. Short-stacked: how poker changes at 15 big blinds.** *Priority: MEDIUM. Already drafted.*
+- **Source:** Bucket 3 (push/fold + stack depth).
+- **Status:** Already a draft in the "Playing Better Poker" series (`short-stack-and-deep-stack-strategy.md`). Listed here only so the roadmap-to-post mapping is complete. Align it, don't write a second.
 
 ---
 
