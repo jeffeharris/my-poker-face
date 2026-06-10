@@ -7,7 +7,7 @@
 //
 // Reads RUNWARE_API_KEY from the repo-root .env. Cost: ~$0.003/image (FLUX.2 dev).
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +46,11 @@ const PROMPTS = {
 mkdirSync(join(marketing, 'public/blog/art'), { recursive: true });
 
 for (const [slug, prompt] of Object.entries(PROMPTS)) {
+  const out = join(marketing, 'public/blog/art', `${slug}.png`);
+  if (existsSync(out) && !process.env.FORCE) {
+    console.log('skip (exists, set FORCE=1 to regenerate):', slug);
+    continue;
+  }
   const payload = [
     {
       taskType: 'imageInference',
