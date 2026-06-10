@@ -14,6 +14,7 @@ import {
   Grid3x3,
   GraduationCap,
   Target,
+  DollarSign,
 } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
@@ -107,5 +108,11 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Coach Metrics',
     icon: <GraduationCap size={24} />,
     description: 'Does the live coach help? Leak-nudge follow-through',
+  },
+  {
+    id: 'cost-analytics',
+    label: 'Cost Analytics',
+    icon: <DollarSign size={24} />,
+    description: 'LLM + image-gen spend by owner, call type, and model',
   },
 ];

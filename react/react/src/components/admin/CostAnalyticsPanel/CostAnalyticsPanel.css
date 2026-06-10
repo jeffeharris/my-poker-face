@@ -1,0 +1,320 @@
+.cost-analytics-panel {
+  padding: 1rem;
+  color: var(--text-primary, #e0e0e0);
+}
+.cost-analytics-panel.embedded {
+  padding: 0;
+}
+
+/* ---- Header ---- */
+.cost-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.cost-header h2 {
+  margin: 0;
+}
+.cost-sub {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #999);
+}
+.cost-range-group {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.cost-range-btn {
+  padding: 0.3rem 0.7rem;
+  background: var(--surface-2, #1d1d1d);
+  color: var(--text-secondary, #999);
+  border: none;
+  border-right: 1px solid var(--border, #444);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.cost-range-btn:last-child {
+  border-right: none;
+}
+.cost-range-btn.active {
+  background: rgba(86, 211, 100, 0.18);
+  color: #56d364;
+  font-weight: 600;
+}
+.cost-range-btn:hover:not(.active) {
+  background: var(--surface-3, #2a2a2a);
+}
+.cost-refresh {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  background: var(--surface-2, #1d1d1d);
+  color: inherit;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cost-refresh:hover {
+  background: var(--surface-3, #2a2a2a);
+}
+
+/* ---- Banners / status ---- */
+.cost-banner,
+.cost-status {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.cost-status {
+  color: var(--text-secondary, #999);
+}
+.cost-banner.cost-error,
+.cost-error {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  color: #f8a39d;
+}
+.cost-banner.cost-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid rgba(210, 153, 34, 0.45);
+  color: #e3c06a;
+  line-height: 1.4;
+}
+.cost-banner.cost-warn svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+.cost-banner.cost-warn strong {
+  color: #f5d76e;
+}
+
+/* ---- KPI cards ---- */
+.cost-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.cost-kpi {
+  background: var(--surface-2, #1d1d1d);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+}
+.cost-kpi.accent {
+  border-color: rgba(86, 211, 100, 0.4);
+  background: rgba(86, 211, 100, 0.07);
+}
+.cost-kpi.warn {
+  border-color: rgba(210, 153, 34, 0.5);
+  background: rgba(210, 153, 34, 0.08);
+}
+.cost-kpi-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+.cost-kpi.accent .cost-kpi-value {
+  color: #56d364;
+}
+.cost-kpi-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #999);
+  margin-top: 0.2rem;
+}
+
+/* ---- Cards / layout ---- */
+.cost-card {
+  background: var(--surface-2, #1d1d1d);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.cost-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.cost-card-head h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+.cost-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 1rem;
+}
+.cost-grid-2 .cost-card {
+  margin-bottom: 1rem;
+}
+
+/* ---- Tables ---- */
+.cost-table-wrap {
+  overflow-x: auto;
+}
+.cost-table-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.cost-table th,
+.cost-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+  white-space: nowrap;
+}
+.cost-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2, #1d1d1d);
+  color: var(--text-secondary, #999);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.cost-table td.num,
+.cost-table th.num {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.cost-row-click {
+  cursor: pointer;
+}
+.cost-row-click:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.cost-ellipsis {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cost-nowrap {
+  white-space: nowrap;
+}
+.row-error td {
+  color: #f8a39d;
+}
+
+/* ---- Status pills ---- */
+.cost-pill {
+  text-transform: capitalize;
+  font-size: 0.8rem;
+}
+.cost-pill-success {
+  color: #56d364;
+}
+.cost-pill-error {
+  color: #f85149;
+}
+
+/* ---- Owner drill ---- */
+.cost-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: #79b8ff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+  margin-bottom: 0.75rem;
+}
+.cost-back:hover {
+  text-decoration: underline;
+}
+.cost-owner-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.cost-owner-title h3 {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cost-link {
+  background: none;
+  border: none;
+  color: #79b8ff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-left: auto;
+  padding: 0;
+}
+.cost-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Drawer (raw calls) ---- */
+.cost-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9000;
+  display: flex;
+  justify-content: flex-end;
+}
+.cost-drawer {
+  width: min(900px, 96vw);
+  height: 100%;
+  background: var(--surface-1, #141414);
+  border-left: 1px solid var(--border, #333);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.25rem;
+}
+.cost-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.cost-drawer-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.cost-drawer-sub {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #999);
+}
+.cost-drawer-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #999);
+  cursor: pointer;
+  padding: 0.25rem;
+}
+.cost-drawer-close:hover {
+  color: #fff;
+}
+.cost-drawer-status {
+  padding: 1rem 0;
+  color: var(--text-secondary, #999);
+}
+.cost-drawer .cost-table-wrap {
+  overflow: auto;
+  flex: 1;
+}

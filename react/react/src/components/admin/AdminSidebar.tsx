@@ -17,7 +17,8 @@ export type AdminTab =
   | 'whereabouts'
   | 'range-explorer'
   | 'archetype-review'
-  | 'coach-metrics';
+  | 'coach-metrics'
+  | 'cost-analytics';
 
 export interface SidebarItem {
   id: AdminTab;

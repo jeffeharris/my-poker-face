@@ -447,6 +447,13 @@ class UsageTracker:
         model = response.model
 
         if is_image:
+            # Prefer the provider-reported cost when the API returns one (e.g.
+            # Runware with includeCost) — it's the actual billed amount, exact
+            # for the model/size/steps, and avoids the SKU lookup missing on
+            # sizes we never priced. SKU pricing is the fallback below.
+            reported = getattr(response, 'cost', None)
+            if reported is not None:
+                return self.CostResult(cost=float(reported), pricing_ids={"provider_reported": 1})
             # Image pricing: look up image_<size> SKU
             size = response.size or '1024x1024'
             unit = f'image_{size}'
