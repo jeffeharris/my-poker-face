@@ -21,6 +21,19 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'always',
   },
+  plugins: {
+    // @codetrix-studio/capacitor-google-auth reads the client IDs from HERE on
+    // native (it does NOT read Info.plist's GIDClientID). These are public OAuth
+    // client IDs (not secrets). iosClientId → the ID token's `aud` on iOS;
+    // serverClientId → the web client, used for the server auth code.
+    GoogleAuth: {
+      iosClientId: '637263623890-j2858ch2v6vdr0nr2pv0q1jmnj6nf108.apps.googleusercontent.com',
+      serverClientId:
+        '637263623890-93qcchki4jp5ll80t0sra22b4qpjbit7.apps.googleusercontent.com',
+      scopes: ['profile', 'email'],
+      forceCodeForRefreshToken: false,
+    },
+  },
 };
 
 export default config;

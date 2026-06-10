@@ -38,6 +38,13 @@ def _get_socketio_cors_origins():
                 "http://localhost:5174",
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:5174",
+                # Capacitor native WebView origins (iOS/Android) — the Socket.IO
+                # handshake carries the WebView origin and is rejected unless
+                # listed here, which blocks starting a game on native.
+                "capacitor://localhost",
+                "ionic://localhost",
+                "http://localhost",
+                "https://localhost",
             ]
         raise ValueError(
             "CORS_ORIGINS='*' is not allowed in production. "
@@ -166,6 +173,15 @@ def init_cors(app: Flask) -> None:
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:5174",
                 re.compile(r'^http://homehub:\d+$'),
+                # Capacitor native WebView origins (iOS/Android). The native shell
+                # serves the app from capacitor://localhost (iOS) or
+                # http(s)://localhost (Android/iOS variants), then calls the API
+                # cross-origin with credentials — these must be allowed or the
+                # browser drops the response.
+                "capacitor://localhost",
+                "ionic://localhost",
+                "http://localhost",
+                "https://localhost",
             ]
             CORS(app, supports_credentials=True, origins=dev_origins)
         else:

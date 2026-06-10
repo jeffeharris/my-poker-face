@@ -16,10 +16,12 @@ let initialized = false;
 export async function initGoogleAuth(): Promise<void> {
   if (!isNativePlatform() || initialized) return;
   const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+  // IMPORTANT: do NOT pass `clientId` here. The plugin uses
+  // `call.getString("clientId") ?? <iosClientId from capacitor.config>`, so
+  // passing the web client id would override the iOS client and Google rejects
+  // the native flow with invalid_client. Omitting it lets the plugin use the
+  // `iosClientId` (iOS) / `androidClientId` (Android) from capacitor.config.
   GoogleAuth.initialize({
-    // Web/server client ID — drives the ID token `aud` on Android. iOS reads its
-    // own client ID from Info.plist (GIDClientID + reversed-id URL scheme).
-    clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
     scopes: ['profile', 'email'],
     grantOfflineAccess: false,
   });

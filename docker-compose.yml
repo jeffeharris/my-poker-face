@@ -13,6 +13,7 @@ services:
       - ./poker:/app/poker
       - ./flask_app:/app/flask_app
       - ./core:/app/core
+      - ./cash_mode:/app/cash_mode
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=1
