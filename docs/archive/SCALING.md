@@ -1,9 +1,20 @@
 ---
-purpose: Scaling thresholds, bottlenecks, and migration paths for the application
+purpose: Historical (pre-launch) scaling guide — superseded by the canonical /docs/SCALING.md
 type: guide
 created: 2026-02-03
 last_updated: 2026-06-03
 ---
+
+> **ARCHIVED 2026-06-09** — superseded by the canonical, code-grounded
+> **[`/docs/SCALING.md`](../SCALING.md)**. Kept for the record; **do not treat as
+> current**. This pre-launch guide is framed around generic "concurrent games" and
+> predates the per-owner-sandbox / world-ticker cost model. ⚠️ Notably, its
+> **"bump to `gunicorn -w 4`" (T3-40)** advice is **wrong** for this stack —
+> Flask-SocketIO under `GeventWebSocketWorker` cannot multi-worker under one master;
+> scale with separate single-worker *containers* behind a sticky LB + Redis MQ. See
+> the canonical doc's "What NOT to do". Its useful evergreen content (Postgres
+> migration steps, monitoring checklist, LLM rate-limit math, WebSocket delta
+> optimization) has been folded into the canonical doc.
 
 # Scaling Guide
 

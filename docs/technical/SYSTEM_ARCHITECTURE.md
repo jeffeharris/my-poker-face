@@ -551,5 +551,5 @@ src/
 - [Personality Anchors](/docs/technical/PERSONALITY_ANCHORS.md)
 - [Repositories](/docs/technical/REPOSITORIES.md)
 - [Rate Limiting](/docs/technical/RATE_LIMITING.md)
-- [Scaling Guide](/docs/technical/SCALING.md)
+- [Scaling Blueprint](/docs/SCALING.md)
 - [DevOps & Deployment](/docs/DEVOPS.md)
