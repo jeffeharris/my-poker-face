@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
 import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
@@ -205,6 +205,13 @@ function formatPausedAgo(iso: string | null): string | null {
 
 export function Lobby() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // The redirect from /menu hands us `state.intakeNeeded` for a brand-new career
+  // player, so the black cold open mounts on the FIRST render — before our own
+  // lobby fetch resolves — instead of flashing the lobby UI for a beat. (A hard
+  // refresh loses nav state, but then the fetch-driven `setShowIntake` below
+  // takes over and the cold open just replays — intake_needed is still true.)
+  const intakeHinted = Boolean((location.state as { intakeNeeded?: boolean } | null)?.intakeNeeded);
   const [bankroll, setBankroll] = useState<number | null>(null);
   const [bankrollHistory, setBankrollHistory] = useState<BankrollPoint[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
@@ -247,7 +254,7 @@ export function Lobby() {
   // sits us down). NOT re-derived from every lobby poll — otherwise the poll
   // that lands right after `submitIntake` flips it false and unmounts the
   // reveal mid-beat (the "flash").
-  const [showIntake, setShowIntake] = useState(false);
+  const [showIntake, setShowIntake] = useState(intakeHinted);
   // The cinematic cold open plays first (black setup beat → neon diner reveal),
   // then hands off to the intake modal. Client-only: once the player advances
   // past it, the intake shows; a mid-cold-open refresh just replays it.

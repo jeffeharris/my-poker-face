@@ -262,7 +262,12 @@ function App() {
     getLobby()
       .then((lobby) => {
         if (cancelled) return;
-        if (lobby.intake_needed) navigate('/cash', { replace: true });
+        // Hand /cash the intake hint so the Lobby mounts the black cold open
+        // IMMEDIATELY (showIntake seeded true) instead of flashing the lobby UI
+        // for the beat before its own fetch resolves. The black holding screen
+        // (below) → black cold open is then a seamless cut.
+        if (lobby.intake_needed)
+          navigate('/cash', { replace: true, state: { intakeNeeded: true } });
         setIntakeGate('clear');
       })
       .catch(() => {
