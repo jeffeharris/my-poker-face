@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import { avatarUrlForEmotion } from '../utils/avatarUrl';
+import { hapticImpact } from '../utils/haptics';
 import { deriveTier } from '../constants/presentationTiming';
 import {
   planEvent,
@@ -70,6 +71,12 @@ export function useHandSequencer({
 
   const queueRef = useRef<SourceEvent[]>([]);
   const engineRef = useRef<EngineState>(initialEngineState);
+  // Haptics: track each opponent's last broadcast action so we buzz once when an
+  // AI commits chips (raise/all-in), not on every re-render or non-acting beat.
+  // Keyed by name → `${last_action}@${stack}`; the stack drop makes each distinct
+  // commit re-fire while a stale action sitting through other beats stays silent.
+  const oppActionSigRef = useRef<Map<string, string>>(new Map());
+  const handNoRef = useRef<number | null>(null);
   const effectTimersRef = useRef<number[]>([]);
   const pumpTimerRef = useRef<number | null>(null);
   const processingRef = useRef(false);
@@ -112,11 +119,32 @@ export function useHandSequencer({
     [updatePlayers]
   );
 
+  // Buzz once when an opponent commits chips, so you can feel aggression land
+  // without looking: a light tap on a raise, a heavy thud on an all-in. Calls,
+  // checks and folds stay silent to keep the signal sparse and meaningful.
+  const signalOpponentAction = useCallback((state: GameState) => {
+    // New hand → forget last hand's actions so the first raise re-fires.
+    if (handNoRef.current !== state.hand_number) {
+      handNoRef.current = state.hand_number;
+      oppActionSigRef.current.clear();
+    }
+    for (const p of state.players ?? []) {
+      if (p.is_human) continue;
+      const action = p.last_action;
+      if (action !== 'raise' && action !== 'all_in') continue;
+      const sig = `${action}@${p.stack}`;
+      if (oppActionSigRef.current.get(p.name) === sig) continue;
+      oppActionSigRef.current.set(p.name, sig);
+      hapticImpact(action === 'all_in' ? 'heavy' : 'light');
+    }
+  }, []);
+
   const runEffect = useCallback(
     (effect: Effect) => {
       switch (effect.kind) {
         case 'applyState':
           applyStateRef.current(effect.state);
+          signalOpponentAction(effect.state);
           break;
         case 'setReveal':
           setRevealRef.current(effect.revealed);
@@ -129,6 +157,9 @@ export function useHandSequencer({
           break;
         case 'dealCards':
           signalCardDeal(effect.count, effect.total);
+          // A light tap as the board advances (flop/turn/river) so you can feel
+          // the street change without watching. Native-only no-op on web.
+          hapticImpact('light');
           break;
         case 'hero':
           if (effect.mode === 'commit') {
@@ -154,7 +185,7 @@ export function useHandSequencer({
           break;
       }
     },
-    [applyReaction, setRunoutDirectorActive, signalCardDeal]
+    [applyReaction, setRunoutDirectorActive, signalCardDeal, signalOpponentAction]
   );
 
   // Drain one event: plan it, fire its effects at their offsets, then schedule
@@ -216,6 +247,8 @@ export function useHandSequencer({
     clearTimers();
     queueRef.current = [];
     engineRef.current = initialEngineState;
+    oppActionSigRef.current.clear();
+    handNoRef.current = null;
     scheduleRef.current = null;
     processingRef.current = false;
     setIsPlaying(false);
