@@ -1,8 +1,8 @@
 ---
 purpose: Narrative log of the afq-wtsd-tuning arc — a reported "AFq too high" that was a measurement timeline bug plus miscalibrated bands, the 6-max instrument that separated artifact from real behavior, a buy-in lever ruled out by stack-depth data, the postflop rebalance that pulled WTSD/c-bet into band, and the station-immune win-rate gate that confirmed it
-type: guide
+type: reference
 created: 2026-06-09
-last_updated: 2026-06-09
+last_updated: 2026-06-10
 ---
 
 # Measuring before tuning
@@ -134,8 +134,13 @@ were roughly right, with a couple too narrow to survive sampling noise.
 Re-scoring the same correctly-measured six-max behavior against the revised bands
 gave the clean split we were after:
 
-- AFq fell out of the fail list entirely. Only tag is a marginal warn now. So AFq
-  was almost all band plus the timeline measurement bug, not behavior.
+- AFq fell out of the fail list entirely — almost all band plus the timeline
+  measurement bug, not behavior. (Correction, re-measured on the shipped chart: the
+  single remaining AFq warn is the **calling station** — ~30% vs a 12–28 band — not
+  tag, whose AFq now sits in band. This is consistent with the broadened station
+  stickiness landing *after* the AFq re-baseline was set: more non-check actions in
+  the station's mix lifts its AFq, and that profile change rode along untested by
+  the gate, as noted below.)
 - WTSD and c-bet stayed far outside even the widened bands. Those are the real
   behavior problems, and they are exactly the two postflop levers: calling
   discipline (tighten the wide medium-made calls) and c-bet (the aggressor-aware
