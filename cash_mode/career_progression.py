@@ -24,6 +24,7 @@ driven, one-per-AI over the whole roster) is M2 and layers on top of the same
 from __future__ import annotations
 
 import logging
+import os
 import random
 from datetime import datetime
 from typing import List, Optional, Tuple
@@ -240,7 +241,14 @@ def _generate_snarky_bio(
     """Ask grok-4-fast for a one-line sarcastic dossier bio from the fish-name +
     the newcomer's (innocent) story. Returns None on any failure so the caller
     can fall back to the verbatim backstory — intake must never block on the LLM.
+
+    `CASH_INTAKE_BIO_DISABLED=1` short-circuits the call (returns None → backstory
+    fallback). Set suite-wide in pytest conftest, mirroring
+    `CASH_LEAVE_NARRATIVE_DISABLED`, so integration tests of intake/lobby don't
+    fire real LLM calls.
     """
+    if os.environ.get("CASH_INTAKE_BIO_DISABLED", "").lower() in ("1", "true", "yes"):
+        return None
     try:
         from core.llm import CallType, LLMClient
 
