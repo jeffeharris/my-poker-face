@@ -19,6 +19,7 @@ import logging
 import random
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from poker.card_utils import normalize_card_string
@@ -243,19 +244,25 @@ def hand_to_canonical(card1: str, card2: str) -> str:
         return f"{rank1}{rank2}o"  # Offsuit
 
 
-def _get_all_combos_for_hand(canonical: str) -> List[Tuple[str, str]]:
+@lru_cache(maxsize=256)
+def _get_all_combos_for_hand(canonical: str) -> Tuple[Tuple[str, str], ...]:
     """Get all specific card combinations for a canonical hand.
+
+    There are only 169 canonical hands and the mapping is constant, so this is
+    memoized — it was the dominant CPU cost in the per-decision equity Monte Carlo
+    (recomputed every call). Returns an immutable tuple so the shared cached value
+    cannot be mutated by callers (both current callers iterate read-only).
 
     Args:
         canonical: Canonical hand notation like 'AKs', 'AA', 'AKo'
 
     Returns:
-        List of (card1, card2) tuples
+        Tuple of (card1, card2) tuples
 
     Examples:
-        'AA' -> [('Ah', 'Ad'), ('Ah', 'Ac'), ('Ah', 'As'), ...]  (6 combos)
-        'AKs' -> [('Ah', 'Kh'), ('Ad', 'Kd'), ...]  (4 combos)
-        'AKo' -> [('Ah', 'Kd'), ('Ah', 'Kc'), ...]  (12 combos)
+        'AA' -> (('Ah', 'Ad'), ('Ah', 'Ac'), ('Ah', 'As'), ...)  (6 combos)
+        'AKs' -> (('Ah', 'Kh'), ('Ad', 'Kd'), ...)  (4 combos)
+        'AKo' -> (('Ah', 'Kd'), ('Ah', 'Kc'), ...)  (12 combos)
     """
     combos = []
 
@@ -278,7 +285,7 @@ def _get_all_combos_for_hand(canonical: str) -> List[Tuple[str, str]]:
                 if s1 != s2:
                     combos.append((f"{r1}{s1}", f"{r2}{s2}"))
 
-    return combos
+    return tuple(combos)
 
 
 def sample_hand_from_range(

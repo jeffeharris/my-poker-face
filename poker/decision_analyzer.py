@@ -981,3 +981,54 @@ def get_analyzer(iterations: Optional[int] = None) -> DecisionAnalyzer:
             iterations = int(os.environ.get("DECISION_ANALYSIS_ITERATIONS", "2000"))
         _analyzer_instance = DecisionAnalyzer(iterations)
     return _analyzer_instance
+
+
+def run_decision_analysis_job(job: dict, analysis_repo, capture_label_repo=None) -> Optional[int]:
+    """Run one decision-analysis job: the heavy equity Monte Carlo + persistence.
+
+    This is the single compute chokepoint shared by the inline path
+    (``controllers._analyze_decision``) and the out-of-band analytics worker.
+    ``job`` is a fully JSON-serializable dict built by ``_analyze_decision``;
+    ``opponent_infos`` arrive as plain dicts and are rehydrated here. Returns the
+    saved decision row id, or None.
+
+    All the CPU cost (the equity sim) lives here, so moving this off the gameplay
+    worker — by enqueuing the job instead of calling this inline — is what frees
+    the single gevent core (see docs/SCALING.md, 2026-06-09 load test).
+    """
+    from poker.hand_ranges import OpponentInfo
+
+    kwargs = dict(job["analyze_kwargs"])
+    kwargs["opponent_infos"] = [OpponentInfo(**d) for d in (kwargs.get("opponent_infos") or [])]
+
+    analyzer = get_analyzer()
+    analysis = analyzer.analyze(**kwargs)
+
+    bounded_options = job.get("bounded_options")
+    if bounded_options:
+        analyzer.evaluate_menu_compliance(analysis, bounded_options)
+
+    # Trace fields are serialized to JSON strings on the hot path (cheap) and
+    # carried verbatim through the queue.
+    analysis.intervention_trace_json = job.get("intervention_trace_json")
+    analysis.strategy_pipeline_snapshot_json = job.get("strategy_pipeline_snapshot_json")
+
+    decision_id = analysis_repo.save_decision_analysis(analysis)
+
+    if capture_label_repo and decision_id:
+        big_blind = job.get("big_blind") or 100
+        player_bet = job.get("player_bet") or 0
+        label_data = {
+            "action_taken": analysis.action_taken,
+            "pot_odds": (analysis.pot_total / analysis.cost_to_call)
+            if analysis.cost_to_call
+            else None,
+            "stack_bb": (analysis.player_stack / big_blind) if big_blind > 0 else None,
+            "already_bet_bb": (player_bet / big_blind) if big_blind > 0 else None,
+        }
+        extra = job.get("auto_label_extra")
+        if extra:
+            label_data.update(extra)
+        capture_label_repo.compute_and_store_auto_labels(decision_id, label_data)
+
+    return decision_id

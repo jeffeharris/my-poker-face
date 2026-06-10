@@ -55,12 +55,25 @@ services:
       - API_USAGE_RETENTION_DAYS=${API_USAGE_RETENTION_DAYS:-90}
       # Sentry backend error monitoring. Empty => Sentry init is a no-op.
       - SENTRY_DSN=${SENTRY_DSN:-}
-      # PRH-30: per-decision equity Monte Carlo iterations (analytics only, not
-      # the bot's actual decision). Lower than the 2000 default to raise the
-      # single-worker concurrent-hands ceiling; override via host env.
-      # Scaling Stage 0: 500 -> 250 to halve the per-decision CPU burst (still
-      # analytics-only; no gameplay impact).
-      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-250}
+      # PRH-30: per-decision equity Monte Carlo iterations. Drives BOTH the
+      # in-game decision analyzer AND (since the coach-engine fix) the coach
+      # progression equity. Analytics/coaching only — not the bot's actual move.
+      # 2026-06-09 load test (cpx11): the combo-build cache made this a linear
+      # lever; 250 -> 100 ~doubled per-box throughput (16 active players: 1.98 ->
+      # 2.98 hands/s) for ~1pp equity error — immaterial for the coarse
+      # correct/incorrect/marginal verdicts. 50 was too noisy (~8pp max). Override
+      # via host env. History: 2000 default -> 500 -> 250 -> 100.
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-100}
+      # Route the per-decision equity-MC analytics to the out-of-band
+      # analytics-worker (separate container, idle 2nd core) instead of running
+      # it inline on the single gevent gameplay worker — the 2026-06-09 load test
+      # showed it dominates gameplay-worker CPU and nothing live reads its output
+      # (lifts the per-box ceiling ~8 -> ~12-16 players). Active by default; set to
+      # 0 to revert to inline. Gameplay-safe: fire-and-forget enqueue, and enqueue
+      # failures fall back to inline. Watch queue depth post-deploy (OPS_RUNBOOK §9).
+      # DECISION_ANALYSIS_ENABLED=0 turns analytics off entirely later.
+      - DECISION_ANALYSIS_QUEUE_ENABLED=${DECISION_ANALYSIS_QUEUE_ENABLED:-1}
+      - DECISION_ANALYSIS_ENABLED=${DECISION_ANALYSIS_ENABLED:-1}
       # WebSocket transport: gevent is the standards-aligned async_mode under the
       # gevent-websocket gunicorn worker. Prod evidence (2026-06-08) showed
       # threading produced a 1002 protocol error + clients stuck on long-polling
@@ -108,6 +121,46 @@ services:
     networks:
       - poker-network
       - web
+
+  # Out-of-band decision-analysis worker. Drains the Redis decision-analysis
+  # queue and runs the per-decision equity-MC + persistence off the gameplay
+  # worker (uses the box's otherwise-idle 2nd vCPU). Only does work when the
+  # backend has DECISION_ANALYSIS_QUEUE_ENABLED=1; otherwise the backend analyzes
+  # inline and this idles. Writes player_decision_analysis to the shared SQLite
+  # (WAL + retry absorbs cross-process write contention at current volume).
+  # See docs/SCALING.md (2026-06-09 load test).
+  analytics-worker:
+    hostname: poker-analytics-worker
+    image: ghcr.io/jeffeharris/my-poker-face-backend:${TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 768m
+    mem_reservation: 256m
+    volumes:
+      - ./data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - DROP_PRIVILEGES=1
+      - REDIS_URL=redis://redis:6379
+      # Match the gameplay worker's iteration count so logged analytics are
+      # consistent regardless of where they're computed (backend default is 100).
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-100}
+      - DECISION_ANALYSIS_WORKER_BATCH=${DECISION_ANALYSIS_WORKER_BATCH:-50}
+    command: python -m poker.decision_analysis_worker
+    depends_on:
+      redis:
+        condition: service_started
+      # Wait for the backend to be healthy so the schema/personality seed has run
+      # (the worker shares the SQLite); avoids a first-bring-up seed race.
+      backend:
+        condition: service_healthy
+    networks:
+      - poker-network
 
   frontend:
     hostname: poker-frontend
