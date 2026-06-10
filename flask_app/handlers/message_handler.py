@@ -1,6 +1,7 @@
 """Message handling functions for the poker game."""
 
 import logging
+import sqlite3
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -179,8 +180,18 @@ def send_message(
     game_data['messages'] = game_messages[-MAX_MESSAGES_IN_MEMORY:]
     game_state_service.set_game(game_id, game_data)
 
-    # Save message to database
-    game_repo.save_message(game_id, message_type, f"{sender}: {content}")
+    # Persist to history — best-effort. Under heavy write contention (especially
+    # the Docker-for-Mac bind mount, where commits are ~30x slower) SQLite can
+    # exhaust its busy_timeout and raise "database is locked". A dropped history
+    # row must never 500 the chat send or swallow the live emit below — the
+    # message still shows live; it just isn't in the replay log. Mirrors the
+    # "never block a chat message" stance the avatar lookup above already takes.
+    try:
+        game_repo.save_message(game_id, message_type, f"{sender}: {content}")
+    except sqlite3.OperationalError as exc:
+        logger.warning(
+            "send_message: history persist skipped (db busy) game_id=%s: %s", game_id, exc
+        )
 
     # Emit only the new message to reduce payload size. Deferred messages
     # (immediate=False) skip this and ride the next game-state push instead, so
