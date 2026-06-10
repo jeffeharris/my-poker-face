@@ -222,12 +222,16 @@ reproduces the reviewed "medium" calibration.
 
 ## 9. Open design decisions (for review before implementation)
 
-1. **K rename?** Keep the `confidence` field (cheap) or rename to `conviction`
-   (clearer, larger diff)? Recommend: keep the field, redefine meaning.
-2. **Two axes or three?** Is "winning-high / euphoria" (the overconfident pole)
-   distinct enough from high-K-low-C Heated to need its own axis, or is overconfident
-   just "high C + high K + high energy"? Recommend: fold euphoria into energy +
-   high-K, keep two state axes.
+1. **K rename? → RESOLVED: keep the `confidence` field, redefine its meaning/drivers.**
+   Evidence: `confidence` has **289 references across 39 files, incl. 67 DB-column /
+   JSON-key uses** (`zone_confidence`, `baseline_confidence`). A rename would touch the
+   schema + persisted state — a large, risky diff for a pure semantic clarification.
+   We change what *drives* `confidence` (§6) and its baseline (§3), not its name.
+2. **Two axes or three? → RESOLVED: two.** `overconfident` is already *not* a separate
+   axis — `zone_detection.py:307` computes it as a high-`confidence` edge zone
+   (`(confidence − 0.90)/0.10`). In the four-quadrant model it is simply the **high-K
+   extreme** of whichever composure band you are in (controlled → Commanding,
+   uncontrolled → Heated), flavoured by high energy. No third axis, no fifth state.
 3. **How hard to protect B1** — the exact session-EV band that counts as "skill still
    wins." Needs a number (ties to a future bb/100 target + playtest).
 4. **Archetype taxonomy** — how many templates, and do personas map to one template
