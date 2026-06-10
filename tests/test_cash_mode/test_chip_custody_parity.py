@@ -395,3 +395,120 @@ class TestPersonaDeleteSettle:
         )
         assert returned == 0
         assert bankroll_repo.load_ai_bankroll(PID, sandbox_id=SB).chips == 4_000
+
+
+class TestStakeCreationRefusal:
+    """`_apply_stake_creations` must DROP the stake when the staker's debit is
+    refused (insufficient projected bankroll — a regen-drift race past the
+    planner's affordability gate). Recording an ACTIVE stake whose principal was
+    never debited would mint chips: a loan with no funding source. Mirrors the
+    seed loop's debit-first + drop-on-fail discipline."""
+
+    STAKER = "rich_staker"
+    BROKE = "broke_staker"
+    BORROWER = "the_borrower"
+
+    def _result(self, sc):
+        table = type("T", (), {"table_id": "lobby_test_t1"})()
+        return type("R", (), {"stake_creations": [sc], "new_table": table})()
+
+    def _stub_stake_repo(self):
+        class _StubStakeRepo:
+            def __init__(self):
+                self.created = []
+
+            def create_stake(self, stake):
+                self.created.append(stake)
+
+        return _StubStakeRepo()
+
+    def test_unaffordable_staker_creates_no_stake_and_mints_nothing(
+        self, bankroll_repo, ledger_repo, db_path, custody_on
+    ):
+        from cash_mode.lobby import _apply_stake_creations
+        from cash_mode.movement import StakeCreationChange
+
+        # Broke staker: 500 chips, regen target 1_000 → projection can't exceed
+        # ~1_000, far below a 50_000 principal → debit_bankroll_for_seat refuses.
+        _insert_personality(db_path, self.BROKE, starting=1_000)
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(personality_id=self.BROKE, chips=500, last_regen_tick=NOW),
+            sandbox_id=SB,
+            chip_ledger_repo=ledger_repo,
+        )
+        before = bankroll_repo.load_ai_bankroll(self.BROKE, sandbox_id=SB).chips
+
+        sc = StakeCreationChange(
+            borrower_id=self.BORROWER,
+            staker_id=self.BROKE,
+            seat_index=2,
+            principal=50_000,
+            stake_label="$10",
+            cut=0.1,
+        )
+        stake_repo = self._stub_stake_repo()
+        _apply_stake_creations(
+            self._result(sc),
+            stake_repo=stake_repo,
+            relationship_repo=None,
+            personality_repo=None,
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=ledger_repo,
+            sandbox_id=SB,
+            now=NOW,
+        )
+
+        # No phantom stake row.
+        assert stake_repo.created == []
+        # Staker bankroll untouched — no debit occurred.
+        assert bankroll_repo.load_ai_bankroll(self.BROKE, sandbox_id=SB).chips == before
+        # And no ai_buy_in mint attributed to the staker.
+        buy_ins = [
+            e
+            for e in ledger_repo.recent_entries()
+            if e["reason"] == "ai_buy_in" and e["source"] == f"ai:{self.BROKE}"
+        ]
+        assert buy_ins == []
+
+    def test_affordable_staker_creates_stake_and_debits(
+        self, bankroll_repo, ledger_repo, db_path, custody_on
+    ):
+        """Guard the happy path: a funded staker still creates the stake and is
+        debited exactly the principal (the None-check didn't break normal flow)."""
+        from cash_mode.lobby import _apply_stake_creations
+        from cash_mode.movement import StakeCreationChange
+
+        _insert_personality(db_path, self.STAKER, starting=20_000)
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(personality_id=self.STAKER, chips=20_000, last_regen_tick=NOW),
+            sandbox_id=SB,
+            chip_ledger_repo=ledger_repo,
+        )
+
+        sc = StakeCreationChange(
+            borrower_id=self.BORROWER,
+            staker_id=self.STAKER,
+            seat_index=2,
+            principal=1_500,  # below AI_STAKE_TICKER_THRESHOLD (2000) → no ticker branch
+            stake_label="$10",
+            cut=0.1,
+        )
+        stake_repo = self._stub_stake_repo()
+        _apply_stake_creations(
+            self._result(sc),
+            stake_repo=stake_repo,
+            relationship_repo=None,
+            personality_repo=None,
+            bankroll_repo=bankroll_repo,
+            chip_ledger_repo=ledger_repo,
+            sandbox_id=SB,
+            now=NOW,
+        )
+
+        assert len(stake_repo.created) == 1
+        st = stake_repo.created[0]
+        assert st.staker_id == self.STAKER
+        assert st.borrower_id == self.BORROWER
+        assert st.principal == 1_500
+        # Staker debited exactly the principal (20_000 − 1_500).
+        assert bankroll_repo.load_ai_bankroll(self.STAKER, sandbox_id=SB).chips == 18_500

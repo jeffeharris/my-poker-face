@@ -341,6 +341,32 @@ def ensure_lobby_seeded(
     # order in LOBBY_TABLES mirrors STAKES_ORDER.
     from cash_mode.lobby_config import LOBBY_TABLES
 
+    # Per-pass memo of each candidate's (knobs, projected bankroll). The seed
+    # below considers every eligible AI for every table, so without this the
+    # same candidate is re-loaded (two DB reads) and re-projected once per
+    # table — wasted work that, for a broke AI who clears no table, is pure
+    # churn (and the source of repeated seat-debit-refused log spam). `now` is
+    # fixed for the pass, so a pid's projection is constant; cache it once.
+    projection_cache: Dict[str, Tuple[object, int]] = {}
+
+    def _project_candidate(pid: str) -> Tuple[object, int]:
+        cached = projection_cache.get(pid)
+        if cached is not None:
+            return cached
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        if stored is None:
+            # No bankroll row yet — use the personality's cap as a generous
+            # starting projection. Sit-down writes the row at debit time.
+            projected = knobs.starting_bankroll
+        else:
+            projected = project_bankroll(
+                stored, knobs.starting_bankroll, knobs.bankroll_rate, now
+            )
+        result = (knobs, projected)
+        projection_cache[pid] = result
+        return result
+
     for stake_label, entries in LOBBY_TABLES.items():
         if stake_label not in STAKES_ORDER:
             # Defensive: a lobby_config entry referencing a stake not in
@@ -389,23 +415,10 @@ def ensure_lobby_seeded(
                 if not pid or pid in seated_globally or pid in off_grid:
                     continue
 
-                knobs = bankroll_repo.load_personality_knobs(pid)
+                knobs, projected = _project_candidate(pid)
                 ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
                 ai_buy_in = min(ai_threshold, max_buy_in)
 
-                stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-                if stored is None:
-                    # No bankroll row yet — use the personality's cap as a
-                    # generous starting projection. Sit-down will write the
-                    # row at debit time.
-                    projected = knobs.starting_bankroll
-                else:
-                    projected = project_bankroll(
-                        stored,
-                        knobs.starting_bankroll,
-                        knobs.bankroll_rate,
-                        now,
-                    )
                 if projected < ai_threshold:
                     continue
 
@@ -2943,7 +2956,15 @@ def _apply_stake_creations(
         )
 
         for sc in result.stake_creations:
-            debit_bankroll_for_seat(
+            # Window B atomicity (mirrors the seed loop's debit-first +
+            # drop-on-fail): debit_bankroll_for_seat REFUSES (returns None) when
+            # the staker's projected bankroll can't cover the principal — a rare
+            # regen-drift race past find_ai_staker_for's planning gate. If we
+            # ignored it, the Stake row below would record an ACTIVE loan whose
+            # principal was never debited from the staker → minted chips +
+            # broken conservation. On refusal, skip this stake entirely (no row,
+            # no relationship event, no ticker emit).
+            debited = debit_bankroll_for_seat(
                 bankroll_repo,
                 sc.staker_id,
                 sc.principal,
@@ -2951,6 +2972,15 @@ def _apply_stake_creations(
                 chip_ledger_repo=chip_ledger_repo,
                 now=now,
             )
+            if debited is None:
+                logger.warning(
+                    "[CASH][LOBBY] stake creation skipped: staker %r could not fund "
+                    "principal=%d for borrower %r (debit refused) — no stake recorded",
+                    sc.staker_id,
+                    sc.principal,
+                    sc.borrower_id,
+                )
+                continue
             stake = Stake(
                 stake_id=f"ai_stake_{uuid.uuid4().hex[:12]}",
                 session_id=f"ai_session_{sc.borrower_id}_{int(now.timestamp())}",
@@ -3070,14 +3100,30 @@ def _apply_bankroll_transfers(
 
     for i, bc in enumerate(result.bankroll_changes):
         if bc.direction == "to_seat":
-            debit_bankroll_for_seat(
-                bankroll_repo,
-                bc.personality_id,
-                bc.amount,
-                sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo,
-                now=now,
-            )
+            # to_seat is the rebuy channel, whose amount the planner already
+            # clamped to the projected bankroll (movement.py: rebuy_amount =
+            # min(..., projected_bankroll)), so the debit should always succeed.
+            # If it ever refuses, the seat was already topped up in
+            # result.new_table — proceeding silently would mint the un-debited
+            # chips. We can't cleanly un-top the pre-placed seat here, so surface
+            # it loudly (a conservation alarm) instead of swallowing it.
+            if (
+                debit_bankroll_for_seat(
+                    bankroll_repo,
+                    bc.personality_id,
+                    bc.amount,
+                    sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    now=now,
+                )
+                is None
+            ):
+                logger.error(
+                    "[CASH][LOBBY] to_seat debit refused for %r (amount=%d) but seat "
+                    "was pre-placed — possible chip mint; planner clamp should prevent this",
+                    bc.personality_id,
+                    bc.amount,
+                )
         elif bc.direction == "from_seat":
             # Skip ONLY the specific from_seat entry the
             # settlement consumed; earlier from_seat entries for
