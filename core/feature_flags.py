@@ -276,8 +276,12 @@ _ECON = "cash_mode.economy"
 register(
     FeatureFlag(
         "REGEN_ENABLED",
-        Stage.EXPERIMENTAL,
-        "Passive idle-chip faucet (retired in favour of the side hustle); A/B knob.",
+        # RETIRED 2026-06-10: passive idle-chip faucet, superseded by the side
+        # hustle (SIDE_HUSTLE_ENABLED). Locked off everywhere; the bankroll.py
+        # regen branch is dead-pending-cleanup (still exercised by economy tests
+        # that set the global directly).
+        Stage.RETIRED,
+        "Passive idle-chip faucet — retired in favour of the side hustle.",
         owner=_ECON,
         dev=False,
         prod=False,
@@ -296,15 +300,16 @@ register(
 
 # --- Vice / lever reserve-gating ---
 # The Director thermostat (these + RAKE_RESERVE_GATED, DIRECTOR_POLICY_HOLD,
-# CASINO_RESEED_ON_SPENT) is LIVE in prod but off in dev — dev=False/prod=True
-# makes that drift explicit. Flip dev=True to run the prod economy locally.
+# CASINO_RESEED_ON_SPENT) was promoted dev=True on 2026-06-10 to close the
+# dev/prod drift — dev now runs the same prod economy. (Tests still force these
+# off via tests/conftest.py::RESET_ECONOMY_FLAGS, so determinism is unaffected.)
 register(
     FeatureFlag(
         "VICE_RESERVE_GATED",
         Stage.STABLE,
         "Scale vice intensity with the bank-pool deficit instead of always-on.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )
@@ -314,7 +319,7 @@ register(
         Stage.STABLE,
         "Seed the bank pool to a fraction of holdings once at sandbox birth.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )
@@ -367,7 +372,7 @@ register(
         Stage.STABLE,
         "Hold the rake schedule for a window instead of recomputing per hand.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )
@@ -390,7 +395,7 @@ register(
         Stage.STABLE,
         "Lean casino fish lifecycle: one fish, reseed on bust (steady trickle).",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )

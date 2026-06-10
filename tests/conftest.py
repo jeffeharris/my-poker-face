@@ -183,7 +183,9 @@ def load_personality_from_json(name):
 # economy flags — a NEW flag missing from both would re-open the .env-pollution
 # hole.
 RESET_ECONOMY_FLAGS = (
-    "REGEN_ENABLED",
+    # REGEN_ENABLED is RETIRED (locked off) as of 2026-06-10 — locked flags are
+    # excluded from the partition, and the tests that exercise the regen branch
+    # save/restore the global themselves, so it no longer needs the blanket reset.
     "VICE_RESERVE_GATED",
     "GENESIS_RESERVE_ENABLED",
     "RAKE_RESERVE_GATED",

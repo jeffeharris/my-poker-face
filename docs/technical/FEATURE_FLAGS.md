@@ -182,20 +182,20 @@ each is in
 **`cash_mode.economy` (25):**
 
 - **GRADUATED** (locked on): `RAKE_ENABLED`, `PRESENCE_AUTHORITY_ENABLED`
+- **RETIRED** (locked off): `REGEN_ENABLED` (passive faucet, superseded by the
+  side hustle — retired 2026-06-10; bankroll regen branch is dead-pending-cleanup)
 - **STABLE, dev+prod on**: `SIDE_HUSTLE_ENABLED`, `RAKE_PLAYER_TABLES`,
   `REPUTATION_DEMEANOR_ENABLED`, `DOSSIER_SCOUTING_GATE_ENABLED`,
   `CHIP_CUSTODY_ENABLED`, `CHIP_CUSTODY_DERIVE_READS`, `RENOWN_V2_ENABLED`,
   `RENOWN_V2_PERSIST_AI`, `PRESTIGE_SEEKING_ENABLED`, `TOURNAMENT_CIRCUIT_ENABLED`,
-  `TOURNAMENT_DRAW_ENABLED`
-- **STABLE, prod-only** (the Director thermostat — `prod=True`):
-  `GENESIS_RESERVE_ENABLED`, `DIRECTOR_POLICY_HOLD`, `VICE_RESERVE_GATED`,
-  `CASINO_RESEED_ON_SPENT` (all `dev=False`), plus `RAKE_RESERVE_GATED`
-  (`dev=True` as of 2026-06-10 — turned on in dev so the BETA inequality-rake
-  isn't a no-op).
+  `TOURNAMENT_DRAW_ENABLED`, plus the **Director thermostat** —
+  `RAKE_RESERVE_GATED`, `GENESIS_RESERVE_ENABLED`, `DIRECTOR_POLICY_HOLD`,
+  `VICE_RESERVE_GATED`, `CASINO_RESEED_ON_SPENT` (promoted `dev=True` on
+  2026-06-10 to close the dev/prod drift; dev now runs the prod economy)
 - **BETA** (dev on, prod off — under dev evaluation as of 2026-06-10):
   `DIRECTOR_INEQUALITY_RAKE`, `CASINO_RELATIVE_THRESHOLDS`, `TABLE_AFFINITY_ENABLED`
-- **EXPERIMENTAL** (off everywhere): `REGEN_ENABLED`,
-  `CAREER_PROGRESSION_ENABLED`, `CAREER_VOUCH_ENABLED`, `INTAKE_WORLD_WARMUP_ENABLED`
+- **EXPERIMENTAL** (off everywhere): `CAREER_PROGRESSION_ENABLED`,
+  `CAREER_VOUCH_ENABLED`, `INTAKE_WORLD_WARMUP_ENABLED`
 
 **`poker.strategy` (5)** — the tilt/excursion system (see `TILT_EXCURSION_DESIGN.md`),
 all `db_overridable=True`:
@@ -228,7 +228,8 @@ helper in `guest_limits.py` was removed and `test_no_adhoc_bool_env_helpers` now
 bans local boolean env-helpers (a variable-name env read evaded the per-flag
 centralization guard — the gap that hid `GUEST_FREE_CHAT_ENABLED`).
 
-Net: **26/44 on in dev, 29/44 on in prod.**
+Net: **30/44 on in dev, 29/44 on in prod** (dev exceeds prod by the BETA evals;
+the Director thermostat is now on in both).
 
 > The retired `PRESENCE_SHADOW_WRITE_ENABLED` flag (and the obsolete cutover
 > validation scripts) were removed on 2026-06-10 — the off-grid presence mirror

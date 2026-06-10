@@ -53,21 +53,24 @@ branches on the name. Delete the `if flag:` branches, then the declaration.
 
 | Flag | Stage | Action | Notes |
 |---|---|---|---|
-| `REGEN_ENABLED` | EXPERIMENTAL | **Kill → RETIRED** | Passive idle-chip faucet, *already* replaced by `SIDE_HUSTLE_ENABLED` (the docstring says so). One live gate remains at `cash_mode/bankroll.py:187`. Flip to `RETIRED` and delete that branch — **unless** you still want it as a live A/B knob against the side hustle, in which case Hold and say so explicitly. Recommend Kill; the side hustle won. |
+| `REGEN_ENABLED` | RETIRED | ✅ **DONE (2026-06-10)** | Retired — superseded by `SIDE_HUSTLE_ENABLED`. Stage flipped to RETIRED (locked off) and removed from the conftest reset set. The `bankroll.py:187` regen branch is left as dead-pending-cleanup (still exercised by economy tests that set the global directly, like `RAKE_ENABLED`); a follow-up can delete the mechanism + those test arms. |
 
-### Promote (close the Director-thermostat dev/prod drift)
+### Promote (close the Director-thermostat dev/prod drift) — ✅ DONE (2026-06-10)
 
-These five are `STABLE, dev=False, prod=True` — live and proven in prod, but
-**off in dev**, so local runs don't exercise the prod economy. The registry was
-built specifically to make this drift visible and closeable.
+These five were `STABLE, dev=False, prod=True` — live in prod but off in dev, so
+local runs didn't exercise the prod economy. **There was no principled reason for
+the split** — the thermostat was built/tuned and shipped to prod, but dev `.env`s
+were never armed; the registry just encoded that drift honestly. All five flipped
+`dev=True`; dev now runs the same economy as prod. (Tests still force them off via
+`RESET_ECONOMY_FLAGS`, so determinism is unaffected.)
 
-| Flag | Action | Rationale |
-|---|---|---|
-| `GENESIS_RESERVE_ENABLED` | **Promote dev=True** | Proven in prod for the bank-pool seed. |
-| `RAKE_RESERVE_GATED` | **Promote dev=True** | Director two-layer rake; stable in prod. |
-| `DIRECTOR_POLICY_HOLD` | **Promote dev=True** | Rake-schedule hold; stable in prod. |
-| `VICE_RESERVE_GATED` | **Promote dev=True** | Reserve-gated vice; stable in prod. |
-| `CASINO_RESEED_ON_SPENT` | **Promote dev=True** | Lean fish lifecycle; stable in prod. |
+| Flag | Status |
+|---|---|
+| `GENESIS_RESERVE_ENABLED` | ✅ dev=True |
+| `RAKE_RESERVE_GATED` | ✅ dev=True (already flipped for the BETA inequality-rake eval) |
+| `DIRECTOR_POLICY_HOLD` | ✅ dev=True |
+| `VICE_RESERVE_GATED` | ✅ dev=True |
+| `CASINO_RESEED_ON_SPENT` | ✅ dev=True |
 
 > Recommended but **optional / your call**: keeping dev=False is a legitimate
 > choice if you want dev to deliberately run the *simpler* (non-thermostat)
@@ -189,9 +192,9 @@ Security-sensitive — migrate carefully, last:
 ## Suggested order of execution
 
 1. ✅ **`PRESENCE_SHADOW_WRITE_ENABLED` removed** (2026-06-10) — see the Kill table above.
-2. **Kill `REGEN_ENABLED`** → RETIRED + remove the `bankroll.py:187` branch (decide A/B-knob question first).
+2. ✅ **Retired `REGEN_ENABLED`** (2026-06-10) → RETIRED + removed from the conftest reset; bankroll branch left as dead-pending-cleanup.
 3. **Resolve the `RAKE_ENABLED` GRADUATED-vs-live-knob inconsistency** (do NOT delete it — it's a live sink toggle).
-4. **Decide the Director-thermostat drift**: promote dev=True on the five, or annotate as intentional.
+4. ✅ **Closed the Director-thermostat drift** (2026-06-10): promoted dev=True on all five; dev now runs the prod economy.
 5. ✅ **Migrated the non-registry booleans** (2026-06-10) — moderation, ticker ×2, commentary, avatar, decision-analysis ×2, debug, test-routes, sarcasm, de-inverted leave-narrative. See the migration section above.
 6. ✅ **Migrated `CSRF_PROTECTION_ENABLED`** (2026-06-10) — STABLE dev=off/prod=on; `test_csrf.py` + the full app/config suite pass.
 7. **Tilt flags: revisit after the emotional-reachability fix** — then promote `TILT_CONDITIONING_ENABLED` or retire it.

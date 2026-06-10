@@ -134,7 +134,7 @@ def test_economy_flags_globals_match_registry():
     from cash_mode import economy_flags
 
     env_stable = [
-        "REGEN_ENABLED",  # experimental, off
+        "REGEN_ENABLED",  # retired, locked off
         "SIDE_HUSTLE_ENABLED",  # stable, on
         "RAKE_ENABLED",  # graduated, locked on
         "RAKE_PLAYER_TABLES",  # stable, on
