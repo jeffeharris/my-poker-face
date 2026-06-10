@@ -75,8 +75,34 @@ Phase-2 follow-up (point 4) that wired in the range-aware equity point 3 demande
    spew **sign is dominated by the spot MIX** (how often the bot is in a small-raise
    spot vs a big-jam spot), so a trustworthy bb/100 still needs the **real recorded
    corpus + frequencies** — hand-picked spots cannot settle the sign. Range-aware
-   equity was the prerequisite; the corpus is now the single binding step. (Open:
-   erratic-reads still has *no* EV probe — `tilt_ev_probe.py` is signature-only.)
+   equity was the prerequisite; the corpus is now the single binding step.
+
+5. **Erratic-reads now has a factor-level EV-direction probe (2026-06-10)** —
+   `experiments/tilt_erratic_probe.py`. Erratic-reads operates one level below the
+   signature: it does not shift the action distribution, it only scales the
+   EXPLOITATION layer. `tilt_factor` enters as `effective_bias = adaptation_bias ·
+   tilt_factor`, which **linearly** scales the exploitation offset magnitude
+   (`exploitation.py:1410`) and hard-gates the layer off below `GATING_FLOOR=0.05`.
+   Nothing else reads it. So the flag's EV is linear in the factor: `ΔEV ≈
+   exploitation_edge · (E[tilt_factor_on] − tilt_factor_off)`, and pricing the
+   FACTOR delta is the whole question up to two corpus scalars (the exploitation
+   edge per read in bb, and the tilted-decision rate). **Finding — the flag is
+   mildly +EV vs off, not a cost.** The OFF cliff is 0.5 tilted / **0.0 shaken**
+   (shaken forgets every read); the ON erratic mean is `1 − 0.5·intensity` (0.75 at
+   intensity 0.5), which sits ABOVE the cliff. The probe (gate-aware, integrated
+   over the U draw, real per-persona `adaptation_bias`) shows Δm small-positive for
+   tilted (→0 at high intensity, where the erratic mean ≈ the 0.5 cliff) and
+   **strongly positive for shaken at every adaptation tier** — there the cliff zeros
+   exploitation (`fire_off≈0`) and the erratic taper restores it (`fire_on≈1`,
+   Δm up to +0.52). So the "pure attenuator / can only reduce a read's edge" safety
+   note in `TILT_EXCURSION_DESIGN.md` §4 is true only relative to a *full* read
+   (factor=1); relative to the actual OFF baseline, the flag makes a tilted/shaken
+   bot exploit MORE on average — the believability win ("unreliable reads") rides on
+   top of a mean exploitation INCREASE, concentrated in the shaken band. It is +EV
+   while the read is +EV and non-catastrophic regardless (the offsets stay clamped);
+   the only −EV exposure is a *stronger* read against an opponent actively inducing,
+   which is the believability point, not a catastrophe. bb/100 still needs the same
+   recorded corpus (part (a)) to supply the two scalars.
 
 ## Why the existing harnesses can't measure this
 
@@ -192,8 +218,11 @@ tilted." A is a good cross-check if C's EV model is doubted.
   the structural clamp bound + the KL-from-baseline EV-safety measure already done.
 - `experiments/tilt_signature_probe.py` — the paired decision/KL probe (approach C
   minus the EV estimator).
-- `experiments/tilt_ev_probe.py` — Phase-1 of approach C: the paired probe + an
-  eval7-priced EV estimator (collapse priced; spew awaits range-aware equity).
+- `experiments/tilt_ev_probe.py` — approach C for the SIGNATURE: the paired probe +
+  an eval7-priced EV estimator, now with range-aware eq-when-called (point 4).
+- `experiments/tilt_erratic_probe.py` — factor-level EV-direction probe for
+  ERRATIC-READS (point 5): prices the tilt_factor delta (cliff vs erratic taper)
+  that linearly scales the exploitation edge.
 - `experiments/exploit_bb100.py` / `experiments/champion_challenger.py` — the CRN
   bb/100 machinery (approach A template; today psychology-blind).
 - `experiments/configs/tilt_persistence_check.json` — the psychology-on sim config
