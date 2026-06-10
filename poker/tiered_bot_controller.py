@@ -192,6 +192,64 @@ def _exploitation_no_op_traces(
     return out
 
 
+# Facing-an-all-in equity veto (preflop). Fixed seed + iteration count so the
+# Monte-Carlo is deterministic per (hand, opponent-count) and uses a LOCAL RNG
+# — it never touches the controller's own `self.rng` stream, preserving the
+# byte-identical-sim invariant. 600 iters preflop is ~1-2 ms and stable to
+# ~±2% equity, ample for a fold/call pot-odds bar.
+_ALLIN_VETO_EQUITY_SEED = 20260610
+_ALLIN_VETO_EQUITY_ITERS = 600
+
+
+def _preflop_allin_equity(hole_cards: List[str], num_opponents: int) -> Optional[float]:
+    """Hero's preflop all-in equity vs `num_opponents` random hands.
+
+    Cheap eval7 Monte-Carlo with a fixed-seed local RNG (see constants above).
+    Returns a win probability in [0, 1], or None when eval7 is unavailable or
+    the cards don't parse — the caller then keeps the normal chart path rather
+    than vetoing on a bad number.
+
+    Equity vs *random* hands (not the villain's actual all-in range) is a
+    deliberately hero-generous estimate: a real 4-bet-shove range is far
+    stronger, so vs-random under-folds rather than over-folds. That's the safe
+    bias for a guardrail whose only job is to stop trash JAMS — calling a
+    marginal hand for the right pot odds is fine; shoving 100bb of 47o is not.
+    """
+    try:
+        import random as _random
+
+        import eval7
+
+        from .card_utils import normalize_card_string
+
+        hero = [eval7.Card(normalize_card_string(c)) for c in hole_cards]
+        if len(hero) != 2:
+            return None
+        known = set(hero)
+        deck = [c for c in eval7.Deck().cards if c not in known]
+        rng = _random.Random(_ALLIN_VETO_EQUITY_SEED)
+        n_opp = max(1, num_opponents)
+
+        wins = 0.0
+        for _ in range(_ALLIN_VETO_EQUITY_ITERS):
+            rng.shuffle(deck)
+            idx = 0
+            opp_hands = []
+            for _ in range(n_opp):
+                opp_hands.append([deck[idx], deck[idx + 1]])
+                idx += 2
+            board = deck[idx : idx + 5]
+            hero_score = eval7.evaluate(hero + board)
+            best_opp = max(eval7.evaluate(oh + board) for oh in opp_hands)
+            if hero_score > best_opp:
+                wins += 1.0
+            elif hero_score == best_opp:
+                wins += 0.5  # split — count chop equity, not a loss
+        return wins / _ALLIN_VETO_EQUITY_ITERS
+    except Exception:
+        return None
+
+
 def _fill_prior_action_source(
     current_trace: InterventionTrace,
     earlier_traces: List[InterventionTrace],
@@ -951,6 +1009,57 @@ class TieredBotController(AIPlayerController):
         self._last_pipeline_snapshot['base_strategy_probs'] = dict(
             base_strategy.action_probabilities
         )
+
+        # Facing-an-all-in equity veto (see _facing_all_in_preflop_veto).
+        # Facing a cold all-in the chart's coarse vs_3bet/vs_4bet stub can
+        # sample a trash JAM/CALL — the root cause of the prod "47o jams into
+        # a 4-bet all-in" bug. There's no skill in re-jamming vs calling a
+        # shove, so we decide call/fold on pot odds and return immediately,
+        # bypassing the distortion/exploitation layers that would otherwise
+        # resample the stub into a jam. A base-strategy-level short-circuit,
+        # like the push/fold route above — not a pipeline layer.
+        veto = self._facing_all_in_preflop_veto(game_state, player_idx, valid_actions)
+        if veto is not None:
+            veto_profile, veto_action, veto_equity, veto_required = veto
+            # Sample the (pure) profile through self.rng so the RNG stream
+            # stays aligned with the normal sample_action draw downstream.
+            veto_action = veto_profile.sample_action(self.rng)
+            self._last_pipeline_snapshot['base_strategy_probs'] = dict(
+                veto_profile.action_probabilities
+            )
+            self._last_pipeline_snapshot['facing_all_in_veto'] = True
+            self._last_pipeline_snapshot['veto_equity'] = veto_equity
+            self._last_pipeline_snapshot['veto_required_equity'] = veto_required
+            self._last_pipeline_snapshot['sampled_abstract_action'] = veto_action
+
+            game_action, raise_to = resolve_preflop_sizing(
+                veto_action, game_state, player_idx, rng=self.rng
+            )
+            if game_action not in valid_actions:
+                game_action, raise_to = self._validate_action(game_action, raise_to, valid_actions)
+            self._last_pipeline_snapshot['resolved_action'] = game_action
+            self._last_pipeline_snapshot['resolved_raise_to'] = raise_to
+
+            if self.debug_logging:
+                logger.info(
+                    f"[TIERED_BOT] {self.player_name}: facing_all_in_veto "
+                    f"action={veto_action} eq={veto_equity:.3f} "
+                    f"req={veto_required:.3f} -> {game_action} raise_to={raise_to}"
+                )
+
+            decision = {
+                'action': game_action,
+                'raise_to': raise_to,
+                'dramatic_sequence': [],
+                'hand_strategy': (
+                    f"Tiered bot: facing all-in with {canonical_hand} "
+                    f"eq={veto_equity:.2f} req={veto_required:.2f} -> {veto_action}"
+                ),
+                'inner_monologue': '',
+                'bluff_likelihood': 0,
+            }
+            self._attach_expression(decision, game_state, player_idx, phase='pre_flop')
+            return decision
 
         # Layer 2: Personality distortion (skipped for BaselineSolverBot)
         emotional_state = get_emotional_shift(self.psychology)
@@ -3802,6 +3911,72 @@ class TieredBotController(AIPlayerController):
         if mm is not None:
             return getattr(mm, 'last_preflop_aggressor', None)
         return getattr(self, '_sim_last_preflop_aggressor', None)
+
+    def _facing_all_in_preflop_veto(
+        self,
+        game_state,
+        player_idx: int,
+        valid_actions: List[str],
+    ) -> Optional[Tuple[StrategyProfile, str, float, float]]:
+        """Pot-odds call/fold override when facing a cold all-in preflop.
+
+        The chart's `vs_3bet`/`vs_4bet` rows are a coarse stub (3 distinct
+        distributions across 169 hands) that can sample a trash JAM/CALL facing
+        a shove — the root cause of the prod "47o jams into a 4-bet all-in"
+        bug. Facing an all-in there is no skill in re-jamming vs calling (every
+        live player is already committed), so the decision collapses to pure
+        pot odds. We make that call/fold decision on equity here and skip the
+        downstream distortion layers that would otherwise push a correct fold
+        back toward a jam.
+
+        Returns `(profile, abstract_action, equity, required_equity)` when it
+        fires — a pure `{action: 1.0}` profile where `action` is `'call'`,
+        `'jam'`, or `'fold'`. Returns None when not facing an all-in, when the
+        pot-odds/equity can't be computed, or when neither call nor fold is
+        legal (caller keeps the normal chart path).
+
+        Never emits a *voluntary* re-jam: 'jam' is returned only when calling
+        the shove already commits hero's whole stack (call is illegal, so
+        jam == call mechanically). When hero covers the shove, the continue
+        action stays a flat 'call' — exactly the over-commit the stub got wrong.
+        """
+        ctx = self._build_decision_context(game_state, player_idx)
+        if not (ctx.is_preflop and ctx.facing_all_in):
+            return None
+        required = ctx.required_equity
+        if required is None:
+            return None
+
+        player = game_state.players[player_idx]
+        hole = [card_to_string(c) for c in player.hand] if player.hand else []
+        if len(hole) != 2:
+            return None
+
+        equity = _preflop_allin_equity(hole, ctx.active_opponent_count)
+        if equity is None:
+            return None
+
+        if equity >= required:
+            # Continue. Flat-call when hero covers; if calling the shove is
+            # itself all-in (engine drops 'call', offers only 'all_in'), the
+            # continue IS a jam mechanically — no extra chips at risk.
+            if 'call' in valid_actions:
+                action = 'call'
+            elif 'all_in' in valid_actions:
+                action = 'jam'
+            else:
+                return None
+        else:
+            if 'fold' not in valid_actions:
+                return None
+            action = 'fold'
+
+        return (
+            StrategyProfile(action_probabilities={action: 1.0}),
+            action,
+            equity,
+            required,
+        )
 
     def _build_decision_context(
         self,
