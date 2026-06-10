@@ -104,6 +104,47 @@ Phase-2 follow-up (point 4) that wired in the range-aware equity point 3 demande
    which is the believability point, not a catastrophe. bb/100 still needs the same
    recorded corpus (part (a)) to supply the two scalars.
 
+6. **Recorded corpus + corpus bb/100 are BUILT (2026-06-10) — part (a) done.**
+   `experiments/tilt_corpus_extract.py` pulls real tilted-decision spots from a
+   psychology-on sim and `experiments/tilt_corpus_ev.py` prices the signature on
+   them. **No new capture was needed** — the tiered bot already persists, per
+   decision, a `strategy_pipeline_snapshot_json` with `base_strategy_probs` (the
+   pre-emotion baseline), `emotional_state`, `anchors`, `legal_actions`,
+   `deviation_profile_name`, and the geometry; joined with the row's hole
+   cards/board/`num_opponents` that is a complete, self-contained probe spot. A spot
+   is "tilted" iff its recorded `emotional_state.state` is one the features act on.
+   - **Corpus (exp 4, `tilt_persistence_check.json`, 6×200 = 1200 hands):** 4605
+     decisions, **333 tilted spots → 7.23% tilted-decision rate** (the bb/100
+     multiplier, now measured). States: 234 overconfident / 76 tilted / 23
+     dissociated / **0 shaken**. Hothead Fyodor is 298 of the 333 (33% of his
+     decisions); 77% of tilted spots are preflop.
+   - **Signature corpus bb/100 ≈ 0.00** (−0.000 vs both fish and competent
+     backdrops; `tilt_corpus_ev.py`). This is REAL, not a wiring bug — a per-state
+     diagnostic confirms the signature fires correctly where it should. The reason
+     it nets ~0: the signature only changes behavior when a persona's **risk
+     character disagrees with the state's legacy direction**, and in this corpus
+     that intersection is **7 of 333 spots** (risk-averse Poe, 0.3, tilted →
+     collapse; Σ|Δagg|=0.002). The rest are no-ops: overconfident is excluded by
+     design (234); Fyodor is a risk-seeker and `tilted` already defaults aggressive
+     so his character-driven direction is unchanged (64); Buddha is risk-averse and
+     `dissociated` already defaults passive (23). **So in real play the signature's
+     EV footprint is ~0 — not because it is clamped, but because the population of
+     spots where it diverges from the legacy state-map is tiny.** A strong
+     non-catastrophe confirmation.
+   - **CORPUS-BREADTH LIMITATION (the real remaining gap):** this corpus has only 4
+     personas and **never reached a `shaken` state** — exactly the state where a
+     risk-seeker's spew *diverges* from the legacy map (shaken defaults passive, so a
+     risk-seeker flips to aggressive). It also under-samples risk-averse personas
+     reaching tilt (only Poe). So the ~0 is trustworthy for THIS distribution but
+     under-prices the collapse/spew tails. To price those, re-run the corpus with a
+     wider, more tilt-prone, risk-diverse persona cast (and confirm `shaken` is
+     reached). The instrument is done; only the input distribution is narrow.
+   - **Erratic-reads:** the corpus supplies the tilted-decision rate (7.23%) and
+     state mix; combined with point 5's Δm this is mildly +EV, but the
+     overconfident-heavy / no-shaken mix means the big shaken-band amplification (Δm
+     up to +0.52) didn't occur here either — same corpus-breadth caveat. The last
+     missing scalar is the exploitation edge per read (bb).
+
 ## Why the existing harnesses can't measure this
 
 Two independent blockers, both confirmed against the code:
@@ -187,9 +228,11 @@ tilted." A is a good cross-check if C's EV model is doubted.
   per arm, prices each arm's strategy in bb, and reports paired ΔEV. Phase-2 part
   (b) is **DONE (2026-06-10)** — `eq`-vs-random is replaced with **range-aware
   eq-when-called** (an in-probe eval7 MC over the villain's continue-range combos;
-  see point 4 above). The remaining Phase-2 step is part (a): **swap the synthetic
-  `SPOTS` for the recorded corpus** — now the single binding step, since part 4
-  showed the spew sign is mix-dominated.
+  see point 4 above). Part (a) — **swap the synthetic `SPOTS` for the recorded
+  corpus** — is also **DONE (2026-06-10)** via `tilt_corpus_extract.py` +
+  `tilt_corpus_ev.py` (point 6). Both parts complete; the only remaining gap is
+  corpus BREADTH (wider/risk-diverse, tilt-prone persona cast that reaches `shaken`)
+  to price the collapse/spew tails the current 4-persona corpus under-samples.
 - **EV estimator components:** `decision_analyzer.calculate_equity_vs_random` /
   `calculate_equity_vs_ranges` (eval7 Monte-Carlo) are the equity core;
   `bounded_options.calculate_required_equity` for pot odds. (`bounded_options`'s
@@ -223,6 +266,11 @@ tilted." A is a good cross-check if C's EV model is doubted.
 - `experiments/tilt_erratic_probe.py` — factor-level EV-direction probe for
   ERRATIC-READS (point 5): prices the tilt_factor delta (cliff vs erratic taper)
   that linearly scales the exploitation edge.
+- `experiments/tilt_corpus_extract.py` — part (a): extracts the real tilted-spot
+  corpus + meta (tilted-decision rate, state mix) from a psychology-on sim's
+  persisted `strategy_pipeline_snapshot_json` (point 6).
+- `experiments/tilt_corpus_ev.py` — the corpus bb/100 for the signature: prices
+  range-aware ΔEV on the recorded spots, amortized over hands played (point 6).
 - `experiments/exploit_bb100.py` / `experiments/champion_challenger.py` — the CRN
   bb/100 machinery (approach A template; today psychology-blind).
 - `experiments/configs/tilt_persistence_check.json` — the psychology-on sim config
