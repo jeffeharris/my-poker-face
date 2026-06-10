@@ -1,0 +1,71 @@
+/* SwipeDeck — shared Tinder-style card stack shell (stage, stack, card surface,
+   drag stamps). Drill-specific card *content* is styled by each drill. */
+
+.swipedeck-stage {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Every card occupies the same grid cell so they stack; the cell sizes to one
+   card and each card's depth transform is layered on top. */
+.swipedeck-stack {
+  display: grid;
+  place-items: center;
+}
+.swipedeck-stack > .swipedeck-card {
+  grid-area: 1 / 1;
+}
+
+/* Card surface — OPAQUE (cards stack; translucency would bleed the cards behind
+   into a grey wash) and matched to the app's --gradient-card charcoal so it reads
+   as a card, not a grey box. */
+.swipedeck-card {
+  box-sizing: border-box;
+  width: min(94vw, 32rem);
+  border-radius: var(--radius-3xl);
+  background: linear-gradient(145deg, #191c23 0%, #0f1116 100%);
+  border: 1px solid var(--color-border-default);
+  box-shadow: var(--shadow-md);
+  cursor: grab;
+  touch-action: pan-y;
+  overflow: hidden;
+}
+.swipedeck-card__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-3) var(--space-5);
+}
+
+/* Tinder-style drag stamps (front card only). */
+.swipedeck-stamp {
+  position: absolute;
+  top: var(--space-6);
+  z-index: 5;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--letter-spacing-widest);
+  pointer-events: none;
+}
+.swipedeck-stamp--right {
+  left: var(--space-5);
+  transform: rotate(-13deg);
+  color: var(--color-emerald);
+  border: 3px solid var(--color-emerald);
+}
+.swipedeck-stamp--left {
+  right: var(--space-5);
+  transform: rotate(13deg);
+  color: var(--color-rose);
+  border: 3px solid var(--color-rose);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swipedeck-card {
+    transition: none;
+  }
+}

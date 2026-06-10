@@ -1,19 +1,11 @@
-import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { motion, useMotionValue, useTransform, animate, type PanInfo } from 'framer-motion';
 import { SlidersHorizontal, Shuffle } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { Card } from '../cards';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
 import './SwipeDrill.css';
 
 // A 169-hand shorthand → two concrete cards for display. Suited = same suit;
@@ -47,7 +39,6 @@ interface Grade {
   chart_freq: { fold: number; call: number; raise: number };
   primary_action: string;
 }
-type Action = 'fold' | 'raise';
 
 // Long-form position names for the situation card.
 const POSITION_NAME: Record<string, string> = {
@@ -79,52 +70,54 @@ function SeatMap({ position }: { position: string }) {
   const dealerSlot = h < 0 ? 0 : (6 - h) % 6; // clockwise seats from you to the button
   const here = POSITION_NAME[position] ?? position;
   return (
-    <div className="dc-table" aria-label={`You are in ${here}; the dealer button is the red seat`}>
+    <div className="oc-table" aria-label={`You are in ${here}; the dealer button is the red seat`}>
       {SLOTS.map((s, i) => (
         <span
           key={i}
           aria-hidden="true"
           className={
-            'dc-seat' +
-            (i === 0 ? ' dc-seat--hero' : '') +
-            (i === dealerSlot ? ' dc-seat--dealer' : '')
+            'oc-seat' +
+            (i === 0 ? ' oc-seat--hero' : '') +
+            (i === dealerSlot ? ' oc-seat--dealer' : '')
           }
           style={{ left: `${s.x}%`, top: `${s.y}%` }}
         />
       ))}
-      <span className="dc-table__code" aria-hidden="true">
+      <span className="oc-table__code" aria-hidden="true">
         {position}
       </span>
     </div>
   );
 }
 
-// The card's inner face — identical for every card in the stack.
-function CardFace({ spot }: { spot: Spot }) {
+// The opening-drill card face. Follows the shared drill-card anatomy:
+//   situation (top)  →  your cards (middle).
+// Options + running stats live below the card (in the drill screen).
+function OpeningCardFace({ spot }: { spot: Spot }) {
   return (
-    <div className="dc-card__body">
-      <div className="dc-card__head">
-        <span className="dc-card__pos">{POSITION_NAME[spot.position] ?? spot.position}</span>
+    <>
+      <div className="oc-situation">
+        <span className="oc-pos">{POSITION_NAME[spot.position] ?? spot.position}</span>
         <SeatMap position={spot.position} />
+        <div className="oc-context">
+          <span className="oc-chip">{spot.depth_bb}bb deep</span>
+          <span className="oc-chip">{spot.num_players}-max</span>
+          <span className="oc-chip oc-chip--folded">Folded to you</span>
+        </div>
       </div>
-      <div className="dc-holes">
-        {handToCards(spot.hand).map((c, i) => (
-          <Card key={i} card={c} faceDown={false} size="xlarge" />
-        ))}
+      <div className="oc-cards">
+        <div className="oc-holes">
+          {handToCards(spot.hand).map((c, i) => (
+            <Card key={i} card={c} faceDown={false} size="xlarge" />
+          ))}
+        </div>
+        <div className="oc-hand">{spot.hand}</div>
       </div>
-      <div className="dc-card__hand">{spot.hand}</div>
-      <div className="dc-card__meta">
-        <span className="dc-chip">{spot.depth_bb}bb deep</span>
-        <span className="dc-chip">{spot.num_players}-max</span>
-        <span className="dc-chip dc-chip--folded">Folded to you</span>
-      </div>
-    </div>
+    </>
   );
 }
 
 const pct = (x: number) => Math.round(x * 100);
-const SWIPE_THRESHOLD = 110; // px past which a release commits the swipe
-const STACK_SIZE = 5; // cards held in the ring buffer (front + peeks + hidden preloaders)
 
 // How long the verdict flashes before the next card deals. Wrong answers linger
 // so you actually read the correction; tapping the flash skips the wait.
@@ -141,90 +134,6 @@ function drawNext(pool: Spot[], avoid?: Spot | null): Spot | null {
   return pick;
 }
 
-// Resting transform for a card at a given depth in the stack. Depth 0 is the
-// front (interactive); deeper cards sit lower, smaller, and eventually hidden —
-// but still rendered so their images preload before they reach the front.
-function depthStyle(depth: number) {
-  return {
-    scale: Math.max(1 - depth * 0.04, 0.84),
-    y: depth * 11,
-    opacity: depth >= 3 ? 0 : 1,
-  };
-}
-
-interface SwipeHandle {
-  fling: (action: Action) => void;
-}
-interface SwipeCardProps {
-  spot: Spot;
-  depth: number;
-  interactive: boolean;
-  onCommit: (action: Action, spot: Spot) => void;
-}
-
-// One card in the stack. Each owns its motion state (so the shared-x reset that
-// would snap a recycled card never happens) and keeps a STABLE React key, so as
-// the stack reorders a card animates between depths without ever remounting —
-// the peek literally rises into the front slot. No content swap, no flash.
-const SwipeCard = forwardRef<SwipeHandle, SwipeCardProps>(function SwipeCard(
-  { spot, depth, interactive, onCommit },
-  ref
-) {
-  const x = useMotionValue(0);
-  const rotate = useTransform(x, [-260, 260], [-11, 11]);
-  const openStamp = useTransform(x, [25, SWIPE_THRESHOLD], [0, 1]);
-  const foldStamp = useTransform(x, [-SWIPE_THRESHOLD, -25], [1, 0]);
-
-  const fling = useCallback(
-    (action: Action) => {
-      animate(x, action === 'raise' ? 640 : -640, { duration: 0.26, ease: 'easeOut' });
-      onCommit(action, spot);
-    },
-    [x, onCommit, spot]
-  );
-
-  useImperativeHandle(ref, () => ({ fling }), [fling]);
-
-  const onDragEnd = (_e: unknown, info: PanInfo) => {
-    const past = Math.abs(info.offset.x) > SWIPE_THRESHOLD || Math.abs(info.velocity.x) > 500;
-    if (past) fling(info.offset.x > 0 ? 'raise' : 'fold');
-    else animate(x, 0, { type: 'spring', stiffness: 500, damping: 40 });
-  };
-
-  const ds = depthStyle(depth);
-  return (
-    <motion.div
-      className="dc-card"
-      style={{ x, rotate, zIndex: STACK_SIZE - depth }}
-      initial={ds}
-      animate={ds}
-      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      drag={interactive ? 'x' : false}
-      dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={0.6}
-      onDragEnd={interactive ? onDragEnd : undefined}
-      whileTap={interactive ? { cursor: 'grabbing' } : undefined}
-    >
-      {depth === 0 && (
-        <>
-          <motion.span className="dc-stamp dc-stamp--open" style={{ opacity: openStamp }}>
-            OPEN
-          </motion.span>
-          <motion.span className="dc-stamp dc-stamp--fold" style={{ opacity: foldStamp }}>
-            FOLD
-          </motion.span>
-        </>
-      )}
-      <CardFace spot={spot} />
-    </motion.div>
-  );
-});
-
-interface StackCard {
-  key: number;
-  spot: Spot;
-}
-
 interface SwipeDrillProps {
   onBack: () => void;
 }
@@ -237,11 +146,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
   const [mode, setMode] = useState<Mode>(ALL_POS.includes(paramPos) ? paramPos : 'random');
   const [showSettings, setShowSettings] = useState(false);
 
-  // The drawable pool + the live ring buffer of cards. nextKey hands out stable
-  // keys so each card element persists across reorders.
-  const poolRef = useRef<Spot[]>([]);
-  const nextKey = useRef(0);
-  const [stack, setStack] = useState<StackCard[]>([]);
+  const [pool, setPool] = useState<Spot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -250,9 +155,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
   const [solid, setSolid] = useState(0);
   const [answered, setAnswered] = useState(0);
 
-  // Imperative handles to each live card, so buttons / arrow keys can fling the
-  // front card with the same animation as a drag-release.
-  const cardRefs = useRef(new Map<number, SwipeHandle>());
+  const deckRef = useRef<SwipeDeckHandle>(null);
 
   const pickMode = (m: Mode) => {
     setMode(m);
@@ -263,7 +166,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setStack([]);
+    setPool([]);
     setGrade(null);
     setSolid(0);
     setAnswered(0);
@@ -279,24 +182,15 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
     };
 
     try {
-      let deck: Spot[];
+      let spots: Spot[];
       if (mode === 'random') {
         const results = await Promise.allSettled(ALL_POS.map(fetchSpots));
-        deck = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+        spots = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
       } else {
-        deck = await fetchSpots(mode);
+        spots = await fetchSpots(mode);
       }
-      if (!deck.length) throw new Error('no spots');
-      poolRef.current = deck;
-      const initial: StackCard[] = [];
-      let prev: Spot | null = null;
-      for (let i = 0; i < STACK_SIZE; i++) {
-        const s = drawNext(deck, prev);
-        if (!s) break;
-        initial.push({ key: nextKey.current++, spot: s });
-        prev = s;
-      }
-      setStack(initial);
+      if (!spots.length) throw new Error('no spots');
+      setPool(spots);
     } catch (err) {
       logger.error('Failed to load swipe drill:', err);
       setError('Could not load the drill.');
@@ -309,22 +203,14 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
     load();
   }, [load]);
 
-  // Advance the ring: drop the front card (it has flown off), shift everyone up a
-  // depth (the peek rises into the front slot — same element, no remount), and
-  // recycle a fresh card onto the back where it preloads out of view.
-  const next = useCallback(() => {
-    setGrade(null);
-    setStack((prev) => {
-      if (!prev.length) return prev;
-      const rest = prev.slice(1);
-      const fresh = drawNext(poolRef.current, rest[rest.length - 1]?.spot);
-      return fresh ? [...rest, { key: nextKey.current++, spot: fresh }] : rest;
-    });
-  }, []);
+  // The deck draws from the pool. Memoized so it only rebuilds when the pool
+  // changes (a mode reload), not on every render.
+  const draw = useCallback((avoid: Spot | null) => drawNext(pool, avoid), [pool]);
 
-  // Grade the swiped card against the solver chart. The card has already started
-  // flying off; the verdict flashes, then auto-advance rises the next card.
-  const onCommit = useCallback(async (action: Action, spot: Spot) => {
+  // Grade the swiped card against the solver chart. The card has already flung
+  // off; the verdict flashes, then auto-advance rises the next card.
+  const onSwipe = useCallback(async (spot: Spot, dir: SwipeDir) => {
+    const action = dir === 'right' ? 'raise' : 'fold';
     setGrading(true);
     try {
       const resp = await fetch(`${config.API_URL}/api/coach/drill/answer`, {
@@ -350,16 +236,12 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
     }
   }, []);
 
-  const front = stack[0] ?? null;
-  const interactive = !!front && !grade && !grading;
+  const interactive = !grade && !grading;
 
-  const triggerFront = useCallback(
-    (action: Action) => {
-      if (!front || grade || grading) return;
-      cardRefs.current.get(front.key)?.fling(action);
-    },
-    [front, grade, grading]
-  );
+  const next = useCallback(() => {
+    setGrade(null);
+    deckRef.current?.advance();
+  }, []);
 
   // Auto-advance after a verdict — no button to press. Wrong answers linger.
   useEffect(() => {
@@ -368,19 +250,25 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
     return () => clearTimeout(t);
   }, [grade, next]);
 
+  const triggerFront = useCallback(
+    (dir: SwipeDir) => {
+      if (grade || grading) return;
+      deckRef.current?.swipe(dir);
+    },
+    [grade, grading]
+  );
+
   // Keyboard parity: ← fold, → open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') triggerFront('raise');
-      if (e.key === 'ArrowLeft') triggerFront('fold');
+      if (e.key === 'ArrowRight') triggerFront('right');
+      if (e.key === 'ArrowLeft') triggerFront('left');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [triggerFront]);
 
-  // Render newest-first so the front card is last in DOM order (paints on top);
-  // depth is taken from the logical stack position, not DOM order.
-  const rendered = useMemo(() => stack.map((card, depth) => ({ card, depth })).reverse(), [stack]);
+  const ready = !loading && !error && pool.length > 0;
 
   return (
     <>
@@ -432,34 +320,23 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
           </div>
         )}
 
-        {!loading && !error && front && (
+        {ready && (
           <div className="swd-body">
-            <div className="dc-stage">
-              {/* The whole deck slides in on the first deal (hides first-card
-                  image load); after that, individual cards rise within it. */}
-              <motion.div
-                className="dc-stack"
-                initial={{ y: 70, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ type: 'spring', stiffness: 240, damping: 26 }}
-              >
-                {rendered.map(({ card, depth }) => (
-                  <SwipeCard
-                    key={card.key}
-                    ref={(el) => {
-                      if (el) cardRefs.current.set(card.key, el);
-                      else cardRefs.current.delete(card.key);
-                    }}
-                    spot={card.spot}
-                    depth={depth}
-                    interactive={depth === 0 && interactive}
-                    onCommit={onCommit}
-                  />
-                ))}
-              </motion.div>
-            </div>
+            <SwipeDeck<Spot>
+              ref={deckRef}
+              draw={draw}
+              renderFace={(spot) => <OpeningCardFace spot={spot} />}
+              onSwipe={onSwipe}
+              interactive={interactive}
+              stamps={{ left: 'FOLD', right: 'OPEN' }}
+            />
 
-            {/* Verdict flashes then auto-advances; tap it to skip the wait. */}
+            {/* Stats — between the card and the options. */}
+            <p className="swd-stats">
+              {solid}/{answered} solid · swipe or use ← →
+            </p>
+
+            {/* Options (bottom). Verdict flashes here then auto-advances; tap to skip. */}
             <div className="swd-control">
               {grade ? (
                 <button
@@ -481,14 +358,14 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
                 <div className="swd-actions">
                   <button
                     className="swd-btn swd-btn--fold"
-                    onClick={() => triggerFront('fold')}
+                    onClick={() => triggerFront('left')}
                     disabled={!interactive}
                   >
                     ← Fold
                   </button>
                   <button
                     className="swd-btn swd-btn--raise"
-                    onClick={() => triggerFront('raise')}
+                    onClick={() => triggerFront('right')}
                     disabled={!interactive}
                   >
                     Open →
@@ -496,10 +373,6 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
                 </div>
               )}
             </div>
-
-            <p className="swd-progress">
-              {solid}/{answered} solid · swipe or use ← →
-            </p>
           </div>
         )}
       </PageLayout>

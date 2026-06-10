@@ -90,77 +90,30 @@
   color: var(--color-bg-void);
 }
 
-/* ── Deck + cards (dc-*) — rebuilt from scratch as its own namespace ─────────── */
+/* ── Opening-drill card face (oc-*) — the content SwipeDeck drops into a card.
+   The deck shell (stage/stack/card/stamps) lives in swipe/SwipeDeck.css.
+   Anatomy: situation (top) → cards (middle); stats + options sit below the card. */
 
-.dc-stage {
+.oc-situation {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+.oc-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   width: 100%;
 }
-/* Every card occupies the same grid cell so they stack; the cell sizes to one
-   card and each card's depth transform is layered on top. */
-.dc-stack {
-  display: grid;
-  place-items: center;
-}
-.dc-stack > .dc-card {
-  grid-area: 1 / 1;
-}
-
-/* Card surface — OPAQUE (cards stack; translucency would bleed the cards behind
-   into a grey wash) and matched to the app's --gradient-card charcoal so it reads
-   as a card, not a grey box. */
-.dc-card {
-  box-sizing: border-box;
-  width: min(94vw, 32rem);
-  border-radius: var(--radius-3xl);
-  background: linear-gradient(145deg, #191c23 0%, #0f1116 100%);
-  border: 1px solid var(--color-border-default);
-  box-shadow: var(--shadow-md);
-  cursor: grab;
-  touch-action: pan-y;
-  overflow: hidden;
-}
-.dc-card__body {
+.oc-context {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-6) var(--space-3) var(--space-5);
-}
-
-/* Tinder-style drag stamps (front card only). */
-.dc-stamp {
-  position: absolute;
-  top: var(--space-6);
-  z-index: 5;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-extrabold);
-  letter-spacing: var(--letter-spacing-widest);
-  pointer-events: none;
-}
-.dc-stamp--open {
-  left: var(--space-5);
-  transform: rotate(-13deg);
-  color: var(--color-emerald);
-  border: 3px solid var(--color-emerald);
-}
-.dc-stamp--fold {
-  right: var(--space-5);
-  transform: rotate(13deg);
-  color: var(--color-rose);
-  border: 3px solid var(--color-rose);
-}
-
-.dc-card__head {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-2);
 }
-.dc-card__pos {
+.oc-pos {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--letter-spacing-widest);
@@ -170,12 +123,12 @@
 
 /* Mini table — six seats around an oval with the position code large in the
    middle. You sit at the bottom (emerald); the dealer (red) moves around you. */
-.dc-table {
+.oc-table {
   position: relative;
   width: 118px;
   height: 76px;
 }
-.dc-table::before {
+.oc-table::before {
   content: '';
   position: absolute;
   inset: 9px;
@@ -183,7 +136,7 @@
   border: 1px solid var(--color-border-hover);
   background: radial-gradient(120% 120% at 50% 50%, var(--color-emerald-muted), transparent 72%);
 }
-.dc-table__code {
+.oc-table__code {
   position: absolute;
   inset: 0;
   display: flex;
@@ -194,7 +147,7 @@
   letter-spacing: var(--letter-spacing-wider);
   color: var(--color-emerald);
 }
-.dc-seat {
+.oc-seat {
   position: absolute;
   width: 9px;
   height: 9px;
@@ -203,54 +156,48 @@
   background: var(--color-text-disabled);
   box-sizing: border-box;
 }
-.dc-seat--dealer {
+.oc-seat--dealer {
   background: var(--color-ruby);
   box-shadow: var(--glow-ruby);
 }
-.dc-seat--hero {
+.oc-seat--hero {
   width: 11px;
   height: 11px;
   background: var(--color-emerald);
   box-shadow: 0 0 0 2px var(--color-emerald-muted);
 }
 /* Hero is on the button — show both: emerald fill, red ring. */
-.dc-seat--dealer.dc-seat--hero {
+.oc-seat--dealer.oc-seat--hero {
   background: var(--color-emerald);
   box-shadow: 0 0 0 2px var(--color-ruby);
 }
 
 /* Hole cards — the pair spans ~85% of the card width. */
-.dc-holes {
+.oc-holes {
   display: flex;
   justify-content: center;
   gap: var(--space-2);
   width: 100%;
   filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.5));
 }
-.dc-holes .playing-card.image-card {
+.oc-holes .playing-card.image-card {
   width: 46%;
   height: auto;
   aspect-ratio: 110 / 160;
 }
-.dc-holes .playing-card.image-card .card-image {
+.oc-holes .playing-card.image-card .card-image {
   width: 100%;
   height: 100%;
 }
 
-.dc-card__hand {
+.oc-hand {
   font-size: var(--font-size-3xl);
   font-weight: var(--font-weight-extrabold);
   letter-spacing: var(--letter-spacing-wider);
   color: var(--color-text-primary);
 }
 
-.dc-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-}
-.dc-chip {
+.oc-chip {
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-full);
   font-size: var(--font-size-xs);
@@ -259,7 +206,7 @@
   background: var(--color-bg-surface-hover);
   border: 1px solid var(--color-border-default);
 }
-.dc-chip--folded {
+.oc-chip--folded {
   color: var(--color-amber);
   background: var(--color-amber-muted);
   border-color: var(--color-amber-muted);
@@ -375,14 +322,9 @@
   filter: brightness(1.08);
 }
 
-.swd-progress {
+/* Stats — small line between the card and the options. */
+.swd-stats {
   margin: 0;
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dc-card {
-    transition: none;
-  }
 }
