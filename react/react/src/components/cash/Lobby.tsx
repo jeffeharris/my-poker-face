@@ -62,6 +62,7 @@ import { STAKES } from './types';
 import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { publishWidgetData } from '../../utils/widgetData';
 import { CharacterDetailCard, type CharacterDossierData } from '../character';
 import './CashMode.css';
 
@@ -336,6 +337,13 @@ export function Lobby() {
         setBankrollHistory(lobby.bankroll_history ?? []);
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setReputation(lobby.reputation ?? null);
+        // Push the latest net-worth + reputation to the native home-screen
+        // widget (no-op on web / before the bridge exists).
+        publishWidgetData({
+          bankroll: lobby.bankroll,
+          history: lobby.bankroll_history ?? [],
+          reputation: lobby.reputation ?? null,
+        });
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
