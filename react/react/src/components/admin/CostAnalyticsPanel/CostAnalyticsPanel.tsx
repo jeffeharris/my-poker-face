@@ -302,13 +302,16 @@ function OverviewView({
             <Tooltip
               cursor={{ fill: 'rgba(255,255,255,0.04)' }}
               contentStyle={tooltipStyle}
-              formatter={(v: number) => [fmtCost(v), 'Cost']}
+              formatter={(value) => [fmtCost(Number(value)), 'Cost'] as [string, string]}
             />
             <Bar
               dataKey="total_cost"
               radius={[0, 3, 3, 0]}
               cursor="pointer"
-              onClick={(d: { owner_id?: string }) => d?.owner_id && onSelectOwner(d.owner_id)}
+              onClick={(d) => {
+                const ownerId = (d as unknown as { owner_id?: string })?.owner_id;
+                if (ownerId) onSelectOwner(ownerId);
+              }}
             >
               {ownerData.map((_, i) => (
                 <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
@@ -388,16 +391,20 @@ function BreakdownView({
                   outerRadius={90}
                   innerRadius={45}
                   paddingAngle={1}
-                  onClick={(d: { call_type?: string }) =>
-                    d?.call_type && onSelectCallType(d.call_type)
-                  }
+                  onClick={(d) => {
+                    const ct = (d as unknown as { call_type?: string })?.call_type;
+                    if (ct) onSelectCallType(ct);
+                  }}
                   cursor="pointer"
                 >
                   {pieData.map((_, i) => (
                     <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => fmtCost(v)} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(value) => fmtCost(Number(value))}
+                />
                 <Legend wrapperStyle={{ fontSize: 11, color: '#ccc' }} />
               </PieChart>
             </ResponsiveContainer>
@@ -553,8 +560,10 @@ function CostOverTime({ timeseries }: { timeseries: TimeseriesPoint[] }) {
           <YAxis tick={{ fill: '#999', fontSize: 11 }} tickFormatter={fmtCost} width={60} />
           <Tooltip
             contentStyle={tooltipStyle}
-            formatter={(v: number, name: string) =>
-              name === 'total_cost' ? [fmtCost(v), 'Cost'] : [fmtCount(v), 'Calls']
+            formatter={(value, name) =>
+              name === 'total_cost'
+                ? ([fmtCost(Number(value)), 'Cost'] as [string, string])
+                : ([fmtCount(Number(value)), 'Calls'] as [string, string])
             }
           />
           <Area
