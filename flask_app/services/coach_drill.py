@@ -31,21 +31,37 @@ THIN_MIN = 0.10  # occasionally fine, but not the main line
 _ACTIONS = ('fold', 'call', 'raise')
 
 
-def _reference(scenario: str, position: str, hand: str) -> Optional[Dict[str, float]]:
-    """Bucketed chart freqs for a drill spot (opener-agnostic, baseline depth)."""
-    return reference_strategy(hand, position, scenario, None, DRILL_DEPTH_BB, DRILL_PLAYERS)
+def _reference(
+    scenario: str, position: str, hand: str, archetype: Optional[str] = None
+) -> Optional[Dict[str, float]]:
+    """Bucketed chart freqs for a drill spot (opener-agnostic, baseline depth).
+
+    ``archetype`` grades against an opponent's width-tier chart ("what would a
+    <archetype> do") instead of the baseline standard.
+    """
+    return reference_strategy(
+        hand, position, scenario, None, DRILL_DEPTH_BB, DRILL_PLAYERS, archetype
+    )
 
 
 def sample_drill_spots(
-    scenario: str, position: str, n: int = 10, *, rng: Optional[random.Random] = None
+    scenario: str,
+    position: str,
+    n: int = 10,
+    *,
+    rng: Optional[random.Random] = None,
+    archetype: Optional[str] = None,
 ) -> List[dict]:
     """Sample up to `n` distinct gradeable hands for a (scenario, position) spot.
 
     Filters to hands the chart actually covers here, so every served spot can be
-    graded. Order randomized so the drill varies run to run.
+    graded. Order randomized so the drill varies run to run. ``archetype`` tags
+    the spots and grades against that opponent's chart.
     """
     rng = rng or random.Random()
-    gradeable = [h for h in ALL_STARTING_HANDS if _reference(scenario, position, h) is not None]
+    gradeable = [
+        h for h in ALL_STARTING_HANDS if _reference(scenario, position, h, archetype) is not None
+    ]
     rng.shuffle(gradeable)
     return [
         {
@@ -54,21 +70,25 @@ def sample_drill_spots(
             'hand': hand,
             'depth_bb': DRILL_DEPTH_BB,
             'num_players': DRILL_PLAYERS,
+            'archetype': archetype,
         }
         for hand in gradeable[:n]
     ]
 
 
-def grade_drill_answer(scenario: str, position: str, hand: str, action: str) -> Optional[dict]:
+def grade_drill_answer(
+    scenario: str, position: str, hand: str, action: str, archetype: Optional[str] = None
+) -> Optional[dict]:
     """Grade a fold/call/raise against the chart. None if the spot isn't gradeable.
 
     Returns ``{verdict, action, your_freq, chart_freq, primary_action}`` where
     verdict is good / thin / leak by how often the chart takes `action` here.
+    ``archetype`` grades against that opponent's width-tier chart.
     """
     action = (action or '').strip().lower()
     if action not in _ACTIONS:
         return None
-    ref = _reference(scenario, position, hand)
+    ref = _reference(scenario, position, hand, archetype)
     if ref is None:
         return None
     freq = ref[action]

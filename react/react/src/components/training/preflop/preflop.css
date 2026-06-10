@@ -295,3 +295,11 @@
 .pf-control .action-buttons {
   width: 100%;
 }
+
+/* Read-drill archetype headline — the "who" we're predicting (above position). */
+.oc-archetype {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--letter-spacing-wide);
+  color: var(--color-gold);
+}

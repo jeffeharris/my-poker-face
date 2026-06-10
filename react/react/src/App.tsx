@@ -73,6 +73,9 @@ const SwipeDrill = lazy(() =>
 const VsOpenDrill = lazy(() =>
   import('./components/training/VsOpenDrill').then((m) => ({ default: m.VsOpenDrill }))
 );
+const ReadDrill = lazy(() =>
+  import('./components/training/ReadDrill').then((m) => ({ default: m.ReadDrill }))
+);
 const PrivacyPolicy = lazy(() =>
   import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
 );
@@ -572,6 +575,7 @@ function App() {
                       )
                     }
                     onVsOpenDrill={() => navigate('/menu/training/vs-open')}
+                    onReadDrill={() => navigate('/menu/training/read')}
                     onBack={() => navigate('/menu')}
                     isCreating={isCreatingGame}
                   />
@@ -620,6 +624,15 @@ function App() {
               element={
                 <ProtectedRoute>
                   <VsOpenDrill onBack={() => navigate('/menu/training')} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/read"
+              element={
+                <ProtectedRoute>
+                  <ReadDrill onBack={() => navigate('/menu/training')} />
                 </ProtectedRoute>
               }
             />

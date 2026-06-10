@@ -11,6 +11,7 @@ export interface Spot {
   hand: string;
   depth_bb: number;
   num_players: number;
+  archetype?: string | null; // set by "what would <archetype> do" read drills
 }
 
 export interface Grade {
@@ -105,10 +106,21 @@ export function SeatMap({ position }: { position: string }) {
 
 // The shared preflop card face. Anatomy: situation (top) → your cards (middle).
 // `tag` is the situational note ("Folded to you", "Facing a raise", …).
-export function PreflopCardFace({ spot, tag }: { spot: Spot; tag: string }) {
+// `headline` (optional) shows a prominent line above the position — e.g. the
+// opponent archetype in a "what would they do" read drill.
+export function PreflopCardFace({
+  spot,
+  tag,
+  headline,
+}: {
+  spot: Spot;
+  tag: string;
+  headline?: string;
+}) {
   return (
     <>
       <div className="oc-situation">
+        {headline && <span className="oc-archetype">{headline}</span>}
         <span className="oc-pos">{POSITION_NAME[spot.position] ?? spot.position}</span>
         <SeatMap position={spot.position} />
         <div className="oc-context">

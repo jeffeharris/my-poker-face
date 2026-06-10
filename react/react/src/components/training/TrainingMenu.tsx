@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Layers,
   Swords,
+  Eye,
 } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
 import { config } from '../../config';
@@ -73,6 +74,7 @@ interface TrainingMenuProps {
   onReviewGame: () => void;
   onSwipeDrill: (position?: string) => void;
   onVsOpenDrill: () => void;
+  onReadDrill: () => void;
   onBack: () => void;
   isCreating?: boolean;
 }
@@ -83,6 +85,7 @@ export function TrainingMenu({
   onReviewGame,
   onSwipeDrill,
   onVsOpenDrill,
+  onReadDrill,
   onBack,
   isCreating = false,
 }: TrainingMenuProps) {
@@ -182,6 +185,16 @@ export function TrainingMenu({
           <span className="training-menu__review-text">
             <strong>Facing a raise</strong>
             <span>Someone opened — fold, call, or 3-bet. Swipe or use the action bar.</span>
+          </span>
+          <ChevronRight size={18} />
+        </button>
+
+        {/* Read-the-player drill — predict an archetype's open. */}
+        <button type="button" className="training-menu__swipe" onClick={() => onReadDrill()}>
+          <Eye size={20} />
+          <span className="training-menu__review-text">
+            <strong>Read the player</strong>
+            <span>Would a nit / TAG / LAG / maniac open this? Predict their range.</span>
           </span>
           <ChevronRight size={18} />
         </button>

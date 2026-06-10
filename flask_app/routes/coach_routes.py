@@ -639,6 +639,7 @@ def coach_drill():
 
     scenario = (request.args.get('scenario') or '').strip()
     position = (request.args.get('position') or '').strip()
+    archetype = (request.args.get('archetype') or '').strip() or None
     kind = None
     try:
         if not (scenario and position):
@@ -650,7 +651,7 @@ def coach_drill():
             if not leak:
                 return jsonify({'enough_data': False})
             scenario, position, kind = leak['scenario'], leak['position'], leak['kind']
-        spots = sample_drill_spots(scenario, position, n=10)
+        spots = sample_drill_spots(scenario, position, n=10, archetype=archetype)
     except Exception as e:
         logger.error(f"drill build failed for {owner_id}: {e}", exc_info=True)
         return jsonify({'error': 'Could not build drill'}), 500
@@ -679,6 +680,7 @@ def coach_drill_answer():
         body.get('position', ''),
         body.get('hand', ''),
         body.get('action', ''),
+        body.get('archetype') or None,
     )
     if result is None:
         return jsonify({'error': 'Not a gradeable spot'}), 400

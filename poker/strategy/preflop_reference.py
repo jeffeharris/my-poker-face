@@ -26,6 +26,7 @@ fold / call / raise.
 
 from __future__ import annotations
 
+import os
 from typing import Dict, List, Optional
 
 from .nodes import PreflopNode
@@ -49,6 +50,7 @@ _base = None
 _depth: Dict[int, object] = {}
 _hu = None
 _loaded = False
+_archetype_tables: Dict[str, object] = {}  # archetype key → table (or None)
 
 
 def _ensure_loaded() -> None:
@@ -61,9 +63,40 @@ def _ensure_loaded() -> None:
     _loaded = True
 
 
-def _select_table(num_players: int, effective_stack_bb: float):
-    """Mirror the bot's base table selection. Returns a StrategyTable."""
+def _archetype_table(key: str):
+    """The width-tier chart for an opponent archetype (nit / maniac / station …),
+    or None if the key is unknown. Mirrors the bot's archetype table selection
+    (deviation_profiles.ARCHETYPE_WIDTH_TABLE). Only used by drills that grade
+    "what would a <archetype> do" — never by the baseline grading path."""
+    if key in _archetype_tables:
+        return _archetype_tables[key]
+    # Lazy import avoids a module-load cycle (deviation_profiles ↔ strategy).
+    from .deviation_profiles import ARCHETYPE_WIDTH_TABLE
+
     _ensure_loaded()
+    fname = ARCHETYPE_WIDTH_TABLE.get(key, '__unknown__')
+    if fname == '__unknown__':
+        table = None
+    elif fname is None:
+        table = _base  # e.g. 'tag' → the base chart
+    else:
+        data_dir = os.path.join(os.path.dirname(__file__), 'data')
+        table = load_strategy_table(json_path=os.path.join(data_dir, fname))
+    _archetype_tables[key] = table
+    return table
+
+
+def _select_table(num_players: int, effective_stack_bb: float, archetype: Optional[str] = None):
+    """Mirror the bot's base table selection. Returns a StrategyTable.
+
+    When `archetype` names a known width tier, return that opponent's chart
+    instead (for "what would a <archetype> do" drills); unknown archetypes fall
+    through to the baseline selection."""
+    _ensure_loaded()
+    if archetype:
+        table = _archetype_table(archetype)
+        if table is not None:
+            return table
     if num_players == 2 and _hu is not None:
         return _hu
     bucket = nearest_depth_bucket(effective_stack_bb)
@@ -106,6 +139,7 @@ def reference_strategy(
     opener: Optional[str],
     effective_stack_bb: float,
     num_players: int,
+    archetype: Optional[str] = None,
 ) -> Optional[Dict[str, float]]:
     """Bucketed reference frequencies ``{fold, call, raise}`` for a node.
 
@@ -113,8 +147,12 @@ def reference_strategy(
     skip, not guess). When ``opener`` is unknown (backfill), averages across
     every opener the chart actually holds for this (scenario, position) — the
     legal-matchup self-filter means only opener-before-hero pairs contribute.
+
+    ``archetype`` (nit / tag / lag / maniac / calling_station …) grades against
+    that opponent's width-tier chart instead of the baseline — for "what would a
+    <archetype> do" read drills. Default None = the baseline standard.
     """
-    table = _select_table(num_players, effective_stack_bb)
+    table = _select_table(num_players, effective_stack_bb, archetype)
 
     if scenario == 'rfi':
         return _lookup_bucketed(table, PreflopNode(hand, position, 'rfi', ''))
