@@ -145,6 +145,39 @@ Phase-2 follow-up (point 4) that wired in the range-aware equity point 3 demande
      up to +0.52) didn't occur here either — same corpus-breadth caveat. The last
      missing scalar is the exploitation edge per read (bb).
 
+7. **Wider-cast corpus (2026-06-10) — refines the signature number and finds a hard
+   reachability wall.** `experiments/configs/tilt_corpus_wide.json`: a 6-handed,
+   deliberately tilt-prone, risk-diverse cast (3 risk-seekers — Fyodor/Freddie
+   Fratboy/Calamity Jane — + 3 risk-averse — Winston Churchill/Poe/Scrooge), 8×250 =
+   **2000 hands** (exp 5). 10675 decisions, **1087 tilted spots, 10.18% rate**.
+   - **Signature corpus bb/100 = −0.165 (fish) / −0.134 (competent)** — a small,
+     believable, non-catastrophic COST, similar magnitude vs both backdrops (not
+     overfit to the fish). It is **entirely the collapse tail**: all of it comes
+     from **Poe's 44 risk-averse-tilted spots** (Δagg −0.016 — passivity forgoes a
+     little value); every risk-seeker is an *exact* no-op (Fyodor 589 spots, Freddie
+     349, Calamity 104 → 0.000), because tilt already defaults aggressive and their
+     character agrees. This refines point 6's ~0 (which under-sampled collapse): the
+     true signature cost is **≈ −0.15 bb/100, all collapse, negligible** (a competent
+     reg's win rate is single-digit-positive bb/100; 0.15 is noise-level) — and it is
+     a believability *feature* (tilted risk-averse players genuinely tighten up).
+   - **Reachability wall (the real conclusion):** across BOTH runs (~3200 hands, 8
+     personas) the sim reached **zero `shaken` states** — exactly the state where a
+     risk-seeker's spew DIVERGES from the legacy map (shaken defaults passive). The
+     cause is structural, confirmed in code: `get_emotional_shift`
+     (`bounded_options.py`) only emits `shaken` when the `shaken`/`timid` penalty
+     ZONE fires, and `shaken` is a corner zone needing **low confidence AND low
+     composure simultaneously** — which the **composure floor (~0.40, the tilt line;
+     see `EMOTIONAL_SYSTEM_ANALYSIS`)** prevents the bot from reaching. So **the spew
+     tail is not measurable via this sim path at all** until that upstream floor is
+     addressed — no persona cast can fix it. Separately, **risk-averse personas
+     barely tilt** (Scrooge 0%, Churchill 0.05%, Poe 2.7% of decisions): they play
+     tight, take fewer big losses, so they rarely leave composed/overconfident — the
+     collapse tail is thinly populated by *nature*, not by cast choice. Net: the
+     tilt-state population is dominated by risk-seekers in aggressive-default states
+     (the signature's no-op case), so **the signature's real-play EV is structurally
+     pinned near zero (−0.15 bb/100), and the only un-pricing left (spew) is blocked
+     on tilt-state reachability, not on this harness.**
+
 ## Why the existing harnesses can't measure this
 
 Two independent blockers, both confirmed against the code:
@@ -270,7 +303,10 @@ tilted." A is a good cross-check if C's EV model is doubted.
   corpus + meta (tilted-decision rate, state mix) from a psychology-on sim's
   persisted `strategy_pipeline_snapshot_json` (point 6).
 - `experiments/tilt_corpus_ev.py` — the corpus bb/100 for the signature: prices
-  range-aware ΔEV on the recorded spots, amortized over hands played (point 6).
+  range-aware ΔEV on the recorded spots, amortized over hands played (points 6–7).
+- `experiments/configs/tilt_corpus_wide.json` — the wider risk-diverse, tilt-prone
+  6-handed cast for the breadth run (point 7); surfaced the `shaken` reachability
+  wall and the collapse-only −0.15 bb/100.
 - `experiments/exploit_bb100.py` / `experiments/champion_challenger.py` — the CRN
   bb/100 machinery (approach A template; today psychology-blind).
 - `experiments/configs/tilt_persistence_check.json` — the psychology-on sim config

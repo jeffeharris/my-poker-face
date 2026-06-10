@@ -1,0 +1,34 @@
+{
+  "name": "tilt_corpus_wide",
+  "description": "Wider risk-diverse, tilt-prone cast for the tilt EV corpus (TILT_EV_HARNESS.md part a, breadth): 3 risk-seeking hotheads (spew-divergence candidates) + 3 risk-averse grinders (collapse-divergence candidates), all low-recovery, 6-handed for more bad-beat pressure. Aim: price the collapse/spew tails the 4-persona corpus under-sampled, and reach deeper tilt states (shaken). Tiered no-LLM bots, expression off, psychology on.",
+  "tags": ["tilt", "psychology", "corpus", "breadth"],
+  "num_tournaments": 8,
+  "hands_per_tournament": 250,
+  "num_players": 6,
+  "starting_stack": 10000,
+  "big_blind": 100,
+  "capture_prompts": false,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 1,
+  "personalities": [
+    "Fyodor Dostoevsky",
+    "Freddie Fratboy",
+    "Calamity Jane",
+    "Winston Churchill",
+    "Edgar Allan Poe",
+    "Ebenezer Scrooge"
+  ],
+  "player_types": {
+    "Fyodor Dostoevsky": {"type": "tiered", "expression": false},
+    "Freddie Fratboy": {"type": "tiered", "expression": false},
+    "Calamity Jane": {"type": "tiered", "expression": false},
+    "Winston Churchill": {"type": "tiered", "expression": false},
+    "Edgar Allan Poe": {"type": "tiered", "expression": false},
+    "Ebenezer Scrooge": {"type": "tiered", "expression": false}
+  },
+  "control": {
+    "label": "tilt-corpus-wide",
+    "enable_psychology": true
+  },
+  "random_seed": 42
+}
