@@ -564,3 +564,47 @@ register(
         db_overridable=True,
     )
 )
+register(
+    FeatureFlag(
+        "TILT_PERSISTENCE_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt-excursion persistence (TILT_EXCURSION_DESIGN.md): slow-recovery-while-tilted + second-wind escape in PlayerPsychology.recover() so tilt lasts long enough to be felt without going chronic. Inert (byte-identical recover) when off.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TILT_TELEGRAPH_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt telegraph (TILT_EXCURSION_DESIGN.md §4): on entering a tilt episode, a probabilistic Layer-3 trigger that forces the sharp bot to speak and hands the LLM the tilt state + loose suggestions (own words, not a fixed line). Frequency-neutral; off => no telegraph block, no forced speech.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TILT_ERRATIC_READS_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt coupling (TILT_EXCURSION_DESIGN.md §4): replace the deterministic exploitation cliff (_zone_to_tilt_factor 1.0/0.5/0.0) with an ERRATIC random taper scaled by tilt intensity, so a tilted sharp bot's reads get unreliable (never a hard 0.0). Changes decisions; off => the legacy deterministic cliff.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TILT_SIGNATURE_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt behavioral signature (TILT_EXCURSION_DESIGN.md §4): make the tiered bot's emotional distortion under tilt CHARACTER-driven by risk_identity — risk-seekers SPEW (more aggressive), risk-averse COLLAPSE (more passive) — instead of the state-driven default (tilted=aggressive for all). Brings the tiered bot to parity with the standard bot's compute_modifiers split. Changes decisions; off => state-driven direction.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)

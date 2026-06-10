@@ -147,15 +147,16 @@ class SizeContext:
         ('strong' / 'not_strong'); the consumer for ``size_by_strength``.
       * ``position`` — the hero's seat ('UTG' … 'BTN' / 'SB' / 'BB'); the consumer
         for ``position_blind``.
-      * ``emotional_state`` — the psychology emotional-state label; the consumer
-        for ``tilt_escalation``.
       * ``big_blind`` — blind unit, for ``anchor_number`` (fixate on one amount).
+
+    (A ``emotional_state`` field was scaffolded for a never-built
+    ``tilt_escalation`` sizing behavior and removed as a dead wire; re-add it here
+    if/when that behavior is implemented.)
     """
 
     scenario: Optional[str] = None
     hand_strength: Optional[str] = None
     position: Optional[str] = None
-    emotional_state: Optional[str] = None
     big_blind: int = 0
 
 

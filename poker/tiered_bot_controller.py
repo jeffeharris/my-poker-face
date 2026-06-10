@@ -283,6 +283,34 @@ def _fill_prior_action_source(
     return current_trace
 
 
+# Tilt telegraph (TILT_EXCURSION_DESIGN.md §4). On ENTERING a tilt episode, with
+# probability TILT_TELEGRAPH_PROB, hand the LLM the tilt cause + a loose
+# suggestion to react in its own words (not a fixed line). Cause phrases are keyed
+# on composure_state.pressure_source; {nemesis} is filled when known.
+TILT_TELEGRAPH_PROB = 0.7
+_TILT_CAUSE_PHRASES = {
+    'bad_beat': "just took a brutal bad beat",
+    'got_sucked_out': "just got sucked out on",
+    'big_loss': "just shipped a big pot the wrong way",
+    'losing_streak': "have been card-dead and losing for a while",
+    'nemesis_loss': "just lost another one to {nemesis}",
+    'crippled': "just got crippled down to a short stack",
+    'bluff_called': "just got your bluff snapped off",
+}
+_TILT_CAUSE_FALLBACK = "are rattled and off your game right now"
+
+
+def _tilt_erratic_enabled() -> bool:
+    """Live read of TILT_ERRATIC_READS_ENABLED; False if the registry is
+    unavailable (sim/test isolation) so the off-path keeps the legacy cliff."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('TILT_ERRATIC_READS_ENABLED')
+    except Exception:
+        return False
+
+
 class TieredBotController(AIPlayerController):
     """AI player using 3-layer tiered architecture.
 
@@ -1220,7 +1248,6 @@ class TieredBotController(AIPlayerController):
             scenario=getattr(node, 'scenario', None),
             hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
             position=getattr(node, 'position', None),
-            emotional_state=getattr(emotional_state, 'state', None),
             big_blind=getattr(game_state, 'current_ante', 0),
         )
         size_multiplier = resolve_size_multiplier(self.sizing_personality, size_context)
@@ -4239,20 +4266,39 @@ class TieredBotController(AIPlayerController):
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
-        """Map emotional_state.state -> 3-phase tilt_factor.
+        """Map emotional_state -> exploitation-strength multiplier (0..1).
 
-        composed -> 1.0 (full exploitation)
-        overconfident/tilted -> 0.5 (slight tilt, half-strength)
-        shaken/dissociated -> 0.0 (heavy tilt, no exploitation)
+        OFF (default): the original deterministic 3-phase cliff —
+        composed 1.0, tilted/overconfident 0.5, shaken/dissociated 0.0.
+
+        ON (TILT_ERRATIC_READS_ENABLED, §4): tilt makes the bot's reads ERRATIC
+        instead of cleanly halved. A single random draw per decision (memoized on
+        the threaded emotional_state object so every layer in one decision agrees)
+        tapers the multiplier with tilt intensity: `factor = 1 - intensity·U(0,1)`.
+        So a tilted bot sometimes trusts a read and sometimes loses the plot, with
+        no hard 0.0 cliff. Random, not character-keyed (for now). Changes
+        decisions -> flag-gated + sim-validated.
         """
         if emotional_state is None:
             return 1.0
         state = getattr(emotional_state, 'state', 'composed')
-        if state in ('shaken', 'dissociated'):
-            return 0.0
-        if state in ('tilted', 'overconfident'):
-            return 0.5
-        return 1.0
+        if state == 'composed':
+            return 1.0
+        if not _tilt_erratic_enabled():
+            if state in ('shaken', 'dissociated'):
+                return 0.0
+            if state in ('tilted', 'overconfident'):
+                return 0.5
+            return 1.0
+        # Erratic taper: one draw per decision, memoized on the emotional_state
+        # identity (it is computed once per decision and threaded to every layer).
+        cache = getattr(self, '_erratic_tilt_cache', None)
+        if cache is not None and cache[0] is emotional_state:
+            return cache[1]
+        intensity = float(getattr(emotional_state, 'intensity', 0.5) or 0.5)
+        factor = max(0.0, min(1.0, 1.0 - intensity * self.rng.random()))
+        self._erratic_tilt_cache = (emotional_state, factor)
+        return factor
 
     def _get_money_committed(self, game_state):
         """Per-opponent chips committed this hand.
@@ -4359,6 +4405,51 @@ class TieredBotController(AIPlayerController):
             capture_id=capture_id,
         )
 
+    def _compute_tilt_telegraph(self, emotional) -> str:
+        """TILT_EXCURSION_DESIGN.md §4: when the bot has just ENTERED a tilt
+        episode, return (with probability TILT_TELEGRAPH_PROB) a loose suggestion
+        block for the LLM to voice in its own words — NOT a fixed line. Tracks
+        `_was_tilted` so it fires once per entry, not every hand of a long
+        episode. Returns '' when the flag is off, not entering tilt, or the roll
+        misses. Frequency-neutral (Layer 3 only). A non-empty return is also the
+        signal to force a spoken beat (see caller)."""
+        # Track the tilt-entry edge UNCONDITIONALLY — before (and independent of)
+        # the feature-flag gate. If this only updated while the flag was on, a bot
+        # that entered tilt with the flag off would be seen as a *fresh* entry the
+        # first time the flag flips on, firing a spurious one-time telegraph for an
+        # episode already in progress. Tracking every call closes that runtime-toggle
+        # edge. (A cold-loaded mid-tilt bot still telegraphs on its first decision —
+        # `_was_tilted` is not serialized — but that is the correct "fire once when
+        # first observed tilted" behavior, not a spurious mid-episode fire.)
+        state = getattr(emotional, 'state', 'composed') if emotional is not None else 'composed'
+        now_tilted = state == 'tilted'
+        was_tilted = getattr(self, '_was_tilted', False)
+        self._was_tilted = now_tilted
+        try:
+            from core.feature_flags import is_enabled
+
+            if not is_enabled('TILT_TELEGRAPH_ENABLED'):
+                return ''
+        except Exception:
+            return ''
+        if not now_tilted or was_tilted:
+            return ''  # not a fresh entry
+        if self.rng.random() >= TILT_TELEGRAPH_PROB:
+            return ''
+        composure_state = getattr(getattr(self, 'psychology', None), 'composure_state', None)
+        source = getattr(composure_state, 'pressure_source', '') if composure_state else ''
+        nemesis = getattr(composure_state, 'nemesis', None) if composure_state else None
+        cause = _TILT_CAUSE_PHRASES.get(source, _TILT_CAUSE_FALLBACK)
+        if '{nemesis}' in cause:
+            cause = cause.format(nemesis=nemesis or 'them')
+        return (
+            "=== You're rattled ===\n"
+            f"You {cause}, and it's gotten under your skin. Let it leak into your "
+            "table talk the way YOUR character would when tilted — your own words, "
+            "fresh each time, never a stock line. It might be needling, sulking, "
+            "going quiet then snapping, or stubborn bravado. Never quote stats or numbers."
+        )
+
     def _run_expression_layer(
         self,
         decision: Dict,
@@ -4426,7 +4517,13 @@ class TieredBotController(AIPlayerController):
             gate = self.compute_narration_gate(game_state, drama_level=drama_level)
             should_speak = gate.should_speak
             should_gesture = gate.should_gesture
-            if gate.fully_silent:
+            # Tilt telegraph (§4): on a fresh tilt entry, force a spoken beat so
+            # the spike is *read*, overriding the chattiness gate (incl. an
+            # otherwise-fully-silent turn). Empty string => no telegraph.
+            tilt_telegraph = self._compute_tilt_telegraph(emotional)
+            if tilt_telegraph:
+                should_speak = True
+            elif gate.fully_silent:
                 return None
 
             # Opponent narrative observations — surfaced so Layer 3
@@ -4539,6 +4636,7 @@ class TieredBotController(AIPlayerController):
                 relationship_context=relationship_context,
                 human_bio=human_bio_block,
                 human_reputation_tone=getattr(self, 'human_reputation_tone', '') or '',
+                tilt_telegraph=tilt_telegraph,
             )
 
             capture_id_holder = [None]
