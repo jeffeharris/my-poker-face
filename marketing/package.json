@@ -7,6 +7,7 @@
   "scripts": {
     "avatars": "node scripts/fetch-avatars.mjs",
     "sync": "node scripts/sync-opponents.mjs",
+    "covers": "node scripts/gen-art.mjs && node scripts/gen-covers.mjs && node scripts/raster-covers.mjs",
     "dev": "npm run sync && astro dev",
     "build": "npm run sync && astro build",
     "preview": "astro preview",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "puppeteer-core": "^25.1.0"
   }
 }

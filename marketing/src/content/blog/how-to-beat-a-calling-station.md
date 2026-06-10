@@ -5,8 +5,8 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 4
-hero: /blog/cash-table-flop.jpeg
-heroAlt: A cash-game flop in My Poker Face, the moment a calling station decides it likes its hand and will not be leaving.
+hero: /blog/covers/how-to-beat-a-calling-station.jpg
+heroAlt: "How to Beat a Calling Station"
 excerpt: The calling station is the player who will not fold. You beat it with a plan you can write on a napkin, and the roster is full of them to practice on.
 draft: false
 ---

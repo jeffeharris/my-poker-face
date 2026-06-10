@@ -5,3 +5,4 @@ dist/
 *.log
 # public/avatars/ IS committed: it's the build input for the Docker image
 # (the build can't reach prod). Refresh with `npm run avatars` then commit.
+public/blog/art/

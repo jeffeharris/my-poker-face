@@ -4,8 +4,8 @@ description: People online keep claiming they can. So I measured it. Stripped of
 track: Devlog
 date: 2026-06-09
 order: 2
-hero: /blog/characters-trio.png
-heroAlt: "Three of the game's public-domain AI opponents: Sherlock Holmes, Blackbeard, and Cleopatra."
+hero: /blog/covers/llms-cant-play-poker.jpg
+heroAlt: "No, LLMs can't play poker"
 excerpt: Strip a language model down to its most mechanical poker player and the strategy never shows up. No range, no plan for a hand, just confident bets into nothing.
 draft: false
 ---

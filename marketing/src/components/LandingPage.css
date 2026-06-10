@@ -1477,3 +1477,149 @@
     transform: none;
   }
 }
+
+/* ===================== THE CAST (featured opponents strip) ===================== */
+.lp-cast {
+  margin-top: clamp(36px, 5vw, 64px);
+  text-align: center;
+}
+.lp-cast__lead {
+  margin: 0 0 clamp(20px, 2.5vw, 32px);
+  font-family: var(--font-serif);
+  font-size: clamp(16px, 1.6vw, 19px);
+  color: var(--color-text-secondary);
+}
+.lp-cast__row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: clamp(12px, 1.6vw, 22px);
+}
+.lp-cast__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  border: 1px solid var(--hair-soft);
+  border-radius: 10px;
+  background: linear-gradient(160deg, var(--ink-3), var(--ink-2));
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform 0.3s var(--ease-out-expo),
+    border-color 0.3s ease;
+}
+.lp-cast__card:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--color-gold) 45%, transparent);
+}
+.lp-cast__avatar {
+  width: clamp(64px, 7vw, 88px);
+  height: clamp(64px, 7vw, 88px);
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--hair-soft);
+}
+.lp-cast__name {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+.lp-cast__skill {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.lp-cast__more {
+  display: inline-block;
+  margin-top: clamp(20px, 2.5vw, 32px);
+  font-size: 15px;
+  color: var(--color-gold);
+  text-decoration: none;
+}
+.lp-cast__more:hover {
+  text-decoration: underline;
+}
+
+/* ===================== DEVLOG TEASER ===================== */
+.lp-devlog__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: clamp(14px, 1.6vw, 22px);
+}
+.lp-devlog__card {
+  display: flex;
+  flex-direction: column;
+  padding: clamp(20px, 2.2vw, 28px);
+  border: 1px solid var(--hair-soft);
+  border-radius: 6px;
+  background: linear-gradient(160deg, var(--ink-3), var(--ink-2));
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform 0.3s var(--ease-out-expo),
+    border-color 0.3s ease;
+}
+.lp-devlog__card:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--color-gold) 40%, transparent);
+}
+.lp-devlog__tag {
+  align-self: flex-start;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--hair-soft);
+  margin-bottom: 14px;
+}
+.lp-devlog__tag--devlog {
+  color: var(--color-gold);
+}
+.lp-devlog__tag--table {
+  color: #8fd0b6;
+}
+.lp-devlog__title {
+  margin: 0 0 10px;
+  font-family: var(--font-serif);
+  font-size: clamp(18px, 1.8vw, 22px);
+  line-height: 1.2;
+  color: var(--color-text-primary);
+}
+.lp-devlog__excerpt {
+  margin: 0 0 16px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+.lp-devlog__more {
+  margin-top: auto;
+  font-size: 14px;
+  color: var(--color-gold);
+}
+.lp-devlog__all {
+  display: inline-block;
+  margin-top: clamp(20px, 2.5vw, 32px);
+  font-size: 15px;
+  color: var(--color-gold);
+  text-decoration: none;
+}
+.lp-devlog__all:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 880px) {
+  .lp-cast__row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .lp-devlog__row {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 480px) {
+  .lp-cast__row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

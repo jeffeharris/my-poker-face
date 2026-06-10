@@ -4,8 +4,8 @@ description: The AI opponents in My Poker Face carry a real, persistent mood you
 track: Inside the Table
 date: 2026-06-09
 order: 1
-hero: /blog/cash-table-the-garage.jpeg
-heroAlt: A cash table of public-domain characters (Louis XIV, Alexander the Great, Cleopatra, Santa Claus), each with a live emotional state.
+hero: /blog/covers/poker-where-the-opponents-are-alive.jpg
+heroAlt: "Poker where the opponents are alive"
 excerpt: Most poker apps give you a difficulty slider with a name attached. This one gives you characters with a mood the game actually keeps track of.
 draft: false
 ---
@@ -14,7 +14,7 @@ Most poker apps give you opponents that are really just a difficulty slider with
 
 This game started from a different place. The opponents are characters first and a difficulty setting almost never. You play against [Sherlock Holmes](/opponents/sherlock-holmes/), or [Blackbeard](/opponents/blackbeard/), or [Cleopatra](/opponents/cleopatra/), and the thing that makes them worth playing against isn't how good they are at poker. It's that they have a mood, and the mood is real: a number the game keeps track of, that moves when things happen to them, and that you can read on their face if you're paying attention.
 
-That premise is older than almost everything else in the project. Three years ago, one of the very first changes was a tiny commit titled *"Added some confidence and attitude,"* which let each character carry an emotional state instead of a fixed one. Everything since has been about making that real enough to play against.
+That premise has been here from the very start. Giving each character a real, shifting mood instead of a fixed difficulty was one of the first ideas the game was built on, and everything since has been about making it real enough to play against.
 
 ## "Alive" means the emotion is visible and the strategy is not
 
@@ -26,7 +26,7 @@ That single line is what separates a chatbot in a poker skin from an opponent yo
 
 ## Why the character doesn't just dissolve into noise
 
-The obvious worry with an AI character is that it'll be random, chaotic one hand and meek the next with no through-line. The game avoids that by building each opponent in three layers:
+The obvious worry with an AI character is that it'll be random, chaotic one hand and meek the next with no through-line. What keeps each opponent coherent is that they're really three things at once:
 
 - **Who they are.** A fixed identity. Ten traits like ego, poise, and expressiveness that hold steady during a session. This is the character's gravity. A cocky player stays fundamentally cocky.
 - **How they feel right now.** Three live dials, confidence, composure, and energy, that move every single hand based on what just happened.
@@ -36,9 +36,9 @@ So the mood moves, but it moves inside the character. A high-ego player and a ca
 
 ## Tilt is a number, and it's sticky
 
-Here's the part that makes it feel alive at the table. The mood is not re-rolled every hand. It's stored, and it carries.
+Here's the part that makes it feel alive at the table. The mood doesn't reset every hand. It carries.
 
-When a player takes a brutal beat, the game doesn't just generate a sad sentence. It routes the event through that character's psychology and actually moves their dials. A player with high ego loses more confidence when you bluff them. A player with high poise shrugs off a cooler that would rattle someone else. And the recovery is lopsided on purpose:
+When a player takes a brutal beat, the character doesn't just say a sad line. The beat actually moves their mood, and it moves differently for different characters. A player with high ego loses more confidence when you bluff them. A player with high poise shrugs off a cooler that would rattle someone else. And the recovery is lopsided on purpose:
 
 > Below baseline: tilt is sticky.
 
@@ -46,7 +46,7 @@ Hot streaks fade fast; tilt lingers. That's why the opponent you just coolered p
 
 ## And it follows them out of the room
 
-The newest piece surprised even me with how much it changes the feel. The mood persists across sessions. When an AI gets up from your cash table rattled and you come back later, it's still rattled. Their emotional state is saved when they leave and restored when they return, and if they've been idle a while, their energy quietly recovers on its own in the meantime, the way a real person cools off between sessions.
+The newest piece surprised even me with how much it changes the feel. The mood persists across sessions. When an AI gets up from your cash table rattled and you come back later, it's still rattled. And if it's been away from the table a while, it cools off on its own in the meantime, the way a real person settles down between sessions.
 
 So a rivalry can actually build. The character you've been needling all week doesn't reset to a blank slate every time the page reloads. The table was still there while you were gone.
 

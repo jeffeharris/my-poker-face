@@ -5,8 +5,8 @@ track: Inside the Table
 series: Know Your Opponent
 date: 2026-06-09
 order: 8
-hero: /blog/cash-table-the-garage.jpeg
-heroAlt: A loose, aggressive table where the dangerous player isn't the loudest one, it's the skilled one applying constant pressure.
+hero: /blog/covers/how-to-beat-a-lag.jpg
+heroAlt: "How to Beat a LAG (the Loose-Aggressive Player)"
 excerpt: The LAG is the maniac with a license. Same relentless aggression, except now it's earned. You beat them with position, patience, and a willingness to play back.
 draft: false
 ---

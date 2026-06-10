@@ -5,8 +5,8 @@ track: Inside the Table
 series: Playing Better Poker
 date: 2026-06-09
 order: 21
-hero: /blog/cash-table-flop.jpeg
-heroAlt: The preflop decision in My Poker Face, where most of the money is won and lost before a community card is dealt.
+hero: /blog/covers/which-hands-to-play-preflop-starting-hands.jpg
+heroAlt: "Which Hands to Play: a Preflop Starting-Hand Guide"
 excerpt: The most common leak in poker is playing too many hands. Fixing it is the cheapest improvement you can make, and it happens before the flop.
 draft: false
 ---
