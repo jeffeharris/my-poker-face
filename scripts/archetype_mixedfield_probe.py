@@ -26,6 +26,7 @@ table had), and WTSD/W$SD from the end-of-hand state. Stats + denominators match
 poker/archetype_targets.py exactly.
 """
 
+import os
 import random
 import sys
 from collections import defaultdict
@@ -43,7 +44,7 @@ from poker.poker_state_machine import PokerStateMachine
 from poker.strategy.preflop_classifier import classify_preflop_scenario
 from poker.strategy.strategy_table import load_strategy_table
 
-N_HANDS = 9000
+N_HANDS = int(os.environ.get('PROBE_HANDS', '9000'))
 BASE_SEED = 4242
 BIG_BLIND = 100
 STARTING_STACK = 10000

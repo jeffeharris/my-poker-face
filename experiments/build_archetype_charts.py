@@ -247,8 +247,16 @@ def _transform_facing(
 def build_loose(base: dict) -> dict:
     data = copy.deepcopy(base)
     _set_rfi(data, _LOOSE_RFI)
-    # widen continues: keep 45% of fold vs_open, 60% vs_3bet, 75% vs_4bet
-    _transform_facing(data, _loosen_facing, {'vs_open': 0.45, 'vs_3bet': 0.60, 'vs_4bet': 0.75})
+    # widen continues: keep 45% of fold vs_open, 60% vs_3bet, 75% vs_4bet.
+    # vs_3bet raise_share is bumped to 0.70 so the maniac amplifies the base's
+    # (suited-only) bluff-4-bet mass into its wide polarized 4-bet — the
+    # believable maniac (no offsuit trash 4-bets; see build_vs3bet_defense.py).
+    _transform_facing(
+        data,
+        _loosen_facing,
+        {'vs_open': 0.45, 'vs_3bet': 0.60, 'vs_4bet': 0.75},
+        extra_by_scenario={'vs_3bet': {'raise_share': 0.70}},
+    )
     return data
 
 
@@ -288,7 +296,10 @@ def build_station(base: dict) -> dict:
     _transform_facing(
         data,
         _station_facing,
-        {'vs_open': 0.30, 'vs_3bet': 0.55, 'vs_4bet': 0.80},
+        # vs_3bet keep_fold 0.55→0.63: with the equity-graded vs_3bet (which
+        # flat-calls a real medium range rather than the stub's uniform blob),
+        # 0.55 widened the station's 3-bet defense past its fold-to-3bet floor.
+        {'vs_open': 0.30, 'vs_3bet': 0.63, 'vs_4bet': 0.80},
         # Trap the premiums the base chart 3-bets: a station does not re-raise.
         # Damps facing-open 3-bet ~18%→~3% and facing-3bet 4-bet ~14%→~3%.
         extra_by_scenario={
@@ -315,7 +326,9 @@ def build_weak_station(base: dict) -> dict:
     _transform_facing(
         data,
         _station_facing,
-        {'vs_open': 0.10, 'vs_3bet': 0.35, 'vs_4bet': 0.65},
+        # vs_3bet keep_fold 0.35→0.45 (same reason as build_station): the graded
+        # vs_3bet needs a touch more fold kept to stay above the fold-to-3bet floor.
+        {'vs_open': 0.10, 'vs_3bet': 0.45, 'vs_4bet': 0.65},
         # Same trap-the-premiums damp as the station, a touch softer (the $2 fish
         # is a hair more spew-prone). Damps facing-open 3-bet ~19%→~4%.
         extra_by_scenario={
