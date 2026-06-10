@@ -119,14 +119,18 @@ the believability/bands gate passes cleanly and the readable-archetype thesis (�
 non-spewy, polarized 3-bet defense over max-EV extraction from an over-folding bot. Unlike
 vs_4bet (EV-neutral), this is a deliberate believability-over-EV trade, not a free win.
 
-**Still TODO:** the `stack_utils` committed-`bet` fix.
-
-**Adjacent bug found, NOT fixed here:** `stack_utils.effective_stack_chips` omits committed
-`bet`, so when all live opponents are all-in (stack 0) it returns **0.0** effective stack
-(snapshot showed `effective_stack_bb: 0.0` for Alexander at ~78bb). Fix = use `stack + bet`
-(mirrors `_try_push_fold_lookup`). Deferred: it has broad blast radius (SPR/depth for *every*
-decision) so it wants its own paired-EV sim, and the veto already supersedes the only spot
-where it bit a live decision.
+**Effective-stack committed-`bet` fix (SHIPPED, separate PR).** `stack_utils.effective_stack_chips`
+omitted committed `bet`, so when all live opponents were all-in (stack 0) it returned **0.0**
+effective stack (the snapshot showed `effective_stack_bb: 0.0` for Alexander at ~78bb), which
+mis-routed chart-depth selection and falsely tripped the short-stack heuristic. Fixed to use
+`stack + bet` (each player's total chips), matching the engine's own all-in check
+(`amount == player.stack + player.bet`); the inline duplicate in `_try_push_fold_lookup` was
+consolidated onto the now-correct shared helper so the two can't drift. Behavior-preserving for
+push/fold (already used `stack + bet`) and a near-no-op in deep play; the change is confined to
+genuinely short / all-in spots, where the old value was simply wrong. Tests in
+`tests/test_stack_utils.py` (the prod scenario now reads 78.23bb); mixed-field probe shows no
+band regression. This was the last open item in the trash-shove series (veto → vs_4bet → vs_3bet
+→ effective-stack).
 
 ### AI-only control (the human is NOT the cause)
 
