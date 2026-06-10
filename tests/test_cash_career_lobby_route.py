@@ -20,6 +20,7 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from cash_mode import career_progression as cp
+from cash_mode.tables import open_slot
 from flask_app import create_app
 from poker.repositories import create_repos
 
@@ -370,13 +371,26 @@ class TestCareerMentorStake(unittest.TestCase):
         return self.repos['sandbox_repo'].list_for_owner(MENTOR_OWNER_ID)[0].sandbox_id
 
     def _home_court(self, sb):
-        """Seed the world (via a lobby load) and return a real $2 home-court table."""
+        """Seed the world (via a lobby load) and return a real $2 home-court table.
+
+        Guarantees an open seat. The lobby refill seeds a fixed 2 open seats but a
+        later live-fill can occasionally take all of them under a polluting test
+        order (pytest-randomly + leaked live sessions in the module-level
+        game_state_service inflating presence). These tests exercise the
+        mentor-stake flow, not the seeding, and need a seat to sit the graduate
+        into — so free one deterministically rather than depend on refill
+        nondeterminism (was an intermittent StopIteration on the open-seat lookup).
+        """
         self.client.get("/api/cash/lobby")
-        return next(
+        home = next(
             t
             for t in self.repos['cash_table_repo'].list_all_tables(sandbox_id=sb)
             if t.stake_label == cp.HOME_COURT_STAKE
         )
+        if not home.has_open_seat():
+            home = home.with_seat(0, open_slot())
+            self.repos['cash_table_repo'].save_table(home, sandbox_id=sb)
+        return home
 
     def _set_graduated_broke(self, sb, home_table_id):
         """Mark the player graduated, broke, and pinned to a revealed home court."""
