@@ -16,6 +16,17 @@ from .zone_config import get_zone_param
 logger = logging.getLogger(__name__)
 
 
+def _emotional_rebalance_enabled() -> bool:
+    """Live read of EMOTIONAL_REBALANCE_ENABLED; False if the registry is unavailable
+    (sim/test isolation) so the off-path stays byte-identical (current baseline)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('EMOTIONAL_REBALANCE_ENABLED')
+    except Exception:
+        return False
+
+
 def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
     """Clamp value to range [min_val, max_val]."""
     return max(min_val, min(max_val, value))
@@ -478,6 +489,14 @@ def compute_baseline_confidence(anchors: PersonalityAnchors) -> float:
         caps `self_belief` so even a maxed-out tourist stays below the
         OVERCONFIDENT zone rather than auto-tilting.
     """
+    if _emotional_rebalance_enabled():
+        # EMOTIONAL_SYSTEM_BALANCE.md §3/§6.1: conviction = belief in READS, from
+        # self_belief + a self-regard (ego) core — decoupled from aggression/risk/
+        # winning so the aggressive winners who tilt are no longer pinned high-K and
+        # the fear pole (shaken) becomes reachable. Wider floor so fragile archetypes
+        # can start low.
+        rebalanced = 0.35 + anchors.self_belief * 0.35 + anchors.ego * 0.15
+        return _clamp(rebalanced, min_val=0.40, max_val=0.72)
     baseline = (
         0.3
         + anchors.baseline_aggression * 0.25

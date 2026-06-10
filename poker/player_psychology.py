@@ -58,6 +58,17 @@ def _tilt_persistence_enabled() -> bool:
         return False
 
 
+def _emotional_rebalance_enabled() -> bool:
+    """Live read of EMOTIONAL_REBALANCE_ENABLED; False if the registry is unavailable
+    (sim/test isolation) so the off-path stays byte-identical (current axes)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('EMOTIONAL_REBALANCE_ENABLED')
+    except Exception:
+        return False
+
+
 # === RE-EXPORTS ===
 # All existing `from poker.player_psychology import X` statements continue working.
 
@@ -228,6 +239,30 @@ _PRESSURE_IMPACTS: Dict[str, Dict[str, float]] = {
     # confidence/energy bump (looser, friendlier).
     'reputation_villain_intimidation': {'composure': -0.06, 'confidence': -0.03},
     'reputation_legend_warmth': {'confidence': 0.04, 'energy': 0.05},
+}
+
+
+# EMOTIONAL_REBALANCE_ENABLED variant (EMOTIONAL_SYSTEM_BALANCE.md §6.1): conviction
+# (confidence) decoupled from chip-winning — cut the UP pumps so K stops pinning at
+# ~0.96, and concentrate the DOWNs on epistemic (out-read) events. Only the confidence
+# deltas of the listed events change; composure/energy are identical, so off-flag is
+# byte-identical. (New epistemic events shown_a_bluff / hero_call_wrong need detector
+# emission — a later slice; not in this table yet.)
+_REBALANCED_CONF_DELTAS: Dict[str, float] = {
+    'big_win': 0.02,  # was 0.12 — winning chips != validating reads
+    'winning_streak': 0.03,  # was 0.10
+    'successful_bluff': 0.12,  # was 0.20 — real read-confirmation, but half the pump
+    'big_loss': -0.05,  # was -0.15 — composure carries the chip hit, not conviction
+    'bluff_called': -0.22,  # was -0.25 — core conviction-killer, kept strong
+    'losing_streak': -0.10,  # was -0.12 — sustained out-play -> doubt
+}
+_PRESSURE_IMPACTS_REBALANCED: Dict[str, Dict[str, float]] = {
+    ev: (
+        {**impacts, 'confidence': _REBALANCED_CONF_DELTAS[ev]}
+        if ev in _REBALANCED_CONF_DELTAS
+        else impacts
+    )
+    for ev, impacts in _PRESSURE_IMPACTS.items()
 }
 
 
@@ -668,7 +703,10 @@ class PlayerPsychology:
 
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
         """Get axis impacts for a pressure event."""
-        return _PRESSURE_IMPACTS.get(event_name, {})
+        table = (
+            _PRESSURE_IMPACTS_REBALANCED if _emotional_rebalance_enabled() else _PRESSURE_IMPACTS
+        )
+        return table.get(event_name, {})
 
     def resolve_hand_events(
         self,

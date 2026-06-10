@@ -247,6 +247,41 @@ event model … or per-persona anchors"), the tuning pivots to the **confidence 
 goal requires L1 and/or L2 — an event-model or anchor/persona change — which is a
 design decision, not a parameter sweep. Phase B is re-scoped around L1+L2.
 
+### Phase B — slice 1 (2026-06-10): catch-22 broken, but under-target
+
+First implementation slice behind `EMOTIONAL_REBALANCE_ENABLED` (off by default, 246
+psychology tests byte-identical when off): the **L1+L2** levers from
+`EMOTIONAL_SYSTEM_BALANCE.md §6.1` — re-derived `baseline_confidence`
+(`0.35 + self_belief·0.35 + ego·0.15`; Fyodor 0.80→0.645) + the event-table rebalance
+(cut the UP pumps, concentrate DOWNs on epistemic events). Wide-cast sim flag-on
+(exp 6, 2000 hands), measured with `tilt_reachability.py`:
+
+| metric | baseline (exp 5) | slice 1 (exp 6) |
+|---|---|---|
+| **`shaken` decisions** | **0** | **17 (0.16%)** — fear pole reaches the corner |
+| confidence @ deep penalty (median) | 0.96 | **0.52** (min 0.13; 8 spots in the <0.35 corner) |
+| Fyodor `shaken`% | 0.00% | 0.92% |
+| `overconfident` decisions | 884 | **25** |
+| baseline penalty-band | 91.7% | 97.0% |
+
+**Verdict: the central hypothesis is VALIDATED** — decoupling conviction from
+chip-winning makes the fear pole reachable (the confidence axis now *falls*; `shaken`
+fires for the first time). **But slice 1 is not yet at target on two axes:**
+1. **Under-frequency:** Fyodor 0.92% `shaken` vs the **5–8%** H1 target — the door is
+   cracked, not open. Needs the §6.1 **recovery asymmetry** (`RECOVERY_ABOVE_BASELINE_CONF`)
+   + likely stronger epistemic-down magnitudes / the new `shown_a_bluff` /
+   `hero_call_wrong` events (which need detector emission).
+2. **System got *tamer*, not livelier:** cutting the up-pumps collapsed
+   `overconfident` (884→25) — which was a large chunk of "emotional" time — so total
+   penalty-time fell (97% baseline-band). This is *correct* (winning bots were too
+   cocky) but it surfaces the **orthogonal Phase-A finding** (the system under-fires
+   globally): we now need to turn UP overall emotional sensitivity/frequency to hit
+   the PRD bands, separately from the reachability fix.
+
+Next slices: (2) recovery asymmetry + epistemic-down strength to lift `shaken` toward
+5–8%; (3) global sensitivity / `EMOTIONAL_MAGNITUDE` to refill the PRD bands; re-measure
+each against `tilt_reachability.py` + the corpus EV probes.
+
 ## Conclusion
 
 **Phase A complete.** It converted "emotions feel weak" into three measured facts:
