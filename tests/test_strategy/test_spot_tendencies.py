@@ -415,15 +415,20 @@ def test_sticky_fires_facing_raise_too():
     )
 
 
-def test_sticky_no_op_off_river():
-    out, traces = _apply(
-        FACING,
-        tendencies=STICKY,
-        hand_class='weak_made',
-        action_context='facing_bet',
-        street='turn',
-    )
-    assert out is FACING and not traces[0].fired
+def test_sticky_fires_on_flop_and_turn():
+    # Stickiness now spans every postflop street (the calling-station float-call),
+    # not just the river pay-off.
+    for street in ('flop', 'turn'):
+        out, traces = _apply(
+            FACING,
+            tendencies=STICKY,
+            hand_class='weak_made',
+            action_context='facing_bet',
+            street=street,
+        )
+        assert traces[0].fired, street
+        assert out.action_probabilities['fold'] < FACING.action_probabilities['fold'], street
+        assert out.action_probabilities['call'] > FACING.action_probabilities['call'], street
 
 
 def test_sticky_no_op_when_unopened():
@@ -756,7 +761,7 @@ def test_passive_postflop_respects_cap_and_ablation_and_validates():
 
 def test_rock_carries_passive_postflop():
     # The fix's attachment point: only rock carries the new tendency.
-    assert DEVIATION_PROFILES['rock'].spot_tendencies == (('passive_postflop', 0.30),)
+    assert DEVIATION_PROFILES['rock'].spot_tendencies == (('passive_postflop', 0.18),)
     # And no other production archetype carries it (inert unless carried).
     for key, prof in DEVIATION_PROFILES.items():
         if key == 'rock':
@@ -790,9 +795,9 @@ def _mk_controller(base=None, override=None, resolved=False, config=None):
 
 
 def test_no_override_returns_archetype_profile_unchanged():
-    # nit carries no spot_tendencies → the no-override path passes through empty.
-    c = _mk_controller(base=DEVIATION_PROFILES['nit'])
-    assert c.deviation_profile is DEVIATION_PROFILES['nit']
+    # maniac carries no spot_tendencies → the no-override path passes through empty.
+    c = _mk_controller(base=DEVIATION_PROFILES['maniac'])
+    assert c.deviation_profile is DEVIATION_PROFILES['maniac']
     assert c.deviation_profile.spot_tendencies == ()
     # tag now carries defend_3bet → the no-override path passes it through unchanged.
     c_tag = _mk_controller(base=DEVIATION_PROFILES['tag'])

@@ -29,9 +29,12 @@ COUNTER_COLUMNS = (
     'vs_3bet',
     'vs_3bet_agg',
     'vs_3bet_fold',
-    'postflop_agg',
-    'postflop_call',
     'allin_hands',
+    # NOTE: the legacy aggregate postflop_agg/postflop_call columns are
+    # intentionally NOT listed — AF/AFq are derived from the per-street agg/call
+    # below (same timeline as the folds). The physical columns remain in the table
+    # as harmless additive remnants (no destructive migration on a live counter
+    # table); they are no longer written or read.
     # Backlog #11 — showdown reach/win + per-street aggression. Aggregate
     # postflop fold = flop_fold + turn_fold + river_fold (not stored separately).
     'saw_flop',

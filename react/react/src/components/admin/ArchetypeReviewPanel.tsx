@@ -30,6 +30,8 @@ interface ArchRow {
 }
 interface Summary {
   mode: string;
+  window: string;
+  supports_window: boolean;
   stat_order: string[];
   stat_labels: Record<string, string>;
   archetypes: ArchRow[];
@@ -43,6 +45,16 @@ const SOURCES: { id: Source; label: string }[] = [
   { id: 'live', label: 'Live (you in)' },
   { id: 'sim', label: 'Sim (AI-only)' },
 ];
+// Time window — LIVE only (filters on created_at). Sim reads cumulative
+// counters, so it is locked to all-time.
+type TimeWindow = '1h' | '24h' | '7d' | '30d' | 'all';
+const WINDOWS: { id: TimeWindow; label: string }[] = [
+  { id: '1h', label: '1h' },
+  { id: '24h', label: '24h' },
+  { id: '7d', label: '7d' },
+  { id: '30d', label: '30d' },
+  { id: 'all', label: 'All' },
+];
 
 const fmt = (s: StatCell): string => (s.actual === null ? '—' : `${s.actual}`);
 const fmtTarget = (t: [number, number] | null): string => (t ? `${t[0]}–${t[1]}` : '—');
@@ -55,15 +67,18 @@ export function ArchetypeReviewPanel({ embedded = false }: Props) {
   const [data, setData] = useState<Summary | null>(null);
   const [source, setSource] = useState<Source>('live');
   const [mode, setMode] = useState<Mode>('cash');
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (s: Source, m: Mode) => {
+  const load = useCallback(async (s: Source, m: Mode, w: TimeWindow) => {
     setLoading(true);
     setError(null);
+    // Sim is cumulative → always all-time (the backend ignores window for sim).
+    const effWindow = s === 'sim' ? 'all' : w;
     try {
       const resp = await adminAPI.fetch(
-        `/api/admin/archetype-review/summary?source=${s}&mode=${m}`
+        `/api/admin/archetype-review/summary?source=${s}&mode=${m}&window=${effWindow}`
       );
       if (!resp.ok) throw new Error(`summary ${resp.status}`);
       setData(await resp.json());
@@ -76,8 +91,8 @@ export function ArchetypeReviewPanel({ embedded = false }: Props) {
   }, []);
 
   useEffect(() => {
-    load(source, mode);
-  }, [load, source, mode]);
+    load(source, mode, timeWindow);
+  }, [load, source, mode, timeWindow]);
 
   return (
     <div className={embedded ? 'arp arp--embedded' : 'arp'}>
@@ -118,7 +133,35 @@ export function ArchetypeReviewPanel({ embedded = false }: Props) {
               );
             })}
           </div>
-          <button className="arp-refresh" onClick={() => load(source, mode)} disabled={loading}>
+          <div
+            className="arp-modes"
+            title={
+              source === 'sim'
+                ? 'Sim counters are cumulative — all-time only (windowing needs snapshots)'
+                : 'Time window (live decisions, by recency)'
+            }
+          >
+            {WINDOWS.map((w) => {
+              // Sim can't be windowed (cumulative counters) — lock to 'All',
+              // disabled, mirroring the mode toggle so the layout stays put.
+              const active = source === 'sim' ? w.id === 'all' : timeWindow === w.id;
+              return (
+                <button
+                  key={w.id}
+                  className={`arp-mode ${active ? 'arp-mode--active' : ''}`}
+                  onClick={() => source === 'live' && setTimeWindow(w.id)}
+                  disabled={source === 'sim'}
+                >
+                  {w.label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            className="arp-refresh"
+            onClick={() => load(source, mode, timeWindow)}
+            disabled={loading}
+          >
             <RefreshCw size={14} className={loading ? 'arp-spin' : ''} />
           </button>
         </div>
@@ -126,9 +169,12 @@ export function ArchetypeReviewPanel({ embedded = false }: Props) {
 
       <p className="arp-sub">
         Actual behavior vs target range per archetype. Green = on-target, amber = close, red = off.{' '}
-        {data ? `${data.total_decisions.toLocaleString()} decisions.` : ''}{' '}
+        {data ? `${data.total_decisions.toLocaleString()} decisions` : ''}
+        {data && source === 'live' && timeWindow !== 'all'
+          ? ` in the last ${WINDOWS.find((w) => w.id === timeWindow)?.label}.`
+          : '.'}{' '}
         {source === 'sim'
-          ? 'Sim = the background AI-vs-AI cash games (you are NOT in these) — the clean archetype signal.'
+          ? 'Sim = the background AI-vs-AI cash games (you are NOT in these) — the clean archetype signal. Cumulative counters, so all-time only.'
           : 'Live = games you played in. Tiered-bot decisions only (the LLM path carries no archetype).'}
       </p>
 

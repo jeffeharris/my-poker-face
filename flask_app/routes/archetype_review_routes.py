@@ -97,6 +97,29 @@ def _mode_clause(mode: str) -> str:
     return "(game_id LIKE 'cash-%' OR game_id LIKE 'sim\\_%' ESCAPE '\\')"
 
 
+# Time-window options for the LIVE source (filtered on player_decision_analysis
+# created_at). The SIM source reads cumulative counters and cannot be windowed
+# without periodic snapshots, so it ignores this and always reports all-time.
+WINDOW_OPTIONS = ('1h', '24h', '7d', '30d', 'all')
+_WINDOW_OFFSETS = {
+    '1h': '-1 hours',
+    '24h': '-1 days',
+    '7d': '-7 days',
+    '30d': '-30 days',
+}
+
+
+def _window_clause(window: str) -> tuple[str, list]:
+    """(sql_fragment, params) limiting rows to the window via created_at.
+
+    ``all`` (or anything unknown) → no filter. Otherwise an
+    ``AND created_at >= datetime('now', ?)`` fragment with the offset bound."""
+    offset = _WINDOW_OFFSETS.get(window)
+    if not offset:
+        return '', []
+    return "AND created_at >= datetime('now', ?)", [offset]
+
+
 def _fetch_showdown_map(conn: sqlite3.Connection, mode: str) -> dict:
     """Map (game_id, hand_number) -> (was_showdown: bool, winner_names: set[str]).
 
@@ -150,8 +173,9 @@ def _iter_winner_names(parsed) -> list:
     return names
 
 
-def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
-    """Compute per-archetype behavioral stats for the given game mode."""
+def _aggregate(conn: sqlite3.Connection, mode: str, window: str = 'all') -> dict:
+    """Compute per-archetype behavioral stats for the given game mode + window."""
+    win_sql, win_params = _window_clause(window)
     rows = conn.execute(
         f"""
         SELECT game_id, player_name, hand_number, phase, action_taken,
@@ -162,8 +186,10 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
         FROM player_decision_analysis
         WHERE strategy_pipeline_snapshot_json IS NOT NULL
           AND {_mode_clause(mode)}
+          {win_sql}
         ORDER BY rowid
-        """
+        """,
+        win_params,
     ).fetchall()
 
     # Per-archetype accumulators.
@@ -386,7 +412,14 @@ def _aggregate(conn: sqlite3.Connection, mode: str) -> dict:
                 'all_in': (_pct(len(a['allin_hands']), n_hands), n_hands),
             },
         }
-    return _build_payload(per_arch, mode=mode, source='live', total_decisions=len(seen))
+    return _build_payload(
+        per_arch,
+        mode=mode,
+        source='live',
+        total_decisions=len(seen),
+        window=window,
+        supports_window=True,
+    )
 
 
 def _aggregate_sim() -> dict:
@@ -412,12 +445,19 @@ def _aggregate_sim() -> dict:
     for r in rows:
         hands = r['hands']
         total += r['pf_decisions']
-        pf_call = r['postflop_call']
-        pf_agg = r['postflop_agg']
-        af = round(pf_agg / pf_call, 2) if pf_call else (None if pf_agg == 0 else 99.0)
-        # AFq = (bet+raise) / (bet+raise+call+fold). Aggregate postflop fold is
-        # the sum of the three street folds (not stored separately, by design).
+        # AF and AFq are derived from the per-street columns ONLY (all three —
+        # agg/call/fold — share a single accumulation timeline). The legacy
+        # aggregate postflop_agg/postflop_call counters are NOT used: they began
+        # accumulating ~20h before the per-street fold columns existed (migrations
+        # 20260608_1600 vs 20260609_1200), so mixing the full-history agg/call with
+        # the shorter-history folds under-weighted folds and inflated AFq for every
+        # archetype. Per-street agg == the old aggregate going forward, so nothing
+        # is lost.
+        pf_agg = r['flop_agg'] + r['turn_agg'] + r['river_agg']
+        pf_call = r['flop_call'] + r['turn_call'] + r['river_call']
         pf_fold = r['flop_fold'] + r['turn_fold'] + r['river_fold']
+        af = round(pf_agg / pf_call, 2) if pf_call else (None if pf_agg == 0 else 99.0)
+        # AFq = (bet+raise) / (bet+raise+call+fold) — folds in the denominator.
         afq_den = pf_agg + pf_call + pf_fold
         saw = r['saw_flop']
         sd = r['showdowns']
@@ -444,10 +484,28 @@ def _aggregate_sim() -> dict:
                 'all_in': (_pct(r['allin_hands'], hands), hands),
             },
         }
-    return _build_payload(per_arch, mode='sim', source='sim', total_decisions=total)
+    # Sim reads cumulative counters → always all-time; it cannot be windowed
+    # without periodic snapshots (supports_window=False tells the UI to lock the
+    # window toggle to 'all').
+    return _build_payload(
+        per_arch,
+        mode='sim',
+        source='sim',
+        total_decisions=total,
+        window='all',
+        supports_window=False,
+    )
 
 
-def _build_payload(per_arch: dict, *, mode: str, source: str, total_decisions: int) -> dict:
+def _build_payload(
+    per_arch: dict,
+    *,
+    mode: str,
+    source: str,
+    total_decisions: int,
+    window: str = 'all',
+    supports_window: bool = True,
+) -> dict:
     """Score a {archetype: {hands, stats:{stat:(actual,sample)}}} map vs targets
     and assemble the response. Shared by the live and sim aggregators."""
     targets = get_targets(_load_override())
@@ -480,6 +538,8 @@ def _build_payload(per_arch: dict, *, mode: str, source: str, total_decisions: i
     return {
         'mode': mode,
         'source': source,
+        'window': window,
+        'supports_window': supports_window,
         'stat_order': list(STAT_LABELS.keys()),
         'stat_labels': STAT_LABELS,
         'archetypes': results,
@@ -508,6 +568,9 @@ def archetype_review_summary():
         (background AI-vs-AI counters; the human is NOT in these).
       ``mode`` — ``cash`` (default), ``tournament``, ``all``. Live-only;
         the sim source is cash by construction.
+      ``window`` — ``1h`` / ``24h`` / ``7d`` / ``30d`` / ``all`` (default).
+        LIVE-only (filters on created_at); the sim source reads cumulative
+        counters and always reports all-time (see supports_window in the reply).
     """
     source = (request.args.get('source') or 'live').lower()
     if source not in ('live', 'sim'):
@@ -515,8 +578,11 @@ def archetype_review_summary():
     mode = (request.args.get('mode') or 'cash').lower()
     if mode not in ('cash', 'tournament', 'all'):
         mode = 'cash'
+    window = (request.args.get('window') or 'all').lower()
+    if window not in WINDOW_OPTIONS:
+        window = 'all'
 
-    cache_key = f'{source}:{mode}'
+    cache_key = f'{source}:{mode}:{window}'
     now = time.time()
     hit = _SUMMARY_CACHE.get(cache_key)
     if hit and now - hit[0] < _CACHE_TTL:
@@ -528,7 +594,7 @@ def archetype_review_summary():
         else:
             conn = _open_ro()
             try:
-                payload = _aggregate(conn, mode)
+                payload = _aggregate(conn, mode, window)
             finally:
                 conn.close()
     except sqlite3.Error as e:

@@ -108,12 +108,13 @@ class ArchetypeStatRecorder:
             # The player saw the flop (≥1 postflop decision) — WTSD denominator.
             scratch['saw_flop'] = True
             street = phase.lower()  # flop / turn / river
-            # Aggregate AF/AFq components (back-compat) + per-street split.
+            # Per-street agg/call/fold are the SINGLE source of truth for AF/AFq.
+            # (The old aggregate postflop_agg/postflop_call counters were dropped:
+            # they predated the per-street fold column by one migration, so mixing
+            # them inflated AFq. The review route now sums the per-street columns.)
             if action in _AGGRESSIVE:
-                t['postflop_agg'] += 1
                 t[f'{street}_agg'] += 1
             elif action == 'call':
-                t['postflop_call'] += 1
                 t[f'{street}_call'] += 1
             elif action == 'fold':
                 # AFq denominator (folds count); per-street fold for street AFq.

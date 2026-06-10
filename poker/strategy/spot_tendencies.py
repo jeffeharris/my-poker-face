@@ -375,7 +375,11 @@ def _auto_cbet(
 # beat hands bleeds chips. Its exploiter is "value-bet thin + overbet, never
 # bluff."
 _STICKY_CLASSES = frozenset({'weak_made', 'medium_made'})
-_STICKY_STREETS = frozenset({'river'})
+# Calling-station stickiness spans every postflop street, not just the river:
+# the defining leak is calling flop/turn bets light with weak/medium made hands
+# (drives WTSD up and fold-to-c-bet down). River alone modeled only the pay-off,
+# not the station's flop/turn float-calling.
+_STICKY_STREETS = frozenset({'flop', 'turn', 'river'})
 
 
 def _sticky(
@@ -391,7 +395,8 @@ def _sticky(
     position: Optional[str] = None,
     **_,
 ) -> Tuple[StrategyProfile, str]:
-    """Sticky/pays-off handler. Over-call weak made hands to a river bet.
+    """Sticky/pays-off handler. Over-call weak/medium made hands facing a bet or
+    raise on any postflop street (the calling-station float-call + river pay-off).
 
     `new_strategy is strategy` (identity) signals "gate not met / no-op".
     """
