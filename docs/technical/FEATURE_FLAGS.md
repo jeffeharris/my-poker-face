@@ -2,7 +2,7 @@
 purpose: Architecture of the central feature-flag registry — lifecycle stages, per-env defaults, resolution pipeline, and how it integrates with config/DB/tests
 type: architecture
 created: 2026-06-07
-last_updated: 2026-06-07
+last_updated: 2026-06-10
 ---
 
 # Feature Flag System
@@ -172,12 +172,16 @@ python3 scripts/flags.py status            # current process env
 python3 scripts/flags.py status --env prod # preview prod resolution
 ```
 
-## Current inventory (2026-06-07)
+## Current inventory (2026-06-10)
 
-All registered flags are `owner="cash_mode.economy"`.
+**42 registered flags** across eight owners. Generate this live with
+`python3 scripts/flags.py status --env <dev|prod>`; the promote/hold/kill plan for
+each is in
+[`docs/plans/FEATURE_FLAG_LIFECYCLE_PLAN.md`](../plans/FEATURE_FLAG_LIFECYCLE_PLAN.md).
+
+**`cash_mode.economy` (25):**
 
 - **GRADUATED** (locked on): `RAKE_ENABLED`, `PRESENCE_AUTHORITY_ENABLED`
-- **RETIRED** (locked off): `PRESENCE_SHADOW_WRITE_ENABLED`
 - **STABLE, dev+prod on**: `SIDE_HUSTLE_ENABLED`, `RAKE_PLAYER_TABLES`,
   `REPUTATION_DEMEANOR_ENABLED`, `DOSSIER_SCOUTING_GATE_ENABLED`,
   `CHIP_CUSTODY_ENABLED`, `CHIP_CUSTODY_DERIVE_READS`, `RENOWN_V2_ENABLED`,
@@ -187,9 +191,36 @@ All registered flags are `owner="cash_mode.economy"`.
   `GENESIS_RESERVE_ENABLED`, `RAKE_RESERVE_GATED`, `DIRECTOR_POLICY_HOLD`,
   `VICE_RESERVE_GATED`, `CASINO_RESEED_ON_SPENT`
 - **EXPERIMENTAL** (off everywhere): `REGEN_ENABLED`, `DIRECTOR_INEQUALITY_RAKE`,
-  `CASINO_RELATIVE_THRESHOLDS`, `TABLE_AFFINITY_ENABLED`
+  `CASINO_RELATIVE_THRESHOLDS`, `TABLE_AFFINITY_ENABLED`,
+  `CAREER_PROGRESSION_ENABLED`, `CAREER_VOUCH_ENABLED`, `INTAKE_WORLD_WARMUP_ENABLED`
 
-Net: **13/23 on in dev, 18/23 on in prod.**
+**`poker.strategy` (5)** — the tilt/excursion system (see `TILT_EXCURSION_DESIGN.md`),
+all `db_overridable=True`:
+
+- **BETA** (dev on, prod off): `TILT_CONDITIONING_ENABLED`
+- **EXPERIMENTAL** (off everywhere): `TILT_PERSISTENCE_ENABLED`,
+  `TILT_TELEGRAPH_ENABLED`, `TILT_ERRATIC_READS_ENABLED`, `TILT_SIGNATURE_ENABLED`
+
+**App / infrastructure (12)** — migrated into the registry on 2026-06-10 (formerly
+scattered `os.environ.get(...)` reads / a hardcoded constant):
+
+- `flask_app.config` (5): `ENABLE_AVATAR_GENERATION`, `ENABLE_AI_COMMENTARY`
+  (STABLE on), `CSRF_PROTECTION_ENABLED` (STABLE, dev=off/prod=on),
+  `ENABLE_AI_DEBUG`, `ENABLE_TEST_ROUTES` (EXPERIMENTAL, off)
+- `flask_app.services` (2): `WORLD_TICKER_ENABLED`,
+  `TICKER_ASYNC_NARRATION_ENABLED` (STABLE on)
+- `flask_app.chat` (1): `SARCASM_DETECTION_ENABLED` (STABLE on)
+- `core.moderation` (1): `MODERATION_ENABLED` (STABLE on)
+- `poker.controllers` (2): `DECISION_ANALYSIS_ENABLED` (STABLE on),
+  `DECISION_ANALYSIS_QUEUE_ENABLED` (STABLE, dev=off/prod=on)
+- `cash_mode.narrative` (1): `CASH_LEAVE_NARRATIVE_ENABLED` (STABLE on; de-inverted
+  from the legacy `CASH_LEAVE_NARRATIVE_DISABLED` env flag)
+
+Net: **22/42 on in dev, 28/42 on in prod.**
+
+> The retired `PRESENCE_SHADOW_WRITE_ENABLED` flag (and the obsolete cutover
+> validation scripts) were removed on 2026-06-10 — the off-grid presence mirror
+> it once gated is now driven solely by the graduated `PRESENCE_AUTHORITY_ENABLED`.
 
 ## Out of scope
 

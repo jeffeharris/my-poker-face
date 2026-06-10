@@ -9,7 +9,6 @@ double whose `complete()` returns a canned `LLMResponse`.
 from __future__ import annotations
 
 import json
-import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -172,9 +171,8 @@ class TestGenerateLeaveComment:
 
 class TestDisabledFlag:
     def test_disabled_in_test_suite(self):
-        # conftest.py sets this for the cash_mode test package — confirm
+        # conftest sets CASH_LEAVE_NARRATIVE_ENABLED=0 for the suite — confirm
         # the gate works end-to-end so queue_leave_comment stays cheap.
-        assert os.environ.get("CASH_LEAVE_NARRATIVE_DISABLED") == "1"
         assert is_disabled()
 
     def test_queue_is_noop_when_disabled(self):

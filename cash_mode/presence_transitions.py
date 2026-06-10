@@ -10,9 +10,10 @@ window). It is the single seat-presence writer for BOTH cutover modes:
     truth; a double-seat IntegrityError propagates (rolls back the whole
     `save_table`, rejecting the bad seat write — the structural guard doing its
     job).
-  * else `PRESENCE_SHADOW_WRITE_ENABLED` → shadow: best-effort mirror, every
-    failure logged and swallowed so it can NEVER break the real seat write.
   * else → no-op.
+
+(The pre-cutover `PRESENCE_SHADOW_WRITE_ENABLED` best-effort-mirror mode was
+removed once authority became permanent.)
 
 Why a chokepoint and not call-site reconciles: nearly every seat write (AI
 churn, casino, the human sit/leave routes) flows through `save_table`. Driving
@@ -64,14 +65,12 @@ logger = logging.getLogger(__name__)
 
 
 def _mode() -> Optional[str]:
-    """Read the cutover flags live (so a runtime flip / test monkeypatch takes
-    effect). Returns 'authority', 'shadow', or None."""
+    """Read the authority flag live (so a runtime flip / test monkeypatch takes
+    effect). Returns 'authority' or None."""
     from cash_mode import economy_flags
 
     if getattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False):
         return "authority"
-    if getattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False):
-        return "shadow"
     return None
 
 
@@ -181,8 +180,8 @@ def _apply(
         # Post-promotion this shouldn't happen. In AUTHORITY mode it's a real
         # consistency problem (the engine is the final guard) — propagate so the
         # whole save_table rolls back and the anomaly surfaces loudly, rather
-        # than silently leaving the entity in an un-sittable state. In shadow
-        # mode, log and skip (best-effort must never break the real seat write).
+        # than silently leaving the entity in an un-sittable state. When called
+        # non-authoritatively (`raise_on_integrity=False`), log and skip.
         if raise_on_integrity:
             raise
         logger.warning(
@@ -198,7 +197,7 @@ def _apply(
     except sqlite3.IntegrityError as e:
         # A double-seat collision (partial-unique index). In AUTHORITY mode this
         # MUST surface — propagate to roll back the whole save_table and reject
-        # the bad seat write. In shadow mode, swallow.
+        # the bad seat write. When called non-authoritatively, swallow.
         if raise_on_integrity:
             raise
         logger.warning(
@@ -290,102 +289,89 @@ def emit_presence_transitions_for_save(
     mode = _mode()
     if mode is None or sandbox_id is None or new_table is None:
         return
-    authority = mode == "authority"
+    # Authority is the only live mode now (the pre-cutover shadow best-effort
+    # mode was removed), and `mode is None` returned above — so presence is the
+    # source of truth here: a structural-guard IntegrityError (or any write
+    # failure) propagates out of `save_table`'s transaction, rolling back the bad
+    # seat write rather than being swallowed.
+    table_id = new_table.table_id
+    desired = _seat_map(new_table.seats)
 
-    try:
-        table_id = new_table.table_id
-        desired = _seat_map(new_table.seats)
+    old_slots: Dict[str, Dict[str, Any]] = {}
+    if old_seats_blob:
+        try:
+            for slot in json.loads(old_seats_blob):
+                eid = _entity_id_for_slot(slot)
+                if eid:
+                    old_slots[eid] = slot
+        except (ValueError, TypeError):
+            pass
 
-        old_slots: Dict[str, Dict[str, Any]] = {}
-        if old_seats_blob:
-            try:
-                for slot in json.loads(old_seats_blob):
-                    eid = _entity_id_for_slot(slot)
-                    if eid:
-                        old_slots[eid] = slot
-            except (ValueError, TypeError):
-                pass
+    # (1) Departures: anyone presence has SEATED at THIS table who is no
+    # longer in the new map at the same seat. Clearing them first frees the
+    # seat in the partial-unique index so arrivals below can't collide.
+    seated_here = conn.execute(
+        "SELECT entity_id, seat_index FROM entity_presence "
+        "WHERE sandbox_id = ? AND table_id = ? AND state = 'seated'",
+        (sandbox_id, table_id),
+    ).fetchall()
+    for eid, seat in seated_here:
+        d = desired.get(eid)
+        if d is not None and d[0] == seat:
+            continue  # still correctly seated here
+        event = _departure_event(eid, old_slots.get(eid))
+        result = _apply(conn, sandbox_id, eid, event, now_iso=now_iso, raise_on_integrity=True)
+        if result.state is Presence.IDLE:
+            _idle_meta_write(conn, eid, sandbox_id, idle_metadata, now_iso)
 
-        # (1) Departures: anyone presence has SEATED at THIS table who is no
-        # longer in the new map at the same seat. Clearing them first frees the
-        # seat in the partial-unique index so arrivals below can't collide.
-        seated_here = conn.execute(
-            "SELECT entity_id, seat_index FROM entity_presence "
-            "WHERE sandbox_id = ? AND table_id = ? AND state = 'seated'",
-            (sandbox_id, table_id),
-        ).fetchall()
-        for eid, seat in seated_here:
-            d = desired.get(eid)
-            if d is not None and d[0] == seat:
-                continue  # still correctly seated here
-            event = _departure_event(eid, old_slots.get(eid))
-            result = _apply(
-                conn, sandbox_id, eid, event, now_iso=now_iso, raise_on_integrity=authority
-            )
-            if result.state is Presence.IDLE:
-                _idle_meta_write(conn, eid, sandbox_id, idle_metadata, now_iso)
+    # (2) Arrivals: seat each desired occupant, promoting through a legal
+    # precursor when its current state can't SIT directly.
+    for eid, (seat, slot) in desired.items():
+        cur = _load_state(conn, eid, sandbox_id)
+        if cur.state is Presence.SEATED and cur.table_id == table_id and cur.seat_index == seat:
+            continue  # already correctly seated — no-op
 
-        # (2) Arrivals: seat each desired occupant, promoting through a legal
-        # precursor when its current state can't SIT directly.
-        for eid, (seat, slot) in desired.items():
-            cur = _load_state(conn, eid, sandbox_id)
-            if cur.state is Presence.SEATED and cur.table_id == table_id and cur.seat_index == seat:
-                continue  # already correctly seated — no-op
-
-            if cur.state is Presence.SEATED:
-                # Seated elsewhere (a move): LEAVE the old seat first.
-                _apply(
-                    conn,
-                    sandbox_id,
-                    eid,
-                    PresenceEvent.LEAVE,
-                    now_iso=now_iso,
-                    raise_on_integrity=authority,
-                )
-            elif cur.state in (Presence.SIDE_HUSTLE, Presence.VICE):
-                # Returning off-grid AI: END_OFFGRID → IDLE first.
-                _apply(
-                    conn,
-                    sandbox_id,
-                    eid,
-                    PresenceEvent.END_OFFGRID,
-                    now_iso=now_iso,
-                    raise_on_integrity=authority,
-                )
-
-            cur = _load_state(conn, eid, sandbox_id)
-            if cur.state is Presence.OFFLINE and slot.get("archetype") == "fish":
-                # Fresh pool-funded fish: SEED → POOL before SIT.
-                _apply(
-                    conn,
-                    sandbox_id,
-                    eid,
-                    PresenceEvent.SEED,
-                    now_iso=now_iso,
-                    raise_on_integrity=authority,
-                )
-
+        if cur.state is Presence.SEATED:
+            # Seated elsewhere (a move): LEAVE the old seat first.
             _apply(
                 conn,
                 sandbox_id,
                 eid,
-                PresenceEvent.SIT,
-                table_id=table_id,
-                seat_index=seat,
+                PresenceEvent.LEAVE,
                 now_iso=now_iso,
-                raise_on_integrity=authority,
+                raise_on_integrity=True,
             )
-            _idle_meta_delete(conn, eid, sandbox_id)  # no longer idle
+        elif cur.state in (Presence.SIDE_HUSTLE, Presence.VICE):
+            # Returning off-grid AI: END_OFFGRID → IDLE first.
+            _apply(
+                conn,
+                sandbox_id,
+                eid,
+                PresenceEvent.END_OFFGRID,
+                now_iso=now_iso,
+                raise_on_integrity=True,
+            )
 
-    except sqlite3.IntegrityError:
-        if authority:
-            raise  # surface the structural guard — rolls back the seat write
-        logger.warning("[PRESENCE] integrity error swallowed (shadow) sandbox=%s", sandbox_id)
-    except Exception as e:  # noqa: BLE001
-        if authority:
-            raise
-        logger.warning(
-            "[PRESENCE] transition emit failed (shadow) sandbox=%s: %s — real write unaffected",
+        cur = _load_state(conn, eid, sandbox_id)
+        if cur.state is Presence.OFFLINE and slot.get("archetype") == "fish":
+            # Fresh pool-funded fish: SEED → POOL before SIT.
+            _apply(
+                conn,
+                sandbox_id,
+                eid,
+                PresenceEvent.SEED,
+                now_iso=now_iso,
+                raise_on_integrity=True,
+            )
+
+        _apply(
+            conn,
             sandbox_id,
-            e,
+            eid,
+            PresenceEvent.SIT,
+            table_id=table_id,
+            seat_index=seat,
+            now_iso=now_iso,
+            raise_on_integrity=True,
         )
+        _idle_meta_delete(conn, eid, sandbox_id)  # no longer idle

@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import random
 from collections import deque
 from dataclasses import asdict
@@ -64,14 +63,18 @@ def _decision_analysis_enabled() -> bool:
     Default on; set ``DECISION_ANALYSIS_ENABLED=0`` to turn it off entirely in
     prod once enough data has been gathered — the hot path then does nothing.
     """
-    return os.environ.get("DECISION_ANALYSIS_ENABLED", "1").lower() not in ("0", "false", "no")
+    from core import feature_flags
+
+    return feature_flags.is_enabled("DECISION_ANALYSIS_ENABLED")
 
 
 def _decision_analysis_queue_enabled() -> bool:
     """When on, decisions are enqueued for the out-of-band analytics worker
-    instead of analyzed inline on the gameplay worker. Default off (inline),
-    which keeps existing/test behavior unchanged."""
-    return os.environ.get("DECISION_ANALYSIS_QUEUE_ENABLED", "0").lower() in ("1", "true", "yes")
+    instead of analyzed inline on the gameplay worker. Off in dev (inline, keeps
+    tests cheap), on in prod (the worker container)."""
+    from core import feature_flags
+
+    return feature_flags.is_enabled("DECISION_ANALYSIS_QUEUE_ENABLED")
 
 
 def _dispatch_decision_analysis(job, analysis_repo, capture_label_repo) -> Optional[int]:

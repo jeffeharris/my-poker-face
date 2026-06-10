@@ -8,10 +8,9 @@ seats (`seated_and_idle`, `double_seat`) are unrepresentable because the seat
 write and the presence transition commit together in `save_table`; this checker
 *documents and monitors* that invariant rather than repairing it.
 
-Pure I/O + comparison, no writes, no schema change. Reused by
-`scripts/audit_presence_divergence.py` and tests. `reserved` slots are a
-pre-sit sponsorship hold (the occupant has NOT sat) so they are deliberately NOT
-expected to carry a SEATED presence row.
+Pure I/O + comparison, no writes, no schema change. Reused by tests. `reserved`
+slots are a pre-sit sponsorship hold (the occupant has NOT sat) so they are
+deliberately NOT expected to carry a SEATED presence row.
 
 A non-empty result is either a real wiring bug or — on a live DB — a transient of
 the ~2s world ticker (the seat write and presence commit are atomic, but a

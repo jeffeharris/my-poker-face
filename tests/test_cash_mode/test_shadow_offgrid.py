@@ -1,12 +1,11 @@
-"""Phase 1 dual-write SHADOW tests for the OFF-GRID presence writers.
+"""Presence tests for the OFF-GRID presence writers.
 
 Covers the four authoritative off-grid state writers in
-``cash_mode.ai_side_hustle`` and ``cash_mode.ai_vice_spending``. When
-``economy_flags.PRESENCE_SHADOW_WRITE_ENABLED`` is on, each authoritative
-``ai_side_hustle_state`` / ``ai_vice_state`` write should ALSO drive the
-dormant Presence state machine (the ``entity_presence`` table via
-``EntityPresenceRepository``) — proving the machine tracks reality before a
-later phase flips authority to it.
+``cash_mode.ai_side_hustle`` and ``cash_mode.ai_vice_spending``. Under
+``PRESENCE_AUTHORITY_ENABLED`` (the cash-mode conftest pins it True), each
+authoritative ``ai_side_hustle_state`` / ``ai_vice_state`` write ALSO drives the
+Presence state machine (the ``entity_presence`` table via
+``EntityPresenceRepository``).
 
 The real writers live at:
 
@@ -36,7 +35,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from cash_mode import ai_side_hustle, ai_vice_spending, economy_flags
+from cash_mode import ai_side_hustle, ai_vice_spending
 from cash_mode.presence import Presence, PresenceEvent, ai_entity_id
 from poker.repositories.entity_presence_repository import EntityPresenceRepository
 from poker.repositories.schema_manager import SchemaManager
@@ -138,16 +137,11 @@ def presence_repo(tmp_path):
     return EntityPresenceRepository(p)
 
 
-@pytest.fixture(autouse=True)
-def _flag_default_off(monkeypatch):
-    """Default the kill switch OFF around every test (restored after)."""
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False, raising=False)
-
-
 @pytest.fixture()
 def shadow_on(monkeypatch, presence_repo):
-    """Flag on + route the helper's default repo to our temp presence repo."""
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", True, raising=False)
+    """Route the helper's default repo to our temp presence repo. Presence
+    writes are gated on `PRESENCE_AUTHORITY_ENABLED`, which the cash-mode
+    conftest pins True for every test."""
     import flask_app.extensions as ext
 
     monkeypatch.setattr(ext, "entity_presence_repo", presence_repo, raising=False)

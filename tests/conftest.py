@@ -38,7 +38,7 @@ os.environ['RATE_LIMIT_GAME_ACTION'] = '10000 per minute'
 # cash-mode integration tests live OUTSIDE that subdirectory
 # (`tests/test_cash_lobby_route.py`, `tests/test_cash_sit_route.py`,
 # etc.) and don't see the per-package conftest.
-os.environ.setdefault('CASH_LEAVE_NARRATIVE_DISABLED', '1')
+os.environ.setdefault('CASH_LEAVE_NARRATIVE_ENABLED', '0')
 
 # Disable the realtime world ticker across the suite. The ticker is a
 # background daemon started in create_app(); left on, it runs against
@@ -191,11 +191,10 @@ RESET_ECONOMY_FLAGS = (
     "DIRECTOR_POLICY_HOLD",
     "CASINO_RELATIVE_THRESHOLDS",
     "CASINO_RESEED_ON_SPENT",
-    # PRESENCE_SHADOW_WRITE_ENABLED / PRESENCE_AUTHORITY_ENABLED are no longer
-    # `_env_flag(...)` reads (the Presence cutover hardwired authority True and
-    # left shadow a vestigial constant), so they're intentionally absent here —
-    # `test_economy_flag_defaults` only tracks env-driven flags. The fixture
-    # pins PRESENCE_AUTHORITY_ENABLED = True explicitly below.
+    # PRESENCE_AUTHORITY_ENABLED is no longer an `_env_flag(...)` read (the
+    # Presence cutover hardwired it True; the old shadow flag was removed), so
+    # it's intentionally absent here — `test_economy_flag_defaults` only tracks
+    # env-driven flags. The fixture pins PRESENCE_AUTHORITY_ENABLED = True below.
     "CHIP_CUSTODY_ENABLED",
     "CHIP_CUSTODY_DERIVE_READS",
     "TOURNAMENT_CIRCUIT_ENABLED",

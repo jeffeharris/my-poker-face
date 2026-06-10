@@ -424,14 +424,6 @@ register(
         owner=_ECON,
     )
 )
-register(
-    FeatureFlag(
-        "PRESENCE_SHADOW_WRITE_ENABLED",
-        Stage.RETIRED,
-        "Vestigial pre-flip presence shadow dual-write (superseded by authority).",
-        owner=_ECON,
-    )
-)
 
 # --- Chip-custody machine ---
 register(
@@ -606,5 +598,143 @@ register(
         dev=False,
         prod=False,
         db_overridable=True,
+    )
+)
+
+# --- Flask app: config-level toggles (read by flask_app/config.py) ---------
+# Defaults match the prior os.environ.get(...) defaults exactly; dev/prod splits
+# mirror the verified live state (CSRF / debug arming). Migrated 2026-06-10.
+_FLASK_CFG = "flask_app.config"
+register(
+    FeatureFlag(
+        "ENABLE_AVATAR_GENERATION",
+        Stage.STABLE,
+        "Background AI player avatar generation (expensive; default on).",
+        owner=_FLASK_CFG,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "ENABLE_AI_COMMENTARY",
+        Stage.STABLE,
+        "Post-hand AI commentary generation (default on).",
+        owner=_FLASK_CFG,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "CSRF_PROTECTION_ENABLED",
+        Stage.STABLE,
+        "Double-submit-cookie CSRF enforcement. Off in dev/test (cross-origin SPA, FLASK_ENV=development) and ON in prod (same-origin) — current_env() mirrors config.is_development exactly.",
+        owner=_FLASK_CFG,
+        dev=False,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "ENABLE_AI_DEBUG",
+        Stage.EXPERIMENTAL,
+        "Backend AI-debug surface: LLM stats on player cards (dev/debug opt-in). Also drives the frontend VITE_ENABLE_AI_DEBUG build arg separately.",
+        owner=_FLASK_CFG,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "ENABLE_TEST_ROUTES",
+        Stage.EXPERIMENTAL,
+        "Register the test-helper HTTP endpoints (flask_app/routes/test_routes.py); dev/test opt-in only.",
+        owner=_FLASK_CFG,
+        dev=False,
+        prod=False,
+    )
+)
+
+# --- Flask app: realtime world ticker (flask_app/services/ticker_service.py) -
+_FLASK_SVC = "flask_app.services"
+register(
+    FeatureFlag(
+        "WORLD_TICKER_ENABLED",
+        Stage.STABLE,
+        "Realtime cash-mode world ticker (default on); off falls back to read-driven refresh on /api/cash/lobby.",
+        owner=_FLASK_SVC,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TICKER_ASYNC_NARRATION_ENABLED",
+        Stage.STABLE,
+        "Run vice/side-hustle START narration OFF the tick in a background greenlet (default on); off reverts to synchronous in-tick narration.",
+        owner=_FLASK_SVC,
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Flask app: chat / social --------------------------------------------
+register(
+    FeatureFlag(
+        "SARCASM_DETECTION_ENABLED",
+        Stage.STABLE,
+        "Sarcasm perception gate: only recipients with high adaptation_bias detect sarcasm (off => the prior universal sarcasm transform).",
+        owner="flask_app.chat",
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Core: content moderation (core/moderation.py) ------------------------
+register(
+    FeatureFlag(
+        "MODERATION_ENABLED",
+        Stage.STABLE,
+        "OpenAI text moderation on user content (default on; additionally no-ops without an OPENAI_API_KEY).",
+        owner="core.moderation",
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Poker: per-decision analytics (poker/controllers.py) -----------------
+_CTRL = "poker.controllers"
+register(
+    FeatureFlag(
+        "DECISION_ANALYSIS_ENABLED",
+        Stage.STABLE,
+        "Master switch for per-decision equity-MC quality logging (default on).",
+        owner=_CTRL,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "DECISION_ANALYSIS_QUEUE_ENABLED",
+        Stage.STABLE,
+        "Enqueue decisions for the out-of-band analytics worker instead of analyzing inline. Off in dev (inline, keeps tests cheap), on in prod (the worker container).",
+        owner=_CTRL,
+        dev=False,
+        prod=True,
+    )
+)
+
+# --- Cash mode: leave-table narration (cash_mode/leave_narrative.py) -------
+# De-inverted from the legacy CASH_LEAVE_NARRATIVE_DISABLED env flag.
+register(
+    FeatureFlag(
+        "CASH_LEAVE_NARRATIVE_ENABLED",
+        Stage.STABLE,
+        "AI leave-table narration LLM calls (default on; disabled in the test suite via env so the lobby doesn't fire real LLM calls).",
+        owner="cash_mode.narrative",
+        dev=True,
+        prod=True,
     )
 )

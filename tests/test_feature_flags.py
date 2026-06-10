@@ -140,7 +140,6 @@ def test_economy_flags_globals_match_registry():
         "RAKE_PLAYER_TABLES",  # stable, on
         "DOSSIER_SCOUTING_GATE_ENABLED",  # stable, on
         "PRESENCE_AUTHORITY_ENABLED",  # graduated, locked on
-        "PRESENCE_SHADOW_WRITE_ENABLED",  # retired, locked off
     ]
     for name in env_stable:
         import os
