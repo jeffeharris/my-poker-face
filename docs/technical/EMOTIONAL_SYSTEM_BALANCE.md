@@ -184,6 +184,49 @@ Plus three structural changes:
    delta (high for a maniac, low for a pro) — this is where archetype differentiation
    lives, not in the event magnitudes themselves.
 
+### 6.1 v1 numbers (code-ready, to be sim-validated)
+
+Concrete starting values so implementation is mechanical and the first sim has
+something to measure. These are a **hypothesis to tune**, not final — but they encode
+the principles above. Flag-gated; flag-off keeps the current values byte-identical.
+
+**Baseline conviction** (`compute_baseline_confidence`, flag-on branch) — drop
+`aggression`/`risk_identity`/`winning`, keep a self-regard core, widen the floor so
+fragile archetypes can start low:
+```
+baseline_K = 0.35 + self_belief·0.35 + ego·0.15      # was: +agg·.25 +risk·.20 +ego·.25 +(sb−.5)·.4
+clamp [0.40, 0.72]
+# Fyodor 0.5/0.8 → 0.645 (was ~0.80);  anxious nit 0.35/0.30 → 0.52;  pro 0.7/0.5 → 0.67
+```
+
+**Event deltas** (the `confidence`→K column; composure mostly unchanged). The point is
+to **cut the UP pumps** (so K stops pinning at 0.96) and **concentrate the DOWNs on
+epistemic events**:
+
+| Event | K now | K v1 | why |
+|---|---|---|---|
+| big_win | +0.12 | **+0.02** | winning chips ≠ validating reads — kill the pump |
+| winning_streak | +0.10 | **+0.03** | same |
+| successful_bluff | +0.20 | **+0.12** | read confirmed — real but smaller (it's half the pump) |
+| big_loss | −0.15 | **−0.05** | losing chips ≠ losing reads (composure −0.15 carries it) |
+| bad_beat / cooler | 0 (skip) | **0** | keep — luck never dents conviction |
+| bluff_called | −0.25 | **−0.22** | core conviction-killer — keep strong |
+| shown_a_bluff *(new)* | — | **−0.18** | you got read & fooled |
+| hero_call_wrong *(new)* | — | **−0.15** | epistemic miss |
+| nemesis_loss | −0.18 | **−0.18** | out-thought by a rival — keep |
+| losing_streak | −0.12 | **−0.10** | sustained out-play → doubt |
+
+**Asymmetric recovery:** add `RECOVERY_ABOVE_BASELINE_CONF` (K-specific, default same
+as today so off-flag is identical); flag-on set it aggressive (~0.50) so euphoric
+conviction decays toward baseline fast, while below-baseline recovery stays at the
+persona's `recovery_rate`. Net: a heater's K falls back to baseline between pots
+instead of ratcheting to 0.96, and an out-played stretch can drag K under 0.35.
+
+> Expected effect (the §8 check): with the pumps cut + baseline lowered + epistemic
+> downs concentrated, a maniac on a genuinely out-played downswing should cross into
+> Conf < 0.35 → the `shaken` corner opens for the first time. The first sim measures
+> exactly this with `tilt_reachability.py`.
+
 ## 7. Per-archetype profiles & frequency targets
 
 Replace the global PRD with **per-archetype** targets (B4). Each archetype template =
