@@ -344,17 +344,20 @@ register(
         Stage.STABLE,
         "Director two-layer rake: add lower stake tiers as the bank empties.",
         owner=_ECON,
-        dev=False,
+        # dev=True (2026-06-10): turned on in dev so the BETA DIRECTOR_INEQUALITY_RAKE
+        # evaluation isn't a no-op (inequality-rake is gated inside this block).
+        dev=True,
         prod=True,
     )
 )
 register(
     FeatureFlag(
         "DIRECTOR_INEQUALITY_RAKE",
-        Stage.EXPERIMENTAL,
+        # BETA (2026-06-10): dev-on for evaluation; still prod-off pending sim.
+        Stage.BETA,
         "On a flat field, lead the refill with rake (implies RAKE_RESERVE_GATED).",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=False,
     )
 )
@@ -373,10 +376,11 @@ register(
 register(
     FeatureFlag(
         "CASINO_RELATIVE_THRESHOLDS",
-        Stage.EXPERIMENTAL,
+        # BETA (2026-06-10): dev-on for evaluation; still prod-off pending sim.
+        Stage.BETA,
         "Treat casino spawn/close/whale gates as fractions of holdings.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=False,
     )
 )
@@ -505,10 +509,11 @@ register(
 register(
     FeatureFlag(
         "TABLE_AFFINITY_ENABLED",
-        Stage.EXPERIMENTAL,
+        # BETA (2026-06-10): dev-on for evaluation; still prod-off pending sim.
+        Stage.BETA,
         "Success-weighted room stickiness in idle table selection.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=False,
     )
 )

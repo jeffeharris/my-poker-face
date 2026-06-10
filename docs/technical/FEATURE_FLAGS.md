@@ -187,11 +187,14 @@ each is in
   `CHIP_CUSTODY_ENABLED`, `CHIP_CUSTODY_DERIVE_READS`, `RENOWN_V2_ENABLED`,
   `RENOWN_V2_PERSIST_AI`, `PRESTIGE_SEEKING_ENABLED`, `TOURNAMENT_CIRCUIT_ENABLED`,
   `TOURNAMENT_DRAW_ENABLED`
-- **STABLE, prod-only** (the Director thermostat — `dev=False, prod=True`):
-  `GENESIS_RESERVE_ENABLED`, `RAKE_RESERVE_GATED`, `DIRECTOR_POLICY_HOLD`,
-  `VICE_RESERVE_GATED`, `CASINO_RESEED_ON_SPENT`
-- **EXPERIMENTAL** (off everywhere): `REGEN_ENABLED`, `DIRECTOR_INEQUALITY_RAKE`,
-  `CASINO_RELATIVE_THRESHOLDS`, `TABLE_AFFINITY_ENABLED`,
+- **STABLE, prod-only** (the Director thermostat — `prod=True`):
+  `GENESIS_RESERVE_ENABLED`, `DIRECTOR_POLICY_HOLD`, `VICE_RESERVE_GATED`,
+  `CASINO_RESEED_ON_SPENT` (all `dev=False`), plus `RAKE_RESERVE_GATED`
+  (`dev=True` as of 2026-06-10 — turned on in dev so the BETA inequality-rake
+  isn't a no-op).
+- **BETA** (dev on, prod off — under dev evaluation as of 2026-06-10):
+  `DIRECTOR_INEQUALITY_RAKE`, `CASINO_RELATIVE_THRESHOLDS`, `TABLE_AFFINITY_ENABLED`
+- **EXPERIMENTAL** (off everywhere): `REGEN_ENABLED`,
   `CAREER_PROGRESSION_ENABLED`, `CAREER_VOUCH_ENABLED`, `INTAKE_WORLD_WARMUP_ENABLED`
 
 **`poker.strategy` (5)** — the tilt/excursion system (see `TILT_EXCURSION_DESIGN.md`),
@@ -216,7 +219,7 @@ scattered `os.environ.get(...)` reads / a hardcoded constant):
 - `cash_mode.narrative` (1): `CASH_LEAVE_NARRATIVE_ENABLED` (STABLE on; de-inverted
   from the legacy `CASH_LEAVE_NARRATIVE_DISABLED` env flag)
 
-Net: **22/42 on in dev, 28/42 on in prod.**
+Net: **26/42 on in dev, 28/42 on in prod.**
 
 > The retired `PRESENCE_SHADOW_WRITE_ENABLED` flag (and the obsolete cutover
 > validation scripts) were removed on 2026-06-10 — the off-grid presence mirror

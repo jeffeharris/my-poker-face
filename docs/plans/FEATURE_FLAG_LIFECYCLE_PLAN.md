@@ -97,9 +97,22 @@ No change. These are `STABLE` and on; the retained kill switch is cheap insuranc
 | `CAREER_PROGRESSION_ENABLED` | **Hold** | Act-1 narrative master gate, in active development (M1 built, M2-M4 pending). Correctly EXPERIMENTAL. |
 | `CAREER_VOUCH_ENABLED` | **Hold** | Career-M2 vouches; same workstream. |
 | `INTAKE_WORLD_WARMUP_ENABLED` | **Hold** | Inert without the career gate; part of the same workstream. |
-| `DIRECTOR_INEQUALITY_RAKE` | **Hold (time-box)** | An undeployed Director lever. Decide by next economy pass: promote into the thermostat or kill. Don't let it idle indefinitely. |
-| `CASINO_RELATIVE_THRESHOLDS` | **Hold (time-box)** | Relative-threshold casino provisioning, never shipped. Same time-box discipline. |
-| `TABLE_AFFINITY_ENABLED` | **Hold (time-box)** | Room-stickiness idea, never shipped. Same. |
+| `DIRECTOR_INEQUALITY_RAKE` | **BETA, dev-on (2026-06-10)** | Promoted to BETA for dev evaluation (prod-off); `RAKE_RESERVE_GATED` flipped dev-on so it isn't a no-op. |
+| `CASINO_RELATIVE_THRESHOLDS` | **BETA, dev-on (2026-06-10)** | Promoted to BETA for dev evaluation (prod-off). |
+| `TABLE_AFFINITY_ENABLED` | **BETA, dev-on (2026-06-10)** | Promoted to BETA for dev evaluation (prod-off). Establishes "home tables" — an AI prefers the table it wins at most within whichever tier it can afford. |
+
+**Dev-eval sim (2026-06-10, 600-tick A/B, isolated temp DB):** all three are
+**conservation-safe** (`max_abs_audit_drift = 0` in both arms). Efficacy was
+**not** established — the run left reserves FLUSH (`ratio ≈ 1.5` vs the `0.12`
+trigger), so the reserve-gated rake stayed dormant and `DIRECTOR_INEQUALITY_RAKE`
+never fired (it also needs a FLAT field, `p90/median ≤ 2.5`, but the field sat at
+~3.0–3.6). `CASINO_RELATIVE_THRESHOLDS` only moves the spawn/close *pool-depth
+gates* (scaled to holdings), **not** prefund amounts — casino count (3) and fish
+(6) were identical across arms, so the earlier "~2.25× more casino funding" read
+was a confound (different starting holdings + combined-flag run + single-seed RNG
+desync), not a flag effect. A proper efficacy eval needs depleted reserves +
+per-flag isolation + identical starts + a room-concentration metric for affinity.
+Verdict: **safe to keep dev-on; not yet a prod candidate.**
 
 ---
 
