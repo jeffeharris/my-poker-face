@@ -35,10 +35,11 @@ import './SwipeDeck.css';
  *   4. options — the action controls (buttons mirroring the swipe)
  */
 
-export type SwipeDir = 'left' | 'right';
+export type SwipeDir = 'left' | 'right' | 'up';
 
 export interface SwipeDeckHandle {
-  /** Fling the front card in a direction (button / keyboard parity with a drag). */
+  /** Fling the front card in a direction (button / keyboard parity with a drag).
+   *  'up' is only available when `stamps.up` is set. */
   swipe: (dir: SwipeDir) => void;
   /** Drop the front card and rise the next one. Call once you've handled the swipe
    *  (e.g. after a verdict has been shown). */
@@ -56,14 +57,15 @@ export interface SwipeDeckProps<T> {
   onSwipe: (item: T, dir: SwipeDir) => void;
   /** Whether the front card can be dragged right now (disable during grading). */
   interactive?: boolean;
-  /** Corner stamp labels shown while dragging. */
-  stamps?: { left: string; right: string };
+  /** Drag stamp labels. Providing `up` enables a third (upward) swipe direction. */
+  stamps?: { left: string; right: string; up?: string };
   /** Cards kept in the ring buffer (front + peeks + hidden preloaders). */
   stackSize?: number;
 }
 
 const SWIPE_THRESHOLD = 110; // px past which a release commits the swipe
-const FLING_X = 640; // px to fling a committed card off-screen
+const FLING_X = 640; // px to fling a committed card off the side
+const FLING_Y = 900; // px to fling a committed card off the top (up swipe)
 
 // Resting transform for a card at a given depth. Depth 0 is the front; deeper
 // cards sit lower, smaller, and eventually hidden — but still rendered so their
@@ -84,70 +86,97 @@ interface CardProps {
   children: ReactNode;
   depth: number;
   interactive: boolean;
-  stamps: { left: string; right: string };
+  stamps: { left: string; right: string; up?: string };
   stackSize: number;
   onCommit: (dir: SwipeDir) => void;
 }
 
-// One card in the stack. Owns its own motion value so a recycled card never
-// inherits a stale x; keeps a stable key (set by the parent) so depth changes
-// animate instead of remounting.
+// One card in the stack. Two layers: the outer "slot" carries the depth transform
+// (and the stable key, so a depth change animates instead of remounting — the
+// peek rises without a flash); the inner "card" carries the drag. Splitting them
+// lets the card drag freely (incl. up) without fighting the depth animation. Each
+// card owns its own motion values so a recycled card never inherits a stale pose.
 const StackCard = forwardRef<CardHandle, CardProps>(function StackCard(
   { children, depth, interactive, stamps, stackSize, onCommit },
   ref
 ) {
   const x = useMotionValue(0);
+  const y = useMotionValue(0);
   const rotate = useTransform(x, [-260, 260], [-11, 11]);
   const rightStamp = useTransform(x, [25, SWIPE_THRESHOLD], [0, 1]);
   const leftStamp = useTransform(x, [-SWIPE_THRESHOLD, -25], [1, 0]);
+  const upStamp = useTransform(y, [-SWIPE_THRESHOLD, -25], [1, 0]);
+  const allowUp = !!stamps.up;
 
   const fling = useCallback(
     (dir: SwipeDir) => {
-      animate(x, dir === 'right' ? FLING_X : -FLING_X, { duration: 0.26, ease: 'easeOut' });
+      if (dir === 'up') animate(y, -FLING_Y, { duration: 0.26, ease: 'easeOut' });
+      else animate(x, dir === 'right' ? FLING_X : -FLING_X, { duration: 0.26, ease: 'easeOut' });
       onCommit(dir);
     },
-    [x, onCommit]
+    [x, y, onCommit]
   );
 
   useImperativeHandle(ref, () => ({ fling }), [fling]);
 
   const onDragEnd = (_e: unknown, info: PanInfo) => {
-    const past = Math.abs(info.offset.x) > SWIPE_THRESHOLD || Math.abs(info.velocity.x) > 500;
-    if (past) fling(info.offset.x > 0 ? 'right' : 'left');
-    else animate(x, 0, { type: 'spring', stiffness: 500, damping: 40 });
+    const { offset, velocity } = info;
+    if (allowUp && offset.y < -SWIPE_THRESHOLD && Math.abs(offset.y) > Math.abs(offset.x)) {
+      fling('up');
+    } else if (offset.x > SWIPE_THRESHOLD || velocity.x > 500) {
+      fling('right');
+    } else if (offset.x < -SWIPE_THRESHOLD || velocity.x < -500) {
+      fling('left');
+    } else {
+      animate(x, 0, { type: 'spring', stiffness: 500, damping: 40 });
+      animate(y, 0, { type: 'spring', stiffness: 500, damping: 40 });
+    }
   };
 
   const ds = depthStyle(depth);
   return (
     <motion.div
-      className="swipedeck-card"
-      style={{ x, rotate, zIndex: stackSize - depth }}
+      className="swipedeck-slot"
+      style={{ zIndex: stackSize - depth }}
       initial={ds}
       animate={ds}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      drag={interactive ? 'x' : false}
-      dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={0.6}
-      onDragEnd={interactive ? onDragEnd : undefined}
-      whileTap={interactive ? { cursor: 'grabbing' } : undefined}
     >
-      {depth === 0 && (
-        <>
-          <motion.span
-            className="swipedeck-stamp swipedeck-stamp--right"
-            style={{ opacity: rightStamp }}
-          >
-            {stamps.right}
-          </motion.span>
-          <motion.span
-            className="swipedeck-stamp swipedeck-stamp--left"
-            style={{ opacity: leftStamp }}
-          >
-            {stamps.left}
-          </motion.span>
-        </>
-      )}
-      <div className="swipedeck-card__body">{children}</div>
+      <motion.div
+        className="swipedeck-card"
+        style={{ x, y, rotate }}
+        drag={interactive ? (allowUp ? true : 'x') : false}
+        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        dragElastic={0.6}
+        onDragEnd={interactive ? onDragEnd : undefined}
+        whileTap={interactive ? { cursor: 'grabbing' } : undefined}
+      >
+        {depth === 0 && (
+          <>
+            <motion.span
+              className="swipedeck-stamp swipedeck-stamp--right"
+              style={{ opacity: rightStamp }}
+            >
+              {stamps.right}
+            </motion.span>
+            <motion.span
+              className="swipedeck-stamp swipedeck-stamp--left"
+              style={{ opacity: leftStamp }}
+            >
+              {stamps.left}
+            </motion.span>
+            {stamps.up && (
+              <motion.span
+                className="swipedeck-stamp swipedeck-stamp--up"
+                style={{ opacity: upStamp }}
+              >
+                {stamps.up}
+              </motion.span>
+            )}
+          </>
+        )}
+        <div className="swipedeck-card__body">{children}</div>
+      </motion.div>
     </motion.div>
   );
 });

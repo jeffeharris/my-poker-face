@@ -7,13 +7,13 @@
   width: 100%;
 }
 
-/* Every card occupies the same grid cell so they stack; the cell sizes to one
-   card and each card's depth transform is layered on top. */
+/* Every slot occupies the same grid cell so the cards stack; the cell sizes to
+   one card and each slot's depth transform is layered on top. */
 .swipedeck-stack {
   display: grid;
   place-items: center;
 }
-.swipedeck-stack > .swipedeck-card {
+.swipedeck-stack > .swipedeck-slot {
   grid-area: 1 / 1;
 }
 
@@ -62,6 +62,14 @@
   transform: rotate(13deg);
   color: var(--color-rose);
   border: 3px solid var(--color-rose);
+}
+.swipedeck-stamp--up {
+  top: auto;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%) rotate(-4deg);
+  color: var(--color-sapphire);
+  border: 3px solid var(--color-sapphire);
 }
 
 @media (prefers-reduced-motion: reduce) {

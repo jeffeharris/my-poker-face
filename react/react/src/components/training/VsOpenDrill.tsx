@@ -1,39 +1,57 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { SlidersHorizontal, Shuffle } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
+import { ActionButtons } from '../game/ActionButtons';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
-import {
-  PreflopCardFace,
-  drawNext,
-  pct,
-  RFI_POS,
-  type Spot,
-  type Grade,
-} from './preflop/PreflopCard';
+import { PreflopCardFace, drawNext, pct, type Spot, type Grade } from './preflop/PreflopCard';
 
-// Opening (RFI) drill: folded to you — open or fold. Binary swipe (left = fold,
-// right = open), graded against the solver chart. Built on the shared SwipeDeck
-// carousel + PreflopCard face.
+// Facing-a-raise drill: a player opened to ~2.5bb and it's on you — fold, call,
+// or 3-bet. Swipe left = fold, right = raise, up = call; the game's action bar
+// mirrors it (and lets you size a raise). Graded on the action vs the solver
+// chart (vs_open). Built on the shared SwipeDeck + PreflopCard.
 
-type Mode = 'random' | (typeof RFI_POS)[number];
+// Seats that can face an open (UTG acts first, so it never does).
+const VS_OPEN_POS = ['HJ', 'CO', 'BTN', 'SB', 'BB'];
+type Mode = 'random' | (typeof VS_OPEN_POS)[number];
 
-// How long the verdict flashes before the next card deals. Wrong answers linger
-// so you actually read the correction; tapping the flash skips the wait.
 const HOLD_MS: Record<Grade['verdict'], number> = { good: 700, thin: 1050, leak: 1800 };
 
-interface SwipeDrillProps {
+// A plausible 100bb single-raised-pot to drive the game action bar. The drill
+// grades the action, not the exact sizing, so a standard 2.5bb open is fine.
+const BIG_BLIND = 100;
+const OPEN_TO = 250; // villain opened to 2.5bb
+function bettingProps(spot: Spot) {
+  const stack = spot.depth_bb * BIG_BLIND;
+  return {
+    playerOptions: ['fold', 'call', 'raise'],
+    currentPlayerStack: stack,
+    highestBet: OPEN_TO,
+    currentPlayerBet: 0,
+    minRaise: OPEN_TO - BIG_BLIND, // min re-raise increment → min raise-to = 2*OPEN_TO - BB
+    bigBlind: BIG_BLIND,
+    potSize: BIG_BLIND + BIG_BLIND / 2 + OPEN_TO, // BB + SB + open
+  };
+}
+
+// Swipe direction ⇄ poker action.
+const DIR_ACTION: Record<SwipeDir, string> = { left: 'fold', right: 'raise', up: 'call' };
+function actionToDir(action: string): SwipeDir {
+  if (action === 'fold') return 'left';
+  if (action === 'call') return 'up';
+  return 'right'; // raise / all_in
+}
+
+interface VsOpenDrillProps {
   onBack: () => void;
 }
 
-export function SwipeDrill({ onBack }: SwipeDrillProps) {
+export function VsOpenDrill({ onBack }: VsOpenDrillProps) {
   const [params, setSearchParams] = useSearchParams();
-  // Mode comes from the URL on first load (a leak nudge may deep-link a single
-  // position); otherwise we mix all positions so the player just starts drilling.
   const paramPos = params.get('position') || '';
-  const [mode, setMode] = useState<Mode>(RFI_POS.includes(paramPos) ? paramPos : 'random');
+  const [mode, setMode] = useState<Mode>(VS_OPEN_POS.includes(paramPos) ? paramPos : 'random');
   const [showSettings, setShowSettings] = useState(false);
 
   const [pool, setPool] = useState<Spot[]>([]);
@@ -50,7 +68,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
   const pickMode = (m: Mode) => {
     setMode(m);
     setShowSettings(false);
-    setSearchParams(m === 'random' ? {} : { scenario: 'rfi', position: m }, { replace: true });
+    setSearchParams(m === 'random' ? {} : { scenario: 'vs_open', position: m }, { replace: true });
   };
 
   const load = useCallback(async () => {
@@ -63,7 +81,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
 
     const fetchSpots = async (position: string): Promise<Spot[]> => {
       const resp = await fetch(
-        `${config.API_URL}/api/coach/drill?scenario=rfi&position=${position}`,
+        `${config.API_URL}/api/coach/drill?scenario=vs_open&position=${position}`,
         { credentials: 'include' }
       );
       if (!resp.ok) throw new Error(`drill ${resp.status}`);
@@ -74,7 +92,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
     try {
       let spots: Spot[];
       if (mode === 'random') {
-        const results = await Promise.allSettled(RFI_POS.map(fetchSpots));
+        const results = await Promise.allSettled(VS_OPEN_POS.map(fetchSpots));
         spots = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
       } else {
         spots = await fetchSpots(mode);
@@ -82,7 +100,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
       if (!spots.length) throw new Error('no spots');
       setPool(spots);
     } catch (err) {
-      logger.error('Failed to load swipe drill:', err);
+      logger.error('Failed to load vs-open drill:', err);
       setError('Could not load the drill.');
     } finally {
       setLoading(false);
@@ -96,7 +114,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
   const draw = useCallback((avoid: Spot | null) => drawNext(pool, avoid), [pool]);
 
   const onSwipe = useCallback(async (spot: Spot, dir: SwipeDir) => {
-    const action = dir === 'right' ? 'raise' : 'fold';
+    const action = DIR_ACTION[dir];
     setGrading(true);
     try {
       const resp = await fetch(`${config.API_URL}/api/coach/drill/answer`, {
@@ -135,32 +153,39 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
     return () => clearTimeout(t);
   }, [grade, next]);
 
-  const triggerFront = useCallback(
-    (dir: SwipeDir) => {
+  // The action bar feeds the deck: tapping a button flings the card the matching
+  // way, which grades + advances through the same path as a swipe.
+  const onBarAction = useCallback(
+    (action: string) => {
       if (grade || grading) return;
-      deckRef.current?.swipe(dir);
+      deckRef.current?.swipe(actionToDir(action));
     },
     [grade, grading]
   );
 
+  const front = pool.length > 0;
+  const ready = !loading && !error && front;
+
+  // Keyboard parity.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') triggerFront('right');
-      if (e.key === 'ArrowLeft') triggerFront('left');
+      if (grade || grading) return;
+      if (e.key === 'ArrowRight') deckRef.current?.swipe('right');
+      if (e.key === 'ArrowLeft') deckRef.current?.swipe('left');
+      if (e.key === 'ArrowUp') deckRef.current?.swipe('up');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [triggerFront]);
+  }, [grade, grading]);
 
-  const ready = !loading && !error && pool.length > 0;
+  const bp = useMemo(() => bettingProps({ depth_bb: 100 } as Spot), []);
 
   return (
     <>
-      <MenuBar onBack={onBack} title="Opening Drill" showUserInfo onMainMenu={onBack} />
+      <MenuBar onBack={onBack} title="Facing a Raise" showUserInfo onMainMenu={onBack} />
       <PageLayout variant="top" glowColor="emerald" maxWidth="md" hasMenuBar>
-        <p className="swd-subtitle">Folded to you — open or fold?</p>
+        <p className="swd-subtitle">A player opened — fold, call, or 3-bet?</p>
 
-        {/* Position setting — defaults to a shuffle of all positions. */}
         <div className="swd-settings">
           <button
             type="button"
@@ -173,7 +198,7 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
           </button>
           {showSettings && (
             <div className="swd-pos-chips" role="radiogroup" aria-label="Position">
-              {(['random', ...RFI_POS] as Mode[]).map((m) => (
+              {(['random', ...VS_OPEN_POS] as Mode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -209,17 +234,17 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
             <SwipeDeck<Spot>
               ref={deckRef}
               draw={draw}
-              renderFace={(spot) => <PreflopCardFace spot={spot} tag="Folded to you" />}
+              renderFace={(spot) => <PreflopCardFace spot={spot} tag="Facing a raise" />}
               onSwipe={onSwipe}
               interactive={interactive}
-              stamps={{ left: 'FOLD', right: 'OPEN' }}
+              stamps={{ left: 'FOLD', right: 'RAISE', up: 'CALL' }}
             />
 
             <p className="swd-stats">
-              {solid}/{answered} solid · swipe or use ← →
+              {solid}/{answered} solid · swipe ← ↑ → or use the bar
             </p>
 
-            <div className="swd-control">
+            <div className="vsd-control">
               {grade ? (
                 <button
                   type="button"
@@ -233,26 +258,12 @@ export function SwipeDrill({ onBack }: SwipeDrillProps) {
                     {grade.verdict === 'leak' && 'Leak — the solver rarely does this.'}
                   </div>
                   <div className="swd-freqs">
-                    solver: open {pct(grade.chart_freq.raise)}% · fold {pct(grade.chart_freq.fold)}%
+                    solver: raise {pct(grade.chart_freq.raise)}% · call {pct(grade.chart_freq.call)}
+                    % · fold {pct(grade.chart_freq.fold)}%
                   </div>
                 </button>
               ) : (
-                <div className="swd-actions">
-                  <button
-                    className="swd-btn swd-btn--fold"
-                    onClick={() => triggerFront('left')}
-                    disabled={!interactive}
-                  >
-                    ← Fold
-                  </button>
-                  <button
-                    className="swd-btn swd-btn--raise"
-                    onClick={() => triggerFront('right')}
-                    disabled={!interactive}
-                  >
-                    Open →
-                  </button>
-                </div>
+                <ActionButtons {...bp} onAction={onBarAction} inline />
               )}
             </div>
           </div>

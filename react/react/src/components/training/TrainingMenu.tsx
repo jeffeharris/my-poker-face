@@ -8,6 +8,7 @@ import {
   TrendingUp,
   ChevronRight,
   Layers,
+  Swords,
 } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
 import { config } from '../../config';
@@ -71,6 +72,7 @@ interface TrainingMenuProps {
   onStart: (difficulty: TrainingDifficulty, presetId: string) => void;
   onReviewGame: () => void;
   onSwipeDrill: (position?: string) => void;
+  onVsOpenDrill: () => void;
   onBack: () => void;
   isCreating?: boolean;
 }
@@ -80,6 +82,7 @@ export function TrainingMenu({
   onStart,
   onReviewGame,
   onSwipeDrill,
+  onVsOpenDrill,
   onBack,
   isCreating = false,
 }: TrainingMenuProps) {
@@ -169,6 +172,16 @@ export function TrainingMenu({
                 ? `We spotted a leak — your opens from ${POSITION_NAME[rfiLeak.position] ?? rfiLeak.position} run loose. Swipe to fix it.`
                 : 'Swipe through opening spots — raise or fold, graded vs the solver.'}
             </span>
+          </span>
+          <ChevronRight size={18} />
+        </button>
+
+        {/* Facing-a-raise swipe drill (fold / call / 3-bet). */}
+        <button type="button" className="training-menu__swipe" onClick={() => onVsOpenDrill()}>
+          <Swords size={20} />
+          <span className="training-menu__review-text">
+            <strong>Facing a raise</strong>
+            <span>Someone opened — fold, call, or 3-bet. Swipe or use the action bar.</span>
           </span>
           <ChevronRight size={18} />
         </button>
