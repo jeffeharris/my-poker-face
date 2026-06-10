@@ -174,7 +174,7 @@ python3 scripts/flags.py status --env prod # preview prod resolution
 
 ## Current inventory (2026-06-10)
 
-**42 registered flags** across eight owners. Generate this live with
+**44 registered flags** across nine owners. Generate this live with
 `python3 scripts/flags.py status --env <dev|prod>`; the promote/hold/kill plan for
 each is in
 [`docs/plans/FEATURE_FLAG_LIFECYCLE_PLAN.md`](../plans/FEATURE_FLAG_LIFECYCLE_PLAN.md).
@@ -204,8 +204,9 @@ all `db_overridable=True`:
 - **EXPERIMENTAL** (off everywhere): `TILT_PERSISTENCE_ENABLED`,
   `TILT_TELEGRAPH_ENABLED`, `TILT_ERRATIC_READS_ENABLED`, `TILT_SIGNATURE_ENABLED`
 
-**App / infrastructure (12)** — migrated into the registry on 2026-06-10 (formerly
-scattered `os.environ.get(...)` reads / a hardcoded constant):
+**App / infrastructure (14)** — migrated into the registry on 2026-06-10 (formerly
+scattered `os.environ.get(...)` reads, a hardcoded constant, and a `_bool_env`
+helper that evaded the guard):
 
 - `flask_app.config` (5): `ENABLE_AVATAR_GENERATION`, `ENABLE_AI_COMMENTARY`
   (STABLE on), `CSRF_PROTECTION_ENABLED` (STABLE, dev=off/prod=on),
@@ -218,8 +219,16 @@ scattered `os.environ.get(...)` reads / a hardcoded constant):
   `DECISION_ANALYSIS_QUEUE_ENABLED` (STABLE, dev=off/prod=on)
 - `cash_mode.narrative` (1): `CASH_LEAVE_NARRATIVE_ENABLED` (STABLE on; de-inverted
   from the legacy `CASH_LEAVE_NARRATIVE_DISABLED` env flag)
+- `poker.guest_limits` (2): `GUEST_LIMITS_ENABLED` (STABLE, dev=off/prod=on),
+  `GUEST_FREE_CHAT_ENABLED` (EXPERIMENTAL, off — security gate)
 
-Net: **26/42 on in dev, 28/42 on in prod.**
+The poker-core `COMMENTARY_ENABLED` constant was **consolidated** into the existing
+`ENABLE_AI_COMMENTARY` flag (one switch for the feature, not two). The `_bool_env`
+helper in `guest_limits.py` was removed and `test_no_adhoc_bool_env_helpers` now
+bans local boolean env-helpers (a variable-name env read evaded the per-flag
+centralization guard — the gap that hid `GUEST_FREE_CHAT_ENABLED`).
+
+Net: **26/44 on in dev, 29/44 on in prod.**
 
 > The retired `PRESENCE_SHADOW_WRITE_ENABLED` flag (and the obsolete cutover
 > validation scripts) were removed on 2026-06-10 — the off-grid presence mirror

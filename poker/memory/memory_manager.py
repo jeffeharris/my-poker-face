@@ -14,7 +14,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from ..config import COMMENTARY_ENABLED
 from ..hand_narrator import narrate_key_moments
 from .cbet_detector import CbetDetector
 from .commentary_filter import should_player_comment
@@ -98,8 +97,8 @@ class AIMemoryManager:
             game_id: Unique identifier for the game
             db_path: Path to database for persistence (optional)
             owner_id: Owner/user ID for tracking (optional)
-            commentary_enabled: Override for COMMENTARY_ENABLED config (optional).
-                                If None, uses global COMMENTARY_ENABLED setting.
+            commentary_enabled: Per-instance override (optional). If None, falls
+                                back to the ENABLE_AI_COMMENTARY feature flag.
         """
         self.game_id = game_id
         self.db_path = db_path
@@ -930,11 +929,13 @@ class AIMemoryManager:
 
         commentaries: Dict[str, HandCommentary] = {}
 
-        # Check instance override first, then fall back to global setting
+        # Check instance override first, then fall back to the ENABLE_AI_COMMENTARY flag
+        from core.feature_flags import is_enabled
+
         commentary_enabled = (
             self._commentary_enabled_override
             if self._commentary_enabled_override is not None
-            else COMMENTARY_ENABLED
+            else is_enabled("ENABLE_AI_COMMENTARY")
         )
         if not commentary_enabled:
             return commentaries

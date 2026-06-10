@@ -743,3 +743,28 @@ register(
         prod=True,
     )
 )
+
+# --- Guest limits (poker/guest_limits.py) ---------------------------------
+# Migrated 2026-06-10 (formerly a `not is_development_mode()` derive + a local
+# `_bool_env` read that evaded the centralization guard).
+_GUEST = "poker.guest_limits"
+register(
+    FeatureFlag(
+        "GUEST_LIMITS_ENABLED",
+        Stage.STABLE,
+        "Enforce guest rate/abuse limits (hands cap, opponent cap, free-chat lock). On in prod, off in dev/test — current_env() mirrors is_development_mode().",
+        owner=_GUEST,
+        dev=False,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "GUEST_FREE_CHAT_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Allow guests free-text chat (off by default — free text is appended verbatim to the AI prompt, a prompt-injection/cost surface; PRH-27). Structured quick-chat stays allowed regardless.",
+        owner=_GUEST,
+        dev=False,
+        prod=False,
+    )
+)

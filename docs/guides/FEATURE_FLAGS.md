@@ -76,6 +76,11 @@ register(FeatureFlag(
 Do **not** add a new `os.environ.get("MY_FEATURE_ENABLED")` anywhere else —
 `tests/test_feature_flags.py::test_flags_are_only_read_through_the_registry`
 fails if a registered flag is read via a raw env construct outside the registry.
+And do **not** wrap env reads in a local boolean helper (`_bool_env(name)` etc.):
+a variable-name read slips the per-flag guard, so
+`test_no_adhoc_bool_env_helpers` bans defining one — boolean toggles go through
+`is_enabled`. (Integer/string env helpers like `_int_env` for numeric tunables
+are fine.)
 
 If the flag is an EXPERIMENTAL **economy** flag, also add it to
 `tests/conftest.py::RESET_ECONOMY_FLAGS` (the drift guard
@@ -176,7 +181,7 @@ flipping a value silently.
 
 ## The non-registry catalog (what's left outside)
 
-The registry owns the boolean flags (42 as of 2026-06-10, across eight owners).
+The registry owns the boolean flags (44 as of 2026-06-10, across nine owners).
 The 12 app/infrastructure booleans that were formerly scattered
 `os.environ.get(...)` reads (Flask config, ticker, moderation, decision-analysis,
 sarcasm, leave-narrative) were **migrated into the registry on 2026-06-10** — see

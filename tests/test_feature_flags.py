@@ -170,6 +170,8 @@ def test_flags_are_only_read_through_the_registry():
             f"os.getenv('{name}'",
             f'_env_flag("{name}"',
             f"_env_flag('{name}'",
+            f'_bool_env("{name}"',
+            f"_bool_env('{name}'",
         ]
         for rel, text in sources:
             for pat in patterns:
@@ -178,4 +180,29 @@ def test_flags_are_only_read_through_the_registry():
 
     assert not offenders, "Flags read via raw env outside the registry:\n" + "\n".join(
         f"  {k}: {v}" for k, v in offenders.items()
+    )
+
+
+def test_no_adhoc_bool_env_helpers():
+    """No module may define its own boolean env-var helper.
+
+    A local helper like ``_bool_env(name)`` reads ``os.environ.get(name)`` with a
+    *variable* name, which slips both the per-flag centralization guard above
+    (it matches only literal flag names) and human review — that is exactly how
+    ``GUEST_FREE_CHAT_ENABLED`` evaded the registry before 2026-06-10. Boolean
+    toggles must go through the registry (``is_enabled``). Integer/string env
+    helpers (e.g. ``_int_env`` for numeric tunables) are fine — only boolean ones
+    are feature-flag-shaped, so only they are banned here.
+    """
+    import re
+
+    pat = re.compile(r"def\s+(_bool_env|_env_bool|_truthy_env|_flag_env|_get_bool_env)\b")
+    offenders = [
+        rel
+        for rel, text in _iter_source_text()
+        if rel not in _DECLARATION_FILES and pat.search(text)
+    ]
+    assert not offenders, (
+        "Local boolean env-helper(s) found — route boolean flags through the "
+        f"registry (is_enabled) instead of an ad-hoc env reader: {offenders}"
     )
