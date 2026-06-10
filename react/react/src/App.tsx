@@ -67,6 +67,9 @@ const PreflopLeaks = lazy(() =>
 const PreflopDrill = lazy(() =>
   import('./components/training/PreflopDrill').then((m) => ({ default: m.PreflopDrill }))
 );
+const SwipeDrill = lazy(() =>
+  import('./components/training/SwipeDrill').then((m) => ({ default: m.SwipeDrill }))
+);
 const PrivacyPolicy = lazy(() =>
   import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
 );
@@ -558,6 +561,13 @@ function App() {
                     playerName={playerName}
                     onStart={handleStartTraining}
                     onReviewGame={() => navigate('/menu/training/leaks')}
+                    onSwipeDrill={(position) =>
+                      navigate(
+                        position
+                          ? `/menu/training/swipe?scenario=rfi&position=${position}`
+                          : '/menu/training/swipe'
+                      )
+                    }
                     onBack={() => navigate('/menu')}
                     isCreating={isCreatingGame}
                   />
@@ -588,6 +598,15 @@ function App() {
               element={
                 <ProtectedRoute>
                   <PreflopDrill onBack={() => navigate('/menu/training/leaks')} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/swipe"
+              element={
+                <ProtectedRoute>
+                  <SwipeDrill onBack={() => navigate('/menu/training')} />
                 </ProtectedRoute>
               }
             />
