@@ -152,6 +152,16 @@ def _geo(spot: dict) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('--corpus', default='experiments/data/tilt_corpus.jsonl')
+    ap.add_argument(
+        '--mode',
+        choices=['signature', 'emotional'],
+        default='signature',
+        help=(
+            "signature: ΔEV of TILT_SIGNATURE_ENABLED on vs off (the refinement). "
+            "emotional: ΔEV of the always-on emotional shift vs the raw pre-emotion "
+            "baseline — the EXP_009 Phase-A 'is it noticeable today' magnitude."
+        ),
+    )
     args = ap.parse_args()
     corpus_path = PROJECT_ROOT / args.corpus
     meta = json.load(open(corpus_path.with_suffix('.meta.json')))
@@ -185,10 +195,19 @@ def main() -> None:
         )
         base_profile = StrategyProfile(action_probabilities=dict(base))
 
-        os.environ[FLAG] = '0'
-        off, _ = modify_strategy(base_profile, legal, anchors, es, profile)
-        os.environ[FLAG] = '1'
-        on, _ = modify_strategy(base_profile, legal, anchors, es, profile)
+        if args.mode == 'emotional':
+            # Phase-A baseline: always-on emotional shift vs the raw pre-emotion
+            # baseline. `off` = the unmodified chart strategy (no emotion); `on` =
+            # the legacy emotional shift (signature flag OFF). ΔEV = the emotional
+            # impact the bot already applies today, before any tilt-excursion flag.
+            off = base_profile
+            os.environ[FLAG] = '0'
+            on, _ = modify_strategy(base_profile, legal, anchors, es, profile)
+        else:
+            os.environ[FLAG] = '0'
+            off, _ = modify_strategy(base_profile, legal, anchors, es, profile)
+            os.environ[FLAG] = '1'
+            on, _ = modify_strategy(base_profile, legal, anchors, es, profile)
 
         geo = _geo(spot)
         dagg = _agg_mass(on) - _agg_mass(off)
@@ -200,9 +219,10 @@ def main() -> None:
                 row[1] += 1
                 row[2] += dagg
 
+    title = 'EMOTIONAL SHIFT (vs raw baseline)' if args.mode == 'emotional' else 'TILT SIGNATURE'
     print('=' * 96)
     print(
-        f'TILT SIGNATURE — corpus bb/100  (exp {meta["experiment_id"]}, {len(spots)} tilted spots, '
+        f'{title} — corpus bb/100  (exp {meta["experiment_id"]}, {len(spots)} tilted spots, '
         f'{num_hands} hands)'
     )
     print(
