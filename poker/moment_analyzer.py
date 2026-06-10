@@ -11,6 +11,17 @@ from typing import List, Optional
 from .poker_game import Player, PokerGameState
 
 
+def _emotional_rebalance_enabled() -> bool:
+    """Live read of EMOTIONAL_REBALANCE_ENABLED; False if the registry is unavailable
+    (sim/test isolation) so the off-path stays byte-identical (current thresholds)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('EMOTIONAL_REBALANCE_ENABLED')
+    except Exception:
+        return False
+
+
 @dataclass
 class MomentAnalysis:
     """Analysis of a game moment's dramatic significance."""
@@ -105,10 +116,16 @@ class MomentAnalyzer:
     @classmethod
     def is_big_pot(cls, pot_total: int, player_stack: int, avg_stack: int) -> bool:
         """Pot is significant relative to stacks."""
+        ratio, avg_ratio = cls.BIG_POT_RATIO, cls.BIG_POT_AVG_RATIO
+        if _emotional_rebalance_enabled():
+            # EMOTIONAL_SYSTEM_BALANCE.md: calm tiered bots rarely clear the 0.50/0.75
+            # bar, starving the emotional system of big_win/big_loss events. Lower it so
+            # "big moments" (and the conviction/composure swings they drive) fire more.
+            ratio, avg_ratio = 0.35, 0.45
         # Use player stack if available, otherwise average
         if player_stack > 0:
-            return pot_total > player_stack * cls.BIG_POT_RATIO
-        return pot_total > avg_stack * cls.BIG_POT_AVG_RATIO
+            return pot_total > player_stack * ratio
+        return pot_total > avg_stack * avg_ratio
 
     @classmethod
     def is_big_bet(cls, cost_to_call: int, big_blind: int) -> bool:
