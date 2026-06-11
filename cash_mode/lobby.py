@@ -1336,6 +1336,23 @@ def refresh_unseated_tables(
             current = bankroll_repo.load_personality_knobs(pid).starting_bankroll
         return _available_buyin_capacity(current, _committed_buyins.get(pid, 0))
 
+    def _seated_reserve_lookup(pid: str) -> Optional[int]:
+        # Post-burst reserve for the last-stand scan. By the time that scan
+        # runs, `_apply_bankroll_transfers` has ALREADY debited this table's
+        # `to_seat` buy-ins from the DB, so the stored balance is the
+        # post-refresh truth. Unlike `_bankroll_lookup` (used DURING the burst
+        # to size reloads against the not-yet-debited bankroll), this must NOT
+        # subtract `_committed_buyins` again — those amounts are already gone
+        # from the DB, and re-subtracting them double-counts the debit. That
+        # makes a solvent AI read as $0 reserve and fires a false last-stand
+        # predator signal. Returns None for a missing row so the scan skips it
+        # (no false alarm), per `_committed_seated_ais`.
+        return bankroll_repo.load_ai_bankroll_current(
+            pid,
+            sandbox_id=sandbox_id,
+            now=now,
+        )
+
     # Phase 4 take_stake callbacks. Wired only when both stake_repo
     # and relationship_repo are provided. The borrower/lender profile
     # lookups always work — the gates inside find_ai_staker_for treat
@@ -2126,7 +2143,7 @@ def refresh_unseated_tables(
         # after every table is processed.
         for _pid, _chips in _committed_seated_ais(
             result.new_table,
-            reserve_lookup=_bankroll_lookup,
+            reserve_lookup=_seated_reserve_lookup,
         ).items():
             last_stand_qualifying[_pid] = (
                 result.new_table.table_id,
