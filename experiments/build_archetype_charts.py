@@ -468,6 +468,13 @@ def build_tight(base: dict) -> dict:
 
 
 def _write(data: dict, name: str):
+    # vs_squeeze (cold-caller-faces-a-squeeze) lives in the BASE chart only. The
+    # archetype transforms don't reshape it, so a deep-copied base copy would carry
+    # the untransformed base squeeze into every variant. Drop it instead: each
+    # archetype's vs_squeeze lookup then falls back (StrategyTable.lookup_with_fallback)
+    # to that archetype's OWN transformed vs_3bet — e.g. a station defends a squeeze
+    # with its widened vs_3bet range, which is more on-archetype than a stale base copy.
+    data.pop('vs_squeeze', None)
     out = os.path.join(_DATA_DIR, name)
     with open(out, 'w') as f:
         json.dump(data, f, indent=2)

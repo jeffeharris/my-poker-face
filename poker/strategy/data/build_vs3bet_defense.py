@@ -84,6 +84,21 @@ BLUFF_4BET_POOL: List[str] = [
     "A5s", "A4s", "A3s", "A2s", "KJs", "KTs", "QJs", "QTs", "JTs", "K9s",
 ]
 
+# ── Squeeze defense (vs_squeeze): a COLD-CALLER facing a 3-bet ──────────────────
+# Distinct from vs_3bet (opener faces a 3-bet): the caller's range is CAPPED — the
+# premiums would have 3-bet the open, not flat-called it — so it continues much
+# tighter vs a squeeze, mostly call-or-fold with only the top of the flat range
+# jamming. The classifier routes here when a non-opener faces two raises
+# (PokerGameState.preflop_opener_idx). 6-max action order; only HJ/CO/BTN/SB can be
+# the cold-caller (UTG opens first; the BB closes the action with no one to squeeze).
+POS_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
+SQUEEZE_CALLERS = ["HJ", "CO", "BTN", "SB"]
+SQUEEZE_LIVE_FLOOR = 0.05      # min cold-call freq for a hand to be "in range"
+SQUEEZE_VALUE_FRAC = 0.12      # jam ~12% of the cold-call range (top by equity)
+SQUEEZE_CONT_FRAC = 0.36       # continue (jam+call) ~36% → fold-to-squeeze ~64% of the cap
+DIST_SQUEEZE_JAM = {"raise_2.2x": 0.80, "call": 0.15, "fold": 0.05}
+DIST_SQUEEZE_CALL = {"call": 0.85, "fold": 0.15}
+
 # NOTE: _playability duplicates build_vs_open's; hoist both (+ the bluff pools and
 # _norm) to a shared poker/strategy/data/_chart_gen.py when build_vs4bet is
 # refactored too (rule of three).
@@ -183,6 +198,75 @@ def build_node(hero: str, villain: str, rfi: Dict, vs_open: Dict, matrix: Dict) 
     return {h: _norm(dist[h]) for h in CANONICAL_HANDS}
 
 
+def _cold_call_range(caller: str, vs_open: Dict) -> Dict[str, float]:
+    """Hero's cold-call range from `caller`: the combo-agnostic mean flat-call
+    frequency across the vs_open nodes vs every legal earlier opener. (The
+    squeeze node key {caller}_vs_{squeezer} can't encode WHICH opener hero
+    called — same opener-conflation v1 accepted for vs_3bet; a per-opener
+    squeeze key is the principled upgrade, tracked.)"""
+    openers = POS_ORDER[: POS_ORDER.index(caller)]
+    cc: Dict[str, float] = {}
+    for h in CANONICAL_HANDS:
+        vals = [vs_open.get(f"{caller}_vs_{op}", {}).get(h, {}).get("call", 0.0) for op in openers]
+        cc[h] = sum(vals) / len(vals) if vals else 0.0
+    return cc
+
+
+def build_squeeze_node(caller: str, squeezer: str, vs_open: Dict, matrix: Dict) -> Dict[str, Dict[str, float]]:
+    """Generate one vs_squeeze node (hero=cold-caller, villain=squeezer)."""
+    cc = _cold_call_range(caller, vs_open)
+    # Squeezer's 3-bet range (proxy: their 3-bet vs the caller's open). VALUE part
+    # (raise_3x ≥ the continue cliff) is what a hero jam runs into.
+    sq_node = vs_open.get(f"{squeezer}_vs_{caller}", {})
+    sq_3bet = {h: sq_node[h].get("raise_3x", 0.0) for h in sq_node if sq_node[h].get("raise_3x", 0.0) > 0}
+    sq_value = {h: w for h, w in sq_3bet.items()
+                if sq_node[h].get("raise_3x", 0.0) >= VILLAIN_CONTINUE_CLIFF} or dict(sq_3bet)
+
+    live = {h: cc[h] for h in CANONICAL_HANDS if cc[h] >= SQUEEZE_LIVE_FLOOR}
+    eq = {h: equity_vs_range(h, matrix, sq_value) for h in live}
+    cc_combos = {h: COMBO_COUNT[h] * cc[h] for h in live}
+    total_cc = sum(cc_combos.values())
+    value_target = SQUEEZE_VALUE_FRAC * total_cc
+    cont_target = SQUEEZE_CONT_FRAC * total_cc
+
+    dist: Dict[str, Dict[str, float]] = {}
+    spent_value = spent_cont = 0.0
+    # Continue the top of the cold-call range by equity vs the squeeze value range:
+    # the very top jams (raise_2.2x), the next tier flat-calls, the rest folds.
+    for h in sorted(live, key=lambda x: eq[x], reverse=True):
+        if spent_value < value_target:
+            dist[h] = dict(DIST_SQUEEZE_JAM)
+            spent_value += cc_combos[h]
+            spent_cont += cc_combos[h]
+        elif spent_cont < cont_target:
+            dist[h] = dict(DIST_SQUEEZE_CALL)
+            spent_cont += cc_combos[h]
+        else:
+            break
+
+    # The capped range folds the rest to the squeeze; hands hero never cold-calls
+    # (premiums that 3-bet, and trash) are out of range → pure fold.
+    for h in CANONICAL_HANDS:
+        dist.setdefault(h, {"fold": 1.0})
+
+    return {h: _norm(dist[h]) for h in CANONICAL_HANDS}
+
+
+def _squeeze_metrics(caller: str, node: Dict[str, Dict[str, float]], vs_open: Dict) -> tuple:
+    """(fold_to_squeeze, jam_frac) relative to hero's cold-call range."""
+    cc = _cold_call_range(caller, vs_open)
+    cct = cont = jam = 0.0
+    for h, w in cc.items():
+        if w <= 0:
+            continue
+        c = COMBO_COUNT[h] * w
+        cct += c
+        d = node[h]
+        cont += c * (d.get("call", 0.0) + d.get("raise_2.2x", 0.0))
+        jam += c * d.get("raise_2.2x", 0.0)
+    return (1 - cont / cct, jam / cct) if cct else (0.0, 0.0)
+
+
 def _node_metrics(hero: str, node: Dict[str, Dict[str, float]], rfi: Dict) -> tuple:
     """(fold_to_3bet, 4bet_frac) relative to the open range — matches the lint."""
     open_node = rfi[hero]
@@ -197,6 +281,51 @@ def _node_metrics(hero: str, node: Dict[str, Dict[str, float]], rfi: Dict) -> tu
         cont += c * (d.get("call", 0.0) + d.get("raise_2.2x", 0.0))
         fourbet += c * d.get("raise_2.2x", 0.0)
     return (1 - cont / owt, fourbet / owt) if owt else (0.0, 0.0)
+
+
+def _build_squeeze_section(chart: Dict) -> None:
+    """Build the vs_squeeze section in place from the chart's own vs_open.
+
+    The cold-caller-faces-a-squeeze node set: HJ/CO/BTN/SB callers × later
+    squeezers = 10 nodes. Capped range, tighter than the opener's vs_3bet. Reads
+    only vs_open + the equity matrix, so it is independent of the vs_3bet pass —
+    which is why it can be applied on its own via patch_squeeze_only().
+    """
+    with open(_MATRIX) as f:
+        matrix = json.load(f)["matrix"]
+    vs_open = chart["vs_open"]
+    print(f"  {'squeeze node':<14} {'fold-to-sqz':>13} {'jam%cc':>10}")
+    squeeze = {}
+    for caller in SQUEEZE_CALLERS:
+        for squeezer in POS_ORDER[POS_ORDER.index(caller) + 1:]:
+            node = build_squeeze_node(caller, squeezer, vs_open, matrix)
+            squeeze[f"{caller}_vs_{squeezer}"] = node
+            fsq, jam = _squeeze_metrics(caller, node, vs_open)
+            print(f"  {caller + '_vs_' + squeezer:<14} {100*fsq:>12.1f}% {100*jam:>9.1f}%")
+    chart["vs_squeeze"] = squeeze
+
+
+def patch_squeeze_only() -> None:
+    """Inject ONLY the vs_squeeze section into the base chart, leaving vs_3bet
+    (and everything else) byte-identical. Use this to (re)generate vs_squeeze
+    without re-running the full vs_3bet pass."""
+    with open(_BASE) as f:
+        chart = json.load(f)
+    if "vs_open" not in chart:
+        raise SystemExit("base chart has no vs_open section")
+    print(f"patching vs_squeeze only in {_BASE}")
+    _build_squeeze_section(chart)
+    fails = (lints.lint_weights_sum(chart)
+             + lints.lint_legal_vocab(chart)
+             + lints.lint_completeness(chart))
+    if fails:
+        for msg in fails[:12]:
+            print(f"  LINT FAIL: {msg}")
+        raise SystemExit(f"refusing to write — {len(fails)} lint failures")
+    with open(_BASE, "w") as f:
+        json.dump(chart, f, indent=2)
+        f.write("\n")
+    print("  done — vs_squeeze injected (vs_3bet untouched).")
 
 
 def patch_base() -> None:
@@ -226,9 +355,12 @@ def patch_base() -> None:
         print(f"  {node_name:<14} {100*f3b:>12.1f}% {100*fb:>9.1f}%")
 
     chart["vs_3bet"] = built
+    _build_squeeze_section(chart)
+
     # gate on the shared lints — refuse to write a chart that fails. Structural
-    # lints (weights/vocab/completeness) run over the whole chart; the strategic
-    # ones are scoped to vs_3bet (anti_clone too — the old vs_4bet stub isn't ours yet).
+    # lints (weights/vocab/completeness) run over the whole chart incl. vs_squeeze;
+    # the strategic ones are scoped to vs_3bet (anti_clone too — the old vs_4bet
+    # stub isn't ours yet; vs_squeeze's cold-call range isn't opener-relative).
     fails = (lints.lint_weights_sum(chart)
              + lints.lint_legal_vocab(chart)
              + lints.lint_completeness(chart)
@@ -247,4 +379,9 @@ def patch_base() -> None:
 
 
 if __name__ == "__main__":
-    patch_base()
+    import sys
+
+    if "--squeeze-only" in sys.argv:
+        patch_squeeze_only()
+    else:
+        patch_base()

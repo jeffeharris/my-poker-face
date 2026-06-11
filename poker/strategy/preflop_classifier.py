@@ -63,9 +63,16 @@ def classify_preflop_scenario(game_state) -> Tuple[str, str, str]:
     Returns
     -------
     (scenario, current_position, opener_position)
-        scenario : one of 'rfi', 'vs_open', 'vs_3bet', 'vs_4bet'
+        scenario : one of 'rfi', 'vs_open', 'vs_3bet', 'vs_squeeze', 'vs_4bet'
         current_position : 6-max label of the player to act
         opener_position  : 6-max label of the relevant raiser ('' for rfi)
+
+    ``vs_3bet`` vs ``vs_squeeze``: at two raises the spot is an *opener facing a
+    3-bet* only when the actor IS the original opener (``preflop_opener_idx``).
+    Any other player facing the 3-bet cold-called an open and now faces a
+    squeeze — a capped (non-opener) range that wants its own chart. The opener's
+    identity is read from the hand-scoped engine field because ``last_action`` is
+    erased by the re-raise reset (see PokerGameState.preflop_opener_idx).
     """
     raises = game_state.raises_this_round
     current_idx = game_state.current_player_idx
@@ -74,7 +81,16 @@ def classify_preflop_scenario(game_state) -> Tuple[str, str, str]:
     if raises == 0:
         return ("rfi", current_pos, "")
 
-    scenario = {1: "vs_open", 2: "vs_3bet"}.get(raises, "vs_4bet")
+    if raises == 1:
+        scenario = "vs_open"
+    elif raises == 2:
+        opener_idx = getattr(game_state, "preflop_opener_idx", -1)
+        # Non-opener facing the 3-bet = squeeze/cold-defense. Unknown opener
+        # (-1, shouldn't happen at two raises) falls back to vs_3bet.
+        scenario = "vs_squeeze" if (opener_idx >= 0 and current_idx != opener_idx) else "vs_3bet"
+    else:
+        scenario = "vs_4bet"
+
     opener_pos = _find_raiser_position(game_state)
     return (scenario, current_pos, opener_pos)
 
