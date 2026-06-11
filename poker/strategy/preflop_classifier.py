@@ -80,12 +80,18 @@ def classify_preflop_scenario(game_state) -> Tuple[str, str, str]:
 
 
 def _find_raiser_position(game_state) -> str:
-    """Identify the position of the most recent raiser.
+    """Identify the position of the relevant raiser hero is responding to.
 
-    Heuristic: the player (other than the current player) with the
-    highest bet above the big-blind amount is the latest raiser.
-    Ties are broken by scanning in reverse seat order from the current
-    player (the most-recently-acting player with the highest bet wins).
+    The opponent (other than the current player) with the strictly-highest
+    bet above the big blind is the most recent aggressor: every re-raise is
+    larger than the bet it raises, so the 3-bettor outbids the opener, the
+    4-bettor outbids the 3-bettor, and so on.
+
+    Multi-way is robust. A flat-caller only *matches* the aggressor's bet,
+    and the strict ``>`` comparison keeps the EARLIEST seat among equal-bet
+    players — which is always the aggressor, since a cold-caller acts after
+    the raiser it calls and therefore sits in a later seat. (Breaking ties
+    toward the *last* seat instead would wrongly select that cold-caller.)
     """
     current_idx = game_state.current_player_idx
     big_blind = game_state.current_ante
