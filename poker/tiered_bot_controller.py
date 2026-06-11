@@ -4291,28 +4291,34 @@ class TieredBotController(AIPlayerController):
         """Multi-way short-stack push/fold via the 6max chart.
 
         Two in-scope spots:
-          1. Unopened (no raise yet): hero (UTG/HJ/CO/BTN/SB) jams or folds
-             from the `unopened` chart. BB unopened (a walk) isn't in the
-             chart -> None.
-          2. Facing a SINGLE all-in: hero calls or folds from the caller tables
-             -- bb_vs_sb when the jammer is the SB, else bb_vs_late.
+          1. Unopened, truly first-in (folded to hero, no raise AND no limper):
+             hero (UTG/HJ/CO/BTN/SB) jams or folds from the `unopened` chart.
+             BB unopened (a walk) isn't in the chart -> None.
+          2. BB facing a SINGLE all-in with no larger live raise on top of it:
+             call or fold from the caller tables -- bb_vs_sb when the jammer is
+             the SB, else bb_vs_late. The caller tables are BB-vs-jam only, so a
+             non-BB hero facing a jam falls through.
 
-        Returns None for any other multi-way short-stack spot (limped pots, a
-        raise that isn't all-in, or 2+ opponents already all-in — which the
-        single-jammer caller tables don't model) so the deep-stack /
-        short_stack.py path keeps handling them.
+        Returns None for any other multi-way short-stack spot (limped / iso
+        pots, a raise that isn't all-in, a short all-in under a larger live
+        raise, or 2+ opponents already all-in — none of which the single-jammer
+        caller tables model) so the deep-stack / short_stack.py path keeps
+        handling them.
         """
         position = get_6max_position(game_state, player_idx)
+
+        active_opps = [
+            (i, p)
+            for i, p in enumerate(game_state.players)
+            if i != player_idx and not getattr(p, 'is_folded', False)
+        ]
 
         # All-in opponents to face on this street: active opponents with 0 stack
         # remaining whose committed bet exceeds the big blind.
         jammer_indices = [
             i
-            for i, p in enumerate(game_state.players)
-            if i != player_idx
-            and not getattr(p, 'is_folded', False)
-            and getattr(p, 'stack', 1) == 0
-            and getattr(p, 'bet', 0) > big_blind
+            for i, p in active_opps
+            if getattr(p, 'stack', 1) == 0 and getattr(p, 'bet', 0) > big_blind
         ]
 
         # The caller tables (bb_vs_sb / bb_vs_late) model a SINGLE jammer. A
@@ -4324,7 +4330,16 @@ class TieredBotController(AIPlayerController):
             return None
 
         if jammer_indices:
-            opener_position = get_6max_position(game_state, jammer_indices[0])
+            jammer_idx = jammer_indices[0]
+            jammer_bet = getattr(game_state.players[jammer_idx], 'bet', 0)
+            # If a LIVE (non-all-in) raise tops the all-in, hero is facing that
+            # raise — the short all-in is just a covered side-pot, not the jam
+            # the caller table models. That's a facing-a-raise / reshove spot
+            # (v2) → fall through.
+            highest_opp_bet = max((getattr(p, 'bet', 0) for _, p in active_opps), default=0)
+            if highest_opp_bet > jammer_bet:
+                return None
+            opener_position = get_6max_position(game_state, jammer_idx)
             return lookup_push_fold_action_6max(
                 hand=canonical_hand,
                 position=position,
@@ -4334,11 +4349,21 @@ class TieredBotController(AIPlayerController):
                 opener_position=opener_position,
             )
 
-        # Unopened jam only fires first-in (blinds posted, no raise/jam yet).
-        # A non-all-in raise we're facing is out of v1 scope (the deferred
-        # reshove table) -> None -> deep-stack path.
+        # Unopened = truly first-in (folded to hero). Two things break that and
+        # must fall through, since the unopened chart assumes no prior action:
+        #   - a raise (raises_this_round > 0), or
+        #   - a limper: a non-blind opponent who voluntarily matched the BB
+        #     without raising. A call doesn't bump raises_this_round (see
+        #     poker_game.player_call), so over-limp / iso spots would otherwise
+        #     wrongly get first-in jam ranges.
         if getattr(game_state, 'raises_this_round', 0) != 0:
             return None
+        for i, p in active_opps:
+            # The BB is the only opponent legitimately in for the big blind when
+            # first-in; any OTHER opponent who has matched/exceeded it without
+            # raising is a limper (no all-in here — those took the jam branch).
+            if get_6max_position(game_state, i) != 'BB' and getattr(p, 'bet', 0) >= big_blind:
+                return None  # a limper sits in front → not first-in
 
         return lookup_push_fold_action_6max(
             hand=canonical_hand,

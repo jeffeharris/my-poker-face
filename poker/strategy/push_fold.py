@@ -203,7 +203,8 @@ def lookup_push_fold_action_6max(
             hero is deciding whether to call.
         opener_position: When facing_jam, the jammer's 6-max position.
             'SB' routes to the bb_vs_sb caller table; anything else routes
-            to bb_vs_late. Ignored when not facing a jam.
+            to bb_vs_late. Ignored when not facing a jam. The caller tables
+            are BB-vs-jam only, so a non-BB hero facing a jam returns None.
 
     Returns:
         'jam'/'fold' for an unopened (first-in) spot, 'call'/'fold' when
@@ -226,6 +227,11 @@ def lookup_push_fold_action_6max(
         return None
 
     if facing_jam:
+        # The caller tables (bb_vs_sb / bb_vs_late) are BB-vs-jam only. A non-BB
+        # hero facing a jam — a CO/BTN facing an earlier jam, or the SB (there is
+        # no sb_vs_* table) — is out of v1 scope, so fall through.
+        if position != "BB":
+            return None
         scenario, depth_data = _resolve_6max_call_scenario(
             chart, opener_position, effective_stack_bb, buckets
         )

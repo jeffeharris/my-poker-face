@@ -236,6 +236,42 @@ class TestMultiwayRouting:
         action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
         assert action is None
 
+    def test_6max_limped_pot_returns_none(self):
+        # P1a: a limper (non-blind opponent matched the BB without raising — a
+        # call doesn't bump raises_this_round) means hero isn't first-in, so the
+        # unopened jam chart must NOT fire. Falls through.
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10)
+        for p in gs.players:  # a non-blind, not-yet-acted opp has bet == 0
+            if p.name != 'Hero' and p.bet == 0:
+                p.bet = gs.current_ante  # limp (call the BB), stack stays full
+                break
+        assert gs.raises_this_round == 0, "a limp must not look like a raise"
+        c = _controller()
+        action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
+        assert action is None
+
+    def test_6max_short_allin_under_live_raise_returns_none(self):
+        # P1b: a short all-in (side-pot) sits UNDER a larger live raise. Hero is
+        # facing the raise, not the jam, so the caller table doesn't apply.
+        gs = _6max_state(hero_pos='BB', hero_idx=0, hero_stack_bb=10, raises=1)
+        bb = gs.current_ante
+        opps = [p for p in gs.players if p.name != 'Hero']
+        opps[0].stack = 0
+        opps[0].bet = 4 * bb  # short all-in
+        opps[1].stack = 500 * bb  # live (NOT all-in)
+        opps[1].bet = 10 * bb  # larger raise tops the all-in
+        c = _controller()
+        action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
+        assert action is None
+
+    def test_6max_non_bb_hero_facing_jam_returns_none(self):
+        # P2: the caller tables are BB-vs-jam only. A non-BB hero (CO) facing an
+        # UTG jam has no caller table → fall through.
+        gs = _6max_state(hero_pos='CO', hero_idx=0, hero_stack_bb=8, jammer_pos='UTG')
+        c = _controller()
+        action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
+        assert action is None
+
     def test_6max_bb_unopened_returns_none(self):
         # BB unopened (a walk) has no jam row → None (falls through).
         gs = _6max_state(hero_pos='BB', hero_idx=0, hero_stack_bb=10)
