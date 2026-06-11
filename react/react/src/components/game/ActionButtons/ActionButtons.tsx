@@ -299,7 +299,7 @@ export function ActionButtons({
             className={`action-button call${recommendedAction === 'call' ? ' coach-recommended' : ''}`}
             onClick={() => onAction('call')}
           >
-            Call ${calc.callAmount}
+            {noSizing ? 'Call' : `Call $${calc.callAmount}`}
           </button>
         )}
 

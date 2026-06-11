@@ -3,15 +3,21 @@ import { useSearchParams } from 'react-router-dom';
 import { SlidersHorizontal, Shuffle } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { ActionButtons } from '../game/ActionButtons';
+import toast from 'react-hot-toast';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
 import { PreflopCardFace } from './preflop/PreflopCard';
-import { drawNext, pct, type Spot, type Grade } from './preflop/preflopUtils';
+import { drawNext, pct, RFI_POS, type Spot, type Grade } from './preflop/preflopUtils';
 
 // Read drill: "Would a <archetype> open this?" — predict a player type's RFI
 // decision (raise/fold), graded against that archetype's own width-tier chart.
 // Fully chart-faithful: the archetype chart IS that player's strategy.
+//
+// Two filter axes (each defaults to a mix): the opponent type and the seat. They
+// live as separate pill groups in the settings popover; "mix" fans out over the
+// whole set. Scenario stays RFI here — facing-a-raise reads need per-opener
+// vs_open data we don't have yet, so that axis isn't offered.
 
 const ARCHETYPES: { key: string; label: string }[] = [
   { key: 'nit', label: 'A nit' },
@@ -22,11 +28,9 @@ const ARCHETYPES: { key: string; label: string }[] = [
 const ARCH_LABEL: Record<string, string> = Object.fromEntries(
   ARCHETYPES.map((a) => [a.key, a.label])
 );
-// Late positions, where opening ranges diverge most by archetype (early seats are
-// tight for everyone, so the read is least interesting there).
-const READ_POS = ['CO', 'BTN'];
 
-type Mode = 'mix' | string;
+type ArchMode = 'mix' | string;
+type PosMode = 'mix' | (typeof RFI_POS)[number];
 
 const HOLD_MS: Record<Grade['verdict'], number> = { good: 700, thin: 1050, leak: 1800 };
 
@@ -49,7 +53,9 @@ interface ReadDrillProps {
 export function ReadDrill({ onBack }: ReadDrillProps) {
   const [params, setSearchParams] = useSearchParams();
   const paramArch = params.get('archetype') || '';
-  const [mode, setMode] = useState<Mode>(ARCH_LABEL[paramArch] ? paramArch : 'mix');
+  const paramPos = params.get('position') || '';
+  const [archMode, setArchMode] = useState<ArchMode>(ARCH_LABEL[paramArch] ? paramArch : 'mix');
+  const [posMode, setPosMode] = useState<PosMode>(RFI_POS.includes(paramPos) ? paramPos : 'mix');
   const [showSettings, setShowSettings] = useState(false);
 
   const [pool, setPool] = useState<Spot[]>([]);
@@ -63,10 +69,20 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
 
   const deckRef = useRef<SwipeDeckHandle>(null);
 
-  const pickMode = (m: Mode) => {
-    setMode(m);
-    setShowSettings(false);
-    setSearchParams(m === 'mix' ? {} : { archetype: m }, { replace: true });
+  // Keep both axes in the URL so a leak nudge can deep-link a specific read.
+  const syncParams = (arch: ArchMode, pos: PosMode) => {
+    const next: Record<string, string> = {};
+    if (arch !== 'mix') next.archetype = arch;
+    if (pos !== 'mix') next.position = pos;
+    setSearchParams(next, { replace: true });
+  };
+  const pickArch = (m: ArchMode) => {
+    setArchMode(m);
+    syncParams(m, posMode);
+  };
+  const pickPos = (p: PosMode) => {
+    setPosMode(p);
+    syncParams(archMode, p);
   };
 
   const load = useCallback(async () => {
@@ -77,9 +93,12 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
     setSolid(0);
     setAnswered(0);
 
-    const fetchSpots = async (position: string, archetype: string): Promise<Spot[]> => {
+    // Position 'mix' fans out server-side (one call per archetype), so the worst
+    // case is 4 requests — not 4×5, which bursts the limiter. Each archetype is
+    // its own call because they grade against different charts.
+    const fetchSpots = async (archetype: string): Promise<Spot[]> => {
       const resp = await fetch(
-        `${config.API_URL}/api/coach/drill?scenario=rfi&position=${position}&archetype=${archetype}`,
+        `${config.API_URL}/api/coach/drill?scenario=rfi&position=${posMode}&archetype=${archetype}`,
         { credentials: 'include' }
       );
       if (!resp.ok) throw new Error(`drill ${resp.status}`);
@@ -88,9 +107,8 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
     };
 
     try {
-      const archetypes = mode === 'mix' ? ARCHETYPES.map((a) => a.key) : [mode];
-      const combos = archetypes.flatMap((a) => READ_POS.map((p) => ({ p, a })));
-      const results = await Promise.allSettled(combos.map(({ p, a }) => fetchSpots(p, a)));
+      const archetypes = archMode === 'mix' ? ARCHETYPES.map((a) => a.key) : [archMode];
+      const results = await Promise.allSettled(archetypes.map(fetchSpots));
       const spots = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
       if (!spots.length) throw new Error('no spots');
       setPool(spots);
@@ -100,7 +118,7 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
     } finally {
       setLoading(false);
     }
-  }, [mode]);
+  }, [archMode, posMode]);
 
   useEffect(() => {
     load();
@@ -130,7 +148,12 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
       setAnswered((n) => n + 1);
       if (g.verdict === 'good') setSolid((n) => n + 1);
     } catch (err) {
+      // Grading failed (network / limiter). The card is already flung off-screen,
+      // so recover instead of soft-locking: drop it, rise the next, and tell the
+      // user this spot didn't count rather than failing silently.
       logger.error('Failed to grade answer:', err);
+      toast.error("Couldn't grade that hand — skipping it.");
+      deckRef.current?.advance();
     } finally {
       setGrading(false);
     }
@@ -168,7 +191,9 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
   }, [grade, grading]);
 
   const ready = !loading && !error && pool.length > 0;
-  const modeLabel = mode === 'mix' ? 'Mixed reads' : `${ARCH_LABEL[mode] ?? mode} only`;
+  const archLabel = archMode === 'mix' ? 'Mixed reads' : (ARCH_LABEL[archMode] ?? archMode);
+  const posLabel = posMode === 'mix' ? 'all seats' : posMode;
+  const allMixed = archMode === 'mix' && posMode === 'mix';
 
   return (
     <>
@@ -183,29 +208,61 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
             onClick={() => setShowSettings((v) => !v)}
             aria-expanded={showSettings}
           >
-            {mode === 'mix' ? <Shuffle size={14} /> : <SlidersHorizontal size={14} />}
-            {modeLabel}
+            {allMixed ? <Shuffle size={14} /> : <SlidersHorizontal size={14} />}
+            {archLabel} · {posLabel}
           </button>
           {showSettings && (
-            <div className="swd-pos-chips" role="radiogroup" aria-label="Opponent type">
-              {(['mix', ...ARCHETYPES.map((a) => a.key)] as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === m}
-                  aria-label={m === 'mix' ? 'Mixed' : ARCH_LABEL[m]}
-                  className={
-                    'swd-pos-chip' +
-                    (m === 'mix' ? ' swd-pos-chip--shuffle' : '') +
-                    (mode === m ? ' swd-pos-chip--active' : '')
-                  }
-                  onClick={() => pickMode(m)}
-                >
-                  {m === 'mix' ? <Shuffle size={15} /> : (ARCH_LABEL[m] ?? m).replace(/^A /, '')}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="swd-filter-group">
+                <span className="swd-filter-label">Opponent</span>
+                <div className="swd-pos-chips" role="radiogroup" aria-label="Opponent type">
+                  {(['mix', ...ARCHETYPES.map((a) => a.key)] as ArchMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      role="radio"
+                      aria-checked={archMode === m}
+                      aria-label={m === 'mix' ? 'Mixed' : ARCH_LABEL[m]}
+                      className={
+                        'swd-pos-chip' +
+                        (m === 'mix' ? ' swd-pos-chip--shuffle' : '') +
+                        (archMode === m ? ' swd-pos-chip--active' : '')
+                      }
+                      onClick={() => pickArch(m)}
+                    >
+                      {m === 'mix' ? (
+                        <Shuffle size={15} />
+                      ) : (
+                        (ARCH_LABEL[m] ?? m).replace(/^A /, '')
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="swd-filter-group">
+                <span className="swd-filter-label">Position</span>
+                <div className="swd-pos-chips" role="radiogroup" aria-label="Position">
+                  {(['mix', ...RFI_POS] as PosMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      role="radio"
+                      aria-checked={posMode === m}
+                      aria-label={m === 'mix' ? 'All seats' : m}
+                      className={
+                        'swd-pos-chip' +
+                        (m === 'mix' ? ' swd-pos-chip--shuffle' : '') +
+                        (posMode === m ? ' swd-pos-chip--active' : '')
+                      }
+                      onClick={() => pickPos(m)}
+                    >
+                      {m === 'mix' ? <Shuffle size={15} /> : m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
           )}
         </div>
 

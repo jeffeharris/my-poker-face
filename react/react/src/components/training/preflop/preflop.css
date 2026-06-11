@@ -64,6 +64,21 @@
   justify-content: center;
   gap: var(--space-2);
 }
+/* A labelled filter dimension (e.g. Opponent / Position) — stack several inside
+   the settings popover when a drill filters on more than one axis. */
+.swd-filter-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+.swd-filter-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
 .swd-pos-chip {
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-md);
@@ -294,6 +309,16 @@
 .pf-control .action-panel,
 .pf-control .action-buttons {
   width: 100%;
+}
+/* Drills always lay the bar out horizontally — the in-game ActionButtons stacks
+   to a column under 600px (thumb reach on the real table), which we don't want
+   for a one-tap drill control. Scoped to .pf-control so the game is untouched. */
+.pf-control .action-buttons {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.pf-control .action-button {
+  flex: 1 1 0;
 }
 
 /* Read-drill archetype headline — the "who" we're predicting (above position). */

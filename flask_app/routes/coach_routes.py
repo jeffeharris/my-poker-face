@@ -631,7 +631,7 @@ def coach_drill():
     there's nothing confirmed to practice yet.
     """
     from ..services.coach_chart_data import get_owner_chart_leak_set
-    from ..services.coach_drill import sample_drill_spots
+    from ..services.coach_drill import sample_drill
 
     owner_id = _get_current_user_id()
     if not owner_id:
@@ -651,7 +651,7 @@ def coach_drill():
             if not leak:
                 return jsonify({'enough_data': False})
             scenario, position, kind = leak['scenario'], leak['position'], leak['kind']
-        spots = sample_drill_spots(scenario, position, n=10, archetype=archetype)
+        spots = sample_drill(scenario, position, n=10, archetype=archetype)
     except Exception as e:
         logger.error(f"drill build failed for {owner_id}: {e}", exc_info=True)
         return jsonify({'error': 'Could not build drill'}), 500

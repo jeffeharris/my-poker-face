@@ -66,8 +66,8 @@
 .swipedeck-stamp--up {
   top: auto;
   bottom: var(--space-6);
-  left: 50%;
-  transform: translateX(-50%) rotate(-4deg);
+  left: var(--space-5);
+  transform: rotate(-4deg);
   color: var(--color-sapphire);
   border: 3px solid var(--color-sapphire);
 }
