@@ -160,9 +160,9 @@ def test_no_call_skips():
     assert out is base
 
 
-def test_no_call_action_skips():
-    """If 'call' isn't legal (rare — e.g. all-in already locked), don't fire."""
-    base = make_strategy({'fold': 0.5, 'all_in': 0.5})
+def test_action_closed_skips():
+    """Truly closed action — neither 'call' nor 'all_in' legal — doesn't fire."""
+    base = make_strategy({'fold': 1.0})
     out, trace = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=200,
@@ -170,10 +170,56 @@ def test_no_call_action_skips():
         player_stack=200,
         player_bet=100,
         big_blind=100,
-        legal_actions=['fold', 'all_in'],  # no 'call'
+        legal_actions=['fold'],  # no continue action available
     )
     assert trace.fired is False
     assert out is base
+
+
+def test_call_off_short_stack_fires_jam():
+    """Facing a bet bigger than our stack (call-off) must NOT be skipped.
+
+    The engine offers ['fold', 'all_in'] (no flat 'call') when the bet
+    exceeds our stack. That's a call-off, not a closed action — the floor
+    must still fire. Here stack is 2 BB so short_stack wins -> jam.
+    """
+    base = make_strategy({'fold': 1.0})
+    out, trace = apply_pot_odds_floor(
+        strategy=base,
+        cost_to_call=300,  # more than our 200 stack -> call-off
+        pot_total=600,
+        player_stack=200,  # 2 BB
+        player_bet=100,
+        big_blind=100,
+        legal_actions=['fold', 'all_in'],  # no flat 'call'
+    )
+    assert trace.reason_code == 'short_stack'
+    assert out.action_probabilities == {'jam': 1.0}
+
+
+def test_call_off_pot_committed_fires_call():
+    """Pot-committed call-off (P.T. Barnum #9716): fold:1.0 chart -> call.
+
+    Turn spot: ~98 stack behind, already 380 in, facing a 150 bet that
+    exceeds the stack, so legal_actions = ['fold', 'all_in']. The chart
+    sampled fold:1.0; pot_committed (player_bet > player_stack) must
+    override to 'call', which resolve_postflop_sizing later turns into the
+    all_in call-off. Above the short_stack depth so pot_committed is the
+    rule that fires.
+    """
+    base = make_strategy({'fold': 1.0})
+    out, trace = apply_pot_odds_floor(
+        strategy=base,
+        cost_to_call=150,
+        pot_total=910,
+        player_stack=98,  # 9.8 BB — above the 3 BB short_stack floor
+        player_bet=380,  # invested more than remaining stack -> committed
+        big_blind=10,
+        legal_actions=['fold', 'all_in'],  # no flat 'call' (bet > stack)
+    )
+    assert trace.reason_code == 'pot_committed'
+    assert out.action_probabilities == {'call': 1.0}
+    assert out.action_probabilities.get('fold', 0) == 0
 
 
 def test_floor_is_deterministic_on_target():
