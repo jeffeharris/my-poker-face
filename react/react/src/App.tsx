@@ -6,6 +6,8 @@ import { TournamentMenu, type QuickPlayConfig } from './components/menus/Tournam
 import { LoginForm } from './components/auth/LoginForm';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
+import { getLobby } from './components/cash/api';
+import { DevResetIntakeButton } from './components/cash/DevResetIntakeButton';
 import { rememberAdminOrigin } from './components/admin/adminOrigin';
 import { setTournamentOrigin } from './utils/tournamentOrigin';
 import { useAuth, hasPermission } from './hooks/useAuth';
@@ -236,6 +238,46 @@ function App() {
       }
     }
   }, [authLoading, isAuthenticated, location.pathname, location.state, navigate]);
+
+  // The Circuit: a brand-new career player is taken STRAIGHT into the cold open /
+  // intake on arrival, skipping the main menu (the agreed onboarding). When an
+  // authenticated user lands on the menu, we check the cash lobby once: if intake
+  // is pending (`intake_needed`), route them to /cash, where the cold open +
+  // intake play and then auto-sit Scene 0. Checked once per app mount (a ref
+  // guard) so it never re-fires or loops; flag-gated server-side, so for a
+  // non-career player it's a no-op (intake_needed is always false). Best-effort —
+  // a failed check just leaves them on the menu.
+  // 'pending' until the one-time check resolves; while pending, the menu route
+  // renders a BLACK holding screen (not the menu) so a brand-new player never
+  // sees the menu flash before the redirect — and it's seamless into the cold
+  // open, which also opens on black. Cleared once we know (redirect or not).
+  const [intakeGate, setIntakeGate] = useState<'pending' | 'clear'>('pending');
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      setIntakeGate('clear');
+      return;
+    }
+    if (intakeGate !== 'pending') return;
+    let cancelled = false;
+    getLobby()
+      .then((lobby) => {
+        if (cancelled) return;
+        // Hand /cash the intake hint so the Lobby mounts the black cold open
+        // IMMEDIATELY (showIntake seeded true) instead of flashing the lobby UI
+        // for the beat before its own fetch resolves. The black holding screen
+        // (below) → black cold open is then a seamless cut.
+        if (lobby.intake_needed)
+          navigate('/cash', { replace: true, state: { intakeNeeded: true } });
+        setIntakeGate('clear');
+      })
+      .catch(() => {
+        if (!cancelled) setIntakeGate('clear');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, isAuthenticated, intakeGate, navigate]);
 
   const fetchSavedGamesCount = async () => {
     try {
@@ -504,6 +546,10 @@ function App() {
         }}
       />
 
+      {/* DEV-only: wipe career & replay the Lucky Stack intake (self-gates on
+          ENABLE_DEBUG; the server route 404s in prod). */}
+      {isAuthenticated && <DevResetIntakeButton />}
+
       {/* Routes */}
       <ErrorBoundary>
         <Suspense
@@ -536,16 +582,25 @@ function App() {
               path="/menu"
               element={
                 <ProtectedRoute>
-                  <HomeMenu
-                    playerName={playerName}
-                    onCashMode={() => navigate('/cash')}
-                    onTournament={() => navigate('/menu/tournament')}
-                    onTraining={() => navigate('/menu/training')}
-                    onAdminDashboard={() => {
-                      rememberAdminOrigin(location.pathname);
-                      navigate('/admin');
-                    }}
-                  />
+                  {isAuthenticated && intakeGate === 'pending' ? (
+                    // Black hold while we check intake — a brand-new career player
+                    // gets whisked to the cold open without the menu ever flashing.
+                    <div
+                      aria-hidden="true"
+                      style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 60 }}
+                    />
+                  ) : (
+                    <HomeMenu
+                      playerName={playerName}
+                      onCashMode={() => navigate('/cash')}
+                      onTournament={() => navigate('/menu/tournament')}
+                      onTraining={() => navigate('/menu/training')}
+                      onAdminDashboard={() => {
+                        rememberAdminOrigin(location.pathname);
+                        navigate('/admin');
+                      }}
+                    />
+                  )}
                 </ProtectedRoute>
               }
             />

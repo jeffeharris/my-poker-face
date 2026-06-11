@@ -6735,14 +6735,19 @@ def cash_intake_route():
     name = (body.get("name") or "").strip()[:40] or _resolve_player_name() or "Stranger"
     # The backstory the player picked (`reply_id`). The text is resolved
     # SERVER-SIDE by id from the authored set (the client can't spoof the bio);
-    # `reply_id` is also the stable key for later narrative callbacks.
+    # `reply_id` is also the stable key for later narrative callbacks. The client
+    # also sends the card's text (`reply`) — used ONLY as a fallback if the id is
+    # unknown (a stale-payload id drift) so the reveal still matches the pick.
     reply_id = (body.get("reply_id") or "").strip()[:40]
+    reply_text = (body.get("reply") or "").strip()[:300]
 
     progress = career_progress_repo.load(sandbox_id, owner_id)
     if not progress.intake_complete:
-        # Deterministic christening: a rule-based fish-name + the chosen
-        # pre-authored backstory as the bio (no per-user LLM call).
-        persona = intake_persona(name, reply_id)
+        # Christening: a rule-based fish-name + an LLM-generated snarky bio
+        # (grok-4-fast) riffing on the fish-name + the chosen backstory. owner_id
+        # is passed through for usage tracking; the call falls back to the
+        # verbatim backstory if the LLM fails, so intake never blocks.
+        persona = intake_persona(name, reply_id, fallback_text=reply_text, owner_id=owner_id)
         progress.player_name = name
         progress.fish_name = persona["fish_name"]
         progress.intake_reply = persona["backstory_text"]
@@ -7436,3 +7441,47 @@ def get_state():
             "bankroll": bankroll.chips,
         }
     )
+
+
+@cash_bp.route("/api/cash/dev/reset-intake", methods=["POST"])
+def cash_dev_reset_intake_route():
+    """POST /api/cash/dev/reset-intake — wipe the caller's career back to intake.
+
+    The in-app, DEV-ONLY "reset to intake" button (gated by the same dev sense as
+    feature-flag defaults: FLASK_ENV=development or FLASK_DEBUG=1). Reuses the
+    `scripts/reset_career.py` core, then evicts the caller's in-memory cash game
+    so the reset takes effect WITHOUT a backend restart. Returns 404 in prod so
+    the route simply doesn't exist for real players.
+    """
+    from core.feature_flags import current_env
+
+    if current_env() != "dev":
+        return jsonify({"error": "not found"}), 404
+
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # Evict any in-memory cash game for this owner first, so the DB wipe below
+    # isn't shadowed by a live game still held in the registry (what otherwise
+    # forces the "restart backend" step the CLI prints).
+    from flask_app.services import game_state_service
+
+    evicted = 0
+    for gid in game_state_service.list_game_ids():
+        if not gid.startswith("cash-"):
+            continue
+        gdata = game_state_service.get_game(gid)
+        if gdata is not None and gdata.get("owner_id") == owner_id:
+            game_state_service.delete_game(gid)
+            evicted += 1
+
+    from cash_mode.dev_reset import reset_career_to_intake
+
+    stats = reset_career_to_intake(config.DB_PATH, owner_id)
+    if stats is None:
+        return jsonify({"error": f"no sandbox for {owner_id}"}), 404
+    stats["evicted_in_memory"] = evicted
+    logger.info("[CASH][DEV] reset-intake for %s: %s", owner_id, stats)
+    return jsonify(stats)

@@ -40,6 +40,14 @@ os.environ['RATE_LIMIT_GAME_ACTION'] = '10000 per minute'
 # etc.) and don't see the per-package conftest.
 os.environ.setdefault('CASH_LEAVE_NARRATIVE_DISABLED', '1')
 
+# Disable the Lucky Stack intake bio LLM call (grok-4-fast) across the WHOLE
+# suite. `intake_persona` otherwise fires a real xai call to snark-ify the bio
+# during intake/lobby integration tests — burning tokens and making the bio
+# non-deterministic. Disabled, the bio falls back to the chosen backstory text
+# (the deterministic part the tests assert on). Mirrors the leave-narrative
+# disable above. See cash_mode/career_progression._generate_snarky_bio.
+os.environ.setdefault('CASH_INTAKE_BIO_DISABLED', '1')
+
 # Disable the realtime world ticker across the suite. The ticker is a
 # background daemon started in create_app(); left on, it runs against
 # torn-down per-test DBs (noisy "tick failed" logs, latent flake) and,
