@@ -46,14 +46,17 @@ def _vs3bet_first_node(path):
 
 
 @pytest.mark.parametrize('path', _CHARTS_100BB, ids=lambda p: os.path.basename(p))
-def test_vs3bet_is_a_real_gradient(path):
-    """The stub had exactly 5 distinct distributions across 169 hands."""
-    hands = _vs3bet_first_node(path)
-    assert hands, f"{path} has no vs_3bet"
-    distinct = {tuple(sorted(d.items())) for d in hands.values()}
-    assert len(distinct) >= 8, (
-        f"{os.path.basename(path)} vs_3bet looks degenerate "
-        f"({len(distinct)} distributions — the stub had 5)"
+def test_vs3bet_varies_by_position(path):
+    """Not the stub: the per-node generator differentiates by position, so the 15
+    vs_3bet nodes are NOT one range pasted everywhere. (The old stub was all-15
+    identical; the within-node shape is now bimodal tiers, so distinctness lives
+    across nodes, not within one.)"""
+    nodes = json.load(open(path)).get('vs_3bet', {})
+    assert nodes, f"{path} has no vs_3bet"
+    node_sigs = {json.dumps(n, sort_keys=True) for n in nodes.values()}
+    assert len(node_sigs) >= 4, (
+        f"{os.path.basename(path)} vs_3bet is ~position-invariant "
+        f"({len(node_sigs)} distinct nodes / {len(nodes)})"
     )
 
 

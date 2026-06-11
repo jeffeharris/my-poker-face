@@ -60,6 +60,14 @@ CLIFF_BAND = (0.45, VALUE_RAISE_THRESHOLD)
 WEIGHT_SUM_TOL = 0.01
 DEPTH_FLAT_RETENTION = 0.40  # 50bb node must keep ≥40% of the 100bb flat mass
 
+# BB defend floors at depth — the BB closes the action and gets a price, so
+# short-stacked it should jam its defense vs a steal, not collapse. (Only the
+# steal-ish openers CO/BTN/SB; BB-vs-UTG/HJ defends tight by design.)
+DEPTH_BB_DEFEND_FLOOR = {
+    50: {"CO": 0.32, "BTN": 0.40, "SB": 0.44},
+    25: {"CO": 0.27, "BTN": 0.34, "SB": 0.38},
+}
+
 
 def _combos(hand: str) -> int:
     return 6 if len(hand) == 2 else (4 if hand[2] == "s" else 12)
@@ -309,6 +317,23 @@ def lint_depth_flat_retention(base: Dict, depth: Dict, depth_bb: int) -> List[st
     return fails
 
 
+def lint_depth_bb_defense(_base: Dict, depth: Dict, depth_bb: int) -> List[str]:
+    """BB defends wide enough at depth (continue = call+jam+raise_3x over the BB
+    vs_open node) — catches the 25bb flat-drop overfold."""
+    fails = []
+    for opener, floor in DEPTH_BB_DEFEND_FLOOR.get(depth_bb, {}).items():
+        node = depth.get("vs_open", {}).get(f"BB_vs_{opener}", {})
+        tot = cont = 0.0
+        for h, d in node.items():
+            c = _combos(h)
+            tot += c
+            cont += c * (d.get("call", 0.0) + d.get("jam", 0.0) + d.get("raise_3x", 0.0))
+        if tot and cont / tot + 1e-9 < floor:
+            fails.append(f"{depth_bb}bb vs_open/BB_vs_{opener}: BB defend "
+                         f"{100*cont/tot:.1f}% < floor {100*floor:.0f}%")
+    return fails
+
+
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 BASE_LINTS = (
@@ -348,7 +373,7 @@ def run_report() -> int:
         print(f"=== {depth_bb}bb depth ===")
         # RFI passthrough applies at every depth; the flat-retention floor is a
         # 50bb-only check (per spec) — heavy flat-drop is correct at 25bb.
-        depth_lints = [lint_depth_rfi_passthrough]
+        depth_lints = [lint_depth_rfi_passthrough, lint_depth_bb_defense]
         if depth_bb == 50:
             depth_lints.append(lint_depth_flat_retention)
         for fn in depth_lints:

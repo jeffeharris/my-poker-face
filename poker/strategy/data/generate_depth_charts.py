@@ -53,6 +53,11 @@ VALUE_RAISE_THRESHOLD = 0.50
 #   NOT committed, so fold the bluff-3bet + most flats, keep only a thin flat
 #   (no profitable shallow OOP flat, no bluff-jam vs a station).
 J25_VSOPEN_SPEC_FLAT_KEEP = 0.30      # fraction of original call kept as a flat
+#   ...EXCEPT the BB, which closes the action and gets a price: short-stacked it
+#   JAMS its flat defense vs a steal rather than over-folding (without this, 25bb
+#   BB defense collapses ~38pp below 100bb — far past MDF). Fraction of the BB's
+#   non-value continue range converted to a jam at 25bb.
+J25_VSOPEN_BB_JAM_KEEP = 0.65
 #   vs_3bet: facing a re-raise you ARE near-committed shallow. Gate on the
 #   100bb FOLD frequency (not raise-dominance — value hands like JJ/TT
 #   continue by *calling*, raise≈0.2, yet must jam shallow). If the chart
@@ -105,8 +110,12 @@ def t_rfi(p: Dict[str, float], depth: int) -> Dict[str, float]:
     return dict(p)
 
 
-def t_vs_open(p: Dict[str, float], depth: int) -> Dict[str, float]:
-    """Hero faces an open; decides 3-bet (raise_3x) / call / fold."""
+def t_vs_open(p: Dict[str, float], depth: int, is_bb: bool = False) -> Dict[str, float]:
+    """Hero faces an open; decides 3-bet (raise_3x) / call / fold.
+
+    ``is_bb`` flags a BB-defends node: the BB closes the action, so short-stacked
+    it commits its defense by jamming rather than over-folding (see the 25bb branch).
+    """
     raise_, call, fold = p.get("raise_3x", 0.0), p.get("call", 0.0), p.get("fold", 0.0)
     if _is_pure_fold(p):
         return dict(p)
@@ -116,8 +125,13 @@ def t_vs_open(p: Dict[str, float], depth: int) -> Dict[str, float]:
         if is_value:
             # Stack off: the whole continue range (3-bet + flats) jams.
             return _norm({"jam": raise_ + call, "fold": fold})
-        # Marginal/bluff: drop the bluff-3bet and most flats to fold;
-        # keep only a thin flat. No bluff-jam (−EV vs a station).
+        if is_bb:
+            # BB closes the action and gets a price — jam its flat defense vs a
+            # steal rather than over-fold (cold-defenders below correctly don't).
+            jam = (raise_ + call) * J25_VSOPEN_BB_JAM_KEEP
+            return _norm({"jam": jam, "fold": 1.0 - jam})
+        # Cold-defender, marginal/bluff: drop the bluff-3bet and most flats to
+        # fold; keep only a thin flat. No bluff-jam (−EV vs a station).
         new_call = call * J25_VSOPEN_SPEC_FLAT_KEEP
         new_fold = fold + raise_ + call * (1 - J25_VSOPEN_SPEC_FLAT_KEEP)
         return _norm({"call": new_call, "fold": new_fold})
@@ -197,10 +211,12 @@ def build_depth_chart(base: dict, depth: int) -> dict:
     }
     for scenario in ("rfi", "vs_open", "vs_3bet", "vs_4bet"):
         fn = _TRANSFORMS[scenario]
-        out[scenario] = {
-            group: {hand: fn(profile, depth) for hand, profile in hands.items()}
-            for group, hands in base.get(scenario, {}).items()
-        }
+        nodes = {}
+        for group, hands in base.get(scenario, {}).items():
+            # vs_open BB-defends nodes commit by jamming short-stacked (t_vs_open).
+            extra = {"is_bb": group.startswith("BB_")} if scenario == "vs_open" else {}
+            nodes[group] = {hand: fn(profile, depth, **extra) for hand, profile in hands.items()}
+        out[scenario] = nodes
     return out
 
 
