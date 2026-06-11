@@ -12,9 +12,18 @@
     "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,css,json,md}'",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cap:sync": "npm run build && cap sync",
+    "ios": "npm run build && cap sync ios && cap open ios",
+    "android": "npm run build && cap sync android && cap open android"
   },
   "dependencies": {
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/haptics": "^6.0.3",
+    "@capacitor/ios": "^6.2.1",
+    "@capacitor/preferences": "^6.0.4",
+    "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
     "@fontsource-variable/bodoni-moda": "^5.2.7",
     "@fontsource-variable/dm-sans": "^5.2.8",
     "@fontsource-variable/fraunces": "^5.2.9",
@@ -35,6 +44,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@capacitor/cli": "^6.2.1",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.6.3",

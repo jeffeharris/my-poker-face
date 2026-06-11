@@ -341,6 +341,30 @@ def ensure_lobby_seeded(
     # order in LOBBY_TABLES mirrors STAKES_ORDER.
     from cash_mode.lobby_config import LOBBY_TABLES
 
+    # Per-pass memo of each candidate's (knobs, projected bankroll). The seed
+    # below considers every eligible AI for every table, so without this the
+    # same candidate is re-loaded (two DB reads) and re-projected once per
+    # table — wasted work that, for a broke AI who clears no table, is pure
+    # churn (and the source of repeated seat-debit-refused log spam). `now` is
+    # fixed for the pass, so a pid's projection is constant; cache it once.
+    projection_cache: Dict[str, Tuple[object, int]] = {}
+
+    def _project_candidate(pid: str) -> Tuple[object, int]:
+        cached = projection_cache.get(pid)
+        if cached is not None:
+            return cached
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        if stored is None:
+            # No bankroll row yet — use the personality's cap as a generous
+            # starting projection. Sit-down writes the row at debit time.
+            projected = knobs.starting_bankroll
+        else:
+            projected = project_bankroll(stored, knobs.starting_bankroll, knobs.bankroll_rate, now)
+        result = (knobs, projected)
+        projection_cache[pid] = result
+        return result
+
     for stake_label, entries in LOBBY_TABLES.items():
         if stake_label not in STAKES_ORDER:
             # Defensive: a lobby_config entry referencing a stake not in
@@ -389,23 +413,10 @@ def ensure_lobby_seeded(
                 if not pid or pid in seated_globally or pid in off_grid:
                     continue
 
-                knobs = bankroll_repo.load_personality_knobs(pid)
+                knobs, projected = _project_candidate(pid)
                 ai_threshold = round(min_buy_in * knobs.buy_in_multiplier)
                 ai_buy_in = min(ai_threshold, max_buy_in)
 
-                stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-                if stored is None:
-                    # No bankroll row yet — use the personality's cap as a
-                    # generous starting projection. Sit-down will write the
-                    # row at debit time.
-                    projected = knobs.starting_bankroll
-                else:
-                    projected = project_bankroll(
-                        stored,
-                        knobs.starting_bankroll,
-                        knobs.bankroll_rate,
-                        now,
-                    )
                 if projected < ai_threshold:
                     continue
 
@@ -956,6 +967,25 @@ def _process_global_greedy_fills(
         )
 
 
+def _available_buyin_capacity(current: int, committed: int) -> int:
+    """Bankroll still spendable on buy-ins after `committed` chips have already
+    been planned (but not yet debited) this sweep.
+
+    A table refresh simulates a whole burst of hands before any bankroll debit is
+    applied, so an AI that rebuys repeatedly (a fish reloading until dry, or a
+    grinder rebuying on bust) — or the same AI seated at more than one table —
+    would have EVERY reload sized against its FULL bankroll. The accumulated
+    buy-ins then over-commit one bankroll: at apply time the first debit drains
+    it and the rest refuse, but their seats were already topped up → minted chips.
+
+    Subtracting what's already committed (floored at 0) caps the total planned
+    buy-ins at the real bankroll, so the over-commit — and the mint — can't
+    happen. NOT fish-specific: keyed by personality, it covers every rebuying AI;
+    fish merely trigger it most often.
+    """
+    return max(0, current - committed)
+
+
 def refresh_unseated_tables(
     *,
     cash_table_repo,
@@ -1283,19 +1313,43 @@ def refresh_unseated_tables(
             fish_ids=_fish_ids,
         )
 
+    # Buy-ins planned during the CURRENT table's burst but not yet debited
+    # (cleared per table, since each table's debits are applied to the DB before
+    # the next table's burst). `_bankroll_lookup` subtracts these so a burst
+    # can't plan more reloads than the bankroll can fund — see
+    # `_available_buyin_capacity`.
+    _committed_buyins: Dict[str, int] = {}
+
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
             pid,
             sandbox_id=sandbox_id,
             now=now,
         )
-        if current is not None:
-            return current
-        # No row yet — mirror the seed-path fallback so a personality
-        # added between boot and the first lobby refresh isn't locked
-        # out of live-fill. `ensure_ai_bankrolls_seeded` should have
-        # written the row already; this is the defensive shim.
-        return bankroll_repo.load_personality_knobs(pid).starting_bankroll
+        if current is None:
+            # No row yet — mirror the seed-path fallback so a personality
+            # added between boot and the first lobby refresh isn't locked
+            # out of live-fill. `ensure_ai_bankrolls_seeded` should have
+            # written the row already; this is the defensive shim.
+            current = bankroll_repo.load_personality_knobs(pid).starting_bankroll
+        return _available_buyin_capacity(current, _committed_buyins.get(pid, 0))
+
+    def _seated_reserve_lookup(pid: str) -> Optional[int]:
+        # Post-burst reserve for the last-stand scan. By the time that scan
+        # runs, `_apply_bankroll_transfers` has ALREADY debited this table's
+        # `to_seat` buy-ins from the DB, so the stored balance is the
+        # post-refresh truth. Unlike `_bankroll_lookup` (used DURING the burst
+        # to size reloads against the not-yet-debited bankroll), this must NOT
+        # subtract `_committed_buyins` again — those amounts are already gone
+        # from the DB, and re-subtracting them double-counts the debit. That
+        # makes a solvent AI read as $0 reserve and fires a false last-stand
+        # predator signal. Returns None for a missing row so the scan skips it
+        # (no false alarm), per `_committed_seated_ais`.
+        return bankroll_repo.load_ai_bankroll_current(
+            pid,
+            sandbox_id=sandbox_id,
+            now=now,
+        )
 
     # Phase 4 take_stake callbacks. Wired only when both stake_repo
     # and relationship_repo are provided. The borrower/lender profile
@@ -1610,6 +1664,11 @@ def refresh_unseated_tables(
             # `cash_mode/career_progression.py` and CASH_MODE_CAREER_PROGRESSION.md.
             continue
 
+        # Reset per table: this table's burst debits are applied to the DB below
+        # before the next table runs, so committed buy-ins only need to span one
+        # table's burst (where no debit has landed yet).
+        _committed_buyins.clear()
+
         big_blind, table_min_buy_in, table_max_buy_in = table_buy_in_window(table.stake_label)
         try:
             stake_idx = STAKES_ORDER.index(table.stake_label)
@@ -1914,6 +1973,14 @@ def refresh_unseated_tables(
             # freshly_seated is empty here — the global greedy pass below
             # owns fills and the reseat-recovery persistence for them.
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
+            # Tally this hand's buy-ins so the next burst hand's bankroll lookup
+            # reflects what's already committed — capping total planned reloads at
+            # the real bankroll (no over-commit → no minted seat chips on refusal).
+            for _bc in per_hand.bankroll_changes:
+                if _bc.direction == "to_seat":
+                    _committed_buyins[_bc.personality_id] = _committed_buyins.get(
+                        _bc.personality_id, 0
+                    ) + int(_bc.amount)
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)
@@ -2074,7 +2141,7 @@ def refresh_unseated_tables(
         # after every table is processed.
         for _pid, _chips in _committed_seated_ais(
             result.new_table,
-            reserve_lookup=_bankroll_lookup,
+            reserve_lookup=_seated_reserve_lookup,
         ).items():
             last_stand_qualifying[_pid] = (
                 result.new_table.table_id,
@@ -3230,14 +3297,30 @@ def _apply_bankroll_transfers(
 
     for i, bc in enumerate(result.bankroll_changes):
         if bc.direction == "to_seat":
-            debit_bankroll_for_seat(
-                bankroll_repo,
-                bc.personality_id,
-                bc.amount,
-                sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo,
-                now=now,
-            )
+            # to_seat is the rebuy channel, whose amount the planner already
+            # clamped to the projected bankroll (movement.py: rebuy_amount =
+            # min(..., projected_bankroll)), so the debit should always succeed.
+            # If it ever refuses, the seat was already topped up in
+            # result.new_table — proceeding silently would mint the un-debited
+            # chips. We can't cleanly un-top the pre-placed seat here, so surface
+            # it loudly (a conservation alarm) instead of swallowing it.
+            if (
+                debit_bankroll_for_seat(
+                    bankroll_repo,
+                    bc.personality_id,
+                    bc.amount,
+                    sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    now=now,
+                )
+                is None
+            ):
+                logger.error(
+                    "[CASH][LOBBY] to_seat debit refused for %r (amount=%d) but seat "
+                    "was pre-placed — possible chip mint; planner clamp should prevent this",
+                    bc.personality_id,
+                    bc.amount,
+                )
         elif bc.direction == "from_seat":
             # Skip ONLY the specific from_seat entry the
             # settlement consumed; earlier from_seat entries for

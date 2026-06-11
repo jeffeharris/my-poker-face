@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
+import { createAuthedSocket } from '../../utils/socket';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
 import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
@@ -79,6 +79,7 @@ import { SalFloater } from '../mobile/SalFloater';
 import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { publishWidgetData } from '../../utils/widgetData';
 import { setTournamentOrigin } from '../../utils/tournamentOrigin';
 import { CharacterDetailCard, type CharacterDossierData } from '../character';
 import './CashMode.css';
@@ -458,6 +459,13 @@ export function Lobby() {
         setBankrollHistory(lobby.bankroll_history ?? []);
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setReputation(lobby.reputation ?? null);
+        // Push the latest net-worth + reputation to the native home-screen
+        // widget (no-op on web / before the bridge exists).
+        publishWidgetData({
+          bankroll: lobby.bankroll,
+          history: lobby.bankroll_history ?? [],
+          reputation: lobby.reputation ?? null,
+        });
         if (lobby.intake_needed) setShowIntake(true); // sticky — never auto-cleared here
         if (lobby.intake_backstories?.length) setIntakeBackstories(lobby.intake_backstories);
         // One-shot Sal handoff: capture the first time it arrives (the server
@@ -564,7 +572,7 @@ export function Lobby() {
   // instant motion ahead of the refetch. No-op gracefully if the socket
   // can't connect — the fallback poll above still refreshes.
   useEffect(() => {
-    const socket = io(config.SOCKET_URL, {
+    const socket = createAuthedSocket(config.SOCKET_URL, {
       withCredentials: true,
       ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
     });

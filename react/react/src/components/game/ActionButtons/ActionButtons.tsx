@@ -5,6 +5,7 @@ import {
   createBettingContext,
   type BettingContext,
 } from '../../../hooks/useBettingCalculations';
+import { hapticImpact } from '../../../utils/haptics';
 import './ActionButtons.css';
 
 interface ActionButtonsProps {
@@ -64,6 +65,7 @@ export function ActionButtons({
   const [raiseAmount, setRaiseAmount] = useState(calc.getDefaultRaise());
 
   const handleBetRaise = () => {
+    hapticImpact('light');
     // Pre-fill with coach's suggested amount if valid, otherwise use default raise
     const suggestedAmount =
       raiseToAmount && raiseToAmount >= calc.safeMinRaiseTo && raiseToAmount <= calc.safeMaxRaiseTo
@@ -79,6 +81,7 @@ export function ActionButtons({
     const isValidBet = calc.isValidRaise(raiseAmount) || isAllIn;
 
     if (isValidBet) {
+      hapticImpact(isAllIn ? 'heavy' : 'medium');
       onAction(isAllIn ? 'all_in' : 'raise', raiseAmount);
       setShowBetInterface(false);
     }
@@ -90,6 +93,7 @@ export function ActionButtons({
 
   // Update raise amount when quick bet button is clicked
   const selectBetAmount = (amount: number, buttonId: string | null = null) => {
+    hapticImpact('light');
     // Always round to snap increment except for all-in
     const snappedAmount = buttonId === 'all-in' ? amount : calc.roundToSnap(amount);
     setRaiseAmount(snappedAmount);
@@ -279,7 +283,10 @@ export function ActionButtons({
         {playerOptions.includes('fold') && (
           <button
             className={`action-button fold${recommendedAction === 'fold' ? ' coach-recommended' : ''}`}
-            onClick={() => onAction('fold')}
+            onClick={() => {
+              hapticImpact('light');
+              onAction('fold');
+            }}
           >
             Fold
           </button>
@@ -288,7 +295,10 @@ export function ActionButtons({
         {playerOptions.includes('check') && (
           <button
             className={`action-button check${recommendedAction === 'check' ? ' coach-recommended' : ''}`}
-            onClick={() => onAction('check')}
+            onClick={() => {
+              hapticImpact('light');
+              onAction('check');
+            }}
           >
             Check
           </button>
@@ -297,7 +307,10 @@ export function ActionButtons({
         {playerOptions.includes('call') && (
           <button
             className={`action-button call${recommendedAction === 'call' ? ' coach-recommended' : ''}`}
-            onClick={() => onAction('call')}
+            onClick={() => {
+              hapticImpact('medium');
+              onAction('call');
+            }}
           >
             {noSizing ? 'Call' : `Call $${calc.callAmount}`}
           </button>

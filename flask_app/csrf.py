@@ -41,13 +41,16 @@ logger = logging.getLogger(__name__)
 _MUTATING_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
 
 # Paths exempt from the header check (still receive a token cookie). Kept tiny
-# and explicit: only auth bootstrap + the external OAuth callback, plus the
-# Sentry tunnel relay (the browser Sentry SDK's transport posts envelopes here
-# and cannot carry our CSRF token; the route is an allowlisted forward-only
-# proxy to Sentry ingest — see routes/sentry_relay_routes.py).
+# and explicit: only auth bootstrap + the external OAuth callback; the bearer-only
+# native token refresh (no cookie auth, so CSRF doesn't apply — native clients have
+# no CSRF cookie to send); the Sentry tunnel relay (the browser Sentry SDK's
+# transport posts envelopes here and cannot carry our CSRF token — an allowlisted
+# forward-only proxy to Sentry ingest, see routes/sentry_relay_routes.py); and the
+# public marketing form.
 _EXEMPT_EXACT = frozenset(
     {
         '/api/auth/login',
+        '/api/auth/token/refresh',
         '/api/event-relay',
         # Public marketing form (static Astro site, no CSRF cookie/SPA wrapper).
         '/api/character-requests',

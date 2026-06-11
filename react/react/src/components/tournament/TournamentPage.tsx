@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
+import { createAuthedSocket } from '../../utils/socket';
 import { config } from '../../config';
 import { tournamentApi } from './api';
 import { getTournamentOrigin } from '../../utils/tournamentOrigin';
@@ -109,7 +109,7 @@ export function TournamentPage() {
   // while spectating a play-out. Mirrors the cash Lobby socket pattern; no-op if
   // the socket can't connect (backing out re-fetches on view change anyway).
   useEffect(() => {
-    const socket = io(config.SOCKET_URL, {
+    const socket = createAuthedSocket(config.SOCKET_URL, {
       withCredentials: true,
       ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
     });

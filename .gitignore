@@ -217,5 +217,8 @@ main-*.png
 # Project-shared skills under .claude/skills/ are version-controlled
 !.claude/skills/
 
+# macOS
+.DS_Store
+
 # Sim-output corpora (regenerable via tilt_corpus_extract.py; container writes root-owned)
 experiments/data/

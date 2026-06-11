@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { clearTokens, loadTokens, setTokens } from '../utils/nativeAuth';
 
 interface User {
   id: string;
@@ -41,6 +42,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login: (name: string, isGuest?: boolean) => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogleNative: (idToken: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -61,6 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (checkInProgressRef.current) return;
     checkInProgressRef.current = true;
     try {
+      // Native: hydrate the bearer tokens from secure storage before the verify
+      // call so the global fetch wrapper can attach Authorization. No-op on web.
+      await loadTokens();
+
       // Use localStorage for initial state while loading, but always verify with backend
       const storedUser = localStorage.getItem('currentUser');
 
@@ -187,6 +193,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loginWithGoogleNative = useCallback(async (idToken: string) => {
+    // Native (Capacitor) sign-in: the platform Google SDK supplies an ID token,
+    // which we exchange for our own JWT pair. Tokens are stashed via setTokens
+    // (the global fetch wrapper + socket factory pick them up automatically).
+    try {
+      const response = await fetch(`${config.API_URL}/api/auth/google/native`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.token && data.refresh_token) {
+        await setTokens(data.token, data.refresh_token);
+        setAuthState({
+          user: data.user,
+          isLoading: false,
+          isAuthenticated: true,
+        });
+        localStorage.setItem('currentUser', JSON.stringify(data.user));
+        return { success: true };
+      }
+      return { success: false, error: data.error || 'Sign-in failed' };
+    } catch (error) {
+      logger.error('Native Google login failed:', error);
+      return { success: false, error: 'Connection error' };
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await fetch(`${config.API_URL}/api/auth/logout`, {
@@ -196,6 +232,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       logger.error('Logout failed:', error);
     }
+
+    // Drop native bearer tokens (no-op on web).
+    await clearTokens();
 
     // Clear local state regardless
     setAuthState({
@@ -221,6 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: authState.isLoading,
     isAuthenticated: authState.isAuthenticated,
     login,
+    loginWithGoogleNative,
     logout,
     checkAuth,
   };

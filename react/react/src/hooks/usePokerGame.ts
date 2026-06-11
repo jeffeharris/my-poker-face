@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createAuthedSocket } from '../utils/socket';
 import toast from 'react-hot-toast';
 import type {
   ChatMessage,
@@ -13,6 +14,8 @@ import type { CashBustEvent, LobbyEvent } from '../components/cash/types';
 import type { RunoutSchedule } from '../types/runout';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { HAPTICS } from '../utils/haptics';
+import { onAppResume } from '../utils/nativeApp';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useHandSequencer } from './useHandSequencer';
@@ -96,6 +99,15 @@ interface UsePokerGameResult {
 
 // Cap message arrays to prevent unbounded memory growth in long games
 const MAX_MESSAGES = 200;
+
+// Backstop for a missed state broadcast: after the human acts we expect a
+// game-state push (the next actor / board / winner) shortly. The first push
+// CLEARS this timer (it never re-arms), so during a normal AI orbit it's gone
+// within a second or two — it only ever fires when a push genuinely never
+// arrived (dropped packet, room-join race after a reconnect), in which case we
+// re-sync. Kept well above normal first-push latency, far below the old 30s
+// stall that read as "my action didn't register".
+const MISSED_PUSH_REFRESH_MS = 10000;
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
   return fetch(url, {
@@ -445,6 +457,10 @@ export function usePokerGame({
             return; // Action will trigger new state update
           }
 
+          // It's the human's turn to act — a rising two-tap "you're up" cue to
+          // draw attention back to the table. Native-only no-op on web.
+          HAPTICS.turn();
+
           updateStorePlayerOptions(data.current_player_options);
         }
       );
@@ -729,7 +745,7 @@ export function usePokerGame({
       // frames during the upgrade probe. Production (gunicorn +
       // GeventWebSocketWorker behind Caddy) handles WS fine, so let
       // socket.io negotiate normally there.
-      const socket = io(config.SOCKET_URL, {
+      const socket = createAuthedSocket(config.SOCKET_URL, {
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
@@ -837,31 +853,45 @@ export function usePokerGame({
     };
   }, [providedGameId, resetSequencer]);
 
-  // Handle visibility changes (browser wake from sleep)
+  // Recover from a backgrounded/suspended session (browser wake or native app
+  // resume). iOS suspends the WebView while backgrounded: the socket dies and
+  // pending setTimeouts (the sequencer pump) freeze, so on return we (1) drop any
+  // frozen sequencer timeline before it can replay stale beats, (2) reconnect if
+  // the socket dropped, and (3) re-sync to server truth. Reconnecting routes
+  // through the socket `connect` handler, which itself calls refreshGameState.
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && gameId && !gameGoneRef.current) {
-        const socket = socketRef.current;
-
-        if (!socket || !socket.connected) {
-          if (socket) {
-            socket.connect();
-          } else {
-            createSocket(gameId);
-          }
+    const recover = () => {
+      if (!gameId || gameGoneRef.current) return;
+      // F4: kill any frozen pump immediately — refreshGameState also resets the
+      // sequencer, but a dropped socket takes the slower reconnect→fetch path.
+      resetSequencer();
+      const socket = socketRef.current;
+      if (!socket || !socket.connected) {
+        if (socket) {
+          socket.connect();
         } else {
-          // Silent refresh - just update state in background, no loading flash
-          refreshGameState(gameId, true);
+          createSocket(gameId);
         }
+      } else {
+        // Silent refresh - just update state in background, no loading flash
+        refreshGameState(gameId, true);
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') recover();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Native: visibilitychange is unreliable in a WKWebView, so also drive
+    // recovery off the Capacitor app-resume signal. No-op on web.
+    const removeResume = onAppResume(recover);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      removeResume();
     };
-  }, [gameId, createSocket, refreshGameState]);
+  }, [gameId, createSocket, refreshGameState, resetSequencer]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -892,7 +922,7 @@ export function usePokerGame({
       // reconciles (and clears the rollback snapshot); we revert only on reject.
       applyOptimisticAction(action, amount);
 
-      // Safety net: if no socket event clears aiThinking within 30s, auto-refresh state
+      // Safety net: if no state push clears aiThinking shortly, auto-refresh.
       clearAiThinkingTimeout();
       aiThinkingTimeoutRef.current = setTimeout(async () => {
         logger.warn('[RESILIENCE] aiThinking timeout — refreshing game state');
@@ -904,7 +934,7 @@ export function usePokerGame({
             setAiThinking(false);
           }
         }
-      }, 30000);
+      }, MISSED_PUSH_REFRESH_MS);
 
       const postAction = () =>
         fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
