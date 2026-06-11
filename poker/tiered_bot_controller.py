@@ -4294,28 +4294,37 @@ class TieredBotController(AIPlayerController):
           1. Unopened (no raise yet): hero (UTG/HJ/CO/BTN/SB) jams or folds
              from the `unopened` chart. BB unopened (a walk) isn't in the
              chart -> None.
-          2. Facing an all-in: hero calls or folds from the caller tables --
-             bb_vs_sb when the jammer is the SB, else bb_vs_late.
+          2. Facing a SINGLE all-in: hero calls or folds from the caller tables
+             -- bb_vs_sb when the jammer is the SB, else bb_vs_late.
 
         Returns None for any other multi-way short-stack spot (limped pots, a
-        raise that isn't all-in, etc.) so the deep-stack / short_stack.py path
-        keeps handling them.
+        raise that isn't all-in, or 2+ opponents already all-in — which the
+        single-jammer caller tables don't model) so the deep-stack /
+        short_stack.py path keeps handling them.
         """
         position = get_6max_position(game_state, player_idx)
 
-        # Identify an all-in opponent on this street (a "jam" to face): an
-        # active opponent with 0 stack remaining whose committed bet exceeds
-        # the big blind. The last such seat in order is the one hero faces.
-        jammer_idx = None
-        for i, p in enumerate(game_state.players):
-            if i == player_idx or getattr(p, 'is_folded', False):
-                continue
-            if getattr(p, 'stack', 1) == 0 and getattr(p, 'bet', 0) > big_blind:
-                jammer_idx = i
-        facing_jam = jammer_idx is not None
+        # All-in opponents to face on this street: active opponents with 0 stack
+        # remaining whose committed bet exceeds the big blind.
+        jammer_indices = [
+            i
+            for i, p in enumerate(game_state.players)
+            if i != player_idx
+            and not getattr(p, 'is_folded', False)
+            and getattr(p, 'stack', 1) == 0
+            and getattr(p, 'bet', 0) > big_blind
+        ]
 
-        if facing_jam:
-            opener_position = get_6max_position(game_state, jammer_idx)
+        # The caller tables (bb_vs_sb / bb_vs_late) model a SINGLE jammer. A
+        # multi-way all-in (2+ opponents already jammed) is a distinct, tighter
+        # spot the v1 chart doesn't represent — applying a single-jammer range
+        # there would over-call. Defer it (like reshove) to the deep-stack /
+        # short_stack.py path rather than return a wrong range.
+        if len(jammer_indices) > 1:
+            return None
+
+        if jammer_indices:
+            opener_position = get_6max_position(game_state, jammer_indices[0])
             return lookup_push_fold_action_6max(
                 hand=canonical_hand,
                 position=position,

@@ -212,6 +212,23 @@ class TestMultiwayRouting:
         action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
         assert action == 'call'
 
+    def test_6max_multiple_jammers_returns_none(self):
+        # Two opponents already all-in (SB jam + a late re-jam) is a multi-way
+        # all-in the single-jammer caller tables don't model. The router must
+        # fall through (None) rather than apply a too-loose single-jammer range.
+        gs = _6max_state(hero_pos='BB', hero_idx=0, hero_stack_bb=8, jammer_pos='SB')
+        # Mark a second opponent (not hero, not the SB jammer) all-in too.
+        for p in gs.players:
+            if p.name != 'Hero' and p.bet <= gs.current_ante:
+                p.stack = 0
+                p.bet = 8 * gs.current_ante
+                break
+        n_allin = sum(1 for p in gs.players if p.name != 'Hero' and p.stack == 0)
+        assert n_allin == 2, "test setup should leave exactly two all-in opponents"
+        c = _controller()
+        action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
+        assert action is None
+
     def test_6max_unopened_raise_present_returns_none(self):
         # A non-all-in raise sits in front of hero (reshove spot, v2) → None.
         gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, raises=1)
