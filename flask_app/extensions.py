@@ -28,6 +28,21 @@ from . import config
 
 logger = logging.getLogger(__name__)
 
+# Capacitor/Ionic native WebView origins (iOS/Android). The native shell serves
+# the app from capacitor://localhost (iOS) etc. and calls the API cross-origin
+# with credentials; the Socket.IO handshake also carries this origin. Both the
+# REST CORS and the Socket.IO allow-list must include it or the response is
+# dropped / the handshake rejected. Appended to the explicit production allow-list
+# too, so the native app can point at the deployed backend — these are fixed
+# scheme+host origins (not wildcards), so credentialed CORS still requires an
+# exact match.
+_NATIVE_WEBVIEW_ORIGINS = [
+    "capacitor://localhost",
+    "ionic://localhost",
+    "http://localhost",
+    "https://localhost",
+]
+
 
 def _get_socketio_cors_origins():
     """Resolve Socket.IO allowed origins from app configuration."""
@@ -38,20 +53,15 @@ def _get_socketio_cors_origins():
                 "http://localhost:5174",
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:5174",
-                # Capacitor native WebView origins (iOS/Android) — the Socket.IO
-                # handshake carries the WebView origin and is rejected unless
-                # listed here, which blocks starting a game on native.
-                "capacitor://localhost",
-                "ionic://localhost",
-                "http://localhost",
-                "https://localhost",
+                *_NATIVE_WEBVIEW_ORIGINS,
             ]
         raise ValueError(
             "CORS_ORIGINS='*' is not allowed in production. "
             "Please set CORS_ORIGINS to a comma-separated list of allowed origins."
         )
 
-    return [origin.strip() for origin in config.CORS_ORIGINS_ENV.split(',') if origin.strip()]
+    explicit = [origin.strip() for origin in config.CORS_ORIGINS_ENV.split(',') if origin.strip()]
+    return explicit + _NATIVE_WEBVIEW_ORIGINS
 
 
 # SocketIO instance - initialized without app. async_mode is env-configurable
@@ -174,15 +184,7 @@ def init_cors(app: Flask) -> None:
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:5174",
                 re.compile(r'^http://homehub:\d+$'),
-                # Capacitor native WebView origins (iOS/Android). The native shell
-                # serves the app from capacitor://localhost (iOS) or
-                # http(s)://localhost (Android/iOS variants), then calls the API
-                # cross-origin with credentials — these must be allowed or the
-                # browser drops the response.
-                "capacitor://localhost",
-                "ionic://localhost",
-                "http://localhost",
-                "https://localhost",
+                *_NATIVE_WEBVIEW_ORIGINS,
             ]
             CORS(app, supports_credentials=True, origins=dev_origins)
         else:
@@ -192,9 +194,10 @@ def init_cors(app: Flask) -> None:
                 "Please set CORS_ORIGINS to a comma-separated list of allowed origins."
             )
     else:
-        # Explicit origins
-        cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
-        CORS(app, supports_credentials=True, origins=cors_origins)
+        # Explicit origins (prod) + the native WebView origins, so the installed
+        # iOS/Android app can call the deployed backend with credentials.
+        explicit = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+        CORS(app, supports_credentials=True, origins=explicit + _NATIVE_WEBVIEW_ORIGINS)
 
 
 def init_limiter(app: Flask) -> Limiter:
