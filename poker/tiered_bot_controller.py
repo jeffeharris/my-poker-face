@@ -23,6 +23,7 @@ from .controllers import AIPlayerController, _get_canonical_hand
 from .hand_tiers import is_hand_in_range
 from .stack_utils import big_blind_of, effective_stack_bb
 from .strategy.action_mapper import resolve_postflop_sizing, resolve_preflop_sizing
+from .strategy.action_vocab import abstract_call_token
 from .strategy.deviation_profiles import DeviationProfile, select_deviation_profile
 from .strategy.exploitation import (
     DEFAULT_MAX_TOTAL_SHIFT,
@@ -1020,6 +1021,13 @@ class TieredBotController(AIPlayerController):
             num_seated,
         )
         if push_fold_action is not None:
+            # The caller tables return the abstract 'call'. When calling the jam
+            # is itself a call-off (engine drops 'call', offers only 'all_in'),
+            # the abstract token is 'jam' — not raw 'call', which would later
+            # fall back to fold (folding a hand the chart said to call). Mirrors
+            # _facing_all_in_preflop_veto's call/jam split. No-op for jam/fold.
+            if push_fold_action == 'call':
+                push_fold_action = abstract_call_token(valid_actions)
             base_strategy = StrategyProfile(action_probabilities={push_fold_action: 1.0})
             if self.debug_logging:
                 logger.info(

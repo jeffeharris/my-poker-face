@@ -261,6 +261,44 @@ class TestTieredBotController:
         # 32o from UTG not in our mini table → conservative default → fold
         assert result['action'] == 'fold'
 
+    def test_push_fold_calloff_call_becomes_jam(self):
+        """A push/fold caller-table 'call' must become a jam when calling is a
+        call-off (engine offers only 'all_in', no 'call'). Without the
+        abstract_call_token translation the raw 'call' falls back to fold —
+        folding a hand the chart said to call. The pot-odds veto normally
+        shadows this spot, so we force it to bail (None) to isolate the
+        push/fold path."""
+        from core.card import Card
+
+        gs = _make_game_state(hand=(Card('A', 'h'), Card('A', 's')))
+        controller = self._make_controller(game_state=gs)
+        with (
+            patch.object(controller, '_try_push_fold_lookup', return_value='call'),
+            patch.object(controller, '_facing_all_in_preflop_veto', return_value=None),
+        ):
+            result = controller._get_ai_decision(
+                message='',
+                valid_actions=['fold', 'all_in'],  # call-off: no 'call'
+            )
+        assert result['action'] == 'all_in'
+
+    def test_push_fold_call_stays_call_when_legal(self):
+        """When calling is legal (not a call-off), a caller-table 'call' stays
+        a flat call — the translation only upgrades genuine call-offs."""
+        from core.card import Card
+
+        gs = _make_game_state(hand=(Card('A', 'h'), Card('A', 's')))
+        controller = self._make_controller(game_state=gs)
+        with (
+            patch.object(controller, '_try_push_fold_lookup', return_value='call'),
+            patch.object(controller, '_facing_all_in_preflop_veto', return_value=None),
+        ):
+            result = controller._get_ai_decision(
+                message='',
+                valid_actions=['fold', 'call', 'raise', 'all_in'],
+            )
+        assert result['action'] == 'call'
+
     def test_validate_action_fallback(self):
         """When resolved action isn't legal, validator should pick a fallback."""
         from core.card import Card
