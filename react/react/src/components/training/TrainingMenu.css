@@ -64,6 +64,46 @@
   color: var(--color-text-muted, #9ca3af);
 }
 
+/* Featured opening-drill card — sits above the review row, shares its shape. */
+.training-menu__swipe {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0 0 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  color: var(--color-text, #e5e7eb);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.training-menu__swipe:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.training-menu__swipe > svg:first-child {
+  color: var(--color-emerald, #34d399);
+  flex: 0 0 auto;
+}
+/* Leak nudge — amber, draws the eye when the finder has something to fix. */
+.training-menu__swipe--leak {
+  border-color: rgba(252, 211, 77, 0.45);
+  background: rgba(252, 211, 77, 0.09);
+}
+.training-menu__swipe--leak:hover {
+  border-color: rgba(252, 211, 77, 0.7);
+  background: rgba(252, 211, 77, 0.14);
+}
+.training-menu__swipe--leak > svg:first-child {
+  color: #fcd34d;
+}
+
 .training-menu__group {
   border: none;
   margin: 0 0 1.5rem;

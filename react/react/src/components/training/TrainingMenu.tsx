@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Sprout, Target, Flame, GraduationCap, Play, TrendingUp, ChevronRight } from 'lucide-react';
+import {
+  Sprout,
+  Target,
+  Flame,
+  GraduationCap,
+  Play,
+  TrendingUp,
+  ChevronRight,
+  Layers,
+  Swords,
+  Eye,
+} from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
@@ -48,10 +59,22 @@ const FALLBACK_PRESETS: TablePreset[] = [
   { id: 'standard', title: '6-Max', description: 'Five opponents, 100bb deep.' },
 ];
 
+// Long-form position names for the leak nudge copy.
+const POSITION_NAME: Record<string, string> = {
+  UTG: 'under the gun',
+  HJ: 'the hijack',
+  CO: 'the cutoff',
+  BTN: 'the button',
+  SB: 'the small blind',
+};
+
 interface TrainingMenuProps {
   playerName: string;
   onStart: (difficulty: TrainingDifficulty, presetId: string) => void;
   onReviewGame: () => void;
+  onSwipeDrill: (position?: string) => void;
+  onVsOpenDrill: () => void;
+  onReadDrill: () => void;
   onBack: () => void;
   isCreating?: boolean;
 }
@@ -60,12 +83,38 @@ export function TrainingMenu({
   playerName,
   onStart,
   onReviewGame,
+  onSwipeDrill,
+  onVsOpenDrill,
+  onReadDrill,
   onBack,
   isCreating = false,
 }: TrainingMenuProps) {
   const [difficulty, setDifficulty] = useState<TrainingDifficulty>('medium');
   const [presets, setPresets] = useState<TablePreset[]>(FALLBACK_PRESETS);
   const [presetId, setPresetId] = useState('standard');
+  // A confirmed RFI leak to nudge toward, if the finder has one. RFI-only because
+  // the swipe drill is raise/fold; other scenarios route to the button drill.
+  const [rfiLeak, setRfiLeak] = useState<{ position: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(`${config.API_URL}/api/coach/drill`, { credentials: 'include' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (cancelled) return;
+        if (data.enough_data && data.leak?.scenario === 'rfi' && data.leak?.position) {
+          setRfiLeak({ position: data.leak.position });
+        }
+      } catch (err) {
+        logger.error('Failed to check for a drill leak:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +160,44 @@ export function TrainingMenu({
           Pick how tough the table is, {playerName} — it applies to free play and drills alike. The
           coach is on the whole time; nothing here touches your bankroll, reputation, or stats.
         </div>
+
+        {/* Opening swipe drill — featured, with a leak nudge when the finder has one. */}
+        <button
+          type="button"
+          className={'training-menu__swipe' + (rfiLeak ? ' training-menu__swipe--leak' : '')}
+          onClick={() => onSwipeDrill(rfiLeak?.position)}
+        >
+          <Layers size={20} />
+          <span className="training-menu__review-text">
+            <strong>Opening drill</strong>
+            <span>
+              {rfiLeak
+                ? `We spotted a leak — your opens from ${POSITION_NAME[rfiLeak.position] ?? rfiLeak.position} run loose. Swipe to fix it.`
+                : 'Swipe through opening spots — raise or fold, graded vs the solver.'}
+            </span>
+          </span>
+          <ChevronRight size={18} />
+        </button>
+
+        {/* Facing-a-raise swipe drill (fold / call / 3-bet). */}
+        <button type="button" className="training-menu__swipe" onClick={() => onVsOpenDrill()}>
+          <Swords size={20} />
+          <span className="training-menu__review-text">
+            <strong>Facing a raise</strong>
+            <span>Someone opened — fold, call, or 3-bet. Swipe or use the action bar.</span>
+          </span>
+          <ChevronRight size={18} />
+        </button>
+
+        {/* Read-the-player drill — predict an archetype's open. */}
+        <button type="button" className="training-menu__swipe" onClick={() => onReadDrill()}>
+          <Eye size={20} />
+          <span className="training-menu__review-text">
+            <strong>Read the player</strong>
+            <span>Would a nit / TAG / LAG / maniac open this? Predict their range.</span>
+          </span>
+          <ChevronRight size={18} />
+        </button>
 
         <button type="button" className="training-menu__review" onClick={onReviewGame}>
           <TrendingUp size={20} />

@@ -69,6 +69,15 @@ const PreflopLeaks = lazy(() =>
 const PreflopDrill = lazy(() =>
   import('./components/training/PreflopDrill').then((m) => ({ default: m.PreflopDrill }))
 );
+const SwipeDrill = lazy(() =>
+  import('./components/training/SwipeDrill').then((m) => ({ default: m.SwipeDrill }))
+);
+const VsOpenDrill = lazy(() =>
+  import('./components/training/VsOpenDrill').then((m) => ({ default: m.VsOpenDrill }))
+);
+const ReadDrill = lazy(() =>
+  import('./components/training/ReadDrill').then((m) => ({ default: m.ReadDrill }))
+);
 const PrivacyPolicy = lazy(() =>
   import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
 );
@@ -613,6 +622,15 @@ function App() {
                     playerName={playerName}
                     onStart={handleStartTraining}
                     onReviewGame={() => navigate('/menu/training/leaks')}
+                    onSwipeDrill={(position) =>
+                      navigate(
+                        position
+                          ? `/menu/training/swipe?scenario=rfi&position=${position}`
+                          : '/menu/training/swipe'
+                      )
+                    }
+                    onVsOpenDrill={() => navigate('/menu/training/vs-open')}
+                    onReadDrill={() => navigate('/menu/training/read')}
                     onBack={() => navigate('/menu')}
                     isCreating={isCreatingGame}
                   />
@@ -643,6 +661,33 @@ function App() {
               element={
                 <ProtectedRoute>
                   <PreflopDrill onBack={() => navigate('/menu/training/leaks')} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/swipe"
+              element={
+                <ProtectedRoute>
+                  <SwipeDrill onBack={() => navigate('/menu/training')} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/vs-open"
+              element={
+                <ProtectedRoute>
+                  <VsOpenDrill onBack={() => navigate('/menu/training')} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training/read"
+              element={
+                <ProtectedRoute>
+                  <ReadDrill onBack={() => navigate('/menu/training')} />
                 </ProtectedRoute>
               }
             />
