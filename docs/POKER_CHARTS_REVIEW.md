@@ -2752,15 +2752,47 @@ never replacing it.
 - Each rule's strength ramps with how extreme the read is (e.g. AF 3.5→15 ramps 0→full) **and** with the hero's own `adaptation_bias × skill (exploitation_strength) × confidence (hands seen / 100)`. A low-skill character barely adapts even with a clear read.
 - A **three-tier total clamp** caps the *combined* shift across all rules at **0.4 / 0.6 / 0.8** (L1), escalating only as postflop aggression evidence mounts (and decaying if the villain mellows). Plus a per-rule budget so no single rule eats the whole envelope.
 
-**Honest caveat — several of these are effectively dormant vs our own AI field.**
-Per our own experiments (EXP_004/005), **0 of 26** live LLM personalities read as
-`hyper_aggressive` or as a true `vpip > 0.70` station, so **hyper_aggressive's
-strong-hand/bluff-catch overrides, value_vs_station, and bluff_reduction basically
-never fire against the current cast** — they're built and tested but only light up
-against extreme synthetic bots (or, eventually, loose-passive humans). The c-bet and
-nit rules are live but need enough postflop samples in a session to mature. So treat
-this layer as "wired and unit-tested, lightly exercised in production" — feedback on
-whether the *triggers* are even the right reads is welcome.
+**What we measured (bb/100).** We built all 7 rules and then measured them — with
+a paired exploit-ON-vs-OFF twin sharing the same deck (`exploit_bb100.py`, a
+common-random-numbers gate). The result is that **two of the seven carry essentially
+all of the value, against exactly the opponents they were designed for:**
+
+- **Headline:** the layer is **+22.5 bb/100, CI [+16.1, +29.0]** (TAG hero, 24k
+  paired hands) against a **CallStation-class caricature** — a pure-station backdrop
+  (VPIP ≈ 1.0). CI-clear positive, every seed agreeing in sign.
+- **Decomposition** — the +22.5 is carried by two rules; the other five are inert
+  (their detectors don't trip, or they trip and flip no action):
+
+  | Rule | measured bb/100 (vs caricature) |
+  |---|---|
+  | `value_vs_station` | **+13.3** |
+  | `hyper_passive` | **+9.1** |
+  | `hyper_aggressive`, `tight_nit`, `high_fold_to_cbet`, `multiway_cbet`, `bluff_reduction` | **~0.0** |
+
+- **Against a realistic opponent the layer measured ~0.0** — vs human-style clones
+  (Jeff_clone VPIP 0.35, Punisher_clone) the whole layer was **+0.0 bb/100, with
+  essentially no offsets firing**: those players sit in the *dead zone* between the
+  detectors (nit < 0.30, station > 0.70). Important caveat so this reads correctly:
+  those clones are still *exploitable* (the bot beats them handily), just not
+  *caricature*-exploitable. So this is **not** "the layer is worthless in production"
+  — it's "**the layer's value against balanced/competent opponents is unmeasured**,"
+  because the eval suite has no balanced opponent to test against.
+- **`hyper_aggressive` is the most interesting null, and we know why.** Measured at
+  64k paired hands vs a maniac field it came back **−9.3 bb/100, CI [−22.3, +3.7]
+  (inconclusive)** — and the mechanism *was* firing (7–11% of hands changed action).
+  The cause is known: the rule defends the wrong street. A maniac's edge comes from
+  min-raising your blinds and stealing; this rule only widens calls vs *all-ins/big
+  bets* and tightens our *opens* — it has **no blind/steal-defense component** (the
+  code flags the missing `fold_to_open` proxy at `exploitation.py:121`). So it's not
+  "this rule doesn't work" — it's "**this rule is incomplete, and we know exactly the
+  missing piece.**"
+
+**One-line verdict:** the exploitation layer has *established, CI-clear value against
+a specific opponent class* (caricature stations: +22.5 bb/100), is *unmeasured against
+balanced opponents* (none exist in our eval suite), and **`hyper_aggressive` is the
+highest-priority incomplete rule** — it fires but defends the wrong street. (All
+numbers are point-in-time eval results against the noted synthetic backdrops, not
+production guarantees.)
 
 ---
 
