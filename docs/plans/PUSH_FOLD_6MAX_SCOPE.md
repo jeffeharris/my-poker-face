@@ -47,27 +47,38 @@ keep the fail-closed posture.
    `push_fold_routed` snapshot persists. Full short-stack A/B vs a human-like
    opponent (the bb/100 question) is still TODO; the **routing-coverage** read
    below is done and is the more actionable finding.
-2. **Reshove table — BUILT (2026-06-11), flag-gated, validated, KEPT OFF.**
+2. **Reshove table — BUILT + fold-equity-gated + ON (2026-06-11).**
    Jam-or-fold over a single non-all-in open, `reshove` section of
    `push_fold_6max.json` (depth-keyed 8/10/12/15, `[L]`), behind
-   `PUSH_FOLD_6MAX_RESHOVE_ENABLED` (off). Detection is the controller-agnostic
-   `push_fold.reshove_action_6max` (fail-closed on 3-bet wars / cold-callers /
-   multiway / all-ins). With the flag on, 10 BB routing coverage jumps
+   `PUSH_FOLD_6MAX_RESHOVE_ENABLED` (now **dev+prod ON**). Detection is the
+   controller-agnostic `push_fold.reshove_action_6max` (fail-closed on 3-bet wars
+   / cold-callers / multiway / all-ins). With it on, 10 BB routing coverage jumps
    **~17% → 98%** (the reshove spot was the 66% fall-through).
-   **bb/100 A/B (2026-06-11): FAILED — flag stays OFF.** TAG vs the call-happy
-   rule mix, reshove ON costs **−21 / −35 / −52 bb/100** at 8/10/12 BB (CIs
-   disjoint, worsening with depth). The same A/B vs a **competent** field
-   (GTO-Lite/ABCBot) at 10 BB is a wash (**−2.6**, CIs overlap). ⇒ Reshove is
-   **field-dependent**: ~neutral vs openers who fold correctly (Nash-consistent —
-   the marginal reshove is built to be break-even), catastrophic vs stations
-   that never fold (you risk ~10–12 BB to win ~3.7 BB with no fold equity). The
-   ranges aren't wrong; **unconditional** reshoving is. **The real feature is
-   "reshove only when fold equity exists" — gate it on the opponent's
-   fold-to-reshove tendency (the sharp bot already has an opponent-model /
-   exploitation layer).** Until that gate exists, leave the flag off.
+
+   **Validation story (the loop):**
+   - **Unconditional reshove FAILED** the bb/100 A/B: TAG vs the call-happy rule
+     mix, **−21 / −35 / −52 bb/100** at 8/10/12 BB (worsening with depth); vs a
+     competent field (GTO-Lite/ABCBot) @10 BB a wash (**−2.6**). ⇒ reshove is
+     **field-dependent** — Nash-neutral vs openers who fold, catastrophic vs
+     openers who don't (risk ~10–12 BB to win ~3.7 BB with no fold equity).
+   - **Fix = fold-equity gate** (`exploitation.reshove_fold_equity_ok`): reshove
+     only when the opener has demonstrated fold equity. The load-bearing signal
+     is **loose VPIP, not passivity** — `vpip_per_voluntary_opportunity > 0.65`
+     suppresses BOTH stations and maniacs (the first cut keyed on `_is_hyper_passive`
+     and MISSED ManiacBot: vpip 0.97 but AF 4.0, so it read "aggressive" yet never
+     folds). Plus a min-sample gate (no read → no reshove; cost is asymmetric).
+   - **Gated reshove re-validated:** bb/100 vs the rule mix is now **+0.0 at every
+     depth** (the −35 leak is gone). Mechanism unit-proven (allows reshove vs a
+     tight vpip-0.40 opener). **Upside unproven in sim** — the rule-bot field has
+     no tight openers (every opener is vpip>0.65), so reshove never fires there;
+     its value vs foldy openers needs a human-like opponent (→ Jeff_clone).
+   - **Decision:** flipped ON anyway — triple-gated (flag + per-persona
+     `push_fold_nash` + fold-equity read), provably no-leak, helps vs tight
+     openers in the real field, worst-case a no-op.
+
    Probe: `experiments/reshove_bb100_probe.py` (`FIELD=competent` for the control).
    Remaining v2 refinements: opener-position-agnostic (tighten vs early opens);
-   other bot types could opt the detector in.
+   validate upside vs Jeff_clone; other bot types could opt the detector in.
 3. **v2 ranges still open**: real multi-jammer call ranges and cold-caller
    modeling (both still documented fall-throughs).
 4. **Ante variant** — ranges are no-ante; the live SNG's ante status is unconfirmed.
