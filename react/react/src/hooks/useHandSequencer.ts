@@ -158,9 +158,7 @@ export function useHandSequencer({
           // If YOU'RE in it (your cards are among those revealed), start a
           // heartbeat that beats through the sweat until the winner lands.
           {
-            const humanName = useGameStore
-              .getState()
-              .players?.find((p) => p.is_human)?.name;
+            const humanName = useGameStore.getState().players?.find((p) => p.is_human)?.name;
             if (humanName && effect.revealed?.players_cards?.[humanName]) {
               startHeartbeat();
             }

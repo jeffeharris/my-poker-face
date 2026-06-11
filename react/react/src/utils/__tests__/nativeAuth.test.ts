@@ -112,10 +112,11 @@ describe('refreshAccessToken', () => {
 
   it('exchanges the refresh token and stores the new pair', async () => {
     await setTokens('old-access', 'old-refresh');
-    const raw = vi.fn(async () =>
-      new Response(JSON.stringify({ token: 'new-access', refresh_token: 'new-refresh' }), {
-        status: 200,
-      })
+    const raw = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ token: 'new-access', refresh_token: 'new-refresh' }), {
+          status: 200,
+        })
     );
     setRawFetch(raw as unknown as typeof fetch);
 
@@ -153,10 +154,11 @@ describe('refreshAccessToken', () => {
 
   it('coalesces concurrent refreshes into a single request (single-flight)', async () => {
     await setTokens('old-access', 'old-refresh');
-    const raw = vi.fn(async () =>
-      new Response(JSON.stringify({ token: 'new-access', refresh_token: 'new-refresh' }), {
-        status: 200,
-      })
+    const raw = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ token: 'new-access', refresh_token: 'new-refresh' }), {
+          status: 200,
+        })
     );
     setRawFetch(raw as unknown as typeof fetch);
 

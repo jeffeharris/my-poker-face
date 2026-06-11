@@ -1,10 +1,5 @@
 import { config } from '../config';
-import {
-  getAccessToken,
-  hasNativeSession,
-  refreshAccessToken,
-  setRawFetch,
-} from './nativeAuth';
+import { getAccessToken, hasNativeSession, refreshAccessToken, setRawFetch } from './nativeAuth';
 
 /**
  * Global API `fetch` wrapper: CSRF (web) + bearer auth (native).
@@ -69,10 +64,7 @@ export function installCsrfFetch(): void {
   // this wrapper (no stale bearer header, no 401-retry recursion).
   setRawFetch(originalFetch);
 
-  window.fetch = async (
-    input: RequestInfo | URL,
-    init: RequestInit = {}
-  ): Promise<Response> => {
+  window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const isRequestObj = typeof Request !== 'undefined' && input instanceof Request;
     const method = (init.method || (isRequestObj ? input.method : 'GET')).toUpperCase();
     const url = isRequestObj ? input.url : String(input);
@@ -101,12 +93,7 @@ export function installCsrfFetch(): void {
     // Native only: on a 401, refresh once and retry the request with the fresh
     // token. Skip Request objects (their body may already be consumed) and the
     // refresh endpoint itself.
-    if (
-      res.status === 401 &&
-      hasNativeSession() &&
-      !isRequestObj &&
-      !url.includes(REFRESH_PATH)
-    ) {
+    if (res.status === 401 && hasNativeSession() && !isRequestObj && !url.includes(REFRESH_PATH)) {
       const refreshed = await refreshAccessToken();
       if (refreshed) {
         const retryHeaders = new Headers(headers);

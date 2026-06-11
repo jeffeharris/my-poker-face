@@ -97,9 +97,7 @@ def _get_google_jwks_client() -> 'jwt.PyJWKClient':
     """Return a process-wide cached PyJWKClient for Google's signing keys."""
     global _google_jwks_client
     if _google_jwks_client is None:
-        _google_jwks_client = jwt.PyJWKClient(
-            GOOGLE_CERTS_URL, cache_keys=True, lifespan=3600
-        )
+        _google_jwks_client = jwt.PyJWKClient(GOOGLE_CERTS_URL, cache_keys=True, lifespan=3600)
     return _google_jwks_client
 
 
@@ -498,9 +496,7 @@ class AuthManager:
             # (explicitly checked), so these are present here.
             email = claims['email']
             google_sub = claims['sub']
-            name = claims.get('name') or (
-                email.split('@')[0] if '@' in email else 'User'
-            )
+            name = claims.get('name') or (email.split('@')[0] if '@' in email else 'User')
             picture = claims.get('picture')
 
             # The app passes the guest_id it currently holds so an anonymous

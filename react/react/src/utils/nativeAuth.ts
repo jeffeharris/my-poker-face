@@ -39,8 +39,7 @@ let storage: TokenStorage | null = null;
 
 // The original (un-wrapped) fetch, captured before our wrappers install, so a
 // token refresh never recurses through the bearer/401-retry wrapper.
-let rawFetch: typeof fetch = (...args: Parameters<typeof fetch>) =>
-  globalThis.fetch(...args);
+let rawFetch: typeof fetch = (...args: Parameters<typeof fetch>) => globalThis.fetch(...args);
 
 interface CapacitorLike {
   isNativePlatform?: () => boolean;

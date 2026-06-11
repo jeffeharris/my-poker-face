@@ -360,9 +360,7 @@ def ensure_lobby_seeded(
             # starting projection. Sit-down writes the row at debit time.
             projected = knobs.starting_bankroll
         else:
-            projected = project_bankroll(
-                stored, knobs.starting_bankroll, knobs.bankroll_rate, now
-            )
+            projected = project_bankroll(stored, knobs.starting_bankroll, knobs.bankroll_rate, now)
         result = (knobs, projected)
         projection_cache[pid] = result
         return result
@@ -1980,9 +1978,9 @@ def refresh_unseated_tables(
             # the real bankroll (no over-commit → no minted seat chips on refusal).
             for _bc in per_hand.bankroll_changes:
                 if _bc.direction == "to_seat":
-                    _committed_buyins[_bc.personality_id] = (
-                        _committed_buyins.get(_bc.personality_id, 0) + int(_bc.amount)
-                    )
+                    _committed_buyins[_bc.personality_id] = _committed_buyins.get(
+                        _bc.personality_id, 0
+                    ) + int(_bc.amount)
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)

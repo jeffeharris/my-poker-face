@@ -75,10 +75,9 @@ describe('global fetch wrapper — bearer (native)', () => {
     const base = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/auth/token/refresh')) {
-        return new Response(
-          JSON.stringify({ token: 'fresh', refresh_token: 'refresh-2' }),
-          { status: 200 }
-        );
+        return new Response(JSON.stringify({ token: 'fresh', refresh_token: 'refresh-2' }), {
+          status: 200,
+        });
       }
       dataCalls += 1;
       // First hit 401 (stale token), second hit (retry) 200.

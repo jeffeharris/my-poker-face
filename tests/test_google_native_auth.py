@@ -46,9 +46,7 @@ def _post_native(client, *, audiences, json_body, verify_return=None, verify_sid
             patch('flask_app.config.GOOGLE_ALLOWED_AUDIENCES', audiences, create=True)
         )
         if verify_side is not None:
-            stack.enter_context(
-                patch('poker.auth.verify_google_id_token', side_effect=verify_side)
-            )
+            stack.enter_context(patch('poker.auth.verify_google_id_token', side_effect=verify_side))
         elif verify_return is not None:
             stack.enter_context(
                 patch('poker.auth.verify_google_id_token', return_value=verify_return)
@@ -263,9 +261,7 @@ def test_refresh_exchanges_for_new_tokens():
     assert body['refresh_token']
     repo.get_user_by_id.assert_called_once_with('google_sub-123')
 
-    me = client.get(
-        '/api/auth/me', headers={'Authorization': f"Bearer {body['token']}"}
-    )
+    me = client.get('/api/auth/me', headers={'Authorization': f"Bearer {body['token']}"})
     assert me.get_json()['user']['id'] == 'google_sub-123'
 
 

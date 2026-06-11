@@ -120,7 +120,11 @@ export const HAPTICS = {
   boardCard: () => hapticImpact('medium'),
 
   /** An opponent checks or calls — a plain "double knock" (two taps). */
-  knock: () => hapticSequence([{ style: 'medium', at: 0 }, { style: 'medium', at: 110 }]),
+  knock: () =>
+    hapticSequence([
+      { style: 'medium', at: 0 },
+      { style: 'medium', at: 110 },
+    ]),
 
   /** An opponent raises — an INCREASING-intensity ramp capped by a motor buzz. */
   opponentRaise: () =>
@@ -171,7 +175,11 @@ let heartbeatTimer: number | null = null;
 /** Begin the heartbeat loop (idempotent — a second call is a no-op). */
 export function startHeartbeat(): void {
   if (!isNativePlatform() || heartbeatTimer !== null) return;
-  const beat = () => hapticSequence([{ style: 'heavy', at: 0 }, { vibrateMs: 200, at: 130 }]);
+  const beat = () =>
+    hapticSequence([
+      { style: 'heavy', at: 0 },
+      { vibrateMs: 200, at: 130 },
+    ]);
   beat(); // fire the first beat immediately, then settle into the rhythm
   heartbeatTimer = window.setInterval(beat, HEARTBEAT_PERIOD_MS);
 }

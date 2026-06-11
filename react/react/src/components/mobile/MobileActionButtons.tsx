@@ -198,9 +198,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
               className={`quick-bet-btn ${raiseAmount === amount ? 'selected' : ''}`}
               data-testid="quick-bet-btn"
               onClick={() => {
-            hapticImpact('light');
-            setRaiseAmount(amount);
-          }}
+                hapticImpact('light');
+                setRaiseAmount(amount);
+              }}
               disabled={amount > calc.safeMaxRaiseTo}
             >
               {label}
@@ -217,9 +217,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
               className={`quick-bet-btn ${isCover ? 'cover' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
               data-testid="quick-bet-btn"
               onClick={() => {
-            hapticImpact('light');
-            setRaiseAmount(amount);
-          }}
+                hapticImpact('light');
+                setRaiseAmount(amount);
+              }}
               disabled={amount > calc.safeMaxRaiseTo}
             >
               {label}
