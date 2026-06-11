@@ -313,6 +313,13 @@ applying a wrong/too-loose range:
   cold-caller between the jammer and hero tightens the true range but isn't
   modeled. This is the standard position-vs-opener simplification, shared with
   the deep-stack charts — a known approximation, not a v1 blocker.
+- **Table size 3–6 handed only.** The position labels are 6-max. The lookup
+  gates `num_players` to 3–6: 7/8-max early seats have more players behind than
+  any 6-max range models, and 9+ can't even be labeled (`poker_game` collapses
+  9+ tables to blinds-only, so `get_6max_position` falls back to UTG). 7+ handed
+  short stacks fall through to the deep-stack / short_stack.py path. **v2:** a
+  7–9-max table-size dimension (the app exposes 9-max tournaments) if those
+  spots prove to matter.
 
 ## Next to consider (broader new-table backlog — DO NOT LOSE)
 

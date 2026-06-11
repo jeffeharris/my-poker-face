@@ -196,9 +196,13 @@ def lookup_push_fold_action_6max(
         hand: Canonical hand string (e.g. 'AA', 'AKs', '72o').
         position: Hero's 6-max position (UTG/HJ/CO/BTN/SB/BB).
         effective_stack_bb: min(hero, largest active opponent) in BB.
-        num_players: Players seated/active in the hand. Multi-way only
-            (num_players > 2); HU (==2) returns None so the HU chart stays
-            in charge.
+        num_players: Players at the table this hand. The chart is calibrated
+            for 3-6 handed only (its position labels are 6-max). HU (==2)
+            returns None so the HU chart stays in charge; 7+ handed also
+            returns None — the engine can't label >8-handed seats (9+ collapse
+            to blinds, so `get_6max_position` falls back to UTG) and the early
+            positions have more players behind than any 6-max range models, so
+            those spots fall through to the deep-stack / short_stack.py path.
         facing_jam: True when an opponent has already jammed all-in and
             hero is deciding whether to call.
         opener_position: When facing_jam, the jammer's 6-max position.
@@ -215,7 +219,9 @@ def lookup_push_fold_action_6max(
     BB never open-shoves, so BB without `facing_jam` returns None. Reshove
     (jam over a min-raise) is deferred to v2.
     """
-    if num_players <= 2:
+    # 3-6 handed only: the chart's position labels are 6-max, and >8-handed
+    # tables can't even be labeled (9+ collapse to blinds-only → UTG fallback).
+    if num_players <= 2 or num_players > 6:
         return None
 
     chart = _load_chart_6max()

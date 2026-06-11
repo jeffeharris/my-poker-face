@@ -267,6 +267,21 @@ class TestLookup6max:
         )
         assert r is None
 
+    def test_above_6_handed_returns_none(self):
+        """The chart is 3-6 handed only. 7+ handed must fall through (None) —
+        7/8-max early positions have more players behind than any 6-max range
+        models, and 9+ can't even be labeled (the engine collapses 9+ to
+        blinds-only, so get_6max_position falls back to UTG)."""
+        for n in (7, 8, 9):
+            for pos in ("UTG", "BTN", "SB"):
+                r = push_fold.lookup_push_fold_action_6max(
+                    hand="AA",
+                    position=pos,
+                    effective_stack_bb=8,
+                    num_players=n,
+                )
+                assert r is None, f"num_players={n} pos={pos} should be out of scope"
+
     def test_bb_unopened_returns_none(self):
         """BB has no unopened jam row; without facing a jam → None."""
         r = push_fold.lookup_push_fold_action_6max(

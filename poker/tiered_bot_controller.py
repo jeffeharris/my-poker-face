@@ -4206,9 +4206,10 @@ class TieredBotController(AIPlayerController):
         table should handle it (deep stacks, out-of-scope spot, etc.).
 
         Scope: effective stack <= 15 BB.
-          - HU (num_seated == 2)       -> HU chart (SB open / BB call-vs-jam).
-          - Multi-way (num_seated > 2) -> 6max chart (per-position unopened
-            jams + the bb_vs_sb / bb_vs_late caller tables).
+          - HU (num_seated == 2)        -> HU chart (SB open / BB call-vs-jam).
+          - 3-6 handed (num_seated > 2) -> 6max chart (per-position unopened
+            jams + the bb_vs_sb / bb_vs_late caller tables). 7+ handed is out of
+            the chart's calibration and falls through (the lookup gates it).
         Spots not covered (a non-blind hero facing a non-all-in raise, a BB
         walk, etc.) fall through to the deep-stack / short_stack.py path.
         """
