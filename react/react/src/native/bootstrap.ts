@@ -60,6 +60,17 @@ async function configureKeyboard(): Promise<void> {
   } catch {
     // Non-fatal (older iOS / unavailable) — never block startup over chrome.
   }
+
+  // Settle the layout after dismiss. With resize:Native the WebView frame shrinks
+  // while the keyboard is up and env(safe-area-inset-bottom) collapses to 0; on
+  // hide the frame grows back and the inset returns to ~34px, but the two don't
+  // land on the same frame — so the bottom edge visibly snaps from the screen
+  // bottom up to its safe-area resting spot, and the page can be left with a
+  // residual scroll offset. Pin the scroll back to rest on hide so it settles in
+  // one step instead of flipping.
+  Keyboard.addListener('keyboardDidHide', () => {
+    window.scrollTo({ top: 0 });
+  });
 }
 
 export async function initNative(): Promise<void> {
