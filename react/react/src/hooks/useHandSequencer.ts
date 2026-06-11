@@ -119,11 +119,12 @@ export function useHandSequencer({
     [updatePlayers]
   );
 
-  // Buzz once when an opponent commits chips, so you can feel aggression land
-  // without looking: a light tap on a raise, a heavy thud on an all-in. Calls,
-  // checks and folds stay silent to keep the signal sparse and meaningful.
+  // Buzz once per opponent action so you can feel the action go around the table
+  // without looking: a double-knock on a check/call, an increasing-intensity ramp
+  // on a raise, the big crescendo+buzz on an all-in. Folds stay silent (a fold is
+  // a non-event tactilely, and keeps the signal from getting noisy).
   const signalOpponentAction = useCallback((state: GameState) => {
-    // New hand → forget last hand's actions so the first raise re-fires.
+    // New hand → forget last hand's actions so the first action re-fires.
     if (handNoRef.current !== state.hand_number) {
       handNoRef.current = state.hand_number;
       oppActionSigRef.current.clear();
@@ -131,13 +132,16 @@ export function useHandSequencer({
     for (const p of state.players ?? []) {
       if (p.is_human) continue;
       const action = p.last_action;
-      if (action !== 'raise' && action !== 'all_in') continue;
-      const sig = `${action}@${p.stack}`;
+      if (action !== 'raise' && action !== 'all_in' && action !== 'check' && action !== 'call')
+        continue;
+      // Include phase so a check/call that repeats across streets (same action,
+      // unchanged stack) still re-knocks each street instead of deduping away.
+      const sig = `${action}@${p.stack}@${state.phase}`;
       if (oppActionSigRef.current.get(p.name) === sig) continue;
       oppActionSigRef.current.set(p.name, sig);
-      // all-in → the tightening crescendo; a plain raise → one firm tap.
       if (action === 'all_in') HAPTICS.allIn();
-      else HAPTICS.opponentRaise();
+      else if (action === 'raise') HAPTICS.opponentRaise();
+      else HAPTICS.knock(); // check or call → a plain double knock
     }
   }, []);
 
