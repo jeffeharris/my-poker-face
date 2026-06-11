@@ -39,7 +39,7 @@ This matters for how you review. **Only one table is solver/equilibrium-derived:
 | Table | How it was made |
 |---|---|
 | `push_fold_hu.json` (HU ≤15bb push/fold) | **Computed.** Exact chip-EV heads-up push/fold Nash (no ante), solved by fictitious play with eval7 all-in equities, validated against HoldemResources HUNE anchors. This one *is* GTO-grade. |
-| `vs_3bet` and `vs_4bet` rows of the 6-max preflop charts | **Equity-derived gradient** (June 2026, PRs #271–273). Regenerated from an eval7 all-in-equity matrix vs an assumed villain re-raise range — *not* a full solver/equilibrium, but a principled equity gradient rather than a hand-authored guess. This is what killed the old "jam 72o into a 4-bet" stub. See note below. |
+| `vs_3bet` and `vs_4bet` rows of the 6-max preflop charts | **Equity-derived gradient** (June 2026, `vs_4bet` PR #272 / `vs_3bet` PR #273). Regenerated from an eval7 all-in-equity matrix vs an assumed villain re-raise range — *not* a full solver/equilibrium, but a principled equity gradient rather than a hand-authored guess. This is what killed the old "jam 72o into a 4-bet" stub. See note below. |
 | **Everything else** (RFI + `vs_open`, HU preflop, postflop, depth charts) | **Hand-authored with AI assistance, then simulation-validated.** These are *calibrated heuristics*, not solver output. Aggregate VPIP/PFR bands were tuned to match targets in 10k-hand sims; individual cells were not solved. |
 
 So when you see a frequency like "3-bet 15%," treat it as "a human's guess that
@@ -582,6 +582,13 @@ Dominant action + its %: `J`=jam (all-in), `C`=call, `·`=fold.
 > because defending a 4-bet that wide is indefensible even for a fish. Value stacks
 > off (jam), and a few *suited* blockers (`A5s`) jam as bluffs; everything marginal
 > calls or folds by price.
+>
+> **Backstop:** independent of this chart, when the bot faces a cold **all-in**
+> preflop it bypasses the chart/distortion entirely and decides **call-or-fold on
+> raw eval7 pot odds** (PR #271), and it will never *voluntarily* re-jam over an
+> existing all-in (a jam is only returned when calling already commits the whole
+> stack). So even if a chart cell or a personality nudge put mass on "jam," a
+> trash hand can't shove into an all-in — the equity veto folds it.
 
 
 **HJ vs UTG**
@@ -2663,8 +2670,29 @@ skill tier you're seated against.)
 
 ## Postflop & adaptation (what the packet's grids don't show)
 
-The grids above are all preflop. Two systems run beyond them that are worth a
+The grids above are all preflop. Three systems run beyond them that are worth a
 reviewer's eye, because they change how the preflop ranges actually play out:
+
+### The ranges aren't static within a session — a psychology layer moves them
+
+The "±0.30 logit nudge" mentioned under the archetype variants isn't a fixed
+personality lean. It's the output of a **live emotional state** (composure /
+confidence / energy) that shifts with what happens at the table: a bot that just
+took a bad beat tilts (opens wider, over-aggresses); one that's been card-dead or
+out-played for a while tightens and second-guesses. So **read every grid in this
+packet as the character's *composed baseline*** — the range it plays at emotional
+equilibrium. In a live session the effective range *breathes* around that baseline,
+by up to ~±0.30 per action (capped — it still can't continue a hand the underlying
+table pure-folds, so the table remains the hard envelope).
+
+Why we flag it for review: if you spot a play that looks like a leak — a loose
+4-bet, a spew-y call — it may be a **mood distortion (tilt), not a chart value**. The
+distinction matters because the fix is different (tune the emotional response vs.
+fix the cell), and we don't want a tilt-spew misread as the bot's standard range.
+It's also a *deliberate, readable* swing (an exploitable tell), not random noise —
+feedback on whether the emotional widen/tighten lands at believable magnitudes is
+welcome, but the cell-level EV questions above are best answered against the
+composed baseline.
 
 ### Postflop is hand-strength aware (just thinly *charted*)
 
