@@ -1,53 +1,46 @@
 #!/usr/bin/env python3
-"""Rebuild the base chart's `vs_4bet` section as a real hand-strength gradient.
+"""Rebuild the base chart's `vs_4bet` section per-node (hero 3-bet, faces a 4-bet).
 
-Why this exists
----------------
-The `vs_4bet` section of `preflop_100bb_6max.json` was hand-authored as a
-3-bucket STUB: KK/AA jam ~0.75, two hands call ~0.67, and **all other 165 hands
-shared one `{fold:0.645, call:0.223, jam:0.132}` blob** — no hand gradient at
-all. So 72o/47o/89o got the same line as AKo facing a 4-bet and could be
-*sampled into a 13% trash JAM* (amplified to ~22% by the lag personality
-distortion). That is the root cause of the prod "47o jams into a 4-bet all-in"
-report (see docs/technical/ARCHETYPE_SHAPING_FINDINGS.md § Finding 1a).
+Implements docs/strategy/PREFLOP_DEFENSE_REGEN_SPEC.md §4 (item 3). Replaces the
+old global generator (one range written to all 15 nodes — the position-invariant
+stub where 72o/47o got the same line as AKo and could be sampled into a trash JAM,
+the prod "47o jams into a 4-bet" report).
 
-What it does
-------------
-For each of the 169 canonical hands, compute equity vs an assumed opener
-4-bet range (`VILLAIN_4BET`) from the precomputed all-in equity matrix
-(`push_fold_equity_matrix.json`, the same one the push/fold Nash solver uses),
-then map equity → a `{fold, call, jam}` distribution:
+Per-node, self-consistent
+-------------------------
+Node = HERO(3-bettor)_vs_VILLAIN(opener/4-bettor). Hero's LIVE range is hero's own
+3-bet range, read from `vs_open[hero_vs_villain].raise_3x`. The villain 4-bet range
+is read from `vs_3bet[villain_vs_hero].raise_2.2x`; its VALUE part (≥ cliff) is what
+continues vs hero's 5-bet jam. ⇒ build_vs_open AND build_vs3bet_defense must run
+before this script (strict order; a stale upstream fails its own lints → refused).
 
-  * value 5-bet jam  (AA, KK)         — get it in
-  * call / jam mix   (AKs, QQ, AKo)   — strong continues
-  * light continue   (JJ..44 pairs)   — mostly fold, small flat/jam
-  * Ax-suited bluff-jams (A5s/A4s/A3s) — block AA/AK; balance the value range
-  * everything else                   — EXACTLY {fold: 1.0}
+MDF anchor: hero continues (jam + call) with `k` of their 3-BET range, so fold-to-
+4bet stays under the auto-profit line (the 4-bet bluffs in our own vs_3bet would
+otherwise print). The continue range is value 5-bet jams (top by equity vs the
+villain's continue range), medium calls, and suited-Ax 5-bet bluff-jams (A5s–A2s,
+which block AA/AK — and which were hero's own 3-bet bluffs, so the polarization is
+self-consistent).
 
-The pure-fold floor is load-bearing: `build_archetype_charts._loosen_facing` /
-`_station_facing` and `generate_depth_charts.t_vs_4bet` all skip rows with
-`fold >= 0.999`, so trash stays folded across EVERY derived archetype/depth
-chart. Only the continue range widens per archetype.
+⚠️ The pure-fold junk floor is LOAD-BEARING and must NOT become a thin call (unlike
+vs_3bet): build_archetype_charts._loosen_facing / _station_facing and
+generate_depth_charts.t_vs_4bet all skip rows with `fold >= 0.999`, so trash stays
+folded across every archetype/depth chart. A thin call would let archetype widening
+re-create the trash-jam bug. Folding to a 4-bet is correct, so there's no squeeze
+overfold concern (cf. vs_3bet).
 
-Scope: this rebuilds `vs_4bet` only. The distribution is flat across the 15
-position matchups (gradient by hand, not by position) — same structural
-simplification the stub had; per-position 4-bet ranges are a later refinement.
-`vs_3bet` is intentionally left alone (it is entangled with the archetype
-fold-to-3bet / 4-bet calibration in ARCHETYPE_SHAPING_FINDINGS.md and needs its
-own re-validation).
-
-Run inside the backend container, then cascade:
+Run inside the backend container (after build_vs3bet), then cascade:
     docker compose exec -T backend python -m poker.strategy.data.build_vs4bet_defense
-    docker compose exec -T backend python -m experiments.build_archetype_charts
     docker compose exec -T backend python -m poker.strategy.data.generate_depth_charts
+    docker compose exec -T backend python -m experiments.build_archetype_charts
 """
 
 from __future__ import annotations
 
 import json
 import os
-from typing import Dict
+from typing import Dict, List
 
+from poker.strategy import lints
 from poker.strategy.data.generate_push_fold_nash import (
     CANONICAL_HANDS,
     COMBO_COUNT,
@@ -58,37 +51,25 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _BASE = os.path.join(_HERE, "preflop_100bb_6max.json")
 _MATRIX = os.path.join(_HERE, "push_fold_equity_matrix.json")
 
-# Assumed opener 4-bet range (the player hero is responding to). Value-heavy
-# QQ+/AK with a pair of wheel-suited-ace bluffs — a believable ~3% opener 4-bet
-# range. The exact range only sets the equity *scale*; the gradient ordering is
-# robust to reasonable changes here.
-VILLAIN_4BET: Dict[str, float] = {
-    "AA": 1.0,
-    "KK": 1.0,
-    "QQ": 0.7,
-    "JJ": 0.2,
-    "AKs": 1.0,
-    "AKo": 0.8,
-    "A5s": 0.5,
-    "A4s": 0.4,
-}
+RANKS = "AKQJT98765432"
 
-# Equity tier cuts (equity vs VILLAIN_4BET). Compressed because the villain
-# range is strong — even AKs/QQ only sit ~0.44. Tuned so the base (TAG) defends
-# a tight ~3% (QQ+/AK + a few pairs + Ax bluffs), folding the marginal pairs and
-# all trash.
-EQ_JAM = 0.50  # AA, KK → value jam
-EQ_CALL = 0.40  # AKs, QQ, AKo → call/jam
-EQ_FLOOR = 0.355  # JJ..44 → light continue; below this → pure fold
+MDF_BUFFER = 0.02              # continue a touch above the MDF minimum
+VILLAIN_CONTINUE_CLIFF = 0.50  # villain 4-bets with raise_2.2x ≥ this continue vs a 5-bet
 
-# Distributions per tier (each sums to 1.0).
-DIST_JAM = {"jam": 0.82, "call": 0.13, "fold": 0.05}
-DIST_CALL = {"call": 0.45, "jam": 0.30, "fold": 0.25}
-DIST_LIGHT = {"fold": 0.88, "call": 0.09, "jam": 0.03}
+# Share of the continue (jam+call) mass that is value 5-bet jams; the suited-Ax
+# bluff-jams and medium calls backfill the rest up to the MDF anchor.
+VALUE_SHARE = 0.55
 
-# Ax-suited 5-bet bluff-jams: equity below the floor, but they block AA/AK and
-# polarize the range (value + bluffs vs pure value = face-up). Override pure-fold.
-BLUFF_JAM = {"A5s": 0.30, "A4s": 0.22, "A3s": 0.12}
+# Per-hand distributions. Jam-dominant; call is the medium continue.
+DIST_VALUE_JAM = {"jam": 0.85, "call": 0.10, "fold": 0.05}
+DIST_CALL = {"call": 0.55, "jam": 0.25, "fold": 0.20}
+DIST_BLUFF_JAM = {"jam": 0.40, "fold": 0.60}
+
+# Suited-Ax 5-bet bluff-jams (block AA/AK). These are hero's own 3-bet bluffs.
+BLUFF_JAM_POOL: List[str] = ["A5s", "A4s", "A3s", "A2s"]
+
+# NOTE: _playability/_norm duplicate the other generators'; hoist to a shared
+# poker/strategy/data/_chart_gen.py (rule of three — build_vs_open/3bet/4bet).
 
 
 def _norm(d: Dict[str, float]) -> Dict[str, float]:
@@ -96,62 +77,112 @@ def _norm(d: Dict[str, float]) -> Dict[str, float]:
     return {k: round(v / s, 4) for k, v in d.items() if v > 0} if s > 0 else {"fold": 1.0}
 
 
-def hand_distribution(hand: str, equity: float) -> Dict[str, float]:
-    """Map a hand's equity-vs-4bet-range to its {fold,call,jam} distribution."""
-    if equity >= EQ_JAM:
-        return dict(DIST_JAM)
-    if equity >= EQ_CALL:
-        return dict(DIST_CALL)
-    if equity >= EQ_FLOOR:
-        return dict(DIST_LIGHT)
-    if hand in BLUFF_JAM:
-        j = BLUFF_JAM[hand]
-        return {"jam": j, "fold": round(1.0 - j, 4)}
-    return {"fold": 1.0}
+def build_node(hero: str, villain: str, vs_open: Dict, vs_3bet: Dict, matrix: Dict) -> Dict[str, Dict[str, float]]:
+    """Generate one vs_4bet node (hero = 3-bettor facing villain's 4-bet)."""
+    vo = vs_open[f"{hero}_vs_{villain}"]
+    hero_3bet = {h: vo[h].get("raise_3x", 0.0) for h in vo if vo[h].get("raise_3x", 0.0) > 0}
+    v4 = vs_3bet[f"{villain}_vs_{hero}"]
+    villain_4bet = {h: v4[h].get("raise_2.2x", 0.0) for h in v4 if v4[h].get("raise_2.2x", 0.0) > 0}
+    villain_cont = {h: w for h, w in villain_4bet.items()
+                    if v4[h].get("raise_2.2x", 0.0) >= VILLAIN_CONTINUE_CLIFF} or dict(villain_4bet)
+
+    ow = {h: COMBO_COUNT[h] * hero_3bet[h] for h in hero_3bet}
+    tb = sum(ow.values())
+    eq = {h: equity_vs_range(h, matrix, villain_cont) for h in hero_3bet}
+
+    k = (1.0 - lints.F4B_CEILING) + MDF_BUFFER
+    cont_target = k * tb
+    value_target = VALUE_SHARE * cont_target
+
+    dist: Dict[str, Dict[str, float]] = {}
+
+    def _cont() -> float:
+        return sum(ow[h] * (d.get("jam", 0.0) + d.get("call", 0.0)) for h, d in dist.items())
+
+    by_eq = sorted(hero_3bet, key=lambda x: eq[x], reverse=True)
+
+    # 1. Value 5-bet jams: top of hero's 3-bet range by equity vs the continue range.
+    for h in by_eq:
+        if _cont() >= value_target:
+            break
+        dist[h] = dict(DIST_VALUE_JAM)
+
+    # 2. Suited-Ax 5-bet bluff-jams (designated blockers ∩ hero's 3-bet range).
+    for h in BLUFF_JAM_POOL:
+        if h in dist or h not in hero_3bet:
+            continue
+        dist[h] = dict(DIST_BLUFF_JAM)
+
+    # 3. Medium calls backfill the continue range to the MDF anchor (calling a 4-bet
+    #    with TT/AJs-type hands, not spew-jamming). Guarantees fold-to-4bet ≤ ceiling.
+    for h in by_eq:
+        if _cont() >= cont_target:
+            break
+        if h in dist:
+            continue
+        dist[h] = dict(DIST_CALL)
+
+    # 4. Everything else PURE-FOLDS (load-bearing — archetype/depth transforms skip
+    #    fold>=0.999, so trash never widens into a 4-bet jam).
+    for h in CANONICAL_HANDS:
+        dist.setdefault(h, {"fold": 1.0})
+
+    return {h: _norm(dist[h]) for h in CANONICAL_HANDS}
 
 
-def build_vs4bet_distributions() -> Dict[str, Dict[str, float]]:
-    """Return {hand: distribution} for all 169 canonical hands."""
-    with open(_MATRIX) as f:
-        matrix = json.load(f)["matrix"]
-    out = {}
-    for hand in CANONICAL_HANDS:
-        eq = equity_vs_range(hand, matrix, VILLAIN_4BET)
-        out[hand] = _norm(hand_distribution(hand, eq))
-    return out
+def _fold_to_4bet(hero: str, villain: str, node: Dict, vs_open: Dict) -> float:
+    tn = vs_open[f"{hero}_vs_{villain}"]
+    twt = cont = 0.0
+    for h, td in tn.items():
+        tw = td.get("raise_3x", 0.0)
+        if tw <= 0:
+            continue
+        c = COMBO_COUNT[h] * tw
+        twt += c
+        d = node[h]
+        cont += c * (d.get("jam", 0.0) + d.get("call", 0.0))
+    return (1 - cont / twt) if twt else 0.0
 
 
 def patch_base() -> None:
-    """Replace every vs_4bet node in the base chart with the gradient."""
     with open(_BASE) as f:
         chart = json.load(f)
-
-    dists = build_vs4bet_distributions()
-    nodes = chart.get("vs_4bet", {})
+    with open(_MATRIX) as f:
+        matrix = json.load(f)["matrix"]
+    vs_open, vs_3bet, nodes = chart["vs_open"], chart["vs_3bet"], chart.get("vs_4bet", {})
     if not nodes:
         raise SystemExit("base chart has no vs_4bet section")
-    for hands in nodes.values():
-        for hand in hands:
-            hands[hand] = dict(dists[hand])
+
+    # Run-order guard: reads BOTH upstream charts. A stale one fails its own lints.
+    stale = lints.lint_bb_defend_floors(chart) + lints.lint_vs3bet_fold_to_3bet(chart)
+    if stale:
+        raise SystemExit("vs_open/vs_3bet look stale (run build_vs_open + build_vs3bet "
+                         "first):\n  " + "\n  ".join(stale[:5]))
+
+    print(f"patching {_BASE}")
+    print(f"  {'node':<14} {'fold-to-4bet':>13}")
+    built = {}
+    for node_name in nodes:
+        hero, villain = node_name.split("_vs_")
+        node = build_node(hero, villain, vs_open, vs_3bet, matrix)
+        built[node_name] = node
+        print(f"  {node_name:<14} {100 * _fold_to_4bet(hero, villain, node, vs_open):>12.1f}%")
+
+    chart["vs_4bet"] = built
+    fails = (lints.lint_weights_sum(chart)
+             + lints.lint_legal_vocab(chart)
+             + lints.lint_completeness(chart)
+             + lints.lint_anti_clone(chart, branches=("vs_4bet",))
+             + lints.lint_vs4bet_fold_to_4bet(chart))
+    if fails:
+        for msg in fails[:12]:
+            print(f"  LINT FAIL: {msg}")
+        raise SystemExit(f"refusing to write — {len(fails)} lint failures")
 
     with open(_BASE, "w") as f:
         json.dump(chart, f, indent=2)
         f.write("\n")
-
-    # Summary
-    tot = defend = jam = 0.0
-    for hand in CANONICAL_HANDS:
-        c = COMBO_COUNT[hand]
-        d = dists[hand]
-        tot += c
-        defend += c * (d.get("call", 0.0) + d.get("jam", 0.0))
-        jam += c * d.get("jam", 0.0)
-    n_continue = sum(1 for d in dists.values() if d != {"fold": 1.0})
-    print(f"patched {_BASE}")
-    print(f"  vs_4bet nodes rebuilt: {len(nodes)} (flat by position)")
-    print(f"  continue hands: {n_continue}/169")
-    print(f"  base defend freq (combo-wt call+jam): {100 * defend / tot:.1f}%")
-    print(f"  base jam freq (combo-wt): {100 * jam / tot:.1f}%")
+    print("  done — vs_4bet regenerated per-node; run generate_depth_charts next.")
 
 
 if __name__ == "__main__":
