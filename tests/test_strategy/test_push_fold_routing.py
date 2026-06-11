@@ -301,3 +301,39 @@ class TestSnapshotInterplay:
         )
         assert hu == 'jam'
         assert six == 'fold'
+
+
+# ── push_fold_nash opt-in gate ──────────────────────────────────────────────
+
+
+class TestPushFoldNashGate:
+    """The Nash charts are opt-in per persona (`push_fold_nash`). Only blessed
+    'skilled' characters use them; everyone else falls through (returns None)
+    so the donors keep their leaky short game. __new__-built instances (sims /
+    tests) never set the attribute, so the gate defaults to firing."""
+
+    def test_missing_flag_defaults_to_firing(self):
+        # _controller() bypasses __init__, so push_fold_nash_enabled is unset.
+        c = _controller()
+        assert not hasattr(c, 'push_fold_nash_enabled')
+        action = c._try_push_fold_lookup('AA', _hu_state('SB', 10), player_idx=0, num_seated=2)
+        assert action == 'jam'
+
+    def test_enabled_fires(self):
+        c = _controller()
+        c.push_fold_nash_enabled = True
+        action = c._try_push_fold_lookup('AA', _hu_state('SB', 10), player_idx=0, num_seated=2)
+        assert action == 'jam'
+
+    def test_disabled_falls_through_hu(self):
+        c = _controller()
+        c.push_fold_nash_enabled = False
+        action = c._try_push_fold_lookup('AA', _hu_state('SB', 10), player_idx=0, num_seated=2)
+        assert action is None
+
+    def test_disabled_falls_through_6max(self):
+        c = _controller()
+        c.push_fold_nash_enabled = False
+        gs = _6max_state(hero_pos='UTG', hero_idx=0, hero_stack_bb=10)
+        action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
+        assert action is None
