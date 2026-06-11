@@ -130,12 +130,11 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'tag': {
         'vpip': (20, 28),
         'pfr': (16, 23),
-        # 3-bet widened 10-16 -> 11-18 (backlog #5). tag's measured ~16 facing-open
-        # is LIVE-faithful (live reg ~13%, recreational higher — research §1B in OUR
-        # opportunity denominator), not an over-3bet to trim toward online numbers.
-        # A TAG legitimately 3-bets a polarized range facing opens; the band (not
-        # the chart) was the fix — widening clears the boundary WARN.
-        'threebet': (11, 18),
+        # 3-bet re-baselined 11-18 -> 7-11 (2026-06, per-node vs_open regen). The
+        # old 11-18 tracked the face-up 0.15 raise-spray the regen removed; on the
+        # concentrated base a TAG 3-bets a tight polarized ~8% — more believable,
+        # not an over-3bet. The band follows the (cleaner) chart, not vice-versa.
+        'threebet': (7, 11),
         'fourbet': (5, 13),
         'fold_to_3bet': (40, 58),
         'af': (2.5, 3.8),
@@ -149,7 +148,9 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'lag': {
         'vpip': (28, 40),
         'pfr': (22, 32),
-        'threebet': (16, 26),
+        # re-baselined 16-26 -> 15-22 (2026-06 regen): LAG stays distinctly above
+        # TAG, below the maniac, without chasing the old spray-inflated upper end.
+        'threebet': (15, 22),
         'fourbet': (10, 20),
         'fold_to_3bet': (30, 48),
         'af': (3.3, 5.5),
@@ -176,7 +177,10 @@ ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
     'maniac': {
         'vpip': (45, 70),
         'pfr': (35, 58),
-        'threebet': (26, 34),
+        # re-baselined 26-34 -> 22-30 (2026-06 regen): the concentrated base + the
+        # archetype 3-bet promotion lands the default maniac ~24; don't chase the
+        # old spray-inflated ~30+ (tilt_conditioning still lifts it transiently).
+        'threebet': (22, 30),
         # fourbet 26-38 → 10-24 (2026-06-10, the vs_3bet equity-gradient regen).
         # The old band was only reachable by 4-betting OFFSUIT trash (the stub's
         # universal ~10% trash-4-bet, amplified). The regen polarizes the 4-bet
