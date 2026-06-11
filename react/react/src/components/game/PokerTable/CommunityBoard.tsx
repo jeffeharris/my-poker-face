@@ -5,6 +5,7 @@
  */
 
 import { CommunityCard } from '../../cards';
+import { CountUp } from '../../shared/CountUp';
 
 interface CommunityCardAnim {
   shouldAnimate: boolean;
@@ -26,7 +27,9 @@ export function CommunityBoard({
       <div className="pot-area">
         <div className="pot">
           <div className="pot-label">POT</div>
-          <div className="pot-amount">${potTotal}</div>
+          <div className="pot-amount">
+            $<CountUp value={potTotal} />
+          </div>
         </div>
       </div>
 

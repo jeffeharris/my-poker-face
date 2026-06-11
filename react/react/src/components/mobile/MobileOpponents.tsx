@@ -15,6 +15,7 @@ import type { Player } from '../../types/player';
 import type { RevealedCardsInfo } from '../../types';
 import { Card } from '../cards';
 import { ActionBadge } from '../shared';
+import { CountUp } from '../shared/CountUp';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { avatarUrlForEmotion } from '../../utils/avatarUrl';
 import { config } from '../../config';
@@ -216,10 +217,14 @@ export function MobileOpponents({
                   {displayNickname(opponent)}
                 </span>
                 <span className="opponent-stack" data-testid="opponent-stack">
-                  ${opponent.stack}
+                  $<CountUp value={opponent.stack} />
                 </span>
               </div>
-              {opponent.bet > 0 && <div className="opponent-bet">${opponent.bet}</div>}
+              {opponent.bet > 0 && (
+                <div className="opponent-bet">
+                  $<CountUp value={opponent.bet} from={0} />
+                </div>
+              )}
               {/* Revealed hole cards during run-it-out showdown */}
               {revealedCards?.players_cards[opponent.name] && (
                 <div
