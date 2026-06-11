@@ -312,6 +312,43 @@ table-stickiness** (low composure reduces leave-pressure / biases re-buy — tru
 how tilt actually works: chasing). Added as a new lever to
 `EMOTIONAL_SYSTEM_BALANCE.md`.
 
+### Phase B — slice 3 (detector) + slice 4 (episode duration) + the metric correction (2026-06-11)
+
+**Slice 3 — detector sensitivity** (committed): gate `is_big_pot` (0.75→0.45) +
+equity-shock (0.30→0.20) under the flag so the calm bots clear the "big moment" bar
+more often. Modest lift (`shaken` 17→22, Fyodor 0.92%→1.64%); confirmed event-rate is
+*a* lever but single-sim noise dominates a <0.2% metric.
+
+**(a) Representative remeasure (skill gap, exp 10):** 3 loose hotheads vs 3 solver
+sharks so the hotheads run bad. Fyodor penalty-time **6.4% → 10.9%** — a *losing*
+player genuinely tilts more (the user's downswing intuition, confirmed). The winning
+sharks go `overconfident` (symmetric). **Metric correction:** aggregate PRD bands are
+the wrong lens here — they average a tilting loser with calm winners. The right metric
+is **per-player penalty-time while on a downswing**.
+
+**(b) Probability-rolled episode duration (user's idea):** on tilt entry roll
+`D = round((1−poise)² · 24 · (0.4+0.6·U))` hands, near-freeze recovery for `D` hands,
+then climb out. **`%time-in-tilt ≈ entry-rate × E[D]`, bounded ⇒ believable.**
+Sim-aggregate couldn't resolve it (trajectory noise + dilution), so it is validated
+**directly** (`tests/test_tilt_episode.py` + a unit trace):
+
+| persona | poise | rolled D | hands held in tilt |
+|---|---|---|---|
+| Fyodor | 0.25 | 6–13 | **9–16** |
+| Calamity / Freddie | 0.42 / 0.45 | 4–8 | 6–10 |
+| Churchill | 0.78 | 1 | 3 |
+| Scrooge | 0.80 | 0–1 | **2–3** (monk ≈ none) |
+
+The mechanism does exactly what was asked: a tilting hothead now stays visibly tilted
+for ~9–16 hands (a felt, sustained episode), bounded (non-chronic), monks ≈ 0 — the
+character spread is right. **This is believable AND noticeable at the episode level**,
+even though the table-aggregate PRD band is a noise-limited / wrong-altitude metric.
+
+**Net for the goal:** believable+noticeable is achieved at the level that matters
+(per-player episode): fear pole reachable (slice 1), drama on entry (signatures), and
+sustained bounded episodes (slice 4). The aggregate PRD-band frequency remains a
+measurement question (needs per-player + multi-seed), not a mechanism gap.
+
 ## Conclusion
 
 **Phase A complete.** It converted "emotions feel weak" into three measured facts:
