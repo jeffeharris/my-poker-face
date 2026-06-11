@@ -32,6 +32,9 @@ CHART_PATH = (
 
 POSITIONS = ["UTG", "HJ", "CO", "BTN", "SB"]
 DEPTHS = [4, 6, 8, 10, 12, 15]
+RESHOVE_DEPTHS = [8, 10, 12, 15]
+# Published reshove jam% per depth (PUSH_FOLD_6MAX_SCOPE.md [L]).
+RESHOVE_TARGET = {8: 16, 10: 13, 12: 10, 15: 7}
 
 
 def _hand_combos(hand: str) -> int:
@@ -94,6 +97,40 @@ class TestChartStructure:
                     for hand, actions in row.items():
                         s = sum(actions.values())
                         assert abs(s - 1.0) < 1e-9, f"{sect}.{key}.{depth}.{hand} sums to {s}"
+
+
+class TestReshoveChart:
+    def test_reshove_present_with_depths(self, chart):
+        assert "reshove" in chart
+        assert set(chart["reshove"].keys()) == {str(d) for d in RESHOVE_DEPTHS}
+
+    def test_reshove_169_hands_and_sums(self, chart):
+        for d in RESHOVE_DEPTHS:
+            row = chart["reshove"][str(d)]
+            assert len(row) == 169, f"reshove {d}BB has {len(row)} hands"
+            for hand, actions in row.items():
+                assert abs(sum(actions.values()) - 1.0) < 1e-9, f"reshove.{d}.{hand}"
+
+    def test_reshove_premium_jams_trash_folds(self, chart):
+        for d in RESHOVE_DEPTHS:
+            row = chart["reshove"][str(d)]
+            assert row["AA"].get("jam", 0) == 1.0
+            assert row["AKs"].get("jam", 0) == 1.0
+            assert row["72o"].get("jam", 0) == 0.0
+
+    @pytest.mark.parametrize("depth", RESHOVE_DEPTHS)
+    def test_reshove_jam_pct_in_band(self, chart, depth):
+        pct = _combo_pct(chart["reshove"][str(depth)], "jam")
+        target = RESHOVE_TARGET[depth]
+        assert abs(pct - target) <= 3, f"reshove {depth}BB jam% {pct:.1f} vs target {target}"
+
+    def test_reshove_tightens_as_depth_grows(self, chart):
+        pcts = [_combo_pct(chart["reshove"][str(d)], "jam") for d in RESHOVE_DEPTHS]
+        assert pcts == sorted(pcts, reverse=True), f"reshove not monotone: {pcts}"
+
+    def test_reshove_confidence_is_low(self, chart):
+        conf = chart["meta"]["confidence"]["reshove"]
+        assert all(conf[str(d)] == "L" for d in RESHOVE_DEPTHS)
 
 
 class TestPremiumAndTrash:

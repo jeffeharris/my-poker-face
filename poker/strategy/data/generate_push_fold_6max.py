@@ -285,6 +285,25 @@ CALL_VS_SHOVE_RANGES: Dict[str, Dict[int, str]] = {
 }
 
 
+# ── Reshove ranges (jam over a single non-all-in open) ─────────────────────
+#
+# [L] confidence — extrapolated, NOT cross-validated (PUSH_FOLD_6MAX_SCOPE.md).
+# Keyed on HERO's effective stack only (8/10/12/15 BB); opener-position-agnostic
+# for v1 (reshoving vs a tight UTG open should be tighter — a future refinement).
+# No 4/6 BB rows: at <=6 BB facing an open the blind is committed and the
+# decision degenerates; the lookup clamps a sub-8 BB reshove up to the 8 BB row.
+RESHOVE_RANGES: Dict[int, str] = {
+    8: "22+, A4s+, A8o+, K9s+, KJo+, Q9s+, QJo, JTs",
+    10: "33+, A7s+, A9o+, KTs+, KJo+, QTs+, QJo",
+    12: "44+, A9s+, ATo+, KJs+, KQo, QJs",
+    15: "55+, ATs+, AJo+, KQs, AKo",
+}
+
+RESHOVE_TARGET_PCT: Dict[int, float] = {8: 16, 10: 13, 12: 10, 15: 7}
+
+RESHOVE_DEPTH_BUCKETS = [8, 10, 12, 15]
+
+
 # Published target jam frequency (combo-weighted %) per position × depth,
 # taken from the scope doc's "~%" column. These are the cross-validated [H]
 # anchors; the readable hand lists above define the *shape* (which hands and
@@ -315,6 +334,7 @@ CONFIDENCE: Dict[str, Dict[int, str]] = {
     "SB": {4: "H", 6: "H", 8: "H", 10: "H", 12: "H", 15: "H"},
     "bb_vs_sb": {4: "H", 6: "H", 8: "H", 10: "H", 12: "H", 15: "H"},
     "bb_vs_late": {6: "M", 8: "M", 10: "M", 12: "M", 15: "M"},
+    "reshove": {8: "L", 10: "L", 12: "L", 15: "L"},
 }
 
 
@@ -379,6 +399,7 @@ def build_chart() -> Dict:
         },
         "unopened": {},
         "call_vs_shove": {},
+        "reshove": {},
     }
 
     for position, by_depth in UNOPENED_RANGES.items():
@@ -394,6 +415,12 @@ def build_chart() -> Dict:
             hand_set = expand_range(by_depth[depth])
             hand_set = trim_to_target(hand_set, CALL_TARGET_PCT[table][depth])
             chart["call_vs_shove"][table][str(depth)] = _build_action_row(hand_set, "call")
+
+    # Reshove: jam-or-fold over a single non-all-in open, depth-keyed only.
+    for depth in RESHOVE_DEPTH_BUCKETS:
+        hand_set = expand_range(RESHOVE_RANGES[depth])
+        hand_set = trim_to_target(hand_set, RESHOVE_TARGET_PCT[depth])
+        chart["reshove"][str(depth)] = _build_action_row(hand_set, "jam")
 
     return chart
 
@@ -426,6 +453,13 @@ def main() -> int:
             hs = trim_to_target(expand_range(by_depth[depth]), CALL_TARGET_PCT[table][depth])
             cells.append(f"{depth}BB={combo_pct(hs):.1f}/{CALL_TARGET_PCT[table][depth]:.0f}")
         print(f"  {table:<12} " + "  ".join(cells))
+    print()
+    print("Combo-weighted reshove% by depth (trimmed → vs target) [L]:")
+    cells = []
+    for depth in RESHOVE_DEPTH_BUCKETS:
+        hs = trim_to_target(expand_range(RESHOVE_RANGES[depth]), RESHOVE_TARGET_PCT[depth])
+        cells.append(f"{depth}BB={combo_pct(hs):.1f}/{RESHOVE_TARGET_PCT[depth]:.0f}")
+    print("  reshove      " + "  ".join(cells))
     return 0
 
 

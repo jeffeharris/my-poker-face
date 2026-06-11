@@ -93,11 +93,19 @@ def _6max_state(
     jammer_pos=None,
     raises=0,
     num_players=6,
+    opener_pos=None,
+    opener_bet_bb=2.2,
+    extra_caller_pos=None,
 ):
     """num_players-handed state. Hero at hero_idx with 6-max label hero_pos.
 
     If jammer_pos is set, the player at that position is all-in (a jam to
     face) and raises defaults to 1.
+
+    If opener_pos is set, that player makes a LIVE (non-all-in) open to
+    opener_bet_bb BB (stack reduced but > 0) and raises defaults to 1 — the
+    reshove spot. extra_caller_pos optionally adds a cold-caller who flats the
+    open (a multiway reshove the v1 table doesn't model).
     """
     bb = big_blind
     names = [f'P{i}' for i in range(num_players)]
@@ -138,6 +146,17 @@ def _6max_state(
         players[j].stack = 0
         players[j].bet = hero_stack_bb * bb
         effective_raises = max(raises, 1)
+
+    if opener_pos is not None:
+        o = labels.index(opener_pos)
+        open_to = int(round(opener_bet_bb * bb))
+        players[o].bet = open_to
+        players[o].stack = hero_stack_bb * bb - open_to  # live raise, stack > 0
+        effective_raises = max(effective_raises, 1)
+        if extra_caller_pos is not None:
+            c = labels.index(extra_caller_pos)
+            players[c].bet = open_to  # flats the open (no extra raise)
+            players[c].stack = hero_stack_bb * bb - open_to
 
     return SimpleNamespace(
         players=players,
@@ -230,10 +249,12 @@ class TestMultiwayRouting:
         assert action is None
 
     def test_6max_unopened_raise_present_returns_none(self):
-        # A non-all-in raise sits in front of hero (reshove spot, v2) → None.
+        # A non-all-in raise sits in front of hero (the reshove spot). With the
+        # PUSH_FOLD_6MAX_RESHOVE_ENABLED flag OFF (default), it falls through.
         gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, raises=1)
         c = _controller()
-        action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
+        with patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=False):
+            action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
         assert action is None
 
     def test_6max_limped_pot_returns_none(self):
@@ -278,6 +299,58 @@ class TestMultiwayRouting:
         c = _controller()
         action = c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6)
         assert action is None
+
+
+class TestReshoveRouting:
+    """Reshove (jam over a single non-all-in open), flag-gated."""
+
+    def _route(self, gs, hand='AA', hero_idx=0, num_seated=6, flag=True):
+        c = _controller()
+        with patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=flag):
+            return c._try_push_fold_lookup(hand, gs, player_idx=hero_idx, num_seated=num_seated)
+
+    def test_reshove_premium_jams_with_flag_on(self):
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, opener_pos='CO')
+        assert self._route(gs, 'AA') == 'jam'
+
+    def test_reshove_trash_folds_with_flag_on(self):
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, opener_pos='CO')
+        assert self._route(gs, '72o') == 'fold'
+
+    def test_reshove_none_with_flag_off(self):
+        # Flag off → the open falls through to the deep-stack / short_stack path.
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, opener_pos='CO')
+        assert self._route(gs, 'AA', flag=False) is None
+
+    def test_reshove_bb_over_open_jams(self):
+        # BB reshoving over an open is in scope (unlike the unopened chart).
+        gs = _6max_state(hero_pos='BB', hero_idx=0, hero_stack_bb=10, opener_pos='BTN')
+        assert self._route(gs, 'AA') == 'jam'
+
+    def test_reshove_3bet_war_returns_none(self):
+        # raises_this_round == 2 (a 3-bet already happened) → not a clean single
+        # open → fall through even with the flag on.
+        gs = _6max_state(hero_pos='BB', hero_idx=0, hero_stack_bb=12, opener_pos='CO', raises=2)
+        assert self._route(gs, 'AA') is None
+
+    def test_reshove_cold_caller_multiway_returns_none(self):
+        # A cold-caller flatted the open → multiway reshove the v1 table doesn't
+        # model → fall through.
+        gs = _6max_state(
+            hero_pos='BB', hero_idx=0, hero_stack_bb=10, opener_pos='CO', extra_caller_pos='BTN'
+        )
+        assert self._route(gs, 'AA') is None
+
+    def test_reshove_action_6max_pure_detector(self):
+        # The shared detector is controller-agnostic and flag-free.
+        from poker.strategy.push_fold import reshove_action_6max
+
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, opener_pos='CO')
+        assert reshove_action_6max('AA', gs, 0, 6, big_blind=100, effective_stack_bb=10) == 'jam'
+        assert reshove_action_6max('72o', gs, 0, 6, big_blind=100, effective_stack_bb=10) == 'fold'
+        # An all-in in front is a caller-table spot, not a reshove → None.
+        jam_gs = _6max_state(hero_pos='BB', hero_idx=0, hero_stack_bb=8, jammer_pos='SB')
+        assert reshove_action_6max('AA', jam_gs, 0, 6, big_blind=100, effective_stack_bb=8) is None
 
 
 # ── Snapshot flag wiring sanity (HU path still sets push_fold_routed) ───────

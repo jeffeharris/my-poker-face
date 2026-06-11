@@ -47,12 +47,18 @@ keep the fail-closed posture.
    `push_fold_routed` snapshot persists. Full short-stack A/B vs a human-like
    opponent (the bb/100 question) is still TODO; the **routing-coverage** read
    below is done and is the more actionable finding.
-2. **v2 ranges** (see **v1 scope boundaries**): real multi-jammer call ranges,
-   the reshove table (jam over a min-raise — researched at `[L]` confidence
-   below), and cold-caller modeling. Each is currently a documented fall-through.
-   **Reshove is no longer "optional v2" — validation says it's the dominant
-   short-stack spot (see below). Promote it to the next build.**
-3. **Ante variant** — ranges are no-ante; the live SNG's ante status is unconfirmed.
+2. **Reshove table — BUILT (2026-06-11), flag-gated.** Jam-or-fold over a single
+   non-all-in open, `reshove` section of `push_fold_6max.json` (depth-keyed
+   8/10/12/15, `[L]`), behind `PUSH_FOLD_6MAX_RESHOVE_ENABLED` (off). Detection is
+   the controller-agnostic `push_fold.reshove_action_6max` (fail-closed on
+   3-bet wars / cold-callers / multiway / all-ins). With the flag on, 10 BB
+   routing coverage jumps **~17% → 98%** of short-stack preflop decisions (the
+   reshove spot was the 66% fall-through). Still TODO: a short-stack bb/100 A/B to
+   confirm the `[L]` ranges before flipping the flag; opener-position-agnostic v1
+   (tighten vs early opens later); other bot types could opt the detector in.
+3. **v2 ranges still open**: real multi-jammer call ranges and cold-caller
+   modeling (both still documented fall-throughs).
+4. **Ante variant** — ranges are no-ante; the live SNG's ante status is unconfirmed.
 
 ### Validation results (2026-06-11)
 

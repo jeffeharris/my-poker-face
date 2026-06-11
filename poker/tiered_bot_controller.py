@@ -59,6 +59,7 @@ from .strategy.push_fold import (
     PUSH_FOLD_THRESHOLD_BB,
     lookup_push_fold_action,
     lookup_push_fold_action_6max,
+    reshove_action_6max,
 )
 from .strategy.short_stack import apply_short_stack_heuristics
 from .strategy.sizing_tendencies import (
@@ -311,6 +312,17 @@ def _tilt_erratic_enabled() -> bool:
         from core.feature_flags import is_enabled
 
         return is_enabled('TILT_ERRATIC_READS_ENABLED')
+    except Exception:
+        return False
+
+
+def _reshove_6max_enabled() -> bool:
+    """Live read of PUSH_FOLD_6MAX_RESHOVE_ENABLED; False if the registry is
+    unavailable so the off-path falls through (byte-identical to no reshove)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('PUSH_FOLD_6MAX_RESHOVE_ENABLED')
     except Exception:
         return False
 
@@ -4296,7 +4308,7 @@ class TieredBotController(AIPlayerController):
     ) -> Optional[str]:
         """Multi-way short-stack push/fold via the 6max chart.
 
-        Two in-scope spots:
+        Three in-scope spots:
           1. Unopened, truly first-in (folded to hero, no raise AND no limper):
              hero (UTG/HJ/CO/BTN/SB) jams or folds from the `unopened` chart.
              BB unopened (a walk) isn't in the chart -> None.
@@ -4304,12 +4316,16 @@ class TieredBotController(AIPlayerController):
              call or fold from the caller tables -- bb_vs_sb when the jammer is
              the SB, else bb_vs_late. The caller tables are BB-vs-jam only, so a
              non-BB hero facing a jam falls through.
+          3. Reshove: hero facing a SINGLE non-all-in open jams or folds from the
+             `reshove` table. Gated behind PUSH_FOLD_6MAX_RESHOVE_ENABLED (the
+             ranges are [L]); detection lives in the shared, controller-agnostic
+             `reshove_action_6max`, which fail-closes on 3-bet+ wars, cold-caller
+             multiway, and limped pots.
 
         Returns None for any other multi-way short-stack spot (limped / iso
-        pots, a raise that isn't all-in, a short all-in under a larger live
-        raise, or 2+ opponents already all-in — none of which the single-jammer
-        caller tables model) so the deep-stack / short_stack.py path keeps
-        handling them.
+        pots, a 3-bet+ war, a short all-in under a larger live raise, 2+
+        opponents already all-in, or reshove with the flag off) so the
+        deep-stack / short_stack.py path keeps handling them.
         """
         position = get_6max_position(game_state, player_idx)
 
@@ -4363,6 +4379,14 @@ class TieredBotController(AIPlayerController):
         #     poker_game.player_call), so over-limp / iso spots would otherwise
         #     wrongly get first-in jam ranges.
         if getattr(game_state, 'raises_this_round', 0) != 0:
+            # Facing a live (non-all-in) raise — not first-in. Reshove (jam over
+            # a single open) is the in-scope spot here, gated behind
+            # PUSH_FOLD_6MAX_RESHOVE_ENABLED; reshove_action_6max fail-closes on
+            # 3-bet wars / cold-callers / multiway (returns None → fall through).
+            if _reshove_6max_enabled():
+                return reshove_action_6max(
+                    canonical_hand, game_state, player_idx, num_seated, big_blind, eff_bb
+                )
             return None
         for i, p in active_opps:
             # The BB is the only opponent legitimately in for the big blind when

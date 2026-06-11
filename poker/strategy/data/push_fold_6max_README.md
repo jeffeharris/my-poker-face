@@ -2,7 +2,7 @@
 purpose: Spec for the multi-way (6-max) short-stack push/fold chart (push_fold_6max.json) used by the tiered bot below ~15 BB
 type: spec
 created: 2026-05-24
-last_updated: 2026-05-24
+last_updated: 2026-06-11
 ---
 
 # Multi-way (6-max) Push/Fold Chart (≤15 BB short-stack)
@@ -84,11 +84,31 @@ re-interpolating.
 | `unopened` | position → depth → hands | (acts first, folded to) | jam or fold |
 | `call_vs_shove.bb_vs_sb` | depth → hands | SB jam (HU-style) | call or fold |
 | `call_vs_shove.bb_vs_late` | depth → hands | a BTN/CO jam | call or fold |
+| `reshove` | depth → hands | a single non-all-in open | jam or fold |
 
 `unopened` covers UTG, HJ, CO, BTN, SB (not BB). The two call tables cover
-the blind defending against a jam. A *reshove* table (jam over a
-min-raise/limp) is **deferred to v2** per the scope doc — it is `[L]`
-extrapolated and gated behind a flag when built.
+the blind defending against a jam.
+
+`reshove` (added after the v1 validation showed facing-a-single-open is the
+*dominant* short-stack spot, ~66% of preflop decisions — see
+`docs/plans/PUSH_FOLD_6MAX_SCOPE.md`) is jam-or-fold over a single non-all-in
+open. It is **`[L]` extrapolated** and **gated behind the
+`PUSH_FOLD_6MAX_RESHOVE_ENABLED` feature flag** (off by default → the spot falls
+through to the deep-stack / `short_stack.py` path, byte-identical). Notable v1
+simplifications:
+- **Depth-keyed only** (8/10/12/15 BB; sub-8 clamps to 8). No 4/6 BB rows — at
+  ≤6 BB facing an open the blind is committed and the decision degenerates.
+- **Opener-position-agnostic.** Reshoving vs a tight UTG open should be tighter
+  than vs a BTN open; v1 uses one table regardless (a future refinement).
+- **Any hero position, including BB** (a BB reshove over an open is standard —
+  unlike `unopened`, which excludes BB).
+- **Single opener only.** A 3-bet+ war, a cold-caller (multiway), or an all-in
+  in front falls through (the detector `reshove_action_6max` fail-closes).
+
+The reshove **detector is controller-agnostic** (`push_fold.reshove_action_6max`,
+a pure read of game state). The sharp bot wires it behind the flag; other bot
+types can opt in independently — the 6-max *charts* are sharp-only, but
+reshoving a short stack over an open is a generally useful skill.
 
 ## Action vocabulary
 
@@ -140,6 +160,19 @@ not as wide as an SB shoving into one player). `bb_vs_late` has no 4 BB row
 in the source (at 4 BB the blind is committed against any late jam); the
 lookup clamps a 4 BB late-jam call to the 6 BB row.
 
+### Reshove jam % by depth (flag-gated, `[L]`)
+
+| Depth | jam % |
+|---|---|
+| 8 BB | 16% |
+| 10 BB | 13% |
+| 12 BB | 10% |
+| 15 BB | 7% |
+
+Tightens monotonically as depth grows (more behind to lose, less need to
+reshove light). Tighter than the SB unopened jam at matching depth — facing
+a live open there is no dead money to win uncontested.
+
 ## Confidence tags
 
 Each table carries a `conf` tag in the JSON `meta.confidence` block, taken
@@ -147,7 +180,8 @@ from the scope doc:
 
 - **[H]** cross-validated across multiple published sources.
 - **[M]** single-source / interpolated.
-- **[L]** extrapolated (4 BB early-position cells, vs-tight-opener calls).
+- **[L]** extrapolated (4 BB early-position cells, vs-tight-opener calls, the
+  entire `reshove` table).
 
 The lookup logs at DEBUG when it returns an action from an `[L]`-tagged cell
 so low-confidence routing is auditable. Per-cell tags are not stored on each
@@ -196,7 +230,10 @@ border flips in the section below.
 
 ## What's NOT in this chart
 
-- **Reshove** (jam over a min-raise / limp). Deferred to v2; `[L]`.
+- **Reshove vs a tight (UTG/HJ) opener.** The `reshove` table is
+  opener-position-agnostic; reshoving should tighten vs an early opener.
+- **Multiway / 3-bet-pot reshoves.** The `reshove` detector fires only on a
+  clean single-opener spot; everything else falls through.
 - **ICM-adjusted ranges.** WTA SNG = chip EV throughout.
 - **Mixed frequencies.** Binary 100/0 per hand for v1.
 - **Stack-depth interpolation.** Nearest-bucket snap only.
