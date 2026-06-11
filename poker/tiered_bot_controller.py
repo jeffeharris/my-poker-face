@@ -23,7 +23,6 @@ from .controllers import AIPlayerController, _get_canonical_hand
 from .hand_tiers import is_hand_in_range
 from .stack_utils import big_blind_of, effective_stack_bb
 from .strategy.action_mapper import resolve_postflop_sizing, resolve_preflop_sizing
-from .strategy.action_vocab import abstract_call_token
 from .strategy.deviation_profiles import DeviationProfile, select_deviation_profile
 from .strategy.exploitation import (
     DEFAULT_MAX_TOTAL_SHIFT,
@@ -1021,13 +1020,10 @@ class TieredBotController(AIPlayerController):
             num_seated,
         )
         if push_fold_action is not None:
-            # The caller tables return the abstract 'call'. When calling the jam
-            # is itself a call-off (engine drops 'call', offers only 'all_in'),
-            # the abstract token is 'jam' — not raw 'call', which would later
-            # fall back to fold (folding a hand the chart said to call). Mirrors
-            # _facing_all_in_preflop_veto's call/jam split. No-op for jam/fold.
-            if push_fold_action == 'call':
-                push_fold_action = abstract_call_token(valid_actions)
+            # push_fold_action is an abstract token ('jam'/'fold'/'call'). A
+            # caller-table 'call' that is a call-off (engine offers only
+            # 'all_in') is resolved to all_in centrally in resolve_preflop_sizing
+            # (it's passed valid_actions) — no per-producer pre-translation here.
             base_strategy = StrategyProfile(action_probabilities={push_fold_action: 1.0})
             if self.debug_logging:
                 logger.info(
@@ -1073,7 +1069,7 @@ class TieredBotController(AIPlayerController):
             self._last_pipeline_snapshot['sampled_abstract_action'] = veto_action
 
             game_action, raise_to = resolve_preflop_sizing(
-                veto_action, game_state, player_idx, rng=self.rng
+                veto_action, game_state, player_idx, rng=self.rng, valid_actions=valid_actions
             )
             if game_action not in valid_actions:
                 game_action, raise_to = self._validate_action(game_action, raise_to, valid_actions)
@@ -1271,6 +1267,7 @@ class TieredBotController(AIPlayerController):
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
             size_multiplier=size_multiplier,
+            valid_actions=valid_actions,
         )
 
         if game_action not in valid_actions:
@@ -1760,6 +1757,7 @@ class TieredBotController(AIPlayerController):
             player_idx,
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
+            valid_actions=valid_actions,
         )
 
         # 9. Validate action is legal
@@ -3969,15 +3967,17 @@ class TieredBotController(AIPlayerController):
         back toward a jam.
 
         Returns `(profile, abstract_action, equity, required_equity)` when it
-        fires — a pure `{action: 1.0}` profile where `action` is `'call'`,
-        `'jam'`, or `'fold'`. Returns None when not facing an all-in, when the
+        fires — a pure `{action: 1.0}` profile where `action` is `'call'` or
+        `'fold'`. Returns None when not facing an all-in, when the
         pot-odds/equity can't be computed, or when neither call nor fold is
         legal (caller keeps the normal chart path).
 
-        Never emits a *voluntary* re-jam: 'jam' is returned only when calling
-        the shove already commits hero's whole stack (call is illegal, so
-        jam == call mechanically). When hero covers the shove, the continue
-        action stays a flat 'call' — exactly the over-commit the stub got wrong.
+        Never emits a *voluntary* re-jam. The continue action is always the
+        abstract `'call'`; `resolve_preflop_sizing` (passed valid_actions) turns
+        it into all_in only when calling the shove is itself a call-off (call
+        illegal, only all_in legal) — i.e. jam == call mechanically. When hero
+        covers the shove it stays a flat 'call' — the over-commit the stub got
+        wrong.
         """
         ctx = self._build_decision_context(game_state, player_idx)
         if not (ctx.is_preflop and ctx.facing_all_in):
@@ -3996,15 +3996,12 @@ class TieredBotController(AIPlayerController):
             return None
 
         if equity >= required:
-            # Continue. Flat-call when hero covers; if calling the shove is
-            # itself all-in (engine drops 'call', offers only 'all_in'), the
-            # continue IS a jam mechanically — no extra chips at risk.
-            if 'call' in valid_actions:
-                action = 'call'
-            elif 'all_in' in valid_actions:
-                action = 'jam'
-            else:
+            # Continue. Emit the abstract 'call'; resolve_preflop_sizing turns
+            # it into all_in iff calling is a call-off (call illegal, only
+            # all_in legal). Bail only if neither continue action is legal.
+            if 'call' not in valid_actions and 'all_in' not in valid_actions:
                 return None
+            action = 'call'
         else:
             if 'fold' not in valid_actions:
                 return None
