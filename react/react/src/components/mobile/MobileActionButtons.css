@@ -2,7 +2,10 @@
   display: flex;
   gap: 2dvw;
   padding: 1dvh 1.5dvw;
-  padding-bottom: max(1dvh, env(safe-area-inset-bottom));
+  /* Use the captured, keyboard-stable inset (set in utils/safeArea.ts) so the
+     bar never anchors flush to the screen edge / clips under the home indicator
+     after the keyboard dismisses. env() is the web fallback. */
+  padding-bottom: max(1dvh, var(--app-safe-bottom, env(safe-area-inset-bottom)));
   background: linear-gradient(to top, rgba(10, 11, 16, 0.98) 0%, rgba(15, 17, 24, 0.95) 100%);
   backdrop-filter: blur(12px);
   border-top: 1px solid rgba(212, 165, 116, 0.15);
@@ -15,6 +18,9 @@
 }
 
 .action-btn {
+  /* Per-button ambient glow — set on each color variant below; the shared
+     material treatment (bevel + elevation) layers it in via box-shadow. */
+  --btn-glow: 0 0 18px rgba(255, 255, 255, 0.1);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -25,17 +31,27 @@
   border: none;
   border-radius: var(--radius-lg);
   font-family: var(--font-display);
+  color: var(--color-text-primary);
   cursor: pointer;
   transition:
-    transform 0.15s var(--ease-out-expo),
-    box-shadow 0.25s var(--ease-in-out-smooth);
+    transform 0.14s var(--ease-out-expo),
+    box-shadow 0.25s var(--ease-in-out-smooth),
+    filter 0.15s var(--ease-in-out-smooth);
   min-height: 4dvh;
-  backdrop-filter: blur(8px);
   position: relative;
   overflow: hidden;
+  isolation: isolate;
+  /* Domed material: lit top edge + shaded base (the dome) + drop shadow lifting
+     it off the bar + the per-button ambient glow. This depth is what reads as
+     premium vs. a flat colored fill. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.3),
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    var(--btn-glow);
 }
 
-/* Subtle inner highlight on all action buttons */
+/* Crisp lit top edge. */
 .action-btn::before {
   content: '';
   position: absolute;
@@ -43,14 +59,44 @@
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
   pointer-events: none;
+  z-index: 2;
 }
 
+/* Glossy top-down sheen + a faint floor shade — the main lift out of "flat". */
+.action-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.06) 40%,
+    rgba(255, 255, 255, 0) 58%,
+    rgba(0, 0, 0, 0.12) 100%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Tactile press — the button physically depresses into the bar. */
 .action-btn:active {
-  transform: scale(0.95);
+  transform: translateY(1px) scale(0.98);
+  filter: brightness(0.95) saturate(1.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 3px 8px rgba(0, 0, 0, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    var(--btn-glow);
 }
 
+.action-btn:disabled {
+  opacity: 0.45;
+  filter: saturate(0.6);
+}
+
+/* Keep icon + label above the gloss/floor sheen. */
 .action-btn .action-icon {
   display: flex;
   align-items: center;
@@ -58,6 +104,9 @@
   height: 28px;
   font-size: 28px;
   line-height: 1;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
 }
 
 .action-btn .action-icon svg {
@@ -70,74 +119,80 @@
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: var(--letter-spacing-wide);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  position: relative;
+  z-index: 1;
 }
 
 .fold-btn {
   background: var(--gradient-ruby);
-  color: var(--color-text-primary);
-  box-shadow: var(--glow-ruby), var(--shadow-md);
+  --btn-glow: var(--glow-ruby);
 }
 
 .check-btn {
   background: var(--gradient-emerald);
-  color: var(--color-text-primary);
-  box-shadow: var(--glow-emerald), var(--shadow-md);
+  --btn-glow: var(--glow-emerald);
 }
 
 .call-btn {
   background: var(--gradient-sapphire);
-  color: var(--color-text-primary);
-  box-shadow: var(--glow-sapphire), var(--shadow-md);
+  --btn-glow: var(--glow-sapphire);
 }
 
 .raise-btn {
   background: var(--gradient-gold);
-  color: var(--color-text-primary);
-  box-shadow: var(--glow-gold), var(--shadow-md);
+  --btn-glow: var(--glow-gold-strong);
 }
 
 .allin-btn {
   background: var(--gradient-amethyst);
-  color: var(--color-text-primary);
-  box-shadow: var(--glow-amethyst), var(--shadow-md);
+  --btn-glow: var(--glow-amethyst);
   animation: allInPulse 2s ease-in-out infinite;
 }
 
+/* Animate only the ambient-glow layer so the dome bevel stays put. */
 @keyframes allInPulse {
   0%,
   100% {
     box-shadow:
-      0 0 20px rgba(168, 85, 247, 0.3),
-      0 0 40px rgba(168, 85, 247, 0.15),
-      var(--shadow-md);
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      inset 0 -2px 6px rgba(0, 0, 0, 0.3),
+      0 2px 6px rgba(0, 0, 0, 0.45),
+      0 0 20px rgba(168, 85, 247, 0.35),
+      0 0 40px rgba(168, 85, 247, 0.16);
   }
   50% {
     box-shadow:
-      0 0 30px rgba(168, 85, 247, 0.5),
-      0 0 60px rgba(168, 85, 247, 0.25),
-      var(--shadow-lg);
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      inset 0 -2px 6px rgba(0, 0, 0, 0.3),
+      0 2px 8px rgba(0, 0, 0, 0.5),
+      0 0 30px rgba(168, 85, 247, 0.55),
+      0 0 60px rgba(168, 85, 247, 0.28);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .allin-btn {
+    animation: none;
   }
 }
 
 .chat-btn {
   background: var(--gradient-indigo);
-  color: var(--color-text-primary);
-  box-shadow: var(--glow-indigo), var(--shadow-md);
+  --btn-glow: var(--glow-indigo);
   flex: 0 0 auto;
   width: 60px;
 }
 
 .preemptive-btn {
   background: var(--gradient-teal);
-  color: var(--color-text-primary);
-  box-shadow: var(--glow-teal), var(--shadow-md);
+  --btn-glow: var(--glow-teal);
   flex: 2;
 }
 
 .preemptive-btn.queued {
   background: var(--gradient-emerald);
-  box-shadow: var(--glow-emerald), var(--shadow-md);
+  --btn-glow: var(--glow-emerald);
 }
 
 /* Waiting mode adjustments */
