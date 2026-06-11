@@ -68,13 +68,16 @@ def test_make_fish_name_alliterates_when_it_can():
 
 
 def test_intake_persona_is_deterministic_from_backstory():
-    # No LLM: a rule-based fish-name + the chosen pre-authored backstory as bio.
+    # The fish-name + chosen-backstory resolution is deterministic (rule-based).
+    # The bio is normally an LLM snark-line, but the suite-wide
+    # CASH_INTAKE_BIO_DISABLED (conftest) short-circuits that, so here bio falls
+    # back to the verbatim backstory text — the deterministic part to assert on.
     quiet = cp.get_backstory("quiet")
     persona = cp.intake_persona("Jeff", "quiet", rng=random.Random(1))
     assert persona["fish_name"].endswith("Jeff")  # rule-based, keeps the name
-    assert persona["bio"] == quiet["text"]  # bio IS the chosen backstory
     assert persona["backstory_id"] == "quiet"
     assert persona["backstory_text"] == quiet["text"]
+    assert persona["bio"] == quiet["text"]  # LLM disabled in tests → backstory fallback
 
 
 def test_intake_persona_unknown_backstory_falls_back():
@@ -82,7 +85,21 @@ def test_intake_persona_unknown_backstory_falls_back():
     default = cp.INTAKE_BACKSTORIES[0]
     persona = cp.intake_persona("Sam", "no_such_id", rng=random.Random(2))
     assert persona["backstory_id"] == default["id"]
-    assert persona["bio"] == default["text"]
+    assert persona["backstory_text"] == default["text"]
+    assert persona["bio"] == default["text"]  # LLM disabled → backstory fallback
+
+
+def test_intake_persona_uses_llm_bio_when_generated(monkeypatch):
+    # When the snarky-bio generator returns a line, it becomes the bio; the
+    # chosen backstory text is still preserved separately (reveal + callback).
+    quiet = cp.get_backstory("quiet")
+    monkeypatch.setattr(
+        cp, "_generate_snarky_bio", lambda *a, **k: "Quiet? Sure. Right up until the river."
+    )
+    persona = cp.intake_persona("Jeff", "quiet", rng=random.Random(1))
+    assert persona["bio"] == "Quiet? Sure. Right up until the river."
+    assert persona["backstory_text"] == quiet["text"]
+    assert persona["backstory_id"] == "quiet"
 
 
 def test_progress_roundtrip(repos):

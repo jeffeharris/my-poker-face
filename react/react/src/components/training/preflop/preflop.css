@@ -1,0 +1,330 @@
+/* Opening swipe drill — RFI raise/fold, graded vs the solver chart.
+   A persistent card stack you fling left (fold) or right (open), with Tinder-
+   style OPEN / FOLD stamps. Styled with the shared design tokens. */
+
+.swd-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-8) auto;
+  max-width: 24rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  line-height: var(--line-height-normal);
+}
+.swd-error {
+  color: var(--color-rose);
+}
+
+.swd-subtitle {
+  margin: 0 0 var(--space-3);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  letter-spacing: var(--letter-spacing-wide);
+  color: var(--color-text-tertiary);
+}
+
+.swd-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* Position setting — subtle, sits above the card so the drill starts instantly. */
+.swd-settings {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 auto var(--space-4);
+}
+.swd-settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-hover);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+.swd-settings-toggle:hover {
+  border-color: var(--color-emerald-muted);
+  color: var(--color-emerald);
+}
+.swd-pos-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+/* A labelled filter dimension (e.g. Opponent / Position) — stack several inside
+   the settings popover when a drill filters on more than one axis. */
+.swd-filter-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+.swd-filter-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.swd-pos-chip {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-hover);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-wide);
+  cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+.swd-pos-chip:hover {
+  border-color: var(--color-emerald-muted);
+}
+.swd-pos-chip--shuffle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.swd-pos-chip--active {
+  background: var(--color-emerald);
+  border-color: var(--color-emerald);
+  color: var(--color-bg-void);
+}
+
+/* ── Opening-drill card face (oc-*) — the content SwipeDeck drops into a card.
+   The deck shell (stage/stack/card/stamps) lives in swipe/SwipeDeck.css.
+   Anatomy: situation (top) → cards (middle); stats + options sit below the card. */
+
+.oc-situation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+.oc-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+}
+.oc-context {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.oc-pos {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-widest);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* Mini table — six seats around an oval with the position code large in the
+   middle. You sit at the bottom (emerald); the dealer (red) moves around you. */
+.oc-table {
+  position: relative;
+  width: 118px;
+  height: 76px;
+}
+.oc-table::before {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-hover);
+  background: radial-gradient(120% 120% at 50% 50%, var(--color-emerald-muted), transparent 72%);
+}
+.oc-table__code {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--letter-spacing-wider);
+  color: var(--color-emerald);
+}
+.oc-seat {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  transform: translate(-50%, -50%);
+  background: var(--color-text-disabled);
+  box-sizing: border-box;
+}
+.oc-seat--dealer {
+  background: var(--color-ruby);
+  box-shadow: var(--glow-ruby);
+}
+.oc-seat--hero {
+  width: 11px;
+  height: 11px;
+  background: var(--color-emerald);
+  box-shadow: 0 0 0 2px var(--color-emerald-muted);
+}
+/* Hero is on the button — show both: emerald fill, red ring. */
+.oc-seat--dealer.oc-seat--hero {
+  background: var(--color-emerald);
+  box-shadow: 0 0 0 2px var(--color-ruby);
+}
+
+/* Hole cards — the pair spans ~85% of the card width. */
+.oc-holes {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.5));
+}
+.oc-holes .playing-card.image-card {
+  width: 46%;
+  height: auto;
+  aspect-ratio: 110 / 160;
+}
+.oc-holes .playing-card.image-card .card-image {
+  width: 100%;
+  height: 100%;
+}
+
+.oc-hand {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--letter-spacing-wider);
+  color: var(--color-text-primary);
+}
+
+.oc-chip {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-surface-hover);
+  border: 1px solid var(--color-border-default);
+}
+.oc-chip--tag {
+  color: var(--color-amber);
+  background: var(--color-amber-muted);
+  border-color: var(--color-amber-muted);
+}
+
+.swd-feedback {
+  width: 100%;
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  font: inherit;
+  cursor: pointer;
+  animation: swd-pop 0.18s var(--ease-out-expo);
+}
+@keyframes swd-pop {
+  from {
+    transform: scale(0.94);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.swd-feedback--good {
+  border-color: var(--color-emerald-muted);
+  background: var(--color-emerald-muted);
+}
+.swd-feedback--thin {
+  border-color: var(--color-amber-muted);
+  background: var(--color-amber-muted);
+}
+.swd-feedback--leak {
+  border-color: var(--color-ruby-muted);
+  background: var(--color-ruby-muted);
+}
+.swd-verdict {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-extrabold);
+  color: var(--color-text-primary);
+}
+.swd-freqs {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.swd-next {
+  margin-top: var(--space-1);
+  padding: var(--space-3) var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-emerald);
+  color: var(--color-bg-void);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+.swd-next:hover {
+  filter: brightness(1.08);
+}
+
+/* Stats — small line between the card and the options. */
+.swd-stats {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* vs-open control area — holds the game action bar (variable height) or verdict. */
+.pf-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 4.4rem;
+}
+.pf-control .action-panel,
+.pf-control .action-buttons {
+  width: 100%;
+}
+/* Drills always lay the bar out horizontally — the in-game ActionButtons stacks
+   to a column under 600px (thumb reach on the real table), which we don't want
+   for a one-tap drill control. Scoped to .pf-control so the game is untouched. */
+.pf-control .action-buttons {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.pf-control .action-button {
+  flex: 1 1 0;
+}
+
+/* Read-drill archetype headline — the "who" we're predicting (above position). */
+.oc-archetype {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--letter-spacing-wide);
+  color: var(--color-gold);
+}

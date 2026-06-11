@@ -65,11 +65,14 @@ export function SalFloater({ queue, onShown }: SalFloaterProps) {
   if (!current) return null;
 
   // The floater is character-agnostic: a queue item carries its speaker's name
-  // (`sender`) and portrait (`avatar_url`). Sal's Scene-0 lines omit both and
-  // fall back to his static portrait; an emergent voucher popping into the lobby
-  // supplies their own. A broken portrait hides the img (the bubble still lands).
+  // (`sender`) and portrait (`avatar_url`). An emergent voucher popping into the
+  // lobby supplies their own generated avatar; everyone else is Sal, who ALWAYS
+  // uses his hand-made transparent cutout (`/sal.png`) — his in-game chat lines
+  // carry a generated `avatar_url` with a solid background, so we must NOT use it
+  // for him or his floater goes black-boxed. A broken portrait hides the img.
   const speaker = current.sender || 'Sal';
-  const portrait = current.avatar_url || '/sal.png';
+  const isSal = !current.sender || current.sender === 'Sal Monroe';
+  const portrait = isSal ? '/sal.png' : current.avatar_url || '/sal.png';
 
   return (
     <div

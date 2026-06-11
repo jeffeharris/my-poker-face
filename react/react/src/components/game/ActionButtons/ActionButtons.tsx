@@ -23,6 +23,9 @@ interface ActionButtonsProps {
   recommendedAction?: string | null;
   /** Coach-suggested raise amount to pre-fill the raise slider. */
   raiseToAmount?: number | null;
+  /** When true, Raise/Bet commit in one tap at the default size — no sizing
+   *  slider. Used by drills that grade the action, not the amount. */
+  noSizing?: boolean;
 }
 
 export function ActionButtons({
@@ -38,6 +41,7 @@ export function ActionButtons({
   bettingContext: providedContext,
   recommendedAction,
   raiseToAmount,
+  noSizing = false,
 }: ActionButtonsProps) {
   const [showBetInterface, setShowBetInterface] = useState(false);
   const [isEditingAmount, setIsEditingAmount] = useState(false);
@@ -308,14 +312,14 @@ export function ActionButtons({
               onAction('call');
             }}
           >
-            Call ${calc.callAmount}
+            {noSizing ? 'Call' : `Call $${calc.callAmount}`}
           </button>
         )}
 
         {playerOptions.includes('bet') && (
           <button
             className={`action-button bet${recommendedAction === 'raise' ? ' coach-recommended' : ''}`}
-            onClick={handleBetRaise}
+            onClick={noSizing ? () => onAction('bet', calc.getDefaultRaise()) : handleBetRaise}
           >
             Bet
           </button>
@@ -324,7 +328,7 @@ export function ActionButtons({
         {playerOptions.includes('raise') && (
           <button
             className={`action-button raise${recommendedAction === 'raise' ? ' coach-recommended' : ''}`}
-            onClick={handleBetRaise}
+            onClick={noSizing ? () => onAction('raise', calc.getDefaultRaise()) : handleBetRaise}
           >
             Raise
           </button>

@@ -35,10 +35,14 @@ interface LuckyStackIntakeProps {
 // The waitress's lines, written as print-style BEATS (one per line): *asterisk*
 // lines are stage directions that FADE in; the rest is speech that TYPES out.
 const WAITRESS_INTRO = [
-  "Mornin', hon. You here for the biscuits and gravy, or the game in the back?",
+  'Rough night out there, hon. You here for the biscuits and gravy, or the game in the back?',
   '*She doesn’t wait for an answer — already sliding you a rack of chips.*',
-  'House comps the first sit. What do I put in the book?',
+  'House comps the first sit.',
+  'What do I put in the book?',
 ].join('\n');
+
+// Step 2: she's got the name in the book, now she wants to hear about you.
+const WAITRESS_STORY = '*She gets the name down, then leans an elbow on the counter to listen.*';
 
 const WAITRESS_SCRIBBLE = '*She scribbles on her pad and hollers toward the back:*';
 
@@ -47,12 +51,31 @@ const WAITRESS_WELCOME = [
   'Go on, hon. They don’t bite. Much.',
 ].join('\n');
 
+/** Fisher-Yates shuffle (copy) — randomizes the backstory card order so no option
+ *  gets a positional advantage from shipping first in the authored list. */
+function shuffled<T>(items: T[]): T[] {
+  const a = [...items];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export function LuckyStackIntake({ backstories, onDone }: LuckyStackIntakeProps) {
   const { user } = useAuth();
   // Pre-fill with the player's account name so they can just hit the button —
   // the box defaults to a real value, not a greyed-out placeholder. Editable.
   const [name, setName] = useState(() => user?.name ?? '');
+  // Two steps before the reveal: 'name' (give your name) → 'story' (pick a
+  // backstory). Splitting them keeps each screen short so the waitress portrait
+  // can stay big without the content overflowing.
+  const [step, setStep] = useState<'name' | 'story'>('name');
   const [backstoryId, setBackstoryId] = useState<string | null>(null);
+  // Shuffle the cards ONCE on mount and hold it: the order is randomized, but
+  // doesn't churn on the lobby polls that re-deliver the same set (the cold open
+  // plays first, so `backstories` is already populated when this mounts).
+  const [ordered] = useState(() => shuffled(backstories));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<IntakeResult | null>(null);
 
@@ -79,7 +102,7 @@ export function LuckyStackIntake({ backstories, onDone }: LuckyStackIntakeProps)
         {/* Centered above her speech — a clean vertical stack, not hovering aside. */}
         <img className="lucky__waitress-img" src="/waitress.png" alt="The Lucky Stack waitress" />
 
-        {result === null ? (
+        {result === null && step === 'name' ? (
           <>
             <div className="lucky__speech">
               <DramaticReserve key="intro" text={WAITRESS_INTRO} />
@@ -93,14 +116,27 @@ export function LuckyStackIntake({ backstories, onDone }: LuckyStackIntakeProps)
               className="lucky__input"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setStep('story');
+              }}
               placeholder="The name you want to go by"
               maxLength={40}
               autoFocus
             />
 
-            <p className="lucky__prompt">“So — what's your story, hon?”</p>
+            <button className="lucky__btn" onClick={() => setStep('story')}>
+              That’s me
+            </button>
+          </>
+        ) : result === null ? (
+          <>
+            <div className="lucky__speech">
+              <DramaticReserve key="story" text={WAITRESS_STORY} />
+            </div>
+
+            <p className="lucky__prompt">WHAT'S YOUR STORY?</p>
             <div className="lucky__deals">
-              {backstories.map((opt) => (
+              {ordered.map((opt) => (
                 <button
                   key={opt.id}
                   type="button"

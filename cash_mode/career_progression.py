@@ -24,6 +24,7 @@ driven, one-per-AI over the whole roster) is M2 and layers on top of the same
 from __future__ import annotations
 
 import logging
+import os
 import random
 from datetime import datetime
 from typing import List, Optional, Tuple
@@ -35,6 +36,7 @@ from cash_mode.tables import (
     ai_slot_fish,
     open_slot,
 )
+from poker.memory.opponent_model import REGARD_NEUTRAL
 
 logger = logging.getLogger(__name__)
 
@@ -61,21 +63,33 @@ SCENE0_FISH_SEAT = 3
 HOME_COURT_STAKE = "$2"
 
 # --- M2: the emergent vouch model (see CASH_MODE_CAREER_M2_PLAN.md) -----------
-# A vouch is a reputational risk, so it's respect-GATED and likability-DRIVEN:
-#   - respect ≥ RESPECT_FLOOR: they won't put their name on someone they think is
-#     a clown, at any likability ("feared, not invited").
-#   - likability ≥ LIKE_THRESHOLD: among people they respect, they bring the ones
-#     they LIKE. ~0.70 is reachable in a good session without being a gimme.
-# Thresholds are the design's starting values; tune from ticker instrumentation.
-RESPECT_FLOOR = 0.50
-LIKE_THRESHOLD = 0.70
+# A vouch is a reputational risk, so it's respect-GATED and likability-DRIVEN.
+# The gates are expressed as an EARNED amount ABOVE the regard neutral baseline
+# (`REGARD_NEUTRAL` = 0.35, where a no-history edge starts). Anchoring to the
+# baseline — instead of hardcoding absolutes tuned against the old 0.5 neutral —
+# keeps the design intent explicit AND preserves reachability: what a player must
+# do is climb a fixed *amount* of regard via play/social events, regardless of
+# where neutral sits, so a future neutral change won't silently make vouches
+# unreachable. (The +deltas below ARE the same climbs the original 0.5-neutral
+# values asked for: respect was at-neutral, likability +0.20, reveal +0.10.)
+#   - respect ≥ RESPECT_FLOOR (neutral + 0.10): a little EARNED competence — they
+#     won't put their name on someone they think is a clown, at any likability
+#     ("feared, not invited"). Rises naturally from playing well (winning pots off
+#     the AI nudges its respect for you up), so ~a good pot or two clears it.
+#   - likability ≥ LIKE_THRESHOLD (neutral + 0.20): among people they respect,
+#     they bring the ones they LIKE. +0.20 ≈ a handful of warm social beats
+#     (compliments / banter / props) — reachable in a good session, not a gimme.
+# Tune the deltas from the live `[VOUCH] eval` instrumentation.
+RESPECT_FLOOR = REGARD_NEUTRAL + 0.10  # 0.45
+LIKE_THRESHOLD = REGARD_NEUTRAL + 0.20  # 0.55
 
 # Home-table intel reveal (dossier scouting↔vouch loop). The voucher's home
 # room is revealed on the player's dossier once the AI likes them enough —
-# inbound likability ≥ this, set BELOW LIKE_THRESHOLD so learning where an AI
-# plays is a visible milestone on the road to its vouch (get friendly → learn
-# their home game → get friendlier → they vouch you in). Tunable.
-HOME_TABLE_REVEAL_LIKABILITY = 0.60
+# inbound likability ≥ this, set BELOW LIKE_THRESHOLD (a smaller earned climb,
+# neutral + 0.10) so learning where an AI plays is a visible milestone on the
+# road to its vouch (get friendly → learn their home game → get friendlier →
+# they vouch you in). Tunable.
+HOME_TABLE_REVEAL_LIKABILITY = REGARD_NEUTRAL + 0.10  # 0.45
 
 # Vouch trickle (M2): minimum cash hands the player must play between emergent
 # vouches. The ticker fires at most one vouch, then won't fire another until the
@@ -144,38 +158,47 @@ def make_fish_name(name: str, rng: Optional[random.Random] = None) -> str:
     return f"{rng.choice(bank)} {first}"
 
 
-# The three backgrounds the waitress can jot in "the book" — authored ONCE and
-# shown to EVERY newcomer (not generated per-user). The one they pick becomes
-# their background AND their AI-visible bio (Sal & co. rib it), so each line is
-# written as a third-person note in the book that reads well as a bio.
+# What the newcomer SAYS when the waitress asks "what's your story, hon?" —
+# authored ONCE, shown to EVERY newcomer (not generated per-user). The one they
+# pick is jotted in "the book" verbatim: stored as their AI-visible bio (Sal &
+# co. rib it) and remembered as a callback hook.
 #   - `id`    : stable key for later narrative callbacks (don't reuse/rename).
-#   - `title` : the card label in the picker.
-#   - `text`  : the backstory, stored verbatim as the bio.
+#   - `title` : the short card label in the picker.
+#   - `text`  : the FIRST-PERSON line the player says (also becomes the bio).
 # Resolved by id server-side, so the stored bio can never be spoofed by a client.
+#
+# TWO HARD RULES (the whole cold-open conceit depends on them):
+#   1. FIRST PERSON — it's the player's own spoken answer, not a description OF
+#      them. (The reveal + dossier already quote it.)
+#   2. INNOCENT OF POKER — the newcomer thinks this is a diner; they wandered in
+#      out of the rain for coffee/food and have NO idea there's a card room in
+#      back. So NO cards / gambling / "long shot" / "hard to read" / "game for
+#      anything" tells. The COMEDY is that the room mishears an ordinary person
+#      as a gambler (and christens them a fish-name) — the poker lens is entirely
+#      the room's; the player's words stay guileless.
 INTAKE_BACKSTORIES = [
     {
         "id": "drifter",
-        "title": "Just Passing Through",
+        "title": "Just passing through",
         "text": (
-            "Rolled into town with no particular plans and a powerful thirst for "
-            "coffee. Says they're just passing through — but that was three cups "
-            "ago, and they're still here."
+            "Honestly? I’ve been driving all day with no place to be. Saw your "
+            "lights, smelled the coffee, and figured I’d earned a stop."
         ),
     },
     {
         "id": "quiet",
-        "title": "Hard to Read",
+        "title": "Keep to myself",
         "text": (
-            "Doesn't say much; watches everything. Nobody can quite get a read on "
-            "'em — and, between us, neither can they."
+            "Not much of a talker, me. Just wanted somewhere warm to sit a spell "
+            "and watch the rain come down. This’ll do fine."
         ),
     },
     {
-        "id": "game_for_anything",
-        "title": "Game for Anything",
+        "id": "easygoing",
+        "title": "Up for anything",
         "text": (
-            "Never met a long shot they didn't like. Wandered in grinning, ready "
-            "to try just about anything once — twice if it's any fun."
+            "Me? I’ll talk to just about anybody, and I’m always good for a laugh. "
+            "Came in for a bite — but I’m in no hurry to head back out there."
         ),
     },
 ]
@@ -191,25 +214,122 @@ def get_backstory(backstory_id: str) -> dict:
     return _DEFAULT_BACKSTORY
 
 
-def intake_persona(name: str, backstory_id: str, rng: Optional[random.Random] = None) -> dict:
-    """Build the intake persona deterministically: a rule-based alliterative
-    fish-name + the chosen (pre-authored) backstory as the bio.
+# The AI-visible bio is the ROOM's sarcastic read on the newcomer — NOT the
+# guileless line they actually said. The player wandered in for coffee and got
+# slapped with a tourist fish-name; the house narrator's job is to translate
+# that innocence into a snarky one-line dossier the regulars will rib them with.
+# grok-4-fast is cheap + fast and lands the dry-wit register well; we run it
+# non-reasoning (minimal effort) since this is one short comedic line, and fall
+# back to the verbatim backstory if the call fails so intake never breaks.
+_SNARKY_BIO_SYSTEM = (
+    "You're the wry, deadpan house narrator of The Lucky Stack, an underground "
+    "poker room hidden behind a roadside diner. A fresh mark just wandered in out "
+    "of the rain — no idea there's a card game in back — and the room has already "
+    "slapped a tourist nickname on them. Your job: write ONE short, snarky, "
+    "third-person dossier bio (the regulars' read on this rube), riffing on their "
+    "nickname and what they just said. Dry and sarcastic, not mean. Imply they're "
+    "soft and about to get cleaned out — but they don't know it yet. ONE sentence, "
+    "under 140 characters, no quotes, no emoji. Return JSON: {\"bio\": \"...\"}."
+)
 
-    No LLM. The **fish-name is always rule-based** (`make_fish_name`) so it
-    reliably keeps the player's own first name and alliterates. The **bio is the
-    chosen backstory**, resolved by id from `INTAKE_BACKSTORIES` (authored once,
-    not generated per-user) — so intake is instant, free, consistent, and the
-    stored bio can't be spoofed by the client. Returns the resolved backstory id
-    + text alongside the persona so the caller can persist the callback key.
+
+def _generate_snarky_bio(
+    fish_name: str,
+    chosen_text: str,
+    owner_id: Optional[str] = None,
+) -> Optional[str]:
+    """Ask grok-4-fast for a one-line sarcastic dossier bio from the fish-name +
+    the newcomer's (innocent) story. Returns None on any failure so the caller
+    can fall back to the verbatim backstory — intake must never block on the LLM.
+
+    `CASH_INTAKE_BIO_DISABLED=1` short-circuits the call (returns None → backstory
+    fallback). Set suite-wide in pytest conftest, mirroring
+    `CASH_LEAVE_NARRATIVE_DISABLED`, so integration tests of intake/lobby don't
+    fire real LLM calls.
+    """
+    if os.environ.get("CASH_INTAKE_BIO_DISABLED", "").lower() in ("1", "true", "yes"):
+        return None
+    try:
+        from core.llm import CallType, LLMClient
+
+        client = LLMClient(
+            provider="xai",
+            model="grok-4-fast",
+            reasoning_effort="minimal",  # fast non-reasoning variant — one comedic line
+            default_timeout=8.0,
+        )
+        resp = client.complete(
+            messages=[
+                {"role": "system", "content": _SNARKY_BIO_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f'Nickname the room gave them: "{fish_name}".\n'
+                        f'What they said when asked their story: "{chosen_text}"'
+                    ),
+                },
+            ],
+            json_format=True,
+            max_tokens=120,
+            call_type=CallType.CHAT_SUGGESTION,
+            owner_id=owner_id,
+            prompt_template="career_intake_persona",
+        )
+        if resp.is_error:
+            logger.warning("[INTAKE] snarky bio LLM error: %s", resp.error_message)
+            return None
+        import json as _json
+
+        bio = (_json.loads(resp.content).get("bio") or "").strip()
+        return bio[:140] or None
+    except Exception:  # noqa: BLE001 — cosmetic; any failure falls back to backstory
+        logger.warning("[INTAKE] snarky bio generation failed", exc_info=True)
+        return None
+
+
+def intake_persona(
+    name: str,
+    backstory_id: str,
+    fallback_text: Optional[str] = None,
+    rng: Optional[random.Random] = None,
+    owner_id: Optional[str] = None,
+) -> dict:
+    """Build the intake persona: a rule-based alliterative fish-name + an
+    LLM-generated snarky bio riffing on the fish-name and the chosen backstory.
+
+    The **fish-name is always rule-based** (`make_fish_name`) so it reliably keeps
+    the player's own first name and alliterates. The **bio is the ROOM's sarcastic
+    read** on the newcomer — generated by grok-4-fast from the fish-name + the
+    backstory they picked (the house ribs the rube). The verbatim backstory is
+    still returned as `backstory_text` (the player's own words, quoted in the
+    reveal + remembered as a callback hook) and the LLM bio falls back to it if
+    the call fails — so intake is robust, and the stored persona can't be spoofed
+    by the client (the backstory is resolved by id server-side).
+
+    Robustness: if `backstory_id` isn't a known id (e.g. the authored set changed
+    while a client held a stale lobby payload), prefer the client-supplied
+    `fallback_text` — the text of the card they actually clicked — over the
+    arbitrary default, so the reveal always matches what the player picked. Only
+    when neither matches does it fall back to the default backstory.
     """
     name = (name or "").strip() or "Stranger"
     fish_name = make_fish_name(name, rng)  # deterministic, always alliterative
-    backstory = get_backstory(backstory_id)
+    matched = any(b["id"] == backstory_id for b in INTAKE_BACKSTORIES)
+    text = (fallback_text or "").strip()
+    if matched or not text:
+        backstory = get_backstory(backstory_id)
+        chosen_text = backstory["text"]
+        resolved_id = backstory["id"]
+    else:
+        # Unknown id but the client told us what they clicked — honour it.
+        chosen_text = text
+        resolved_id = backstory_id
+    bio = _generate_snarky_bio(fish_name, chosen_text, owner_id) or chosen_text
     return {
         "fish_name": fish_name,
-        "bio": backstory["text"],
-        "backstory_id": backstory["id"],
-        "backstory_text": backstory["text"],
+        "bio": bio,
+        "backstory_id": resolved_id,
+        "backstory_text": chosen_text,
     }
 
 

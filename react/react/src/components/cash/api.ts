@@ -128,6 +128,15 @@ export async function submitIntake(
   return postJson('/intake', { name, reply, reply_id: replyId });
 }
 
+/** DEV ONLY — wipe the caller's career back to the Lucky Stack intake (the route
+ *  404s in prod). Used by the playtest "reset to intake" button. Evicts the
+ *  in-memory cash game server-side, so no backend restart is needed; callers
+ *  should hard-reload into /cash afterward to replay the cold open from a clean
+ *  state. */
+export async function devResetIntake(): Promise<{ bankroll: number; evicted_in_memory: number }> {
+  return postJson('/dev/reset-intake', {});
+}
+
 /** One row of the player's chip transaction history (GET /api/cash/ledger). */
 export interface LedgerEntry {
   created_at: string;

@@ -219,3 +219,6 @@ main-*.png
 
 # macOS
 .DS_Store
+
+# Sim-output corpora (regenerable via tilt_corpus_extract.py; container writes root-owned)
+experiments/data/
