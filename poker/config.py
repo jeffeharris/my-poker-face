@@ -39,7 +39,8 @@ AGGRESSION_CALL_THRESHOLD = 0.3  # Aggression level above which call is consider
 SESSION_MEMORY_HANDS = 10  # Number of hands to remember in session
 MEMORY_CONTEXT_TOKENS = 150  # Max tokens for session context in prompts
 OPPONENT_SUMMARY_TOKENS = 200  # Max tokens for opponent summaries in prompts
-COMMENTARY_ENABLED = True  # Enable end-of-hand AI commentary
+# End-of-hand AI commentary is gated by the ENABLE_AI_COMMENTARY feature flag
+# (core.feature_flags) — consolidated 2026-06-10 from a hardcoded COMMENTARY_ENABLED.
 MEMORABLE_HAND_THRESHOLD = 0.7  # Impact score threshold for memorable hands (0-1)
 MEMORY_TRIM_KEEP_EXCHANGES = (
     0  # Clear conversation memory each turn (was 4) - table chatter preserved via game_messages

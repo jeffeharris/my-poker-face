@@ -438,7 +438,9 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(training_bp)
 
     # Test helper endpoints — only available when ENABLE_TEST_ROUTES=true
-    if os.environ.get('ENABLE_TEST_ROUTES', 'false').lower() == 'true':
+    from core import feature_flags
+
+    if feature_flags.is_enabled("ENABLE_TEST_ROUTES"):
         from .routes.test_routes import test_bp
 
         app.register_blueprint(test_bp)

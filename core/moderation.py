@@ -48,8 +48,10 @@ class ModerationResult:
 
 
 def is_enabled() -> bool:
-    """Whether moderation will actually run (env opt-out + a key present)."""
-    if os.environ.get("MODERATION_ENABLED", "true").strip().lower() in ("0", "false", "no", "off"):
+    """Whether moderation will actually run (flag opt-out + a key present)."""
+    from core import feature_flags
+
+    if not feature_flags.is_enabled("MODERATION_ENABLED"):
         return False
     return bool(os.environ.get("OPENAI_API_KEY"))
 

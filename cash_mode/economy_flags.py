@@ -319,16 +319,11 @@ DOSSIER_SCOUTING_GATE_ENABLED: bool = _flag("DOSSIER_SCOUTING_GATE_ENABLED")
 # rollback escape hatch was deliberately removed when the cache was dropped (a
 # fresh DB no longer has `cash_idle_pool` to fall back to). Code still reads it
 # (`if PRESENCE_AUTHORITY_ENABLED:`) at the call sites; those branches are now
-# always taken.
+# always taken. The pre-flip SHADOW dual-write (and its kill switch
+# `PRESENCE_SHADOW_WRITE_ENABLED`) was removed once authority became permanent —
+# `presence_shadow.is_enabled()` is now driven solely by this flag, so the
+# off-grid hustle/vice writers keep recording presence.
 PRESENCE_AUTHORITY_ENABLED: bool = _flag("PRESENCE_AUTHORITY_ENABLED")
-
-# Vestigial. Was the kill switch for the pre-flip SHADOW dual-write (mirror to
-# `entity_presence` to validate the machine before authority was flipped). With
-# authority now permanent, `presence_shadow.is_enabled()` is True regardless of
-# this flag (it is `SHADOW or AUTHORITY`), so the off-grid hustle/vice writers
-# still record presence. Kept only so the few remaining references resolve; it
-# no longer changes any behaviour.
-PRESENCE_SHADOW_WRITE_ENABLED: bool = _flag("PRESENCE_SHADOW_WRITE_ENABLED")
 
 
 # --- Chip-custody machine cutover (the Presence twin) ---------------------

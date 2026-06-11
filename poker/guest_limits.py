@@ -11,7 +11,7 @@ flask_app here — that would create a circular dependency.
 import os
 from typing import Any, Dict, Optional, Tuple
 
-from poker.config import is_development_mode
+from core.feature_flags import is_enabled
 
 
 def _int_env(name: str, default: int) -> int:
@@ -22,13 +22,6 @@ def _int_env(name: str, default: int) -> int:
         return int(raw)
     except (ValueError, TypeError):
         return default
-
-
-def _bool_env(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 # Guest limit constants — overridable via environment variables
@@ -42,10 +35,10 @@ GUEST_MAX_MESSAGES_PER_ACTION = _int_env('GUEST_MAX_MESSAGES_PER_ACTION', 1)
 # the prompt-injection / offensive-output / token-cost surface. Structured
 # quick-chat (a bounded tone vocabulary) stays allowed. Set
 # GUEST_FREE_CHAT_ENABLED=true to open free chat back up to guests.
-GUEST_FREE_CHAT_ENABLED = _bool_env('GUEST_FREE_CHAT_ENABLED', False)
+GUEST_FREE_CHAT_ENABLED = is_enabled("GUEST_FREE_CHAT_ENABLED")
 
-# Disabled in dev mode by default
-GUEST_LIMITS_ENABLED = not is_development_mode()
+# On in prod, off in dev (the registry default mirrors is_development_mode()).
+GUEST_LIMITS_ENABLED = is_enabled("GUEST_LIMITS_ENABLED")
 
 
 def is_guest(user: Optional[Dict[str, Any]]) -> bool:

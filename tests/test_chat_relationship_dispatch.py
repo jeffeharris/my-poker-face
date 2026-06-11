@@ -755,9 +755,7 @@ class TestSarcasmDetectionGate:
     def test_flag_off_restores_universal_sarcasm(self, opp_manager, repo, monkeypatch):
         # With detection disabled, even the oblivious get the sarcasm transform
         # (the prior behavior) — the backhand cuts rather than flatters.
-        import flask_app.handlers.chat_relationship as cr
-
-        monkeypatch.setattr(cr, "SARCASM_DETECTION_ENABLED", False)
+        monkeypatch.setenv("SARCASM_DETECTION_ENABLED", "0")
         from poker.memory.relationship_events import RelationshipEvent, mirror_shift
 
         gd, _ = _ai_game_data(opp_manager, "bob", _OBLIVIOUS_ANCHORS)

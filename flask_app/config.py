@@ -5,6 +5,8 @@ import os
 
 from dotenv import load_dotenv
 
+from core import feature_flags
+
 logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
@@ -16,7 +18,7 @@ flask_debug = os.environ.get('FLASK_DEBUG', '0')
 is_development = flask_env == 'development' or flask_debug == '1'
 
 # AI Debug mode - enables LLM stats on player cards
-enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
+enable_ai_debug = feature_flags.is_enabled("ENABLE_AI_DEBUG")
 
 # Animation speed multiplier — 1.0 is normal, 0 disables all pacing delays
 ANIMATION_SPEED = float(os.environ.get('ANIMATION_SPEED', '1.0'))
@@ -31,8 +33,8 @@ RUNOUT_REVEAL_HOLD = float(os.environ.get('RUNOUT_REVEAL_HOLD', '1.5'))
 AI_DECISION_MODE = os.environ.get('AI_DECISION_MODE', 'llm')
 
 # Optional expensive background features (avatar generation, post-hand commentary)
-ENABLE_AVATAR_GENERATION = os.environ.get('ENABLE_AVATAR_GENERATION', 'true').lower() == 'true'
-ENABLE_AI_COMMENTARY = os.environ.get('ENABLE_AI_COMMENTARY', 'true').lower() == 'true'
+ENABLE_AVATAR_GENERATION = feature_flags.is_enabled("ENABLE_AVATAR_GENERATION")
+ENABLE_AI_COMMENTARY = feature_flags.is_enabled("ENABLE_AI_COMMENTARY")
 
 # Secret key
 if is_development:
@@ -68,10 +70,7 @@ SOCKETIO_ASYNC_MODE = os.environ.get('SOCKETIO_ASYNC_MODE', 'threading')
 # OFF in development, where the SPA (:5173) and API (:5000) are cross-origin and
 # the cookie isn't JS-readable, and off under the test suite (FLASK_ENV is
 # development there). Override explicitly with CSRF_PROTECTION_ENABLED=true/false.
-CSRF_PROTECTION_ENABLED = os.environ.get(
-    'CSRF_PROTECTION_ENABLED',
-    'false' if is_development else 'true',
-).strip().lower() in ('1', 'true', 'yes', 'on')
+CSRF_PROTECTION_ENABLED = feature_flags.is_enabled("CSRF_PROTECTION_ENABLED")
 CSRF_COOKIE_NAME = 'csrf_token'
 CSRF_HEADER_NAME = 'X-CSRF-Token'
 

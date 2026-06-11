@@ -29,22 +29,19 @@ logger = logging.getLogger(__name__)
 # any single player than a message aimed straight at them. Tunable.
 BROADCAST_REACTION_SCALE = 0.5
 
-# When True, a sarcastic message only reads as sarcasm to recipients who
-# *detect* it (via adaptation_bias). A low-awareness target misses the
-# register and reacts to the LITERAL surface — a backhanded compliment lands
-# as a sincere one, friendly banter lands as a real jab. When False, every
-# recipient is assumed to perceive the sarcasm (the prior behavior). Flip to
-# False to A/B the effect or if a sim shows the read-dependence runs too hot.
-SARCASM_DETECTION_ENABLED = True
-
 
 def _perceives_sarcasm(psychology) -> bool:
     """Whether this recipient catches the sarcasm (vs. takes the surface).
 
-    With detection disabled, everyone is assumed to perceive it (prior
-    behavior). Otherwise it's the recipient's adaptation_bias gate.
+    Gated on the ``SARCASM_DETECTION_ENABLED`` flag: when on (default), a
+    sarcastic message only reads as sarcasm to recipients who *detect* it (via
+    adaptation_bias) — a low-awareness target misses the register and reacts to
+    the LITERAL surface (a backhanded compliment lands as sincere). When off,
+    every recipient is assumed to perceive the sarcasm (the prior behavior).
     """
-    if not SARCASM_DETECTION_ENABLED:
+    from core import feature_flags
+
+    if not feature_flags.is_enabled("SARCASM_DETECTION_ENABLED"):
         return True
     return psychology._detects_sarcasm()
 
