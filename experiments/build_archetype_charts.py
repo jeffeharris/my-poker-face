@@ -196,6 +196,69 @@ def _loosen_facing(actions: dict, keep_fold: float, raise_share: float = 0.4) ->
     return out
 
 
+# ── Loose-tier 3-bet promotion ───────────────────────────────────────────────
+# The base vs_open is deliberately CONCENTRATED (raise mass only on real value +
+# suited bluffs) so it doesn't pollute the vs_3bet villain model — but that means
+# _loosen_facing has no raise key to amplify on the wide flat range, so LAG/maniac
+# can only flat those hands, never 3-bet them. The looseness lives HERE: for a
+# loose tier, promote a curated pool of FLATTED hands into 3-bets. Trash is
+# excluded and (pure-fold in the base) hard-masked regardless.
+_PROMOTE_3BET_OFFSUIT = {'AKo', 'AQo', 'AJo', 'KQo', 'KJo', 'QJo'}
+
+
+def _is_promotable_3bet(hand: str) -> bool:
+    """Suited, a pair, or a playable offsuit broadway — never offsuit trash."""
+    return len(hand) == 2 or hand[2] == 's' or hand in _PROMOTE_3BET_OFFSUIT
+
+
+def _promote_3bet(row: dict, frac: float, hand: str) -> dict:
+    """Move `frac` of a flatted hand's CALL mass into raise_3x (a 3-bet). Only for
+    curated hands the base FLATS (call present, no raise key); skips pure-fold
+    (masked) and hands that already 3-bet. VPIP (continue rate) is unchanged."""
+    if frac <= 0 or not _is_promotable_3bet(hand):
+        return row
+    if row.get('fold', 0.0) >= 0.999 or row.get('raise_3x', 0.0) > 0.0:
+        return row
+    call = row.get('call', 0.0)
+    if call <= 0:
+        return row
+    promoted = call * frac
+    out = dict(row)
+    out['raise_3x'] = promoted
+    out['call'] = call - promoted
+    return out
+
+
+# ── Station / fish call mask ──────────────────────────────────────────────────
+# The base now pure-folds MORE hands (concentrated), and _station_facing can't
+# touch pure-fold rows — so a station/fish gets masked into TAG-like tightness.
+# A station's identity is a wide CALL range, so it INVENTS calls on a curated pool
+# regardless of the base (calls, never raises — distinctness comes from flatting).
+_RANKS = 'AKQJT98765432'
+
+
+def _is_station_callable(hand: str) -> bool:
+    """A station/fish flats a wide range: any suited, any pair, and offsuit
+    aces/kings/broadways/connectors. Excludes only the worst offsuit junk."""
+    if len(hand) == 2 or hand[2] == 's':
+        return True
+    hi, lo = _RANKS.index(hand[0]), _RANKS.index(hand[1])  # 0=A … 12=2
+    return hi <= 1 or (hi <= 4 and lo <= 5) or abs(hi - lo) <= 2  # Ax/Kx, broadway, connector
+
+
+def _invent_call(row: dict, frac: float, hand: str) -> dict:
+    """Ensure a curated station/fish hand calls at least `frac`, OVERRIDING the
+    pure-fold mask (the wide call range is the station's identity, independent of
+    the concentrated base). Never overrides the hand's own aggression."""
+    if frac <= 0 or not _is_station_callable(hand):
+        return row
+    if any(row.get(k, 0.0) > 0 for k in ('raise_3x', 'raise_2.2x', 'jam')):
+        return row
+    if row.get('call', 0.0) >= frac:
+        return row
+    return {'call': frac, 'fold': round(1.0 - frac, 4)}
+
+
 def _station_facing(actions: dict, keep_fold: float, damp_raise: float = 0.0) -> dict:
     """Calling-station transform: cut fold to `keep_fold` * original and put
     ~ALL freed mass into CALL (a hair into raise so it isn't perfectly face-up).
@@ -230,18 +293,33 @@ def _station_facing(actions: dict, keep_fold: float, damp_raise: float = 0.0) ->
 
 
 def _transform_facing(
-    data: dict, fn, keep_fold_by_scenario: dict, extra_by_scenario: "dict | None" = None
+    data: dict, fn, keep_fold_by_scenario: dict, extra_by_scenario: "dict | None" = None,
+    promote_3bet_by_scenario: "dict | None" = None,
+    invent_call_by_scenario: "dict | None" = None,
 ):
     """Apply `fn(actions, keep_fold, **extra)` to every row of each scenario.
     `extra_by_scenario` (optional) supplies per-scenario kwargs — e.g. a lower
     `raise_share` at vs_open/vs_3bet to cut 3-bet/4-bet frequency without
-    changing the continue (VPIP) rate."""
+    changing the continue (VPIP) rate. `promote_3bet_by_scenario` (optional, loose
+    tiers): per-scenario fraction of flatted-hand call mass promoted into 3-bets
+    (_promote_3bet). `invent_call_by_scenario` (optional, station/fish + loose
+    fold-to-3bet): per-scenario min call frequency invented on the curated pool,
+    overriding the pure-fold mask (_invent_call)."""
     extra_by_scenario = extra_by_scenario or {}
+    promote_3bet_by_scenario = promote_3bet_by_scenario or {}
+    invent_call_by_scenario = invent_call_by_scenario or {}
     for scenario, keep_fold in keep_fold_by_scenario.items():
         extra = extra_by_scenario.get(scenario, {})
+        promote = promote_3bet_by_scenario.get(scenario, 0.0)
+        invent = invent_call_by_scenario.get(scenario, 0.0)
         for pos_dict in data[scenario].values():
             for hand in pos_dict:
-                pos_dict[hand] = fn(pos_dict[hand], keep_fold, **extra)
+                row = fn(pos_dict[hand], keep_fold, **extra)
+                if promote:
+                    row = _promote_3bet(row, promote, hand)
+                if invent:
+                    row = _invent_call(row, invent, hand)
+                pos_dict[hand] = row
 
 
 def build_loose(base: dict) -> dict:
@@ -254,8 +332,13 @@ def build_loose(base: dict) -> dict:
     _transform_facing(
         data,
         _loosen_facing,
-        {'vs_open': 0.45, 'vs_3bet': 0.60, 'vs_4bet': 0.75},
+        {'vs_open': 0.30, 'vs_3bet': 0.60, 'vs_4bet': 0.75},
         extra_by_scenario={'vs_3bet': {'raise_share': 0.70}},
+        # Maniac 3-bets a wide curated pool the concentrated base only flats.
+        promote_3bet_by_scenario={'vs_open': 1.0},
+        # Maniac continues wide vs a 3-bet (call-heavy + the amplified 4-bet) so it
+        # doesn't over-fold — invent calls on the curated pool past the mask.
+        invent_call_by_scenario={'vs_3bet': 0.45},
     )
     return data
 
@@ -281,6 +364,10 @@ def build_loose_mid(base: dict) -> dict:
             'vs_3bet': {'raise_share': 0.25},
             'vs_4bet': {'raise_share': 0.30},
         },
+        # LAG 3-bets a moderate curated pool the base flats — less than the maniac.
+        promote_3bet_by_scenario={'vs_open': 0.45},
+        # LAG continues wider vs a 3-bet (call-heavy) — invent calls past the mask.
+        invent_call_by_scenario={'vs_3bet': 0.35},
     )
     return data
 
@@ -306,6 +393,9 @@ def build_station(base: dict) -> dict:
             'vs_open': {'damp_raise': 0.85},
             'vs_3bet': {'damp_raise': 0.85},
         },
+        # A station's identity is a WIDE call range; invent it past the pure-fold
+        # mask (the concentrated base would otherwise collapse it to a passive TAG).
+        invent_call_by_scenario={'vs_open': 0.90, 'vs_3bet': 0.42},
     )
     return data
 
@@ -328,13 +418,15 @@ def build_weak_station(base: dict) -> dict:
         _station_facing,
         # vs_3bet keep_fold 0.35→0.45 (same reason as build_station): the graded
         # vs_3bet needs a touch more fold kept to stay above the fold-to-3bet floor.
-        {'vs_open': 0.10, 'vs_3bet': 0.45, 'vs_4bet': 0.65},
+        {'vs_open': 0.10, 'vs_3bet': 0.62, 'vs_4bet': 0.65},
         # Same trap-the-premiums damp as the station, a touch softer (the $2 fish
         # is a hair more spew-prone). Damps facing-open 3-bet ~19%→~4%.
         extra_by_scenario={
             'vs_open': {'damp_raise': 0.80},
             'vs_3bet': {'damp_raise': 0.80},
         },
+        # The splashiest fish — an even wider invented call range than the station.
+        invent_call_by_scenario={'vs_open': 0.78},
     )
     return data
 

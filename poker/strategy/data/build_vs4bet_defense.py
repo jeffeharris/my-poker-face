@@ -100,11 +100,17 @@ def build_node(hero: str, villain: str, vs_open: Dict, vs_3bet: Dict, matrix: Di
         return sum(ow[h] * (d.get("jam", 0.0) + d.get("call", 0.0)) for h, d in dist.items())
 
     by_eq = sorted(hero_3bet, key=lambda x: eq[x], reverse=True)
+    bluff_set = set(BLUFF_JAM_POOL)
 
-    # 1. Value 5-bet jams: top of hero's 3-bet range by equity vs the continue range.
+    # 1. Value 5-bet jams: top of hero's 3-bet range by equity vs the continue
+    #    range. The suited-Ax blockers are RESERVED for the bluff pass — facing a
+    #    4-bet they're blocker bluff-jams, never full value (their equity vs the
+    #    value-4bet continue range is low; they jam for the AA/AK blocker + fold eq).
     for h in by_eq:
         if _cont() >= value_target:
             break
+        if h in bluff_set:
+            continue
         dist[h] = dict(DIST_VALUE_JAM)
 
     # 2. Suited-Ax 5-bet bluff-jams (designated blockers ∩ hero's 3-bet range).

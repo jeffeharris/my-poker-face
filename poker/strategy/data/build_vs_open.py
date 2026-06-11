@@ -5,12 +5,10 @@ Implements docs/strategy/PREFLOP_DEFENSE_REGEN_SPEC.md §3. Companion to
 `build_vs3bet_defense.py` / `build_vs4bet_defense.py`; this is **step 1** of the
 strict regen order (`vs_open → vs_3bet → vs_4bet → depth → archetypes`).
 
-⚠️ The order matters because the §2 vs_3bet refactor is *supposed* to read each
-villain's 3-bet range from the `vs_open` node this script writes — but that
-refactor is NOT done yet. `build_vs3bet_defense` today still uses one global
-`VILLAIN_3BET` range and writes it to all 15 nodes, so running the cascade as-is
-does not fix the position-invariant vs_3bet leak. Running this script alone fixes
-only the 100bb `vs_open` masses (BB defense + opener-keyed cold-3bet shape).
+The order matters because `build_vs3bet_defense` (its §2 per-node refactor is
+done) reads each villain's 3-bet range from the `vs_open` node this script writes,
+and `build_vs4bet_defense` then reads `vs_3bet`'s 4-bet range. So vs_open must be
+regenerated first; the downstream generators refuse to run against a stale upstream.
 
 Two node classes, two policies
 ------------------------------
@@ -416,9 +414,7 @@ def patch_base() -> None:
     with open(_BASE, "w") as f:
         json.dump(chart, f, indent=2)
         f.write("\n")
-    print("  done. NEXT: build_vs3bet_defense must be REFACTORED (§2) to read these")
-    print("  per-node 3-bet ranges — it currently uses one global VILLAIN_3BET range,")
-    print("  so re-running it as-is does NOT yet fix vs_3bet position-invariance.")
+    print("  done — run build_vs3bet_defense next (it reads these per-node 3-bet ranges).")
 
 
 if __name__ == "__main__":
