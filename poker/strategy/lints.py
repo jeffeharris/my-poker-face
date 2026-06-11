@@ -96,8 +96,12 @@ def _continue_mass(node: Dict[str, Dict[str, float]]) -> float:
     for h, d in node.items():
         c = _combos(h)
         tot += c
-        defend += c * (d.get("call", 0.0) + d.get("raise_3x", 0.0)
-                       + d.get("raise_2.2x", 0.0) + d.get("jam", 0.0))
+        defend += c * (
+            d.get("call", 0.0)
+            + d.get("raise_3x", 0.0)
+            + d.get("raise_2.2x", 0.0)
+            + d.get("jam", 0.0)
+        )
     return defend / tot if tot else 0.0
 
 
@@ -172,8 +176,10 @@ def lint_anti_clone(chart: Dict, branches=FACING_BRANCHES) -> List[str]:
             opener = node_name.split("_vs_")[idx]
             key = json.dumps(node, sort_keys=True)
             if key in seen and seen[key][1] != opener:
-                fails.append(f"{scenario}/{node_name}: byte-identical to {seen[key][0]} "
-                             f"(different opener — copied range)")
+                fails.append(
+                    f"{scenario}/{node_name}: byte-identical to {seen[key][0]} "
+                    f"(different opener — copied range)"
+                )
             elif key not in seen:
                 seen[key] = (node_name, opener)
     return fails
@@ -218,7 +224,9 @@ def lint_vs3bet_fold_to_3bet(chart: Dict) -> List[str]:
         ceiling = F3B_CEILING_IP if _vs3bet_is_ip(node_name) else F3B_CEILING_OOP
         pos = "IP" if _vs3bet_is_ip(node_name) else "OOP"
         if f3b > ceiling + 1e-9:
-            fails.append(f"vs_3bet/{node_name}: fold-to-3bet {100*f3b:.1f}% > {pos} ceiling {100*ceiling:.0f}%")
+            fails.append(
+                f"vs_3bet/{node_name}: fold-to-3bet {100*f3b:.1f}% > {pos} ceiling {100*ceiling:.0f}%"
+            )
     return fails
 
 
@@ -243,7 +251,9 @@ def lint_vs4bet_fold_to_4bet(chart: Dict) -> List[str]:
             continue
         f4b = 1.0 - cont / twt
         if f4b > F4B_CEILING + 1e-9:
-            fails.append(f"vs_4bet/{node_name}: fold-to-4bet {100*f4b:.1f}% > ceiling {100*F4B_CEILING:.0f}%")
+            fails.append(
+                f"vs_4bet/{node_name}: fold-to-4bet {100*f4b:.1f}% > ceiling {100*F4B_CEILING:.0f}%"
+            )
     return fails
 
 
@@ -266,7 +276,9 @@ def lint_fourbet_band(chart: Dict) -> List[str]:
             continue
         frac = fourbet / owt
         if not (lo - 1e-9 <= frac <= hi + 1e-9):
-            fails.append(f"vs_3bet/{node_name}: 4-bet {100*frac:.1f}% of opens outside [{100*lo:.0f},{100*hi:.0f}]%")
+            fails.append(
+                f"vs_3bet/{node_name}: 4-bet {100*frac:.1f}% of opens outside [{100*lo:.0f},{100*hi:.0f}]%"
+            )
     return fails
 
 
@@ -296,7 +308,9 @@ def lint_depth_rfi_passthrough(base: Dict, depth: Dict, depth_bb: int) -> List[s
     """Depth RFI must equal the 100bb RFI (t_rfi is identity — catches drift)."""
     fails = []
     for pos, node in base.get("rfi", {}).items():
-        if json.dumps(node, sort_keys=True) != json.dumps(depth.get("rfi", {}).get(pos, {}), sort_keys=True):
+        if json.dumps(node, sort_keys=True) != json.dumps(
+            depth.get("rfi", {}).get(pos, {}), sort_keys=True
+        ):
             fails.append(f"{depth_bb}bb rfi/{pos}: differs from 100bb RFI")
     return fails
 
@@ -312,8 +326,10 @@ def lint_depth_flat_retention(base: Dict, depth: Dict, depth_bb: int) -> List[st
         depth_node = depth.get("vs_open", {}).get(node_name, {})
         depth_flat = sum(_combos(h) * d.get("call", 0.0) for h, d in depth_node.items())
         if depth_flat < DEPTH_FLAT_RETENTION * base_flat - 1e-9:
-            fails.append(f"{depth_bb}bb vs_open/{node_name}: flat mass "
-                         f"{100*depth_flat/base_flat:.0f}% of 100bb (< {100*DEPTH_FLAT_RETENTION:.0f}%)")
+            fails.append(
+                f"{depth_bb}bb vs_open/{node_name}: flat mass "
+                f"{100*depth_flat/base_flat:.0f}% of 100bb (< {100*DEPTH_FLAT_RETENTION:.0f}%)"
+            )
     return fails
 
 
@@ -329,17 +345,25 @@ def lint_depth_bb_defense(_base: Dict, depth: Dict, depth_bb: int) -> List[str]:
             tot += c
             cont += c * (d.get("call", 0.0) + d.get("jam", 0.0) + d.get("raise_3x", 0.0))
         if tot and cont / tot + 1e-9 < floor:
-            fails.append(f"{depth_bb}bb vs_open/BB_vs_{opener}: BB defend "
-                         f"{100*cont/tot:.1f}% < floor {100*floor:.0f}%")
+            fails.append(
+                f"{depth_bb}bb vs_open/BB_vs_{opener}: BB defend "
+                f"{100*cont/tot:.1f}% < floor {100*floor:.0f}%"
+            )
     return fails
 
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 BASE_LINTS = (
-    lint_weights_sum, lint_legal_vocab, lint_completeness, lint_anti_clone,
-    lint_bb_defend_floors, lint_vs3bet_fold_to_3bet, lint_vs4bet_fold_to_4bet,
-    lint_fourbet_band, lint_cliff_band,
+    lint_weights_sum,
+    lint_legal_vocab,
+    lint_completeness,
+    lint_anti_clone,
+    lint_bb_defend_floors,
+    lint_vs3bet_fold_to_3bet,
+    lint_vs4bet_fold_to_4bet,
+    lint_fourbet_band,
+    lint_cliff_band,
 )
 
 
@@ -384,8 +408,10 @@ def run_report() -> int:
                 print(f"             - {msg}")
             total_fail += len(fails)
 
-    print(f"\n{total_fail} total failures "
-          f"(some are EXPECTED until vs_3bet/vs_open generators land — see docstring).")
+    print(
+        f"\n{total_fail} total failures "
+        f"(some are EXPECTED until vs_3bet/vs_open generators land — see docstring)."
+    )
     return total_fail
 
 

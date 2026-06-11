@@ -293,7 +293,10 @@ def _station_facing(actions: dict, keep_fold: float, damp_raise: float = 0.0) ->
 
 
 def _transform_facing(
-    data: dict, fn, keep_fold_by_scenario: dict, extra_by_scenario: "dict | None" = None,
+    data: dict,
+    fn,
+    keep_fold_by_scenario: dict,
+    extra_by_scenario: "dict | None" = None,
     promote_3bet_by_scenario: "dict | None" = None,
     invent_call_by_scenario: "dict | None" = None,
 ):

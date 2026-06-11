@@ -28,23 +28,30 @@ def inputs():
 
 def _build(opener, rfi, matrix, defend, threebet, merged):
     pool = bvo.BLUFF_3BET_POOL_WIDE if opener in bvo.WIDE_OPENERS else bvo.BLUFF_3BET_POOL
-    return bvo.build_node(opener, rfi, matrix, defend, threebet,
-                          bvo.VALUE_SHARE_BY_OPENER[opener], pool, merged)
+    return bvo.build_node(
+        opener, rfi, matrix, defend, threebet, bvo.VALUE_SHARE_BY_OPENER[opener], pool, merged
+    )
 
 
 def test_polarized_bluff_pool_stays_sub_cliff(inputs):
     """A suited wheel ace vs a tight UTG open is a bluff, not a value jam."""
     rfi, matrix, _ = inputs
     node = _build("UTG", rfi, matrix, 0.20, bvo.NONBB_THREEBET_BY_OPENER["UTG"], merged=False)
-    offenders = [h for h in bvo.BLUFF_3BET_POOL
-                 if node[h].get("raise_3x", 0.0) >= lints.VALUE_RAISE_THRESHOLD]
+    offenders = [
+        h
+        for h in bvo.BLUFF_3BET_POOL
+        if node[h].get("raise_3x", 0.0) >= lints.VALUE_RAISE_THRESHOLD
+    ]
     assert offenders == [], f"bluff-pool hands promoted to value weight: {offenders}"
 
 
-@pytest.mark.parametrize("opener,defend,threebet,merged", [
-    ("UTG", 0.20, 0.045, False),  # polarized cold-defense
-    ("SB", 0.65, 0.15, True),     # merged BvB
-])
+@pytest.mark.parametrize(
+    "opener,defend,threebet,merged",
+    [
+        ("UTG", 0.20, 0.045, False),  # polarized cold-defense
+        ("SB", 0.65, 0.15, True),  # merged BvB
+    ],
+)
 def test_realized_masses_hit_target(inputs, opener, defend, threebet, merged):
     rfi, matrix, _ = inputs
     node = _build(opener, rfi, matrix, defend, threebet, merged)
@@ -64,8 +71,11 @@ def test_no_3bet_in_cliff_band_any_node(inputs):
             defend = bvo._current_masses(vo[nn])[0]
             threebet = bvo.NONBB_THREEBET_BY_OPENER[opener]
         node = _build(opener, rfi, matrix, defend, threebet, merged)
-        band = [h for h, dd in node.items()
-                if 0.45 < dd.get("raise_3x", 0.0) < lints.VALUE_RAISE_THRESHOLD]
+        band = [
+            h
+            for h, dd in node.items()
+            if 0.45 < dd.get("raise_3x", 0.0) < lints.VALUE_RAISE_THRESHOLD
+        ]
         assert band == [], f"{nn}: 3-bet weights in the cliff band: {band}"
 
 

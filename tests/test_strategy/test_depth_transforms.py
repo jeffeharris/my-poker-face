@@ -13,9 +13,9 @@ def test_bb_jams_its_flat_defense_at_25bb():
     flat = {"call": 0.8, "fold": 0.2}  # a non-value BB flat at 100bb
     bb = g.t_vs_open(flat, 25, is_bb=True)
     cold = g.t_vs_open(flat, 25, is_bb=False)
-    assert bb.get("jam", 0) > 0 and "call" not in bb, bb           # BB commits by jamming
-    assert cold.get("call", 0) > 0 and "jam" not in cold, cold     # cold-defender keeps a thin call
-    assert bb["jam"] > cold.get("call", 0)                          # and continues more
+    assert bb.get("jam", 0) > 0 and "call" not in bb, bb  # BB commits by jamming
+    assert cold.get("call", 0) > 0 and "jam" not in cold, cold  # cold-defender keeps a thin call
+    assert bb["jam"] > cold.get("call", 0)  # and continues more
 
 
 def test_bb_value_still_jams_and_pure_fold_untouched_at_25bb():

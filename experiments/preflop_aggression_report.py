@@ -189,7 +189,9 @@ class PreflopAggressionReport:
         uncontested_winner = active[0] if ended_preflop and len(active) == 1 else None
 
         for event in decisions:
-            actor_delta_bb = (final_stacks.get(event.actor, starting_stack) - starting_stack) / big_blind
+            actor_delta_bb = (
+                final_stacks.get(event.actor, starting_stack) - starting_stack
+            ) / big_blind
             opponent_delta_bb = 0.0
             if event.opponent_name:
                 opponent_delta_bb = (
@@ -346,7 +348,9 @@ def run_report(
                         rng_seed=hand_seed + hero_index * 10_000_000,
                     )
                 ]
-                for i, (seat, cfg) in enumerate(zip(opponent_seats, opponent_configs, strict=False)):
+                for i, (seat, cfg) in enumerate(
+                    zip(opponent_seats, opponent_configs, strict=False)
+                ):
                     controllers.append(
                         make_controller(
                             seat,
@@ -393,7 +397,9 @@ def run_report(
                     if event is None:
                         return
                     hand_decisions.append(event)
-                    aggression = _build_aggression_event(event, current_player, raise_to, decision_state)
+                    aggression = _build_aggression_event(
+                        event, current_player, raise_to, decision_state
+                    )
                     if aggression is not None:
                         hand_aggressions.append(aggression)
 
@@ -513,7 +519,9 @@ def _build_aggression_event(
     context = f'{base}_jam' if event.action_bucket == 'jam' else base
 
     total_stack = current_player.stack + current_player.bet
-    raise_to_bb = raise_to / game_state.current_ante if raise_to else total_stack / game_state.current_ante
+    raise_to_bb = (
+        raise_to / game_state.current_ante if raise_to else total_stack / game_state.current_ante
+    )
     return AggressionEvent(
         hand_number=event.hand_number,
         actor=event.actor,
@@ -802,7 +810,9 @@ def main() -> None:
     _validate_archetypes(opponents, 'opponents')
     stack_bbs = _parse_stack_bbs(args.stack_bb)
 
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format='%(message)s')
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING, format='%(message)s'
+    )
     # Matches simulate_bb100: controllers built through the sim factory use a
     # SimpleNamespace psychology object, so bounded_options emits expected noise.
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)

@@ -12,9 +12,11 @@ import json
 import pytest
 
 from poker.strategy import lints
-from poker.strategy.data import build_vs4bet_defense as b4
-from poker.strategy.data import build_vs3bet_defense as b3
-from poker.strategy.data import build_vs_open as bvo
+from poker.strategy.data import (
+    build_vs3bet_defense as b3,
+    build_vs4bet_defense as b4,
+    build_vs_open as bvo,
+)
 
 
 @pytest.fixture(scope="module")
@@ -29,10 +31,12 @@ def built():
     for nn in chart["vs_open"]:
         op, d, thr, vs, pool, m = bvo._node_plan(nn, chart["vs_open"])
         vs_open[nn] = bvo.build_node(op, rfi, matrix, d, thr, vs, pool, m)
-    vs_3bet = {nn: b3.build_node(*nn.split("_vs_"), rfi, vs_open, matrix)
-               for nn in chart["vs_3bet"]}
-    vs_4bet = {nn: b4.build_node(*nn.split("_vs_"), vs_open, vs_3bet, matrix)
-               for nn in chart["vs_4bet"]}
+    vs_3bet = {
+        nn: b3.build_node(*nn.split("_vs_"), rfi, vs_open, matrix) for nn in chart["vs_3bet"]
+    }
+    vs_4bet = {
+        nn: b4.build_node(*nn.split("_vs_"), vs_open, vs_3bet, matrix) for nn in chart["vs_4bet"]
+    }
     return vs_open, vs_4bet
 
 
@@ -41,8 +45,9 @@ def test_fold_to_4bet_under_ceiling(built):
     for nn, node in nodes.items():
         hero, villain = nn.split("_vs_")
         f4b = b4._fold_to_4bet(hero, villain, node, vs_open)
-        assert f4b <= lints.F4B_CEILING + 1e-9, \
-            f"{nn}: fold-to-4bet {100*f4b:.1f}% > ceiling {100*lints.F4B_CEILING:.0f}%"
+        assert (
+            f4b <= lints.F4B_CEILING + 1e-9
+        ), f"{nn}: fold-to-4bet {100*f4b:.1f}% > ceiling {100*lints.F4B_CEILING:.0f}%"
 
 
 def test_offsuit_trash_stays_pure_fold(built):

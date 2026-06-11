@@ -23,13 +23,19 @@ def test_canonical_hands_shape():
 
 
 def test_vs3bet_ip_classification():
-    assert lints._vs3bet_is_ip("BTN_vs_SB")      # 3-bettor in the blinds → opener IP
+    assert lints._vs3bet_is_ip("BTN_vs_SB")  # 3-bettor in the blinds → opener IP
     assert not lints._vs3bet_is_ip("UTG_vs_HJ")  # 3-bettor acts after → opener OOP
-    assert not lints._vs3bet_is_ip("SB_vs_BB")   # SB open vs BB 3-bet → SB still OOP
+    assert not lints._vs3bet_is_ip("SB_vs_BB")  # SB open vs BB 3-bet → SB still OOP
 
 
 def test_weights_sum_catches_bad_cells():
-    bad = {"vs_open": {"BB_vs_BTN": _node({"AA": {"call": 0.9}, "KK": {"call": 0.5, "fold": -0.1, "raise_3x": 0.6}})}}
+    bad = {
+        "vs_open": {
+            "BB_vs_BTN": _node(
+                {"AA": {"call": 0.9}, "KK": {"call": 0.5, "fold": -0.1, "raise_3x": 0.6}}
+            )
+        }
+    }
     fails = lints.lint_weights_sum(bad)
     assert any("AA" in f and "≠ 1.0" in f for f in fails)
     assert any("KK" in f and "negative" in f for f in fails)
@@ -45,14 +51,18 @@ def test_anti_clone_cross_opener_vs_same_opener():
     same = {"vs_3bet": {"UTG_vs_HJ": n, "UTG_vs_CO": dict(n)}}
     assert lints.lint_anti_clone(same) == []
     # Genuinely distinct → no flag.
-    distinct = {"vs_3bet": {"UTG_vs_HJ": _node({"AA": {"raise_2.2x": 1.0}}),
-                            "CO_vs_BTN": _node({"KK": {"raise_2.2x": 1.0}})}}
+    distinct = {
+        "vs_3bet": {
+            "UTG_vs_HJ": _node({"AA": {"raise_2.2x": 1.0}}),
+            "CO_vs_BTN": _node({"KK": {"raise_2.2x": 1.0}}),
+        }
+    }
     assert lints.lint_anti_clone(distinct) == []
 
 
 def test_legal_vocab_flags_jam_at_100bb():
     chart = {"vs_3bet": {"UTG_vs_HJ": _node({"AA": {"jam": 1.0}})}}
-    assert lints.lint_legal_vocab(chart)              # jam illegal in 100bb vs_3bet
+    assert lints.lint_legal_vocab(chart)  # jam illegal in 100bb vs_3bet
     assert lints.lint_legal_vocab(chart, allow_jam=True) == []  # allowed at depth
 
 
@@ -64,22 +74,32 @@ def test_bb_defend_floor_fires_when_too_tight():
 
 
 def test_vs3bet_fold_to_3bet_relative_to_open_range():
-    rfi = {"BTN": {"AA": {"raise_2.5bb": 1.0}, "KK": {"raise_2.5bb": 1.0},
-                   "72o": {"raise_2.5bb": 1.0}}}
+    rfi = {
+        "BTN": {"AA": {"raise_2.5bb": 1.0}, "KK": {"raise_2.5bb": 1.0}, "72o": {"raise_2.5bb": 1.0}}
+    }
     # continues only AA of a 3-hand open → fold-to-3bet ~75% > IP ceiling → fires
     leak = {"rfi": rfi, "vs_3bet": {"BTN_vs_SB": _node({"AA": {"call": 1.0}})}}
     assert lints.lint_vs3bet_fold_to_3bet(leak)
     # continues the whole open range → fold-to-3bet 0 → passes
-    ok = {"rfi": rfi, "vs_3bet": {"BTN_vs_SB": _node({
-        "AA": {"call": 1.0}, "KK": {"call": 1.0}, "72o": {"call": 1.0}})}}
+    ok = {
+        "rfi": rfi,
+        "vs_3bet": {
+            "BTN_vs_SB": _node({"AA": {"call": 1.0}, "KK": {"call": 1.0}, "72o": {"call": 1.0}})
+        },
+    }
     assert lints.lint_vs3bet_fold_to_3bet(ok) == []
 
 
 def test_cliff_band_guard():
     chart = {"vs_open": {"BB_vs_SB": _node({"AA": {"raise_3x": 0.47, "fold": 0.53}})}}
     assert lints.lint_cliff_band(chart)  # 0.47 is in (0.45, 0.50)
-    clean = {"vs_open": {"BB_vs_SB": _node({"AA": {"raise_3x": 0.85, "fold": 0.15},
-                                            "A5s": {"raise_3x": 0.35, "fold": 0.65}})}}
+    clean = {
+        "vs_open": {
+            "BB_vs_SB": _node(
+                {"AA": {"raise_3x": 0.85, "fold": 0.15}, "A5s": {"raise_3x": 0.35, "fold": 0.65}}
+            )
+        }
+    }
     assert lints.lint_cliff_band(clean) == []
 
 
@@ -96,6 +116,7 @@ def test_base_runner_executes_over_live_chart():
     assertion on pass/fail — that depends on the live chart's current state)."""
     import json
     import os
+
     with open(os.path.join(lints._DATA, "preflop_100bb_6max.json")) as f:
         base = json.load(f)
     report = lints.lint_base_chart(base)
