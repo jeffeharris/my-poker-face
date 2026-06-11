@@ -232,6 +232,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "circulating": true,
       "id": "napoleon"
     },
@@ -565,6 +566,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "adaptive_overbet": true,
       "circulating": true,
       "id": "sherlock_holmes"
@@ -1005,6 +1007,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "circulating": true,
       "id": "sun_tzu"
     },
@@ -1086,6 +1089,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "circulating": true,
       "id": "benjamin_franklin"
     },
@@ -1249,6 +1253,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "circulating": true,
       "id": "nikola_tesla"
     },
@@ -1483,6 +1488,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "circulating": true,
       "id": "machiavelli"
     },
@@ -4633,6 +4639,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "circulating": true,
       "id": "leonardo_da_vinci"
     },
@@ -4715,6 +4722,7 @@
         ]
       ],
       "skill": "shark",
+      "push_fold_nash": true,
       "circulating": true,
       "id": "marie_curie"
     },

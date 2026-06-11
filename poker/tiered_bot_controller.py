@@ -600,6 +600,23 @@ class TieredBotController(AIPlayerController):
                     player_name,
                 )
 
+        # Per-personality opt-in for the short-stack Nash push/fold charts (HU +
+        # 6max). The charts are GTO-perfect open-jam / call-off ranges below
+        # PUSH_FOLD_THRESHOLD_BB; handing them to the whole tiered field makes
+        # even the donors (calling_station / weak_fish) play a flawless 15bb
+        # game, which contradicts fish-as-donor and reads as unbelievable. So
+        # the weapon is opt-in: only personas carrying `"push_fold_nash": true`
+        # use it; everyone else falls through to the deep-stack / short_stack.py
+        # heuristic (jam-or-fold mass suppression — leaky but human). Skill tier
+        # is the wrong proxy (flavour-assigned, postflop-aggression axis, ~half
+        # the cast is "shark"), so this is a dedicated flag on a curated few.
+        # Default OFF on the live path. Sims/tests bypass __init__ (build via
+        # __new__) and never set this attribute, so the gate reads a default of
+        # True for them — existing push/fold routing tests stay byte-identical.
+        self.push_fold_nash_enabled: bool = bool(
+            isinstance(_pcfg, dict) and _pcfg.get('push_fold_nash')
+        )
+
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
         # decision — dominant cost in long sim runs) but still
@@ -4220,7 +4237,15 @@ class TieredBotController(AIPlayerController):
             the chart's calibration and falls through (the lookup gates it).
         Spots not covered (a non-blind hero facing a non-all-in raise, a BB
         walk, etc.) fall through to the deep-stack / short_stack.py path.
+
+        Gated on the per-persona `push_fold_nash` opt-in (see __init__): only
+        blessed "skilled" characters use the Nash charts; everyone else falls
+        through so the donors keep their leaky-but-human short game. Sims/tests
+        build via __new__ and don't set the attribute, so they default to True.
         """
+        if not getattr(self, 'push_fold_nash_enabled', True):
+            return None
+
         # Effective stack in big blinds (shared by both paths). Routed through
         # the shared stack_utils helper (total = stack + committed bet) so the
         # HU and multi-way paths can't drift from the deep-stack accounting.
