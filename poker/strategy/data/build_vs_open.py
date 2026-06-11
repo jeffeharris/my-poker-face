@@ -225,7 +225,6 @@ def build_node(
 
     value_budget = value_share * threebet_total * TOTAL_COMBOS
     bluff_budget = (1 - value_share) * threebet_total * TOTAL_COMBOS
-    call_budget = (defend_total - threebet_total) * TOTAL_COMBOS
 
     dist: Dict[str, Dict[str, float]] = {}
 
@@ -258,7 +257,18 @@ def build_node(
         dist[h] = {"raise_3x": BLUFF_RAISE_W, "fold": round(1 - BLUFF_RAISE_W, 4)}
         spent += COMBO_COUNT[h] * BLUFF_RAISE_W
 
-    # 3. Flats: best remaining by the call blend, partial boundary weight allowed.
+    # 3. Flats: fill the calling range up to the node's DEFEND-WIDTH target. The
+    #    call budget is whatever remains of defend_total AFTER the 3-bet passes —
+    #    which already placed both raise mass AND the value hands' call slivers
+    #    ((1-VALUE_RAISE_W)*0.6 per value hand). Charging those slivers here
+    #    (rather than budgeting call as defend_total-threebet_total and ignoring
+    #    them) is what keeps the node idempotent: total defend == defend_total, so
+    #    re-running preserves width instead of ratcheting it ~0.9pp wider per run.
+    placed_defend = sum(
+        COMBO_COUNT[h] * (d.get("raise_3x", 0.0) + d.get("call", 0.0))
+        for h, d in dist.items()
+    )
+    call_budget = max(0.0, defend_total * TOTAL_COMBOS - placed_defend)
     spent = 0.0
     for h in sorted(CANONICAL_HANDS, key=lambda x: call_score[x], reverse=True):
         if spent >= call_budget:
