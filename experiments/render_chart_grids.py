@@ -107,9 +107,7 @@ def rfi_grid(node: dict) -> str:
         cells = []
         for c in range(13):
             v = node.get(hand_at(r, c), {})
-            raise_f = sum(
-                f for a, f in v.items() if a.startswith("raise") or a == "jam"
-            )
+            raise_f = sum(f for a, f in v.items() if a.startswith("raise") or a == "jam")
             cells.append("   ·" if raise_f <= 0.005 else f"{round(raise_f * 100):>4}")
         lines.append(f"{RANKS[r]:>3}  " + " ".join(cells))
     return "\n".join(lines)
@@ -149,12 +147,12 @@ def _block(title: str, grid: str) -> str:
 def render_100bb() -> str:
     d = _load("preflop_100bb_6max.json")
     out = ["### 1. RFI (open-raise) frequencies — all positions\n"]
-    out.append(
-        "Cell = % of the time the hand opens (raise to 2.5bb); `·` = pure fold."
-    )
+    out.append("Cell = % of the time the hand opens (raise to 2.5bb); `·` = pure fold.")
     for pos in ["UTG", "HJ", "CO", "BTN", "SB"]:
         out.append(
-            _block(f"{pos} RFI — {rfi_rate(d['rfi'][pos]):.1f}% of hands open", rfi_grid(d["rfi"][pos]))
+            _block(
+                f"{pos} RFI — {rfi_rate(d['rfi'][pos]):.1f}% of hands open", rfi_grid(d["rfi"][pos])
+            )
         )
 
     out.append("\n### 2. Facing an open — sample defense nodes (`vs_open`)\n")
