@@ -4469,9 +4469,7 @@ class TieredBotController(AIPlayerController):
             pfr=t.pfr,
             aggression_factor=t.aggression_factor,
             all_in_frequency=t.all_in_frequency,
-            vpip_per_voluntary_opportunity=getattr(
-                t, 'vpip_per_voluntary_opportunity', 0.5
-            ),
+            vpip_per_voluntary_opportunity=getattr(t, 'vpip_per_voluntary_opportunity', 0.5),
         )
         return reshove_fold_equity_ok(stats)
 
