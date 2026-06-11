@@ -289,8 +289,10 @@ def simulate_preflop_hands(
         # Lookup base strategy
         base = strategy_table.lookup_with_fallback(node, legal)
 
-        # Apply personality distortion
-        modified = modify_strategy(
+        # Apply personality distortion. modify_strategy returns
+        # (strategy, trace) since Phase 7.6 Step 4; the probe only needs
+        # the strategy.
+        modified, _trace = modify_strategy(
             base=base,
             legal_actions=legal,
             anchors=anchors,
