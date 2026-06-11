@@ -20,12 +20,24 @@ interface SkeletonProps {
  * exactly. Decorative — hidden from assistive tech; gate the region with
  * `aria-busy`. Shimmer stills under prefers-reduced-motion (see Skeleton.css).
  */
-export function Skeleton({ width = '100%', height, circle, radius, className, style }: SkeletonProps) {
+export function Skeleton({
+  width = '100%',
+  height,
+  circle,
+  radius,
+  className,
+  style,
+}: SkeletonProps) {
   return (
     <span
       aria-hidden="true"
       className={`skeleton${circle ? ' skeleton--circle' : ''}${className ? ` ${className}` : ''}`}
-      style={{ width, height, ...(circle ? null : radius ? { borderRadius: radius } : null), ...style }}
+      style={{
+        width,
+        height,
+        ...(circle ? null : radius ? { borderRadius: radius } : null),
+        ...style,
+      }}
     />
   );
 }

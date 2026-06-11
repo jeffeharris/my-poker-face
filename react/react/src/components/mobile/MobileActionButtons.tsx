@@ -1,5 +1,13 @@
 import { memo, useState } from 'react';
-import { ArrowRight, Check, ChevronsUp, Crosshair, HandCoins, MessageCircle, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  ChevronsUp,
+  Crosshair,
+  HandCoins,
+  MessageCircle,
+  X,
+} from 'lucide-react';
 import {
   useBettingCalculations,
   createBettingContext,

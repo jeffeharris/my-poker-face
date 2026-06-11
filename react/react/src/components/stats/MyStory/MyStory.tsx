@@ -159,11 +159,7 @@ export function MyStory({ onBack }: MyStoryProps) {
               </div>
               {[0, 1].map((i) => (
                 <div className="mystory__session" key={i}>
-                  <Skeleton
-                    width="30%"
-                    height="1rem"
-                    style={{ marginBottom: 'var(--space-3)' }}
-                  />
+                  <Skeleton width="30%" height="1rem" style={{ marginBottom: 'var(--space-3)' }} />
                   <Skeleton
                     width="100%"
                     height="0.85rem"
