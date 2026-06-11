@@ -93,3 +93,33 @@ button:focus-visible {
     color: #747bff;
   }
 }
+
+/* Native-app feel on touch devices: a long-press on a label, chip, card, or
+   button should do nothing — no text selection, no iOS callout menu, no dragged
+   image, no grey tap-highlight flash. Scoped to `pointer: coarse` so desktop
+   (admin tools, copy-paste) keeps normal selection. Form fields and anything
+   tagged `.selectable` opt back in. */
+@media (pointer: coarse) {
+  body {
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  input,
+  textarea,
+  select,
+  [contenteditable],
+  [contenteditable] *,
+  .selectable,
+  .selectable * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  img {
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+}
