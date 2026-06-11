@@ -39,7 +39,8 @@ This matters for how you review. **Only one table is solver/equilibrium-derived:
 | Table | How it was made |
 |---|---|
 | `push_fold_hu.json` (HU ≤15bb push/fold) | **Computed.** Exact chip-EV heads-up push/fold Nash (no ante), solved by fictitious play with eval7 all-in equities, validated against HoldemResources HUNE anchors. This one *is* GTO-grade. |
-| **Everything else** (all 6-max preflop charts, HU preflop, postflop, depth charts) | **Hand-authored with AI assistance, then simulation-validated.** These are *calibrated heuristics*, not solver output. Aggregate VPIP/PFR bands were tuned to match targets in 10k-hand sims; individual cells were not solved. |
+| `vs_3bet` and `vs_4bet` rows of the 6-max preflop charts | **Equity-derived gradient** (June 2026, PRs #271–273). Regenerated from an eval7 all-in-equity matrix vs an assumed villain re-raise range — *not* a full solver/equilibrium, but a principled equity gradient rather than a hand-authored guess. This is what killed the old "jam 72o into a 4-bet" stub. See note below. |
+| **Everything else** (RFI + `vs_open`, HU preflop, postflop, depth charts) | **Hand-authored with AI assistance, then simulation-validated.** These are *calibrated heuristics*, not solver output. Aggregate VPIP/PFR bands were tuned to match targets in 10k-hand sims; individual cells were not solved. |
 
 So when you see a frequency like "3-bet 15%," treat it as "a human's guess that
 sim-tested okay," not "the GTO frequency." Telling us where the heuristic diverges
@@ -275,7 +276,16 @@ Dominant action + its %: `R`=3-bet, `C`=call, `·`=fold. (All 15 defender×opene
 
 ### 3. Our open got 3-bet — all 15 nodes (`vs_3bet`)
 
-Dominant action + its %: `4`=4-bet (to ~2.2×), `C`=call, `·`=fold. (This chart has no jam in 3-bet pots at 100bb.)
+Dominant action + its %: `4`=4-bet (to ~2.2×), `C`=call, `·`=fold. (No jam in 3-bet pots at 100bb.)
+
+> **This chart is a polarized equity gradient (June 2026), and the grids hide one
+> structural fact you can't see from a dominant-action cell:** the 4-bet is
+> **suited-only**. Value hands and *suited* blocker bluffs (e.g. `A5s`, which 4-bets
+> ~30% here) carry a 4-bet; **every offsuit non-value hand has only call/fold — no
+> raise key at all**, so neither the archetype transforms nor the personality
+> distortion can ever 4-bet offsuit trash (a maniac 4-bets a wide *suited* range,
+> never `72o`). Junk is *not* pure-folded — it keeps a thin `call` so the
+> station/fish transforms can widen it. Only `AKo` among offsuit hands can 4-bet.
 
 
 **UTG vs HJ**
@@ -566,6 +576,12 @@ Dominant action + its %: `4`=4-bet (to ~2.2×), `C`=call, `·`=fold. (This chart
 ### 4. Our 3-bet got 4-bet — all 15 nodes (`vs_4bet`)
 
 Dominant action + its %: `J`=jam (all-in), `C`=call, `·`=fold.
+
+> **Also an equity gradient (June 2026), with one difference from `vs_3bet`:** facing
+> a 4-bet, **junk is pure-folded** (`72o` = fold 100%) — there's no thin call to widen,
+> because defending a 4-bet that wide is indefensible even for a fish. Value stacks
+> off (jam), and a few *suited* blockers (`A5s`) jam as bluffs; everything marginal
+> calls or folds by price.
 
 
 **HJ vs UTG**
@@ -2729,10 +2745,17 @@ whether the *triggers* are even the right reads is welcome.
   coverage gap, not hand-strength blindness.)
 - **UTG/HJ may be too tight** — defensible for a weak-postflop bot, but a reg would
   exploit the cap.
-- **`vs_3bet` / `vs_4bet` are our weakest charts** — note `vs_3bet` has *no 4-bet
-  bluffs as jams* (only the linear 4-bet-or-call-or-fold split) and `vs_4bet`
-  collapses to jam-or-fold-or-call. We had a historical bug where the bot jammed
-  trash into 4-bets (since fixed), but the frequencies are still heuristics.
+- **`vs_3bet` / `vs_4bet` were recently *rebuilt*, not left as stubs** — both were a
+  coarse blob (one `{fold,call,4bet}` distribution shared across ~159 hands, which is
+  what caused the old "jam offsuit trash into a 4-bet" behavior). In June 2026 they
+  were regenerated from an eval7 all-in-equity matrix into polarized gradients
+  (suited-only 4-bet bluffs; see the notes on §3/§4 above). Worth a careful look:
+  the villain re-raise range they were solved *against* is an assumption, and the
+  `vs_3bet` rebuild was shipped as a deliberate **believability-over-EV** trade
+  (−3.8 bb/100 vs the old spewy stub in a head-to-head, accepted because the stub
+  only "won" by trash-bluffing an over-folding clone). So the open question isn't
+  "are these stubs" anymore — it's "is the assumed villain range right, and is the
+  EV we gave up worth the more readable archetypes."
 
 ## If you want the raw data
 
