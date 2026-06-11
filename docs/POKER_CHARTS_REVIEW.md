@@ -55,18 +55,23 @@ At decision time the bot picks exactly one chart for the spot:
 |---|---|
 | Heads-up (2 players), >15bb | `preflop_100bb_hu.json` (676 entries) |
 | Heads-up, ≤15bb effective | `push_fold_hu.json` (Nash push/fold) — overrides the HU chart |
+| 6-max / multiway, ≤15bb effective, in-scope short-stack spot, persona has `push_fold_nash` | `push_fold_6max.json` — unopened jams, BB call-vs-shove, and flag-gated reshove over a single open |
 | 6-max / multiway, character **has** a width-tier (nit/LAG/maniac/station/weak-fish) | That archetype's width chart, **at every depth** (identity beats depth — a maniac stays loose even at a 40bb buy-in) |
 | 6-max / multiway, character **has no** width-tier (TAG / baseline) | The depth chart nearest the effective stack: 100bb / 50bb / 25bb |
 | Postflop (all depths, 6-max and HU) | Single `postflop_strategies.json`; only the `(single-raised pot, high-SPR)` node is authored — everything else rides a degrade ladder (SPR low→high, 3-bet-pot→single-raised-pot) |
 
 Notes worth flagging to a reviewer:
-- There is **no 6-max push/fold table** yet — short-stack 6-max spots fall back to
-  the nearest depth chart, which is a known gap.
-- The **50bb / 25bb depth charts intentionally keep the *old, tight* RFI** (the
-  CO/BTN/SB widening was measured at 100bb only). So shallow opens are tighter than
-  100bb opens by design, not by accident.
-- Postflop is thin: one authored node + fallbacks. Preflop is where the real
-  content is, which is why this packet focuses there.
+- 6-max push/fold is live only for opted-in personas and in-scope spots. Unopened
+  jams and BB call-vs-shove use `push_fold_6max.json`; reshove over a single
+  non-all-in open is `[L]` extrapolated and gated behind
+  `PUSH_FOLD_6MAX_RESHOVE_ENABLED`. Out-of-scope short-stack spots still fall
+  back to the normal preflop table / `short_stack.py` path.
+- The **50bb / 25bb depth charts use the same RFI as 100bb** — opens are passed
+  through unchanged (`t_rfi` is identity), so shallow RFI is byte-identical to the
+  *widened* 100bb opens (UTG 11.5 … CO 27.3 … BTN 47.5).
+- Postflop the *frequency table* is thin (one authored node + fallbacks), **but
+  the bot is not blind to what it flopped** — it classifies its real hand into a
+  made-hand/draw bucket on every street and routes through equity-aware overrides.
 
 ---
 
@@ -873,9 +878,14 @@ versions of those player types (vs. just "random") is welcome.
 
 ## Known gaps we already suspect (so you can confirm/prioritize)
 
-- **No 6-max push/fold table** — short-stack 6-max rides the 25bb depth chart.
-- **Postflop is one authored node + fallbacks** — likely the single biggest source
-  of EV leak vs a competent reg.
+- **6-max push/fold is scoped, not complete.** Unopened jams and BB call-vs-shove
+  are charted; reshove over a single open is `[L]`, opener-position-agnostic, and
+  feature-flagged. Multiway reshoves, 3-bet+ wars, non-BB call-vs-shove, and
+  personas without `push_fold_nash` still fall through.
+- **Postflop *table coverage* is one authored node + fallbacks** — likely the
+  single biggest source of EV leak vs a competent reg. (The bot still reads its own
+  hand strength on every street, so this is a coverage gap, not hand-strength
+  blindness.)
 - **UTG/HJ may be too tight** — defensible for a weak-postflop bot, but a reg would
   exploit the cap.
 - **`vs_3bet` / `vs_4bet` are our weakest charts** — note `vs_3bet` has *no 4-bet

@@ -56,13 +56,17 @@ At decision time the bot picks exactly one chart for the spot:
 |---|---|
 | Heads-up (2 players), >15bb | `preflop_100bb_hu.json` (676 entries) |
 | Heads-up, ≤15bb effective | `push_fold_hu.json` (Nash push/fold) — overrides the HU chart |
+| 6-max / multiway, ≤15bb effective, in-scope short-stack spot, persona has `push_fold_nash` | `push_fold_6max.json` — unopened jams, BB call-vs-shove, and flag-gated reshove over a single open |
 | 6-max / multiway, character **has** a width-tier (nit/LAG/maniac/station/weak-fish) | That archetype's width chart, **at every depth** (identity beats depth — a maniac stays loose even at a 40bb buy-in) |
 | 6-max / multiway, character **has no** width-tier (TAG / baseline) | The depth chart nearest the effective stack: 100bb / 50bb / 25bb |
 | Postflop (all depths, 6-max and HU) | Single `postflop_strategies.json`; only the `(single-raised pot, high-SPR)` node is authored — everything else rides a degrade ladder (SPR low→high, 3-bet-pot→single-raised-pot) |
 
 Notes worth flagging to a reviewer:
-- There is **no 6-max push/fold table** yet — short-stack 6-max spots fall back to
-  the nearest depth chart, which is a known gap.
+- 6-max push/fold is live only for opted-in personas and in-scope spots. Unopened
+  jams and BB call-vs-shove use `push_fold_6max.json`; reshove over a single
+  non-all-in open is `[L]` extrapolated and gated behind
+  `PUSH_FOLD_6MAX_RESHOVE_ENABLED`. Out-of-scope short-stack spots still fall
+  back to the normal preflop table / `short_stack.py` path.
 - The **50bb / 25bb depth charts use the same RFI as 100bb** — opens are passed
   through unchanged (`t_rfi` is identity), so shallow RFI is byte-identical to the
   *widened* 100bb opens (UTG 11.5 … CO 27.3 … BTN 47.5). (An earlier draft claimed
@@ -2767,7 +2771,10 @@ whether the *triggers* are even the right reads is welcome.
 
 ## Known gaps we already suspect (so you can confirm/prioritize)
 
-- **No 6-max push/fold table** — short-stack 6-max rides the 25bb depth chart.
+- **6-max push/fold is scoped, not complete.** Unopened jams and BB call-vs-shove
+  are charted; reshove over a single open is `[L]`, opener-position-agnostic, and
+  feature-flagged. Multiway reshoves, 3-bet+ wars, non-BB call-vs-shove, and
+  personas without `push_fold_nash` still fall through.
 - **Postflop *table coverage* is one authored node + fallbacks** — likely the
   single biggest source of EV leak vs a competent reg. (The bot still reads its own
   hand strength on every street — see "Postflop & adaptation" — so this is a

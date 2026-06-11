@@ -39,9 +39,11 @@ stay parked; this is the near-term, releasable, hand/LLM path.
 | `preflop_{50,25}bb_6max.json` | 50, 25bb | **Coarse, derived** by `generate_depth_charts.py` transforms (shipped `707ff03b`) |
 | `preflop_100bb_hu.json` | 100bb | Authored (HU only) |
 | `push_fold_hu.json` | 5–15bb HU | Authored (HU push/fold) |
+| `push_fold_6max.json` | ≤15bb 3–6 handed | Generated from published Nash-style ranges; covers unopened jams, BB call-vs-shove, and `[L]` flag-gated reshove over a single open |
 
-Gaps: no HU depth charts below 100bb except push/fold; no 6-max push/fold
-(see `PUSH_FOLD_6MAX_SCOPE.md`).
+Gaps: no HU depth charts below 100bb except push/fold; 6-max push/fold is scoped
+rather than complete (no multiway reshove, no 3-bet+ war, no non-BB call-vs-shove,
+and only opted-in personas use it; see `PUSH_FOLD_6MAX_SCOPE.md`).
 
 ### Postflop — `postflop_strategies.json` = 2,160 entries
 A **full grid** on six axes, but **frozen on the other two**:
