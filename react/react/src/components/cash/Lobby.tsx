@@ -26,7 +26,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useLocation, useNavigate } from 'react-router-dom';
 import { createAuthedSocket } from '../../utils/socket';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
-import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
+import { PageLayout, MenuBar, ShuffleLoading, Skeleton } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
 import {
   getLobby,
@@ -978,6 +978,22 @@ export function Lobby() {
           )}
 
           {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
+
+          {/* First-ever load (no SWR snapshot yet): shape the hero + table rows so
+              the lobby fills in place instead of blank-then-pop. A returning user
+              is seeded from cache before paint, so bankroll is already set here. */}
+          {bankroll === null && !showIntake && (
+            <div
+              className="cash-entry__skeleton"
+              aria-busy="true"
+              style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}
+            >
+              <Skeleton height="7rem" radius="var(--radius-2xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+            </div>
+          )}
 
           {reputation && <ReputationPanel reputation={reputation} />}
 
