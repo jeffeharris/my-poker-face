@@ -31,7 +31,11 @@ LEGAL_ACTIONS: Dict[str, set] = {
     "rfi": {"raise_2.5bb", "fold"},
     "vs_open": {"raise_3x", "call", "fold"},
     "vs_3bet": {"raise_2.2x", "call", "fold"},  # no jam in 3-bet pots at 100bb
-    "vs_squeeze": {"raise_2.2x", "call", "fold"},  # cold-caller faces a 3-bet; same vocab as vs_3bet
+    "vs_squeeze": {
+        "raise_2.2x",
+        "call",
+        "fold",
+    },  # cold-caller faces a 3-bet; same vocab as vs_3bet
     "vs_4bet": {"jam", "call", "fold"},
 }
 FACING_BRANCHES = ("vs_open", "vs_3bet", "vs_4bet")

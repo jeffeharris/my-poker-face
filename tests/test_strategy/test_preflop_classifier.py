@@ -18,8 +18,9 @@ def _player(name, bet=0):
     return SimpleNamespace(name=name, bet=bet, is_folded=False, stack=1000)
 
 
-def _game(players, dealer_idx=0, current_idx=0, raises=0, ante=50, table_positions=None,
-          opener_idx=-1):
+def _game(
+    players, dealer_idx=0, current_idx=0, raises=0, ante=50, table_positions=None, opener_idx=-1
+):
     """Build a minimal game-state namespace for testing."""
     gs = SimpleNamespace(
         players=tuple(players),
