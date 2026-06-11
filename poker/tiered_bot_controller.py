@@ -23,7 +23,6 @@ from .controllers import AIPlayerController, _get_canonical_hand
 from .hand_tiers import is_hand_in_range
 from .stack_utils import big_blind_of, effective_stack_bb
 from .strategy.action_mapper import resolve_postflop_sizing, resolve_preflop_sizing
-from .strategy.action_vocab import abstract_call_token
 from .strategy.deviation_profiles import DeviationProfile, select_deviation_profile
 from .strategy.exploitation import (
     DEFAULT_MAX_TOTAL_SHIFT,
@@ -60,6 +59,7 @@ from .strategy.push_fold import (
     PUSH_FOLD_THRESHOLD_BB,
     lookup_push_fold_action,
     lookup_push_fold_action_6max,
+    reshove_action_6max,
 )
 from .strategy.short_stack import apply_short_stack_heuristics
 from .strategy.sizing_tendencies import (
@@ -312,6 +312,17 @@ def _tilt_erratic_enabled() -> bool:
         from core.feature_flags import is_enabled
 
         return is_enabled('TILT_ERRATIC_READS_ENABLED')
+    except Exception:
+        return False
+
+
+def _reshove_6max_enabled() -> bool:
+    """Live read of PUSH_FOLD_6MAX_RESHOVE_ENABLED; False if the registry is
+    unavailable so the off-path falls through (byte-identical to no reshove)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('PUSH_FOLD_6MAX_RESHOVE_ENABLED')
     except Exception:
         return False
 
@@ -1038,13 +1049,10 @@ class TieredBotController(AIPlayerController):
             num_seated,
         )
         if push_fold_action is not None:
-            # The caller tables return the abstract 'call'. When calling the jam
-            # is itself a call-off (engine drops 'call', offers only 'all_in'),
-            # the abstract token is 'jam' — not raw 'call', which would later
-            # fall back to fold (folding a hand the chart said to call). Mirrors
-            # _facing_all_in_preflop_veto's call/jam split. No-op for jam/fold.
-            if push_fold_action == 'call':
-                push_fold_action = abstract_call_token(valid_actions)
+            # push_fold_action is an abstract token ('jam'/'fold'/'call'). A
+            # caller-table 'call' that is a call-off (engine offers only
+            # 'all_in') is resolved to all_in centrally in resolve_preflop_sizing
+            # (it's passed valid_actions) — no per-producer pre-translation here.
             base_strategy = StrategyProfile(action_probabilities={push_fold_action: 1.0})
             if self.debug_logging:
                 logger.info(
@@ -1090,7 +1098,7 @@ class TieredBotController(AIPlayerController):
             self._last_pipeline_snapshot['sampled_abstract_action'] = veto_action
 
             game_action, raise_to = resolve_preflop_sizing(
-                veto_action, game_state, player_idx, rng=self.rng
+                veto_action, game_state, player_idx, rng=self.rng, valid_actions=valid_actions
             )
             if game_action not in valid_actions:
                 game_action, raise_to = self._validate_action(game_action, raise_to, valid_actions)
@@ -1288,6 +1296,7 @@ class TieredBotController(AIPlayerController):
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
             size_multiplier=size_multiplier,
+            valid_actions=valid_actions,
         )
 
         if game_action not in valid_actions:
@@ -1777,6 +1786,7 @@ class TieredBotController(AIPlayerController):
             player_idx,
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
+            valid_actions=valid_actions,
         )
 
         # 9. Validate action is legal
@@ -3986,15 +3996,17 @@ class TieredBotController(AIPlayerController):
         back toward a jam.
 
         Returns `(profile, abstract_action, equity, required_equity)` when it
-        fires — a pure `{action: 1.0}` profile where `action` is `'call'`,
-        `'jam'`, or `'fold'`. Returns None when not facing an all-in, when the
+        fires — a pure `{action: 1.0}` profile where `action` is `'call'` or
+        `'fold'`. Returns None when not facing an all-in, when the
         pot-odds/equity can't be computed, or when neither call nor fold is
         legal (caller keeps the normal chart path).
 
-        Never emits a *voluntary* re-jam: 'jam' is returned only when calling
-        the shove already commits hero's whole stack (call is illegal, so
-        jam == call mechanically). When hero covers the shove, the continue
-        action stays a flat 'call' — exactly the over-commit the stub got wrong.
+        Never emits a *voluntary* re-jam. The continue action is always the
+        abstract `'call'`; `resolve_preflop_sizing` (passed valid_actions) turns
+        it into all_in only when calling the shove is itself a call-off (call
+        illegal, only all_in legal) — i.e. jam == call mechanically. When hero
+        covers the shove it stays a flat 'call' — the over-commit the stub got
+        wrong.
         """
         ctx = self._build_decision_context(game_state, player_idx)
         if not (ctx.is_preflop and ctx.facing_all_in):
@@ -4013,15 +4025,12 @@ class TieredBotController(AIPlayerController):
             return None
 
         if equity >= required:
-            # Continue. Flat-call when hero covers; if calling the shove is
-            # itself all-in (engine drops 'call', offers only 'all_in'), the
-            # continue IS a jam mechanically — no extra chips at risk.
-            if 'call' in valid_actions:
-                action = 'call'
-            elif 'all_in' in valid_actions:
-                action = 'jam'
-            else:
+            # Continue. Emit the abstract 'call'; resolve_preflop_sizing turns
+            # it into all_in iff calling is a call-off (call illegal, only
+            # all_in legal). Bail only if neither continue action is legal.
+            if 'call' not in valid_actions and 'all_in' not in valid_actions:
                 return None
+            action = 'call'
         else:
             if 'fold' not in valid_actions:
                 return None
@@ -4324,7 +4333,7 @@ class TieredBotController(AIPlayerController):
     ) -> Optional[str]:
         """Multi-way short-stack push/fold via the 6max chart.
 
-        Two in-scope spots:
+        Three in-scope spots:
           1. Unopened, truly first-in (folded to hero, no raise AND no limper):
              hero (UTG/HJ/CO/BTN/SB) jams or folds from the `unopened` chart.
              BB unopened (a walk) isn't in the chart -> None.
@@ -4332,12 +4341,16 @@ class TieredBotController(AIPlayerController):
              call or fold from the caller tables -- bb_vs_sb when the jammer is
              the SB, else bb_vs_late. The caller tables are BB-vs-jam only, so a
              non-BB hero facing a jam falls through.
+          3. Reshove: hero facing a SINGLE non-all-in open jams or folds from the
+             `reshove` table. Gated behind PUSH_FOLD_6MAX_RESHOVE_ENABLED (the
+             ranges are [L]); detection lives in the shared, controller-agnostic
+             `reshove_action_6max`, which fail-closes on 3-bet+ wars, cold-caller
+             multiway, and limped pots.
 
         Returns None for any other multi-way short-stack spot (limped / iso
-        pots, a raise that isn't all-in, a short all-in under a larger live
-        raise, or 2+ opponents already all-in — none of which the single-jammer
-        caller tables model) so the deep-stack / short_stack.py path keeps
-        handling them.
+        pots, a 3-bet+ war, a short all-in under a larger live raise, 2+
+        opponents already all-in, or reshove with the flag off) so the
+        deep-stack / short_stack.py path keeps handling them.
         """
         position = get_6max_position(game_state, player_idx)
 
@@ -4391,6 +4404,14 @@ class TieredBotController(AIPlayerController):
         #     poker_game.player_call), so over-limp / iso spots would otherwise
         #     wrongly get first-in jam ranges.
         if getattr(game_state, 'raises_this_round', 0) != 0:
+            # Facing a live (non-all-in) raise — not first-in. Reshove (jam over
+            # a single open) is the in-scope spot here, gated behind
+            # PUSH_FOLD_6MAX_RESHOVE_ENABLED; reshove_action_6max fail-closes on
+            # 3-bet wars / cold-callers / multiway (returns None → fall through).
+            if _reshove_6max_enabled():
+                return reshove_action_6max(
+                    canonical_hand, game_state, player_idx, num_seated, big_blind, eff_bb
+                )
             return None
         for i, p in active_opps:
             # The BB is the only opponent legitimately in for the big blind when

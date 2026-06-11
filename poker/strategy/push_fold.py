@@ -24,7 +24,8 @@ Two charts are served:
     call-vs-jam, gated to num_opponents == 1.
   - `lookup_push_fold_action_6max` (multi-way, `push_fold_6max.json`) —
     per-position unopened jams (UTG/HJ/CO/BTN/SB) + the two caller tables
-    (bb_vs_sb, bb_vs_late), gated to num_players > 2. Reshove deferred to v2.
+    (bb_vs_sb, bb_vs_late) + the reshove table (jam over a single open, via
+    `reshove_action_6max`, flag-gated). Gated to num_players > 2.
 
 Multi-way short-stack spots that aren't covered by the 6max chart (e.g. a
 non-blind hero facing a jam, num_players==2) fall through to the existing
@@ -37,6 +38,8 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Optional
+
+from .preflop_classifier import get_6max_position
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +191,7 @@ def lookup_push_fold_action_6max(
     num_players: int,
     facing_jam: bool = False,
     opener_position: Optional[str] = None,
+    facing_open: bool = False,
 ) -> Optional[str]:
     """Look up the multi-way (6-max) Nash push/fold action for a short-stack
     spot, using `data/push_fold_6max.json` (chip-EV, ICM off).
@@ -209,15 +213,20 @@ def lookup_push_fold_action_6max(
             'SB' routes to the bb_vs_sb caller table; anything else routes
             to bb_vs_late. Ignored when not facing a jam. The caller tables
             are BB-vs-jam only, so a non-BB hero facing a jam returns None.
+        facing_open: True when hero faces a single non-all-in open and is
+            deciding whether to reshove (jam-or-fold). Uses the depth-keyed
+            `reshove` table (opener-position-agnostic in v1). Mutually
+            exclusive with facing_jam; takes precedence if both are set.
 
     Returns:
-        'jam'/'fold' for an unopened (first-in) spot, 'call'/'fold' when
-        facing a jam, or None when out of scope (HU, depth above the top
+        'jam'/'fold' for an unopened (first-in) spot OR a reshove, 'call'/'fold'
+        when facing a jam, or None when out of scope (HU, depth above the top
         bucket, position/hand not in the chart, BB unopened, etc.).
 
-    Scope (v1): unopened jams (UTG/HJ/CO/BTN/SB) + the two caller tables.
-    BB never open-shoves, so BB without `facing_jam` returns None. Reshove
-    (jam over a min-raise) is deferred to v2.
+    Scope (v1): unopened jams (UTG/HJ/CO/BTN/SB) + the two caller tables + the
+    reshove table (facing a single open; [L] confidence, flag-gated at the call
+    site). BB never open-shoves first-in, so BB without facing_jam/facing_open
+    returns None.
     """
     # 3-6 handed only: the chart's position labels are 6-max, and >8-handed
     # tables can't even be labeled (9+ collapse to blinds-only → UTG fallback).
@@ -232,7 +241,13 @@ def lookup_push_fold_action_6max(
     if effective_stack_bb > (max(buckets) if buckets else PUSH_FOLD_THRESHOLD_BB):
         return None
 
-    if facing_jam:
+    if facing_open:
+        # Reshove (jam-or-fold over a single non-all-in open). Depth-keyed only
+        # (opener-position-agnostic in v1); any hero position is in scope, incl.
+        # BB (a BB reshove over an open is standard — unlike the unopened chart,
+        # which excludes BB).
+        scenario, depth_data = _resolve_6max_reshove_scenario(chart, effective_stack_bb)
+    elif facing_jam:
         # The caller tables (bb_vs_sb / bb_vs_late) are BB-vs-jam only. A non-BB
         # hero facing a jam — a CO/BTN facing an earlier jam, or the SB (there is
         # no sb_vs_* table) — is out of v1 scope, so fall through.
@@ -303,6 +318,90 @@ def _resolve_6max_call_scenario(chart, opener_position, effective_stack_bb, buck
     if not scenario:
         return None, None
     return scenario, (table_key, bucket)
+
+
+def reshove_action_6max(
+    hand: str,
+    game_state,
+    player_idx: int,
+    num_seated: int,
+    big_blind: float,
+    effective_stack_bb: float,
+) -> Optional[str]:
+    """Controller-agnostic reshove decision: jam-or-fold over a SINGLE
+    non-all-in open. Returns 'jam'/'fold' when in scope, else None.
+
+    A pure read of `game_state` so any controller can reuse it — the sharp bot
+    wires it behind PUSH_FOLD_6MAX_RESHOVE_ENABLED; other bot types may opt in
+    independently (the 6-max push/fold *charts* are sharp-only, but reshoving a
+    short stack over an open is a generally useful skill). Callers pass the
+    effective stack (stack_utils.effective_stack_bb) and big blind they already
+    computed.
+
+    Fail-closed — fires only on a clean hero-vs-one-opener spot: exactly one
+    live raiser, a single raise this round (no 3-bet+ war), no all-in opponent
+    (that is the caller-table spot, not a reshove), no cold-caller between, and
+    hero is not the opener. Anything else returns None (defer to the caller's
+    fallback path).
+    """
+    if num_seated <= 2 or num_seated > 6:
+        return None
+    # Exactly one raise this round — excludes limped pots (0) and 3-bet+ wars.
+    if getattr(game_state, "raises_this_round", 0) != 1:
+        return None
+
+    active_opps = [
+        (i, p)
+        for i, p in enumerate(game_state.players)
+        if i != player_idx and not getattr(p, "is_folded", False)
+    ]
+    # An all-in opponent makes this a facing-jam (caller-table) spot, not a
+    # reshove — the caller must have already routed those; bail to be safe.
+    if any(
+        getattr(p, "stack", 1) == 0 and getattr(p, "bet", 0) > big_blind for _, p in active_opps
+    ):
+        return None
+
+    # The lone opener = the single non-BB opponent in for more than a blind. A
+    # second voluntary contributor (cold-caller) is a multiway reshove the v1
+    # single-opener table doesn't model → fall through.
+    raisers = [
+        (i, p)
+        for i, p in active_opps
+        if get_6max_position(game_state, i) != "BB" and getattr(p, "bet", 0) > big_blind
+    ]
+    if len(raisers) != 1:
+        return None
+    opener_idx, opener = raisers[0]
+    highest = max((getattr(p, "bet", 0) for _, p in active_opps), default=0)
+    if getattr(opener, "bet", 0) != highest:
+        return None  # someone outbid the opener without a recorded raise → bail
+
+    return lookup_push_fold_action_6max(
+        hand=hand,
+        position=get_6max_position(game_state, player_idx),
+        effective_stack_bb=effective_stack_bb,
+        num_players=num_seated,
+        facing_open=True,
+        opener_position=get_6max_position(game_state, opener_idx),
+    )
+
+
+def _resolve_6max_reshove_scenario(chart, effective_stack_bb):
+    """Return (scenario_map, (conf_key, bucket)) for a reshove spot, or
+    (None, None) when out of scope. Depth-keyed only (no position dimension);
+    a sub-8 BB reshove clamps up to the table's own minimum bucket."""
+    table = chart.get("reshove", {})
+    if not table:
+        return None, None
+    table_buckets = sorted(int(k) for k in table.keys())
+    bucket = _nearest_bucket_in(table_buckets, effective_stack_bb)
+    if bucket is None:
+        return None, None
+    scenario = table.get(str(bucket))
+    if not scenario:
+        return None, None
+    return scenario, ("reshove", bucket)
 
 
 def reset_chart_cache() -> None:

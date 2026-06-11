@@ -582,6 +582,23 @@ register(
 )
 register(
     FeatureFlag(
+        "PUSH_FOLD_6MAX_RESHOVE_ENABLED",
+        # EXPERIMENTAL: ranges are [L] (extrapolated, PUSH_FOLD_6MAX_SCOPE.md) but
+        # validation showed facing-a-single-open is the dominant short-stack spot
+        # (~66%), so even approximate reshove ranges beat the deep-stack fall-through.
+        # Gate stays off until a short-stack A/B confirms it. The reshove detector
+        # is controller-agnostic (push_fold.reshove_action_6max); this flag gates
+        # the sharp bot's call site — other controllers can opt in independently.
+        Stage.EXPERIMENTAL,
+        "6-max short-stack RESHOVE (jam-or-fold over a single non-all-in open) via the push_fold_6max 'reshove' chart. Off => the spot falls through to the deep-stack / short_stack.py path (byte-identical).",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
         "EMOTIONAL_REBALANCE_ENABLED",
         Stage.EXPERIMENTAL,
         "Emotional-system rebalance (EMOTIONAL_SYSTEM_BALANCE.md §3/§6.1): decouple conviction (confidence) from chip-winning — re-derive baseline_confidence from self_belief+ego (drop aggression/risk) and cut the UP event-pumps while concentrating DOWNs on epistemic events, so the fear pole (shaken) becomes reachable. Changes psychology axes; off => current baseline + event table (byte-identical).",
