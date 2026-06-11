@@ -65,8 +65,11 @@ Notes worth flagging to a reviewer:
 - The **50bb / 25bb depth charts intentionally keep the *old, tight* RFI** (the
   CO/BTN/SB widening was measured at 100bb only). So shallow opens are tighter than
   100bb opens by design, not by accident.
-- Postflop is thin: one authored node + fallbacks. Preflop is where the real
-  content is, which is why this packet focuses there.
+- Postflop the *frequency table* is thin (one authored node + fallbacks), **but
+  the bot is not blind to what it flopped** — it classifies its real hand into a
+  made-hand/draw bucket on every street and routes through equity-aware overrides.
+  See "Postflop & adaptation" below. Preflop is where the bulk of the authored
+  content is, which is why the grids in this packet focus there.
 
 ---
 
@@ -869,13 +872,79 @@ These are deliberately *exploitable* character ranges, not attempts at balance �
 maniac is *supposed* to be too loose. Feedback on whether they read as believable
 versions of those player types (vs. just "random") is welcome.
 
+Two things to know about how these transforms work, since they shape what you'll
+see in the grids:
+- **The transforms hit the defense charts too, not just opens.** `vs_open`,
+  `vs_3bet`, and `vs_4bet` are all reshaped per archetype (a station flats wider and
+  *traps* premiums instead of 3-betting them; a maniac continues wider and 4-bets a
+  polarized, suited-only bluff range). Only the *opening* ranges are bespoke
+  hand-picked sets; the facing ranges are a proportional fold→call/raise
+  redistribution **masked by the base chart** — a hand the base pure-folds stays
+  folded, so an archetype never invents continues the base never had.
+- **Two layers, not one.** The width-tier *table* carries the range envelope; a
+  separate runtime **personality distortion** (a capped logit nudge, ~±0.30 per
+  action) adds aggression/passivity *flavor* on top. The nudge can't widen a range
+  the table folds ~100% — that ceiling is the whole reason the tables exist.
+
+There's also an orthogonal **skill axis** (`shark` / `reg` / `weak_reg` / `rec`)
+that's independent of looseness: it scales how sharply a character bluffs rivers,
+defends vs stabs, overbets, and adapts. So a "weak reg maniac" is wide *and*
+face-up; a "shark TAG" is tight *and* tricky. Archetype = how loose; skill = how
+good. (There is no global difficulty dial — difficulty is just which character +
+skill tier you're seated against.)
+
+---
+
+## Postflop & adaptation (what the packet's grids don't show)
+
+The grids above are all preflop. Two systems run beyond them that are worth a
+reviewer's eye, because they change how the preflop ranges actually play out:
+
+### Postflop is hand-strength aware (just thinly *charted*)
+
+The bot does **not** play postflop purely off SPR/board frequencies. On every
+street it evaluates its real hand vs the board into a made-hand + draw bucket
+(`nuts / strong_made / medium_made / weak_made / air` × `strong_draw / weak_draw /
+backdoor / no_draw`) using a rank-based evaluator (not a Monte-Carlo equity sim),
+and that bucket is an input to the lookup. On top of the frequency table sit
+equity-aware override layers: a low-SPR commit rule (jam nuts/strong), a pot-odds
+floor priced on nut-status, a pure pot-odds/pot-committed math floor, and
+value/bluff-catch overrides vs classified aggressors.
+
+So the honest framing: the postflop **lookup table's coverage** is thin (one fully
+authored node — single-raised, high-SPR — everything else degrades via fallback),
+and that thinness is probably our biggest EV leak vs a competent reg. But it's a
+*coverage* gap, not hand-strength blindness. We'd value feedback on where the
+fallback ladder gives up too much.
+
+### Opponent modeling / exploitation (no GTO claim here either)
+
+There's a live opponent-read layer, but set expectations correctly:
+- **It tracks a lot** (~25 stats: VPIP, PFR, aggression factor, fold-to-cbet,
+  barrel rates, stab frequency, equity-at-action, sizing polarization, …) **but
+  the archetype label keys off only three** — aggression factor, all-in frequency,
+  and a player-count-normalized VPIP — into `hyper_aggressive` / `hyper_passive` /
+  `tight_nit`. The richer stats drive a handful of separate exploit *rules*.
+- **Convergence is "binary label, gradual strength":** no archetype label before
+  **15 hands**; the exploitation *magnitude* then ramps linearly to full over
+  ~**100 hands**.
+- **Before it converges it does nothing special** — it just plays its own
+  archetype table + distortion. There's no separate "GTO baseline mode" underneath.
+- **Adaptation is a logit-nudge layer, not a counter-chart swap.** We do *not*
+  switch to a villain-specific exploit chart once we read someone. (We tested
+  adaptive preflop-table selection — switch tighter vs a station — and it came back
+  EV-neutral because the wide range already beat every fixed villain, so it was
+  never built.)
+
 ---
 
 ## Known gaps we already suspect (so you can confirm/prioritize)
 
 - **No 6-max push/fold table** — short-stack 6-max rides the 25bb depth chart.
-- **Postflop is one authored node + fallbacks** — likely the single biggest source
-  of EV leak vs a competent reg.
+- **Postflop *table coverage* is one authored node + fallbacks** — likely the
+  single biggest source of EV leak vs a competent reg. (The bot still reads its own
+  hand strength on every street — see "Postflop & adaptation" — so this is a
+  coverage gap, not hand-strength blindness.)
 - **UTG/HJ may be too tight** — defensible for a weak-postflop bot, but a reg would
   exploit the cap.
 - **`vs_3bet` / `vs_4bet` are our weakest charts** — note `vs_3bet` has *no 4-bet
