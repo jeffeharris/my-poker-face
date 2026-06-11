@@ -2,7 +2,7 @@
 purpose: Build plan for a multi-way (6-max) short-stack push/fold lookup table for the tiered bot, plus the short-stack sim harness needed to validate it
 type: design
 created: 2026-05-24
-last_updated: 2026-05-24
+last_updated: 2026-06-11
 ---
 
 # Multi-way Push/Fold Table (`push_fold_6max.json`) — Build Scope
@@ -13,6 +13,45 @@ last_updated: 2026-05-24
 > sizing double-count. This doc adds a genuinely **new** table. Written for a
 > fresh context to execute in goal mode. See **Next to consider** at the
 > bottom for the broader new-table backlog so it isn't lost.
+
+## Status & handoff (2026-06-11)
+
+**v1 is implemented** in PR **#286** (`feat/push-fold-6max-revival`), revived from
+the original (superseded) `push-fold-6max` branch and re-integrated against current
+`main`. As of this note it is mergeable with CI green/pending; the original
+branch can be deleted once #286 lands.
+
+**What shipped (v1):**
+- `poker/strategy/data/push_fold_6max.json` (+ `generate_push_fold_6max.py`,
+  `push_fold_6max_README.md`) — unopened per-position jams + the `bb_vs_sb` /
+  `bb_vs_late` caller tables. `calibration_status: v1_from_published_nash`
+  (published-Nash approximations, **not** a fresh solver run — see the README).
+- `poker/strategy/push_fold.py::lookup_push_fold_action_6max` — the lookup.
+- `poker/tiered_bot_controller.py::_try_push_fold_6max` — routing (split out of
+  `_try_push_fold_lookup`; HU path unchanged in `_try_push_fold_hu`).
+- Tests: `tests/test_strategy/test_push_fold_6max.py` (chart) +
+  `test_push_fold_routing.py` (HU-vs-6max dispatch + the scope gates below).
+
+**Scope is single-villain, fail-closed.** v1 only fires in the exact spots the
+chart models and **falls through to the deep-stack / `short_stack.py` path** for
+everything else. Four gates (all with regression tests) enforce this — see
+**v1 scope boundaries** below: (1) 2+ all-ins, (2) limp / iso pots, (3) a short
+all-in under a larger live raise, (4) a non-BB hero facing a jam. These were
+review findings layered on after the initial revival; if you touch the routing,
+keep the fail-closed posture.
+
+**Open / deferred (a new context picks up here):**
+1. **Validation gate (biggest item).** The ranges are `v1_from_published_nash`
+   approximations and have **not** been validated in a real short-stack sim. The
+   prerequisite sim knob is *not* yet built — `simulate_bb100` is 100 BB-only.
+   Porting `--start-bb` short-stack support (it was on the original branch, ~26
+   commits diverged from current `simulate_bb100.py`; rebuild rather than
+   cherry-pick) is the unblock. Then run a short-stack A/B vs a human-like
+   opponent (not just rule bots) — see **Risks / decisions**.
+2. **v2 ranges** (see **v1 scope boundaries**): real multi-jammer call ranges,
+   the reshove table (jam over a min-raise — researched at `[L]` confidence
+   below), and cold-caller modeling. Each is currently a documented fall-through.
+3. **Ante variant** — ranges are no-ante; the live SNG's ante status is unconfirmed.
 
 ## TL;DR
 
