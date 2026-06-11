@@ -1164,6 +1164,8 @@ def run_6max_matchup(
     opponents: Optional[List[str]] = None,
     hero_adaptation_bias: Optional[float] = None,
     disable_rules: Optional[frozenset] = None,
+    decision_analysis_repo=None,
+    game_id: Optional[str] = None,
 ) -> List[float]:
     """Run n_hands of 6-max poker: 1 archetype + 5 opponents.
 
@@ -1176,6 +1178,11 @@ def run_6max_matchup(
             to ['Baseline'] * 5 if not supplied.
 
     Duplicate opponents get suffixed seat names (CaseBot01, CaseBot02, ...).
+
+    When `decision_analysis_repo` + `game_id` are provided, the hero's
+    per-decision pipeline snapshot (incl. the `push_fold_routed` flag) is
+    persisted — the validation hook for short-stack push/fold routing.
+    Mirrors the HU `run_matchup` persistence path.
     """
     if opponents is None:
         opponents = ['Baseline'] * 5
@@ -1199,6 +1206,10 @@ def run_6max_matchup(
     # hands. Hero is archetype_seat (the first controller). Manager is
     # attached to controllers[0] below in the hand loop.
     opponent_manager = OpponentModelManager()
+
+    # Persistence: satisfy the games-table FK once per matchup (idempotent).
+    if decision_analysis_repo is not None and game_id is not None:
+        _ensure_sim_game_row(decision_analysis_repo, game_id)
 
     for hand_num in tqdm(
         range(n_hands),
@@ -1229,6 +1240,8 @@ def run_6max_matchup(
                 sm,
                 rng_seed=hand_seed,
                 disable_rules=disable_rules,  # hero only — ablation target
+                decision_analysis_repo=decision_analysis_repo,
+                game_id=game_id,
             )
         ]
         for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
@@ -1325,6 +1338,8 @@ def run_all_6max_vs_rules(
     opponents: Optional[List[str]] = None,
     hero_adaptation_bias: Optional[float] = None,
     disable_rules: Optional[frozenset] = None,
+    decision_analysis_repo=None,
+    game_id_prefix: Optional[str] = None,
 ):
     """Run each tiered archetype vs a fixed mix of 5 rule_bots at 6-max.
 
@@ -1351,6 +1366,9 @@ def run_all_6max_vs_rules(
 
     results: Dict[str, MatchupStats] = {}
     for name in test_archetypes:
+        matchup_game_id = (
+            f'{game_id_prefix}_{name}_6max_vs_rules' if game_id_prefix is not None else None
+        )
         deltas = run_6max_matchup(
             name,
             n_hands,
@@ -1362,6 +1380,8 @@ def run_all_6max_vs_rules(
             opponents=opponents,
             hero_adaptation_bias=hero_adaptation_bias,
             disable_rules=disable_rules,
+            decision_analysis_repo=decision_analysis_repo,
+            game_id=matchup_game_id,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -1656,7 +1676,17 @@ def main():
         '--stack',
         type=int,
         default=10000,
-        help='Starting stack (default: 10000)',
+        help='Starting stack in chips (default: 10000 = 100 BB at default BB)',
+    )
+    parser.add_argument(
+        '--start-bb',
+        type=float,
+        default=None,
+        help='Starting effective stack depth in big blinds. When set, '
+        'overrides --stack with start_bb * big_blind, so matchups play '
+        'at short-stack depths (e.g. --start-bb 8 / 12 / 15 / 25). This '
+        'is what exercises the push/fold tables — the 100 BB default '
+        'never reaches the <=15 BB push/fold gate. Default: use --stack.',
     )
     parser.add_argument(
         '--round-robin',
@@ -1797,6 +1827,19 @@ def main():
     )
     args = parser.parse_args()
 
+    # Short-stack knob: --start-bb overrides --stack so matchups play at a
+    # chosen effective depth (in BB). Required to exercise the push/fold
+    # tables — the 100 BB default never reaches the <=15 BB push/fold gate.
+    if args.start_bb is not None:
+        if args.start_bb <= 0:
+            print("--start-bb must be positive")
+            sys.exit(2)
+        args.stack = int(round(args.start_bb * args.big_blind))
+        print(
+            f"Short-stack mode: --start-bb {args.start_bb} -> "
+            f"starting_stack={args.stack} chips (BB size {args.big_blind})"
+        )
+
     if args.sizing_defense:
         global _SIZING_DEFENSE_CFG
         _SIZING_DEFENSE_CFG = {
@@ -1936,6 +1979,8 @@ def main():
             opponents=custom_opp,
             hero_adaptation_bias=args.adaptation_bias,
             disable_rules=disable_rules,
+            decision_analysis_repo=decision_analysis_repo,
+            game_id_prefix=game_id_prefix,
         )
     elif args.six_max:
         run_all_6max_vs_baseline(

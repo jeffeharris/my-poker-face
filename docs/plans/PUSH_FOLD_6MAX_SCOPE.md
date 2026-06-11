@@ -2,7 +2,7 @@
 purpose: Build plan for a multi-way (6-max) short-stack push/fold lookup table for the tiered bot, plus the short-stack sim harness needed to validate it
 type: design
 created: 2026-05-24
-last_updated: 2026-05-24
+last_updated: 2026-06-11
 ---
 
 # Multi-way Push/Fold Table (`push_fold_6max.json`) — Build Scope
@@ -13,6 +13,85 @@ last_updated: 2026-05-24
 > sizing double-count. This doc adds a genuinely **new** table. Written for a
 > fresh context to execute in goal mode. See **Next to consider** at the
 > bottom for the broader new-table backlog so it isn't lost.
+
+## Status & handoff (2026-06-11)
+
+**v1 is implemented** in PR **#286** (`feat/push-fold-6max-revival`), revived from
+the original (superseded) `push-fold-6max` branch and re-integrated against current
+`main`. As of this note it is mergeable with CI green/pending; the original
+branch can be deleted once #286 lands.
+
+**What shipped (v1):**
+- `poker/strategy/data/push_fold_6max.json` (+ `generate_push_fold_6max.py`,
+  `push_fold_6max_README.md`) — unopened per-position jams + the `bb_vs_sb` /
+  `bb_vs_late` caller tables. `calibration_status: v1_from_published_nash`
+  (published-Nash approximations, **not** a fresh solver run — see the README).
+- `poker/strategy/push_fold.py::lookup_push_fold_action_6max` — the lookup.
+- `poker/tiered_bot_controller.py::_try_push_fold_6max` — routing (split out of
+  `_try_push_fold_lookup`; HU path unchanged in `_try_push_fold_hu`).
+- Tests: `tests/test_strategy/test_push_fold_6max.py` (chart) +
+  `test_push_fold_routing.py` (HU-vs-6max dispatch + the scope gates below).
+
+**Scope is single-villain, fail-closed.** v1 only fires in the exact spots the
+chart models and **falls through to the deep-stack / `short_stack.py` path** for
+everything else. Four gates (all with regression tests) enforce this — see
+**v1 scope boundaries** below: (1) 2+ all-ins, (2) limp / iso pots, (3) a short
+all-in under a larger live raise, (4) a non-BB hero facing a jam. These were
+review findings layered on after the initial revival; if you touch the routing,
+keep the fail-closed posture.
+
+**Open / deferred (a new context picks up here):**
+1. **Validation harness — BUILT (2026-06-11).** `--start-bb N` is now in
+   `simulate_bb100.py` (overrides `--stack` with `N*big_blind`), and the 6max
+   runner re-threads `decision_analysis_repo`/`game_id` so the hero's
+   `push_fold_routed` snapshot persists. Full short-stack A/B vs a human-like
+   opponent (the bb/100 question) is still TODO; the **routing-coverage** read
+   below is done and is the more actionable finding.
+2. **v2 ranges** (see **v1 scope boundaries**): real multi-jammer call ranges,
+   the reshove table (jam over a min-raise — researched at `[L]` confidence
+   below), and cold-caller modeling. Each is currently a documented fall-through.
+   **Reshove is no longer "optional v2" — validation says it's the dominant
+   short-stack spot (see below). Promote it to the next build.**
+3. **Ante variant** — ranges are no-ante; the live SNG's ante status is unconfirmed.
+
+### Validation results (2026-06-11)
+
+Ran `simulate_bb100 --six-max-vs-rules --start-bb 10` with decision persistence
+(3 tiered archetypes × 200 hands @ 10 BB; 604 push/fold-**eligible** preflop
+decisions, i.e. ≤15 BB, 3–6 handed). Instrumented `_try_push_fold_6max`'s return
+and the fall-through reason.
+
+| Spot | Share of eligible | v1 routes it? |
+|---|---|---|
+| **Facing a single non-all-in open** (reshove-or-fold) | **66%** (396) | ❌ → deep-stack/short_stack (reshove = v2) |
+| Unopened first-in (jam/fold) | 17% (96 fold, **6 jam**) | ✅ |
+| BB unopened / facing a raise | 16% (96) | ❌ |
+| Facing a clean single all-in (caller table) | ~2% (10) | ✅ (but shadowed — see below) |
+
+**Headline:** the v1 table only **decides ~17%** of short-stack preflop spots.
+The dominant spot (66%) is **facing a single open-raise** — and of those, **99%
+are a single open** (not a 3-bet war) sized **2–3 BB** into the 10 BB stack. So
+short-stack play here is overwhelmingly **reshove-or-fold facing a min-open**,
+which v1 explicitly defers. This is a sim of rule bots that *size-raise* rather
+than open-jam, but that matches real short-stack play (good players open small at
+10 BB, not shove). ⇒ The reshove table is the highest-value next piece, not an
+optional v2.
+
+**Caller tables are shadowed.** The `bb_vs_sb`/`bb_vs_late` ranges return
+`'call'`/`'fold'` at the push/fold route, but `_facing_all_in_preflop_veto`
+(the #271 pot-odds override) runs immediately after on the *same* facing-a-jam
+spots and returns first — so the published Nash caller chart almost never
+actually decides; the equity-based veto wins. Functionally fine (pot-odds ≈ the
+Nash caller range), but the JSON caller tables are effectively dead weight given
+the veto. Decide in v2 whether to keep them.
+
+**Vocab hardening shipped alongside.** The caller path returned the abstract
+`'call'`; on a call-off (engine offers only `all_in`) raw `'call'` would fall
+back to **fold** (folding a hand the chart said to call). Now routed through
+`abstract_call_token` (emits `'jam'` for a call-off), mirroring the veto's
+call/jam split. The veto shadows this in normal flow, but the push/fold path is
+now independently correct for the veto-bails edge. (`AbstractAction.JAM` →
+engine `all_in`; there is no abstract `all_in` — see `action_vocab.py`.)
 
 ## TL;DR
 
@@ -252,6 +331,35 @@ clamp below the lowest bucket. BB never appears in `unopened`.
   is the v1 simplification and matches published indexing.
 - **Don't overfit** — same caution as the bb/100 work: validate against a
   human-like opponent if possible, not just rule bots.
+
+## v1 scope boundaries (single-villain only — deferred to v2)
+
+The caller tables (`bb_vs_sb` / `bb_vs_late`) and the lookup
+(`lookup_push_fold_action_6max`, single `opener_position`) model **one** villain.
+`_try_push_fold_6max` enforces that and **falls through** (returns `None` → the
+deep-stack / `short_stack.py` path) for spots it can't represent, rather than
+applying a wrong/too-loose range:
+
+- **Multi-way all-in (2+ opponents already jammed).** Calling vs two+ ranges is a
+  tighter, distinct spot the single-jammer caller table over-calls. v1 detects
+  `len(jammer_indices) > 1` and falls through (see
+  `test_6max_multiple_jammers_returns_none`). **v2:** real multi-jammer call
+  ranges (and an unambiguous "which jammer" rule, à la
+  `exploitation.select_primary_aggressor`).
+- **Reshove (jam over a min-raise / limp).** Already deferred (`[L]` confidence);
+  a non-all-in raise in front of hero returns `None`.
+- **Cold-caller multi-way.** Like the deep-stack vs_open/vs_3bet/vs_4bet charts,
+  the unopened/caller ranges are keyed on hero vs a single relevant raiser; a
+  cold-caller between the jammer and hero tightens the true range but isn't
+  modeled. This is the standard position-vs-opener simplification, shared with
+  the deep-stack charts — a known approximation, not a v1 blocker.
+- **Table size 3–6 handed only.** The position labels are 6-max. The lookup
+  gates `num_players` to 3–6: 7/8-max early seats have more players behind than
+  any 6-max range models, and 9+ can't even be labeled (`poker_game` collapses
+  9+ tables to blinds-only, so `get_6max_position` falls back to UTG). 7+ handed
+  short stacks fall through to the deep-stack / short_stack.py path. **v2:** a
+  7–9-max table-size dimension (the app exposes 9-max tournaments) if those
+  spots prove to matter.
 
 ## Next to consider (broader new-table backlog — DO NOT LOSE)
 
