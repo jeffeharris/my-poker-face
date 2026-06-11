@@ -2686,6 +2686,38 @@ There's a live opponent-read layer, but set expectations correctly:
   EV-neutral because the wide range already beat every fixed villain, so it was
   never built.)
 
+### The 7 exploit rules — what each one actually does
+
+The adjustment isn't one blob — it's 7 named rules, each firing only in a specific
+spot. Mechanically each pushes the **log-odds** of certain actions up or down, then
+re-normalizes (softmax), so a `+0.5` nudge on call ≈ multiply call's probability by
+~1.65 before re-norm. It's applied *on top of* the personality-distorted base chart,
+never replacing it.
+
+| Rule | Fires when villain… | In this spot | Does (poker terms) |
+|---|---|---|---|
+| **hyper_aggressive** | AF > 3.5 *or* jams > 30% | facing their bet/jam; also our open & BB defense | Stop folding — call wider, bluff-catch their junk-jams; tighten our *opens* (they 3-bet too much) |
+| **hyper_passive** | normalized VPIP > 0.70 **and** AF < 0.80 | as the aggressor (not when defending) | Value-bet bigger/more (stations pay off); fold less (they don't bluff) — *unless* they only raise the nuts |
+| **tight_nit** | normalized VPIP < 0.30 | our open only | Widen steals — a nit folds preflop too often. (Never light-3bet them — they only continue with premiums) |
+| **high_fold_to_cbet** | folds to flop c-bet > 60% (≥5 seen) | heads-up flop, we're the PF raiser | Fire more c-bets, check less — their air folds |
+| **multiway_cbet** | *every* live opponent folds to c-bets >60% | multiway flop, we're the PF raiser | Same c-bet push, but only when the whole field folds (one sticky player blocks it) |
+| **value_vs_station** | a confirmed station is in the pot | we hold strong/nuts, unopened | Bet for value more, check less — extract from the station |
+| **bluff_reduction** | a confirmed station is in the pot | we hold air | Bet/raise *less*, check/give-up more — bluffs don't work on callers |
+
+**How hard they push (bounded several ways):**
+- Each rule's strength ramps with how extreme the read is (e.g. AF 3.5→15 ramps 0→full) **and** with the hero's own `adaptation_bias × skill (exploitation_strength) × confidence (hands seen / 100)`. A low-skill character barely adapts even with a clear read.
+- A **three-tier total clamp** caps the *combined* shift across all rules at **0.4 / 0.6 / 0.8** (L1), escalating only as postflop aggression evidence mounts (and decaying if the villain mellows). Plus a per-rule budget so no single rule eats the whole envelope.
+
+**Honest caveat — several of these are effectively dormant vs our own AI field.**
+Per our own experiments (EXP_004/005), **0 of 26** live LLM personalities read as
+`hyper_aggressive` or as a true `vpip > 0.70` station, so **hyper_aggressive's
+strong-hand/bluff-catch overrides, value_vs_station, and bluff_reduction basically
+never fire against the current cast** — they're built and tested but only light up
+against extreme synthetic bots (or, eventually, loose-passive humans). The c-bet and
+nit rules are live but need enough postflop samples in a session to mature. So treat
+this layer as "wired and unit-tested, lightly exercised in production" — feedback on
+whether the *triggers* are even the right reads is welcome.
+
 ---
 
 ## Known gaps we already suspect (so you can confirm/prioritize)
