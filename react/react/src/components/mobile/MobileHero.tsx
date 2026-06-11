@@ -10,6 +10,7 @@ import type { Player } from '../../types/player';
 import type { CardDealTransforms } from '../../types';
 import type { CashModeInfo } from '../../types/game';
 import { Card } from '../cards';
+import { CountUp } from '../shared/CountUp';
 import { MobileCashButton } from '../cash/MobileCashButton';
 import { heroCardAnimation } from './heroCardAnimation';
 
@@ -61,10 +62,16 @@ export function MobileHero({
       {isHumanDealer && <span className="dealer-chip">D</span>}
       <div className="hero-info">
         <div className="hero-name">{humanPlayer?.name}</div>
-        <div className="hero-stack">${humanPlayer?.stack}</div>
+        <div className="hero-stack">
+          $<CountUp value={humanPlayer?.stack ?? 0} />
+        </div>
       </div>
       {/* Bet chip - positioned at top edge of hero section */}
-      {humanPlayer && humanPlayer.bet > 0 && <div className="hero-bet">${humanPlayer.bet}</div>}
+      {humanPlayer && humanPlayer.bet > 0 && (
+        <div className="hero-bet">
+          $<CountUp value={humanPlayer.bet} from={0} />
+        </div>
+      )}
       <div
         className={`hero-cards${heroCommitted ? ' hero-cards--committed' : ''}`}
         data-testid="hero-cards"

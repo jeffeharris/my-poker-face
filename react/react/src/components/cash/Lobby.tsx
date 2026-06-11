@@ -22,11 +22,11 @@
  * `/api/cash/state` (separate endpoint, kept).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { createAuthedSocket } from '../../utils/socket';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
-import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
+import { PageLayout, MenuBar, ShuffleLoading, Skeleton } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
 import {
   getLobby,
@@ -57,6 +57,8 @@ import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { IntelHub } from './IntelHub';
 import type { FileCabinetPerson } from './types';
+import { readLobbyCache, writeLobbyCache } from './lobbyCache';
+import { useAuth } from '../../hooks/useAuth';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
@@ -213,6 +215,11 @@ export function Lobby() {
   // refresh loses nav state, but then the fetch-driven `setShowIntake` below
   // takes over and the cold open just replays — intake_needed is still true.)
   const intakeHinted = Boolean((location.state as { intakeNeeded?: boolean } | null)?.intakeNeeded);
+  // Per-user key for the stale-while-revalidate lobby snapshot (seeded below).
+  const { user } = useAuth();
+  const userId = user?.id;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
   const [bankroll, setBankroll] = useState<number | null>(null);
   const [bankrollHistory, setBankrollHistory] = useState<BankrollPoint[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
@@ -447,6 +454,28 @@ export function Lobby() {
   // when the ticker is enabled). The socket's `lobby_tick` is the primary
   // refresh trigger — see the socket effect below — and this interval is
   // just a slow fallback for a dropped websocket. Stop both on unmount.
+  // Stale-while-revalidate: seed the lobby's inert display fields from the last
+  // persisted snapshot before first paint, so re-opening The Circuit shows the
+  // hero/reputation/tables instantly while the live load() below revalidates.
+  // useLayoutEffect paints the cached values without a blank flash; functional
+  // updaters only fill a field still at its empty default, so the live fetch
+  // always wins. One-shot/sticky fields are intentionally not seeded (lobbyCache).
+  useLayoutEffect(() => {
+    const snap = readLobbyCache(userId);
+    if (!snap) return;
+    setBankroll((cur) => cur ?? snap.bankroll);
+    setBankrollHistory((cur) => (cur.length ? cur : snap.bankrollHistory));
+    setLastSessionDelta((cur) => cur ?? snap.lastSessionDelta);
+    setReputation((cur) => cur ?? snap.reputation);
+    setTables((cur) => (cur.length ? cur : snap.tables));
+    setSeatedTableId((cur) => cur ?? snap.seatedTableId);
+    setHasActiveSession((cur) => cur || snap.hasActiveSession);
+    setSeatedStakeLabelFromServer((cur) => cur ?? snap.seatedStakeLabel);
+    setSeatedSince((cur) => cur ?? snap.seatedSince);
+    setPendingForgivenessCount((cur) => cur || snap.pendingForgivenessCount);
+    setWorldPaceState((cur) => cur ?? snap.worldPace);
+  }, [userId]);
+
   useEffect(() => {
     let cancelled = false;
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -495,6 +524,22 @@ export function Lobby() {
         // user just changed. Single writer per sandbox makes this safe.
         setWorldPaceState((cur) => cur ?? lobby.world_pace ?? 'lively');
         setStakablePanelTick((t) => t + 1);
+        // Persist the inert display slice for instant next-open (SWR). One-shot /
+        // sticky fields (intake, mentor_intro, mentor_stake, events) are excluded
+        // by design — see lobbyCache.ts.
+        writeLobbyCache(userIdRef.current, {
+          bankroll: lobby.bankroll,
+          bankrollHistory: lobby.bankroll_history ?? [],
+          lastSessionDelta: lobby.last_session_delta ?? null,
+          reputation: lobby.reputation ?? null,
+          tables: lobby.tables,
+          seatedTableId: lobby.seated_table_id ?? null,
+          hasActiveSession: lobby.has_active_session ?? false,
+          seatedStakeLabel: lobby.seated_stake_label ?? null,
+          seatedSince: lobby.seated_since ?? null,
+          pendingForgivenessCount: lobby.pending_forgiveness_count ?? 0,
+          worldPace: lobby.world_pace ?? null,
+        });
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -933,6 +978,22 @@ export function Lobby() {
           )}
 
           {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
+
+          {/* First-ever load (no SWR snapshot yet): shape the hero + table rows so
+              the lobby fills in place instead of blank-then-pop. A returning user
+              is seeded from cache before paint, so bankroll is already set here. */}
+          {bankroll === null && !showIntake && (
+            <div
+              className="cash-entry__skeleton"
+              aria-busy="true"
+              style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}
+            >
+              <Skeleton height="7rem" radius="var(--radius-2xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+            </div>
+          )}
 
           {reputation && <ReputationPanel reputation={reputation} />}
 

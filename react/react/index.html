@@ -6,7 +6,14 @@
     <link rel="icon" type="image/svg+xml" href="/poker-favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
     <meta name="theme-color" content="#0a0b10" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- No viewport-fit=cover: the native scroll view owns safe-area insets
+         (contentInset: 'always' in capacitor.config.ts). maximum-scale/user-scalable
+         kill the iOS focus-zoom and double-tap-zoom that read as "this is a website";
+         they don't affect layout box sizing. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <meta name="description" content="Play poker against AI personalities with unique playing styles and chat interactions" />
     <link rel="canonical" href="https://mypokerfacegame.com/" />
     <meta property="og:locale" content="en_US" />

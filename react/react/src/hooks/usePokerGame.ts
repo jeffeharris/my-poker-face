@@ -137,6 +137,12 @@ export function usePokerGame({
   const [error, setError] = useState<string | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
+  // True from the moment the human submits an action until the authoritative
+  // next-turn signal (`player_turn_start`) / a full refresh. It hard-gates the
+  // action buttons off across that window, so a transient/queued state push that
+  // momentarily still shows the human as the current player (with stale
+  // player_options) can't flash the buttons back up after a tap.
+  const [actedAwaitingTurn, setActedAwaitingTurn] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
@@ -205,6 +211,13 @@ export function usePokerGame({
   const clearWinnerInfo = useCallback(() => {
     setWinnerInfo(null);
     setRevealedCards(null);
+    // Belt-and-suspenders: also drop the run-out "stage" layout flag. Normally the
+    // sequencer's scheduled setActive(false) clears it after the river hold, but on
+    // iOS that timeout can be throttled/dropped while the WebView is busy, leaving
+    // the table stuck in the expanded showdown layout with no overlay left to
+    // dismiss. Clearing the winner is the definitive end of hand presentation, so
+    // the stage must be down by here regardless of whether that timer fired.
+    useGameStore.getState().setRunoutDirectorActive(false);
   }, []);
   const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
   const clearRevealedCards = useCallback(() => setRevealedCards(null), []);
@@ -445,6 +458,8 @@ export function usePokerGame({
         (data: { current_player_options: string[]; cost_to_call: number }) => {
           clearAiThinkingTimeout();
           setAiThinking(false);
+          // A genuine new turn — release the post-action button gate.
+          setActedAwaitingTurn(false);
 
           // Check for queued preemptive action
           if (queuedActionRef.current === 'check_fold') {
@@ -725,6 +740,9 @@ export function usePokerGame({
         }
 
         setAiThinking(!currentPlayer.is_human);
+        // Authoritative re-sync: button visibility now follows server truth, so
+        // drop any lingering post-action gate (e.g. after a reconnect mid-turn).
+        setActedAwaitingTurn(false);
 
         return true;
       } catch (err) {
@@ -752,6 +770,12 @@ export function usePokerGame({
         reconnectionDelayMax: 5000,
         timeout: 20000,
         withCredentials: true, // Send cookies for auth
+        // Own Manager per game socket. Without this, socket.io multiplexes on a
+        // URL-keyed Manager and `disconnect()` leaves the instance in its nsp
+        // cache, so the next createSocket (game switch / remount) hands back the
+        // same socket and setupSocketListeners re-registers every handler on it —
+        // duplicate listeners that fire N times and leak captured closures.
+        forceNew: true,
         ...(import.meta.env.PROD ? {} : { transports: ['polling'] }),
       });
 
@@ -803,6 +827,7 @@ export function usePokerGame({
   useEffect(() => {
     // Belt-and-suspenders: never leave a prior socket connected when (re)running.
     if (socketRef.current) {
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
     }
@@ -846,6 +871,10 @@ export function usePokerGame({
 
     return () => {
       if (socketRef.current) {
+        // removeAllListeners before disconnect so the ~25 handlers (and the
+        // refs/setState they close over) are released immediately, not left to
+        // GC the detached socket.
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }
@@ -916,6 +945,9 @@ export function usePokerGame({
       queuedActionRef.current = null;
       setQueuedAction(null);
       setAiThinking(true);
+      // Hide the action buttons until the next genuine turn (player_turn_start),
+      // immune to intermediate state pushes that still read as the human's turn.
+      setActedAwaitingTurn(true);
 
       // Optimistic UI: move the chips to the pot immediately so the tap feels
       // responsive instead of "submitting…". The authoritative game_state push
@@ -989,6 +1021,8 @@ export function usePokerGame({
         // so the table doesn't show money in a pot it never reached.
         rollbackOptimisticAction();
         setAiThinking(false);
+        // It's still the human's turn — let the buttons come back so they can retry.
+        setActedAwaitingTurn(false);
         clearAiThinkingTimeout();
       }
     },
@@ -1164,6 +1198,7 @@ export function usePokerGame({
     gameState?.player_options &&
     gameState.player_options.length > 0 &&
     !aiThinking &&
+    !actedAwaitingTurn &&
     isConnected
   );
 

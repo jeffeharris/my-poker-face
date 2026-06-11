@@ -6,6 +6,7 @@ import { DeckPackProvider } from './hooks/useDeckPack';
 import { UsageStatsProvider } from './hooks/UsageStatsProvider';
 import { installCsrfFetch } from './utils/csrf';
 import { initSentry } from './sentry';
+import { initSafeAreaCapture } from './utils/safeArea';
 import { isNativePlatform } from './utils/nativeAuth';
 import './styles/fonts.css';
 import './index.css';
@@ -19,6 +20,11 @@ initSentry();
 // PRH-36: attach the X-CSRF-Token header to mutating API requests, before any
 // fetch fires. Must run before the providers below (which fetch on mount).
 installCsrfFetch();
+
+// Capture the device's bottom safe-area inset into --app-safe-bottom (stable
+// across keyboard show/hide, unlike live env()). Bottom-anchored UI uses it so
+// the iOS keyboard can't leave the action bar clipped by the home indicator.
+initSafeAreaCapture();
 
 // Self-heal stale-deploy chunk failures. After a deploy, a client running the
 // previous build (or a stale PWA cache) can request a lazily-imported route

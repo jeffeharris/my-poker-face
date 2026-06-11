@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Check, Crosshair, HandCoins, MessageCircle } from 'lucide-react';
+import { ArrowRight, Check, ChevronsUp, Crosshair, HandCoins, MessageCircle, X } from 'lucide-react';
 import {
   useBettingCalculations,
   createBettingContext,
@@ -273,7 +273,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
             onAction('fold');
           }}
         >
-          <span className="action-icon">✕</span>
+          <span className="action-icon">
+            <X />
+          </span>
           <span className="btn-label">Fold</span>
         </button>
       )}
@@ -303,7 +305,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
             onAction('call');
           }}
         >
-          <span className="action-icon">→</span>
+          <span className="action-icon">
+            <ArrowRight />
+          </span>
           <span className="btn-label">Call ${calc.callAmount}</span>
         </button>
       )}
@@ -314,7 +318,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
           data-testid="action-btn-raise"
           onClick={handleRaise}
         >
-          <span className="action-icon">↑</span>
+          <span className="action-icon">
+            <ChevronsUp />
+          </span>
           <span className="btn-label">{playerOptions.includes('raise') ? 'Raise' : 'Bet'}</span>
         </button>
       )}
