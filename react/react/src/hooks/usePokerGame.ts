@@ -205,6 +205,13 @@ export function usePokerGame({
   const clearWinnerInfo = useCallback(() => {
     setWinnerInfo(null);
     setRevealedCards(null);
+    // Belt-and-suspenders: also drop the run-out "stage" layout flag. Normally the
+    // sequencer's scheduled setActive(false) clears it after the river hold, but on
+    // iOS that timeout can be throttled/dropped while the WebView is busy, leaving
+    // the table stuck in the expanded showdown layout with no overlay left to
+    // dismiss. Clearing the winner is the definitive end of hand presentation, so
+    // the stage must be down by here regardless of whether that timer fired.
+    useGameStore.getState().setRunoutDirectorActive(false);
   }, []);
   const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
   const clearRevealedCards = useCallback(() => setRevealedCards(null), []);
