@@ -12,7 +12,7 @@ import sys
 import experiments.simulate_bb100 as sim
 import poker.tiered_bot_controller as tbc
 
-DEPTHS = [10, 12]
+DEPTHS = [8, 10, 12]
 HEROES = ["TAG"]
 SEEDS = [42, 142, 242]
 HANDS_PER_SEED = 2000

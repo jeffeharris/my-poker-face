@@ -39,6 +39,7 @@ from .strategy.exploitation import (
     compute_multiway_cbet_intensity,
     compute_value_vs_station_intensity,
     is_value_vs_station_enabled,
+    reshove_fold_equity_ok,
     select_primary_aggressor,
 )
 from .strategy.expression_context import ExpressionContext
@@ -4408,9 +4409,19 @@ class TieredBotController(AIPlayerController):
             # a single open) is the in-scope spot here, gated behind
             # PUSH_FOLD_6MAX_RESHOVE_ENABLED; reshove_action_6max fail-closes on
             # 3-bet wars / cold-callers / multiway (returns None → fall through).
+            # The fold-equity gate declines reshoves vs openers who won't fold
+            # (stations/maniacs) — reshoving them is pure spew (-EV, validated).
             if _reshove_6max_enabled():
                 return reshove_action_6max(
-                    canonical_hand, game_state, player_idx, num_seated, big_blind, eff_bb
+                    canonical_hand,
+                    game_state,
+                    player_idx,
+                    num_seated,
+                    big_blind,
+                    eff_bb,
+                    opener_fold_equity_ok=lambda oi: self._reshove_opener_fold_equity_ok(
+                        oi, game_state
+                    ),
                 )
             return None
         for i, p in active_opps:
@@ -4427,6 +4438,42 @@ class TieredBotController(AIPlayerController):
             num_players=num_seated,
             facing_jam=False,
         )
+
+    def _reshove_opener_fold_equity_ok(self, opener_idx: int, game_state) -> bool:
+        """Read-based fold-equity gate for a reshove vs the opener at
+        `opener_idx`. True only when this hero has a confident read that the
+        opener folds enough for the jam to carry fold equity (see
+        exploitation.reshove_fold_equity_ok). No opponent model, no read, or a
+        station/maniac opener → False (decline the reshove → fall through).
+
+        Conservative by design: reshoving into an opener who won't fold is
+        ~-35 bb/100 (validated), while declining is ~neutral, so the no-read
+        default is False.
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return False
+        try:
+            opener_name = game_state.players[opener_idx].name
+        except (AttributeError, IndexError):
+            return False
+        model = manager.get_model(self.player_name, opener_name)
+        t = getattr(model, 'tendencies', None)
+        if t is None:
+            return False
+        # Mirror _select_exploitation_stats' field mapping for the fields the
+        # gate's classifiers read (vpip_per_voluntary_opportunity, AF, all-in).
+        stats = AggregatedOpponentStats(
+            hands_observed=t.hands_observed,
+            vpip=t.vpip,
+            pfr=t.pfr,
+            aggression_factor=t.aggression_factor,
+            all_in_frequency=t.all_in_frequency,
+            vpip_per_voluntary_opportunity=getattr(
+                t, 'vpip_per_voluntary_opportunity', 0.5
+            ),
+        )
+        return reshove_fold_equity_ok(stats)
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
         """Map emotional_state -> exploitation-strength multiplier (0..1).
