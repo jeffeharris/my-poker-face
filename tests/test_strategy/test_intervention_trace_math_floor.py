@@ -156,7 +156,8 @@ class TestMathFloorNoOpPaths:
         assert trace.fired is False
         assert trace.reason_code == 'no_call_facing'
 
-    def test_call_not_legal_emits_no_op(self):
+    def test_action_closed_emits_no_op(self):
+        """No continue action at all (neither call nor all_in) -> no-op."""
         base = StrategyProfile(action_probabilities={'fold': 1.0})
         _result, trace = apply_pot_odds_floor(
             strategy=base,
@@ -165,10 +166,30 @@ class TestMathFloorNoOpPaths:
             player_stack=10000,
             player_bet=100,
             big_blind=100,
-            legal_actions=['fold', 'all_in'],  # no call (short-stack call-off spot)
+            legal_actions=['fold'],  # action closed
         )
         assert trace.fired is False
         assert trace.reason_code == 'call_not_legal'
+
+    def test_call_off_deep_stack_evaluates_rules(self):
+        """A call-off (all_in legal, call not) is no longer skipped wholesale.
+
+        Deep stack + non-trivial pot odds -> no rule triggers, but the
+        reason is now 'no_rule_triggered' (rules were evaluated), not the
+        old 'call_not_legal' early-bail.
+        """
+        base = StrategyProfile(action_probabilities={'fold': 1.0})
+        _result, trace = apply_pot_odds_floor(
+            strategy=base,
+            cost_to_call=200,
+            pot_total=600,
+            player_stack=10000,
+            player_bet=100,
+            big_blind=100,
+            legal_actions=['fold', 'all_in'],  # call-off spot, no flat 'call'
+        )
+        assert trace.fired is False
+        assert trace.reason_code == 'no_rule_triggered'
 
     def test_no_rule_triggered_emits_no_op(self):
         """Normal deep-stack call: no math-floor rule applies."""

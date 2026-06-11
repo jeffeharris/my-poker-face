@@ -120,6 +120,12 @@ def main():
         for hand in pos_dict:
             pos_dict[hand] = {'raise_2.5bb': 1.0} if hand in open_set else {'fold': 1.0}
 
+    # vs_squeeze lives in the BASE chart only (like the archetype charts — see
+    # build_archetype_charts._write). Drop the deep-copied base copy so this
+    # variant's vs_squeeze lookups fall back to its own vs_3bet, and so re-running
+    # the cascade stays a no-op instead of re-injecting the base squeeze section.
+    data.pop('vs_squeeze', None)
+
     with open(_OUT, 'w') as f:
         json.dump(data, f, indent=2)
         f.write('\n')

@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import { KeyboardResize, KeyboardStyle } from '@capacitor/keyboard';
 
 /**
  * Capacitor native shell config (iOS / Android).
@@ -19,9 +20,27 @@ const config: CapacitorConfig = {
   appName: 'My Poker Face',
   webDir: 'dist',
   ios: {
+    // The native scroll view owns the safe-area insets: 'always' pushes ALL web
+    // content below the notch / status bar / home indicator automatically, so
+    // components don't each have to opt into env(safe-area-inset-*) padding.
+    // (We tried 'never' + viewport-fit=cover to let CSS own the insets, but top-
+    // anchored elements without safe-area padding — the back button, avatar menu —
+    // slid under the status bar. Revisit only with a full safe-area CSS pass.)
+    // backgroundColor keeps the inset strip behind the status bar dark, not white.
     contentInset: 'always',
+    backgroundColor: '#0a0b10',
   },
   plugins: {
+    // Keyboard: Native resize shrinks the WebView viewport when the keyboard opens,
+    // so the fixed bottom chat sheet (position:fixed; max-height:82dvh) rides above
+    // the keyboard instead of being covered. Dark style matches the app. The input
+    // accessory bar (prev/next/Done toolbar) is hidden at runtime in
+    // src/native/bootstrap.ts — that also silences the benign _UIButtonBarButton
+    // Auto Layout warning that bar emits.
+    Keyboard: {
+      resize: KeyboardResize.Native,
+      style: KeyboardStyle.Dark,
+    },
     // @codetrix-studio/capacitor-google-auth reads the client IDs from HERE on
     // native (it does NOT read Info.plist's GIDClientID). These are public OAuth
     // client IDs (not secrets). iosClientId → the ID token's `aud` on iOS;

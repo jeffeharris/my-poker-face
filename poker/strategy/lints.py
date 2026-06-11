@@ -31,9 +31,19 @@ LEGAL_ACTIONS: Dict[str, set] = {
     "rfi": {"raise_2.5bb", "fold"},
     "vs_open": {"raise_3x", "call", "fold"},
     "vs_3bet": {"raise_2.2x", "call", "fold"},  # no jam in 3-bet pots at 100bb
+    "vs_squeeze": {
+        "raise_2.2x",
+        "call",
+        "fold",
+    },  # cold-caller faces a 3-bet; same vocab as vs_3bet
     "vs_4bet": {"jam", "call", "fold"},
 }
 FACING_BRANCHES = ("vs_open", "vs_3bet", "vs_4bet")
+# Structural lints (weights/vocab) also cover the OPTIONAL vs_squeeze section (base
+# chart only — depth/archetype charts omit it and fall back to vs_3bet). vs_squeeze
+# is deliberately NOT in FACING_BRANCHES: the strategic lints (anti-clone, fold-to-
+# 3bet, 4-bet band) are opener-range-relative and don't apply to a cold-call range.
+STRUCTURAL_BRANCHES = ("rfi", "vs_open", "vs_3bet", "vs_squeeze", "vs_4bet")
 
 # BB vs_open defend floors (PREFLOP_DEFENSE_REGEN §5.1).
 BB_DEFEND_FLOOR = {"UTG": 0.30, "HJ": 0.36, "CO": 0.43, "BTN": 0.52, "SB": 0.58}
@@ -117,7 +127,7 @@ def _vs3bet_is_ip(node_name: str) -> bool:
 
 def lint_weights_sum(chart: Dict) -> List[str]:
     fails = []
-    for scenario in ("rfi", *FACING_BRANCHES):
+    for scenario in STRUCTURAL_BRANCHES:
         for node_name, node in chart.get(scenario, {}).items():
             for h, d in node.items():
                 if any(v < 0 for v in d.values()):
@@ -130,7 +140,7 @@ def lint_weights_sum(chart: Dict) -> List[str]:
 
 def lint_legal_vocab(chart: Dict, *, allow_jam: bool = False) -> List[str]:
     fails = []
-    for scenario in ("rfi", *FACING_BRANCHES):
+    for scenario in STRUCTURAL_BRANCHES:
         legal = set(LEGAL_ACTIONS[scenario])
         if allow_jam:
             legal |= {"jam"}
@@ -152,6 +162,15 @@ def lint_completeness(chart: Dict) -> List[str]:
         for node_name, node in nodes.items():
             if len(node) != 169:
                 fails.append(f"{scenario}/{node_name}: {len(node)} hands (expected 169)")
+    # vs_squeeze is OPTIONAL (base chart only). When present, it has exactly the 10
+    # cold-caller→squeezer pairs (HJ/CO/BTN/SB callers — UTG opens first, BB closes).
+    squeeze = chart.get("vs_squeeze", {})
+    if squeeze:
+        if len(squeeze) != 10:
+            fails.append(f"vs_squeeze: {len(squeeze)} nodes (expected 10)")
+        for node_name, node in squeeze.items():
+            if len(node) != 169:
+                fails.append(f"vs_squeeze/{node_name}: {len(node)} hands (expected 169)")
     return fails
 
 

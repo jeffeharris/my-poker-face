@@ -1352,9 +1352,11 @@
    ========================================= */
 .mobile-poker-table {
   --stage-pot-shift: -14dvh; /* pot rides up to just below the avatars */
-  --stage-community-shift: -18dvh; /* community rides up, snug under the pot.
+  --stage-community-shift: -17dvh; /* community rides up, snug under the pot.
                                       Leaves the lower band for the chat, which
-                                      rises and cuts off the card bottoms. */
+                                      rises and cuts off the card bottoms. Kept a
+                                      touch below the pot (vs -18) so the card tops
+                                      aren't clipped by the pot pill above them. */
   --stage-chat-top: 44dvh; /* chat anchors here (≈ community card bottom); the
                               first bubble lands at the card bottoms and the stack
                               grows downward toward the hero */

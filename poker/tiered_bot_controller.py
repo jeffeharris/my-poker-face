@@ -328,6 +328,48 @@ def _reshove_6max_enabled() -> bool:
         return False
 
 
+# ── Bluff-aware vs_3bet exploit (per-persona `vs3bet_exploit` knob) ─────────────
+# Facing a 3-bet, defending to MDF (the base chart) is unexploitable but leaves EV
+# on the table vs a villain whose 3-bet range is value-heavy. This runtime layer
+# reads the villain's bluff fraction β from vs_open and, when the villain
+# under-bluffs (β < the balanced reference), folds more of hero's MARGINAL continue
+# — the thin calls at the bottom of the range — while leaving value 4-bets and core
+# flats. The base chart stays the GTO/MDF baseline; this is the per-player dial.
+VS3BET_EXPLOIT_DEFAULT = 0.5  # moderate — the field default for every tiered persona
+VS3BET_BLUFF_REF = 0.40  # balanced 3-bet bluff fraction; at/above this → no exploit
+VS3BET_EXPLOIT_SCALE = 0.6  # maps (ref − β)·knob to a per-hand call→fold shift
+VS3BET_VALUE_CLIFF = 0.50  # villain raise_3x ≥ this = value (mirrors build_vs3bet_defense)
+
+
+def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
+    """β = bluff combos / total combos of the villain's 3-bet range, read from
+    ``vs_open[villain_vs_hero].raise_3x`` (a hand is a bluff when its 3-bet weight
+    is < VS3BET_VALUE_CLIFF). Returns None when the villain's vs_open node isn't
+    populated (e.g. HU tables or a chart without that matchup)."""
+    from .strategy.lints import _combos, canonical_hands
+    from .strategy.nodes import PreflopNode
+
+    total = bluff = 0.0
+    found = False
+    for h in canonical_hands():
+        prof = preflop_table.lookup_preflop(
+            PreflopNode(hand=h, position=villain, scenario='vs_open', opener_position=hero)
+        )
+        if prof is None:
+            continue
+        w = prof.action_probabilities.get('raise_3x', 0.0)
+        if w <= 0:
+            continue
+        found = True
+        c = _combos(h) * w
+        total += c
+        if w < VS3BET_VALUE_CLIFF:
+            bluff += c
+    if not found or total <= 0:
+        return None
+    return bluff / total
+
+
 class TieredBotController(AIPlayerController):
     """AI player using 3-layer tiered architecture.
 
@@ -628,6 +670,20 @@ class TieredBotController(AIPlayerController):
         self.push_fold_nash_enabled: bool = bool(
             isinstance(_pcfg, dict) and _pcfg.get('push_fold_nash')
         )
+
+        # Per-personality bluff-aware vs_3bet exploit knob (0=off/GTO, ~0.5=moderate
+        # default, 1.0=strong). The base vs_3bet chart is the GTO/MDF baseline; this
+        # runtime layer (see _apply_vs3bet_bluff_exploit) is the per-player dial that
+        # folds more of the marginal continue vs a value-heavy 3-bettor. Default
+        # MODERATE for the whole field; a persona sets "vs3bet_exploit": <0..1> in
+        # personalities.json to deviate. Sims/tests bypass __init__ (build via
+        # __new__); the live path reads getattr(..., 0.0) so they no-op unless set.
+        self.vs3bet_exploit: float = (
+            float(_pcfg['vs3bet_exploit'])
+            if isinstance(_pcfg, dict) and 'vs3bet_exploit' in _pcfg
+            else VS3BET_EXPLOIT_DEFAULT
+        )
+        self._vs3bet_beta_cache: Dict = {}
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1064,6 +1120,7 @@ class TieredBotController(AIPlayerController):
         else:
             base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
             self._last_pipeline_snapshot['push_fold_routed'] = False
+            base_strategy = self._apply_vs3bet_bluff_exploit(base_strategy, node, preflop_table)
 
         if self.debug_logging:
             logger.info(
@@ -4225,6 +4282,54 @@ class TieredBotController(AIPlayerController):
             bet_bucket=bet_class.bucket,
             required_equity=bet_class.required_equity,
         )
+
+    def _vs3bet_bluff_fraction(self, hero: str, villain: str, preflop_table):
+        """Villain's 3-bet bluff fraction β for this node, cached per
+        (table, hero, villain). See _compute_vs3bet_bluff_fraction."""
+        cache = getattr(self, '_vs3bet_beta_cache', None)
+        if cache is None:
+            cache = self._vs3bet_beta_cache = {}
+        key = (id(preflop_table), hero, villain)
+        if key not in cache:
+            cache[key] = _compute_vs3bet_bluff_fraction(preflop_table, hero, villain)
+        return cache[key]
+
+    def _apply_vs3bet_bluff_exploit(self, strategy, node, preflop_table):
+        """Per-persona bluff-aware vs_3bet exploit (see __init__ `vs3bet_exploit`).
+
+        Against a value-heavy 3-bettor (bluff fraction β below the balanced
+        reference) shift `s = (BLUFF_REF − β)·knob·SCALE` of hero's `call` mass to
+        `fold`. The shift is a per-hand absolute subtraction, so it folds the thin
+        marginal continues (the bottom of the range, at the junk-call floor) almost
+        entirely while barely touching core flats, and never touches the value
+        4-bet (`raise_2.2x`). No-op outside vs_3bet, with knob 0, or vs a villain
+        at/above the balanced bluff reference (don't over-fold vs a polarized
+        3-bettor). The base chart stays the GTO/MDF baseline."""
+        if getattr(node, 'scenario', '') != 'vs_3bet':
+            return strategy
+        knob = getattr(self, 'vs3bet_exploit', 0.0)
+        if knob <= 0:
+            return strategy
+        beta = self._vs3bet_bluff_fraction(node.position, node.opener_position, preflop_table)
+        if beta is None or beta >= VS3BET_BLUFF_REF:
+            return strategy
+        s = (VS3BET_BLUFF_REF - beta) * knob * VS3BET_EXPLOIT_SCALE
+        probs = dict(strategy.action_probabilities)
+        call = probs.get('call', 0.0)
+        new_call = max(0.0, call - s)
+        moved = call - new_call
+        if moved <= 0:
+            return strategy
+        probs['call'] = new_call
+        probs['fold'] = probs.get('fold', 0.0) + moved
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if isinstance(snap, dict):
+            snap['vs3bet_bluff_exploit'] = {
+                'beta': round(beta, 4),
+                'knob': knob,
+                'call_to_fold_shift': round(moved, 4),
+            }
+        return StrategyProfile(action_probabilities=probs)
 
     def _try_push_fold_lookup(
         self,

@@ -39,7 +39,18 @@ _JAM_ACTION = 'jam'
 
 def _is_action_legal(action: str, legal_actions: List[str]) -> bool:
     """Check whether an abstract strategy action is legal given engine actions."""
-    if action in ('fold', 'check', 'call'):
+    if action == 'call':
+        # Call-off: when the bet exceeds our stack the engine offers
+        # ['fold', 'all_in'] (no flat 'call'). Calling the shove caps at
+        # our stack = an all-in, so a chart 'call' is still a legal
+        # continue here — resolve_*_sizing translates it to all_in via
+        # abstract_call_token. Without this the mask deletes the chart's
+        # call intent and renormalizes toward fold, while a chart 'raise'
+        # survives in the same spot (it maps to all_in below) — the
+        # asymmetry that folded pot-committed call-offs. Mirrors the
+        # call-off handling in math_floor and _facing_all_in_preflop_veto.
+        return 'call' in legal_actions or 'all_in' in legal_actions
+    if action in ('fold', 'check'):
         return action in legal_actions
     if action in _RAISE_ACTIONS:
         return 'raise' in legal_actions or 'all_in' in legal_actions
@@ -155,8 +166,15 @@ class StrategyTable:
         1. Try exact lookup.
         2. If found: mask illegal actions, renormalize.
         3. If not found or all masked out: return conservative default.
+
+        A ``vs_squeeze`` miss degrades to the matching ``vs_3bet`` node (the
+        pre-split behavior: a cold-caller facing a squeeze was routed to the
+        opener's vs_3bet range). So adding the classifier split before the
+        vs_squeeze chart data lands is behaviour-preserving.
         """
         profile = self.lookup_preflop(node)
+        if profile is None and node.scenario == "vs_squeeze":
+            profile = self.lookup_preflop(replace(node, scenario="vs_3bet"))
         if profile is not None:
             masked = _mask_and_renormalize(profile, legal_actions)
             if masked is not None:
@@ -261,8 +279,13 @@ def _parse_json_to_preflop_data(data: dict) -> Dict[str, StrategyProfile]:
         "rfi": { position: { hand: {action: prob} } },
         "vs_open": { "BB_vs_UTG": { hand: {action: prob} } },
         "vs_3bet": { "UTG_vs_HJ": { hand: {action: prob} } },
+        "vs_squeeze": { "CO_vs_BTN": { hand: {action: prob} } },
         "vs_4bet": { "HJ_vs_UTG": { hand: {action: prob} } },
       }
+
+    ``vs_squeeze`` (a non-opener cold-caller facing a 3-bet) is optional — when
+    a chart omits it, the classifier's vs_squeeze nodes degrade to vs_3bet in
+    lookup_with_fallback.
     """
     result: Dict[str, StrategyProfile] = {}
 
@@ -277,8 +300,8 @@ def _parse_json_to_preflop_data(data: dict) -> Dict[str, StrategyProfile]:
             )
             result[node.key] = StrategyProfile(action_probabilities=dict(actions))
 
-    # vs_open, vs_3bet, vs_4bet: parse matchup for position + opener
-    for scenario in ('vs_open', 'vs_3bet', 'vs_4bet'):
+    # vs_open, vs_3bet, vs_squeeze, vs_4bet: parse matchup for position + opener
+    for scenario in ('vs_open', 'vs_3bet', 'vs_squeeze', 'vs_4bet'):
         for matchup, hands in data.get(scenario, {}).items():
             position, opener_position = _parse_position_matchup(matchup)
             for hand, actions in hands.items():

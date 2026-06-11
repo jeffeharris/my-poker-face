@@ -16,6 +16,7 @@ import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
 import { computeLeaveBreakdown } from './loanSettlement';
 import { CashOutSummary, type SessionSummary } from './CashOutSummary';
+import { CountUp } from '../shared/CountUp';
 import './CashControls.css';
 
 interface LeaveResponse {
@@ -197,7 +198,9 @@ export function CashControls({ cashMode, playerStack, handInProgress }: CashCont
     <div className="cash-controls glass">
       <div className="cash-controls__row">
         <span className="cash-controls__label">Bankroll</span>
-        <span className="cash-controls__value">${cashMode.bankroll.toLocaleString()}</span>
+        <span className="cash-controls__value">
+          $<CountUp value={cashMode.bankroll} useGrouping />
+        </span>
       </div>
       <div className="cash-controls__row">
         <span className="cash-controls__label">Stake</span>

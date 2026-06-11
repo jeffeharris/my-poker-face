@@ -3,6 +3,7 @@ import { Flame, Zap, Minus } from 'lucide-react';
 import { Socket } from 'socket.io-client';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
+import { Skeleton } from '../shared/Skeleton';
 import './PressureStats.css';
 
 interface PlayerSummary {
@@ -117,9 +118,30 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
   // Show loading only on initial load
   if (loading && isInitialLoad) {
     return (
-      <div className="pressure-stats-panel">
+      <div className="pressure-stats-panel" aria-busy="true">
         <h3> Pressure Stats & Highlights</h3>
-        <div className="loading">Loading stats...</div>
+        <div className="stat-item">
+          <Skeleton width="45%" height="0.9rem" />
+          <Skeleton width="3ch" height="0.9rem" />
+        </div>
+        <div className="stat-item">
+          <Skeleton width="38%" height="0.9rem" />
+          <Skeleton width="5ch" height="0.9rem" />
+        </div>
+        <div className="leaderboards">
+          {[0, 1, 2].map((lb) => (
+            <div className="leaderboard" key={lb}>
+              <Skeleton width="55%" height="0.85rem" style={{ marginBottom: 'var(--space-2)' }} />
+              {[0, 1, 2].map((entry) => (
+                <div className="leaderboard-entry" key={entry}>
+                  <Skeleton width="2ch" height="0.8rem" />
+                  <Skeleton width="42%" height="0.8rem" />
+                  <Skeleton width="4ch" height="0.8rem" />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

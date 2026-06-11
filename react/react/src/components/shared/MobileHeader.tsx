@@ -2,6 +2,7 @@ import { memo, useState, type ReactNode } from 'react';
 import { ChevronRight, MessageCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BackButton } from './BackButton';
+import { CountUp } from './CountUp';
 import { formatCompactCurrency } from '../../utils/formatters';
 import './MobileHeader.css';
 
@@ -60,7 +61,9 @@ export const PotDisplay = memo(function PotDisplay({ total }: PotDisplayProps) {
   return (
     <div className="mobile-pot">
       <span className="mobile-pot__label">POT</span>
-      <span className="mobile-pot__amount">${total}</span>
+      <span className="mobile-pot__amount">
+        $<CountUp value={total} />
+      </span>
     </div>
   );
 });

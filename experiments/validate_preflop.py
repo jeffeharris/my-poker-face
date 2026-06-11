@@ -289,8 +289,10 @@ def simulate_preflop_hands(
         # Lookup base strategy
         base = strategy_table.lookup_with_fallback(node, legal)
 
-        # Apply personality distortion
-        modified = modify_strategy(
+        # Apply personality distortion. modify_strategy returns
+        # (strategy, trace) since Phase 7.6 Step 4; the probe only needs
+        # the strategy.
+        modified, _trace = modify_strategy(
             base=base,
             legal_actions=legal,
             anchors=anchors,
@@ -377,10 +379,16 @@ def run_validation(n_hands: int, seed: int):
         f"Maniac VPIP ({results['Maniac'].vpip:.3f}) > LAG VPIP ({results['LAG'].vpip:.3f})",
     )
 
+    # Rock is the TIGHTEST entry in the field (tight-PASSIVE), nit is tight-
+    # AGGRESSIVE — a notch wider, played hard. This is the deliberate design (see
+    # the rock/nit deviation_profiles and the "rock band inversion" note in
+    # docs/technical/ARCHETYPE_SHAPING_FINDINGS.md), and the target bands confirm
+    # it: rock VPIP (8,15) sits below nit (10,16). The old assertion (nit < rock)
+    # predated that inversion and was backwards.
     check(
-        'nit_vpip',
-        results['Nit'].vpip < results['Rock'].vpip,
-        f"Nit VPIP ({results['Nit'].vpip:.3f}) < Rock VPIP ({results['Rock'].vpip:.3f})",
+        'rock_tighter_than_nit',
+        results['Rock'].vpip < results['Nit'].vpip,
+        f"Rock VPIP ({results['Rock'].vpip:.3f}) < Nit VPIP ({results['Nit'].vpip:.3f})",
     )
 
     # 2. No PFR > VPIP violations
