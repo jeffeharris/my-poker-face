@@ -253,6 +253,28 @@ clamp below the lowest bucket. BB never appears in `unopened`.
 - **Don't overfit** — same caution as the bb/100 work: validate against a
   human-like opponent if possible, not just rule bots.
 
+## v1 scope boundaries (single-villain only — deferred to v2)
+
+The caller tables (`bb_vs_sb` / `bb_vs_late`) and the lookup
+(`lookup_push_fold_action_6max`, single `opener_position`) model **one** villain.
+`_try_push_fold_6max` enforces that and **falls through** (returns `None` → the
+deep-stack / `short_stack.py` path) for spots it can't represent, rather than
+applying a wrong/too-loose range:
+
+- **Multi-way all-in (2+ opponents already jammed).** Calling vs two+ ranges is a
+  tighter, distinct spot the single-jammer caller table over-calls. v1 detects
+  `len(jammer_indices) > 1` and falls through (see
+  `test_6max_multiple_jammers_returns_none`). **v2:** real multi-jammer call
+  ranges (and an unambiguous "which jammer" rule, à la
+  `exploitation.select_primary_aggressor`).
+- **Reshove (jam over a min-raise / limp).** Already deferred (`[L]` confidence);
+  a non-all-in raise in front of hero returns `None`.
+- **Cold-caller multi-way.** Like the deep-stack vs_open/vs_3bet/vs_4bet charts,
+  the unopened/caller ranges are keyed on hero vs a single relevant raiser; a
+  cold-caller between the jammer and hero tightens the true range but isn't
+  modeled. This is the standard position-vs-opener simplification, shared with
+  the deep-stack charts — a known approximation, not a v1 blocker.
+
 ## Next to consider (broader new-table backlog — DO NOT LOSE)
 
 The push/fold table is the most-ready new table and fixes the real SNG leak.
