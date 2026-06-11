@@ -93,8 +93,9 @@ the blind defending against a jam.
 *dominant* short-stack spot, ~66% of preflop decisions — see
 `docs/plans/PUSH_FOLD_6MAX_SCOPE.md`) is jam-or-fold over a single non-all-in
 open. It is **`[L]` extrapolated** and **gated behind the
-`PUSH_FOLD_6MAX_RESHOVE_ENABLED` feature flag** (off by default → the spot falls
-through to the deep-stack / `short_stack.py` path, byte-identical). Notable v1
+`PUSH_FOLD_6MAX_RESHOVE_ENABLED` feature flag** (stable/on by default, still
+kill-switchable; off → the spot falls through to the deep-stack /
+`short_stack.py` path, byte-identical). Notable v1
 simplifications:
 - **Depth-keyed only** (8/10/12/15 BB; sub-8 clamps to 8). No 4/6 BB rows — at
   ≤6 BB facing an open the blind is committed and the decision degenerates.

@@ -67,16 +67,26 @@ keep the fail-closed posture.
      suppresses BOTH stations and maniacs (the first cut keyed on `_is_hyper_passive`
      and MISSED ManiacBot: vpip 0.97 but AF 4.0, so it read "aggressive" yet never
      folds). Plus a min-sample gate (no read → no reshove; cost is asymmetric).
-   - **Gated reshove re-validated:** bb/100 vs the rule mix is now **+0.0 at every
-     depth** (the −35 leak is gone). Mechanism unit-proven (allows reshove vs a
-     tight vpip-0.40 opener). **Upside unproven in sim** — the rule-bot field has
-     no tight openers (every opener is vpip>0.65), so reshove never fires there;
-     its value vs foldy openers needs a human-like opponent (→ Jeff_clone).
-   - **Decision:** flipped ON anyway — triple-gated (flag + per-persona
-     `push_fold_nash` + fold-equity read), provably no-leak, helps vs tight
-     openers in the real field, worst-case a no-op.
+   - **Gated reshove re-validated (safety):** bb/100 vs the rule mix is now
+     **+0.0 at every depth** (the −35 leak is gone — the gate suppresses reshove
+     vs every rule-bot opener, all of which are vpip>0.65 non-folders).
+   - **Upside PROVEN vs a folder (the loop closed):** the rule bots can't show
+     reshove's upside (none fold to 3-bets), so this needed a folding opener. The
+     clone engine had the same hole — `human_clone.build_clone_strategy` re-raised
+     its whole opening range facing a 3-bet (never folded), which is why every
+     clone "turned into a calling station." Fixed it (a disciplined reg now folds
+     the bottom of its opens to a re-raise; a station stays wide). Re-ran vs a
+     **Punisher_clone field** (`FIELD=punisher`): reshove fires (gate allows the
+     vpip-0.25 reg) and is **−1.2 / +0.7 / +2.7 bb/100** at 8/10/12 BB — neutral
+     to mildly positive, with the lean GROWING with depth (it was *worst*, −52,
+     there vs non-folders). CIs overlap zero, which is correct: Nash reshove
+     ranges are built ~break-even vs a disciplined opener; the big wins only come
+     vs over-folders, which punisher isn't. **Net: Pareto-safe — never −EV
+     (gated off vs non-folders), mildly +EV where fold equity exists.**
+   - **Decision:** ON — triple-gated (flag + per-persona `push_fold_nash` +
+     fold-equity read), no-leak, with a demonstrated positive lean vs folders.
 
-   Probe: `experiments/reshove_bb100_probe.py` (`FIELD=competent` for the control).
+   Probe: `experiments/reshove_bb100_probe.py` (`FIELD=competent` / `FIELD=punisher`).
    Remaining v2 refinements: opener-position-agnostic (tighten vs early opens);
    validate upside vs Jeff_clone; other bot types could opt the detector in.
 3. **v2 ranges still open**: real multi-jammer call ranges and cold-caller

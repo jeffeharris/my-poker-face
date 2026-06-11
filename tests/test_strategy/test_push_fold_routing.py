@@ -250,7 +250,7 @@ class TestMultiwayRouting:
 
     def test_6max_unopened_raise_present_returns_none(self):
         # A non-all-in raise sits in front of hero (the reshove spot). With the
-        # PUSH_FOLD_6MAX_RESHOVE_ENABLED flag OFF (default), it falls through.
+        # PUSH_FOLD_6MAX_RESHOVE_ENABLED flag patched OFF, it falls through.
         gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, raises=1)
         c = _controller()
         with patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=False):
