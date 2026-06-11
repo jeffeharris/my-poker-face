@@ -19,11 +19,14 @@ same-origin and the cookie is therefore JS-readable — and OFF in development
 (cross-origin :5173↔:5000, cookie not readable) and under the test suite. See
 ``flask_app/config.py``.
 
-Exemptions: CORS preflight (`OPTIONS`), and the auth-bootstrap / OAuth-callback
+Exemptions: CORS preflight (`OPTIONS`); the auth-bootstrap / OAuth-callback
 routes (``/api/auth/login``, ``/api/auth/google/...``) which either run before a
 cookie can be established or are external top-level navigations carrying their
-own ``state`` token. Socket.IO is a separate transport guarded by the CORS
-origin allowlist, not this gate.
+own ``state`` token; and any request bearing an ``Authorization: Bearer`` header
+— native (Capacitor) clients authenticate by bearer token, not cookies, so they
+are CSRF-immune (the token isn't auto-sent) and can't read the cookie to echo it
+anyway. Socket.IO is a separate transport guarded by the CORS origin allowlist,
+not this gate.
 """
 
 from __future__ import annotations
@@ -65,6 +68,15 @@ def _is_protected_request() -> bool:
         return False
     path = request.path
     if not path.startswith('/api/'):
+        return False
+    # Bearer-authenticated requests (native iOS/Android clients) are immune to
+    # CSRF and exempt: the access token rides the `Authorization` header, never
+    # an auto-sent cookie, so a cross-site page can't forge a credentialed
+    # request (and an invalid/absent bearer just fails auth downstream). They
+    # also can't satisfy the double-submit scheme — the `csrf_token` cookie isn't
+    # readable from the `capacitor://localhost` WebView origin — so without this
+    # every mutating native call (actions, chat, etc.) 403s in production.
+    if request.headers.get('Authorization', '').startswith('Bearer '):
         return False
     if path in _EXEMPT_EXACT:
         return False
