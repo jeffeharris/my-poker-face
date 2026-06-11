@@ -11,6 +11,7 @@ import { Sparkline } from '../../cash/Sparkline';
 import type { BankrollPoint } from '../../cash/types';
 import { MenuBar } from '../../shared/MenuBar';
 import { PageLayout } from '../../shared/PageLayout';
+import { Skeleton } from '../../shared/Skeleton';
 import './MyStory.css';
 
 interface Beat {
@@ -149,7 +150,30 @@ export function MyStory({ onBack }: MyStoryProps) {
             </div>
           )}
 
-          {loading && <p className="mystory__muted">Reading your hands…</p>}
+          {loading && (
+            <div aria-busy="true">
+              <div className="mystory__arc">
+                <Skeleton width="40%" height="1.3rem" style={{ marginBottom: 'var(--space-3)' }} />
+                <Skeleton width="100%" height="0.9rem" style={{ marginBottom: 'var(--space-2)' }} />
+                <Skeleton width="82%" height="0.9rem" />
+              </div>
+              {[0, 1].map((i) => (
+                <div className="mystory__session" key={i}>
+                  <Skeleton
+                    width="30%"
+                    height="1rem"
+                    style={{ marginBottom: 'var(--space-3)' }}
+                  />
+                  <Skeleton
+                    width="100%"
+                    height="0.85rem"
+                    style={{ marginBottom: 'var(--space-2)' }}
+                  />
+                  <Skeleton width="68%" height="0.85rem" />
+                </div>
+              ))}
+            </div>
+          )}
           {error && <p className="mystory__error">{error}</p>}
           {!loading && !error && !hasStory && (
             <p className="mystory__muted">

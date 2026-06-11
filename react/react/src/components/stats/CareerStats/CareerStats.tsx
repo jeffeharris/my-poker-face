@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PageLayout } from '../../shared/PageLayout';
 import { PageHeader } from '../../shared/PageHeader';
 import { MenuBar } from '../../shared/MenuBar';
+import { Skeleton } from '../../shared/Skeleton';
 import { useCareerStats } from '../../../hooks/useCareerStats';
 import { getOrdinal } from '../../../types/tournament';
 import type { EliminatedPersonality } from '../../../types/tournament';
@@ -16,13 +17,39 @@ export function CareerStats({ onBack }: CareerStatsProps) {
   const [selectedBadge, setSelectedBadge] = useState<EliminatedPersonality | null>(null);
 
   if (loading) {
+    // Skeleton mirrors the loaded layout (reuses the real container classes) so
+    // content fills in place instead of replacing a centered spinner.
     return (
       <>
         <MenuBar onBack={onBack} title="My Stats" showUserInfo onMainMenu={onBack} />
-        <PageLayout variant="centered" glowColor="sapphire" hasMenuBar>
-          <div className="career-stats-loading">
-            <div className="loading-spinner" />
-            <p>Loading your stats...</p>
+        <PageLayout variant="top" glowColor="sapphire" hasMenuBar>
+          <PageHeader title="My Stats" />
+          <div className="career-stats" aria-busy="true">
+            <div className="stats-hero">
+              {[0, 1, 2].map((i) => (
+                <div className="stat-card" key={i}>
+                  <Skeleton width="2.5ch" height="2rem" />
+                  <Skeleton width="5ch" height="0.75rem" />
+                </div>
+              ))}
+            </div>
+            <div className="achievements-row">
+              {[0, 1, 2].map((i) => (
+                <div className="achievement" key={i}>
+                  <Skeleton circle width={28} height={28} />
+                  <Skeleton width="6ch" height="0.7rem" />
+                  <Skeleton width="3ch" height="1rem" />
+                </div>
+              ))}
+            </div>
+            <div className="history-section">
+              <Skeleton width="45%" height="1.1rem" style={{ marginBottom: 'var(--space-3)' }} />
+              <div className="tournament-list">
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} height="2.75rem" radius="var(--radius-lg)" />
+                ))}
+              </div>
+            </div>
           </div>
         </PageLayout>
       </>
