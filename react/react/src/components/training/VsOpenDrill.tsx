@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { SlidersHorizontal, Shuffle } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { ActionButtons } from '../game/ActionButtons';
+import toast from 'react-hot-toast';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
@@ -135,7 +136,12 @@ export function VsOpenDrill({ onBack }: VsOpenDrillProps) {
       setAnswered((n) => n + 1);
       if (g.verdict === 'good') setSolid((n) => n + 1);
     } catch (err) {
+      // Grading failed (network / limiter). The card is already flung off-screen,
+      // so recover instead of soft-locking: drop it, rise the next, and tell the
+      // user this spot didn't count rather than failing silently.
       logger.error('Failed to grade answer:', err);
+      toast.error("Couldn't grade that hand — skipping it.");
+      deckRef.current?.advance();
     } finally {
       setGrading(false);
     }
