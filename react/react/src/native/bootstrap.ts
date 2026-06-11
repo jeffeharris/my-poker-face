@@ -46,7 +46,24 @@ async function installTokenStorage(): Promise<void> {
   });
 }
 
+/**
+ * Hide the keyboard input accessory bar (the prev/next/Done toolbar above the iOS
+ * keyboard). We don't use it, it adds clutter over a dark app, and it's the source
+ * of the benign `_UIButtonBarButton` "Unable to simultaneously satisfy constraints"
+ * console warning. Resize mode + dark style are set declaratively in
+ * capacitor.config.ts; only the accessory bar needs a runtime call.
+ */
+async function configureKeyboard(): Promise<void> {
+  const { Keyboard } = await import('@capacitor/keyboard');
+  try {
+    await Keyboard.setAccessoryBarVisible({ isVisible: false });
+  } catch {
+    // Non-fatal (older iOS / unavailable) — never block startup over chrome.
+  }
+}
+
 export async function initNative(): Promise<void> {
   await installTokenStorage();
   await initGoogleAuth();
+  await configureKeyboard();
 }

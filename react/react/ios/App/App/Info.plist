@@ -45,10 +45,15 @@
 	<array>
 		<string>armv7</string>
 	</array>
+	<!-- Show the system status bar (clock / battery / signal) for an app-feel,
+	     with light (white) glyphs over the dark app background. Static control:
+	     UIViewControllerBasedStatusBarAppearance is NO so UIStatusBarStyle below
+	     applies without per-view-controller code. The viewport-fit=cover +
+	     contentInset:never wiring already reserves this strip, so nothing overlaps. -->
 	<key>UIStatusBarHidden</key>
-	<true/>
+	<false/>
 	<key>UIStatusBarStyle</key>
-	<string>UIStatusBarStyleDarkContent</string>
+	<string>UIStatusBarStyleLightContent</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -61,6 +66,6 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
-	<true/>
+	<false/>
 </dict>
 </plist>

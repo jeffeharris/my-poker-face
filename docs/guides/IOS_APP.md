@@ -34,15 +34,33 @@ build / run / release reference.
 ## Pointing the app at a backend
 
 The API/socket origin is **baked at build time** from `VITE_API_URL` /
-`VITE_SOCKET_URL` (read in `src/config.ts`). Pass them on the build command:
+`VITE_SOCKET_URL` (read in `src/config.ts`). Vite resolves them by **build mode**,
+so the target is automatic — you don't pass env vars for the normal cases:
+
+- **Production builds** (`npm run build`, `npm run ios`, `make testflight`) load
+  `react/react/.env.production` → **https prod** (`https://mypokerfacegame.com`).
+  Because that file is committed, a release/native bundle can never accidentally
+  ship the cleartext dev URL, and **no ATS exception is needed**.
+- **Dev server** (`npm run dev`, development mode) loads `react/react/.env` → the
+  local Tailscale Mac backend (`http://macbook:5001`). `.env` is gitignored and
+  dev-only; it does **not** affect production builds.
+
+Vite precedence: shell env > `.env.production` (prod mode) / `.env` (dev mode). So
+to point a build at a *different* backend, override on the command line:
 
 ```bash
 cd react/react
-VITE_API_URL=https://mypokerfacegame.com VITE_SOCKET_URL=https://mypokerfacegame.com npm run build
+VITE_API_URL=https://staging.example.com VITE_SOCKET_URL=https://staging.example.com npm run build
 npx cap copy ios
 ```
 
-Command-line env wins over `react/react/.env` (which pins the local dev backend).
+To run the app against the **local Mac backend on a device**, build in
+*development* mode (loads `.env`) and re-add the ATS exception (see gotchas):
+
+```bash
+npx vite build --mode development && npx cap copy ios
+```
+
 **Verify** after building: `grep -rl mypokerfacegame.com dist/assets/*.js` should
 hit, and `grep -rl macbook:5001` should be empty.
 
@@ -58,7 +76,7 @@ Two backend-side requirements for a native client (both already in place):
 
 ```bash
 cd react/react
-VITE_API_URL=https://mypokerfacegame.com VITE_SOCKET_URL=https://mypokerfacegame.com npm run build
+npm run build   # production mode → .env.production → https prod (see "Pointing the app at a backend")
 npx cap copy ios
 cd ios/App
 # UDID: the *hardware* UDID, NOT the devicectl CoreDevice id —
@@ -118,11 +136,22 @@ no API key).
   settings" bumps it to 70, which the bundled CocoaPods `xcodeproj` can't read →
   `pod install` / `cap sync` fail with "object version 70". If it breaks again,
   reset `App.xcodeproj/project.pbxproj` to `objectVersion = 56`.
-- **ATS / `NSAllowsArbitraryLoads` is removed** — the release build uses https
-  prod, so default ATS (https/TLS-only) applies. `ITSAppUsesNonExemptEncryption
-  = false` is declared (standard TLS only) to skip the export-compliance prompt.
-  ⚠️ Local dev against a cleartext `http://` backend needs an ATS exception
-  re-added — but the app now points at https prod anyway.
+- **ATS / `NSAllowsArbitraryLoads` is removed** — production builds use https
+  prod (`.env.production`), so default ATS (https/TLS-only) applies and no
+  exception is needed. `ITSAppUsesNonExemptEncryption = false` is declared
+  (standard TLS only) to skip the export-compliance prompt.
+  ⚠️ A **dev-mode build pointed at the cleartext `http://macbook:5001` backend
+  will fail silently** — the native Google flow succeeds (https to Google) but the
+  follow-up `POST /api/auth/google/native` is blocked by ATS, surfacing as
+  `Native Google login failed: {}`. To dev against the Mac on device, add a
+  *scoped* exception to `Info.plist` (do **not** re-add blanket
+  `NSAllowsArbitraryLoads` — it trips App Review):
+  ```xml
+  <key>NSAppTransportSecurity</key>
+  <dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  ```
+  `NSAllowsLocalNetworking` permits cleartext only to local, dot-less hosts like
+  `macbook`; it's release-safe but only needed for the dev loop.
 - **Resume / reconnect:** recovery is driven by `@capacitor/app` `appStateChange`
   (WKWebView `visibilitychange` is unreliable); the socket reconnects with a
   fresh token; the hand-sequencer resets on resume so a frozen timer can't replay

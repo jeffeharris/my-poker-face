@@ -22,6 +22,7 @@
     "@capacitor/core": "^6.2.1",
     "@capacitor/haptics": "^6.0.3",
     "@capacitor/ios": "^6.2.1",
+    "@capacitor/keyboard": "^6.0.4",
     "@capacitor/preferences": "^6.0.4",
     "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
     "@fontsource-variable/bodoni-moda": "^5.2.7",
