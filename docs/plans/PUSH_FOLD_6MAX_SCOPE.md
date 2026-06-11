@@ -41,17 +41,57 @@ review findings layered on after the initial revival; if you touch the routing,
 keep the fail-closed posture.
 
 **Open / deferred (a new context picks up here):**
-1. **Validation gate (biggest item).** The ranges are `v1_from_published_nash`
-   approximations and have **not** been validated in a real short-stack sim. The
-   prerequisite sim knob is *not* yet built — `simulate_bb100` is 100 BB-only.
-   Porting `--start-bb` short-stack support (it was on the original branch, ~26
-   commits diverged from current `simulate_bb100.py`; rebuild rather than
-   cherry-pick) is the unblock. Then run a short-stack A/B vs a human-like
-   opponent (not just rule bots) — see **Risks / decisions**.
+1. **Validation harness — BUILT (2026-06-11).** `--start-bb N` is now in
+   `simulate_bb100.py` (overrides `--stack` with `N*big_blind`), and the 6max
+   runner re-threads `decision_analysis_repo`/`game_id` so the hero's
+   `push_fold_routed` snapshot persists. Full short-stack A/B vs a human-like
+   opponent (the bb/100 question) is still TODO; the **routing-coverage** read
+   below is done and is the more actionable finding.
 2. **v2 ranges** (see **v1 scope boundaries**): real multi-jammer call ranges,
    the reshove table (jam over a min-raise — researched at `[L]` confidence
    below), and cold-caller modeling. Each is currently a documented fall-through.
+   **Reshove is no longer "optional v2" — validation says it's the dominant
+   short-stack spot (see below). Promote it to the next build.**
 3. **Ante variant** — ranges are no-ante; the live SNG's ante status is unconfirmed.
+
+### Validation results (2026-06-11)
+
+Ran `simulate_bb100 --six-max-vs-rules --start-bb 10` with decision persistence
+(3 tiered archetypes × 200 hands @ 10 BB; 604 push/fold-**eligible** preflop
+decisions, i.e. ≤15 BB, 3–6 handed). Instrumented `_try_push_fold_6max`'s return
+and the fall-through reason.
+
+| Spot | Share of eligible | v1 routes it? |
+|---|---|---|
+| **Facing a single non-all-in open** (reshove-or-fold) | **66%** (396) | ❌ → deep-stack/short_stack (reshove = v2) |
+| Unopened first-in (jam/fold) | 17% (96 fold, **6 jam**) | ✅ |
+| BB unopened / facing a raise | 16% (96) | ❌ |
+| Facing a clean single all-in (caller table) | ~2% (10) | ✅ (but shadowed — see below) |
+
+**Headline:** the v1 table only **decides ~17%** of short-stack preflop spots.
+The dominant spot (66%) is **facing a single open-raise** — and of those, **99%
+are a single open** (not a 3-bet war) sized **2–3 BB** into the 10 BB stack. So
+short-stack play here is overwhelmingly **reshove-or-fold facing a min-open**,
+which v1 explicitly defers. This is a sim of rule bots that *size-raise* rather
+than open-jam, but that matches real short-stack play (good players open small at
+10 BB, not shove). ⇒ The reshove table is the highest-value next piece, not an
+optional v2.
+
+**Caller tables are shadowed.** The `bb_vs_sb`/`bb_vs_late` ranges return
+`'call'`/`'fold'` at the push/fold route, but `_facing_all_in_preflop_veto`
+(the #271 pot-odds override) runs immediately after on the *same* facing-a-jam
+spots and returns first — so the published Nash caller chart almost never
+actually decides; the equity-based veto wins. Functionally fine (pot-odds ≈ the
+Nash caller range), but the JSON caller tables are effectively dead weight given
+the veto. Decide in v2 whether to keep them.
+
+**Vocab hardening shipped alongside.** The caller path returned the abstract
+`'call'`; on a call-off (engine offers only `all_in`) raw `'call'` would fall
+back to **fold** (folding a hand the chart said to call). Now routed through
+`abstract_call_token` (emits `'jam'` for a call-off), mirroring the veto's
+call/jam split. The veto shadows this in normal flow, but the push/fold path is
+now independently correct for the veto-bails edge. (`AbstractAction.JAM` →
+engine `all_in`; there is no abstract `all_in` — see `action_vocab.py`.)
 
 ## TL;DR
 
