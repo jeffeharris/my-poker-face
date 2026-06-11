@@ -1,4 +1,4 @@
-.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last clean prod
+.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last clean prod testflight
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -83,3 +83,36 @@ ps: ## Show running containers
 install-local: ## Install dependencies locally (for IDE support)
 	pip install -r requirements.txt
 	cd react/react && npm install
+
+# --- iOS TestFlight release (needs a paid Apple Developer account) -----------
+# One shot: build the prod-pointed web bundle, archive a Release build, export an
+# App Store .ipa (via react/react/ios/App/ExportOptions.plist), and upload to
+# App Store Connect. The API key must be staged at
+# ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8 (Apple's standard spot).
+#   make testflight ASC_KEY_ID=JCN4277U7Z ASC_ISSUER_ID=cca6acd8-...
+# BUILD_NUMBER defaults to a timestamp so each upload gets a unique, increasing
+# CFBundleVersion (App Store Connect rejects duplicate build numbers).
+IOS_APP_DIR  := react/react/ios/App
+PROD_URL     ?= https://mypokerfacegame.com
+BUILD_NUMBER ?= $(shell date +%Y%m%d%H%M)
+
+testflight: ## Build, archive & upload an App Store .ipa to TestFlight (needs ASC_KEY_ID, ASC_ISSUER_ID)
+	@test -n "$(ASC_KEY_ID)"    || { echo "ERROR: ASC_KEY_ID required (App Store Connect API key id)"; exit 1; }
+	@test -n "$(ASC_ISSUER_ID)" || { echo "ERROR: ASC_ISSUER_ID required (App Store Connect issuer id)"; exit 1; }
+	cd react/react && VITE_API_URL=$(PROD_URL) VITE_SOCKET_URL=$(PROD_URL) npm run build
+	cd react/react && npx cap copy ios
+	rm -rf $(IOS_APP_DIR)/build/App.xcarchive $(IOS_APP_DIR)/build/export
+	xcodebuild -workspace $(IOS_APP_DIR)/App.xcworkspace -scheme App -configuration Release \
+		-destination 'generic/platform=iOS' \
+		-archivePath $(IOS_APP_DIR)/build/App.xcarchive \
+		CURRENT_PROJECT_VERSION=$(BUILD_NUMBER) \
+		archive -allowProvisioningUpdates
+	xcodebuild -exportArchive \
+		-archivePath $(IOS_APP_DIR)/build/App.xcarchive \
+		-exportPath $(IOS_APP_DIR)/build/export \
+		-exportOptionsPlist $(IOS_APP_DIR)/ExportOptions.plist \
+		-allowProvisioningUpdates
+	xcrun altool --upload-app --type ios \
+		--file $(IOS_APP_DIR)/build/export/App.ipa \
+		--apiKey $(ASC_KEY_ID) --apiIssuer $(ASC_ISSUER_ID)
+	@echo "Uploaded. Build is processing in App Store Connect -> TestFlight (~5-15 min)."

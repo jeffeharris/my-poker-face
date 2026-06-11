@@ -2,10 +2,13 @@
 purpose: Take the existing React app to a native iOS/Android build (Capacitor) with native Google sign-in against the bearer-token auth backend
 type: guide
 created: 2026-06-08
-last_updated: 2026-06-08
+last_updated: 2026-06-11
 ---
 
 # Native (iOS / Android) Setup
+
+> **One-time scaffolding only.** For the ongoing build / run-on-device / point-at-a-backend /
+> TestFlight-release workflow and native gotchas, see [`IOS_APP.md`](./IOS_APP.md).
 
 The app is wired for a native build end-to-end **in code** — backend auth,
 frontend transport, Capacitor config, secure token storage, and the native

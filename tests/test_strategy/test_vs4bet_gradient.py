@@ -13,10 +13,10 @@ import os
 
 import pytest
 
-from poker.strategy.data.build_vs4bet_defense import (
-    build_vs4bet_distributions,
-    hand_distribution,
-)
+# NOTE: validates the COMMITTED chart JSON (incl. depth/archetype derivatives).
+# The per-node generator's own output is unit-tested in test_build_vs4bet.py; the
+# old global-generator internals (build_vs4bet_distributions / hand_distribution)
+# were removed in the §4 refactor.
 
 _DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -38,14 +38,16 @@ def _vs4bet_first_node(path):
 
 
 @pytest.mark.parametrize('path', _CHARTS, ids=lambda p: os.path.basename(p))
-def test_vs4bet_is_a_real_gradient(path):
-    """The stub had exactly 3 distinct distributions across 169 hands."""
-    hands = _vs4bet_first_node(path)
-    assert hands, f"{path} has no vs_4bet"
-    distinct = {tuple(sorted(d.items())) for d in hands.values()}
-    assert len(distinct) >= 5, (
-        f"{os.path.basename(path)} vs_4bet looks degenerate "
-        f"({len(distinct)} distinct distributions — the stub had 3)"
+def test_vs4bet_varies_by_position(path):
+    """Not the stub: the per-node generator differentiates by position, so the 15
+    vs_4bet nodes are NOT one range pasted everywhere. (Within-node shape is now
+    bimodal jam/call/fold tiers, so distinctness lives across nodes.)"""
+    nodes = json.load(open(path)).get('vs_4bet', {})
+    assert nodes, f"{path} has no vs_4bet"
+    node_sigs = {json.dumps(n, sort_keys=True) for n in nodes.values()}
+    assert len(node_sigs) >= 4, (
+        f"{os.path.basename(path)} vs_4bet is ~position-invariant "
+        f"({len(node_sigs)} distinct nodes / {len(nodes)})"
     )
 
 
@@ -67,21 +69,3 @@ def test_premiums_get_it_in_facing_4bet(path):
     hands = _vs4bet_first_node(path)
     aa = hands.get('AA', {})
     assert aa.get('jam', 0) + aa.get('call', 0) >= 0.8, f"{os.path.basename(path)} AA={aa}"
-
-
-def test_generator_is_deterministic_and_grades_by_strength():
-    """The generator output is reproducible and orders by hand strength."""
-    a = build_vs4bet_distributions()
-    b = build_vs4bet_distributions()
-    assert a == b
-    # AA jams more than QQ, QQ continues more than the marginal pairs.
-    assert a['AA']['jam'] > a['QQ'].get('jam', 0)
-    assert a['72o'] == {'fold': 1.0}
-    # Ax-suited bluff-jams are present (polarized range, not pure value).
-    assert a['A5s'].get('jam', 0) > 0
-
-
-def test_hand_distribution_tiers_sum_to_one():
-    for eq in (0.9, 0.45, 0.36, 0.30):
-        d = hand_distribution('AA', eq)  # hand arg only matters for bluff set
-        assert abs(sum(d.values()) - 1.0) < 1e-9

@@ -20,7 +20,7 @@ import random
 import sys
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 # Add project root to path
@@ -792,6 +792,7 @@ def run_hand(
     hero_name: Optional[str] = None,
     hand_number: Optional[int] = None,
     equity_seed: Optional[int] = None,
+    decision_observer: Optional[Callable] = None,
 ) -> Dict[str, int]:
     """Drive one complete hand to completion.
 
@@ -806,6 +807,10 @@ def run_hand(
     the per-action Monte Carlo equity calculations are reproducible.
     Caller typically derives this from `hand_seed` for hand-level
     determinism.
+
+    ``decision_observer`` is an optional diagnostics hook called after the
+    controller chooses an action but before ``play_turn`` mutates state. It
+    must not alter gameplay state.
     """
     controller_map = {c.player_name: c for c in controllers}
 
@@ -852,6 +857,18 @@ def run_hand(
         if verbose:
             logger.info(
                 f"  {current_player.name}: {action}" f"{f' to {raise_to}' if raise_to else ''}"
+            )
+
+        if decision_observer is not None:
+            decision_observer(
+                current_player,
+                controller,
+                action,
+                raise_to,
+                phase_name,
+                gs,
+                sim_current_street,
+                decision,
             )
 
         # Polarization Phase A: capture board snapshot at action time
