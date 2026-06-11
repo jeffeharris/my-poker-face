@@ -12,6 +12,5 @@ import SwiftUI
 struct NetWorthWidgetBundle: WidgetBundle {
     var body: some Widget {
         NetWorthWidget()
-        NetWorthWidgetControl()
     }
 }
