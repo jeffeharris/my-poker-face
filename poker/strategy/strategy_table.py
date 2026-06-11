@@ -39,7 +39,18 @@ _JAM_ACTION = 'jam'
 
 def _is_action_legal(action: str, legal_actions: List[str]) -> bool:
     """Check whether an abstract strategy action is legal given engine actions."""
-    if action in ('fold', 'check', 'call'):
+    if action == 'call':
+        # Call-off: when the bet exceeds our stack the engine offers
+        # ['fold', 'all_in'] (no flat 'call'). Calling the shove caps at
+        # our stack = an all-in, so a chart 'call' is still a legal
+        # continue here — resolve_*_sizing translates it to all_in via
+        # abstract_call_token. Without this the mask deletes the chart's
+        # call intent and renormalizes toward fold, while a chart 'raise'
+        # survives in the same spot (it maps to all_in below) — the
+        # asymmetry that folded pot-committed call-offs. Mirrors the
+        # call-off handling in math_floor and _facing_all_in_preflop_veto.
+        return 'call' in legal_actions or 'all_in' in legal_actions
+    if action in ('fold', 'check'):
         return action in legal_actions
     if action in _RAISE_ACTIONS:
         return 'raise' in legal_actions or 'all_in' in legal_actions

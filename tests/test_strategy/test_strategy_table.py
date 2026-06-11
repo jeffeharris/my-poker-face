@@ -164,6 +164,29 @@ class TestLegalActionMasking:
         assert _is_action_legal('call', ['fold', 'call']) is True
         assert _is_action_legal('fold', ['check', 'raise']) is False
 
+    def test_call_is_legal_as_call_off(self):
+        # Facing a bet > stack: engine offers ['fold', 'all_in'] (no flat
+        # 'call'). A chart 'call' is still a legal continue here — it maps
+        # to all_in downstream. (Was the asymmetry that folded committed
+        # call-offs: chart 'raise' survived but chart 'call' did not.)
+        assert _is_action_legal('call', ['fold', 'all_in']) is True
+        # 'check' stays strict — no call-off semantics.
+        assert _is_action_legal('check', ['fold', 'all_in']) is False
+        # Truly closed action (no continue legal) → call is not legal.
+        assert _is_action_legal('call', ['fold']) is False
+
+    def test_call_off_keeps_call_mass_instead_of_folding(self):
+        # {call:0.6, fold:0.4} facing a call-off must NOT renormalize to
+        # fold:1.0 — call survives (resolves to all_in) so the committed
+        # continue intent is preserved.
+        profile = StrategyProfile(
+            action_probabilities={'call': 0.6, 'fold': 0.4}
+        )
+        masked = _mask_and_renormalize(profile, ['fold', 'all_in'])
+        assert masked is not None
+        assert abs(masked.action_probabilities['call'] - 0.6) < 1e-9
+        assert abs(masked.action_probabilities['fold'] - 0.4) < 1e-9
+
     def test_mask_removes_illegal_and_renormalizes(self, table):
         # BTN AKs: raise_2.5bb=0.8, raise_3bb=0.2 — both are raise actions
         node = PreflopNode(hand='AKs', position='BTN', scenario='rfi', opener_position='')
