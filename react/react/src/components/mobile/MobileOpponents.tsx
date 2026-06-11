@@ -9,6 +9,7 @@
  * nodes register here.
  */
 
+import { memo } from 'react';
 import type { CSSProperties, MutableRefObject, RefObject } from 'react';
 import { Bot } from 'lucide-react';
 import type { Player } from '../../types/player';
@@ -22,7 +23,14 @@ import { config } from '../../config';
 
 type NicknameSubject = { name: string; nickname?: string | null };
 
-export function MobileOpponents({
+/**
+ * Memoized: every prop from MobilePokerTable is reference-stable (arrays via
+ * useMemo, callbacks via useCallback, refs, primitives), so the opponents row
+ * skips re-render when unrelated parent state toggles (chat/cash/coach sheets,
+ * dossier, fadeKey). It still re-renders when player data actually changes.
+ * Keep props stable — never pass an inline arrow/object/array here.
+ */
+export const MobileOpponents = memo(function MobileOpponents({
   opponents,
   activeOpponents,
   foldedOpponents,
@@ -87,7 +95,11 @@ export function MobileOpponents({
           {foldedOpponents.map((player) => (
             <div key={player.name} className="ghost-avatar" title={displayNickname(player)}>
               {player.avatar_url ? (
-                <img src={`${config.API_URL}${player.avatar_url}`} alt={displayNickname(player)} />
+                <img
+                  src={`${config.API_URL}${player.avatar_url}`}
+                  alt={displayNickname(player)}
+                  decoding="async"
+                />
               ) : (
                 <span className="ghost-initial">{player.name.charAt(0).toUpperCase()}</span>
               )}
@@ -171,6 +183,7 @@ export function MobileOpponents({
                   <img
                     src={`${config.API_URL}${avatarUrl}`}
                     alt={`${opponent.name} - ${avatarEmotion}`}
+                    decoding="async"
                     className={`avatar-image ${isAiThinking ? 'avatar-image--thinking' : ''} ${
                       isShowdown ? 'avatar-image--showdown' : ''
                     }`}
@@ -256,4 +269,4 @@ export function MobileOpponents({
       </div>
     </div>
   );
-}
+});

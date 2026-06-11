@@ -412,6 +412,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
                               <img
                                 src={`${config.API_URL}${avatar.url}`}
                                 alt={`${showdownPlayerName} - ${avatar.emotion || 'neutral'}`}
+                                decoding="async"
                                 className="showdown-avatar-image"
                                 onError={(e) => {
                                   e.currentTarget.style.display = 'none';
@@ -467,6 +468,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
                     <img
                       src={`${config.API_URL}${winnerAvatar.url}`}
                       alt={`${winnerName} - ${winnerAvatar.emotion || 'neutral'}`}
+                      decoding="async"
                       className="no-showdown-avatar-image"
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';

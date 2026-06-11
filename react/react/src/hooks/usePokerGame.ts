@@ -752,6 +752,12 @@ export function usePokerGame({
         reconnectionDelayMax: 5000,
         timeout: 20000,
         withCredentials: true, // Send cookies for auth
+        // Own Manager per game socket. Without this, socket.io multiplexes on a
+        // URL-keyed Manager and `disconnect()` leaves the instance in its nsp
+        // cache, so the next createSocket (game switch / remount) hands back the
+        // same socket and setupSocketListeners re-registers every handler on it —
+        // duplicate listeners that fire N times and leak captured closures.
+        forceNew: true,
         ...(import.meta.env.PROD ? {} : { transports: ['polling'] }),
       });
 
@@ -803,6 +809,7 @@ export function usePokerGame({
   useEffect(() => {
     // Belt-and-suspenders: never leave a prior socket connected when (re)running.
     if (socketRef.current) {
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
     }
@@ -846,6 +853,10 @@ export function usePokerGame({
 
     return () => {
       if (socketRef.current) {
+        // removeAllListeners before disconnect so the ~25 handlers (and the
+        // refs/setState they close over) are released immediately, not left to
+        // GC the detached socket.
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }

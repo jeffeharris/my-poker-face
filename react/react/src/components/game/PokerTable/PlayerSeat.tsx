@@ -110,6 +110,7 @@ export const PlayerSeat = memo(function PlayerSeat({
             <img
               src={`${config.API_URL}${avatarUrl}`}
               alt={`${player.name} - ${avatarEmotion}`}
+              decoding="async"
               className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
             />
           ) : (
